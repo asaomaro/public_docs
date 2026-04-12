@@ -1,0 +1,5 @@
+{
+  "name": "dev_ubuntu",
+  "image": "dev_ubuntu:latest",
+  "postCreateCommand": "bash .devcontainer/tmux_setup.sh"
+}

@@ -1,0 +1,44 @@
+{
+  "permissions": {
+    "allow": [
+      "Edit",
+      "Write",
+      "WebSearch",
+      "Bash(npm run:*)",
+      "Bash(npx tsc:*)",
+      "Bash(grep -l \"hasMore\\\\|lastDoc\\\\|loadMore\\\\|isFetchingMore\" C:/git/team-task-manager/src/pages/*.tsx)",
+      "Bash(cd C:/git/team-task-manager && npx firebase-tools rules:check firestore.rules 2>&1 || true)",
+      "Bash(cd C:/git/team-task-manager && npx firebase-tools --version && npx firebase-tools firestore:rules 2>&1 | head -20 || true)",
+      "Bash(cd C:/git/team-task-manager && npx firebase-tools help 2>&1 | grep -i \"rules\\\\|deploy\")",
+      "Bash(npx eslint:*)",
+      "Bash(python3:*)",
+      "Bash(node:*)",
+      "Bash(sort -t'│' -k3 -rn)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(npm install:*)",
+      "Bash(find /c/git/team-task-manager/src -name *Messages.css -o -name *SettingsPage.css -o -name *MessageThreadPage.css)",
+      "Bash(firebase deploy:*)",
+      "Bash(npx firebase:*)",
+      "Bash(ls:*)",
+      "Bash(grep -n \"textarea\\\\|body-textarea\\\\|form-textarea\" /c/git/team-task-manager/src/pages/*.css)",
+      "Bash(npm list:*)",
+      "Bash(xargs wc:*)",
+      "Bash(wc -l /c/git/team-task-manager/src/pages/*.tsx)",
+      "Bash(find /c/git/team-task-manager -name *.test.* -o -name *.spec.*)",
+      "Bash(wc -l /c/git/team-task-manager/src/services/*.ts)",
+      "Bash(grep -r \"TODO\\\\|FIXME\\\\|XXX\\\\|HACK\" /c/git/team-task-manager/src --include=*.ts --include=*.tsx)",
+      "Bash(git commit:*)",
+      "Bash(grep -n \"notion-btn\" src/pages/*.tsx)",
+      "Bash(xargs grep:*)"
+    ],
+    "defaultMode": "default"
+  },
+  "model": "opusplan",
+  "statusLine": {
+    "type": "command",
+    "command": "node ~/.claude/statusline.js"
+  },
+  "enabledPlugins": {
+    "skill-creator@claude-plugins-official": true
+  }
+}
