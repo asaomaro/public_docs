@@ -117,6 +117,30 @@ function formatResetDate(unixSec) {
   return `${mo}/${dy} ${hh}:${mm}`;
 }
 
+function stripAnsi(s) {
+  return s.replace(/\x1b\[[0-9;]*m/g, '');
+}
+function visibleLen(s) { return stripAnsi(s).length; }
+
+const termWidth = (() => {
+  // tmux内ではペイン幅を直接取得（リサイズ後も正確）
+  if (process.env.TERM_PROGRAM === 'tmux' || process.env.TMUX) {
+    const tmuxCols = run('tmux display-message -p "#{pane_width}" 2>/dev/null');
+    if (tmuxCols) {
+      const cols = parseInt(tmuxCols);
+      if (cols > 0) return cols;
+    }
+  }
+  const stty = run('stty size </dev/tty 2>/dev/null');
+  if (stty) {
+    const cols = parseInt(stty.split(' ')[1]);
+    if (cols > 0) return cols;
+  }
+  if (process.stdout.columns > 0) return process.stdout.columns;
+  if (process.stderr.columns > 0) return process.stderr.columns;
+  return parseInt(process.env.COLUMNS) || 120;
+})();
+
 function dateStr(d = new Date()) {
   return d.toISOString().slice(0, 10);
 }
@@ -299,8 +323,31 @@ const vimMode = input.vim?.mode;
 if (vimMode) parts2.push(vimMode === 'INSERT' ? C.yellow('INSERT') : C.green('NORMAL'));
 
 // ── 出力 ───────────────────────────────────────────────────────────────────
-const lines = [];
-if (parts1.length) lines.push(parts1.join(sep));
-if (parts2.length) lines.push(parts2.join(sep));
+// パーツをターミナル幅で折り返し、複数行に分割して返す
+function joinFitLines(parts, maxWidth) {
+  const SEP_VIS = 3; // ' | ' の表示幅
+  const lines = [];
+  let current = [];
+  let used = 0;
+  for (const part of parts) {
+    const len = visibleLen(part);
+    const need = current.length === 0 ? len : SEP_VIS + len;
+    if (current.length > 0 && used + need > maxWidth) {
+      lines.push(current.join(sep));
+      current = [part];
+      used = len;
+    } else {
+      current.push(part);
+      used += need;
+    }
+  }
+  if (current.length > 0) lines.push(current.join(sep));
+  return lines;
+}
+
+const lines = [
+  ...joinFitLines(parts1, termWidth),
+  ...joinFitLines(parts2, termWidth),
+];
 
 process.stdout.write(lines.join('\n'));
