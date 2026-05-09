@@ -11,10 +11,8 @@ else
   url="https://github.com/neovim/neovim/releases/download/${NVIM_VERSION}/nvim-linux-x86_64.tar.gz"
   tmp=$(mktemp -d)
   curl -L "$url" -o "$tmp/nvim.tar.gz"
-  tar -xzf "$tmp/nvim.tar.gz" -C "$tmp"
-  mkdir -p "$INSTALL_DIR"
-  cp "$tmp/nvim-linux-x86_64/bin/nvim" "$INSTALL_DIR/nvim"
-  chmod +x "$INSTALL_DIR/nvim"
+  mkdir -p "$HOME/.local"
+  tar -xzf "$tmp/nvim.tar.gz" -C "$HOME/.local" --strip-components=1
   rm -rf "$tmp"
   if ! grep -q "$INSTALL_DIR" "$HOME/.bashrc" 2>/dev/null; then
     echo "export PATH=\"$INSTALL_DIR:\$PATH\"" >> "$HOME/.bashrc"
