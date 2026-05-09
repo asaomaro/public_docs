@@ -1,6 +1,6 @@
 #!/bin/bash
 
-NVIM_VERSION="v0.12.2"
+NVIM_VERSION=$(curl -s https://api.github.com/repos/neovim/neovim/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
 INSTALL_DIR="$HOME/.local/bin"
 CONFIG_DIR="$HOME/.config/nvim"
 
@@ -16,10 +16,10 @@ else
   cp "$tmp/nvim-linux-x86_64/bin/nvim" "$INSTALL_DIR/nvim"
   chmod +x "$INSTALL_DIR/nvim"
   rm -rf "$tmp"
-  if ! echo "$PATH" | grep -q "$INSTALL_DIR"; then
+  if ! grep -q "$INSTALL_DIR" "$HOME/.bashrc" 2>/dev/null; then
     echo "export PATH=\"$INSTALL_DIR:\$PATH\"" >> "$HOME/.bashrc"
-    export PATH="$INSTALL_DIR:$PATH"
   fi
+  export PATH="$INSTALL_DIR:$PATH"
   echo "✓ nvim $(nvim --version | head -1) installed"
 fi
 
