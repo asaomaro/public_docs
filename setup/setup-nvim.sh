@@ -98,6 +98,16 @@ require("lazy").setup({
     end,
   },
 
+  -- Markdown rendering
+  {
+    "MeanderingProgrammer/render-markdown.nvim",
+    dependencies = {
+      "nvim-treesitter/nvim-treesitter",
+      "nvim-tree/nvim-web-devicons",
+    },
+    opts = {},
+  },
+
   -- Git signs
   {
     "lewis6991/gitsigns.nvim",
@@ -122,5 +132,9 @@ echo "✓ nvim configured"
 echo "=== Installing plugins ==="
 nvim --headless "+Lazy! sync" +qa 2>&1
 echo "✓ plugins installed"
+
+echo "=== Installing Treesitter parsers ==="
+nvim --headless "+TSInstall markdown markdown_inline" +qa 2>&1
+echo "✓ Treesitter parsers installed"
 
 echo "=== Setup complete ==="
