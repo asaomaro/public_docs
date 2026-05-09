@@ -37,7 +37,7 @@ cat > ~/.local/bin/obsidian-jp << 'EOF'
 if [ -z "$(pgrep -u $USER fcitx5)" ]; then
     fcitx5 -d --disable=wayland,waylandim
 fi
-exec env XMODIFIERS=@im=fcitx /opt/Obsidian/obsidian --disable-gpu "$@"
+exec env XMODIFIERS=@im=fcitx /opt/Obsidian/obsidian --disable-gpu --no-sandbox "$@"
 EOF
 chmod +x ~/.local/bin/obsidian-jp
 

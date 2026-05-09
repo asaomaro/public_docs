@@ -8,6 +8,7 @@ ZED_BIN="$HOME/.local/zed.app/bin/zed"
 
 echo "==> Creating zed-jp wrapper..."
 mkdir -p ~/.local/bin
+ln -sf "$ZED_BIN" ~/.local/bin/zed
 cat > ~/.local/bin/zed-jp << EOF
 #!/bin/bash
 if [ -z "\$(pgrep -u \$USER fcitx5)" ]; then
