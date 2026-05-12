@@ -1,0 +1,50 @@
+{
+  "skill_name": "create-devcontainer",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "このプロジェクト（React + Firebase + TypeScript）用の .devcontainer を作ってください。Firebase Emulatorも使っています。",
+      "expected_output": ".devcontainer/devcontainer.json と .devcontainer/setup.sh が生成される。Node.js 20ベースイメージ、firebase.json から正確なエミュレーターポートを読み取って forwardPorts に含める。setup.sh には npm install と functions/のインストール、.env.example からの .env コピーが含まれる。",
+      "files": [],
+      "expectations": [
+        "devcontainer.json が .devcontainer/ ディレクトリに作成される",
+        "setup.sh が .devcontainer/ ディレクトリに作成される",
+        "base image に node:20 が使われている",
+        "forwardPorts に 5173 (Vite) が含まれる",
+        "forwardPorts に firebase.json で定義されたポート(9199, 8180, 4100)が含まれる",
+        "setup.sh に npm install が含まれる",
+        "setup.sh に functions/ の npm install が含まれる",
+        "remoteEnv に VITE_FIREBASE_API_KEY など .env.example のキーが含まれる",
+        "VSCode extensions に dbaeumer.vscode-eslint が含まれる"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "devcontainerを作ってほしいんだけど、うちのPython/FastAPIプロジェクトで使いたい。ポート8000でAPIが動いて、Postgresも使ってる。",
+      "expected_output": ".devcontainer/devcontainer.json と .devcontainer/setup.sh が生成される。Python 3.11ベースイメージ、ポート8000のforwarding、setup.shにpip install -r requirements.txt。docker-compose対応のオファーが含まれる。",
+      "files": ["evals/files/fastapi-project/package.json", "evals/files/fastapi-project/requirements.txt", "evals/files/fastapi-project/pyproject.toml"],
+      "expectations": [
+        "devcontainer.json が作成される",
+        "setup.sh が作成される",
+        "base image に python が使われている",
+        "forwardPorts に 8000 が含まれる",
+        "setup.sh に pip install または poetry install が含まれる",
+        "VSCode extensions に ms-python.python が含まれる",
+        "docker-compose または PostgreSQL に関する提案・オファーが出力に含まれる"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Node.js + Express の REST API プロジェクトです。.nvmrc に 18 と書いてあります。devcontainer.json を作ってください。",
+      "expected_output": ".devcontainer/devcontainer.json と .devcontainer/setup.sh が生成される。Node.js 18ベースイメージ（.nvmrcから読み取り）、ポート3000、npm install。",
+      "files": ["evals/files/express-project/package.json", "evals/files/express-project/.nvmrc"],
+      "expectations": [
+        "devcontainer.json が作成される",
+        "setup.sh が作成される",
+        "base image に node:18 が使われている（.nvmrc を読み取って18を採用）",
+        "forwardPorts に 3000 が含まれる",
+        "setup.sh に npm install が含まれる"
+      ]
+    }
+  ]
+}

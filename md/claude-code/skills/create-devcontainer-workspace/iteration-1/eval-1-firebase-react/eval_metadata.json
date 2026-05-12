@@ -1,0 +1,37 @@
+{
+  "eval_id": 1,
+  "eval_name": "eval-1-firebase-react",
+  "prompt": "このプロジェクト（React + Firebase + TypeScript）用の .devcontainer を作ってください。Firebase Emulatorも使っています。",
+  "assertions": [
+    {
+      "text": "devcontainer.json が .devcontainer/devcontainer.json として outputs に存在する"
+    },
+    {
+      "text": "setup.sh が .devcontainer/setup.sh として outputs に存在する"
+    },
+    {
+      "text": "devcontainer.json の image フィールドに 'node:20' または 'node/20' が含まれる"
+    },
+    {
+      "text": "devcontainer.json の forwardPorts に 5173 が含まれる（Vite dev server）"
+    },
+    {
+      "text": "devcontainer.json の forwardPorts に 9199 が含まれる（firebase.json の auth emulator ポート）"
+    },
+    {
+      "text": "devcontainer.json の forwardPorts に 8180 が含まれる（firebase.json の firestore emulator ポート）"
+    },
+    {
+      "text": "devcontainer.json の forwardPorts に 4100 が含まれる（firebase.json の UI ポート）"
+    },
+    {
+      "text": "setup.sh に 'npm install' または 'npm ci' が含まれる"
+    },
+    {
+      "text": "setup.sh に functions ディレクトリの npm install が含まれる（functions/package.json を検出して）"
+    },
+    {
+      "text": "devcontainer.json の remoteEnv または postCreateCommand に .env 関連の処理が含まれる"
+    }
+  ]
+}

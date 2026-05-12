@@ -1,0 +1,20 @@
+{
+  "tool_calls": {
+    "Read": 6,
+    "Write": 3,
+    "Glob": 3,
+    "Bash": 2,
+    "PowerShell": 1
+  },
+  "total_tool_calls": 15,
+  "files_created": [
+    ".devcontainer/devcontainer.json",
+    ".devcontainer/setup.sh",
+    "metrics.json"
+  ],
+  "errors_encountered": [
+    "Read tool initially denied (WSL path format needed — resolved by using UNC path \\\\wsl.localhost\\...)",
+    "Bash tool denied (permission)",
+    "PowerShell tool denied (permission)"
+  ]
+}

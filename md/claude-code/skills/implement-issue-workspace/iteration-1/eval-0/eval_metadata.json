@@ -1,0 +1,12 @@
+{
+  "eval_id": 0,
+  "eval_name": "branch-auto-detect",
+  "prompt": "issueを実装して",
+  "assertions": [
+    {"text": "ブランチ名(feature/issue-5)からissue番号5を自動で取得していること"},
+    {"text": "gh issue view 5 でissueのタイトル・本文を取得していること"},
+    {"text": "issueに関連するファイルを調査していること"},
+    {"text": "対象ファイルと実装方針をユーザーに提示していること"},
+    {"text": "軽微/中程度を判定し、適切な確認アクションを取っていること"}
+  ]
+}

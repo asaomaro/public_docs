@@ -1,0 +1,172 @@
+# Wiki スキーマ（CLAUDE.md）
+
+このファイルは LLM Wiki の「憲法」です。Claude Code はこのファイルを読んでから wiki の操作（ingest / query / lint）を行います。
+
+> **LLM Wiki パターンについて**: このwikiは、ソースを都度検索・再合成するのではなく、LLM が継続的にメンテナンスする永続的な知識ベースです。ソースを追加するたびに知識が蓄積・更新されます。詳細は [LLM Wiki by Andrej Karpathy](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f#file-llm-wiki-md) を参照してください。
+
+---
+
+## このwikiの目的
+
+> **TODO**: このwikiが何を追跡するか、ここに記入してください。
+> 例: 「機械学習の最新論文を追跡し、主要な概念・手法・著者の相関を整理する」
+
+---
+
+## ディレクトリ構造
+
+```
+<wiki-root>/
+├── CLAUDE.md              ← このファイル（スキーマ）
+├── .gitignore
+├── raw/                   ← 【変更不可】生ソースファイルを置く場所
+│   └── README.md
+└── wiki/                  ← Claude が書き・管理するすべてのコンテンツ
+    ├── index.md           ← 全ページのカタログ（ingestのたびに更新）
+    ├── log.md             ← 操作の時系列ログ（追記のみ）
+    ├── sources/           ← ソースごとのサマリページ（1ソース = 1ページ）
+    ├── entities/          ← 人物・組織・製品・場所など固有名詞
+    ├── concepts/          ← アイデア・フレームワーク・用語
+    └── synthesis/         ← クロスカット分析、query の回答ファイルバック
+```
+
+**raw/ は不変**: Claude はこのディレクトリのファイルを**絶対に変更しない**。参照のみ。
+
+---
+
+## ページのフォーマット
+
+### フロントマター（全ページ共通）
+
+```yaml
+---
+title: <日本語のページ名>
+type: source | entity | concept | synthesis
+date: YYYY-MM-DD
+source_count: <整数>   # このエンティティ/概念に言及するソース数（sources/ は省略可）
+tags: [タグ1, タグ2]
+---
+```
+
+### 本文の書き方
+
+- **言語**: 日本語で書く。英語の専門用語は初出時に括弧付きで原語を併記する（例: 注意機構 (attention mechanism)）。
+- **見出し**: `##` と `###` を使う。H1 はタイトルとして frontmatter の `title` で代替。
+- **長さ**: エンティティ・概念ページは概念が要求する長さで。ソースサマリは 200–600 字程度。
+
+### 引用・リンクの書き方
+
+| 種別 | 書き方 |
+|---|---|
+| wiki 内ページへのリンク | `[[ページスラグ]]` (Obsidian wikilink 形式) |
+| raw ソースへの参照 | `[ソースタイトル](../raw/path/to/file.pdf)` |
+| 直接引用（原文）| `> 引用文 [^1]` + ページ末尾に `[^1]: raw/path/to/file.pdf, p.3` |
+
+**スラグの命名規則**: ファイル名はすべて小文字、単語区切りはハイフン（例: `attention-mechanism.md`, `yoshua-bengio.md`）。日本語ページは読みのローマ字表記か英訳で（例: `知識グラフ` → `knowledge-graph.md`）。
+
+---
+
+## index.md の管理ルール
+
+`wiki/index.md` は全ページのカタログです。**ingest のたびに必ず更新する。**
+
+構造:
+
+```markdown
+## Sources（N件）
+
+- [[source-slug]] — 一行サマリ (取込日: YYYY-MM-DD)
+
+## Entities（N件）
+
+- [[entity-slug]] — 一行サマリ
+
+## Concepts（N件）
+
+- [[concept-slug]] — 一行サマリ
+
+## Synthesis（N件）
+
+- [[synthesis-slug]] — 一行サマリ (作成日: YYYY-MM-DD)
+```
+
+各エントリは 1 行。`N件` はセクションのページ数を反映する。
+
+---
+
+## log.md のフォーマット
+
+`wiki/log.md` は**追記専用**です。既存エントリは絶対に変更しない。
+
+エントリのフォーマット:
+
+```markdown
+## [YYYY-MM-DD] ingest | <ソースのタイトル>
+
+- 作成: [[source-slug]]
+- 更新: [[entity-slug]], [[concept-slug]]
+- 新規: [[new-concept-slug]]
+
+## [YYYY-MM-DD] query | <質問文>
+
+- 参照: [[page1]], [[page2]]
+- ファイルバック: [[synthesis-slug]]（新規作成）またはなし
+
+## [YYYY-MM-DD] lint | <サマリ>
+
+- 検出: 矛盾 N件, 孤立ページ N件, リンク切れ N件
+- 修正: <修正した内容の箇条書き>
+```
+
+> **Tip**: `grep "^## \[" wiki/log.md | tail -5` で最新 5 件を確認できる。
+
+---
+
+## 矛盾・競合の処理
+
+新しいソースが既存ページの記述と矛盾する場合:
+
+1. **矛盾を隠蔽しない** — 古い記述を黙って書き換えない。
+2. 矛盾箇所に Obsidian admonition を追記する:
+
+```markdown
+> [!warning] 矛盾
+> [[newer-source]] は〜と主張しているが、[[older-source]] は〜と述べている。
+> 詳細は各ソースページを参照。
+```
+
+3. 両方のソースページに相互リンクを追加する。
+4. lint 実行時に矛盾リストに含める。
+
+---
+
+## 操作の流儀
+
+### ingest
+
+1. raw/ にソースを置く。
+2. 「ingestして」または `/wiki-ingest <path>` を呼ぶ。
+3. Claude がソースを読み、要点をあなたと議論し、wiki を更新する。
+4. wiki/index.md と wiki/log.md が自動更新される。
+
+### query
+
+1. wiki に聞きたいことを自然に話す、または `/wiki-query <質問>` を呼ぶ。
+2. Claude が index.md から候補ページを特定し、回答を合成する。
+3. 価値ある合成はあなたの確認を得て `wiki/synthesis/` にファイルバックされる。
+
+### lint
+
+1. 定期的に（10〜20 ソース追加ごとを目安に）`/wiki-lint` を呼ぶ。
+2. Claude が wiki を巡回し、矛盾・孤立ページ・欠落リンクを報告する。
+3. 修正案を選択して適用する。
+
+---
+
+## 不変ルール（Claude は必ず守る）
+
+1. `raw/` 内のファイルは**読む**のみ。書き換え・削除禁止。
+2. `wiki/log.md` は**追記のみ**。既存エントリの変更禁止。
+3. ingest / query / lint の後は**必ず** `wiki/log.md` にエントリを追加する。
+4. ingest の後は**必ず** `wiki/index.md` を更新する。
+5. wiki ページの本文は**日本語**で書く。

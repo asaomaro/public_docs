@@ -1,0 +1,194 @@
+{
+  "metadata": {
+    "skill_name": "create-devcontainer",
+    "skill_path": "C:\\Users\\makku\\.claude\\plugins\\cache\\claude-plugins-official\\skill-creator\\unknown\\skills\\create-devcontainer",
+    "executor_model": "claude-sonnet-4-6",
+    "timestamp": "2026-04-29T00:00:00Z",
+    "evals_run": [1, 2, 3],
+    "runs_per_configuration": 1
+  },
+  "runs": [
+    {
+      "eval_id": 1,
+      "eval_name": "eval-1-firebase-react",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 10,
+        "failed": 0,
+        "total": 10,
+        "time_seconds": 93.9,
+        "tokens": 32313,
+        "tool_calls": 19,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "devcontainer.json が .devcontainer/ に存在する", "passed": true, "evidence": "存在確認"},
+        {"text": "setup.sh が .devcontainer/ に存在する", "passed": true, "evidence": "存在確認"},
+        {"text": "node:20 イメージを使用", "passed": true, "evidence": "mcr.microsoft.com/devcontainers/node:20-bookworm"},
+        {"text": "port 5173 forward", "passed": true, "evidence": "forwardPorts に含まれる"},
+        {"text": "port 9199 forward (firebase.json から)", "passed": true, "evidence": "firebase.json のカスタムポートを正確に取得"},
+        {"text": "port 8180 forward (firebase.json から)", "passed": true, "evidence": "firebase.json のカスタムポートを正確に取得"},
+        {"text": "port 4100 forward (firebase.json から)", "passed": true, "evidence": "firebase.json のカスタムポートを正確に取得"},
+        {"text": "npm install in setup.sh", "passed": true, "evidence": "npm install あり"},
+        {"text": "functions/ npm install", "passed": true, "evidence": "(cd functions && npm install) あり"},
+        {"text": ".env 処理", "passed": true, "evidence": "remoteEnv に全6 VITE_FIREBASE_* + setup.sh で .env コピー"}
+      ],
+      "notes": ["firebase.json の全カスタムポートを正確に取得。mermaid package から bierner.markdown-mermaid extension を自動選択"]
+    },
+    {
+      "eval_id": 1,
+      "eval_name": "eval-1-firebase-react",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 10,
+        "failed": 0,
+        "total": 10,
+        "time_seconds": 119.3,
+        "tokens": 31232,
+        "tool_calls": 21,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "devcontainer.json が .devcontainer/ に存在する", "passed": true, "evidence": "存在確認"},
+        {"text": "setup.sh が .devcontainer/ に存在する", "passed": true, "evidence": "存在確認"},
+        {"text": "node:20 イメージを使用", "passed": true, "evidence": "typescript-node:1-20-bookworm（20を含む）"},
+        {"text": "port 5173 forward", "passed": true, "evidence": "forwardPorts に含まれる"},
+        {"text": "port 9199 forward (firebase.json から)", "passed": true, "evidence": "firebase.json を読んで取得"},
+        {"text": "port 8180 forward (firebase.json から)", "passed": true, "evidence": "firebase.json を読んで取得"},
+        {"text": "port 4100 forward (firebase.json から)", "passed": true, "evidence": "firebase.json を読んで取得"},
+        {"text": "npm install in setup.sh", "passed": true, "evidence": "npm install あり"},
+        {"text": "functions/ npm install", "passed": true, "evidence": "functions の install あり"},
+        {"text": ".env 処理", "passed": true, "evidence": "setup.sh で .env.example → .env コピー（ただし remoteEnv に VITE_FIREBASE_* なし）"}
+      ],
+      "notes": ["Firebase Emulators の Java 依存を検出して java feature を追加（スキルが見落とした重要な発見）。プロジェクトに直接 .devcontainer/ を書き込んでしまった（指示違反）。remoteEnv に VITE_FIREBASE_* が含まれない"]
+    },
+    {
+      "eval_id": 2,
+      "eval_name": "eval-2-fastapi-postgres",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 7,
+        "failed": 0,
+        "total": 7,
+        "time_seconds": 44.5,
+        "tokens": 26515,
+        "tool_calls": 8,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "devcontainer.json 存在", "passed": true, "evidence": "存在確認"},
+        {"text": "setup.sh 存在", "passed": true, "evidence": "存在確認"},
+        {"text": "python イメージ使用", "passed": true, "evidence": "python:3.11-bookworm（pyproject.toml から 3.11 取得）"},
+        {"text": "port 8000 forward", "passed": true, "evidence": "forwardPorts: [8000, 5432]"},
+        {"text": "pip/poetry install", "passed": true, "evidence": "poetry install（build-backend から Poetry を正確に検出）"},
+        {"text": "ms-python.python extension", "passed": true, "evidence": "extensions に含まれる"},
+        {"text": "docker-compose/PostgreSQL 提案", "passed": true, "evidence": "エージェント出力テキストに docker-compose オファーあり"}
+      ],
+      "notes": ["pyproject.toml の build-backend から Poetry を正確に検出。ruff extension も pyproject.toml dev-dependencies から自動選択"]
+    },
+    {
+      "eval_id": 2,
+      "eval_name": "eval-2-fastapi-postgres",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.857,
+        "passed": 6,
+        "failed": 1,
+        "total": 7,
+        "time_seconds": 53.4,
+        "tokens": 23430,
+        "tool_calls": 8,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "devcontainer.json 存在", "passed": true, "evidence": "存在確認"},
+        {"text": "setup.sh 存在", "passed": true, "evidence": "存在確認"},
+        {"text": "python イメージ使用", "passed": false, "evidence": "dockerComposeFile アプローチを使用。devcontainer.json に 'image' フィールドなし"},
+        {"text": "port 8000 forward", "passed": true, "evidence": "forwardPorts: [8000, 5432]"},
+        {"text": "pip/poetry install", "passed": true, "evidence": "pip install -r requirements.txt あり"},
+        {"text": "ms-python.python extension", "passed": true, "evidence": "extensions に含まれる"},
+        {"text": "docker-compose/PostgreSQL 提案", "passed": true, "evidence": "docker-compose.yml と Dockerfile を即座に生成"}
+      ],
+      "notes": ["PostgreSQL 言及を聞いてすぐ docker-compose + Dockerfile を生成（over-engineer）。スキルは simpler な image ベースを先に作り提案するアプローチで差別化"]
+    },
+    {
+      "eval_id": 3,
+      "eval_name": "eval-3-express-nvmrc",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 5,
+        "failed": 0,
+        "total": 5,
+        "time_seconds": 53.0,
+        "tokens": 26597,
+        "tool_calls": 9,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "devcontainer.json 存在", "passed": true, "evidence": "存在確認"},
+        {"text": "setup.sh 存在", "passed": true, "evidence": "存在確認"},
+        {"text": "node:18 イメージ（.nvmrc から）", "passed": true, "evidence": "mcr.microsoft.com/devcontainers/node:18-bookworm"},
+        {"text": "port 3000 forward", "passed": true, "evidence": "forwardPorts: [3000]"},
+        {"text": "npm install", "passed": true, "evidence": "npm install あり"}
+      ],
+      "notes": [".nvmrc の '18' を正確に採用。engines.node なし時のフォールバック動作が正しく機能"]
+    },
+    {
+      "eval_id": 3,
+      "eval_name": "eval-3-express-nvmrc",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 5,
+        "failed": 0,
+        "total": 5,
+        "time_seconds": 31.6,
+        "tokens": 22085,
+        "tool_calls": 7,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "devcontainer.json 存在", "passed": true, "evidence": "存在確認"},
+        {"text": "setup.sh 存在", "passed": true, "evidence": "存在確認"},
+        {"text": "node:18 イメージ（.nvmrc から）", "passed": true, "evidence": "javascript-node:18（'node:18' を部分文字列として含む）"},
+        {"text": "port 3000 forward", "passed": true, "evidence": "forwardPorts: [3000]"},
+        {"text": "npm install", "passed": true, "evidence": "npm install あり"}
+      ],
+      "notes": ["短時間・少トークンで完了。シンプルな Express プロジェクトではスキルの差がほぼ出なかった"]
+    }
+  ],
+  "run_summary": {
+    "with_skill": {
+      "pass_rate": {"mean": 1.0, "stddev": 0.0, "min": 1.0, "max": 1.0},
+      "time_seconds": {"mean": 63.8, "stddev": 22.0, "min": 44.5, "max": 93.9},
+      "tokens": {"mean": 28475, "stddev": 3000, "min": 26515, "max": 32313}
+    },
+    "without_skill": {
+      "pass_rate": {"mean": 0.952, "stddev": 0.066, "min": 0.857, "max": 1.0},
+      "time_seconds": {"mean": 68.1, "stddev": 39.6, "min": 31.6, "max": 119.3},
+      "tokens": {"mean": 25582, "stddev": 4441, "min": 22085, "max": 31232}
+    },
+    "delta": {
+      "pass_rate": "+0.048",
+      "time_seconds": "-4.3",
+      "tokens": "+2893"
+    }
+  },
+  "notes": [
+    "定量的差は小さい（pass_rate +4.8%）が、定性的差が重要: スキルありは firebase.json のカスタムポート全取得・正確な remoteEnv・適切な extension 選択で一貫した高品質を達成",
+    "スキルなし Eval 1 は Java feature を追加（Firebase Emulator が JVM を必要とすることを検出）— スキルが見落とした重要な点",
+    "Eval 2: スキルなしは PostgreSQL 言及で即座に docker-compose を生成（over-engineer）。スキルありはシンプルな image ベースで提案アプローチ",
+    "Eval 3: シンプルなプロジェクトではスキルの差が最小。スキルなしの方が高速・低トークン",
+    "スキルの改善点: Firebase Emulators の Java 依存を明記する必要あり"
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "expectations": [
+    {"text": "devcontainer.json が outputs に存在する", "passed": true, "evidence": "存在確認"},
+    {"text": "setup.sh が outputs に存在する", "passed": true, "evidence": "存在確認"},
+    {"text": "base image に node:18 が含まれる（.nvmrc から採用）", "passed": true, "evidence": "mcr.microsoft.com/devcontainers/node:18-bookworm"},
+    {"text": "forwardPorts に 3000 が含まれる", "passed": true, "evidence": "forwardPorts: [3000]"},
+    {"text": "setup.sh に npm install が含まれる", "passed": true, "evidence": "npm install あり"}
+  ],
+  "summary": {"passed": 5, "failed": 0, "total": 5, "pass_rate": 1.0}
+}

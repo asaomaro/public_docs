@@ -1,0 +1,73 @@
+{
+  "skill_name": "implement-issue",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "issueを実装して",
+      "expected_output": "ブランチ名(feature/issue-5)からissue番号を自動取得し、gh issue viewでissue内容を取得、コードベースを調査した上で実装方針を提示する",
+      "files": [],
+      "assertions": [
+        {
+          "name": "branch_auto_detect",
+          "description": "ブランチ名(feature/issue-5)からissue番号5を自動で取得していること"
+        },
+        {
+          "name": "issue_content_fetched",
+          "description": "gh issue view 5 でissueのタイトル・本文を取得していること"
+        },
+        {
+          "name": "codebase_explored",
+          "description": "issueに関連するファイルを調査していること"
+        },
+        {
+          "name": "plan_presented",
+          "description": "対象ファイルと実装方針をユーザーに提示していること"
+        },
+        {
+          "name": "complexity_check",
+          "description": "軽微/中程度を判定し、適切な確認アクションを取っていること"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "prompt": "issue #5 の対応をお願いします",
+      "expected_output": "明示されたissue番号5を使い、ブランチ名解析はスキップ。同様にissue内容取得→調査→方針提示の流れで進める",
+      "files": [],
+      "assertions": [
+        {
+          "name": "explicit_number_used",
+          "description": "ユーザー指定の番号5を使用し、ブランチ名解析に言及していないこと"
+        },
+        {
+          "name": "issue_content_fetched",
+          "description": "gh issue view 5 でissueの内容を取得していること"
+        },
+        {
+          "name": "plan_presented",
+          "description": "実装方針をユーザーに提示していること"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "このブランチのissueを進めてください",
+      "expected_output": "間接的な表現でもスキルがトリガーされ、ブランチ名からissue番号を取得して実装フローを進める",
+      "files": [],
+      "assertions": [
+        {
+          "name": "skill_triggered",
+          "description": "implement-issueスキルが呼び出されていること"
+        },
+        {
+          "name": "branch_auto_detect",
+          "description": "ブランチ名からissue番号を取得していること"
+        },
+        {
+          "name": "plan_presented",
+          "description": "実装方針を提示していること"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "eval_id": 2,
+  "eval_name": "eval-2-fastapi-postgres",
+  "prompt": "devcontainerを作ってほしいんだけど、うちのPython/FastAPIプロジェクトで使いたい。ポート8000でAPIが動いて、Postgresも使ってる。",
+  "assertions": [
+    {"text": "devcontainer.json が outputs に存在する"},
+    {"text": "setup.sh が outputs に存在する"},
+    {"text": "base image に python が含まれる"},
+    {"text": "forwardPorts に 8000 が含まれる"},
+    {"text": "setup.sh に pip install または poetry install が含まれる"},
+    {"text": "extensions に ms-python.python が含まれる"},
+    {"text": "docker-compose/PostgreSQL に関する提案が含まれる"}
+  ]
+}

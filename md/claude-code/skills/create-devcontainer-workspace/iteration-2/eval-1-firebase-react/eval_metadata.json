@@ -1,0 +1,18 @@
+{
+  "eval_id": 1,
+  "eval_name": "eval-1-firebase-react",
+  "prompt": "このプロジェクト（React + Firebase + TypeScript）用の .devcontainer を作ってください。Firebase Emulatorも使っています。",
+  "assertions": [
+    {"text": "devcontainer.json が outputs に存在する"},
+    {"text": "setup.sh が outputs に存在する"},
+    {"text": "base image に node:20 が含まれる"},
+    {"text": "forwardPorts に 5173 が含まれる"},
+    {"text": "forwardPorts に 9199 が含まれる（firebase.json のカスタムポート）"},
+    {"text": "forwardPorts に 8180 が含まれる（firebase.json のカスタムポート）"},
+    {"text": "forwardPorts に 4100 が含まれる（firebase.json のカスタムポート）"},
+    {"text": "setup.sh に npm install が含まれる"},
+    {"text": "setup.sh に functions/ の npm install が含まれる"},
+    {"text": "remoteEnv に VITE_FIREBASE_* が含まれるか .env 処理がある"},
+    {"text": "Firebase Emulators の JVM 依存を検出して java feature が追加されている（iteration 2 改善点）"}
+  ]
+}

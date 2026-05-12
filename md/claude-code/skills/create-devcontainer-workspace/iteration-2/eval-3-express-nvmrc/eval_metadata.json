@@ -1,0 +1,12 @@
+{
+  "eval_id": 3,
+  "eval_name": "eval-3-express-nvmrc",
+  "prompt": "Node.js + Express の REST API プロジェクトです。.nvmrc に 18 と書いてあります。devcontainer.json を作ってください。",
+  "assertions": [
+    {"text": "devcontainer.json が outputs に存在する"},
+    {"text": "setup.sh が outputs に存在する"},
+    {"text": "base image に node:18 が含まれる（.nvmrc から採用）"},
+    {"text": "forwardPorts に 3000 が含まれる"},
+    {"text": "setup.sh に npm install が含まれる"}
+  ]
+}

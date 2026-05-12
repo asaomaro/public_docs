@@ -1,0 +1,87 @@
+{
+  "name": "team-task-manager",
+  "image": "mcr.microsoft.com/devcontainers/node:20-bookworm",
+
+  "features": {
+    "ghcr.io/devcontainers/features/java:1": {
+      "version": "21",
+      "installMaven": false,
+      "installGradle": false
+    },
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+
+  "forwardPorts": [5173, 4173, 9199, 8180, 9299, 4100],
+
+  "portsAttributes": {
+    "5173": {
+      "label": "Vite Dev Server",
+      "onAutoForward": "notify"
+    },
+    "4173": {
+      "label": "Vite Preview",
+      "onAutoForward": "notify"
+    },
+    "9199": {
+      "label": "Firebase Auth Emulator",
+      "onAutoForward": "silent"
+    },
+    "8180": {
+      "label": "Firebase Firestore Emulator",
+      "onAutoForward": "silent"
+    },
+    "9299": {
+      "label": "Firebase Storage Emulator",
+      "onAutoForward": "silent"
+    },
+    "4100": {
+      "label": "Firebase Emulator UI",
+      "onAutoForward": "openBrowser"
+    }
+  },
+
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+
+  "remoteEnv": {
+    "VITE_FIREBASE_API_KEY": "${localEnv:VITE_FIREBASE_API_KEY}",
+    "VITE_FIREBASE_AUTH_DOMAIN": "${localEnv:VITE_FIREBASE_AUTH_DOMAIN}",
+    "VITE_FIREBASE_PROJECT_ID": "${localEnv:VITE_FIREBASE_PROJECT_ID}",
+    "VITE_FIREBASE_STORAGE_BUCKET": "${localEnv:VITE_FIREBASE_STORAGE_BUCKET}",
+    "VITE_FIREBASE_MESSAGING_SENDER_ID": "${localEnv:VITE_FIREBASE_MESSAGING_SENDER_ID}",
+    "VITE_FIREBASE_APP_ID": "${localEnv:VITE_FIREBASE_APP_ID}"
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "ms-vscode.vscode-typescript-next",
+        "dsznajder.es7-react-js-snippets",
+        "toba.vsfire",
+        "eamodio.gitlens",
+        "bierner.markdown-mermaid"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "editor.codeActionsOnSave": {
+          "source.fixAll.eslint": "explicit"
+        },
+        "typescript.preferences.importModuleSpecifier": "relative",
+        "eslint.validate": [
+          "javascript",
+          "javascriptreact",
+          "typescript",
+          "typescriptreact"
+        ],
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "files.watcherExclude": {
+          "**/node_modules/**": true,
+          "**/.git/**": true,
+          "**/functions/lib/**": true
+        }
+      }
+    }
+  }
+}

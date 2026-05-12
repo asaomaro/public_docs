@@ -1,0 +1,97 @@
+{
+  "name": "Team Task Manager",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-20-bookworm",
+
+  "features": {
+    "ghcr.io/devcontainers/features/java:1": {
+      "version": "21",
+      "installMaven": false,
+      "installGradle": false
+    }
+  },
+
+  "forwardPorts": [
+    5173,
+    4173,
+    9199,
+    8180,
+    9299,
+    4100
+  ],
+
+  "portsAttributes": {
+    "5173": {
+      "label": "Vite Dev Server",
+      "onAutoForward": "notify"
+    },
+    "4173": {
+      "label": "Vite Preview",
+      "onAutoForward": "notify"
+    },
+    "9199": {
+      "label": "Firebase Auth Emulator",
+      "onAutoForward": "silent"
+    },
+    "8180": {
+      "label": "Firebase Firestore Emulator",
+      "onAutoForward": "silent"
+    },
+    "9299": {
+      "label": "Firebase Storage Emulator",
+      "onAutoForward": "silent"
+    },
+    "4100": {
+      "label": "Firebase Emulator UI",
+      "onAutoForward": "notify"
+    }
+  },
+
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "bradlc.vscode-tailwindcss",
+        "ms-vscode.vscode-typescript-next",
+        "toba.vsfire",
+        "mtxr.sqltools",
+        "PKief.material-icon-theme",
+        "formulahendry.auto-rename-tag",
+        "christian-kohler.path-intellisense",
+        "usernamehw.errorlens"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "editor.codeActionsOnSave": {
+          "source.fixAll.eslint": "explicit"
+        },
+        "typescript.preferences.importModuleSpecifier": "relative",
+        "eslint.validate": [
+          "javascript",
+          "javascriptreact",
+          "typescript",
+          "typescriptreact"
+        ],
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "files.watcherExclude": {
+          "**/node_modules/**": true,
+          "**/.git/**": true,
+          "**/functions/lib/**": true
+        }
+      }
+    }
+  },
+
+  "remoteEnv": {
+    "FIREBASE_EMULATORS_HOST": "0.0.0.0"
+  },
+
+  "mounts": [
+    "source=${localWorkspaceFolder}/emulator-data,target=${containerWorkspaceFolder}/emulator-data,type=bind,consistency=cached"
+  ],
+
+  "workspaceFolder": "/workspaces/team-task-manager"
+}
