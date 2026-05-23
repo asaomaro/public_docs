@@ -162,17 +162,10 @@ require("lazy").setup({
     end,
   },
 
-  -- Syntax highlighting
+  -- Syntax highlighting (nvim-treesitter v2: no configs module, parsers via :TSInstall)
   {
     "nvim-treesitter/nvim-treesitter",
     build = ":TSUpdate",
-    config = function()
-      require("nvim-treesitter.configs").setup({
-        ensure_installed = { "lua", "vim", "python", "javascript", "typescript", "bash" },
-        highlight = { enable = true },
-        indent = { enable = true },
-      })
-    end,
   },
 
   -- Markdown rendering
@@ -211,7 +204,7 @@ echo "=== Installing plugins ==="
 echo "✓ plugins installed"
 
 echo "=== Installing Treesitter parsers ==="
-"$NVIM_BIN" --headless "+TSInstall markdown markdown_inline" +qa 2>&1
+"$NVIM_BIN" --headless "+TSInstall lua vim python javascript typescript bash markdown markdown_inline" +qa 2>&1
 echo "✓ Treesitter parsers installed"
 
 echo "=== Setup complete ==="
