@@ -163,12 +163,8 @@ require("lazy").setup({
   },
 
   -- Syntax highlighting
-  -- Pinned to the master branch: the config below uses the master-branch API
-  -- (highlight/indent modules). Remove the branch pin only together with a
-  -- rewrite to the new main-branch API.
   {
     "nvim-treesitter/nvim-treesitter",
-    branch = "master",
     build = ":TSUpdate",
     config = function()
       require("nvim-treesitter.configs").setup({
