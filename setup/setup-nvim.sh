@@ -9,8 +9,8 @@ CONFIG_DIR="$HOME/.config/nvim"
 
 # --- Determine release asset for this architecture ---
 case "$(uname -m)" in
-  x86_64)          NVIM_ARCH="x86_64" ;;
-  aarch64 | arm64) NVIM_ARCH="arm64" ;;
+  x86_64)          NVIM_ARCH="x86_64" ; RG_ARCH="x86_64-unknown-linux-musl" ;;
+  aarch64 | arm64) NVIM_ARCH="arm64"  ; RG_ARCH="aarch64-unknown-linux-musl" ;;
   *) echo "✗ Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
 esac
 ASSET="nvim-linux-${NVIM_ARCH}.tar.gz"
@@ -36,6 +36,25 @@ if [ -x "$NVIM_BIN" ] && [ -f "$RUNTIME_MARKER" ]; then
 elif [ -x "$NVIM_BIN" ]; then
   # binary present but runtime missing → previous install was incomplete
   echo "→ nvim binary found but runtime is missing; reinstalling"
+fi
+
+echo "=== Installing ripgrep ==="
+if command -v rg &>/dev/null; then
+  echo "✓ ripgrep already installed: $(rg --version | head -1)"
+else
+  RG_VERSION=$(curl -fsSL https://api.github.com/repos/BurntSushi/ripgrep/releases/latest \
+    | grep '"tag_name"' | cut -d'"' -f4 || true)
+  if [ -z "$RG_VERSION" ]; then
+    echo "✗ Could not resolve the latest ripgrep version." >&2; exit 1
+  fi
+  rg_url="https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/ripgrep-${RG_VERSION}-${RG_ARCH}.tar.gz"
+  tmp=$(mktemp -d)
+  trap 'rm -rf "$tmp"' EXIT
+  curl -fSL "$rg_url" -o "$tmp/rg.tar.gz"
+  tar -xzf "$tmp/rg.tar.gz" -C "$tmp"
+  cp "$tmp/ripgrep-${RG_VERSION}-${RG_ARCH}/rg" "$INSTALL_DIR/rg"
+  export PATH="$INSTALL_DIR:$PATH"
+  echo "✓ ripgrep $(rg --version | head -1) installed"
 fi
 
 echo "=== Installing nvim ==="
@@ -96,6 +115,18 @@ vim.g.mapleader = " "
 -- Plugins
 require("lazy").setup({
 
+  -- Colorscheme
+  {
+    "folke/tokyonight.nvim",
+    lazy = false,
+    priority = 1000,
+    opts = { style = "night" },
+    config = function(_, opts)
+      require("tokyonight").setup(opts)
+      vim.cmd("colorscheme tokyonight")
+    end,
+  },
+
   -- File explorer
   {
     "nvim-tree/nvim-tree.lua",
@@ -127,7 +158,7 @@ require("lazy").setup({
     "nvim-lualine/lualine.nvim",
     dependencies = { "nvim-tree/nvim-web-devicons" },
     config = function()
-      require("lualine").setup({ options = { theme = "auto" } })
+      require("lualine").setup({ options = { theme = "tokyonight" } })
     end,
   },
 
