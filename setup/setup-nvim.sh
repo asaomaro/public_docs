@@ -120,10 +120,51 @@ require("lazy").setup({
     "folke/tokyonight.nvim",
     lazy = false,
     priority = 1000,
-    opts = { style = "night" },
+    opts = {
+      style = "night",
+      transparent = true,
+      styles = {
+        sidebars = "transparent",
+        floats = "transparent",
+      },
+    },
     config = function(_, opts)
       require("tokyonight").setup(opts)
       vim.cmd("colorscheme tokyonight")
+
+      -- Force-clear backgrounds for built-ins and plugin windows so the
+      -- terminal background shows through everything (editor, file tree,
+      -- telescope prompt/results/preview, floats, sign column, etc.).
+      local function clear_backgrounds()
+        local groups = {
+          -- Core editor
+          "Normal", "NormalNC", "NormalFloat", "FloatBorder", "FloatTitle",
+          "SignColumn", "LineNr", "CursorLineNr", "EndOfBuffer", "VertSplit",
+          "WinSeparator", "StatusLine", "StatusLineNC", "TabLine", "TabLineFill",
+          "Folded", "FoldColumn", "MsgArea",
+          -- nvim-tree
+          "NvimTreeNormal", "NvimTreeNormalNC", "NvimTreeEndOfBuffer",
+          "NvimTreeVertSplit", "NvimTreeWinSeparator", "NvimTreeStatusLine",
+          "NvimTreeStatusLineNC",
+          -- telescope (find files / live grep / buffers)
+          "TelescopeNormal", "TelescopeBorder",
+          "TelescopePromptNormal", "TelescopePromptBorder", "TelescopePromptTitle",
+          "TelescopeResultsNormal", "TelescopeResultsBorder", "TelescopeResultsTitle",
+          "TelescopePreviewNormal", "TelescopePreviewBorder", "TelescopePreviewTitle",
+          "TelescopeTitle",
+          -- which-key / lazy / mason float windows that may appear
+          "WhichKeyFloat", "LazyNormal", "MasonNormal",
+        }
+        for _, g in ipairs(groups) do
+          vim.api.nvim_set_hl(0, g, { bg = "NONE", ctermbg = "NONE" })
+        end
+      end
+
+      clear_backgrounds()
+      vim.api.nvim_create_autocmd("ColorScheme", {
+        pattern = "*",
+        callback = clear_backgrounds,
+      })
     end,
   },
 
@@ -158,7 +199,14 @@ require("lazy").setup({
     "nvim-lualine/lualine.nvim",
     dependencies = { "nvim-tree/nvim-web-devicons" },
     config = function()
-      require("lualine").setup({ options = { theme = "tokyonight" } })
+      -- Make lualine sections inherit the (transparent) Normal background.
+      local custom = require("lualine.themes.tokyonight")
+      for _, mode in pairs(custom) do
+        for _, section in pairs(mode) do
+          section.bg = "NONE"
+        end
+      end
+      require("lualine").setup({ options = { theme = custom } })
     end,
   },
 
