@@ -1,0 +1,891 @@
+#!/bin/sh
+# aidev ランタイムガード CLI（POSIX sh のみ・Node 非依存）
+#
+# 役割: aidev ハーネスの state.yml / metrics.yml 更新を「単一の検証済み経路」に集約し、
+#       工程の前提・不変条件を決定的に検査する（散文規約=ソフト / この CLI=ハードの二層）。
+# 正典: .claude/skills/aidev-00-start/protocol.md（§6 state / §8 metrics / §4.1 命名 / §2.7 依存）。
+# Windows 版は同ディレクトリの aidev.ps1（挙動を一致させること）。
+#
+# 使い方:
+#   aidev new <slug> [--mode interactive|autonomous] [--ticket ID] [--depends a,b,#N] [--parent <親work>]
+#     --parent 指定時は親 work 配下に subtask（<NN>-<subslug>・date prefix なし・current=plan）を作る
+#   aidev event <phase> <start|approved|sent_back> [key=value ...]
+#   aidev approve <phase> [key=value ...]      # approved 追記 + current 更新 + approved イベント
+#   aidev guard <phase>                        # 前提成果物 + dependsOn の充足を検査（exit!=0で未充足）
+#   aidev verify [slug]                        # 現在(or指定)workの不変条件を version-aware に検査
+#   aidev doctor                               # 全 work を横断検査（legacy は免除して報告）
+#   aidev status [--format table|tsv]          # works横断＋backlog未着手の状況サマリ（読み取り専用）
+#   aidev metrics [slug] [--all] [--phases] [--format table|tsv]  # metrics.yml から派生指標を集計（読み取り専用）
+#   aidev worktree add <slug> [--branch n] [--base ref] [--path dir] [--mode m] [--ticket id] [--depends list]
+#                                              # work 専用の git worktree+ブランチを作る（ユーザー責任の並行 on-ramp）
+#   aidev worktree list [--format table|tsv]   # aidev 管理 worktree を一覧（読み取り専用）
+#   aidev worktree rm <slug|path> [--force] [--delete-branch]     # worktree を安全に撤去（未コミットは既定で拒否）
+#   aidev help
+#
+# 終了コード: 0=OK / 1=使用法・環境エラー / 2=前提成果物の不足 / 3=依存(dependsOn)未充足 / 4=不変条件違反
+
+set -eu
+
+CURRENT_SCHEMA=3   # 現行スキーマ版。new がこの値を刻む。schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema<=2 は legacy として subtask 不変条件を免除。
+PHASES="requirement research spec design plan coding test review walkthrough deliver retro"
+
+die()  { printf 'aidev: %s\n' "$*" >&2; exit 1; }
+warn() { printf 'aidev: %s\n' "$*" >&2; }
+now()  { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+# --- ルート/作業ディレクトリ解決 -------------------------------------------------
+find_root() {
+  d=$(pwd)
+  while [ "$d" != "/" ]; do
+    [ -d "$d/.aidev" ] && { printf '%s\n' "$d"; return 0; }
+    d=$(dirname "$d")
+  done
+  [ -d "/.aidev" ] && { printf '%s\n' "/"; return 0; }
+  return 1
+}
+
+ROOT=$(find_root) || die ".aidev が見つかりません（リポジトリ内で実行してください）"
+AIDEV="$ROOT/.aidev"
+
+resolve_work() { # [slug]
+  # slug は top-level work（dated 名）か subtask のネストパス（<dated>/<NN>-<subslug>）。
+  # works/<slug> へ素直に連結するためネストもそのまま解決できる（subtask 層の単一経路）。
+  slug=${1:-}
+  if [ -z "$slug" ]; then
+    slug=${AIDEV_WORK:-}
+  fi
+  if [ -z "$slug" ]; then
+    [ -f "$AIDEV/current" ] || die "対象作業が不明です（.aidev/current 無し）。aidev new か slug 指定を。"
+    slug=$(head -n1 "$AIDEV/current" | tr -d '\r\n')
+  fi
+  WORK="$AIDEV/works/$slug"
+  [ -d "$WORK" ] || die "work が存在しません: $slug"
+  SLUG=$slug
+}
+
+# state.yml の key 行を差し替え、無ければ末尾に追記（subtasks/activeSubtask の冪等更新用）。
+set_or_append() { # file key newline
+  if grep -q "^$2:" "$1"; then replace_line "$1" "$2" "$3"; else printf '%s\n' "$3" >> "$1"; fi
+}
+
+is_phase() { for p in $PHASES; do [ "$p" = "$1" ] && return 0; done; return 1; }
+
+# --- 最小 YAML 読み取り（フロー形式前提） ------------------------------------------
+# scalar: 'key: value' -> value（前後空白と囲み二重引用符を除去）。
+# 注意: inline コメント(#)は除去しない。state.yml/metrics.yml は機械生成でコメントを含まず、
+#       逆に ticket/dependsOn は '#18' 等 '#' 始まりの値を持つため（'#' をコメント扱いすると消える）。
+yget() {
+  sed -n "s/^$2:[[:space:]]*//p" "$1" 2>/dev/null | head -n1 \
+    | sed 's/[[:space:]]*$//; s/^"//; s/"$//'
+}
+# flow list: "key: [a, b]" -> "a b"（カンマ/角括弧除去・クォート除去）
+ylist() {
+  v=$(yget "$1" "$2")
+  v=${v#[}; v=${v%]}
+  printf '%s' "$v" | tr ',' ' ' | tr -d '"'
+}
+approved_has() { ylist "$WORK/state.yml" approved | grep -qw "$1"; }
+
+# 1行を丸ごと差し替え（awk で sed エスケープ事故を回避）
+replace_line() { # file key newline
+  awk -v key="^$2:" -v repl="$3" '$0 ~ key {print repl; next} {print}' "$1" > "$1.tmp" && mv "$1.tmp" "$1"
+}
+
+# --- metrics.yml 追記 ---------------------------------------------------------
+ensure_events() {
+  f="$WORK/metrics.yml"
+  if [ ! -f "$f" ]; then printf 'events:\n' > "$f"; return; fi
+  # events: [] を block 形式に変換（block item を足すため）
+  if grep -q '^events:[[:space:]]*\[\][[:space:]]*$' "$f"; then
+    awk '/^events:[[:space:]]*\[\][[:space:]]*$/{print "events:"; next}{print}' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+  fi
+  grep -q '^events:' "$f" || printf 'events:\n' >> "$f"
+}
+
+build_entry() { # phase event [key=value ...]
+  ph=$1; ev=$2; shift 2
+  m=""
+  for kv in "$@"; do
+    k=${kv%%=*}; val=${kv#*=}
+    if [ -z "$m" ]; then m="$k: $val"; else m="$m, $k: $val"; fi
+  done
+  if [ -n "$m" ]; then
+    printf '{ ts: %s, phase: %s, event: %s, metrics: { %s } }' "$(now)" "$ph" "$ev" "$m"
+  else
+    printf '{ ts: %s, phase: %s, event: %s }' "$(now)" "$ph" "$ev"
+  fi
+}
+
+append_event() { # phase event [key=value ...]
+  ensure_events
+  entry=$(build_entry "$@")
+  printf '  - %s\n' "$entry" >> "$WORK/metrics.yml"
+}
+
+# --- コマンド: new ------------------------------------------------------------
+cmd_new() {
+  slug=""; mode=""; ticket=""; depends=""; parent=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --mode) mode=$2; shift 2 ;;
+      --ticket) ticket=$2; shift 2 ;;
+      --depends) depends=$2; shift 2 ;;
+      --parent) parent=$2; shift 2 ;;
+      -*) die "未知のオプション: $1" ;;
+      *) [ -z "$slug" ] && slug=$1 || die "slug は1つだけ"; shift ;;
+    esac
+  done
+  [ -n "$slug" ] || die "使用法: aidev new <slug> [--mode ..] [--ticket ..] [--depends ..] [--parent <親work>]"
+
+  deps_yaml="[]"
+  if [ -n "$depends" ]; then
+    list=""
+    old_ifs=$IFS; IFS=,
+    for d in $depends; do
+      d=$(printf '%s' "$d" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+      [ -z "$d" ] && continue
+      if [ -z "$list" ]; then list="$d"; else list="$list, $d"; fi
+    done
+    IFS=$old_ifs
+    deps_yaml="[$list]"
+  fi
+
+  if [ -n "$parent" ]; then
+    # --- subtask 生成: 親 work 配下に <slug>(=NN-subslug) で作る（date prefix なし）。current は plan 開始 ---
+    pdir="$AIDEV/works/$parent"
+    [ -d "$pdir" ] || die "親 work が存在しません: $parent"
+    [ -f "$pdir/state.yml" ] || die "親 state.yml がありません: $parent"
+    # C: 多段ネスト禁止（単層のみ）。親が既に subtask なら拒否（doctor 横断・依存解決・activeSubtask は1段前提）
+    [ -n "$(yget "$pdir/state.yml" parent)" ] && die "親が既に subtask です。多段ネストは不可（subtask は単層のみ）: $parent"
+    case "$slug" in */*) die "subtask slug にスラッシュは使えません: $slug" ;; esac
+    name="$parent/$slug"
+    WORK="$AIDEV/works/$name"
+    [ -d "$WORK" ] && die "subtask が既に存在します: $name"
+    # mode 未指定なら親から継承
+    [ -n "$mode" ] || mode=$(yget "$pdir/state.yml" mode)
+    [ -n "$mode" ] || mode=interactive
+    case "$mode" in interactive|autonomous) ;; *) die "mode は interactive|autonomous" ;; esac
+    mkdir -p "$WORK"
+
+    {
+      printf 'schema: %s\n' "$CURRENT_SCHEMA"
+      printf 'slug: %s\n' "$slug"
+      printf 'parent: %s\n' "$parent"
+      [ -n "$ticket" ] && printf 'ticket: %s\n' "$ticket"
+      printf 'current: plan\n'
+      printf 'approved: []\n'
+      printf 'mode: %s\n' "$mode"
+      printf 'humanGates: []\n'
+      printf 'maxSendBacks: 3\n'
+      printf 'dependsOn: %s\n' "$deps_yaml"
+    } > "$WORK/state.yml"
+    printf 'events:\n' > "$WORK/metrics.yml"
+
+    # 親 state.yml の subtasks に追記し、activeSubtask が未設定なら本 subtask を活性にする
+    pst="$pdir/state.yml"
+    cur=$(ylist "$pst" subtasks)
+    # 既存の subtasks を保持し、未登録なら slug を末尾に足す（冪等。ps1 の -notcontains と一致）
+    plist=""
+    for s in $cur; do [ -z "$plist" ] && plist="$s" || plist="$plist, $s"; done
+    case " $cur " in *" $slug "*) ;; *) [ -z "$plist" ] && plist="$slug" || plist="$plist, $slug" ;; esac
+    set_or_append "$pst" subtasks "subtasks: [$plist]"
+    act=$(yget "$pst" activeSubtask)
+    if [ -z "$act" ] || [ "$act" = "done" ]; then set_or_append "$pst" activeSubtask "activeSubtask: $slug"; fi
+
+    printf '%s\n' "$name" > "$AIDEV/current"
+    printf 'created subtask: %s (parent %s, schema %s, mode %s)\n' "$WORK" "$parent" "$CURRENT_SCHEMA" "$mode"
+    return 0
+  fi
+
+  # --- 通常(top-level) work ---
+  [ -n "$mode" ] || mode=interactive
+  case "$mode" in interactive|autonomous) ;; *) die "mode は interactive|autonomous" ;; esac
+
+  date_p=$(date -u +%Y%m%d)
+  base="$date_p-$slug"; name="$base"; n=2
+  while [ -d "$AIDEV/works/$name" ]; do name="$base-$n"; n=$((n+1)); done
+  WORK="$AIDEV/works/$name"
+  mkdir -p "$WORK"
+
+  {
+    printf 'schema: %s\n' "$CURRENT_SCHEMA"
+    printf 'slug: %s\n' "$slug"
+    [ -n "$ticket" ] && printf 'ticket: %s\n' "$ticket"
+    printf 'current: requirement\n'
+    printf 'approved: []\n'
+    printf 'mode: %s\n' "$mode"
+    printf 'humanGates: []\n'
+    printf 'maxSendBacks: 3\n'
+    printf 'dependsOn: %s\n' "$deps_yaml"
+  } > "$WORK/state.yml"
+
+  printf 'events:\n' > "$WORK/metrics.yml"
+  printf '%s\n' "$name" > "$AIDEV/current"
+  printf 'created: %s (schema %s, mode %s)\n' "$WORK" "$CURRENT_SCHEMA" "$mode"
+}
+
+# --- コマンド: event ----------------------------------------------------------
+cmd_event() {
+  [ $# -ge 2 ] || die "使用法: aidev event <phase> <start|approved|sent_back> [k=v ...]"
+  ph=$1; ev=$2; shift 2
+  is_phase "$ph" || die "未知の phase: $ph"
+  case "$ev" in start|approved|sent_back) ;; *) die "event は start|approved|sent_back" ;; esac
+  resolve_work
+  append_event "$ph" "$ev" "$@"
+  printf 'recorded: %s/%s/%s\n' "$SLUG" "$ph" "$ev"
+}
+
+# --- コマンド: approve --------------------------------------------------------
+cmd_approve() {
+  [ $# -ge 1 ] || die "使用法: aidev approve <phase> [k=v ...]"
+  ph=$1; shift
+  is_phase "$ph" || die "未知の phase: $ph"
+  resolve_work
+  st="$WORK/state.yml"
+  [ -f "$st" ] || die "state.yml がありません: $SLUG"
+
+  if approved_has "$ph"; then
+    : # 既に承認済み（冪等）
+  else
+    cur=$(ylist "$st" approved)
+    if [ -z "$cur" ]; then newl="[$ph]"; else
+      list=""
+      for p in $cur; do if [ -z "$list" ]; then list="$p"; else list="$list, $p"; fi; done
+      newl="[$list, $ph]"
+    fi
+    replace_line "$st" approved "approved: $newl"
+  fi
+  replace_line "$st" current "current: $ph"
+  append_event "$ph" approved "$@"
+  printf 'approved: %s @ %s\n' "$ph" "$SLUG"
+
+  # D: subtask の review 承認でカーソルを前進させる（散文の手動カーソル操作を排除）。
+  # 親 subtasks を順に見て review 未承認の最初の子を次の active にする。無ければ done（→親の統合 test へ）。
+  if [ "$ph" = review ]; then
+    par=$(yget "$st" parent)
+    if [ -n "$par" ] && [ -d "$AIDEV/works/$par" ]; then
+      pst="$AIDEV/works/$par/state.yml"
+      nextsub=""
+      for s in $(ylist "$pst" subtasks); do
+        sap=$(ylist "$AIDEV/works/$par/$s/state.yml" approved)
+        case " $sap " in *" review "*) ;; *) nextsub="$s"; break ;; esac
+      done
+      if [ -n "$nextsub" ]; then
+        set_or_append "$pst" activeSubtask "activeSubtask: $nextsub"
+        printf '%s\n' "$par/$nextsub" > "$AIDEV/current"
+        printf 'cursor: activeSubtask=%s（次の subtask へ自動前進）\n' "$nextsub"
+      else
+        set_or_append "$pst" activeSubtask "activeSubtask: done"
+        printf '%s\n' "$par" > "$AIDEV/current"
+        printf 'cursor: 全 subtask 完了 → activeSubtask=done。親 %s の統合 test へ\n' "$par"
+      fi
+    fi
+  fi
+}
+
+# --- コマンド: guard ----------------------------------------------------------
+# subtask は上流成果物(requirement/spec/design)のみ親から継承する。plan.md/tasks.md は subtask 固有なので継承しない。
+need_file() {
+  [ -f "$WORK/$1" ] && return 0
+  case "$1" in
+    requirement.md|spec.md|design.md) [ -n "${PARENT_DIR:-}" ] && [ -f "$PARENT_DIR/$1" ] && return 0 ;;
+  esac
+  GMISS="$GMISS $1"; return 1
+}
+need_approved(){ approved_has "$1" || { GUNAPP="$GUNAPP $1"; return 1; }; return 0; }
+
+# 依存(dependsOn)の充足を読み取り専用で評価（state は変更しない）。
+# 結果を EVAL_UNMET（works 由来の未充足・exit に影響）/ EVAL_ADVISORY（外部チケット #N の生トークン）に格納。
+eval_depends() { # work_dir
+  _wd=$1
+  EVAL_UNMET=""; EVAL_ADVISORY=""
+  deps=$(ylist "$_wd/state.yml" dependsOn)
+  # subtask は同一親配下の兄弟 subtask を bare 名（NN-subslug）で依存指定できる。
+  _par=$(yget "$_wd/state.yml" parent)
+  for d in $deps; do
+    [ -z "$d" ] && continue
+    case "$d" in
+      \#*) # 外部チケット(#N): 自動判定不可＝advisory（手動確認）
+        EVAL_ADVISORY="$EVAL_ADVISORY $d" ;;
+      *) # それ以外は works slug とみなす。top-level に無く親配下にあれば兄弟 subtask として解決
+        _dep="$AIDEV/works/$d"
+        if [ ! -d "$_dep" ] && [ -n "$_par" ] && [ -d "$AIDEV/works/$_par/$d" ]; then
+          _dep="$AIDEV/works/$_par/$d"
+        fi
+        if [ -d "$_dep" ]; then
+          da=$(ylist "$_dep/state.yml" approved)
+          # 完了判定: subtask(=parent あり)は review 承認、top-level work は deliver 承認
+          if [ -n "$(yget "$_dep/state.yml" parent)" ]; then
+            printf '%s' "$da" | grep -qw review || EVAL_UNMET="$EVAL_UNMET $d(未review)"
+          else
+            printf '%s' "$da" | grep -qw deliver || EVAL_UNMET="$EVAL_UNMET $d(未deliver)"
+          fi
+        else
+          EVAL_UNMET="$EVAL_UNMET $d(work不明)"
+        fi ;;
+    esac
+  done
+}
+
+check_depends() {
+  eval_depends "$WORK"
+  GDEP=$EVAL_UNMET
+  for a in $EVAL_ADVISORY; do
+    warn "依存(外部チケット $a): 自動判定不可＝advisory（手動確認）"
+  done
+}
+
+cmd_guard() {
+  [ $# -ge 1 ] || die "使用法: aidev guard <phase>"
+  ph=$1
+  is_phase "$ph" || die "未知の phase: $ph"
+  resolve_work
+  GMISS=""; GUNAPP=""
+  # subtask なら上流成果物の継承元として親 work dir を立てる（need_file の fallback）
+  PARENT_DIR=""
+  _par=$(yget "$WORK/state.yml" parent)
+  [ -n "$_par" ] && [ -d "$AIDEV/works/$_par" ] && PARENT_DIR="$AIDEV/works/$_par"
+  # B: 親専用工程は subtask で実行不可（subtask の工程は plan/coding/test/review のみ）
+  if [ -n "$_par" ]; then
+    case "$ph" in
+      requirement|research|spec|design|walkthrough|deliver|retro)
+        printf 'NG %s は親 work 専用です（subtask では実行不可。subtask の工程は plan/coding/test/review）: %s\n' "$ph" "$SLUG" >&2
+        return 2 ;;
+    esac
+  fi
+  case "$ph" in
+    requirement) : ;;
+    research|spec) need_file requirement.md || : ;;
+    design) need_file spec.md || : ;;
+    plan) need_file spec.md || : ;;  # tasks.md は plan の産物なので前提にしない
+    coding) need_file plan.md || : ; need_file tasks.md || : ;;
+    test) need_file tasks.md || : ;;
+    review) need_file spec.md || : ;;
+    walkthrough|deliver) need_approved review || : ;;
+    retro) need_approved deliver || : ;;
+  esac
+  check_depends
+
+  rc=0
+  if [ -n "$GMISS" ]; then printf 'NG 前提成果物が不足:%s\n' "$GMISS" >&2; rc=2; fi
+  if [ -n "$GUNAPP" ]; then printf 'NG 前提工程が未承認:%s\n' "$GUNAPP" >&2; rc=2; fi
+  if [ -n "$GDEP" ]; then printf 'NG 依存(dependsOn)が未充足:%s\n' "$GDEP" >&2; [ $rc -eq 0 ] && rc=3; fi
+  if [ $rc -eq 0 ]; then printf 'OK guard %s @ %s\n' "$ph" "$SLUG"; fi
+  return $rc
+}
+
+# --- コマンド: verify（version-aware） -----------------------------------------
+verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail
+  st="$WORK/state.yml"
+  VF=""
+  if [ ! -f "$st" ]; then printf '  FAIL state.yml なし\n'; return 4; fi
+  for k in slug current approved; do
+    grep -q "^$k:" "$st" || VF="$VF state.yml:$k欠落"
+  done
+
+  schema=$(yget "$st" schema)
+  if [ -z "$schema" ]; then
+    printf '  SKIP legacy (schema 未記載・metrics導入前の作業として免除)\n'
+  else
+    # schema >= 2 の不変条件
+    if [ "$schema" -ge 2 ] 2>/dev/null; then
+      [ -f "$WORK/metrics.yml" ] || VF="$VF metrics.yml欠落"
+      if approved_has review; then [ -f "$WORK/review.md" ] || VF="$VF review.md欠落(review承認済)"; fi
+      if approved_has deliver; then
+        grep -Eq 'phase:[[:space:]]*deliver.*event:[[:space:]]*approved|event:[[:space:]]*approved.*phase:[[:space:]]*deliver' "$WORK/metrics.yml" 2>/dev/null \
+          || VF="$VF deliver承認イベントがmetricsに無い"
+      fi
+    fi
+  fi
+
+  if [ -n "$VF" ]; then printf '  FAIL%s\n' "$VF"; return 4; fi
+  printf '  OK\n'; return 0
+}
+
+cmd_verify() {
+  resolve_work "${1:-}"
+  printf 'verify: %s\n' "$SLUG"
+  if verify_work; then return 0; else return 4; fi
+}
+
+# --- コマンド: doctor ---------------------------------------------------------
+cmd_doctor() {
+  [ -d "$AIDEV/works" ] || die "works がありません"
+  total=0; fail=0; legacy=0
+  printf 'doctor: 全 work 横断検査\n'
+  for d in "$AIDEV/works"/*/; do
+    [ -d "$d" ] || continue
+    WORK=${d%/}; SLUG=$(basename "$WORK")
+    total=$((total+1))
+    printf '%s\n' "- $SLUG"
+    sc=$(yget "$WORK/state.yml" schema 2>/dev/null || true)
+    [ -z "$sc" ] && legacy=$((legacy+1))
+    if ! verify_work; then fail=$((fail+1)); fi
+    # subtask（ネスト1段）も横断検査する
+    for sd in "$d"*/; do
+      [ -d "$sd" ] || continue
+      [ -f "${sd}state.yml" ] || continue
+      WORK=${sd%/}; SLUG="$(basename "$d")/$(basename "$WORK")"
+      total=$((total+1))
+      printf '%s\n' "  - $SLUG"
+      ssc=$(yget "$WORK/state.yml" schema 2>/dev/null || true)
+      [ -z "$ssc" ] && legacy=$((legacy+1))
+      if ! verify_work; then fail=$((fail+1)); fi
+    done
+  done
+  printf 'summary: works=%s fail=%s legacy(免除)=%s\n' "$total" "$fail" "$legacy"
+  [ "$fail" -eq 0 ]
+}
+
+# --- コマンド: status（読み取り専用・works横断＋backlog未着手） ---------------------
+STD_PIPELINE="requirement spec plan coding test review deliver"
+
+# タブ区切り行（先頭にヘッダ含む）を列幅で揃えて出力
+fmt_table() {
+  awk -F'\t' '
+    { for(i=1;i<=NF;i++){ cell[NR,i]=$i; if(length($i)>w[i])w[i]=length($i) }
+      if(NF>maxnf)maxnf=NF; nr=NR }
+    END{ for(r=1;r<=nr;r++){ line=""
+        for(i=1;i<=maxnf;i++){ c=cell[r,i]
+          if(i<maxnf){ pad=w[i]-length(c); s=c; while(pad-->0)s=s" "; line=line s"  " }
+          else line=line c }
+        print line } }'
+}
+
+# 親 work dir の subtask 進捗を "N M"（N=review承認済の子数 / M=総数）で返す。subtasks 無しは空。
+subtask_progress() { # work_dir
+  _subs=$(ylist "$1/state.yml" subtasks)
+  [ -z "$_subs" ] && return 0
+  _m=0; _n=0
+  for _s in $_subs; do
+    _m=$((_m+1))
+    case " $(ylist "$1/$_s/state.yml" approved) " in *" review "*) _n=$((_n+1)) ;; esac
+  done
+  printf '%s %s' "$_n" "$_m"
+  return 0
+}
+
+cmd_status() {
+  fmt=table; subflag=no
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --format) fmt=${2:-}; shift 2 ;;
+      --subtasks) subflag=yes; shift ;;
+      -*) die "未知のオプション: $1" ;;
+      *) die "status は位置引数を取りません: $1" ;;
+    esac
+  done
+  case "$fmt" in table|tsv) ;; *) die "--format は table|tsv" ;; esac
+
+  # ---- works 収集（rows は型タグ付き: W=work 行 / S=subtask 子行） ----
+  wn=0; wrows=""
+  if [ -d "$AIDEV/works" ]; then
+    for d in "$AIDEV/works"/*/; do
+      [ -d "$d" ] || continue
+      dir=${d%/}; name=$(basename "$dir"); st="$dir/state.yml"
+      [ -f "$st" ] || continue
+      ticket=$(yget "$st" ticket);   [ -z "$ticket" ]  && ticket=-
+      mode=$(yget "$st" mode);       [ -z "$mode" ]     && mode=-
+      current=$(yget "$st" current); [ -z "$current" ]  && current=-
+      appr=$(ylist "$st" approved)
+      case " $appr " in *" deliver "*) wdone=yes ;; *) wdone=no ;; esac
+      next=-
+      if [ "$wdone" = no ]; then
+        for p in $STD_PIPELINE; do
+          case " $appr " in *" $p "*) ;; *) next=$p; break ;; esac
+        done
+      fi
+      # subtask を持つ親は next を subtask 進捗に差し替える（未完=sub N/M、全完了=統合工程の次）
+      sp=$(subtask_progress "$dir")
+      if [ -n "$sp" ] && [ "$wdone" = no ]; then
+        spn=${sp% *}; spm=${sp#* }
+        if [ "$spn" -lt "$spm" ]; then
+          next="sub $spn/$spm"
+        else
+          next=-   # 全 subtask 完了 → coding は子が実施済。統合工程(test/review/deliver)の次を示す
+          for p in test review deliver; do
+            case " $appr " in *" $p "*) ;; *) next=$p; break ;; esac
+          done
+        fi
+      fi
+      eval_depends "$dir"
+      deps=""
+      for u in $EVAL_UNMET; do deps="$deps,$u"; done
+      for a in $EVAL_ADVISORY; do deps="$deps,$a(advisory)"; done
+      deps=${deps#,}; [ -z "$deps" ] && deps=ok
+      wn=$((wn+1))
+      wrows="${wrows}W	$name	$ticket	$mode	$current	$next	$wdone	$deps
+"
+      # --subtasks: 親直下に子を列挙（S 行。current=子の工程 / done=子の review 承認）
+      if [ "$subflag" = yes ] && [ -n "$sp" ]; then
+        for cs in $(ylist "$st" subtasks); do
+          cst="$dir/$cs/state.yml"
+          ccur=$(yget "$cst" current); [ -z "$ccur" ] && ccur=-
+          case " $(ylist "$cst" approved) " in *" review "*) cdone=yes ;; *) cdone=no ;; esac
+          wrows="${wrows}S	$name	$cs	$ccur	$cdone
+"
+        done
+      fi
+    done
+  fi
+
+  # ---- backlog 収集（archive/ はサブディレクトリのため *.md グロブで自動除外） ----
+  bf=0; bn=0; brows=""
+  if [ -d "$AIDEV/backlog" ]; then
+    for f in "$AIDEV/backlog"/*.md; do
+      [ -f "$f" ] || continue
+      fname=$(basename "$f")
+      todo=$(grep -c '^[[:space:]]*- \[ \]' "$f" 2>/dev/null || true); todo=${todo:-0}
+      needs=$(grep '^[[:space:]]*- \[ \]' "$f" 2>/dev/null | grep -c '(needs:' || true); needs=${needs:-0}
+      bf=$((bf+1)); bn=$((bn+todo))
+      brows="$brows$fname	$todo	$needs
+"
+    done
+  fi
+
+  if [ "$fmt" = tsv ]; then
+    printf '%s' "$wrows" | while IFS='	' read -r ty a b c e f g h; do
+      [ -z "$ty" ] && continue
+      if [ "$ty" = W ]; then
+        printf 'work\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$a" "$b" "$c" "$e" "$f" "$g" "$h"
+      else  # S: a=親 b=子 c=current e=done
+        printf 'subtask\t%s/%s\t%s\t%s\n' "$a" "$b" "$c" "$e"
+      fi
+    done
+    printf '%s' "$brows" | while IFS='	' read -r a b c; do
+      [ -z "$a" ] && continue
+      printf 'backlog\t%s\t%s\t%s\n' "$a" "$b" "$c"
+    done
+    return 0
+  fi
+
+  printf 'WORKS (%s)\n' "$wn"
+  if [ "$wn" -gt 0 ]; then
+    {
+      printf 'work\tticket\tmode\tcurrent\tnext\tdone\tdeps\n'
+      printf '%s' "$wrows" | while IFS='	' read -r ty a b c e f g h; do
+        [ -z "$ty" ] && continue
+        if [ "$ty" = W ]; then
+          printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$a" "$b" "$c" "$e" "$f" "$g" "$h"
+        else  # S: 子をインデント行で（a=親 b=子 c=current e=done）
+          printf '  ↳ %s\t-\t-\t%s\t-\t%s\t-\n' "$b" "$c" "$e"
+        fi
+      done
+    } | fmt_table
+  fi
+  printf '\n'
+  printf 'BACKLOG (未着手 %s 件)\n' "$bn"
+  if [ "$bf" -gt 0 ]; then
+    { printf 'file\ttodo\tneeds\n'; printf '%s' "$brows"; } | fmt_table
+  fi
+}
+
+# --- コマンド: metrics（読み取り専用・metrics.yml から派生指標を集計） ----------------
+metrics_awk='
+function dse(y,m,d,   yy,era,yoe,doy,doe){
+  yy=y-(m<=2); era=int((yy>=0?yy:yy-399)/400); yoe=yy-era*400
+  doy=int((153*(m+(m>2?-3:9))+2)/5)+d-1
+  doe=yoe*365+int(yoe/4)-int(yoe/100)+doy
+  return era*146097+doe-719468
+}
+function epoch(ts,   y,mo,d,h,mi,s){
+  sub(/Z$/,"",ts); sub(/UTC$/,"",ts)
+  if(length(ts)<19 || substr(ts,11,1)!="T") return -1
+  y=substr(ts,1,4)+0; mo=substr(ts,6,2)+0; d=substr(ts,9,2)+0
+  h=substr(ts,12,2)+0; mi=substr(ts,15,2)+0; s=substr(ts,18,2)+0
+  return dse(y,mo,d)*86400 + h*3600 + mi*60 + s
+}
+BEGIN{ first=-1; delivered_e=-1; delivered_flag=0; sback=0 }
+/event:/{
+  ts=""; ph=""; ev=""
+  if(match($0,/ts:[ ]*[^,}]+/)){ ts=substr($0,RSTART+3,RLENGTH-3); gsub(/[ ]/,"",ts) }
+  if(match($0,/phase:[ ]*[A-Za-z_]+/)){ ph=substr($0,RSTART+6,RLENGTH-6); gsub(/[ ]/,"",ph) }
+  if(match($0,/event:[ ]*[A-Za-z_]+/)){ ev=substr($0,RSTART+6,RLENGTH-6); gsub(/[ ]/,"",ev) }
+  if(ph=="" || ev=="") next
+  e=epoch(ts)
+  if(ev=="start"){
+    scount[ph]++
+    if(e>=0){ if(first<0||e<first){first=e; firstts=ts}
+              if(!(ph in laststart)||e>laststart[ph]){laststart[ph]=e; laststart_ts[ph]=ts} }
+  } else if(ev=="approved"){
+    if(e>=0){ appat[ph]=e; appat_ts[ph]=ts }
+    if(ph=="deliver"){ delivered_flag=1; if(e>=0) delivered_e=e }
+  } else if(ev=="sent_back"){ sback++ }
+}
+END{
+  if(phases=="yes"){
+    n=split(PH,arr," ")
+    for(i=1;i<=n;i++){ p=arr[i]
+      if((p in laststart)||(p in appat)){
+        st=(p in laststart_ts)?laststart_ts[p]:"-"
+        ap=(p in appat_ts)?appat_ts[p]:"-"
+        el="-"; if((p in laststart)&&(p in appat)) el=appat[p]-laststart[p]
+        printf "%s\t%s\t%s\t%s\t%s\n", name, p, st, ap, el
+      }
+    }
+  } else {
+    fs=(first>=0)?firstts:"-"
+    dv=(delivered_flag>0)?"yes":"no"
+    lead="-"; if(delivered_flag>0 && first>=0 && delivered_e>=0) lead=delivered_e-first
+    rw=0; for(p in scount) if(scount[p]>=2) rw++
+    printf "%s\t%s\t%s\t%s\t%s\t%s\n", name, fs, dv, lead, rw, sback+0
+  }
+}'
+
+cmd_metrics() {
+  fmt=table; allf=no; phasesf=no; mslug=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --all) allf=yes; shift ;;
+      --phases) phasesf=yes; shift ;;
+      --format) fmt=${2:-}; shift 2 ;;
+      -*) die "未知のオプション: $1" ;;
+      *) [ -z "$mslug" ] && mslug=$1 || die "slug は1つだけ"; shift ;;
+    esac
+  done
+  case "$fmt" in table|tsv) ;; *) die "--format は table|tsv" ;; esac
+
+  dirs=""
+  if [ "$allf" = yes ]; then
+    for d in "$AIDEV/works"/*/; do [ -d "$d" ] && dirs="$dirs ${d%/}"; done
+  elif [ -n "$mslug" ]; then
+    [ -d "$AIDEV/works/$mslug" ] || die "work が存在しません: $mslug"
+    dirs="$AIDEV/works/$mslug"
+  else
+    [ -f "$AIDEV/current" ] || die "対象作業が不明です（.aidev/current 無し）。slug 指定か --all を。"
+    cur=$(head -n1 "$AIDEV/current" | tr -d '\r\n')
+    [ -d "$AIDEV/works/$cur" ] || die "work が存在しません: $cur"
+    dirs="$AIDEV/works/$cur"
+  fi
+
+  rows=""
+  for wd in $dirs; do
+    name=$(basename "$wd"); mf="$wd/metrics.yml"
+    [ -f "$mf" ] || mf=/dev/null
+    out=$(awk -v name="$name" -v phases="$phasesf" -v PH="$PHASES" "$metrics_awk" "$mf")
+    [ -n "$out" ] && rows="$rows$out
+"
+  done
+
+  if [ "$phasesf" = yes ]; then hdr='work	phase	start	approved	elapsed_sec'
+  else hdr='work	first_start	delivered	lead_sec	reworks	sent_backs'; fi
+
+  if [ "$fmt" = tsv ]; then
+    printf '%s' "$rows" | sed '/^[[:space:]]*$/d'
+  else
+    { printf '%s\n' "$hdr"; printf '%s' "$rows" | sed '/^[[:space:]]*$/d'; } | fmt_table
+  fi
+}
+
+# --- コマンド: worktree（ユーザー責任の並行作業 on-ramp） ----------------------------
+# 前提（research.md で実証）: .aidev/current は gitignore 対象＝worktree ローカルで main と非干渉。
+# よって worktree 操作は main tree の current を絶対に書き換えない（INV-1）。git は実 exit code を直接判定する。
+git_present() { command -v git >/dev/null 2>&1 || die "git が見つかりません"; }
+
+# 既定 worktree パス: <親>/<repo名>-wt/<slug>（リポジトリ外の兄弟）
+default_wt_path() { printf '%s/%s-wt/%s' "$(dirname "$ROOT")" "$(basename "$ROOT")" "$1"; }
+
+# worktree 内で state.yml の slug が一致する work dir 名（dated）を列挙（改行区切り）
+works_matching_slug() { # path slug
+  _p=$1; _s=$2
+  [ -d "$_p/.aidev/works" ] || return 0
+  for _d in "$_p/.aidev/works"/*/; do
+    [ -d "$_d" ] || continue
+    [ -f "${_d}state.yml" ] || continue
+    [ "$(yget "${_d}state.yml" slug)" = "$_s" ] && basename "${_d%/}"
+  done
+  return 0  # 最終比較の偽値で関数が非0終了し、set -e で $(...) 代入が落ちるのを防ぐ
+}
+
+# git worktree list --porcelain を "path<TAB>branch" 行に整形
+wt_porcelain() {
+  git worktree list --porcelain | awk '
+    function flush(){ if(p!=""){ print p"\t"(b==""?"-":b); p="";b="" } }
+    /^worktree /{ flush(); p=substr($0,10) }
+    /^branch /{ b=$2; sub(/^refs\/heads\//,"",b) }
+    /^detached/{ b="detached" }
+    END{ flush() }'
+}
+
+wt_add() {
+  slug=""; branch=""; base="HEAD"; wpath=""; mode=interactive; ticket=""; depends=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --branch)  branch=$2; shift 2 ;;
+      --base)    base=$2; shift 2 ;;
+      --path)    wpath=$2; shift 2 ;;
+      --mode)    mode=$2; shift 2 ;;
+      --ticket)  ticket=$2; shift 2 ;;
+      --depends) depends=$2; shift 2 ;;
+      -*) die "未知のオプション: $1" ;;
+      *) [ -z "$slug" ] && slug=$1 || die "slug は1つだけ"; shift ;;
+    esac
+  done
+  [ -n "$slug" ] || die "使用法: aidev worktree add <slug> [--branch ..] [--base ..] [--path ..] [--mode ..] [--ticket ..] [--depends ..]"
+  git_present
+  [ -n "$branch" ] || branch="feature/$slug"
+  [ -n "$wpath" ] || wpath=$(default_wt_path "$slug")
+  [ -e "$wpath" ] && die "path が既に存在します: $wpath"
+
+  # ブランチ存在で分岐（既存→checkout / 新規→-b で base から作成）。branch は必ず明示（git の basename 自動命名に委ねない）。
+  if git show-ref --verify --quiet "refs/heads/$branch"; then
+    git worktree add "$wpath" "$branch" || die "git worktree add に失敗（branch=$branch）"
+  else
+    git worktree add -b "$branch" "$wpath" "$base" || die "git worktree add に失敗（branch=$branch base=$base）"
+  fi
+  wpath=$(cd "$wpath" && pwd)  # 以降は絶対パスで扱う
+
+  # worktree 内で work を確定（main tree の .aidev/current には触れない＝INV-1）
+  matches=$(works_matching_slug "$wpath" "$slug")
+  mcount=$(printf '%s' "$matches" | grep -c . || true)
+  if [ "$mcount" -gt 1 ]; then
+    die "worktree 内に slug=$slug の work が複数あります。曖昧なため中断（手動で current 設定を）"
+  elif [ "$mcount" -eq 1 ]; then
+    printf '%s\n' "$matches" > "$wpath/.aidev/current"
+    work_note="既存 work をリンク: $matches（current 設定のみ）"
+  else
+    # add 内で new: worktree をカレントにして既存 new ロジックに委譲（単一検証経路の維持・DRY）
+    set -- new "$slug" --mode "$mode"
+    [ -n "$ticket" ]  && set -- "$@" --ticket "$ticket"
+    [ -n "$depends" ] && set -- "$@" --depends "$depends"
+    ( cd "$wpath" && "$wpath/.claude/skills/aidev-docs/bin/aidev" "$@" ) || die "worktree 内の new に失敗"
+    work_note="新規 work を作成（add 内で new）"
+  fi
+
+  printf 'worktree 追加: %s\n' "$wpath"
+  printf '  branch: %s / base: %s\n' "$branch" "$base"
+  printf '  work:   %s\n' "$work_note"
+  printf '⚠ この work が package.json(contributes) / src/fileScope.ts / 言語登録に触るなら、\n'
+  printf '  他 worktree と languageId 波及・マージ衝突が起きうる（AGENTS.md「languageId 下流波及」）。並行可否はユーザー判断。\n'
+  printf '⚠ CL/RPG プロンプター定義など原典照合が要る work は主エージェント実施が必須（委譲して検証を落とさない）。\n'
+  printf '次: cd %s して各工程 skill を実行。\n' "$wpath"
+}
+
+wt_list() {
+  fmt=table
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --format) fmt=${2:-}; shift 2 ;;
+      -*) die "未知のオプション: $1" ;;
+      *) die "list は位置引数を取りません: $1" ;;
+    esac
+  done
+  case "$fmt" in table|tsv) ;; *) die "--format は table|tsv" ;; esac
+  git_present
+
+  rows=""; wtinfo=$(wt_porcelain)
+  oldifs=$IFS; IFS='
+'
+  for line in $wtinfo; do
+    path=${line%%	*}; branch=${line#*	}
+    # 判定キー: worktree ローカル .aidev/current の有無（branch 名ではない）
+    [ -f "$path/.aidev/current" ] || continue
+    work=$(head -n1 "$path/.aidev/current" | tr -d '\r\n'); [ -z "$work" ] && work=-
+    phase=-
+    if [ "$work" != - ] && [ -f "$path/.aidev/works/$work/state.yml" ]; then
+      phase=$(yget "$path/.aidev/works/$work/state.yml" current); [ -z "$phase" ] && phase=-
+    fi
+    rows="$rows$path	$branch	$work	$phase
+"
+  done
+  IFS=$oldifs
+
+  if [ "$fmt" = tsv ]; then
+    printf '%s' "$rows" | while IFS='	' read -r a b c d; do
+      [ -z "$a" ] && continue
+      printf 'worktree\t%s\t%s\t%s\t%s\n' "$a" "$b" "$c" "$d"
+    done
+    return 0
+  fi
+  n=$(printf '%s' "$rows" | grep -c . || true)
+  printf 'WORKTREES (%s)\n' "$n"
+  if [ "$n" -gt 0 ]; then
+    { printf 'path\tbranch\twork\tphase\n'; printf '%s' "$rows"; } | fmt_table
+  fi
+}
+
+wt_rm() {
+  target=""; force=no; delbranch=no
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --force) force=yes; shift ;;
+      --delete-branch) delbranch=yes; shift ;;
+      -*) die "未知のオプション: $1" ;;
+      *) [ -z "$target" ] && target=$1 || die "対象は1つだけ"; shift ;;
+    esac
+  done
+  [ -n "$target" ] || die "使用法: aidev worktree rm <slug|path> [--force] [--delete-branch]"
+  git_present
+
+  abst=""; [ -d "$target" ] && abst=$(cd "$target" && pwd)
+  wtinfo=$(wt_porcelain)
+  main_wt=$(printf '%s\n' "$wtinfo" | head -n1 | cut -f1)  # porcelain 先頭＝main worktree（rm 対象外）
+  rpath=""; rbranch=""; hit_main=no
+  oldifs=$IFS; IFS='
+'
+  for line in $wtinfo; do
+    p=${line%%	*}; b=${line#*	}
+    if [ -n "$abst" ]; then
+      [ "$p" = "$abst" ] && { rpath=$p; rbranch=$b; break; }
+    else
+      if [ "$(basename "$p")" = "$target" ] || [ "$b" = "feature/$target" ] || [ "$b" = "$target" ]; then
+        if [ "$p" = "$main_wt" ]; then hit_main=yes; continue; fi  # slug が main worktree に一致しても対象にしない
+        [ -n "$rpath" ] && { IFS=$oldifs; die "対象が複数該当します（path を明示してください）: $target"; }
+        rpath=$p; rbranch=$b
+      fi
+    fi
+  done
+  IFS=$oldifs
+  if [ -z "$rpath" ]; then
+    [ "$hit_main" = yes ] && die "'$target' は main worktree（$main_wt）に該当します。main worktree は rm できません（worktree のみ対象）。"
+    die "対象 worktree が見つかりません: $target"
+  fi
+
+  # 未コミット差分チェック（--force 無しなら拒否）
+  if [ "$force" = no ] && [ -n "$(git -C "$rpath" status --porcelain 2>/dev/null)" ]; then
+    die "未コミットの変更があります（--force で強制削除）: $rpath"
+  fi
+  if [ "$force" = yes ]; then
+    git worktree remove --force "$rpath" || die "git worktree remove に失敗: $rpath"
+  else
+    git worktree remove "$rpath" || die "git worktree remove に失敗: $rpath"
+  fi
+  printf 'worktree 撤去: %s\n' "$rpath"
+  rmdir "$(dirname "$rpath")" 2>/dev/null || true  # 既定の <repo>-wt/ コンテナが空なら掃除（非空なら何もしない）
+
+  if [ "$delbranch" = yes ] && [ "$rbranch" != - ] && [ "$rbranch" != detached ]; then
+    git branch -D "$rbranch" && printf '  branch 削除: %s\n' "$rbranch" || warn "branch 削除に失敗: $rbranch"
+  fi
+}
+
+cmd_worktree() {
+  [ $# -ge 1 ] || die "使用法: aidev worktree <add|list|rm> ..."
+  sub=$1; shift
+  case "$sub" in
+    add)  wt_add "$@" ;;
+    list) wt_list "$@" ;;
+    rm)   wt_rm "$@" ;;
+    *) die "未知の worktree サブコマンド: $sub（add|list|rm）" ;;
+  esac
+}
+
+usage() {
+  # 先頭(2行目以降)の連続するコメント行のみを出力（コメント末尾で停止。範囲ズレに強い）
+  awk 'NR==1{next} /^#/{sub(/^#[[:space:]]?/,"");print;next} {exit}' "$0"
+}
+
+[ $# -ge 1 ] || { usage; exit 1; }
+cmd=$1; shift
+case "$cmd" in
+  new)     cmd_new "$@" ;;
+  event)   cmd_event "$@" ;;
+  approve) cmd_approve "$@" ;;
+  guard)   cmd_guard "$@" ;;
+  verify)  cmd_verify "$@" ;;
+  doctor)  cmd_doctor "$@" ;;
+  status)  cmd_status "$@" ;;
+  metrics) cmd_metrics "$@" ;;
+  worktree) cmd_worktree "$@" ;;
+  help|-h|--help) usage ;;
+  *) die "未知のコマンド: $cmd（aidev help）" ;;
+esac

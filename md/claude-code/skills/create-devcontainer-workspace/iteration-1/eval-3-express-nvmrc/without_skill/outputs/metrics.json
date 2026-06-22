@@ -1,9 +1,0 @@
-{
-  "tool_calls": {
-    "Read": 2,
-    "Write": 3
-  },
-  "total_tool_calls": 5,
-  "files_created": 3,
-  "errors_encountered": 0
-}
