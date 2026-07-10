@@ -2,9 +2,12 @@
 """md-to-doc: Markdown を視覚的に分かりやすい単一HTMLドキュメントに変換する。
 
 - 5テーマ（CSS変数で切替）/ 出力モード single|print|site
+- 各テーマにライト/ダーク両パレット。ヘッダーの切替ボタンで ライト/ダーク/システム設定 を選択
+  （選択は localStorage に保存。既定はシステム設定に追従）
 - 見出しからメニュー・目次を自動生成、固定ヘッダー＋スクロール連動ハイライト
 - コールアウト( > [!NOTE] )、コードコピー、印刷/PDF対応
 - mermaid は生成時に「選んだテーマの配色」でSVG化して埋め込む（mmdc があれば）。
+  ライト用/ダーク用の2枚を描き、表示モードに応じてCSSで出し分ける。
   mmdc が無い場合はコードブロックにフォールバック。
 
 stdlib のみで動作。Markdown はメモ用途に十分なサブセットを自前パース。
@@ -12,16 +15,26 @@ stdlib のみで動作。Markdown はメモ用途に十分なサブセットを�
 import sys, os, re, html, json, argparse, subprocess, tempfile, shutil, datetime, base64
 
 # ──────────────────────────────────────────────────────────────────────────
-# テーマ定義: :root の CSS 変数 + mermaid の themeVariables
+# テーマ定義
+#   vars        : ライト時の CSS 変数（全キーを定義）
+#   vars_dark   : ダーク時の上書き（vars のサブセットでよい）
+#   accents     : カード等の循環配色。--a0..--aN として CSS 変数化される
+#   accents_dark: ダーク時の循環配色（省略時は accents を流用。要素数は揃える）
+#   mermaid /
+#   mermaid_dark: mmdc の themeVariables（ライト/ダークで2枚描く）
+#   default_mode: 初回表示（localStorage 未設定時）の既定 system|light|dark
 # ──────────────────────────────────────────────────────────────────────────
 THEMES = {
     "corporate": {
         "label": "モダンコーポレート",
+        "default_mode": "system",
         "accents": ["#1a56db", "#0ea5e9", "#6366f1", "#0d9488"],
+        "accents_dark": ["#5b9bff", "#38bdf8", "#8b8cf7", "#2dd4bf"],
         "vars": {
             "--bg": "#f7f9fc", "--card": "#ffffff", "--ink": "#1f2937",
             "--muted": "#6b7280", "--line": "#e5e7eb",
             "--accent": "#1a56db", "--accent-2": "#1e40af", "--accent-soft": "#eff4ff",
+            "--on-accent": "#ffffff",
             "--code-bg": "#0f172a", "--code-fg": "#e2e8f0",
             "--radius": "14px", "--shadow": "0 1px 3px rgba(16,24,40,.06)",
             "--font": '"Hiragino Kaku Gothic ProN","Yu Gothic",system-ui,sans-serif',
@@ -29,6 +42,16 @@ THEMES = {
             "--mono": '"SFMono-Regular",Menlo,Consolas,monospace',
             "--header-bg": "linear-gradient(135deg,#1a56db,#1e40af)",
             "--header-fg": "#ffffff",
+        },
+        "vars_dark": {
+            "--bg": "#0e1420", "--card": "#161d2b", "--ink": "#e6ecf5",
+            "--muted": "#9aa6b8", "--line": "#26303f",
+            "--accent": "#5b9bff", "--accent-2": "#8fbcff", "--accent-soft": "#16213a",
+            "--on-accent": "#0b1220",
+            "--code-bg": "#080d16", "--code-fg": "#e2e8f0",
+            "--shadow": "0 1px 3px rgba(0,0,0,.5)",
+            "--header-bg": "linear-gradient(135deg,#16305e,#0f1c38)",
+            "--header-fg": "#eaf1ff",
         },
         "mermaid": {
             "theme": "base",
@@ -39,24 +62,55 @@ THEMES = {
                 "fontFamily": "Hiragino Kaku Gothic ProN, Yu Gothic, sans-serif",
             },
         },
+        "mermaid_dark": {
+            "theme": "dark",
+            "themeVariables": {
+                "primaryColor": "#16213a", "primaryBorderColor": "#5b9bff",
+                "primaryTextColor": "#e6ecf5", "lineColor": "#9aa6b8",
+                "secondaryColor": "#26303f", "tertiaryColor": "#0e1420",
+                "background": "#0e1420",
+                "fontFamily": "Hiragino Kaku Gothic ProN, Yu Gothic, sans-serif",
+            },
+        },
     },
     "darktech": {
         "label": "ダークテック",
-        "accents": ["#22d3ee", "#a78bfa", "#34d399", "#f472b6"],
-        "dark": True,
+        "default_mode": "dark",
+        "accents": ["#0e7490", "#7c3aed", "#059669", "#db2777"],
+        "accents_dark": ["#22d3ee", "#a78bfa", "#34d399", "#f472b6"],
         "vars": {
-            "--bg": "#0b0f17", "--card": "#121826", "--ink": "#e5e9f0",
-            "--muted": "#8b97a8", "--line": "#1f2937",
-            "--accent": "#22d3ee", "--accent-2": "#a78bfa", "--accent-soft": "#0e1420",
+            "--bg": "#f5f8fb", "--card": "#ffffff", "--ink": "#101827",
+            "--muted": "#5a6676", "--line": "#e3e9f0",
+            "--accent": "#0e7490", "--accent-2": "#6d28d9", "--accent-soft": "#e6f7fb",
+            "--on-accent": "#ffffff",
             "--code-bg": "#0e1420", "--code-fg": "#e5e9f0",
-            "--radius": "12px", "--shadow": "0 1px 0 rgba(255,255,255,.02)",
+            "--radius": "12px", "--shadow": "0 1px 2px rgba(16,24,40,.06)",
             "--font": '"Hiragino Kaku Gothic ProN","Yu Gothic",system-ui,sans-serif',
             "--font-head": '"Hiragino Kaku Gothic ProN","Yu Gothic",system-ui,sans-serif',
             "--mono": '"SFMono-Regular",Menlo,Consolas,monospace',
+            "--header-bg": "#ffffff",
+            "--header-fg": "#101827",
+        },
+        "vars_dark": {
+            "--bg": "#0b0f17", "--card": "#121826", "--ink": "#e5e9f0",
+            "--muted": "#8b97a8", "--line": "#1f2937",
+            "--accent": "#22d3ee", "--accent-2": "#a78bfa", "--accent-soft": "#0e1420",
+            "--on-accent": "#06212a",
+            "--code-bg": "#0e1420", "--code-fg": "#e5e9f0",
+            "--shadow": "0 1px 0 rgba(255,255,255,.02)",
             "--header-bg": "#0b0f17",
             "--header-fg": "#e5e9f0",
         },
         "mermaid": {
+            "theme": "base",
+            "themeVariables": {
+                "primaryColor": "#e6f7fb", "primaryBorderColor": "#0e7490",
+                "primaryTextColor": "#101827", "lineColor": "#5a6676",
+                "secondaryColor": "#e3e9f0", "tertiaryColor": "#f5f8fb",
+                "fontFamily": "SFMono-Regular, Menlo, monospace",
+            },
+        },
+        "mermaid_dark": {
             "theme": "dark",
             "themeVariables": {
                 "primaryColor": "#121826", "primaryBorderColor": "#22d3ee",
@@ -69,11 +123,14 @@ THEMES = {
     },
     "infographic": {
         "label": "インフォグラフィック",
+        "default_mode": "system",
         "accents": ["#ff5d73", "#ffb13d", "#2ec4b6", "#5a7dff", "#a056ff"],
+        "accents_dark": ["#ff7b8c", "#ffc46b", "#4fd6c7", "#7f9bff", "#b985ff"],
         "vars": {
             "--bg": "#fff7f2", "--card": "#ffffff", "--ink": "#23243a",
             "--muted": "#6c6f8a", "--line": "#f0e6de",
             "--accent": "#ff5d73", "--accent-2": "#5a7dff", "--accent-soft": "#fff0e8",
+            "--on-accent": "#ffffff",
             "--code-bg": "#23243a", "--code-fg": "#f3f1ff",
             "--radius": "22px", "--shadow": "0 10px 28px rgba(40,30,60,.08)",
             "--font": '"Hiragino Maru Gothic ProN","Yu Gothic",system-ui,sans-serif',
@@ -81,6 +138,16 @@ THEMES = {
             "--mono": '"SFMono-Regular",Menlo,Consolas,monospace',
             "--header-bg": "linear-gradient(135deg,#ff5d73,#ffb13d)",
             "--header-fg": "#ffffff",
+        },
+        "vars_dark": {
+            "--bg": "#181425", "--card": "#221d33", "--ink": "#f2eef8",
+            "--muted": "#a79fbd", "--line": "#332b47",
+            "--accent": "#ff7b8c", "--accent-2": "#7f9bff", "--accent-soft": "#2a2138",
+            "--on-accent": "#2a121a",
+            "--code-bg": "#120f1c", "--code-fg": "#f3f1ff",
+            "--shadow": "0 10px 28px rgba(0,0,0,.45)",
+            "--header-bg": "linear-gradient(135deg,#c9394f,#c47a1f)",
+            "--header-fg": "#fff5ee",
         },
         "mermaid": {
             "theme": "base",
@@ -91,14 +158,27 @@ THEMES = {
                 "fontFamily": "Hiragino Maru Gothic ProN, sans-serif",
             },
         },
+        "mermaid_dark": {
+            "theme": "dark",
+            "themeVariables": {
+                "primaryColor": "#2a2138", "primaryBorderColor": "#ff7b8c",
+                "primaryTextColor": "#f2eef8", "lineColor": "#7f9bff",
+                "secondaryColor": "#332b47", "tertiaryColor": "#181425",
+                "background": "#181425",
+                "fontFamily": "Hiragino Maru Gothic ProN, sans-serif",
+            },
+        },
     },
     "editorial": {
         "label": "エディトリアル",
+        "default_mode": "system",
         "accents": ["#8b1e3f", "#a8814e", "#3f6b5e", "#5b4b8a"],
+        "accents_dark": ["#e3849f", "#d3b483", "#7fb3a1", "#a294d8"],
         "vars": {
             "--bg": "#fbfaf7", "--card": "#ffffff", "--ink": "#1a1a1a",
             "--muted": "#555555", "--line": "#dddddd",
             "--accent": "#8b1e3f", "--accent-2": "#8b1e3f", "--accent-soft": "#f6eef1",
+            "--on-accent": "#ffffff",
             "--code-bg": "#1a1a1a", "--code-fg": "#f5f5f5",
             "--radius": "4px", "--shadow": "none",
             "--font": '"Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif',
@@ -106,6 +186,16 @@ THEMES = {
             "--mono": '"SFMono-Regular",Menlo,Consolas,monospace',
             "--header-bg": "#fbfaf7",
             "--header-fg": "#1a1a1a",
+        },
+        "vars_dark": {
+            "--bg": "#14120f", "--card": "#1c1a17", "--ink": "#efece6",
+            "--muted": "#a9a49b", "--line": "#332f2a",
+            "--accent": "#e3849f", "--accent-2": "#e9a2b6", "--accent-soft": "#2a2124",
+            "--on-accent": "#241419",
+            "--code-bg": "#0e0d0b", "--code-fg": "#f5f5f5",
+            "--shadow": "none",
+            "--header-bg": "#14120f",
+            "--header-fg": "#efece6",
         },
         "mermaid": {
             "theme": "neutral",
@@ -116,14 +206,27 @@ THEMES = {
                 "fontFamily": "Hiragino Mincho ProN, serif",
             },
         },
+        "mermaid_dark": {
+            "theme": "dark",
+            "themeVariables": {
+                "primaryColor": "#2a2124", "primaryBorderColor": "#e3849f",
+                "primaryTextColor": "#efece6", "lineColor": "#a9a49b",
+                "secondaryColor": "#332f2a", "tertiaryColor": "#14120f",
+                "background": "#14120f",
+                "fontFamily": "Hiragino Mincho ProN, serif",
+            },
+        },
     },
     "pastel": {
         "label": "やわらかパステル",
+        "default_mode": "system",
         "accents": ["#ff9eb5", "#ffd6a5", "#b8e6d0", "#a7d8f0", "#d4c5f9"],
+        "accents_dark": ["#f2a9bd", "#e9c08a", "#8fd6bb", "#8fc7e8", "#bda9ef"],
         "vars": {
             "--bg": "#fef6fb", "--card": "#ffffff", "--ink": "#4a4458",
             "--muted": "#8a8499", "--line": "#f1e7f3",
             "--accent": "#ff9eb5", "--accent-2": "#a7d8f0", "--accent-soft": "#fff0f6",
+            "--on-accent": "#ffffff",
             "--code-bg": "#4a4458", "--code-fg": "#fdf2f8",
             "--radius": "26px", "--shadow": "0 12px 30px rgba(150,120,180,.10)",
             "--font": '"Hiragino Maru Gothic ProN","Yu Gothic Medium",system-ui,sans-serif',
@@ -131,6 +234,16 @@ THEMES = {
             "--mono": '"SFMono-Regular",Menlo,Consolas,monospace',
             "--header-bg": "linear-gradient(135deg,#ff9eb5,#d4c5f9)",
             "--header-fg": "#ffffff",
+        },
+        "vars_dark": {
+            "--bg": "#1c1826", "--card": "#262133", "--ink": "#f0e9f5",
+            "--muted": "#a99fb8", "--line": "#352e44",
+            "--accent": "#f2a9bd", "--accent-2": "#8fc7e8", "--accent-soft": "#2e2739",
+            "--on-accent": "#26131c",
+            "--code-bg": "#15111e", "--code-fg": "#fdf2f8",
+            "--shadow": "0 12px 30px rgba(0,0,0,.40)",
+            "--header-bg": "linear-gradient(135deg,#a9556c,#6a5a99)",
+            "--header-fg": "#fdf1f7",
         },
         "mermaid": {
             "theme": "base",
@@ -141,8 +254,59 @@ THEMES = {
                 "fontFamily": "Hiragino Maru Gothic ProN, sans-serif",
             },
         },
+        "mermaid_dark": {
+            "theme": "dark",
+            "themeVariables": {
+                "primaryColor": "#2e2739", "primaryBorderColor": "#f2a9bd",
+                "primaryTextColor": "#f0e9f5", "lineColor": "#8fc7e8",
+                "secondaryColor": "#352e44", "tertiaryColor": "#1c1826",
+                "background": "#1c1826",
+                "fontFamily": "Hiragino Maru Gothic ProN, sans-serif",
+            },
+        },
     },
 }
+
+COLOR_MODES = ["system", "light", "dark"]
+MODE_STORAGE_KEY = "md2doc-color-mode"
+
+
+def _vars_block(vars_map, accents, scheme, indent="  "):
+    out = ["%scolor-scheme:%s;" % (indent, scheme)]
+    out += ["%s%s:%s;" % (indent, k, v) for k, v in vars_map.items()]
+    out += ["%s--a%d:%s;" % (indent, i, c) for i, c in enumerate(accents)]
+    return "\n".join(out)
+
+
+def theme_css(theme_key):
+    """:root（ライト）＋ ダーク上書き（OS設定 / 明示指定）を生成。
+
+    セレクタ順が効く: prefers-color-scheme のダークは data-theme="light" を除外し、
+    末尾の [data-theme="light"] が全変数を再定義してライトへ確実に戻す。
+    """
+    t = THEMES[theme_key]
+    light, dark = t["vars"], t["vars_dark"]
+    la = t["accents"]
+    da = t.get("accents_dark") or la
+    lb = _vars_block(light, la, "light")
+    db = _vars_block(dark, da, "dark")
+    return "\n".join([
+        ":root{\n%s\n  --nav-h:60px; --maxw:1080px;\n}" % lb,
+        '@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){\n%s\n}}' % db,
+        ':root[data-theme="dark"]{\n%s\n}' % db,
+        ':root[data-theme="light"]{\n%s\n}' % lb,
+        # 印刷はモードを問わずライト配色（紙に暗背景を刷らない）
+        '@media print{:root,:root[data-theme="dark"],:root[data-theme="light"]{\n%s\n}}' % lb,
+    ])
+
+
+def accent_vars(theme_key):
+    """カード等の循環配色を CSS 変数参照で返す（hex 直書きだとモード切替で追従しないため）。"""
+    return ["var(--a%d)" % i for i in range(len(THEMES[theme_key]["accents"]))]
+
+
+def default_mode_of(theme_key, override=None):
+    return override or THEMES[theme_key].get("default_mode", "system")
 
 CALLOUT_LABELS = {
     "NOTE": ("ノート", "ℹ️"), "TIP": ("ヒント", "💡"),
@@ -356,8 +520,9 @@ def build_list(items):
     return parse(items[0]["indent"])
 
 
-# 描画中テーマの配色サイクル（convert_file でセット）
-_ACCENTS = ["#1a56db"]
+# 描画中テーマの配色サイクル（convert_file でセット）。
+# hex ではなく var(--aN) を入れる — ライト/ダークで別配色に切り替わるため。
+_ACCENTS = ["var(--a0)"]
 
 # 先頭の絵文字（カードアイコン用）
 _EMOJI = re.compile(r"^\s*([\U0001F000-\U0001FAFF☀-➿⬀-⯿←-⇿️⃣]+)\s+")
@@ -470,7 +635,28 @@ def split_frontmatter(text):
 # ──────────────────────────────────────────────────────────────────────────
 # mermaid → SVG
 # ──────────────────────────────────────────────────────────────────────────
+def _uniquify_svg_ids(svg, suffix):
+    """SVG 内の id と、それを指す参照(url(#x) / href="#x" / style内 #x)に接尾辞を付ける。
+    同一ページにライト用・ダーク用の2枚を同時に埋め込むと id が衝突し、
+    marker（矢印）や内部 <style> が誤ったほうを参照するため。"""
+    ids = sorted(set(re.findall(r'\bid="([^"]+)"', svg)), key=len, reverse=True)
+    for i in ids:
+        esc = re.escape(i)
+        new = i + suffix
+        svg = re.sub(r'\bid="%s"' % esc, lambda m, n=new: 'id="%s"' % n, svg)
+        # 参照側: 直後が識別子文字なら別 id なので置換しない
+        svg = re.sub(r"#%s(?![\w:.-])" % esc, lambda m, n=new: "#" + n, svg)
+    return svg
+
+
+def _read_svg(path):
+    with open(path) as f:
+        return re.sub(r"<\?xml[^>]*\?>", "", f.read()).strip()
+
+
 def render_mermaid(sources, theme):
+    """各図を「ライト用」「ダーク用」の2枚 SVG にして返す。
+    表示モードに応じて CSS(.mm-light/.mm-dark) が出し分ける。"""
     if not sources:
         return {}, True
     mmdc = shutil.which("mmdc")
@@ -479,25 +665,39 @@ def render_mermaid(sources, theme):
     result = {}
     tmp = tempfile.mkdtemp(prefix="md2doc_")
     try:
-        cfg = os.path.join(tmp, "cfg.json")
-        with open(cfg, "w") as f:
-            json.dump(theme["mermaid"], f)
         pup = os.path.join(tmp, "pup.json")
         with open(pup, "w") as f:
             json.dump({"args": ["--no-sandbox", "--disable-setuid-sandbox"]}, f)
+        cfgs = {}
+        for mode, key in (("light", "mermaid"), ("dark", "mermaid_dark")):
+            p = os.path.join(tmp, "cfg_%s.json" % mode)
+            with open(p, "w") as f:
+                json.dump(theme[key], f)
+            cfgs[mode] = p
+
         for idx, src in enumerate(sources):
             inp = os.path.join(tmp, "d%d.mmd" % idx)
-            outp = os.path.join(tmp, "d%d.svg" % idx)
             with open(inp, "w") as f:
                 f.write(src)
-            try:
-                subprocess.run([mmdc, "-i", inp, "-o", outp, "-c", cfg, "-p", pup, "-b", "transparent"],
-                               check=True, capture_output=True, timeout=90)
-                with open(outp) as f:
-                    svg = f.read()
-                svg = re.sub(r"<\?xml[^>]*\?>", "", svg).strip()
-                result[idx] = '<figure class="mermaid-fig">%s</figure>' % svg
-            except Exception:
+            svgs = {}
+            for mode in ("light", "dark"):
+                outp = os.path.join(tmp, "d%d_%s.svg" % (idx, mode))
+                try:
+                    subprocess.run([mmdc, "-i", inp, "-o", outp, "-c", cfgs[mode], "-p", pup,
+                                    "-b", "transparent"],
+                                   check=True, capture_output=True, timeout=90)
+                    svgs[mode] = _read_svg(outp)
+                except Exception:
+                    svgs[mode] = None
+            if svgs["light"] and svgs["dark"]:
+                result[idx] = ('<figure class="mermaid-fig">'
+                               '<div class="mm-light">%s</div>'
+                               '<div class="mm-dark">%s</div></figure>'
+                               % (svgs["light"], _uniquify_svg_ids(svgs["dark"], "-mmdark")))
+            elif svgs["light"] or svgs["dark"]:
+                # 片方だけ描けたなら両モードでそれを使う（無いよりまし）
+                result[idx] = '<figure class="mermaid-fig">%s</figure>' % (svgs["light"] or svgs["dark"])
+            else:
                 result[idx] = None
         return result, True
     finally:
@@ -519,14 +719,22 @@ def manual_mermaid_figure(eid, src):
 
 # 図示フォールバック時に Claude へ渡すテーマ配色（描画用パレット）
 PALETTE_KEYS = ["--bg", "--card", "--ink", "--muted", "--line",
-                "--accent", "--accent-2", "--accent-soft", "--font"]
+                "--accent", "--accent-2", "--accent-soft", "--on-accent", "--font"]
 
 
 def theme_palette(theme_key):
-    v = THEMES[theme_key]["vars"]
-    pal = {k.lstrip("-"): v[k] for k in PALETTE_KEYS if k in v}
-    pal["dark"] = bool(THEMES[theme_key].get("dark"))
-    return pal
+    """SVG 等で使う配色。ライト/ダーク両対応にするため、**必ず CSS 変数参照**を使う。
+    hex は「どんな色か」を把握するための参考値。"""
+    t = THEMES[theme_key]
+    light, dark = t["vars"], t["vars_dark"]
+    keys = [k for k in PALETTE_KEYS if k in light]
+    return {
+        "use": {k.lstrip("-"): "var(%s)" % k for k in keys},
+        "accents": accent_vars(theme_key),
+        "ref_light": {k.lstrip("-"): light[k] for k in keys},
+        "ref_dark": {k.lstrip("-"): dark.get(k, light[k]) for k in keys},
+        "note": "色は必ず var(--accent) 等の CSS 変数で指定する。hex 直書きはダークモードで破綻する。",
+    }
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -549,9 +757,19 @@ body{font-family:var(--font);color:var(--ink);background:var(--bg);line-height:1
 .nav-menu a{font-family:var(--font-head);font-size:13px;font-weight:700;color:var(--muted);
   text-decoration:none;padding:7px 13px;border-radius:8px;transition:.18s;white-space:nowrap}
 .nav-menu a:hover{color:var(--accent);background:var(--accent-soft)}
-.nav-menu a.active{color:#fff;background:var(--accent)}
-.hamburger{display:none;margin-left:auto;background:none;border:1px solid var(--line);
+.nav-menu a.active{color:var(--on-accent);background:var(--accent)}
+.topbar-tools{display:flex;align-items:center;gap:10px;flex:0 0 auto}
+.hamburger{display:none;background:none;border:1px solid var(--line);
   border-radius:8px;padding:6px 10px;color:var(--ink);font-size:18px;cursor:pointer}
+/* 表示モード切替（ライト / ダーク / システム設定） */
+.mode-switch{display:inline-flex;gap:2px;padding:3px;border:1px solid var(--line);
+  border-radius:999px;background:color-mix(in srgb,var(--card) 65%,transparent)}
+.mode-switch button{width:30px;height:26px;display:flex;align-items:center;justify-content:center;
+  border:none;border-radius:999px;background:none;color:var(--muted);font-size:13px;line-height:1;
+  cursor:pointer;transition:.15s}
+.mode-switch button:hover{color:var(--accent);background:var(--accent-soft)}
+.mode-switch button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent)}
+.mode-switch button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 [id]{scroll-margin-top:calc(var(--nav-h) + 16px)}
 .hero{background:var(--header-bg);color:var(--header-fg);
   padding:calc(var(--nav-h) + 52px) 24px 52px;margin-bottom:8px}
@@ -603,7 +821,7 @@ code{font-family:var(--mono);font-size:.88em;background:var(--accent-soft);
   background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.25);
   border-radius:6px;padding:4px 10px;cursor:pointer;transition:.15s}
 .copy-btn:hover{background:rgba(255,255,255,.25)}
-.copy-btn.done{background:var(--accent);border-color:var(--accent)}
+.copy-btn.done{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .tablewrap{overflow-x:auto;margin:18px 0}
 table{border-collapse:collapse;width:100%;font-size:14px;background:var(--card);
   border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow)}
@@ -625,6 +843,16 @@ blockquote{margin:16px 0;padding:8px 18px;border-left:3px solid var(--line);colo
   border-radius:var(--radius);padding:18px;box-shadow:var(--shadow)}
 .mermaid-fig svg{max-width:100%;height:auto}
 .mermaid-note{font-size:12px;color:var(--muted);padding:8px 16px}
+/* mermaid はライト用/ダーク用の2枚を埋め込み、表示モードで出し分ける */
+.mm-dark{display:none}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]) .mm-light{display:none}
+  :root:not([data-theme="light"]) .mm-dark{display:block}
+}
+:root[data-theme="dark"] .mm-light{display:none}
+:root[data-theme="dark"] .mm-dark{display:block}
+:root[data-theme="light"] .mm-light{display:block}
+:root[data-theme="light"] .mm-dark{display:none}
 .auto-fig-slot{margin:18px 0}
 .auto-fig-slot:empty{display:none;margin:0}
 /* セクション直下リストのレイアウト */
@@ -645,7 +873,7 @@ blockquote{margin:16px 0;padding:8px 18px;border-left:3px solid var(--line);colo
 .timeline{margin:18px 0;padding-left:4px}
 .tl-item{position:relative;display:grid;grid-template-columns:44px 1fr;gap:16px}
 .tl-item:not(:last-child)::before{content:"";position:absolute;left:21px;top:44px;bottom:-6px;width:2px;background:var(--line)}
-.tl-dot{width:44px;height:44px;border-radius:50%;background:var(--ca,var(--accent));color:#fff;
+.tl-dot{width:44px;height:44px;border-radius:50%;background:var(--ca,var(--accent));color:var(--on-accent);
   font-family:var(--font-head);font-weight:800;font-size:17px;display:flex;align-items:center;justify-content:center;z-index:1}
 .tl-body{padding-bottom:22px;min-width:0}
 .tl-h{font-family:var(--font-head);font-weight:800;font-size:16px;margin-top:8px}
@@ -676,7 +904,7 @@ blockquote{margin:16px 0;padding:8px 18px;border-left:3px solid var(--line);colo
   background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 25%,transparent);
   padding:3px 10px;border-radius:8px}
 .badge{display:inline-block;font-size:11.5px;font-weight:800;padding:3px 10px;border-radius:999px;
-  color:#fff;background:var(--ca,var(--accent))}
+  color:var(--on-accent);background:var(--ca,var(--accent))}
 .split{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:18px 0}
 @media(max-width:680px){.split{grid-template-columns:1fr}}
 /* 目次の表示モード */
@@ -684,9 +912,11 @@ blockquote{margin:16px 0;padding:8px 18px;border-left:3px solid var(--line);colo
 .toc-menu .layout,.toc-none .layout{grid-template-columns:1fr}
 .toc-sidebar .nav-menu{display:none}
 .toc-none .nav-menu,.toc-none .hamburger{display:none!important}
+/* nav-menu が消えるレイアウトでは、ツール群を右端へ寄せる */
+.toc-sidebar .topbar-tools,.toc-none .topbar-tools{margin-left:auto}
 hr{border:none;border-top:1px solid var(--line);margin:28px 0}
 .backtop{position:fixed;bottom:26px;right:26px;width:44px;height:44px;border-radius:50%;
-  background:var(--accent);color:#fff;border:none;font-size:18px;cursor:pointer;opacity:0;
+  background:var(--accent);color:var(--on-accent);border:none;font-size:18px;cursor:pointer;opacity:0;
   pointer-events:none;transition:.25s;box-shadow:0 6px 18px rgba(0,0,0,.2);z-index:90}
 .backtop.show{opacity:1;pointer-events:auto}
 footer{max-width:var(--maxw);margin:40px auto 0;padding:24px;text-align:center;
@@ -696,9 +926,12 @@ footer{max-width:var(--maxw);margin:40px auto 0;padding:24px;text-align:center;
   .nav-menu{position:fixed;top:var(--nav-h);left:0;right:0;background:var(--bg);
     border-bottom:1px solid var(--line);flex-direction:column;padding:8px;display:none}
   .nav-menu.open{display:flex}.hamburger{display:block}
+  .topbar-tools{margin-left:auto}
 }
 @media print{
-  .topbar,.progress,.backtop,.copy-btn,.hamburger,.anchor{display:none!important}
+  /* 紙は常にライト配色の図を使う */
+  .mm-dark{display:none!important}.mm-light{display:block!important}
+  .topbar,.progress,.backtop,.copy-btn,.hamburger,.mode-switch,.anchor{display:none!important}
   .toc{display:none}.layout{grid-template-columns:1fr;display:block}
   [id]{scroll-margin-top:0}body{background:#fff}
   .hero{padding:0 0 18px;background:none!important;color:#000!important;border-bottom:2px solid #000}
@@ -710,6 +943,40 @@ footer{max-width:var(--maxw);margin:40px auto 0;padding:24px;text-align:center;
 }
 """
 
+# 表示モード切替のUIと、そのブート/操作スクリプト（INDEX_PAGE と共用）
+MODE_SWITCH_HTML = (
+    '<div class="mode-switch" role="group" aria-label="表示モード">'
+    '<button type="button" data-mode="light" title="ライトモード" aria-label="ライトモード">☀</button>'
+    '<button type="button" data-mode="dark" title="ダークモード" aria-label="ダークモード">☾</button>'
+    '<button type="button" data-mode="system" title="システム設定に合わせる"'
+    ' aria-label="システム設定に合わせる">◐</button>'
+    '</div>'
+)
+
+# <head> 内で先に data-theme を確定させ、ダーク指定時の白フラッシュを防ぐ
+MODE_BOOT_JS = """(function(){try{
+var m=localStorage.getItem('__MODE_KEY__')||'__DEFAULT_MODE__';
+if(m==='light'||m==='dark')document.documentElement.setAttribute('data-theme',m);
+}catch(e){}})();"""
+
+MODE_SCRIPT_JS = """(function(){
+  var KEY='__MODE_KEY__',DEF='__DEFAULT_MODE__',root=document.documentElement;
+  var btns=[].slice.call(document.querySelectorAll('.mode-switch button'));
+  function read(){try{var v=localStorage.getItem(KEY);
+    return (v==='light'||v==='dark'||v==='system')?v:DEF;}catch(e){return DEF;}}
+  function apply(m){
+    // system は属性を外し、prefers-color-scheme に委ねる
+    if(m==='light'||m==='dark')root.setAttribute('data-theme',m);else root.removeAttribute('data-theme');
+    btns.forEach(function(b){b.setAttribute('aria-pressed',b.getAttribute('data-mode')===m?'true':'false');});
+  }
+  btns.forEach(function(b){b.addEventListener('click',function(){
+    var m=b.getAttribute('data-mode');
+    try{localStorage.setItem(KEY,m);}catch(e){}
+    apply(m);
+  });});
+  apply(read());
+})();"""
+
 PAGE = """<!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -717,19 +984,20 @@ PAGE = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>__TITLE__</title>
 <style>
-:root{
-__ROOTVARS__
-  --nav-h:60px; --maxw:1080px;
-}
+__THEMECSS__
 __STATIC_CSS__
 </style>
+<script>__MODE_BOOT_JS__</script>
 </head>
 <body id="top" class="__BODYCLASS__">
 <div class="progress"></div>
 <nav class="topbar"><div class="topbar-inner">
   <a href="#top" class="brand">__BRAND__</a>
-  <button class="hamburger" type="button" aria-label="メニュー">☰</button>
   <div class="nav-menu">__NAV__</div>
+  <div class="topbar-tools">
+    <button class="hamburger" type="button" aria-label="メニュー">☰</button>
+    __MODE_SWITCH__
+  </div>
 </div></nav>
 <header class="hero"><div class="hero-inner">
   __EYEBROW____H1____DATE____TAGS__
@@ -741,6 +1009,7 @@ __STATIC_CSS__
 <button class="backtop" type="button" aria-label="トップへ">↑</button>
 <footer>__FOOTER__</footer>
 <script>
+__MODE_SCRIPT_JS__
 (function(){
   var navH=parseInt(getComputedStyle(document.documentElement).getPropertyValue('--nav-h'))||60;
   var links=[].slice.call(document.querySelectorAll('.nav-menu a, .toc a'));
@@ -785,9 +1054,8 @@ __STATIC_CSS__
 """
 
 
-def build_html(meta, content_html, headings, theme_key, title, brand, footer, toc_mode="sidebar"):
-    theme = THEMES[theme_key]
-    rootvars = "\n".join("  %s:%s;" % (k, v) for k, v in theme["vars"].items())
+def build_html(meta, content_html, headings, theme_key, title, brand, footer,
+               toc_mode="sidebar", default_mode="system"):
     nav = "".join('<a href="#%s">%s</a>' % (h["slug"], html.escape(h["text"]))
                   for h in headings if h["level"] == 2)
     toc = "".join('<a class="lv%d" href="#%s">%s</a>' % (h["level"], h["slug"], html.escape(h["text"]))
@@ -800,8 +1068,10 @@ def build_html(meta, content_html, headings, theme_key, title, brand, footer, to
         tg = [t.strip() for t in re.split(r"[,，、]", meta["tags"]) if t.strip()]
         tags = '<div class="tags">%s</div>' % "".join("<span>%s</span>" % html.escape(t) for t in tg)
     repl = {
-        "__TITLE__": html.escape(title), "__ROOTVARS__": rootvars,
+        "__TITLE__": html.escape(title), "__THEMECSS__": theme_css(theme_key),
         "__STATIC_CSS__": STATIC_CSS, "__BRAND__": html.escape(brand),
+        "__MODE_SWITCH__": MODE_SWITCH_HTML,
+        "__MODE_BOOT_JS__": MODE_BOOT_JS, "__MODE_SCRIPT_JS__": MODE_SCRIPT_JS,
         "__NAV__": nav, "__TOC__": toc, "__EYEBROW__": eyebrow, "__H1__": h1,
         "__DATE__": date, "__TAGS__": tags, "__CONTENT__": content_html,
         "__FOOTER__": html.escape(footer), "__BODYCLASS__": "toc-" + toc_mode,
@@ -809,6 +1079,8 @@ def build_html(meta, content_html, headings, theme_key, title, brand, footer, to
     page = PAGE
     for k, v in repl.items():
         page = page.replace(k, v)
+    # スクリプト中のプレースホルダは、JS を差し込んだ後にまとめて解決する
+    page = page.replace("__MODE_KEY__", MODE_STORAGE_KEY).replace("__DEFAULT_MODE__", default_mode)
     return page
 
 
@@ -828,7 +1100,7 @@ def inject_figure_slots(content, headings):
 
 
 def convert_file(path, theme_key, eyebrow=None, auto_figure="off", toc_mode="sidebar",
-                 layout="plain", design="deterministic"):
+                 layout="plain", design="deterministic", default_mode="system"):
     raw = open(path, encoding="utf-8").read()
     meta, body = split_frontmatter(raw)
     lines = body.replace("\r\n", "\n").split("\n")
@@ -854,7 +1126,7 @@ def convert_file(path, theme_key, eyebrow=None, auto_figure="off", toc_mode="sid
             meta["date"] = fm.group(1).replace("_", "-").replace("/", "-")
 
     global _ACCENTS
-    _ACCENTS = THEMES[theme_key].get("accents") or [THEMES[theme_key]["vars"]["--accent"]]
+    _ACCENTS = accent_vars(theme_key)
 
     # AI設計（freeform もしくは design=ai）: 本文は Claude が後段で著述する。
     # ガワだけ生成し中身はプレースホルダにする。
@@ -864,7 +1136,8 @@ def convert_file(path, theme_key, eyebrow=None, auto_figure="off", toc_mode="sid
         brand = meta.get("brand", title if len(title) <= 16 else title[:15] + "…")
         footer = "%s — Generated from Markdown by md-to-doc" % (meta.get("date") or
                  datetime.date.today().isoformat())
-        out_html = build_html(meta, content, headings, theme_key, title, brand, footer, toc_mode)
+        out_html = build_html(meta, content, headings, theme_key, title, brand, footer,
+                              toc_mode, default_mode)
         return out_html, title, headings, True, []
 
     headings, used, mermaid_store = [], set(), []
@@ -887,7 +1160,8 @@ def convert_file(path, theme_key, eyebrow=None, auto_figure="off", toc_mode="sid
     brand = meta.get("brand", title if len(title) <= 16 else title[:15] + "…")
     footer = "%s — Generated from Markdown by md-to-doc" % (meta.get("date") or
              datetime.date.today().isoformat())
-    out_html = build_html(meta, content, headings, theme_key, title, brand, footer, toc_mode)
+    out_html = build_html(meta, content, headings, theme_key, title, brand, footer,
+                          toc_mode, default_mode)
     return out_html, title, headings, ok, pending
 
 
@@ -907,7 +1181,11 @@ def main():
                     help="本文の見せ方/テイスト（箇条書き/カード/タイムライン/アコーディオン/完全フリーフォーム）")
     ap.add_argument("--design", default="deterministic", choices=["deterministic", "ai"],
                     help="deterministic=スクリプトが型変換／ai=選んだ形式のテイストでClaudeが作り込む")
+    ap.add_argument("--default-mode", default=None, choices=COLOR_MODES,
+                    help="初回表示の既定モード（未指定ならテーマの既定。darktech=dark, 他=system）")
     args = ap.parse_args()
+
+    default_mode = default_mode_of(args.theme, args.default_mode)
 
     produced = []
     todo = []  # 手描きが必要な図 [{out, id, source}]
@@ -915,7 +1193,8 @@ def main():
         if not os.path.isfile(path):
             print("skip (not found):", path, file=sys.stderr); continue
         out_html, title, headings, ok, pending = convert_file(
-            path, args.theme, args.eyebrow, args.auto_figure, args.toc, args.layout, args.design)
+            path, args.theme, args.eyebrow, args.auto_figure, args.toc, args.layout, args.design,
+            default_mode)
         outdir = args.outdir or os.path.dirname(os.path.abspath(path))
         os.makedirs(outdir, exist_ok=True)
         outname = os.path.splitext(os.path.basename(path))[0] + ".html"
@@ -943,11 +1222,15 @@ def main():
             % (html.escape(os.path.basename(p["out"]), quote=True),
                html.escape(p["title"]), html.escape(os.path.basename(p["src"])))
             for p in produced)
-        theme = THEMES[args.theme]
-        rootvars = "\n".join("  %s:%s;" % (k, v) for k, v in theme["vars"].items())
-        index = INDEX_PAGE.replace("__ROOTVARS__", rootvars)\
-                          .replace("__STATIC_CSS__", STATIC_CSS).replace("__CARDS__", cards)\
-                          .replace("__COUNT__", str(len(produced)))
+        index = INDEX_PAGE.replace("__THEMECSS__", theme_css(args.theme))\
+                          .replace("__STATIC_CSS__", STATIC_CSS)\
+                          .replace("__MODE_SWITCH__", MODE_SWITCH_HTML)\
+                          .replace("__MODE_BOOT_JS__", MODE_BOOT_JS)\
+                          .replace("__MODE_SCRIPT_JS__", MODE_SCRIPT_JS)\
+                          .replace("__CARDS__", cards)\
+                          .replace("__COUNT__", str(len(produced)))\
+                          .replace("__MODE_KEY__", MODE_STORAGE_KEY)\
+                          .replace("__DEFAULT_MODE__", default_mode)
         ipath = os.path.join(outdir, "index.html")
         with open(ipath, "w", encoding="utf-8") as f:
             f.write(index)
@@ -955,9 +1238,7 @@ def main():
 
     # AI設計（freeform もしくは design=ai）: Claude が本文を著述するための情報を出力
     if (args.layout == "freeform" or args.design == "ai") and produced:
-        theme = THEMES[args.theme]
         pal = theme_palette(args.theme)
-        pal["accents"] = theme.get("accents", [])
         TASTE = {
             "cards": "カード（.card-grid>.doc-card）を主モチーフに、アイコン・タグ・色循環で内容を作り込む",
             "timeline": "タイムライン（.timeline>.tl-item）を主モチーフに、番号/アイコンとチップで工程・時系列を表現する",
@@ -978,8 +1259,11 @@ def main():
         print("  特徴グリッド:.feature-grid / 数値:.stat-row>.stat(.big,.cap) / チップ:.chips>.chip / バッジ:.badge")
         print("  タイムライン:.timeline>.tl-item(.tl-dot,.tl-body>.tl-h) / 折りたたみ:.accordion>.acc-item>summary")
         print("  コールアウト:.callout.callout-note(.callout-head,.callout-body) / 表:.tablewrap>table / 2分割:.split")
-        print("  ※各要素に style=\"--ca:COLOR\" を付けると、その部品の配色を accents から個別指定できる。")
+        print("  ※各要素に style=\"--ca:var(--a0)\" のように付けると、その部品の配色を accents から個別指定できる。")
         print("  ※図は自己完結の <figure class=\"mermaid-fig\"><svg ...></figure> で（外部依存なし・viewBox必須）。")
+        print("  ※【重要】色は必ず CSS 変数（var(--accent) / var(--a1) 等）で指定する。SVG の fill/stroke も同様。")
+        print("     hex を直書きするとヘッダーの ライト/ダーク 切替に追従せず、ダークで判読不能になる。")
+        print("     アクセント色の上に載る文字は var(--on-accent) を使う。")
         for p in produced:
             print("\n--- 著述対象: %s" % p["out"])
             print("  必須見出し（この slug を id に使う / nav・目次と一致させる）:")
@@ -998,6 +1282,8 @@ def main():
         print("（番号付き手順→フロー図 / 比較→対比図・棒 / 階層→ツリー / 循環→サイクル 等）が")
         print("あるセクションについて、対応スロットの中身をテーマ配色の自己完結 <svg> 図に Edit で置き換えてください。")
         print("不要なセクションのスロットは空のまま（自動で非表示）でよい。")
+        print("【重要】svg の色は必ず CSS 変数（fill=\"var(--accent-soft)\" 等）で指定する。")
+        print("        hex 直書きはヘッダーの ライト/ダーク 切替に追従しない。")
         if args.auto_figure == "light":
             print("level=light: 各ドキュメントで最も効果的な1〜2個に絞る。")
         else:
@@ -1018,6 +1304,8 @@ def main():
         print("mmdc が無いため %d 個の図が未レンダリングです。" % len(todo))
         print("Claude は以下の各図を『テーマ配色の <svg>』として描き、出力HTML内の")
         print("対応する <figure id=...> 全体を Edit で置き換えてください。")
+        print("【重要】色は必ず CSS 変数で指定する（fill=\"var(--accent-soft)\" stroke=\"var(--accent)\"")
+        print("        text の fill=\"var(--ink)\"）。1枚の svg がライト/ダーク両方に自動追従する。")
         print("配色パレット: " + json.dumps(theme_palette(args.theme), ensure_ascii=False))
         print("TODO一覧(JSON): " + sidecar)
         for t in todo:
@@ -1030,10 +1318,7 @@ INDEX_PAGE = """<!DOCTYPE html>
 <html lang="ja"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ドキュメント一覧</title><style>
-:root{
-__ROOTVARS__
-  --nav-h:60px; --maxw:1080px;
-}
+__THEMECSS__
 __STATIC_CSS__
 .idx-wrap{max-width:var(--maxw);margin:0 auto;padding:calc(var(--nav-h) + 40px) 24px 80px}
 .idx-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:18px;margin-top:24px}
@@ -1042,11 +1327,13 @@ __STATIC_CSS__
 .idx-card:hover{transform:translateY(-3px);border-color:var(--accent)}
 .idx-ttl{font-family:var(--font-head);font-weight:800;font-size:17px;color:var(--accent-2)}
 .idx-sub{color:var(--muted);font-size:12px;margin-top:8px}
-</style></head><body id="top">
-<nav class="topbar"><div class="topbar-inner"><a href="#top" class="brand">📚 ドキュメント一覧</a></div></nav>
+</style><script>__MODE_BOOT_JS__</script></head><body id="top" class="toc-none">
+<nav class="topbar"><div class="topbar-inner"><a href="#top" class="brand">📚 ドキュメント一覧</a>
+<div class="topbar-tools">__MODE_SWITCH__</div></div></nav>
 <div class="idx-wrap"><h1 style="font-family:var(--font-head);font-size:30px">ドキュメント一覧</h1>
 <p style="color:var(--muted)">__COUNT__ 件のドキュメント</p>
-<div class="idx-grid">__CARDS__</div></div></body></html>
+<div class="idx-grid">__CARDS__</div></div>
+<script>__MODE_SCRIPT_JS__</script></body></html>
 """
 
 

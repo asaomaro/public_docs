@@ -1,12 +1,24 @@
 ---
 name: md-to-doc
-description: Markdown を、視覚的に分かりやすく図表を活用した単一HTMLドキュメントに変換する。固定ヘッダー・見出しメニュー・目次・コールアウト・コードコピー・印刷/PDF対応を備え、5つのデザインテーマから選べる。mermaid 図はテーマ配色でSVG化（環境が無い場合は内容を解釈して手描きSVGでフォールバック）。「mdをHTMLにして」「資料用のHTMLを作って」「このメモを綺麗なドキュメントに」「htmlドキュメント生成」などと言われたときに使用する。
+description: Markdown を、視覚的に分かりやすく図表を活用した単一HTMLドキュメントに変換する。固定ヘッダー・見出しメニュー・目次・コールアウト・コードコピー・印刷/PDF対応を備え、5つのデザインテーマから選べる。ヘッダーの切替ボタンで ライト/ダーク/システム設定 に追従。mermaid 図はテーマ配色でSVG化（環境が無い場合は内容を解釈して手描きSVGでフォールバック）。「mdをHTMLにして」「資料用のHTMLを作って」「このメモを綺麗なドキュメントに」「htmlドキュメント生成」などと言われたときに使用する。
 ---
 
 # md-to-doc — Markdown → 視覚的HTMLドキュメント生成
 
 Markdown を、配布しやすい**単一HTML**（外部依存なし）に変換する。
 変換は同梱の `generate.py`（Python3 / stdlib のみ）が行う。
+
+## 表示モード（ライト / ダーク / システム設定）
+
+全テーマがライト・ダーク両方のパレットを持ち、ヘッダー右端の切替ボタン（`☀ / ☾ / ◐`）で
+**ライト / ダーク / システム設定に追従** を選べる。選択は `localStorage` に保存され、次回も維持される。
+初回表示の既定は `darktech` のみ `dark`、他テーマは `system`（OS設定に追従）。`--default-mode` で変更できる。
+
+> [!IMPORTANT]
+> このため、**あなた（Claude）が書き足すHTML/SVGの色は必ず CSS 変数で指定する**。
+> `var(--accent)` `var(--ink)` `var(--card)` `var(--a0)`〜`var(--aN)`（循環配色）、
+> アクセント色の上に載る文字は `var(--on-accent)`。
+> hex を直書きすると切替に追従せず、ダークモードで判読できなくなる。
 
 ## 重要: 実行時は必ず「順番に選択」させる
 
@@ -81,11 +93,13 @@ Markdown を、配布しやすい**単一HTML**（外部依存なし）に変換
 python3 <skill_dir>/generate.py "<input.md>" [さらに.md...] \
   --theme <key> --mode <mode> [--auto-figure off|light|rich] \
   [--toc sidebar|menu|both|none] [--layout plain|cards|timeline|accordion|freeform] \
-  [--design deterministic|ai]
+  [--design deterministic|ai] [--default-mode system|light|dark]
 ```
 
 - 出力は既定で入力と同じ場所に `<元ファイル名>.html`。別の場所にしたい場合は `--outdir <dir>`。
 - ヘッダー上部に小見出しを出したい場合は `--eyebrow "AI情報共有会"` のように渡す。
+- `--default-mode` は初回表示（localStorage 未設定時）の既定モード。省略時はテーマの既定に従う。
+  ユーザーから指定がなければ省略してよい。
 
 ### 4b. 図解の自動補完（auto-figure が off 以外のとき）
 スクリプトは各セクション末尾に空の差し込みスロットを置き、次のマーカーを出力する:
@@ -101,7 +115,8 @@ python3 <skill_dir>/generate.py "<input.md>" [さらに.md...] \
 
 - 図にすべき典型: **番号付き手順→フロー図**、**比較→対比図/簡易棒グラフ**、**階層→ツリー**、
   **循環→サイクル図**、**時系列→タイムライン**、**全体像→構成図**。
-- 描画ルールは「4の mermaid フォールバック」と同じ（`viewBox`＋`max-width:…;width:100%;height:auto`、配色パレット使用、外部依存なし、`aria-label` 付与、marker の id はユニークに）。
+- 描画ルールは「4の mermaid フォールバック」と同じ（`viewBox`＋`max-width:…;width:100%;height:auto`、
+  色は **CSS変数**（`fill="var(--accent-soft)"` 等）、外部依存なし、`aria-label` 付与、marker の id はユニークに）。
 - `light` は1〜2個に厳選、`rich` は積極的に。**無理に図にしない**（箇条書きで十分なものはスロットを空のまま＝自動で非表示）。
 - 1つのスロットに複数 `<figure>` を入れてもよい。
 
@@ -120,7 +135,7 @@ python3 <skill_dir>/generate.py "<input.md>" [さらに.md...] \
 
 - **基調テイスト**: 出力の `[基調テイスト=...]` に従う。`cards/timeline/accordion/plain` のときはその形式を主モチーフにしつつ作り込む（決定論版より凝ってよいが、テイストは外さない）。`freeform` は完全自由。
 - **必須見出し**: 出力された各 h2/h3 は、指定の `slug` を `id` に、`class="hl"` を付けて含める（nav・目次・スクロールスパイと一致させるため）。順序も合わせる。
-- **配色**: パレットの `accent`/`accent-2`/`accent-soft`/`ink`/`muted`/`line`/`card` と `accents`（循環色）を使う。要素に `style="--ca:色"` を付けると部品ごとに色を変えられる。`dark:true` は暗背景前提。
+- **配色**: `var(--accent)`/`var(--accent-2)`/`var(--accent-soft)`/`var(--ink)`/`var(--muted)`/`var(--line)`/`var(--card)` と循環色 `var(--a0)`〜`var(--aN)` を使う。要素に `style="--ca:var(--a1)"` を付けると部品ごとに色を変えられる。アクセント色の上の文字は `var(--on-accent)`。**hex 直書きは不可**（ライト/ダーク切替に追従しないため）。
 - **部品**: `.lead` / `.card-grid>.doc-card` / `.feature-grid` / `.stat-row>.stat(.big,.cap)` / `.chips>.chip` / `.badge` / `.timeline` / `.accordion` / `.callout` / `.tablewrap>table` / `.split`。これらを内容に応じて自由に組み合わせる（カードとタイムラインの混在等）。
 - **図**: 必要なら自己完結 `<figure class="mermaid-fig"><svg viewBox=...>…</svg></figure>`（外部依存なし）。
 - **自己完結を厳守**: 画像/外部CSS/JS/フォントを足さない。既存の部品クラスとインライン `style` のみで仕上げる。むやみに新しい `<style>` を足さない（必要時は最小限）。
@@ -128,6 +143,8 @@ python3 <skill_dir>/generate.py "<input.md>" [さらに.md...] \
 
 ### 5. mermaid のフォールバック対応（環境にmmdcが無い場合）
 スクリプトは mermaid 図を、`@mermaid-js/mermaid-cli`（`mmdc`）があれば**選択テーマの配色でSVG化**して埋め込む。
+このとき **ライト用・ダーク用の2枚**を描き、`.mm-light` / `.mm-dark` として両方埋め込んで表示モードで出し分ける
+（ダーク側は id 衝突を避けるため接尾辞を付与）。
 
 `mmdc` が無い環境では、出力に次のマーカーが出る:
 
@@ -139,7 +156,9 @@ python3 <skill_dir>/generate.py "<input.md>" [さらに.md...] \
 
 このとき **あなた（Claude）が各 mermaid 定義を解釈し、テーマ配色の `<svg>` を手描きして差し替える**：
 
-1. 出力された **配色パレット**（`accent` / `accent-2` / `accent-soft` / `ink` / `muted` / `line` / `card` / `font` / `dark`）を使う。
+1. 出力された **配色パレット** の `use`（`var(--accent)` などの CSS 変数参照）をそのまま使う。
+   `ref_light` / `ref_dark` は「どんな色か」を把握するための参考値であって、**HTML には書かない**。
+   CSS 変数で描けば、1枚の SVG がライト/ダーク両モードに自動追従する。
 2. 各図について、対象HTML内の `<figure class="mermaid-fig manual-render" id="md2doc-mm-N">…</figure>` を、
    `Read` で確認のうえ `Edit` で **figure 全体**を次のように置き換える：
    ```html
@@ -152,7 +171,7 @@ python3 <skill_dir>/generate.py "<input.md>" [さらに.md...] \
    ```
 3. 描画の指針:
    - **対応図種**: flowchart（LR/TD）、sequenceDiagram、状態遷移、簡単な gantt/円グラフ程度。複雑すぎる場合は要点を簡略化して図示する。
-   - **配色**: ノード塗り=`accent-soft`、枠線=`accent`、矢印/線=`accent-2` か `muted`、文字=`ink`、`font` を `font-family` に。`dark:true` のテーマは背景が暗い前提で文字を明るく。
+   - **配色**: ノード塗り=`var(--accent-soft)`、枠線=`var(--accent)`、矢印/線=`var(--accent-2)` か `var(--muted)`、文字=`var(--ink)`、`font-family="var(--font)"`。塗りつぶしたアクセント図形の上に文字を置くなら `var(--on-accent)`。
    - **レスポンシブ**: 必ず `viewBox` を付け、`style="max-width:…;width:100%;height:auto"`。座標は左上原点で手計算（ノード幅~140, 高さ~48, 間隔~50 が目安）。
    - **自己完結**: 画像/外部フォント/スクリプトを使わず、SVG要素だけで描く。矢印は `<marker>` を `defs` に定義（id は図ごとにユニークに）。
    - `aria-label` に図の意味を日本語で入れる。
@@ -179,4 +198,8 @@ python3 <skill_dir>/generate.py "<input.md>" [さらに.md...] \
 ## メモ
 - 対応する Markdown 記法: 見出し / ネスト箇条書き / 番号リスト / チェックボックス / 表 / コードフェンス / 引用 / コールアウト(`> [!NOTE|TIP|IMPORTANT|WARNING|CAUTION]`) / mermaid / 太字・斜体・コード・リンク / 先頭絵文字アイコン・末尾`{タグ}` / frontmatter(`title`/`date`/`tags`/`eyebrow`/`brand`)。
 - 見出し `##` がトップメニュー、`##`/`###` が左の目次になる（ID自動付与）。
-- テーマを増やすときは `generate.py` の `THEMES` に1エントリ（CSS変数＋mermaid配色）を足すだけ。
+- 表示モードの選択は `localStorage['md2doc-color-mode']`（`system|light|dark`）に保存。
+  印刷/PDF はモードに関わらず常にライト配色になる。
+- テーマを増やすときは `generate.py` の `THEMES` に1エントリを足す。必要なのは
+  `vars`（ライト・全キー）/ `vars_dark`（ダーク上書き）/ `accents`＋`accents_dark`（要素数を揃える）/
+  `mermaid`＋`mermaid_dark` / `default_mode`。
