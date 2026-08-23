@@ -1019,7 +1019,9 @@ body{font-family:var(--font);color:var(--ink);background:var(--bg);line-height:1
 .topbar-inner{max-width:var(--maxw);margin:0 auto;height:100%;padding:0 24px;
   display:flex;align-items:center;gap:20px}
 .brand{font-family:var(--font-head);font-weight:800;font-size:15px;color:var(--accent);
-  white-space:nowrap;text-decoration:none;display:flex;align-items:center;gap:8px}
+  white-space:nowrap;text-decoration:none;display:block;
+  /* 余白がある限り全文を出し、本当に入り切らない時だけ CSS で省略する */
+  flex:0 1 auto;min-width:0;max-width:52%;overflow:hidden;text-overflow:ellipsis}
 .nav-menu{display:flex;gap:3px;margin-left:auto;min-width:0;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
 .nav-menu::-webkit-scrollbar{height:6px}
 .nav-menu::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px}
@@ -1447,7 +1449,7 @@ def convert_file(path, theme_key, eyebrow=None, auto_figure="off", toc_mode="sid
     if layout == "freeform" or design == "ai":
         headings = extract_headings(lines)
         content = "<!--MD2DOC_CONTENT-->"
-        brand = meta.get("brand", title if len(title) <= 16 else title[:15] + "…")
+        brand = meta.get("brand", title)
         footer = "%s — Generated from Markdown by md-to-doc" % (meta.get("date") or
                  datetime.date.today().isoformat())
         out_html = build_html(meta, content, headings, theme_key, title, brand, footer,
@@ -1471,7 +1473,7 @@ def convert_file(path, theme_key, eyebrow=None, auto_figure="off", toc_mode="sid
     if auto_figure != "off":
         content = inject_figure_slots(content, headings)
 
-    brand = meta.get("brand", title if len(title) <= 16 else title[:15] + "…")
+    brand = meta.get("brand", title)
     footer = "%s — Generated from Markdown by md-to-doc" % (meta.get("date") or
              datetime.date.today().isoformat())
     out_html = build_html(meta, content, headings, theme_key, title, brand, footer,
