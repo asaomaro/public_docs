@@ -5,6 +5,17 @@
 # 「Also include default list of common package managers」は必ずチェックする。
 #
 # 一次情報 = ラボ公式 / 論文 / 規制当局。二次情報 = 日付と事実の裏取り用。
+#
+# 【重要】許可リストに入れても取れないサイトがある。2種類のエラーを区別すること。
+#
+#   EGRESS_BLOCKED  → 環境の許可リストに無い。ここに足せば解決する。
+#   HTTP 403        → 先方が Anthropic のクローラを弾いている。許可リストでは解決しない。
+#
+# 実測で 403 だったもの:
+#   - openai.com の apex（/news/ /index/*）。ただし community.openai.com と
+#     developers.openai.com は取得できるので、そちらを使う。
+#   - reuters.com は WebSearch の allowed_domains でも
+#     "not accessible to our user agent" で弾かれるため、リストから外した。
 
 # --- ラボ公式 ---
 anthropic.com
@@ -41,8 +52,6 @@ meti.go.jp
 # --- ニュース（日付・事実の裏取り用） ---
 techcrunch.com
 *.techcrunch.com
-reuters.com
-*.reuters.com
 arstechnica.com
 theverge.com
 *.theverge.com
