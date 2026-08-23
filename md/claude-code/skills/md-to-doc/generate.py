@@ -317,6 +317,70 @@ CALLOUT_LABELS = {
 # ──────────────────────────────────────────────────────────────────────────
 # インライン記法
 # ──────────────────────────────────────────────────────────────────────────
+# 画像の扱い。convert_file が処理対象 md のディレクトリ・出力先・モードを設定する。
+#   _IMG_MODE = "embed" … ローカル画像を data URI で埋め込む（単一HTMLで自己完結）
+#   _IMG_MODE = "link"  … ローカル画像は外部フォルダ参照のまま（出力HTMLからの相対パス）
+_IMG_BASE = None     # 処理対象 md のディレクトリ（相対パス解決の基準）
+_IMG_OUTDIR = None   # 出力HTMLのディレクトリ（link 時の相対パス起点）
+_IMG_MODE = "embed"
+_IMG_MIME = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+             "gif": "image/gif", "svg": "image/svg+xml", "webp": "image/webp",
+             "bmp": "image/bmp", "ico": "image/x-icon", "avif": "image/avif"}
+
+
+def _rel_src(fp):
+    """出力HTMLのディレクトリから画像ファイルへの参照用パスを作る（link モード用）。
+    可能なら相対パス、無理（別ドライブ等）なら絶対パス。区切りは / に統一し URL エンコードする。"""
+    import urllib.parse
+    base = _IMG_OUTDIR or os.path.dirname(fp)
+    try:
+        rel = os.path.relpath(fp, base)
+    except ValueError:
+        rel = os.path.abspath(fp)
+    rel = rel.replace(os.sep, "/")
+    # 各パスセグメントを個別に URL エンコード（"/" は残す）
+    return "/".join(urllib.parse.quote(seg) for seg in rel.split("/"))
+
+
+def image_tag(alt_escaped, src_escaped):
+    """![alt](src) を <img> に変換。ローカル画像は _IMG_MODE に従い
+    data URI 埋め込み（embed）または外部フォルダ参照（link）にする。
+    引数は inline() 内で html.escape 済みの文字列。src はファイル探索のため一旦復元する。"""
+    import urllib.parse
+    alt_attr = alt_escaped.replace('"', "&quot;")
+    src = html.unescape(src_escaped).strip()
+    # 末尾のタイトル指定 ![alt](src "title") を除去
+    m = re.match(r'^(.*?)\s+["\'].*["\']$', src)
+    if m:
+        src = m.group(1).strip()
+    # 外部URL / 既に data URI はそのまま
+    if re.match(r"^(?:[a-zA-Z][\w+.-]*:)?//", src) or src.startswith("data:"):
+        return '<img class="md-img" src="%s" alt="%s" loading="lazy">' % (
+            html.escape(src, quote=True), alt_attr)
+    # ローカル相対パス → md のディレクトリ基準で解決
+    if _IMG_BASE:
+        p = urllib.parse.unquote(src)
+        fp = os.path.normpath(os.path.join(_IMG_BASE, p))
+        if os.path.isfile(fp):
+            if _IMG_MODE == "link":
+                # 外部フォルダ参照: 出力HTMLからの相対パスで参照（埋め込まない）
+                return '<img class="md-img" src="%s" alt="%s" loading="lazy">' % (
+                    html.escape(_rel_src(fp), quote=True), alt_attr)
+            # embed: base64 の data URI で埋め込み
+            ext = os.path.splitext(fp)[1].lower().lstrip(".")
+            mime = _IMG_MIME.get(ext, "application/octet-stream")
+            try:
+                with open(fp, "rb") as f:
+                    b64 = base64.b64encode(f.read()).decode("ascii")
+                return '<img class="md-img" src="data:%s;base64,%s" alt="%s" loading="lazy">' % (
+                    mime, b64, alt_attr)
+            except OSError:
+                pass
+    # 見つからない場合は相対 src のまま（少なくともリンク切れとして把握できる）
+    return '<img class="md-img" src="%s" alt="%s" loading="lazy">' % (
+        html.escape(src, quote=True), alt_attr)
+
+
 def inline(text):
     out = []
     i = 0
@@ -327,6 +391,9 @@ def inline(text):
             out.append("<code>%s</code>" % html.escape(part[1:-1]))
             continue
         s = html.escape(part)
+        # 画像 ![alt](src) はリンクより先に処理（先頭の ! を取りこぼさないため）
+        s = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)",
+                   lambda m: image_tag(m.group(1), m.group(2)), s)
         s = re.sub(r"\[([^\]]+)\]\(([^)]+)\)",
                    lambda m: '<a href="%s">%s</a>' % (html.escape(m.group(2), quote=True), m.group(1)), s)
         s = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", s)
@@ -371,6 +438,9 @@ def parse_blocks(lines, headings, used_slugs, mermaid_store, top_level=True, lay
     out = []
     i = 0
     n = len(lines)
+    # このブロック内で現在有効なレイアウト。見出しごとに --layout-map / 既定値で再解決し、
+    # `<!-- layout: .. -->` ディレクティブが現れたらそこから上書きする。
+    cur_layout = layout
 
     def indent_of(s):
         m = re.match(r"[ \t]*", s)
@@ -386,7 +456,7 @@ def parse_blocks(lines, headings, used_slugs, mermaid_store, top_level=True, lay
         # 見出し
         m = re.match(r"^(#{1,6})\s+(.*)$", line)
         if m:
-            level = len(m.group(1)); txt = m.group(2).strip()
+            level = len(m.group(1)); txt = m.group(2).strip(); slug = ""
             inner = inline(txt)
             if level in (2, 3):
                 slug = slugify(txt, used_slugs)
@@ -395,16 +465,31 @@ def parse_blocks(lines, headings, used_slugs, mermaid_store, top_level=True, lay
                            % (level, slug, inner, slug, level))
             else:
                 out.append("<h%d>%s</h%d>" % (level, inner, level))
+            # 節が変わったのでレイアウトを再解決（前節のディレクティブを引きずらない）
+            if top_level:
+                cur_layout = layout_for_section(txt, slug, layout)
             i += 1
             continue
 
-        # コードフェンス / mermaid
-        m = re.match(r"^(`{3,}|~{3,})\s*([\w-]*)\s*$", line)
+        # セクション別レイアウトのディレクティブ。出力には出さず、以降の節内リストに効く
+        directive = read_layout_directive(line)
+        if directive is not None:
+            if top_level and directive:
+                cur_layout = directive
+            i += 1
+            continue
+
+        # コードフェンス / mermaid（先頭 0〜3 スペースを許容：リスト内のフェンス対応）
+        m = re.match(r"^(\s{0,3})(`{3,}|~{3,})\s*([\w-]*)\s*$", line)
         if m:
-            fence = m.group(1)[0]; lang = m.group(2).lower()
+            lead = len(m.group(1)); fence = m.group(2)[0]; lang = m.group(3).lower()
             j = i + 1; buf = []
-            while j < n and not re.match(r"^%s{3,}\s*$" % re.escape(fence), lines[j]):
-                buf.append(lines[j]); j += 1
+            while j < n and not re.match(r"^\s{0,3}%s{3,}\s*$" % re.escape(fence), lines[j]):
+                ln = lines[j]
+                k = 0
+                while k < lead and k < len(ln) and ln[k] == " ":
+                    k += 1
+                buf.append(ln[k:]); j += 1
             code = "\n".join(buf)
             if lang == "mermaid":
                 key = "@@MERMAID_%d@@" % len(mermaid_store)
@@ -430,7 +515,7 @@ def parse_blocks(lines, headings, used_slugs, mermaid_store, top_level=True, lay
                 first = mm.group(2).strip()
                 quoted = ([first] if first else []) + quoted[1:]
             inner_html = parse_blocks(quoted, headings, used_slugs, mermaid_store,
-                                      top_level=False, layout=layout)
+                                      top_level=False, layout=cur_layout)
             if ctype:
                 label, icon = CALLOUT_LABELS.get(ctype, (ctype.title(), "💬"))
                 out.append('<div class="callout callout-%s"><div class="callout-head">'
@@ -464,27 +549,105 @@ def parse_blocks(lines, headings, used_slugs, mermaid_store, top_level=True, lay
 
         # リスト
         if re.match(r"^\s*([-*+]|\d+\.)\s+", line):
-            items = []
-            while i < n and re.match(r"^\s*([-*+]|\d+\.)\s+", lines[i]):
-                lm = re.match(r"^(\s*)([-*+]|\d+\.)\s+(.*)$", lines[i])
-                items.append({"indent": indent_of(lines[i]),
-                              "ordered": bool(re.match(r"\d+\.", lm.group(2))),
-                              "text": lm.group(3)})
-                i += 1
-            if top_level and layout != "plain":
-                out.append(render_list(items, layout))
-            else:
-                out.append(build_list(items))
+            # カード/タイムライン（トップレベルの単純箇条書き）は従来のフラット収集
+            if top_level and cur_layout != "plain":
+                items = []
+                while i < n and re.match(r"^\s*([-*+]|\d+\.)\s+", lines[i]):
+                    lm = re.match(r"^(\s*)([-*+]|\d+\.)\s+(.*)$", lines[i])
+                    items.append({"indent": indent_of(lines[i]),
+                                  "ordered": bool(re.match(r"\d+\.", lm.group(2))),
+                                  "text": lm.group(3)})
+                    i += 1
+                out.append(render_list(items, cur_layout))
+                continue
+            # それ以外は項目内のネストしたブロック（コード/画像/段落/サブリスト）を保持
+            html_list, i = parse_rich_list(lines, i, headings, used_slugs, mermaid_store, cur_layout)
+            out.append(html_list)
             continue
 
         # 段落（空行まで結合）
         para = [line]; i += 1
         while i < n and lines[i].strip() and not re.match(
-                r"^(#{1,6}\s|>|\s*([-*+]|\d+\.)\s|`{3,}|~{3,}|\s*([-*_])(\s*\3){2,}\s*$)", lines[i]):
+                r"^(#{1,6}\s|>|\s*([-*+]|\d+\.)\s|\s{0,3}(`{3,}|~{3,})|\s*([-*_])(\s*\4){2,}\s*$)", lines[i]):
             para.append(lines[i]); i += 1
-        out.append("<p>%s</p>" % inline(" ".join(s.strip() for s in para)))
+        # 行末2スペース or 末尾 \ はハードブレイク（<br>）として維持
+        toks = []
+        for idx, s in enumerate(para):
+            hard = bool(re.search(r"(  +|\\)\s*$", s))
+            core = re.sub(r"\s+$", "", s)
+            core = re.sub(r"\\$", "", core).strip()
+            toks.append(core)
+            if hard and idx < len(para) - 1:
+                toks.append("\x00BR\x00")
+        raw = " ".join(t for t in toks if t)
+        out.append("<p>%s</p>" % inline(raw).replace("\x00BR\x00", "<br>"))
 
     return "\n".join(out)
+
+
+def _indent_of(s):
+    m = re.match(r"[ \t]*", s)
+    return len(m.group(0).replace("\t", "    "))
+
+
+def parse_rich_list(lines, i, headings, used_slugs, mermaid_store, layout):
+    """リスト項目ごとに、その項目に属する後続行（本文継続・空行・より深いインデント）を集め、
+    項目インデント分だけデデントして再帰パースする。項目内のコードブロック・画像・段落・
+    サブリストを正しく保持する（インデントされたコードフェンスもこれで列0扱いになる）。"""
+    n = len(lines)
+    base = _indent_of(lines[i])
+    ordered = bool(re.match(r"^\s*\d+\.", lines[i]))
+    tag = "ol" if ordered else "ul"
+    out = ["<%s>" % tag]
+    while i < n:
+        if not lines[i].strip():
+            i += 1
+            continue
+        if _indent_of(lines[i]) != base:
+            break
+        mk = re.match(r"^(\s*)([-*+]|\d+\.)(\s+)(.*)$", lines[i])
+        if not mk:
+            break
+        content_indent = len(mk.group(1)) + len(mk.group(2)) + len(mk.group(3))
+        body = [mk.group(4)]
+        i += 1
+        while i < n:
+            if not lines[i].strip():
+                body.append("")
+                i += 1
+                continue
+            if _indent_of(lines[i]) >= content_indent:
+                ln = lines[i]
+                body.append(ln[content_indent:] if len(ln) >= content_indent else ln.lstrip())
+                i += 1
+            else:
+                break
+        while body and not body[-1].strip():
+            body.pop()
+        out.append("<li>%s</li>" % render_item_body(body, headings, used_slugs, mermaid_store, layout))
+    out.append("</%s>" % tag)
+    return "".join(out), i
+
+
+def render_item_body(body, headings, used_slugs, mermaid_store, layout):
+    """リスト項目本文を描画。ブロック要素が無ければ inline（tight）、あれば再帰パース。"""
+    block_re = r"^(#{1,6}\s|>|\s*([-*+]|\d+\.)\s|\s{0,3}(`{3,}|~{3,})|\s*([-*_])(\s*\4){2,}\s*$)"
+    has_block = any((not ln.strip()) or re.match(block_re, ln) for ln in body)
+    if not has_block:
+        for k in range(len(body) - 1):
+            if "|" in body[k] and re.match(r"^\s*\|?[\s:|-]+\|?\s*$", body[k + 1]) and "-" in body[k + 1]:
+                has_block = True
+                break
+    if not has_block:
+        text = " ".join(s.strip() for s in body if s.strip())
+        cm = re.match(r"^\[([ xX])\]\s+(.*)$", text)
+        cb = ""
+        if cm:
+            checked = "checked" if cm.group(1).lower() == "x" else ""
+            cb = '<input type="checkbox" disabled %s> ' % checked
+            text = cm.group(2)
+        return cb + inline(text)
+    return parse_blocks(body, headings, used_slugs, mermaid_store, top_level=False, layout=layout)
 
 
 def build_list(items):
@@ -568,6 +731,108 @@ def split_top_items(items):
 
 def _ca(idx):
     return _ACCENTS[idx % len(_ACCENTS)]
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# セクション別レイアウト
+#   1つのドキュメント内でも「ここは手順だからタイムライン、ここは並列な機能だからカード、
+#   ここは散文的な補足だから素の箇条書き」と使い分けたい。レイアウトは文書全体で画一に
+#   決まるものではないので、--layout は **既定値（フォールバック）** とし、
+#   セクション単位の指定を次の優先順で解決する。
+#     1. md 内ディレクティブ `<!-- layout: cards -->`（見出し直後に置く。次の見出しまで有効）
+#     2. `--layout-map "節名=cards,節名2=timeline"`（元 md を触らずに指定）
+#     3. `--layout`（既定値）
+#   freeform は文書全体を Claude が著述するモードなので、セクション単位には指定できない。
+# ──────────────────────────────────────────────────────────────────────────
+DET_LAYOUTS = ("plain", "cards", "timeline", "accordion")
+LAYOUT_DIRECTIVE_RE = re.compile(r"^\s*<!--\s*layout\s*[:=]\s*([\w-]+)\s*-->\s*$", re.I)
+_LAYOUT_MAP = {}         # 正規化した節名/slug -> レイアウト
+_LAYOUT_MAP_HIT = set()  # 実際に当たったキー（未使用キーの警告用）
+
+
+def _norm_key(s):
+    """節名の突き合わせ用キー。タグ・空白・記号を落として大小同一視する。"""
+    s = re.sub(r"<[^>]+>", "", s or "")
+    s = re.sub(r"[\s　]+", "", s)
+    return re.sub(r"[^\w\-ぁ-んァ-ヶ一-龠ー]", "", s).lower()
+
+
+def parse_layout_map(spec):
+    """--layout-map "導入手順=timeline,主な機能=cards" を dict にする。"""
+    out = {}
+    if not spec:
+        return out
+    for chunk in spec.split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        if "=" not in chunk:
+            print("warn: --layout-map の項目に = がありません: %r（無視）" % chunk, file=sys.stderr)
+            continue
+        name, val = chunk.split("=", 1)
+        key, val = _norm_key(name), val.strip().lower()
+        if not key:
+            print("warn: --layout-map の節名が空です: %r（無視）" % chunk, file=sys.stderr)
+            continue
+        if val not in DET_LAYOUTS:
+            print("warn: --layout-map の値 %r は指定できません（%s のいずれか）。無視します。"
+                  % (val, "/".join(DET_LAYOUTS)), file=sys.stderr)
+            continue
+        out[key] = val
+    return out
+
+
+def layout_for_section(text, slug, default):
+    """節名または slug で --layout-map を引く。当たらなければ default（=--layout）。"""
+    for key in (_norm_key(text), _norm_key(slug)):
+        if key and key in _LAYOUT_MAP:
+            _LAYOUT_MAP_HIT.add(key)
+            return _LAYOUT_MAP[key]
+    return default
+
+
+def read_layout_directive(line):
+    """`<!-- layout: cards -->` を読む。
+    ディレクティブでなければ None、ディレクティブだが値が不正なら "" を返す
+    （"" は「行は消費するがレイアウトは変えない」の意）。"""
+    m = LAYOUT_DIRECTIVE_RE.match(line)
+    if not m:
+        return None
+    val = m.group(1).lower()
+    if val not in DET_LAYOUTS:
+        hint = "（文書全体のモードなので節単位には指定できません）" if val == "freeform" else ""
+        print("warn: <!-- layout: %s --> は指定できません%s。%s のいずれかにしてください。無視します。"
+              % (val, hint, "/".join(DET_LAYOUTS)), file=sys.stderr)
+        return ""
+    return val
+
+
+def extract_layout_directives(lines):
+    """AI設計モード用。どの節に何が指定されていたかを [(節名, レイアウト)] で拾う。
+    値が不正なものは警告して落とす（決定論モードの read_layout_directive と同じ基準）。"""
+    found, cur, in_fence = [], "(冒頭)", False
+    for ln in lines:
+        if re.match(r"^\s{0,3}(`{3,}|~{3,})", ln):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        hm = re.match(r"^#{1,6}\s+(.*)$", ln)
+        if hm:
+            cur = hm.group(1).strip()
+            continue
+        m = LAYOUT_DIRECTIVE_RE.match(ln)
+        if not m:
+            continue
+        val = m.group(1).lower()
+        if val not in DET_LAYOUTS:
+            hint = "（文書全体のモードなので節単位には指定できません）" if val == "freeform" else ""
+            print("warn: 「%s」の <!-- layout: %s --> は指定できません%s。%s のいずれかに"
+                  "してください。無視します。" % (cur, val, hint, "/".join(DET_LAYOUTS)),
+                  file=sys.stderr)
+            continue
+        found.append((cur, val))
+    return found
 
 
 def render_list(items, layout):
@@ -745,7 +1010,9 @@ STATIC_CSS = r"""
 html{scroll-behavior:smooth}
 body{font-family:var(--font);color:var(--ink);background:var(--bg);line-height:1.85;
   -webkit-font-smoothing:antialiased}
-.progress{position:fixed;top:0;left:0;height:3px;width:0;background:var(--accent);z-index:200;transition:width .1s}
+.progress-track{position:fixed;top:0;left:0;right:0;height:7px;z-index:200;cursor:pointer;background:transparent}
+.progress-track:hover{background:color-mix(in srgb,var(--accent) 14%,transparent)}
+.progress{position:absolute;top:0;left:0;height:3px;width:0;background:var(--accent);transition:width .1s;pointer-events:none}
 .topbar{position:fixed;top:0;left:0;right:0;height:var(--nav-h);z-index:100;
   background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:blur(10px);
   border-bottom:1px solid var(--line)}
@@ -753,9 +1020,13 @@ body{font-family:var(--font);color:var(--ink);background:var(--bg);line-height:1
   display:flex;align-items:center;gap:20px}
 .brand{font-family:var(--font-head);font-weight:800;font-size:15px;color:var(--accent);
   white-space:nowrap;text-decoration:none;display:flex;align-items:center;gap:8px}
-.nav-menu{display:flex;gap:3px;margin-left:auto;flex-wrap:wrap;overflow-x:auto}
+.nav-menu{display:flex;gap:3px;margin-left:auto;min-width:0;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+.nav-menu::-webkit-scrollbar{height:6px}
+.nav-menu::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px}
+.nav-menu::-webkit-scrollbar-thumb:hover{background:var(--muted)}
+.nav-menu::-webkit-scrollbar-track{background:transparent}
 .nav-menu a{font-family:var(--font-head);font-size:13px;font-weight:700;color:var(--muted);
-  text-decoration:none;padding:7px 13px;border-radius:8px;transition:.18s;white-space:nowrap}
+  text-decoration:none;padding:7px 13px;border-radius:8px;transition:.18s;white-space:nowrap;flex:0 0 auto}
 .nav-menu a:hover{color:var(--accent);background:var(--accent-soft)}
 .nav-menu a.active{color:var(--on-accent);background:var(--accent)}
 .topbar-tools{display:flex;align-items:center;gap:10px;flex:0 0 auto}
@@ -783,7 +1054,11 @@ body{font-family:var(--font);color:var(--ink);background:var(--bg);line-height:1
   padding:4px 12px;border-radius:999px}
 .layout{max-width:var(--maxw);margin:0 auto;padding:0 24px 90px;display:grid;
   grid-template-columns:220px 1fr;gap:40px;align-items:start}
-.toc{position:sticky;top:calc(var(--nav-h) + 24px);font-size:13.5px;padding-top:32px}
+.toc{position:sticky;top:calc(var(--nav-h) + 24px);max-height:calc(100vh - var(--nav-h) - 48px);overflow-y:auto;overscroll-behavior:contain;font-size:13.5px;padding-top:32px;padding-right:8px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+.toc::-webkit-scrollbar{width:8px}
+.toc::-webkit-scrollbar-thumb{background:var(--line);border-radius:8px}
+.toc::-webkit-scrollbar-thumb:hover{background:var(--muted)}
+.toc::-webkit-scrollbar-track{background:transparent}
 .toc .toc-ttl{font-family:var(--font-head);font-weight:800;font-size:12px;letter-spacing:.1em;
   color:var(--muted);margin-bottom:12px}
 .toc a{display:block;color:var(--muted);text-decoration:none;padding:4px 10px;border-left:2px solid var(--line);
@@ -800,6 +1075,8 @@ body{font-family:var(--font);color:var(--ink);background:var(--bg);line-height:1
 .anchor{opacity:0;margin-left:8px;color:var(--accent);text-decoration:none;font-weight:400}
 .hl:hover .anchor{opacity:.5}
 .content p{margin:12px 0}
+.md-img{max-width:100%;height:auto;border:1px solid var(--line);border-radius:8px;
+  box-shadow:0 1px 4px rgba(0,0,0,.06);margin:4px 0;vertical-align:top}
 .content a{color:var(--accent);text-decoration:none;border-bottom:1px solid color-mix(in srgb,var(--accent) 40%,transparent)}
 .content ul,.content ol{margin:12px 0 12px 4px;padding-left:22px}
 .content li{margin:6px 0}
@@ -990,7 +1267,7 @@ __STATIC_CSS__
 <script>__MODE_BOOT_JS__</script>
 </head>
 <body id="top" class="__BODYCLASS__">
-<div class="progress"></div>
+<div class="progress-track" title="クリックした位置へ移動"><div class="progress"></div></div>
 <nav class="topbar"><div class="topbar-inner">
   <a href="#top" class="brand">__BRAND__</a>
   <div class="nav-menu">__NAV__</div>
@@ -1015,8 +1292,30 @@ __MODE_SCRIPT_JS__
   var links=[].slice.call(document.querySelectorAll('.nav-menu a, .toc a'));
   // 見出し要素を文書順で取得（スクロールスパイの対象）
   var targets=[].slice.call(document.querySelectorAll('.content .hl'));
+  var curId=null;
+  // アクティブな目次項目が、スクロール可能な目次(.toc=縦 / .nav-menu=横)の
+  // 表示範囲外にある場合、その項目が見えるように目次側をスクロールする
+  function keepInView(a){
+    var box=a.closest('.toc')||a.closest('.nav-menu');
+    if(!box) return;
+    var lr=a.getBoundingClientRect(), br=box.getBoundingClientRect(), m=16;
+    if(box.scrollHeight>box.clientHeight+1){
+      if(lr.top<br.top+m) box.scrollBy({top:lr.top-br.top-m,behavior:'smooth'});
+      else if(lr.bottom>br.bottom-m) box.scrollBy({top:lr.bottom-br.bottom+m,behavior:'smooth'});
+    }
+    if(box.scrollWidth>box.clientWidth+1){
+      if(lr.left<br.left+m) box.scrollBy({left:lr.left-br.left-m,behavior:'smooth'});
+      else if(lr.right>br.right-m) box.scrollBy({left:lr.right-br.right+m,behavior:'smooth'});
+    }
+  }
   function setActive(id){
-    links.forEach(function(a){a.classList.toggle('active', a.getAttribute('href').slice(1)===id);});
+    if(id===curId) return;
+    curId=id;
+    links.forEach(function(a){
+      var on=a.getAttribute('href').slice(1)===id;
+      a.classList.toggle('active', on);
+      if(on) keepInView(a);
+    });
   }
   function spy(){
     if(!targets.length) return;
@@ -1037,6 +1336,14 @@ __MODE_SCRIPT_JS__
   if(ham&&menu)ham.addEventListener('click',function(){menu.classList.toggle('open');});
   if(menu)menu.querySelectorAll('a').forEach(function(a){a.addEventListener('click',function(){menu.classList.remove('open');});});
   var bar=document.querySelector('.progress'),bt=document.querySelector('.backtop');
+  // 進捗バー（トラック）をクリックすると、その横位置に相当する位置へスクロール
+  var ptrack=document.querySelector('.progress-track');
+  if(ptrack)ptrack.addEventListener('click',function(e){
+    var r=ptrack.getBoundingClientRect(), ratio=(e.clientX-r.left)/r.width;
+    ratio=Math.max(0,Math.min(1,ratio));
+    var h=document.documentElement;
+    window.scrollTo({top:(h.scrollHeight-h.clientHeight)*ratio,behavior:'smooth'});
+  });
   function onScroll(){
     var h=document.documentElement,sc=h.scrollTop||document.body.scrollTop,mx=h.scrollHeight-h.clientHeight;
     if(bar)bar.style.width=(mx>0?sc/mx*100:0)+'%';
@@ -1100,7 +1407,14 @@ def inject_figure_slots(content, headings):
 
 
 def convert_file(path, theme_key, eyebrow=None, auto_figure="off", toc_mode="sidebar",
-                 layout="plain", design="deterministic", default_mode="system"):
+                 layout="plain", design="deterministic", default_mode="system",
+                 image_mode="embed", outdir=None, layout_map=None):
+    global _IMG_BASE, _IMG_OUTDIR, _IMG_MODE, _LAYOUT_MAP
+    if layout_map is not None:
+        _LAYOUT_MAP = layout_map
+    _IMG_BASE = os.path.dirname(os.path.abspath(path))
+    _IMG_OUTDIR = os.path.abspath(outdir) if outdir else _IMG_BASE
+    _IMG_MODE = image_mode
     raw = open(path, encoding="utf-8").read()
     meta, body = split_frontmatter(raw)
     lines = body.replace("\r\n", "\n").split("\n")
@@ -1178,24 +1492,33 @@ def main():
                     help="目次の出し方（左サイドのみ/ヘッダーメニューのみ/両方/なし）")
     ap.add_argument("--layout", default="plain",
                     choices=["plain", "cards", "timeline", "accordion", "freeform"],
-                    help="本文の見せ方/テイスト（箇条書き/カード/タイムライン/アコーディオン/完全フリーフォーム）")
+                    help="本文の見せ方の【既定値】（箇条書き/カード/タイムライン/アコーディオン/完全フリーフォーム）。"
+                         "セクション単位の指定が無い節にだけ適用される")
+    ap.add_argument("--layout-map", default=None, metavar="節名=レイアウト,...",
+                    help='セクション別レイアウト。例: --layout-map "導入手順=timeline,主な機能=cards"。'
+                         "節名は見出しテキストか slug（空白・記号・大小は無視して突き合わせ）。"
+                         "値は plain/cards/timeline/accordion。"
+                         "優先順は md 内 <!-- layout: .. --> > --layout-map > --layout")
     ap.add_argument("--design", default="deterministic", choices=["deterministic", "ai"],
                     help="deterministic=スクリプトが型変換／ai=選んだ形式のテイストでClaudeが作り込む")
     ap.add_argument("--default-mode", default=None, choices=COLOR_MODES,
                     help="初回表示の既定モード（未指定ならテーマの既定。darktech=dark, 他=system）")
+    ap.add_argument("--image-mode", default="embed", choices=["embed", "link"],
+                    help="mdのローカル画像リンクの扱い（embed=data URIで埋め込み／link=外部フォルダ参照のまま）")
     args = ap.parse_args()
 
     default_mode = default_mode_of(args.theme, args.default_mode)
+    layout_map = parse_layout_map(args.layout_map)
 
     produced = []
     todo = []  # 手描きが必要な図 [{out, id, source}]
     for path in args.inputs:
         if not os.path.isfile(path):
             print("skip (not found):", path, file=sys.stderr); continue
+        outdir = args.outdir or os.path.dirname(os.path.abspath(path))
         out_html, title, headings, ok, pending = convert_file(
             path, args.theme, args.eyebrow, args.auto_figure, args.toc, args.layout, args.design,
-            default_mode)
-        outdir = args.outdir or os.path.dirname(os.path.abspath(path))
+            default_mode, args.image_mode, outdir, layout_map)
         os.makedirs(outdir, exist_ok=True)
         outname = os.path.splitext(os.path.basename(path))[0] + ".html"
         outpath = os.path.join(outdir, outname)
@@ -1213,6 +1536,13 @@ def main():
         for p in pending:
             todo.append({"out": outpath, "id": p["id"], "source": p["source"]})
         print("OK :", outpath)
+
+    unused = sorted(set(layout_map) - _LAYOUT_MAP_HIT)
+    if unused:
+        print("warn: --layout-map の節名が見つかりませんでした（無視）: %s" % ", ".join(unused),
+              file=sys.stderr)
+        print("      見出しテキストか slug と一致させてください（空白・記号・大小は無視されます）。",
+              file=sys.stderr)
 
     if args.mode == "site" and produced:
         outdir = args.outdir or os.path.dirname(os.path.abspath(produced[0]["src"]))
@@ -1250,8 +1580,25 @@ def main():
         print("\n===== AI_DESIGN_REQUIRED =====")
         print("各出力HTMLの <main class=\"content\"> 内にある <!--MD2DOC_CONTENT--> を、")
         print("元Markdownを解釈して『内容に最適化したデザインのHTML』に Edit で置き換えてください。")
+        print("決定論的な型変換ではなく、手作りサンプル相当の作り込みを行う。")
+        print("\n[レイアウトは節単位で決める] レイアウトは文書全体で画一に決まるものではない。")
+        print("  **セクション（h2/h3）ごとに中身を読んで部品を選ぶ**。目安:")
+        print("    番号付き手順・工程・時系列        -> .timeline>.tl-item")
+        print("    並列に比較できる機能・選択肢・種別 -> .card-grid>.doc-card")
+        print("    項目が多い / 詳細を畳みたい / Q&A -> .accordion>.acc-item")
+        print("    散文的な補足・注意・前提          -> 素の箇条書き＋段落、要所だけ .callout")
+        print("    件数・割合・所要時間などの指標    -> .stat-row>.stat")
+        print("    2項の対比・Before/After           -> .split、比較軸が3つ以上なら .tablewrap>table")
+        print("  同じ部品が3節以上続いたら、内容を見直して別の部品に振り分ける（単調さを避ける）。")
+        print("  1つの節の中でも、前半は説明の箇条書き＋後半だけカード、のような混在は可。")
         print("[基調テイスト=%s] %s" % (args.layout, taste))
-        print("決定論的な型変換ではなく、上記テイストを保ちつつ手作りサンプル相当の作り込みを行う。")
+        print("  ※これは『迷ったときの寄せ先』であって、全節に適用する指定ではない。")
+        for ent in produced:
+            dirs = extract_layout_directives((ent.get("md") or "").replace("\r\n", "\n").split("\n"))
+            if dirs:
+                print("[節指定あり: %s] %s" % (os.path.basename(ent["src"]),
+                      ", ".join("%s=%s" % (sec, lay) for sec, lay in dirs)))
+                print("  ↑ md 側で明示されている節は、この指定を優先すること。")
         print("\n[配色] " + json.dumps(pal, ensure_ascii=False))
         print("[使える部品クラス] hero外の本文で利用可:")
         print("  見出し: <h2 id=SLUG class=\"hl\">..</h2> / <h3 id=SLUG class=\"hl\">..</h3>（下記SLUG必須）")
@@ -1264,6 +1611,11 @@ def main():
         print("  ※【重要】色は必ず CSS 変数（var(--accent) / var(--a1) 等）で指定する。SVG の fill/stroke も同様。")
         print("     hex を直書きするとヘッダーの ライト/ダーク 切替に追従せず、ダークで判読不能になる。")
         print("     アクセント色の上に載る文字は var(--on-accent) を使う。")
+        if args.image_mode == "link":
+            print("  ※【画像=外部フォルダ参照(link)】md内のローカル画像 ![](path) は data URI に埋め込まず、")
+            print("     出力HTMLからの相対パスで <img class=\"md-img\" src=\"...\"> として参照すること。")
+        else:
+            print("  ※【画像=埋め込み(embed)】md内のローカル画像 ![](path) は data URI で埋め込み、自己完結にすること。")
         for p in produced:
             print("\n--- 著述対象: %s" % p["out"])
             print("  必須見出し（この slug を id に使う / nav・目次と一致させる）:")
