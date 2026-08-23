@@ -40,17 +40,30 @@ backlog は1ファイルとは限らない（ドメイン別・タスク分割�
 
 ```yaml
 ---
-backlog: <識別名>       # 例 cl / rpg-spec / split-rpg-dialect
-kind: standing | split  # standing=定常ドメインキュー / split=タスク分割由来の短命キュー
-parent: <slug/ticket>   # split のときだけ: 親（work slug / チケット）
-priority: <整数>        # 複数ファイルの選択順（小さいほど先）。未指定は最後
+backlog: <識別名>              # 例 cl / rpg-spec / split-rpg-dialect
+kind: standing | split | topic # ファイルの一生の宣言。「消化しきったら終わるか」で選ぶ
+parent: <slug/ticket>          # split のときだけ: 親（work slug / チケット）
+priority: <整数>               # 複数ファイルの選択順（小さいほど先）。未指定は最後
 ---
 ```
 
 - **選択順**: 明示指定（`batch <file>`）が最優先。無指定は active な `.aidev/backlog/*.md` を
   `priority` → ファイル名 の順に走査する。
-- **archive**: 全項目が `[x]` になったファイルは `.aidev/backlog/archive/` に退避し、active の glob
-  （`archive/` を除く）を小さく保つ。standing は退避せず継続、split は消化後に退避。
+- **kind の選び方**（`aidev doctor` がこの3値で退避漏れを見る。未記載・誤記も WARN）:
+  - **`standing`** = 定常ドメインキュー。そのドメインが続く限り**また積まれる**（例 `cl.md`）。
+    **全消化でも退避しない**。
+  - **`split`** = タスク分割由来の短命キュー（`split-<親>.md`）。`parent` を持つ。**消化後に退避**。
+  - **`topic`** = 一件で完結するトピック（特定の調査・特定の設計変更）。`parent` を持たないが、
+    **消化しきったら終わる**ので split と同じく**消化後に退避**。
+    standing との違いは「またここに積むか」——積まないなら topic。
+- **archive**: 消化しきったら終わるキュー（`split` / `topic`）で全項目が `[x]` になったファイルは
+  `.aidev/backlog/archive/` に退避し、active の glob（`archive/` を除く）を小さく保つ。
+  `standing` は全消化でも退避せず継続。
+  - **退避は `aidev backlog archive` で行う**（引数なしで条件を満たすものだけ退避。判定は `doctor` の
+    WARN と同じ関数を通る）。`mv` のみなので、**コミットは呼び出し側の仕事**
+    （`git add -A .aidev/backlog` でリネームとして拾われる）。
+- **新しい backlog ファイルは `aidev backlog new <name> --kind <k>` で起こす**。
+  frontmatter を CLI が書くので `kind` の付け忘れが起きない。
 - **依存**: 順序の正は生成する work の `state.yml` `dependsOn`（`protocol.md`「2.7」）。
   ただし**着手前から既知の前提**（ファイル跨ぎ・split 親・未整備の前提skill 等）は、項目行末の任意注記
   `(needs: <slug/#N>)` で表してよい。batch は `aidev new --depends` で作成時に `dependsOn` へ転記し、未充足なら保留＝次項目へ。
@@ -66,8 +79,14 @@ priority: <整数>        # 複数ファイルの選択順（小さいほど先�
 1. バックログ・ファイルを解決して読む。未チェック `[ ]` 項目を列挙する。
 2. **無ければ「完了（未処理なし）」と報告して終了**（停止条件）。
 3. **1回の処理件数上限**を決める（既定 3、必要なら確認）。上限まで、未チェックの**先頭から**処理：
-   - `aidev new <slug> --mode autonomous [--depends <(needs:…)の前提>]` で work を作成し、その項目テキストを
-     **task** として autonomous で実行する（protocol「10.」。重い実処理はサブエージェントに委譲してよい）。
+   - `aidev new <slug> --mode autonomous --backlog <いま消化しているバックログのファイル名> [--depends <(needs:…)の前提>]`
+     で work を作成し、その項目テキストを **task** として autonomous で実行する
+     （protocol「10.」。重い実処理はサブエージェントに委譲してよい）。
+   - **`--backlog` は省略しない**。batch は手順 4 で自分が `[x]` にするので一見不要だが、
+     **バッチが途中で切れると誰も刻んでおらず、後続セッションはその work が backlog 由来だと知る手段が無い**
+     （`state.yml` に出自が無ければ deliver の `aidev verify` も素通りする）。刻印しておけば、
+     別セッションで再開しても着地前に消し込みが強制される（`protocol.md`「2.9」）。
+     刻印は `aidev status` の `inflight` 列にも出るので、**着手中の項目を別の入口が二重に選ばなくなる**。
    - 実処理は PJ資産（関連 skill）に委譲される（例: CL定義なら `cl-command-def`）。
    - **test を硬いゲートに**: 通らなければその項目は失敗として記録し、`[ ]` のまま残す。
      - **定義・データ生成系（原典のある成果物）では、test硬ゲートに「原典との機械diff」を含める**:

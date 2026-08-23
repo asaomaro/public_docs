@@ -96,7 +96,7 @@ ST_TSV=$(run_sh status --format tsv)
 assert_contains "$ST_TSV" "work	20260101-alpha	-	autonomous	deliver	-	yes	ok" "alpha: 完了行(next=-/done=yes/deps=ok)"
 assert_contains "$ST_TSV" "work	20260102-beta	#42	interactive	spec	plan	no	#99(advisory)" "beta: next=plan/done=no/deps=#99(advisory)（alpha は充足）"
 assert_contains "$ST_TSV" "work	20260103-legacy	-	-	requirement	requirement	no	ok" "legacy: schema無しでも一覧化(next=requirement)"
-assert_contains "$ST_TSV" "backlog	x.md	2	1" "backlog x.md: todo=2/needs=1"
+assert_contains "$ST_TSV" "backlog	x.md	2	1	0" "backlog x.md: todo=2/needs=1/inflight=0（刻印付き work 無し）"
 assert_absent  "$ST_TSV" "should-not-count" "archive/ は除外される"
 
 ST_TBL=$(run_sh status)
@@ -306,6 +306,243 @@ run_sub new solo >/dev/null; SSO=$(cat "$SUB/.aidev/current")
 : > "$SUB/.aidev/works/$SSO/requirement.md"; run_sub approve requirement >/dev/null
 SOLOLINE=$(run_sub status --subtasks | grep "$SSO")
 assert_absent "$SOLOLINE" "sub " "rollup: subtask 無し work(solo) は next に sub を出さない"
+
+echo "== backlog 出自の消し込み（new --backlog / verify） =="
+# 背景: 直接入口（aidev-00-start で backlog 項目を選ぶ）は batch と違い自動で [x] にしない。
+# 閉じ忘れると「完了済みの項目を次の人が選ぶ」（2026-08-01 に実際に発生）。
+BLR=$(mktemp -d); mkdir -p "$BLR/.aidev/backlog"
+printf '# demo\n\n- [ ] やること\n' > "$BLR/.aidev/backlog/demo.md"
+run_bl() { ( cd "$BLR" && "$AIDEV_SH" "$@" ); }
+
+run_bl new nofile --backlog missing.md >/dev/null 2>&1
+assert_eq "$?" "1" "new --backlog: 存在しないファイルは着手前に弾く"
+
+run_bl new demo-work --mode autonomous --backlog demo.md >/dev/null
+BLW=$(cat "$BLR/.aidev/current")
+assert_contains "$(cat "$BLR/.aidev/works/$BLW/state.yml")" "backlog: demo.md" "new --backlog: state.yml に出自を刻む"
+
+# deliver まで通す（review.md は schema>=2 の不変条件）
+: > "$BLR/.aidev/works/$BLW/review.md"
+for p in requirement spec plan coding test review deliver; do run_bl approve "$p" >/dev/null; done
+
+BLV=$(run_bl verify 2>&1); BLC=$?
+assert_eq "$BLC" "4" "verify: 消し込み前は FAIL（deliver 済 + backlog 出自）"
+assert_contains "$BLV" "消し込みが無い" "verify: 消し込み漏れを名指しする"
+
+# 消し込む（規約どおり works slug を根拠として併記する）
+printf '# demo\n\n- [x] やること\n    → %s で完了\n' "$BLW" > "$BLR/.aidev/backlog/demo.md"
+run_bl verify >/dev/null 2>&1
+assert_eq "$?" "0" "verify: 消し込み後は PASS"
+
+# archive へ退避しても追える（全項目 [x] のファイルは archive/ へ移る運用）
+mkdir -p "$BLR/.aidev/backlog/archive"
+mv "$BLR/.aidev/backlog/demo.md" "$BLR/.aidev/backlog/archive/demo.md"
+run_bl verify >/dev/null 2>&1
+assert_eq "$?" "0" "verify: archive/ へ退避後も消し込みを追える"
+
+# 出自を持たない work は従来どおり（後方互換）
+run_bl new plain --mode autonomous >/dev/null
+PLW=$(cat "$BLR/.aidev/current")
+assert_absent "$(cat "$BLR/.aidev/works/$PLW/state.yml")" "backlog:" "new: --backlog 無しでは backlog 行を書かない"
+: > "$BLR/.aidev/works/$PLW/review.md"
+for p in requirement spec plan coding test review deliver; do run_bl approve "$p" >/dev/null; done
+run_bl verify >/dev/null 2>&1
+assert_eq "$?" "0" "verify: backlog 出自の無い work は従来どおり PASS"
+rm -rf "$BLR"
+
+echo "== status: backlog の inflight 列 =="
+# 背景: backlog 行が [x] になるのは deliver。着手から着地までの間、backlog 側は
+# 「掴まれている項目」と「素の未着手」を区別できず、新規セッションが二重に選びうる。
+IFR=$(mktemp -d); mkdir -p "$IFR/.aidev/works" "$IFR/.aidev/backlog"
+run_if() { ( cd "$IFR" && "$AIDEV_SH" "$@" ); }
+cat > "$IFR/.aidev/backlog/q.md" <<'EOF'
+---
+kind: standing
+---
+
+- [ ] ひとつめ
+- [ ] ふたつめ
+EOF
+
+run_if new inflight-a --mode autonomous --backlog q.md >/dev/null   # 着手中（未 deliver）
+run_if new plain-b --mode autonomous >/dev/null                     # 刻印なし＝数えない
+run_if new delivered-c --mode autonomous --backlog q.md >/dev/null
+DC=$(cat "$IFR/.aidev/current")
+: > "$IFR/.aidev/works/$DC/review.md"
+for p in requirement spec plan coding test review deliver; do run_if approve "$p" >/dev/null; done
+
+IF_TSV=$(run_if status --format tsv)
+assert_contains "$IF_TSV" "backlog	q.md	2	0	1" "status: inflight=1（未 deliver の刻印付きだけ数える）"
+assert_contains "$(run_if status)" "inflight" "status: 表形式に inflight 列が出る"
+
+# deliver 済は掴んでいない＝落ちる（着地したら backlog 行は [x] 側で表現される）
+assert_absent "$IF_TSV" "backlog	q.md	2	0	2" "status: deliver 済 work は inflight に数えない"
+rm -rf "$IFR"
+
+echo "== doctor: backlog ファイル横断検査 =="
+# 背景: verify の消し込み検査は work にぶら下がるため、**ファイル自身の一生**（退避・frontmatter・
+# 項目の書式）には持ち主がいなかった。batch は split を退避するが直接入口は退避せず、
+# ts5250 では全消化 11 ファイルが未退避・frontmatter 全欠落のまま誰にも検知されていなかった。
+DTR=$(mktemp -d); mkdir -p "$DTR/.aidev/works" "$DTR/.aidev/backlog/archive"
+run_dt() { ( cd "$DTR" && "$AIDEV_SH" "$@" ); }
+
+# standing の全消化は正常（継続キューなので退避しない）＝WARN を出してはいけない
+cat > "$DTR/.aidev/backlog/standing-done.md" <<'EOF'
+---
+backlog: st
+kind: standing
+---
+
+- [x] 済み → 20260101-alpha
+EOF
+# split の全消化は退避漏れ
+cat > "$DTR/.aidev/backlog/split-done.md" <<'EOF'
+---
+backlog: sp
+kind: split
+parent: 20260101-alpha
+---
+
+- [x] 済み → 20260101-alpha
+EOF
+# topic の全消化も退避対象（一件で完結＝もう積まれない）
+cat > "$DTR/.aidev/backlog/topic-done.md" <<'EOF'
+---
+backlog: tp
+kind: topic
+---
+
+- [x] 済み → 20260101-alpha
+EOF
+# kind の誤記を黙って standing 扱いにすると退避検査がまるごと効かなくなる
+cat > "$DTR/.aidev/backlog/typo-kind.md" <<'EOF'
+---
+kind: standig
+---
+
+- [x] 済み → 20260101-alpha
+EOF
+# frontmatter が無いと standing/split/topic を判定できない
+cat > "$DTR/.aidev/backlog/nofront.md" <<'EOF'
+# 見出しだけ
+
+- [ ] まだ
+EOF
+# 見出し形式のチェックボックスは status の glob に掛からない＝未着手が見えなくなる
+cat > "$DTR/.aidev/backlog/heading.md" <<'EOF'
+---
+kind: standing
+---
+
+## - [ ] 見出し形式の項目
+EOF
+# archive/ は status の *.md グロブから外れるので、未消化を退避すると誰の目にも入らない
+cat > "$DTR/.aidev/backlog/archive/stale.md" <<'EOF'
+---
+kind: split
+---
+
+- [ ] 残ってる
+- [x] 済み → 20260101-alpha
+EOF
+
+DT=$(run_dt doctor)
+assert_contains "$DT" "backlog: ファイル横断検査" "doctor: backlog 検査の節を出す"
+assert_contains "$DT" "全消化(split)だが未退避" "doctor: 全消化 split の退避漏れを検知"
+assert_contains "$DT" "全消化(topic)だが未退避" "doctor: 全消化 topic の退避漏れを検知"
+assert_contains "$DT" "未知の kind: standig" "doctor: kind の誤記を検知（黙って standing 扱いにしない）"
+assert_contains "$DT" "frontmatter(kind)が無い" "doctor: frontmatter 欠落を検知"
+assert_contains "$DT" "status が数えない書式の項目が 1 件" "doctor: 見出し形式の項目を検知"
+assert_contains "$DT" "archive 済だが未消化が 1 件" "doctor: archive 内の未消化を検知"
+assert_absent "$DT" "standing-done.md" "doctor: 全消化の standing は正常（WARN しない）"
+assert_contains "$DT" "backlog-summary: files=6 archived=1 warn=6" "doctor: backlog サマリの件数"
+
+run_dt doctor >/dev/null 2>&1
+assert_eq "$?" "0" "doctor: backlog の WARN は exit code を変えない（硬ゲートは verify 側）"
+
+if command -v pwsh >/dev/null 2>&1; then
+  O_PS=$( ( cd "$DTR" && pwsh "$AIDEV_PS1" doctor ) | tr -d '\r' )
+  assert_eq "$DT" "$O_PS" "パリティ: doctor(backlog 検査)"
+else
+  skip "pwsh 不在のため doctor(backlog) のパリティを省略"
+fi
+rm -rf "$DTR"
+
+echo "== use / backlog new / backlog archive =="
+# 背景: backlog の積む・退避する・current の切替は、検査だけあって**実行手段が無かった**
+# （verify は消し込み漏れを FAIL させ doctor は退避漏れを WARN するのに、どちらも手作業だった）。
+CLR=$(mktemp -d); mkdir -p "$CLR/.aidev/works"
+run_cl() { ( cd "$CLR" && "$AIDEV_SH" "$@" ); }
+
+run_cl backlog new nokind >/dev/null 2>&1
+assert_eq "$?" "1" "backlog new: --kind は必須（欠落を構造的に防ぐ）"
+run_cl backlog new sp --kind split >/dev/null 2>&1
+assert_eq "$?" "1" "backlog new: kind=split は --parent 必須"
+run_cl backlog new bad --kind standig >/dev/null 2>&1
+assert_eq "$?" "1" "backlog new: 未知の kind を弾く"
+run_cl backlog new demo --kind topic >/dev/null
+DEMO=$(cat "$CLR/.aidev/backlog/demo.md")
+assert_contains "$DEMO" "kind: topic" "backlog new: frontmatter に kind を書く"
+assert_contains "$DEMO" "backlog: demo" "backlog new: frontmatter に識別名を書く"
+run_cl backlog new demo --kind topic >/dev/null 2>&1
+assert_eq "$?" "1" "backlog new: 既存ファイルは拒否"
+
+A1=$(run_cl backlog archive)
+assert_contains "$A1" "summary: archived=0 skipped=0" "backlog archive: 未消化は退避しない"
+printf '%s\n' "- [x] 済み → 20260101-alpha" >> "$CLR/.aidev/backlog/demo.md"
+A2=$(run_cl backlog archive)
+assert_contains "$A2" "archived: demo.md" "backlog archive: 全消化 topic を退避"
+assert_contains "$A2" "note: git 未反映" "backlog archive: git は触らないと明示（DESIGN 2.6）"
+assert_eq "$(ls "$CLR/.aidev/backlog/archive/")" "demo.md" "backlog archive: archive/ へ移動している"
+
+cat > "$CLR/.aidev/backlog/st.md" <<'EOF'
+---
+backlog: st
+kind: standing
+---
+
+- [x] 済み → 20260101-alpha
+EOF
+A3=$(run_cl backlog archive st.md)
+assert_contains "$A3" "退避条件を満たしません" "backlog archive: standing は明示指定でも退避しない"
+A4=$(run_cl backlog archive st.md --force)
+assert_contains "$A4" "archived: st.md" "backlog archive: --force なら条件を越えられる"
+
+# doctor の WARN と archive の実行が**同じ判定**を通ること（検査と実行の一致）
+cat > "$CLR/.aidev/backlog/tp.md" <<'EOF'
+---
+backlog: tp
+kind: topic
+---
+
+- [x] 済み → 20260101-alpha
+EOF
+assert_contains "$(run_cl doctor)" "全消化(topic)だが未退避" "doctor: 退避漏れを WARN"
+run_cl backlog archive >/dev/null
+assert_absent "$(run_cl doctor)" "全消化(topic)だが未退避" "archive 実行で doctor の WARN が消える（判定が一致）"
+
+run_cl new alpha --mode autonomous >/dev/null
+CW1=$(cat "$CLR/.aidev/current")
+run_cl new beta --mode autonomous >/dev/null
+assert_eq "$(run_cl use)" "$(cat "$CLR/.aidev/current")" "use: 引数なしで現在値を出す"
+CU=$(run_cl use "$CW1")
+assert_contains "$CU" "current: $CW1" "use: 別の work へ切り替える"
+assert_eq "$(cat "$CLR/.aidev/current")" "$CW1" "use: .aidev/current が実際に書き換わる"
+run_cl use nosuch >/dev/null 2>&1
+assert_eq "$?" "1" "use: 存在しない slug を弾く（手書きの打ち間違い対策）"
+
+if command -v pwsh >/dev/null 2>&1; then
+  for args in "use" "backlog archive"; do
+    # shellcheck disable=SC2086
+    O_SH=$( ( cd "$CLR" && "$AIDEV_SH" $args ) )
+    # shellcheck disable=SC2086
+    O_PS=$( ( cd "$CLR" && pwsh "$AIDEV_PS1" $args ) | tr -d '\r' )
+    assert_eq "$O_SH" "$O_PS" "パリティ: $args"
+  done
+else
+  skip "pwsh 不在のため use / backlog のパリティを省略"
+fi
+rm -rf "$CLR"
 
 echo "== sh ⇔ ps1 パリティ =="
 if command -v pwsh >/dev/null 2>&1; then

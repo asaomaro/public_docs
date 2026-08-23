@@ -50,10 +50,16 @@ CLI が使えない環境のフォールバック: `cat .aidev/current` / `ls .a
 `AskUserQuestion` ツールで次の選択肢を提示する（`Other` による自由入力も可）。
 非対応エージェントでは同じ選択肢をテキストで提示する。
 
-- **続きから**：既存の作業を選択 → `.aidev/current` を更新 → その工程の skill を案内。
+- **続きから**：既存の作業を選択 → `aidev use <slug>`（`.aidev/current` を更新。存在しない slug は弾かれる）
+  → その工程の skill を案内。CLI 無し環境では `.aidev/current` を手で書く。
 - **別工程をやり直す（差し戻し）**：作業と工程を選択 → 当該工程の skill を案内。
 - **未着手から着手する**：backlog／トラッカーの未着手項目を選び、その内容を requirement として手順 4 へ
   （依存 `(needs:…)` が未充足なら警告。`protocol.md`「2.7」）。
+  - **選ぶ前に、その項目が本当に未着手か確かめる**。backlog は**遅れる**——別の作業が結果的に
+    閉じていても、行は `[ ]` のまま残りうる。**works の記述ではなくリポジトリの現物**
+    （ファイル・シンボル・テスト・ビルド出力）で裏を取ってから着手する。
+    2026-08-01 に、5 日前に完了済みの項目を選んで requirement を書きかけた実例がある。
+  - **backlog 由来なら手順 4 で `--backlog <file>` を渡す**（deliver での消し込みを verify が強制する）。
 - **新規 requirement を起こす**：手順 4 へ。
 
 作業が複数ある場合は、まず対象の works フォルダを選ばせてから上記を提示してよい。
@@ -67,7 +73,11 @@ CLI が使えない環境のフォールバック: `cat .aidev/current` / `ls .a
      `--mode autonomous`（必要なら作成後に `state.yml` の `humanGates` を設定＝部分自律。例 `[spec]`）。
    - 外部チケット連携時は `--ticket <ID>`（種類は `.aidev/config.yml` の `tracker`）。
    - 前提となる作業/issue があれば `--depends <works slug,#N,…>`（`protocol.md`「2.7」「6.」）。
+   - **backlog 項目から起こしたなら `--backlog <file>`**（例 `--backlog hostserver.md`）。
+     出自を `state.yml` に刻み、**deliver で消し込まないと `aidev verify` が FAIL する**
+     （閉じ忘れを機械的に塞ぐ。`aidev-70-deliver`「3.5」）。
    - 例: `aidev new user-login --mode interactive --ticket "#42" --depends 20260620-base`
+   - 例: `aidev new ifs-preview-race --mode autonomous --backlog hostserver.md`
    - **CLI を持たない環境**では手で同等に行う（`date -u +%Y%m%d` で `<YYYYMMDD>-<slug>` 採番 → `mkdir` →
      `protocol.md`「6.」に従い `state.yml`（`schema`/`current: requirement`/`approved: []`）と
      `metrics.yml`（`events:`）を作成 → `.aidev/current` 設定）。

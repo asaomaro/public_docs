@@ -8,12 +8,18 @@
 #
 # 使い方:
 #   aidev new <slug> [--mode interactive|autonomous] [--ticket ID] [--depends a,b,#N] [--parent <親work>]
+#                    [--backlog <file>]
 #     --parent 指定時は親 work 配下に subtask（<NN>-<subslug>・date prefix なし・current=plan）を作る
+#     --backlog は backlog 項目から起こした work に出自を刻む（deliver での消し込みを verify が強制する）
 #   aidev event <phase> <start|approved|sent_back> [key=value ...]
 #   aidev approve <phase> [key=value ...]      # approved 追記 + current 更新 + approved イベント
 #   aidev guard <phase>                        # 前提成果物 + dependsOn の充足を検査（exit!=0で未充足）
 #   aidev verify [slug]                        # 現在(or指定)workの不変条件を version-aware に検査
-#   aidev doctor                               # 全 work を横断検査（legacy は免除して報告）
+#   aidev doctor                               # 全 work を横断検査（legacy は免除）＋ backlog ファイル検査（WARN）
+#   aidev use [<slug>]                         # 継続する作業を切り替える（引数なしで現在値を表示）
+#   aidev backlog new <name> --kind standing|split|topic [--parent <p>] [--priority <n>]
+#     frontmatter 付きで backlog ファイルを起こす（kind 欠落を構造的に防ぐ）
+#   aidev backlog archive [<file>...] [--force]  # 消化しきった backlog を archive/ へ退避（mv のみ・git は触らない）
 #   aidev status [--format table|tsv]          # works横断＋backlog未着手の状況サマリ（読み取り専用）
 #   aidev metrics [slug] [--all] [--phases] [--format table|tsv]  # metrics.yml から派生指標を集計（読み取り専用）
 #   aidev worktree add <slug> [--branch n] [--base ref] [--path dir] [--mode m] [--ticket id] [--depends list]
@@ -124,18 +130,24 @@ append_event() { # phase event [key=value ...]
 
 # --- コマンド: new ------------------------------------------------------------
 cmd_new() {
-  slug=""; mode=""; ticket=""; depends=""; parent=""
+  slug=""; mode=""; ticket=""; depends=""; parent=""; backlog=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --mode) mode=$2; shift 2 ;;
       --ticket) ticket=$2; shift 2 ;;
       --depends) depends=$2; shift 2 ;;
       --parent) parent=$2; shift 2 ;;
+      --backlog) backlog=$(basename "$2"); shift 2 ;;
       -*) die "未知のオプション: $1" ;;
       *) [ -z "$slug" ] && slug=$1 || die "slug は1つだけ"; shift ;;
     esac
   done
-  [ -n "$slug" ] || die "使用法: aidev new <slug> [--mode ..] [--ticket ..] [--depends ..] [--parent <親work>]"
+  [ -n "$slug" ] || die "使用法: aidev new <slug> [--mode ..] [--ticket ..] [--depends ..] [--parent <親work>] [--backlog <file>]"
+  # backlog 出自は「消し込み忘れ」を verify で捕まえるための刻印。存在しないファイルを
+  # 指したまま進むと deliver 直前まで気づけないので、この場で弾く
+  if [ -n "$backlog" ] && [ ! -f "$AIDEV/backlog/$backlog" ]; then
+    die "backlog ファイルが無い: .aidev/backlog/$backlog"
+  fi
 
   deps_yaml="[]"
   if [ -n "$depends" ]; then
@@ -217,11 +229,19 @@ cmd_new() {
     printf 'humanGates: []\n'
     printf 'maxSendBacks: 3\n'
     printf 'dependsOn: %s\n' "$deps_yaml"
+    # `[ … ] && printf` にしない（set -eu 下で group の戻り値が 1 になる形を避ける。下の注記と同じ理由）
+    if [ -n "$backlog" ]; then printf 'backlog: %s\n' "$backlog"; fi
   } > "$WORK/state.yml"
 
   printf 'events:\n' > "$WORK/metrics.yml"
   printf '%s\n' "$name" > "$AIDEV/current"
   printf 'created: %s (schema %s, mode %s)\n' "$WORK" "$CURRENT_SCHEMA" "$mode"
+  # 注意: ここを `[ -n "$backlog" ] && printf …` と書くと、backlog 未指定時に
+  # **関数の戻り値が 1 になる**（末尾コマンドの終了状態がそのまま返る）。
+  # worktree add は cmd_new の戻り値を見るので、それだけで add が失敗する
+  if [ -n "$backlog" ]; then
+    printf 'backlog: %s（deliver で該当行を [x] にすること。verify が検査する）\n' "$backlog"
+  fi
 }
 
 # --- コマンド: event ----------------------------------------------------------
@@ -394,6 +414,21 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail
       if approved_has deliver; then
         grep -Eq 'phase:[[:space:]]*deliver.*event:[[:space:]]*approved|event:[[:space:]]*approved.*phase:[[:space:]]*deliver' "$WORK/metrics.yml" 2>/dev/null \
           || VF="$VF deliver承認イベントがmetricsに無い"
+        # backlog 出自の消し込み（DESIGN「2.5」: backlog 行は deliver で [x]）。
+        # 直接入口（aidev-00-start で backlog 項目を選ぶ）は batch と違い自動で [x] にしないため、
+        # 閉じ忘れると「完了済みの項目を次の人が選ぶ」（2026-08-01 に実際に発生）。
+        # 行の同定は諦め、**backlog ファイルに自分の slug が現れるか**で見る
+        #（消し込みの根拠に works slug を併記する規約と同じものを検査対象にしている）。
+        bl=$(yget "$st" backlog)
+        if [ -n "$bl" ]; then
+          blf="$AIDEV/backlog/$bl"
+          [ -f "$blf" ] || blf="$AIDEV/backlog/archive/$bl"
+          if [ ! -f "$blf" ]; then
+            VF="$VF backlog:${bl}が見つからない"
+          elif ! grep -q "$SLUG" "$blf" 2>/dev/null; then
+            VF="$VF backlog:${bl}に${SLUG}の消し込みが無い"
+          fi
+        fi
       fi
     fi
   fi
@@ -406,6 +441,85 @@ cmd_verify() {
   resolve_work "${1:-}"
   printf 'verify: %s\n' "$SLUG"
   if verify_work; then return 0; else return 4; fi
+}
+
+# --- backlog ファイル横断検査（doctor の一部） ------------------------------------
+# verify の消し込み検査は **work にぶら下がる**（自分が刻んだファイルに自分の slug があるか）。
+# 対して退避・frontmatter・項目の書式は **ファイル自身の一生**の話で、持ち主の work がいない。
+# そのため誰も見ておらず、「入口が2つあって片方だけ自動」（2026-08-01 の穴）がファイル単位で
+# 再発する形になっていた（batch は split を退避するが、直接入口は退避しない）。
+# ここは事後検知なので WARN 止まりにし、exit code は works の fail だけで決める（硬ゲートは verify）。
+bl_kind() { # file -> 先頭 frontmatter の kind（frontmatter 自体が無ければ空）
+  awk 'NR==1 && $0 !~ /^---[[:space:]]*$/ {exit}
+       NR==1 {next}
+       /^---[[:space:]]*$/ {exit}
+       /^kind:[[:space:]]*/ {sub(/^kind:[[:space:]]*/,""); sub(/[[:space:]]*$/,""); print; exit}' "$1" 2>/dev/null
+}
+
+# backlog ファイル1件の数え上げ。**status と同じ glob** を使う（status に見えている姿を検査対象にする）。
+bl_stat() { # file -> BL_TODO / BL_DN / BL_HID / BL_KIND
+  BL_TODO=$(grep -c '^[[:space:]]*- \[ \]' "$1" 2>/dev/null || true); BL_TODO=${BL_TODO:-0}
+  BL_DN=$(grep -c '^[[:space:]]*- \[[xX]\]' "$1" 2>/dev/null || true); BL_DN=${BL_DN:-0}
+  BL_HID=$(grep -cE '^(#+[[:space:]]*- |[[:space:]]*[*+][[:space:]]*)\[[ xX]\]' "$1" 2>/dev/null || true); BL_HID=${BL_HID:-0}
+  BL_KIND=$(bl_kind "$1")
+}
+
+# 退避してよいか＝**消化しきったら終わるキュー**（split/topic）で全項目 [x]。
+# doctor の WARN と backlog archive の実行が**同じ判定**を通るようにここに集約する
+#（検査だけあって実行が無い、という形を作らないため）。
+bl_archivable() { # file -> 0=退避可 / 1=不可（BL_* も設定する）
+  bl_stat "$1"
+  case "$BL_KIND" in split|topic) ;; *) return 1 ;; esac
+  [ "$BL_TODO" -eq 0 ] && [ "$BL_DN" -gt 0 ]
+}
+
+doctor_backlog() {
+  [ -d "$AIDEV/backlog" ] || return 0
+  bfiles=0; barch=0; bwarn=0; bout=""
+  for f in "$AIDEV/backlog"/*.md "$AIDEV/backlog/archive"/*.md; do
+    [ -f "$f" ] || continue
+    case "$f" in
+      "$AIDEV/backlog/archive/"*) arch=yes; label="archive/$(basename "$f")"; barch=$((barch+1)) ;;
+      *)                          arch=no;  label=$(basename "$f");          bfiles=$((bfiles+1)) ;;
+    esac
+    bl_stat "$f"; todo=$BL_TODO; dn=$BL_DN; hid=$BL_HID; kind=$BL_KIND
+    w=""
+    if [ "$arch" = no ]; then
+      # kind は**ファイルの一生の宣言**。無いと退避の要否が決まらず、毎回人が判断し直すことになる。
+      # standing=また積まれる（退避しない） / split・topic=消化しきったら終わる（退避する）。
+      case "$kind" in
+        "")
+          w="$w    WARN frontmatter(kind)が無い: standing/split/topic を判定できず退避の要否が決まらない
+" ;;
+        standing) : ;;
+        split|topic)
+          if [ "$todo" -eq 0 ] && [ "$dn" -gt 0 ]; then
+            w="$w    WARN 全消化($kind)だが未退避: .aidev/backlog/archive/ へ移す
+"
+          fi ;;
+        *)
+          # 誤記を黙って standing 扱いにしない（退避検査がまるごと効かなくなるため）
+          w="$w    WARN 未知の kind: $kind（standing/split/topic のいずれか）
+" ;;
+      esac
+    elif [ "$todo" -gt 0 ]; then
+      # archive/ は status の *.md グロブから外れる＝ここに残った未着手は誰の目にも入らない
+      w="$w    WARN archive 済だが未消化が ${todo} 件: status から外れて見えない未着手になっている
+"
+    fi
+    if [ "$hid" -gt 0 ]; then
+      w="$w    WARN status が数えない書式の項目が ${hid} 件（見出し '## - [ ]' や '*' 箇条書き）: 未着手が status から漏れる
+"
+    fi
+    if [ -n "$w" ]; then
+      bwarn=$((bwarn+1))
+      bout="$bout- $label (todo=$todo done=$dn kind=${kind:--})
+$w"
+    fi
+  done
+  printf 'backlog: ファイル横断検査\n'
+  if [ -n "$bout" ]; then printf '%s' "$bout"; fi
+  printf 'backlog-summary: files=%s archived=%s warn=%s\n' "$bfiles" "$barch" "$bwarn"
 }
 
 # --- コマンド: doctor ---------------------------------------------------------
@@ -434,6 +548,7 @@ cmd_doctor() {
     done
   done
   printf 'summary: works=%s fail=%s legacy(免除)=%s\n' "$total" "$fail" "$legacy"
+  doctor_backlog
   [ "$fail" -eq 0 ]
 }
 
@@ -529,6 +644,22 @@ cmd_status() {
     done
   fi
 
+  # ---- in-flight 収集: backlog 刻印を持ち、まだ deliver していない work ----
+  # backlog 行が [x] になるのは deliver（`aidev-70-deliver`「3.5」）なので、着手から着地までの間、
+  # backlog 側は**掴まれている項目と素の未着手を区別できない**。新規セッションがそこで同じ項目を
+  # 二重に選ぶのが 2026-08-01 の事故の再発経路なので、件数を status に出して着手前に見せる。
+  inflight=""
+  if [ -d "$AIDEV/works" ]; then
+    for d in "$AIDEV/works"/*/; do
+      [ -d "$d" ] || continue
+      _ist="${d}state.yml"; [ -f "$_ist" ] || continue
+      _ibl=$(yget "$_ist" backlog); [ -n "$_ibl" ] || continue
+      case " $(ylist "$_ist" approved) " in *" deliver "*) continue ;; esac
+      inflight="$inflight$_ibl
+"
+    done
+  fi
+
   # ---- backlog 収集（archive/ はサブディレクトリのため *.md グロブで自動除外） ----
   bf=0; bn=0; brows=""
   if [ -d "$AIDEV/backlog" ]; then
@@ -537,8 +668,10 @@ cmd_status() {
       fname=$(basename "$f")
       todo=$(grep -c '^[[:space:]]*- \[ \]' "$f" 2>/dev/null || true); todo=${todo:-0}
       needs=$(grep '^[[:space:]]*- \[ \]' "$f" 2>/dev/null | grep -c '(needs:' || true); needs=${needs:-0}
+      # -xF: ファイル名の '.' を正規表現として解釈させない
+      inf=$(printf '%s' "$inflight" | grep -cxF "$fname" 2>/dev/null || true); inf=${inf:-0}
       bf=$((bf+1)); bn=$((bn+todo))
-      brows="$brows$fname	$todo	$needs
+      brows="$brows$fname	$todo	$needs	$inf
 "
     done
   fi
@@ -552,9 +685,9 @@ cmd_status() {
         printf 'subtask\t%s/%s\t%s\t%s\n' "$a" "$b" "$c" "$e"
       fi
     done
-    printf '%s' "$brows" | while IFS='	' read -r a b c; do
+    printf '%s' "$brows" | while IFS='	' read -r a b c e; do
       [ -z "$a" ] && continue
-      printf 'backlog\t%s\t%s\t%s\n' "$a" "$b" "$c"
+      printf 'backlog\t%s\t%s\t%s\t%s\n' "$a" "$b" "$c" "$e"
     done
     return 0
   fi
@@ -576,7 +709,7 @@ cmd_status() {
   printf '\n'
   printf 'BACKLOG (未着手 %s 件)\n' "$bn"
   if [ "$bf" -gt 0 ]; then
-    { printf 'file\ttodo\tneeds\n'; printf '%s' "$brows"; } | fmt_table
+    { printf 'file\ttodo\tneeds\tinflight\n'; printf '%s' "$brows"; } | fmt_table
   fi
 }
 
@@ -858,6 +991,117 @@ wt_rm() {
   fi
 }
 
+# --- コマンド: use（継続する作業の切り替え） --------------------------------------
+# `.aidev/current` を書くのは new と approve(subtask 前進) だけで、**「続きから」で切り替える
+# 手段が無かった**（`aidev-00-start`「3.」は current を更新せよと書くが、手で書く前提だった）。
+# 存在しない slug を書き込む事故を resolve_work で弾く。
+cmd_use() {
+  if [ $# -eq 0 ]; then
+    [ -f "$AIDEV/current" ] || die "対象作業が不明です（.aidev/current 無し）"
+    head -n1 "$AIDEV/current" | tr -d '\r\n'; printf '\n'
+    return 0
+  fi
+  [ $# -eq 1 ] || die "使用法: aidev use [<slug>]"
+  resolve_work "$1"
+  printf '%s\n' "$SLUG" > "$AIDEV/current"
+  printf 'current: %s (%s)\n' "$SLUG" "$(yget "$WORK/state.yml" current)"
+}
+
+# --- コマンド: backlog --------------------------------------------------------
+# **積む/退避する**だけを持たせる。消し込み（[x] 化と根拠の併記）は行の同定と文面の判断が
+# 要るので CLI にしない（verify 自身が「行の同定は諦める」と割り切っている。protocol「2.9」）。
+cmd_backlog() {
+  [ $# -ge 1 ] || die "使用法: aidev backlog <new|archive> ..."
+  sub=$1; shift
+  case "$sub" in
+    new)     bl_new "$@" ;;
+    archive) bl_do_archive "$@" ;;
+    *) die "未知の backlog サブコマンド: $sub（new|archive）" ;;
+  esac
+}
+
+bl_new() {
+  name=""; kind=""; parent=""; priority=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --kind)     kind=${2:-}; shift 2 ;;
+      --parent)   parent=${2:-}; shift 2 ;;
+      --priority) priority=${2:-}; shift 2 ;;
+      -*) die "未知のオプション: $1" ;;
+      *) if [ -z "$name" ]; then name=$1; else die "名前は1つだけ"; fi; shift ;;
+    esac
+  done
+  [ -n "$name" ] || die "使用法: aidev backlog new <name> --kind standing|split|topic [--parent <slug>] [--priority <n>]"
+  name=$(basename "$name" .md)
+  # kind はファイルの一生の宣言。ここで必須にして「後で書く」を無くす（欠落が常態化していた）
+  case "$kind" in
+    standing|topic) ;;
+    split) [ -n "$parent" ] || die "kind: split には --parent が要ります（親 work slug / チケット）" ;;
+    "") die "--kind は必須です（standing|split|topic）" ;;
+    *) die "未知の kind: $kind（standing|split|topic）" ;;
+  esac
+  mkdir -p "$AIDEV/backlog"
+  f="$AIDEV/backlog/$name.md"
+  if [ -e "$f" ]; then die "すでにあります: .aidev/backlog/$name.md"; fi
+  {
+    printf '%s\n' '---'
+    printf 'backlog: %s\n' "$name"
+    printf 'kind: %s\n' "$kind"
+    if [ -n "$parent" ];   then printf 'parent: %s\n' "$parent"; fi
+    if [ -n "$priority" ]; then printf 'priority: %s\n' "$priority"; fi
+    printf '%s\n\n' '---'
+    printf '# %s\n\n' "$name"
+    printf '%s\n' '<!-- 項目は行頭の `- [ ]` で書く（見出しに書くと aidev status の未着手件数から漏れる） -->'
+  } > "$f"
+  printf 'created: .aidev/backlog/%s.md (kind %s)\n' "$name" "$kind"
+}
+
+bl_do_archive() {
+  force=no; targets=""; explicit=yes
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --force) force=yes; shift ;;
+      -*) die "未知のオプション: $1" ;;
+      *) targets="$targets $(basename "$1")"; shift ;;
+    esac
+  done
+  [ -d "$AIDEV/backlog" ] || die "backlog がありません"
+  # 無指定なら**退避条件を満たすものだけ**を対象にする（満たさないものを skip 報告しない）
+  if [ -z "$targets" ]; then
+    explicit=no
+    for f in "$AIDEV/backlog"/*.md; do
+      [ -f "$f" ] || continue
+      if bl_archivable "$f"; then targets="$targets $(basename "$f")"; fi
+    done
+  fi
+
+  moved=0; skipped=0
+  for t in $targets; do
+    f="$AIDEV/backlog/$t"
+    if [ ! -f "$f" ]; then
+      printf 'skip %s: active にありません\n' "$t"; skipped=$((skipped+1)); continue
+    fi
+    if [ "$force" = no ] && ! bl_archivable "$f"; then
+      if [ "$explicit" = yes ]; then
+        printf 'skip %s: 退避条件を満たしません (kind=%s todo=%s done=%s)\n' \
+          "$t" "${BL_KIND:--}" "$BL_TODO" "$BL_DN"
+      fi
+      skipped=$((skipped+1)); continue
+    fi
+    mkdir -p "$AIDEV/backlog/archive"
+    if [ -e "$AIDEV/backlog/archive/$t" ]; then
+      printf 'skip %s: archive/ に同名があります\n' "$t"; skipped=$((skipped+1)); continue
+    fi
+    mv "$f" "$AIDEV/backlog/archive/$t"
+    printf 'archived: %s\n' "$t"; moved=$((moved+1))
+  done
+  printf 'summary: archived=%s skipped=%s\n' "$moved" "$skipped"
+  # git は触らない（破壊的 git 操作は CLI に持たせない。DESIGN「2.6」の verify && commit 方針）
+  if [ "$moved" -gt 0 ]; then
+    printf 'note: git 未反映（`git add -A .aidev/backlog` でリネームとして拾われる）\n'
+  fi
+}
+
 cmd_worktree() {
   [ $# -ge 1 ] || die "使用法: aidev worktree <add|list|rm> ..."
   sub=$1; shift
@@ -885,6 +1129,8 @@ case "$cmd" in
   doctor)  cmd_doctor "$@" ;;
   status)  cmd_status "$@" ;;
   metrics) cmd_metrics "$@" ;;
+  use)     cmd_use "$@" ;;
+  backlog) cmd_backlog "$@" ;;
   worktree) cmd_worktree "$@" ;;
   help|-h|--help) usage ;;
   *) die "未知のコマンド: $cmd（aidev help）" ;;

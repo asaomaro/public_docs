@@ -147,6 +147,38 @@ split 判定の3層決定木（`aidev-docs/DESIGN.md`「5.」）の中段に当�
     （doctor のネスト横断・兄弟依存解決・activeSubtask は1段ネスト前提のため）。
   - **subtask の plan は split 判定をしない**（再分割禁止）。plan skill が `parent` の有無で分岐する（`aidev-30-plan`）。
 
+## 2.9 台帳の同期（backlog 出自の消し込み）
+
+backlog は**遅延キュー**で、作業が完了したらその行を閉じるのは deliver の責務
+（`DESIGN.md`「2.5」: 流れは backlog → works（consume）。**backlog 行は deliver で `[x]`**）。
+
+- **入口が 2 つあり、片方だけ自動だった**: `aidev-util-batch`（キュー経由）は消化した行を自動で `[x]` に
+  するが、**直接入口（`aidev-00-start` で backlog 項目を選ぶ）は誰も `[x]` にしない**。
+  閉じ忘れると**次に着手する人が完了済みの項目を選ぶ**（2026-08-01 に実際に発生）。
+- **記録は両入口で刻む**: `aidev new <slug> --backlog <file>` で `state.yml` に出自を残す（「6.」）。
+  直接入口はもちろん、**batch 経由でも省略しない**——batch は自分で `[x]` にするので一見不要だが、
+  **途中で切れると刻印が無く、後続セッションはその work が backlog 由来だと知る手段が無い**
+  （`verify` も刻印が無ければ素通りする）。
+- **着手中は backlog から見えない**: 行が `[x]` になるのは deliver なので、着手から着地までの間、
+  backlog 側は掴まれた項目と素の未着手を区別できない。`aidev status` の **`inflight` 列**
+  （そのファイルを掴んだまま未 deliver の work 数）がそこを埋める。**選ぶ前に必ず見る**。
+- **強制**: `backlog:` を持つ work は、**その backlog ファイルに自分の slug が現れないと
+  `aidev verify` が FAIL する**（deliver の着地前ゲートで弾かれる）。
+  行の同定はせず「消し込みの根拠に works slug を併記する」規約そのものを検査対象にしている。
+- **消し込みの書き方**は `aidev-70-deliver`「3.5」（根拠 3 点セット／取り消し線／部分完了は兄弟で割る）。
+- **ファイル自身の一生は `aidev doctor` が見る**: 上の `verify` は **work にぶら下がる**検査
+  （自分が刻んだファイルに自分の slug があるか）なので、**退避・`kind` frontmatter・項目の書式**という
+  **ファイル側の話には持ち主の work がいない**。そこは `doctor` の backlog 節が横断で検知する——
+  全消化した `split`・`topic` の退避漏れ／`kind` の欠落・誤記（退避の要否が決まらない）／
+  `status` が数えない書式（見出し `## - [ ]` や `*` 箇条書き）の項目／`archive/` に残った未消化。
+  **WARN 止まり**（事後検知。硬ゲートは `verify` のまま）。
+- **検査と実行を同じ判定に通す**: 退避は `aidev backlog archive` が行い、`doctor` の WARN と
+  **同一の関数**（`bl_archivable`）で可否を決める。積むのも `aidev backlog new --kind …` で、
+  `kind` を必須にして欠落を構造的に潰す。**検査だけあって実行が無い**状態を作らないため
+  （消し込み本体だけは行の同定と文面の判断が要るので散文に残す）。
+- 刻印の無い work（直接 requirement から起こしたもの）は従来どおり検査しない。ただし
+  **結果的に閉じた項目があれば deliver で反映する**のは同じ（散文ソフト規約。「2.6」の二層モデル）。
+
 ## 3. 工程終了プロトコル
 
 工程の成果物を生成・更新したら、必ず以下の順で終える。
@@ -270,6 +302,8 @@ mode: interactive           # interactive（既定）| autonomous。「10.」参
 humanGates: []              # autonomous 時に人間ゲートを残す工程の論理名（部分自律）。例: [spec]
 maxSendBacks: 3             # autonomous 時の差し戻し上限（同一工程あたり）。未指定なら 3。「10.」参照
 dependsOn: []              # この作業の前提（他の works slug / 同一親内の兄弟 subtask 名 / 外部チケット #N・PROJ-123）。未充足なら着手前に警告。「2.7」参照
+backlog: <file>            # 任意。backlog 項目から起こした場合の出自（`.aidev/backlog/` 内のファイル名。例 hostserver.md）
+                           # `aidev new --backlog <file>` が刻む。deliver でその行を [x] にすることを verify が強制する（「2.9」）
 # --- subtask 層（schema 3・親 work のみが持つ。「2.8」参照）---
 subtasks: []               # 親が持つ子 subtask 名の一覧（フローリスト。例 [01-backend, 02-frontend]）
 activeSubtask: <名 or done> # 実行中の子（.aidev/current の冗長コピー。propose/metrics 用。全完了で done）

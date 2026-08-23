@@ -135,20 +135,26 @@ function AppendEvent($work,$phase,$event,$kvs) {
 
 # --- new ---------------------------------------------------------------------
 function Cmd-New($rest) {
-  $slug=''; $mode=''; $ticket=''; $depends=''; $parent=''
+  $slug=''; $mode=''; $ticket=''; $depends=''; $parent=''; $backlog=''
   for ($i=0; $i -lt $rest.Count; $i++) {
     switch ($rest[$i]) {
       '--mode'    { $mode=$rest[++$i] }
       '--ticket'  { $ticket=$rest[++$i] }
       '--depends' { $depends=$rest[++$i] }
       '--parent'  { $parent=$rest[++$i] }
+      '--backlog' { $backlog=Split-Path -Leaf $rest[++$i] }
       default {
         if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
         if ($slug) { Die "slug は1つだけ" } else { $slug=$rest[$i] }
       }
     }
   }
-  if (-not $slug) { Die "使用法: aidev new <slug> [--mode ..] [--ticket ..] [--depends ..] [--parent <親work>]" }
+  if (-not $slug) { Die "使用法: aidev new <slug> [--mode ..] [--ticket ..] [--depends ..] [--parent <親work>] [--backlog <file>]" }
+  # backlog 出自は「消し込み忘れ」を verify で捕まえるための刻印。存在しないファイルを
+  # 指したまま進むと deliver 直前まで気づけないので、この場で弾く（sh 版と同一）
+  if ($backlog -and -not (Test-Path (Join-Path (Join-Path $script:AIDEV 'backlog') $backlog))) {
+    Die "backlog ファイルが無い: .aidev/backlog/$backlog"
+  }
 
   $depsYaml='[]'
   if ($depends) {
@@ -205,10 +211,12 @@ function Cmd-New($rest) {
   $sb = "schema: $($script:CURRENT_SCHEMA)`nslug: $slug`n"
   if ($ticket) { $sb += "ticket: $ticket`n" }
   $sb += "current: requirement`napproved: []`nmode: $mode`nhumanGates: []`nmaxSendBacks: 3`ndependsOn: $depsYaml`n"
+  if ($backlog) { $sb += "backlog: $backlog`n" }
   WriteText (Join-Path $work 'state.yml') $sb
   WriteText (Join-Path $work 'metrics.yml') "events:`n"
   WriteText (Join-Path $script:AIDEV 'current') "$name`n"
   Write-Output "created: $work (schema $($script:CURRENT_SCHEMA), mode $mode)"
+  if ($backlog) { Write-Output "backlog: $backlog（deliver で該当行を [x] にすること。verify が検査する）" }
 }
 
 # --- event -------------------------------------------------------------------
@@ -365,6 +373,23 @@ function VerifyWork($work) {
         $mf = Join-Path $work 'metrics.yml'; $ok=$false
         if (Test-Path $mf) { foreach ($l in [System.IO.File]::ReadAllLines($mf)) { if ($l -match 'phase:\s*deliver' -and $l -match 'event:\s*approved') { $ok=$true; break } } }
         if (-not $ok) { $vf += "deliver承認イベントがmetricsに無い" }
+        # backlog 出自の消し込み（DESIGN「2.5」: backlog 行は deliver で [x]）。sh 版と同一。
+        # 行の同定は諦め、backlog ファイルに自分の slug が現れるかで見る
+        $bl = YGet $st 'backlog'
+        if (-not [string]::IsNullOrEmpty($bl)) {
+          $blRoot = Join-Path $script:AIDEV 'backlog'
+          $blf = Join-Path $blRoot $bl
+          if (-not (Test-Path $blf)) { $blf = Join-Path (Join-Path $blRoot 'archive') $bl }
+          $wslug = Split-Path -Leaf $work
+          if (-not (Test-Path $blf)) {
+            $vf += "backlog:${bl}が見つからない"
+          } else {
+            # 走査は周辺と同じ ReadAllLines で行う（正規表現扱いを避け、slug を素の文字列として見る）
+            $hit=$false
+            foreach ($l in [System.IO.File]::ReadAllLines($blf)) { if ($l.Contains($wslug)) { $hit=$true; break } }
+            if (-not $hit) { $vf += "backlog:${bl}に${wslug}の消し込みが無い" }
+          }
+        }
       }
     }
   }
@@ -381,6 +406,88 @@ function Cmd-Verify($rest) {
 }
 
 # --- doctor ------------------------------------------------------------------
+# --- backlog ファイル横断検査（doctor の一部）。sh 版と同一の判定・同一の出力 ------------
+# verify の消し込み検査は work にぶら下がるが、退避・frontmatter・書式は
+# ファイル自身の一生の話で持ち主の work がいない（sh 版の注記参照）。WARN 止まりで exit code は変えない。
+function BlKind($path) {  # 先頭 frontmatter の kind（frontmatter 自体が無ければ空）
+  $lines = [System.IO.File]::ReadAllLines($path)
+  if ($lines.Count -eq 0 -or $lines[0] -notmatch '^---\s*$') { return '' }
+  for ($i=1; $i -lt $lines.Count; $i++) {
+    if ($lines[$i] -match '^---\s*$') { return '' }
+    if ($lines[$i] -match '^kind:\s*(.*?)\s*$') { return $Matches[1] }
+  }
+  return ''
+}
+
+# backlog ファイル1件の数え上げ（sh の bl_stat と同一。status と同じパターンで数える）。
+function BlStat($path) {
+  $todo=0; $dn=0; $hid=0
+  foreach ($l in [System.IO.File]::ReadAllLines($path)) {
+    if ($l -match '^\s*- \[ \]') { $todo++ }
+    elseif ($l -match '^\s*- \[[xX]\]') { $dn++ }
+    if ($l -match '^(#+\s*- |\s*[*+]\s*)\[[ xX]\]') { $hid++ }
+  }
+  $script:BL_TODO=$todo; $script:BL_DN=$dn; $script:BL_HID=$hid; $script:BL_KIND=(BlKind $path)
+}
+
+# 退避してよいか＝消化しきったら終わるキュー（split/topic）で全項目 [x]。doctor と archive が同じ判定を通る。
+function BlArchivable($path) {
+  BlStat $path
+  if ($script:BL_KIND -ne 'split' -and $script:BL_KIND -ne 'topic') { return $false }
+  return ($script:BL_TODO -eq 0 -and $script:BL_DN -gt 0)
+}
+
+function Doctor-Backlog() {
+  $blRoot = Join-Path $script:AIDEV 'backlog'
+  if (-not (Test-Path $blRoot)) { return }
+  $items = @()
+  foreach ($f in (Get-ChildItem -Path $blRoot -File -Filter *.md | Sort-Object Name)) {
+    $items += ,@($f.FullName, $f.Name, $false)
+  }
+  $arcRoot = Join-Path $blRoot 'archive'
+  if (Test-Path $arcRoot) {
+    foreach ($f in (Get-ChildItem -Path $arcRoot -File -Filter *.md | Sort-Object Name)) {
+      $items += ,@($f.FullName, ("archive/" + $f.Name), $true)
+    }
+  }
+
+  $bfiles=0; $barch=0; $bwarn=0; $bout=''
+  foreach ($it in $items) {
+    $path=$it[0]; $label=$it[1]; $arch=$it[2]
+    if ($arch) { $barch++ } else { $bfiles++ }
+    # 集計は status と同じパターンで行う（status に見えている姿そのものを検査対象にする）
+    BlStat $path
+    $todo=$script:BL_TODO; $dn=$script:BL_DN; $hid=$script:BL_HID; $kind=$script:BL_KIND
+    $w=''
+    if (-not $arch) {
+      # kind はファイルの一生の宣言（sh 版と同一）。standing=退避しない / split・topic=退避する。
+      if ([string]::IsNullOrEmpty($kind)) {
+        $w += "    WARN frontmatter(kind)が無い: standing/split/topic を判定できず退避の要否が決まらない`n"
+      } elseif ($kind -eq 'split' -or $kind -eq 'topic') {
+        if ($todo -eq 0 -and $dn -gt 0) {
+          $w += "    WARN 全消化($kind)だが未退避: .aidev/backlog/archive/ へ移す`n"
+        }
+      } elseif ($kind -ne 'standing') {
+        # 誤記を黙って standing 扱いにしない（退避検査がまるごと効かなくなるため）
+        $w += "    WARN 未知の kind: $kind（standing/split/topic のいずれか）`n"
+      }
+    } elseif ($todo -gt 0) {
+      $w += "    WARN archive 済だが未消化が ${todo} 件: status から外れて見えない未着手になっている`n"
+    }
+    if ($hid -gt 0) {
+      $w += "    WARN status が数えない書式の項目が ${hid} 件（見出し '## - [ ]' や '*' 箇条書き）: 未着手が status から漏れる`n"
+    }
+    if ($w) {
+      $bwarn++
+      $k = if ([string]::IsNullOrEmpty($kind)) { '-' } else { $kind }
+      $bout += "- $label (todo=$todo done=$dn kind=$k)`n" + $w
+    }
+  }
+  Write-Output "backlog: ファイル横断検査"
+  if ($bout) { Write-Output ($bout.TrimEnd("`n")) }   # 末尾の改行は Write-Output が足す（sh の printf %s と一致）
+  Write-Output "backlog-summary: files=$bfiles archived=$barch warn=$bwarn"
+}
+
 function Cmd-Doctor() {
   $worksDir = Join-Path $script:AIDEV 'works'
   if (-not (Test-Path $worksDir)) { Die "works がありません" }
@@ -403,6 +510,7 @@ function Cmd-Doctor() {
     }
   }
   Write-Output "summary: works=$total fail=$fail legacy(免除)=$legacy"
+  Doctor-Backlog
   if ($fail -eq 0) { exit 0 } else { exit 1 }
 }
 
@@ -496,6 +604,21 @@ function Cmd-Status($rest) {
     }
   }
 
+  # in-flight 収集（sh 版と同一）: backlog 刻印を持ち、まだ deliver していない work。
+  # backlog 行が [x] になるのは deliver なので、その間 backlog 側は掴まれた項目を区別できない。
+  $inflight = @{}
+  $iworks = Join-Path $script:AIDEV 'works'
+  if (Test-Path $iworks) {
+    foreach ($d in (Get-ChildItem -Path $iworks -Directory | Sort-Object Name)) {
+      $ist = Join-Path $d.FullName 'state.yml'
+      if (-not (Test-Path $ist)) { continue }
+      $ibl = YGet $ist 'backlog'
+      if ([string]::IsNullOrEmpty($ibl)) { continue }
+      if ((YList $ist 'approved') -contains 'deliver') { continue }
+      if ($inflight.ContainsKey($ibl)) { $inflight[$ibl]++ } else { $inflight[$ibl] = 1 }
+    }
+  }
+
   $backlogDir = Join-Path $script:AIDEV 'backlog'
   $brows=@(); $bf=0; $bn=0
   if (Test-Path $backlogDir) {
@@ -504,8 +627,10 @@ function Cmd-Status($rest) {
       foreach ($l in [System.IO.File]::ReadAllLines($f.FullName)) {
         if ($l -match '^\s*- \[ \]') { $todo++; if ($l -match '\(needs:') { $needs++ } }
       }
+      $inf = 0
+      if ($inflight.ContainsKey($f.Name)) { $inf = $inflight[$f.Name] }
       $bf++; $bn += $todo
-      $brows += ($f.Name + "`t" + $todo + "`t" + $needs)
+      $brows += ($f.Name + "`t" + $todo + "`t" + $needs + "`t" + $inf)
     }
   }
 
@@ -531,7 +656,7 @@ function Cmd-Status($rest) {
   }
   Write-Output ""
   Write-Output "BACKLOG (未着手 $bn 件)"
-  if ($bf -gt 0) { foreach ($l in (Fmt-Table (@("file`ttodo`tneeds") + $brows))) { Write-Output $l } }
+  if ($bf -gt 0) { foreach ($l in (Fmt-Table (@("file`ttodo`tneeds`tinflight") + $brows))) { Write-Output $l } }
 }
 
 # --- metrics（読み取り専用・metrics.yml から派生指標を集計） ----------------------
@@ -822,6 +947,112 @@ function Wt-Rm($rest) {
   }
 }
 
+# --- use（継続する作業の切り替え）。sh 版と同一 --------------------------------
+function Cmd-Use($rest) {
+  if ($rest.Count -eq 0) {
+    $cur = Join-Path $script:AIDEV 'current'
+    if (-not (Test-Path $cur)) { Die "対象作業が不明です（.aidev/current 無し）" }
+    Write-Output (([System.IO.File]::ReadAllLines($cur))[0].Trim())
+    return
+  }
+  if ($rest.Count -ne 1) { Die "使用法: aidev use [<slug>]" }
+  ResolveWork $rest[0]
+  WriteText (Join-Path $script:AIDEV 'current') "$($script:SLUG)`n"
+  $ph = YGet (Join-Path $script:WORK 'state.yml') 'current'
+  Write-Output "current: $($script:SLUG) ($ph)"
+}
+
+# --- backlog（積む/退避する。消し込みは判断の仕事なので CLI に持たせない） -----------
+function Cmd-Backlog($rest) {
+  if ($rest.Count -lt 1) { Die "使用法: aidev backlog <new|archive> ..." }
+  $sub = $rest[0]
+  $sr = @(); if ($rest.Count -gt 1) { $sr = $rest[1..($rest.Count-1)] }
+  switch ($sub) {
+    'new'     { Bl-New $sr }
+    'archive' { Bl-DoArchive $sr }
+    default   { Die "未知の backlog サブコマンド: $sub（new|archive）" }
+  }
+}
+
+function Bl-New($rest) {
+  $name=''; $kind=''; $parent=''; $priority=''
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch ($rest[$i]) {
+      '--kind'     { $kind=$rest[++$i] }
+      '--parent'   { $parent=$rest[++$i] }
+      '--priority' { $priority=$rest[++$i] }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        if ($name) { Die "名前は1つだけ" } else { $name=$rest[$i] }
+      }
+    }
+  }
+  if (-not $name) { Die "使用法: aidev backlog new <name> --kind standing|split|topic [--parent <slug>] [--priority <n>]" }
+  if ($name.EndsWith('.md')) { $name = $name.Substring(0, $name.Length-3) }
+  $name = Split-Path -Leaf $name
+  if ($kind -eq 'split') {
+    if (-not $parent) { Die "kind: split には --parent が要ります（親 work slug / チケット）" }
+  } elseif ($kind -eq '') {
+    Die "--kind は必須です（standing|split|topic）"
+  } elseif ($kind -ne 'standing' -and $kind -ne 'topic') {
+    Die "未知の kind: $kind（standing|split|topic）"
+  }
+  $blRoot = Join-Path $script:AIDEV 'backlog'
+  if (-not (Test-Path $blRoot)) { New-Item -ItemType Directory -Path $blRoot -Force | Out-Null }
+  $f = Join-Path $blRoot "$name.md"
+  if (Test-Path $f) { Die "すでにあります: .aidev/backlog/$name.md" }
+  $sb = "---`nbacklog: $name`nkind: $kind`n"
+  if ($parent)   { $sb += "parent: $parent`n" }
+  if ($priority) { $sb += "priority: $priority`n" }
+  $sb += "---`n`n# $name`n`n"
+  $sb += "<!-- 項目は行頭の ``- [ ]`` で書く（見出しに書くと aidev status の未着手件数から漏れる） -->`n"
+  WriteText $f $sb
+  Write-Output "created: .aidev/backlog/$name.md (kind $kind)"
+}
+
+function Bl-DoArchive($rest) {
+  $force=$false; $targets=@(); $explicit=$true
+  foreach ($a in $rest) {
+    if ($a -eq '--force') { $force=$true }
+    elseif ($a.StartsWith('-')) { Die "未知のオプション: $a" }
+    else { $targets += (Split-Path -Leaf $a) }
+  }
+  $blRoot = Join-Path $script:AIDEV 'backlog'
+  if (-not (Test-Path $blRoot)) { Die "backlog がありません" }
+  if ($targets.Count -eq 0) {
+    $explicit=$false
+    foreach ($f in (Get-ChildItem -Path $blRoot -File -Filter *.md | Sort-Object Name)) {
+      if (BlArchivable $f.FullName) { $targets += $f.Name }
+    }
+  }
+
+  $moved=0; $skipped=0
+  $arcRoot = Join-Path $blRoot 'archive'
+  foreach ($t in $targets) {
+    $f = Join-Path $blRoot $t
+    if (-not (Test-Path $f)) {
+      Write-Output "skip ${t}: active にありません"; $skipped++; continue
+    }
+    if ((-not $force) -and (-not (BlArchivable $f))) {
+      if ($explicit) {
+        $k = if ([string]::IsNullOrEmpty($script:BL_KIND)) { '-' } else { $script:BL_KIND }
+        Write-Output "skip ${t}: 退避条件を満たしません (kind=$k todo=$($script:BL_TODO) done=$($script:BL_DN))"
+      }
+      $skipped++; continue
+    }
+    if (-not (Test-Path $arcRoot)) { New-Item -ItemType Directory -Path $arcRoot -Force | Out-Null }
+    if (Test-Path (Join-Path $arcRoot $t)) {
+      Write-Output "skip ${t}: archive/ に同名があります"; $skipped++; continue
+    }
+    Move-Item -Path $f -Destination (Join-Path $arcRoot $t)
+    Write-Output "archived: $t"; $moved++
+  }
+  Write-Output "summary: archived=$moved skipped=$skipped"
+  if ($moved -gt 0) {
+    Write-Output "note: git 未反映（``git add -A .aidev/backlog`` でリネームとして拾われる）"
+  }
+}
+
 function Cmd-Worktree($rest) {
   if ($rest.Count -lt 1) { Die "使用法: aidev worktree <add|list|rm> ..." }
   $sub=$rest[0]; $sr=@(); if ($rest.Count -gt 1) { $sr=$rest[1..($rest.Count-1)] }
@@ -852,6 +1083,8 @@ switch ($cmd) {
   'doctor'  { Cmd-Doctor }
   'status'  { Cmd-Status $rest }
   'metrics' { Cmd-Metrics $rest }
+  'use'     { Cmd-Use $rest }
+  'backlog' { Cmd-Backlog $rest }
   'worktree' { Cmd-Worktree $rest }
   'help'    { Usage }
   '-h'      { Usage }
