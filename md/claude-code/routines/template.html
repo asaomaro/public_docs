@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>AI Daily Digest {{DATE}}</title>
+<style>
+  /* Gmail/Apple Mail はこの style ブロックを解釈する。
+     解釈しないクライアント向けにインライン style を基準値として全要素に付けてある。 */
+  @media (prefers-color-scheme: dark) {
+    .bg      { background-color: #1c1917 !important; }
+    .card    { background-color: #292524 !important; border-color: #44403c !important; }
+    .text    { color: #e7e5e4 !important; }
+    .muted   { color: #a8a29e !important; }
+    .rule    { border-color: #44403c !important; }
+    .chip    { background-color: #3f3a36 !important; color: #e7e5e4 !important; }
+    .link    { color: #fbbf24 !important; }
+  }
+  @media only screen and (max-width: 620px) {
+    .wrap { width: 100% !important; }
+    .pad  { padding-left: 20px !important; padding-right: 20px !important; }
+  }
+  a { text-decoration: none; }
+</style>
+</head>
+<body class="bg" style="margin:0; padding:0; background-color:#f5f5f4;">
+
+<div style="display:none; max-height:0; overflow:hidden; opacity:0; mso-hide:all;">{{PREHEADER}}</div>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="bg" style="background-color:#f5f5f4;">
+<tr><td align="center" style="padding:24px 12px;">
+
+  <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" class="wrap" style="width:600px; max-width:600px;">
+
+    <!-- header -->
+    <tr><td class="pad" style="padding:0 32px 16px 32px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+        <td style="font-family:-apple-system,BlinkMacSystemFont,'Hiragino Sans','Yu Gothic',Meiryo,sans-serif; font-size:18px; font-weight:700; letter-spacing:-0.01em; color:#1c1917;" class="text">AI Daily Digest</td>
+        <td align="right" style="font-family:-apple-system,BlinkMacSystemFont,'Hiragino Sans','Yu Gothic',Meiryo,sans-serif; font-size:13px; color:#78716c;" class="muted">{{DATE}}</td>
+      </tr></table>
+    </td></tr>
+
+    <!-- card -->
+    <tr><td class="card" style="background-color:#ffffff; border:1px solid #e7e5e4; border-radius:12px;">
+
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+
+      <!-- summary -->
+      <tr><td class="pad" style="padding:28px 32px 0 32px;">
+        <p class="text" style="margin:0; font-family:-apple-system,BlinkMacSystemFont,'Hiragino Sans','Yu Gothic',Meiryo,sans-serif; font-size:15px; line-height:1.7; color:#1c1917;">{{SUMMARY}}</p>
+        <p class="muted" style="margin:12px 0 0 0; font-family:-apple-system,BlinkMacSystemFont,'Hiragino Sans','Yu Gothic',Meiryo,sans-serif; font-size:12px; color:#78716c;">{{COUNT}} 件</p>
+      </td></tr>
+
+{{BODY}}
+
+      <tr><td style="height:28px; line-height:28px; font-size:0;">&nbsp;</td></tr>
+      </table>
+
+    </td></tr>
+
+    <!-- footer -->
+    <tr><td class="pad" style="padding:20px 32px 0 32px;">
+      <p class="muted" style="margin:0; font-family:-apple-system,BlinkMacSystemFont,'Hiragino Sans','Yu Gothic',Meiryo,sans-serif; font-size:12px; line-height:1.6; color:#78716c;">
+        Claude Code のルーチンが自動生成しています。収集ルールの変更は
+        <span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">md/claude-code/routines/CLAUDE.md</span> を編集してください。
+      </p>
+    </td></tr>
+
+  </table>
+
+</td></tr>
+</table>
+
+</body>
+</html>

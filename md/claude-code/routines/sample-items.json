@@ -1,0 +1,38 @@
+{
+  "date": "2026-08-23",
+  "summary": "Anthropic が Gmail コネクタの送信対応を一般提供に広げ、Claude からのメール送信が実務レベルで使えるようになった。一方で EU AI Act の汎用モデル向け実施規範をめぐる期限延長の議論が続いている。",
+  "sections": [
+    {
+      "title": "モデル・リリース",
+      "items": [
+        {
+          "title": "Gmail コネクタが送信・返信・転送に対応",
+          "url": "https://claude.com/connectors/gmail?utm_source=newsletter",
+          "source": "Anthropic",
+          "published": "2026-08-18",
+          "summary": "これまで検索・要約が中心だった Gmail コネクタに、下書き・送信・返信・転送が追加された。HTML 本文にも対応する。既定では送信前に承認を求める。",
+          "why": "定期実行のルーチンから通知や日次レポートをメール配信する経路が、外部サービスの API キーなしで成立するようになった。"
+        },
+        {
+          "title": "重複テスト用エントリ（同一 URL・除外されるはず）",
+          "url": "https://claude.com/connectors/gmail",
+          "source": "どこかのまとめサイト",
+          "summary": "この項目は URL 正規化によって重複と判定され、出力に含まれない。"
+        }
+      ]
+    },
+    {
+      "title": "規制・ポリシー",
+      "items": [
+        {
+          "title": "EU AI Act の GPAI 実施規範、適用時期の調整が継続",
+          "url": "https://example.org/eu-ai-act-gpai",
+          "source": "European Commission",
+          "published": "2026-08-21",
+          "summary": "汎用 AI モデル提供者向けの実施規範について、加盟国と事業者の間で適用開始時期の調整が続いている。技術文書の提出要件が主な論点。",
+          "why": "EU 域内でモデルを提供する場合、文書化の準備期間に直接影響する。"
+        }
+      ]
+    }
+  ]
+}
