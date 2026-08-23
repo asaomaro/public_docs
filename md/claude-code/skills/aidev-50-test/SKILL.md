@@ -26,7 +26,7 @@ AI 開発ワークフローの **test（テスト / 検証）工程**を実行�
 ## 手順
 
 1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定する。
-   - **対象が subtask（state.yml に `parent` あり）か親かを見分ける**（protocol.md「2.8」）。test の範囲が変わる。
+   - **対象が subtask（state.yml に `parent` あり）か親かを見分ける**（protocol.md「2.8」）。test の範囲が変わるので、subtask なら `protocol-subtask.md` を読む。
 2. `plan.md` のテスト方針と `spec.md` の受け入れ基準に沿って検証する。
    - 自動テストがあれば実行する。無ければ受け入れ基準ごとに確認手順を実施する。
    - 必要なら不足テストを追加する。

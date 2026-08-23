@@ -45,7 +45,7 @@ review を通過した変更を、コミット・PR 作成によって実際に�
    - 例: コミット → PJ のコミット skill、PR → PJ の PR 作成 skill。
    - 無ければ汎用手段（`git commit` / `gh pr create` 等）にフォールバックする。
 3. コミット範囲をユーザーと確認する（実装コードと工程成果物を分けるか等、PJ 方針に従う）。
-3.5. **台帳の同期（backlog / 残課題）**: この作業が閉じた未着手項目を、**同じコミット**に含めて反映する
+3.5. **台帳の同期（backlog / 残課題）**: 着手前に `protocol-backlog.md` を読む。この作業が閉じた未着手項目を、**同じコミット**に含めて反映する
    （`DESIGN.md`「2.5」: 流れは backlog → works（consume）で、**backlog 行は deliver で `[x]`**）。
    - **対象の特定**: `state.yml` に `backlog: <file>` があれば `.aidev/backlog/<file>` が主対象
      （`aidev new --backlog` が刻む）。刻印が無くても、**実装の過程で結果的に閉じた項目**があれば

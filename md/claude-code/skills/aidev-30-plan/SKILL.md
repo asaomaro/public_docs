@@ -50,7 +50,7 @@ spec を実装可能な作業単位に分解し、`plan.md`（方針・順序）
      小〜中規模で 1 PR に収まるなら subtask 化しない（過剰分割の禁止）。
 4. **（subtask 分割する場合のみ）**: 親 plan は「メタ plan」として割れ目（subslug 境界）と producer→consumer の
    順序を `plan.md` に定義し、各 subtask を `aidev new <NN>-<subslug> --parent <親> [--depends 兄弟名]` で作る
-   （protocol.md「2.8」）。**各 subtask の詳細 tasks.md は、その subtask の plan 工程で作る**（親 plan では作らない）。
+   （protocol.md「2.8」＋ `protocol-subtask.md` を読む）。**各 subtask の詳細 tasks.md は、その subtask の plan 工程で作る**（親 plan では作らない）。
    - **子 plan の scope 凍結**: subtask の plan は **scope を再決定してはならない**（割れ目は親 plan が確定済み）。
      子 plan は自分の slice の tasks.md 分解と、兄弟 subtask への dependsOn 順序付けに限定する。
    - 子は親の `spec.md`/`design.md` を継承する（guard が親配下を自動 fallback。子に複製しない）。
