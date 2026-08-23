@@ -12,7 +12,9 @@ AI 関連情報を WebSearch で収集し、HTML メールとして配信する�
 2. **選別・要約** — 採否基準に従って絞り、日本語で要約する
 3. **`/tmp/items.json` を書く** — 下記スキーマに厳密に従う
 4. **ビルド** — `node md/claude-code/routines/build.mjs /tmp/items.json --out /tmp/digest`
+   （`/tmp/digest/htmlBody.html` と `/tmp/digest/body.txt` が出る）
 5. **送信** — Gmail コネクタの `send_message` で送る。パラメータ対応は下記「送信」節を厳守
+6. **検証** — 送ったメールを読み直し、HTML が生ソースで届いていないか確かめる
 
 リポジトリには**何もコミットしない・push しない**。成果物は `/tmp` に置くだけ。
 
@@ -95,19 +97,34 @@ AI 関連情報を WebSearch で収集し、HTML メールとして配信する�
 ## 送信
 
 Gmail コネクタの `send_message` のパラメータ対応を厳守する。
+**`build.mjs` の出力ファイル名が、そのまま渡すべきパラメータ名になっている。**
 
 | パラメータ | 渡すもの |
 | :-- | :-- |
 | `to` | `["<宛先>"]`（宛先はルーチンのプロンプト側に書く。このファイルに書かない） |
 | `subject` | `build.mjs` が出力した「件名:」の行の値をそのまま。接尾辞を付けない |
-| `htmlBody` | `/tmp/digest/out.html` の中身をそのまま |
-| `body` | `/tmp/digest/out.txt` の中身をそのまま |
+| `htmlBody` | `/tmp/digest/htmlBody.html` の中身をそのまま |
+| `body` | `/tmp/digest/body.txt` の中身をそのまま |
 
 **HTML を `body` に入れてはいけない。** `body` は `htmlBody` 併用時のプレーンテキスト
 代替として扱われるため、HTML を入れるとエスケープされた生ソースがそのまま届く。
+`htmlBody` を省いて `body` だけで送った場合も同じ結果になる。
+どちらも実際に起きた事故なので、ファイル名とパラメータ名を突き合わせて確認すること。
+
+`htmlBody` はテンプレート込みで 8〜15KB になる。要約したり省略したりせず、
+`htmlBody.html` の中身を 1 バイトも変えずに渡す。
 
 送信は 1 通のみ。`send_message` は 1 回しか呼ばない。送信後に不備に気づいても
 再送せず、何が問題だったかを報告して終了する。
+
+### 送信後の自己検証（必須）
+
+`send_message` が返した `id` を `get_message`（`messageFormat: PLAIN_TEXT`）で読み直す。
+
+- 本文が `AI Daily Digest — ` で始まっていれば成功
+- 本文が `<!doctype` や `<html` で始まっていたら **HTML を `body` に入れた失敗**
+
+失敗していても再送はしない。何をどのパラメータに渡したかを添えて報告し、終了する。
 
 ## 体裁について
 

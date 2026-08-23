@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// items.json + template.html -> out.html / out.txt
+// items.json + template.html -> htmlBody.html / body.txt
 //
 //   node md/claude-code/routines/build.mjs /tmp/items.json --out /tmp/digest
 //
@@ -185,12 +185,21 @@ const text = [
 
 // ---------- write ----------
 
+// ファイル名は send_message の引数名そのもの。htmlBody.html -> htmlBody,
+// body.txt -> body。取り違えると生ソースが届くので、名前で対応を固定しておく。
 mkdirSync(outDir, { recursive: true });
-const htmlPath = join(outDir, 'out.html');
-const textPath = join(outDir, 'out.txt');
+const htmlPath = join(outDir, 'htmlBody.html');
+const textPath = join(outDir, 'body.txt');
 writeFileSync(htmlPath, html, 'utf8');
 writeFileSync(textPath, text, 'utf8');
 
 console.log(`件名: AI Daily Digest ${formatDate(data.date)}`);
-console.log(`HTML: ${htmlPath} (${Buffer.byteLength(html)} bytes, ${total} 件)`);
-console.log(`TEXT: ${textPath}`);
+console.log('');
+console.log('Gmail コネクタ send_message の引数（ファイル名 = 引数名）:');
+console.log('  subject  = 上の「件名:」の値をそのまま（接尾辞を付けない）');
+console.log(`  htmlBody = ${htmlPath} の中身をそのまま (${Buffer.byteLength(html)} bytes, ${total} 件)`);
+console.log(`  body     = ${textPath} の中身をそのまま (${Buffer.byteLength(text)} bytes)`);
+console.log('');
+console.log('htmlBody.html を body に渡すとエスケープされた生ソースが届く。逆も同じ。');
+console.log('送信後は get_message (messageFormat: PLAIN_TEXT) で読み直し、');
+console.log('本文が "<!doctype" で始まっていないことを必ず確認する。');
