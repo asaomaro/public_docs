@@ -12,8 +12,7 @@ AI 関連情報を WebSearch で収集し、HTML メールとして配信する�
 2. **選別・要約** — 採否基準に従って絞り、日本語で要約する
 3. **`/tmp/items.json` を書く** — 下記スキーマに厳密に従う
 4. **ビルド** — `node md/claude-code/routines/build.mjs /tmp/items.json --out /tmp/digest`
-5. **送信** — `/tmp/digest/out.html` を HTML 本文、`/tmp/digest/out.txt` を
-   プレーンテキスト代替として、Gmail コネクタで送信する
+5. **送信** — Gmail コネクタの `send_message` で送る。パラメータ対応は下記「送信」節を厳守
 
 リポジトリには**何もコミットしない・push しない**。成果物は `/tmp` に置くだけ。
 
@@ -29,6 +28,11 @@ AI 関連情報を WebSearch で収集し、HTML メールとして配信する�
 - `AI regulation policy news this week`
 - `AI funding round startup this week`
 - `AI 最新ニュース 今週`
+
+**WebFetch は使わないこと。** クラウド環境の egress proxy が許可リスト外のドメインを
+遮断するため、`anthropic.com` / `openai.com` / `blog.google` / `deepmind.google` など
+一次情報サイトへの直接アクセスは `EGRESS_BLOCKED` で失敗する。
+WebSearch はサンドボックスのネットワークを通らないので影響を受けない。
 
 ## 採否基準
 
@@ -82,6 +86,23 @@ AI 関連情報を WebSearch で収集し、HTML メールとして配信する�
 5. 規制・ポリシー
 
 1 セクションあたり最大 5 件、全体で最大 15 件。多すぎる場合は重要度で切る。
+
+## 送信
+
+Gmail コネクタの `send_message` のパラメータ対応を厳守する。
+
+| パラメータ | 渡すもの |
+| :-- | :-- |
+| `to` | `["<宛先>"]`（宛先はルーチンのプロンプト側に書く。このファイルに書かない） |
+| `subject` | `build.mjs` が出力した「件名:」の行の値をそのまま。接尾辞を付けない |
+| `htmlBody` | `/tmp/digest/out.html` の中身をそのまま |
+| `body` | `/tmp/digest/out.txt` の中身をそのまま |
+
+**HTML を `body` に入れてはいけない。** `body` は `htmlBody` 併用時のプレーンテキスト
+代替として扱われるため、HTML を入れるとエスケープされた生ソースがそのまま届く。
+
+送信は 1 通のみ。`send_message` は 1 回しか呼ばない。送信後に不備に気づいても
+再送せず、何が問題だったかを報告して終了する。
 
 ## 体裁について
 
