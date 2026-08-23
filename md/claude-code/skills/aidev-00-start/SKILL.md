@@ -27,6 +27,7 @@ AI 開発ワークフローの入口（ルーター）。
 .claude/skills/aidev-docs/bin/aidev status                 # 進行中(works)＋未着手(backlog) を人間可読表で
 # 機械処理が必要なら: .claude/skills/aidev-docs/bin/aidev status --format tsv
 # Windows: pwsh .claude/skills/aidev-docs/bin/aidev.ps1 status
+#          （pwsh 無しなら powershell -NoProfile -File ... / Git Bash なら POSIX 版の aidev がそのまま動く）
 ```
 
 出力の読み方:

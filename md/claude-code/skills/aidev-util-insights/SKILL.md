@@ -27,7 +27,7 @@ per-work の `retro` が「その作業1件」を振り返るのに対し、こ�
   - `.claude/skills/aidev-docs/bin/aidev metrics --all`：work 別の first_start / delivered / **lead_sec（リードタイム）** /
     **reworks（手戻り）** / **sent_backs（差し戻し）**。
   - `.claude/skills/aidev-docs/bin/aidev metrics --all --phases`：work×工程の start / approved / **elapsed_sec（工程時間）**。
-  - `--format tsv` で機械パース可（列の集計・平均算出に使う）。Windows は `pwsh .claude/skills/aidev-docs/bin/aidev.ps1 metrics ...`。
+  - `--format tsv` で機械パース可（列の集計・平均算出に使う）。Windows は `pwsh .claude/skills/aidev-docs/bin/aidev.ps1 metrics ...`（pwsh 無しなら `powershell -NoProfile -File ...`）。
 - `.aidev/works/*/review.md`：レビュー指摘の内容（再発パターン分析の主材料。**テキストは読む**）。
 - `.aidev/works/*/decisions.md`：繰り返される設計逸脱（テキスト）。
 - `.aidev/works/*/retro.md`：過去の per-work 改善提案（再発・未対応の把握。テキスト）。

@@ -9,6 +9,23 @@ BIN="$SELF/.."
 AIDEV_SH="$BIN/aidev"
 AIDEV_PS1="$BIN/aidev.ps1"
 
+# ps1 を走らせるホストを決める。pwsh は Windows に標準搭載ではないため、素の Windows では
+# Windows PowerShell 5.1（powershell.exe）へフォールバックする。ここを pwsh 決め打ちにすると
+# ps1 が「対象 OS で一度も検証されないまま緑」になる(#32 と同じ穴)。
+PS_HOST=""
+if command -v pwsh >/dev/null 2>&1; then PS_HOST=pwsh
+elif command -v powershell >/dev/null 2>&1; then PS_HOST=winps
+fi
+run_ps1() { # script args...
+  _s=$1; shift
+  case "$PS_HOST" in
+    pwsh)  pwsh "$_s" "$@" ;;
+    winps) MSYS2_ARG_CONV_EXCL='*' powershell -NoProfile -ExecutionPolicy Bypass \
+             -File "$(cygpath -w "$_s" 2>/dev/null || printf '%s' "$_s")" "$@" ;;
+    *)     return 127 ;;
+  esac
+}
+
 PASS=0; FAIL=0; SKIP=0
 ok()   { PASS=$((PASS+1)); printf '  ok: %s\n' "$1"; }
 ng()   { FAIL=$((FAIL+1)); printf '  NG: %s\n' "$1" >&2; }
@@ -146,6 +163,32 @@ echo "$V_GAP" | grep -q "WARN spec" && ng "verify: 対の揃った工程に WARN
 assert_eq "$V_RC" "0" "verify: WARN は exit コードを変えない"
 rm -rf "$TMP/.aidev/works/20260101-gap"
 
+# WARN の並びは PHASES 順（ハッシュ列挙順に任せると awk と PowerShell で並びが変わり
+# 「出力を一致させる」契約＝パリティが破れる）。
+mkdir -p "$TMP/.aidev/works/20260101-order"
+cat > "$TMP/.aidev/works/20260101-order/state.yml" <<'YML'
+schema: 3
+slug: order
+current: coding
+approved: [requirement, spec, design, plan]
+YML
+cat > "$TMP/.aidev/works/20260101-order/metrics.yml" <<'YML'
+events:
+  - { ts: 2026-01-01T00:00:00Z, phase: plan, event: approved }
+  - { ts: 2026-01-01T01:00:00Z, phase: spec, event: approved }
+  - { ts: 2026-01-01T02:00:00Z, phase: design, event: approved }
+  - { ts: 2026-01-01T03:00:00Z, phase: requirement, event: approved }
+YML
+V_ORD=$(run_sh verify 20260101-order 2>&1 | grep -o 'WARN [a-z]*' | tr '\n' ' ')
+assert_eq "$V_ORD" "WARN requirement WARN spec WARN design WARN plan " "verify: WARN は PHASES 順（記録順やハッシュ順ではない）"
+if [ -n "$PS_HOST" ]; then
+  P_ORD=$( ( cd "$TMP" && run_ps1 "$AIDEV_PS1" verify 20260101-order ) | tr -d '\r' | grep -o 'WARN [a-z]*' | tr '\n' ' ')
+  assert_eq "$P_ORD" "$V_ORD" "パリティ: WARN の並びが sh⇔ps1 で一致"
+else
+  skip "PowerShell(pwsh/powershell) 不在のため WARN 並びのパリティを省略"
+fi
+rm -rf "$TMP/.aidev/works/20260101-order"
+
 # guard: start の記録が要るときだけ促す（自動記録はしない＝手戻り回数の二重計上を避ける）
 mkdir -p "$TMP/.aidev/works/20260101-hint"
 cat > "$TMP/.aidev/works/20260101-hint/state.yml" <<'YML'
@@ -206,7 +249,8 @@ if command -v git >/dev/null 2>&1; then
 
   # list（判定キー=current 有無。probe worktree が出る）
   L_TSV=$(run_repo worktree list --format tsv)
-  assert_contains "$L_TSV" "worktree	$WP	feature/probe" "list: probe を current 有無で抽出(branch=feature/probe)"
+  # パスは git の表記に従う（Windows では MSYS の /c/... ではなく C:/... が返る）ため末尾で照合する
+  assert_contains "$L_TSV" "repo-wt/probe	feature/probe" "list: probe を current 有無で抽出(branch=feature/probe)"
   L_TBL=$(run_repo worktree list)
   assert_contains "$L_TBL" "WORKTREES" "list: table ヘッダ"
 
@@ -224,6 +268,15 @@ if command -v git >/dev/null 2>&1; then
   ( cd "$REPO" && git show-ref --verify --quiet refs/heads/feature/probe ); assert_eq "$?" "1" "rm: ブランチも削除済み"
   # INV-1（rm 後も main current 不変＝未作成のまま）
   assert_eq "$([ -f "$REPO/.aidev/current" ] && echo yes || echo no)" "no" "INV-1: rm 後も main current 不変"
+
+  # rm <path>: list が出したパスをそのまま渡せること。git は Windows で C:/Users/... を返す一方
+  # 解決側は MSYS の /c/Users/...（sh）／C:\Users\...（ps1）なので、素の文字列比較だと必ず外れた。
+  run_repo worktree add bypath >/dev/null 2>&1
+  BP=$(run_repo worktree list --format tsv | awk -F'\t' '$2 ~ /bypath$/ {print $2}')
+  assert_eq "$([ -n "$BP" ] && echo yes || echo no)" "yes" "rm(path): list からパスを取得できる"
+  run_repo worktree rm "$BP" --force --delete-branch >/dev/null 2>&1
+  assert_eq "$?" "0" "rm: list が出したパス表記をそのまま rm できる"
+  assert_eq "$([ -d "$TMP/repo-wt/bypath" ] && echo yes || echo no)" "no" "rm(path): worktree 撤去済み"
 
   # #33: slug が main worktree(basename=repo) に一致しても rm 対象にせず、明確なメッセージで拒否する
   RMM_OUT=$(run_repo worktree rm repo 2>&1); RMM_RC=$?
@@ -503,11 +556,11 @@ assert_contains "$DT" "backlog-summary: files=6 archived=1 warn=6" "doctor: back
 run_dt doctor >/dev/null 2>&1
 assert_eq "$?" "0" "doctor: backlog の WARN は exit code を変えない（硬ゲートは verify 側）"
 
-if command -v pwsh >/dev/null 2>&1; then
-  O_PS=$( ( cd "$DTR" && pwsh "$AIDEV_PS1" doctor ) | tr -d '\r' )
+if [ -n "$PS_HOST" ]; then
+  O_PS=$( ( cd "$DTR" && run_ps1 "$AIDEV_PS1" doctor ) | tr -d '\r' )
   assert_eq "$DT" "$O_PS" "パリティ: doctor(backlog 検査)"
 else
-  skip "pwsh 不在のため doctor(backlog) のパリティを省略"
+  skip "PowerShell(pwsh/powershell) 不在のため doctor(backlog) のパリティを省略"
 fi
 rm -rf "$DTR"
 
@@ -574,26 +627,26 @@ assert_eq "$(cat "$CLR/.aidev/current")" "$CW1" "use: .aidev/current が実際�
 run_cl use nosuch >/dev/null 2>&1
 assert_eq "$?" "1" "use: 存在しない slug を弾く（手書きの打ち間違い対策）"
 
-if command -v pwsh >/dev/null 2>&1; then
+if [ -n "$PS_HOST" ]; then
   for args in "use" "backlog archive"; do
     # shellcheck disable=SC2086
     O_SH=$( ( cd "$CLR" && "$AIDEV_SH" $args ) )
     # shellcheck disable=SC2086
-    O_PS=$( ( cd "$CLR" && pwsh "$AIDEV_PS1" $args ) | tr -d '\r' )
+    O_PS=$( ( cd "$CLR" && run_ps1 "$AIDEV_PS1" $args ) | tr -d '\r' )
     assert_eq "$O_SH" "$O_PS" "パリティ: $args"
   done
 else
-  skip "pwsh 不在のため use / backlog のパリティを省略"
+  skip "PowerShell(pwsh/powershell) 不在のため use / backlog のパリティを省略"
 fi
 rm -rf "$CLR"
 
 echo "== sh ⇔ ps1 パリティ =="
-if command -v pwsh >/dev/null 2>&1; then
+if [ -n "$PS_HOST" ]; then
   for args in "status --format tsv" "metrics --all --format tsv" "metrics 20260101-alpha --phases --format tsv"; do
     # shellcheck disable=SC2086
     O_SH=$( ( cd "$TMP" && "$AIDEV_SH" $args ) )
     # shellcheck disable=SC2086
-    O_PS=$( ( cd "$TMP" && pwsh "$AIDEV_PS1" $args ) | tr -d '\r' )
+    O_PS=$( ( cd "$TMP" && run_ps1 "$AIDEV_PS1" $args ) | tr -d '\r' )
     assert_eq "$O_SH" "$O_PS" "パリティ: $args"
   done
 
@@ -602,12 +655,12 @@ if command -v pwsh >/dev/null 2>&1; then
     # shellcheck disable=SC2086
     O_SH=$( ( cd "$SUB" && "$AIDEV_SH" $args ) )
     # shellcheck disable=SC2086
-    O_PS=$( ( cd "$SUB" && pwsh "$AIDEV_PS1" $args ) | tr -d '\r' )
+    O_PS=$( ( cd "$SUB" && run_ps1 "$AIDEV_PS1" $args ) | tr -d '\r' )
     assert_eq "$O_SH" "$O_PS" "パリティ(subtask): $args"
   done
 
   # ps1 の new --parent を実機で検証（sh で作った親に ps1 が subtask を足し、親 state を正しく更新）
-  ( cd "$SUB" && pwsh "$AIDEV_PS1" new 03-ps --parent "$SP" >/dev/null 2>&1 )
+  ( cd "$SUB" && run_ps1 "$AIDEV_PS1" new 03-ps --parent "$SP" >/dev/null 2>&1 )
   assert_contains "$(cat "$SUB/.aidev/works/$SP/state.yml")" "03-ps" "パリティ: ps1 new --parent が親 subtasks に追記"
   assert_contains "$(cat "$SUB/.aidev/works/$SP/03-ps/state.yml" 2>/dev/null)" "parent: $SP" "パリティ: ps1 new --parent が子 parent 逆参照を刻む"
 
@@ -638,20 +691,37 @@ YML
     # (1) sh で worktree を1つ作り、list の出力を sh⇔ps1 で突合（同一 git 状態・同一 current を読むので一致するはず）
     ( cd "$PREPO" && "$AIDEV_SH" worktree add probe >/dev/null 2>&1 )
     WL_SH=$( ( cd "$PREPO" && "$AIDEV_SH"      worktree list --format tsv ) )
-    WL_PS=$( ( cd "$PREPO" && pwsh "$AIDEV_PS1" worktree list --format tsv ) | tr -d '\r' )
+    WL_PS=$( ( cd "$PREPO" && run_ps1 "$AIDEV_PS1" worktree list --format tsv ) | tr -d '\r' )
     assert_eq "$WL_SH" "$WL_PS" "パリティ: worktree list --format tsv"
 
     # (2) ps1 の add（既存work一致＝current 設定のみ）。current が full dated 名であること
     #     ＝ review 検出の must「PowerShell 単一要素配列アンラップ($mw[0]が先頭1文字)」の回帰ガード
-    PW_OUT=$( ( cd "$PREPO" && pwsh "$AIDEV_PS1" worktree add existing ) | tr -d '\r' )
+    PW_OUT=$( ( cd "$PREPO" && run_ps1 "$AIDEV_PS1" worktree add existing ) | tr -d '\r' )
     PW_CUR=$(cat "$TMP/prepo-wt/existing/.aidev/current" 2>/dev/null)
     assert_eq "$PW_CUR" "20260101-existing" "パリティ: ps1 add(既存work) current=full dated 名(\$mw アンラップ回帰)"
     assert_contains "$PW_OUT" "既存 work をリンク" "パリティ: ps1 add は既存をリンク(new 委譲せず)"
+
+    # (3) ps1 の add（新規 slug＝add 内で new に委譲する経路）。ここは長らく未検証で、
+    #     委譲先パスが `.aidev/bin/aidev.ps1`（誤）かつホストが `pwsh` 決め打ちのまま壊れていた。
+    PN_OUT=$( ( cd "$PREPO" && run_ps1 "$AIDEV_PS1" worktree add fresh ) 2>&1 | tr -d '\r' ); PN_RC=$?
+    assert_eq "$PN_RC" "0" "パリティ: ps1 add(新規slug) exit 0"
+    assert_contains "$PN_OUT" "新規 work を作成" "パリティ: ps1 add(新規slug) は new に委譲"
+    PN_CUR=$(cat "$TMP/prepo-wt/fresh/.aidev/current" 2>/dev/null | tr -d '\r')
+    assert_contains "$PN_CUR" "-fresh" "パリティ: ps1 add(新規slug) が worktree の current を書く"
+    assert_eq "$([ -f "$TMP/prepo-wt/fresh/.aidev/works/$PN_CUR/state.yml" ] && echo yes || echo no)" "yes" \
+      "パリティ: ps1 add(新規slug) が work を実際に作る（委譲失敗の空振り回帰）"
+
+    # (4) ps1 の rm <path>: 自分の list が出したパス表記をそのまま渡せること
+    #     （git は C:/... 、.NET の解決は C:\... なので素の比較だと Windows で必ず外れた）
+    PB=$( ( cd "$PREPO" && run_ps1 "$AIDEV_PS1" worktree list --format tsv ) | tr -d '\r' | awk -F'\t' '$2 ~ /fresh$/ {print $2}')
+    ( cd "$PREPO" && run_ps1 "$AIDEV_PS1" worktree rm "$PB" --force --delete-branch >/dev/null 2>&1 )
+    assert_eq "$?" "0" "パリティ: ps1 rm は list が出したパス表記をそのまま扱える"
+    assert_eq "$([ -d "$TMP/prepo-wt/fresh" ] && echo yes || echo no)" "no" "パリティ: ps1 rm(path) で worktree 撤去済み"
   else
     skip "git 不在のため worktree パリティを省略"
   fi
 else
-  skip "pwsh 不在のためパリティテストを省略"
+  skip "PowerShell(pwsh/powershell) 不在のためパリティテストを省略"
 fi
 
 echo

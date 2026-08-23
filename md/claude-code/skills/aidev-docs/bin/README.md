@@ -20,8 +20,17 @@ Windows:
 
 ```powershell
 pwsh .claude/skills/aidev-docs/bin/aidev.ps1 <command> ...
-# Windows PowerShell 5.1 の場合: powershell -File .claude\skills\aidev-docs\bin\aidev.ps1 <command> ...
+# pwsh は Windows の標準搭載ではない。Windows PowerShell 5.1 だけの環境ではこちら:
+powershell -NoProfile -File .claude\skills\aidev-docs\bin\aidev.ps1 <command> ...
 ```
+
+Git Bash（Git for Windows 同梱）があるなら POSIX 版の `aidev` がそのまま動く（実測で全機能・
+生成ファイルとも一致）。どちらを使ってもよい。
+
+> **`aidev.ps1` は UTF-8 BOM 付きで保存すること**（`.gitattributes` で改行も固定してある）。
+> Windows PowerShell 5.1 は BOM 無し `.ps1` を ANSI（日本語環境なら cp932）として読むため、
+> BOM を落とすと日本語リテラルが壊れて ParserError になり**起動すらできない**。
+> 出力は OS を問わず UTF-8 固定（コンソール CP のまま出すとパイプ先で化けるため明示設定している）。
 
 ## コマンド
 

@@ -1,0 +1,10 @@
+# CLI の改行/エンコーディングを OS 差から守る（この2ファイルは挙動が改行と BOM に依存する）。
+#
+# - sh 版は LF 固定。core.autocrlf=true の Windows チェックアウトで CRLF になると、
+#   同じ作業ツリーを WSL/Linux から叩いたときに shebang ごと壊れる。
+# - ps1 版は UTF-8 BOM 必須（ファイル先頭の BOM は内容として commit 済み）。
+#   Windows PowerShell 5.1 は BOM 無し .ps1 を ANSI（日本語環境なら cp932）として読むため、
+#   BOM を落とすと日本語リテラルが壊れて ParserError で起動すらできなくなる。
+aidev       text eol=lf
+*.sh        text eol=lf
+aidev.ps1   text eol=crlf

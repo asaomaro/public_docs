@@ -1,4 +1,4 @@
-#!/usr/bin/env pwsh
+﻿#!/usr/bin/env pwsh
 # aidev ランタイムガード CLI（PowerShell 版・Windows 向け / pwsh でも動作）
 #
 # POSIX sh 版（同ディレクトリの `aidev`）と挙動・出力・終了コードを一致させること。
@@ -30,6 +30,10 @@ $script:CURRENT_SCHEMA = 3   # schema 3=subtask 層(subtasks/activeSubtask/paren
 $script:PHASES = @('requirement','research','spec','design','plan','coding','test','review','walkthrough','deliver','retro')
 $script:Utf8 = New-Object System.Text.UTF8Encoding($false)  # BOM なし
 
+# 標準出力/標準エラーを UTF-8 固定にする。既定ではコンソールの CP（日本語 Windows なら cp932）で
+# エンコードされ、UTF-8 前提のパイプ先（grep 等）や sh 版との出力照合が壊れるため。
+try { [Console]::OutputEncoding = $script:Utf8 } catch {}
+
 function Die($m)  { [Console]::Error.WriteLine("aidev: $m"); exit 1 }
 function Warn($m) { [Console]::Error.WriteLine("aidev: $m") }
 function Now() {
@@ -37,6 +41,34 @@ function Now() {
   $d = [DateTime]::UtcNow
   return ('{0:D4}-{1:D2}-{2:D2}T{3:D2}:{4:D2}:{5:D2}Z' -f $d.Year,$d.Month,$d.Day,$d.Hour,$d.Minute,$d.Second)
 }
+function IsWindowsHost() {
+  # $IsWindows は PowerShell Core のみ。Windows PowerShell 5.1 では未定義＝Windows。
+  return (($null -eq $IsWindows) -or $IsWindows)
+}
+function PsHost() {
+  # 自己呼び出しは「今動いているホスト」を使う。`pwsh` 決め打ちだと Windows PowerShell 5.1 しか
+  # 入っていない素の Windows（pwsh は標準搭載ではない）で CommandNotFound になる。
+  try {
+    $exe = [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
+    if ($exe) { return $exe }
+  } catch {}
+  if ($PSVersionTable.PSEdition -eq 'Core') { return 'pwsh' } else { return 'powershell' }
+}
+function PsHostArgs($script) {
+  # -ExecutionPolicy は Windows のみ有効（Linux/macOS の pwsh では不正オプション）
+  $a = @('-NoProfile')
+  if (IsWindowsHost) { $a += @('-ExecutionPolicy','Bypass') }
+  return $a + @('-File', $script)
+}
+
+function PathKey($p) {
+  # パス比較用の正規化キー。git worktree list は `C:/Users/...`（スラッシュ）を返すのに対し
+  # .NET の解決結果は `C:\Users\...` なので、そのまま比較すると Windows で必ず不一致になる。
+  if (-not $p) { return '' }
+  try { $full = [System.IO.Path]::GetFullPath($p) } catch { $full = $p }
+  return ($full -replace '\\','/').TrimEnd('/')
+}
+
 function WriteText($p,$t)  { [System.IO.File]::WriteAllText($p,$t,$script:Utf8) }
 function AppendText($p,$t) { [System.IO.File]::AppendAllText($p,$t,$script:Utf8) }
 
@@ -429,15 +461,20 @@ function VerifyWork($work) {
 
 # metrics.yml のイベント対を検査し、WARN 行を出す（終了コードには影響しない）。
 function EventPairWarnings($metricsFile) {
-  $starts = @{}; $approved = @{}
+  $starts = @{}; $approved = @{}; $seen = New-Object System.Collections.Generic.List[string]
   foreach ($l in [System.IO.File]::ReadAllLines($metricsFile)) {
     $m = [regex]::Match($l, 'phase:\s*([a-z]+)')
     if (-not $m.Success) { continue }
     $p = $m.Groups[1].Value
+    if (-not $seen.Contains($p)) { [void]$seen.Add($p) }
     if ($l -match 'event:\s*start')    { $starts[$p]    = [int]$starts[$p] + 1 }
     if ($l -match 'event:\s*approved') { $approved[$p]  = [int]$approved[$p] + 1 }
   }
-  foreach ($p in $approved.Keys) {
+  # 出力順は PHASES 順（未知の phase は初出順で後ろに）。ハッシュの列挙順に任せると
+  # awk と PowerShell で並びが変わり「出力を一致させる」契約が破れる。
+  $order = @($script:PHASES | Where-Object { $approved.ContainsKey($_) })
+  $order += @($seen | Where-Object { $approved.ContainsKey($_) -and ($script:PHASES -notcontains $_) })
+  foreach ($p in $order) {
     $s = [int]$starts[$p]; $a = [int]$approved[$p]
     if ($s -eq 0) {
       [Console]::Out.WriteLine("  WARN ${p}: approved があるのに start が無い（所要時間が導出できません）")
@@ -888,12 +925,14 @@ function Wt-Add($rest) {
     $workNote = "既存 work をリンク: $($mw[0])（current 設定のみ）"
   } else {
     # add 内で new: worktree をカレントにして既存 new ロジックに委譲（単一検証経路の維持・DRY）
-    $bin = Join-Path (Join-Path (Join-Path $wpath '.aidev') 'bin') 'aidev.ps1'
+    # CLI は skills 同梱＝`.claude/skills/aidev-docs/bin/`（sh 版と同じ正典パス。protocol.md「4.1」）。
+    $bin = [System.IO.Path]::Combine($wpath, '.claude', 'skills', 'aidev-docs', 'bin', 'aidev.ps1')
+    if (-not (Test-Path $bin)) { Die "worktree 内に CLI がありません: $bin（skills が追跡・コミット済みか確認）" }
     $argv = @('new', $slug, '--mode', $mode)
     if ($ticket)  { $argv += @('--ticket', $ticket) }
     if ($depends) { $argv += @('--depends', $depends) }
     Push-Location $wpath
-    try { & pwsh $bin @argv; if ($LASTEXITCODE -ne 0) { Die "worktree 内の new に失敗" } }
+    try { & (PsHost) @(PsHostArgs $bin) @argv; if ($LASTEXITCODE -ne 0) { Die "worktree 内の new に失敗" } }
     finally { Pop-Location }
     $workNote = "新規 work を作成（add 内で new）"
   }
@@ -960,14 +999,14 @@ function Wt-Rm($rest) {
   GitPresent
 
   $abst=''
-  if (Test-Path -PathType Container $target) { $abst = (Resolve-Path $target).Path }
+  if (Test-Path -PathType Container $target) { $abst = PathKey (Resolve-Path $target).Path }
   $wts = @(WtPorcelain)
   $mainWt = if ($wts.Count -ge 1) { ($wts[0] -split "`t")[0] } else { '' }  # porcelain 先頭＝main worktree（rm 対象外）
   $rpath=''; $rbranch=''; $hitMain=$false
   foreach ($line in $wts) {
     $cols = $line -split "`t"; $p = $cols[0]; $b = $cols[1]
     if ($abst) {
-      if ($p -eq $abst) { $rpath=$p; $rbranch=$b; break }
+      if ((PathKey $p) -eq $abst) { $rpath=$p; $rbranch=$b; break }
     } else {
       if ((Split-Path $p -Leaf) -eq $target -or $b -eq "feature/$target" -or $b -eq $target) {
         if ($p -eq $mainWt) { $hitMain=$true; continue }  # slug が main worktree に一致しても対象にしない

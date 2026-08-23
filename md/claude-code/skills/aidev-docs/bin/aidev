@@ -472,19 +472,25 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail
 
 # metrics.yml のイベント対を検査し、WARN 行を出す（終了コードには影響しない）。
 event_pair_warnings() { # metrics_file
-  awk '
+  awk -v phases="$PHASES" '
     match($0, /phase:[[:space:]]*[a-z]+/) {
       p = substr($0, RSTART, RLENGTH); sub(/phase:[[:space:]]*/, "", p)
+      if (!(p in seen)) { seen[p] = ++nseen; order[nseen] = p }
       if ($0 ~ /event:[[:space:]]*start/)    starts[p]++
       if ($0 ~ /event:[[:space:]]*approved/) approved[p]++
     }
+    function emit(p) {
+      if (starts[p] == 0)
+        printf "  WARN %s: approved があるのに start が無い（所要時間が導出できません）\n", p
+      else if (starts[p] < approved[p])
+        printf "  WARN %s: start %d 回に対し approved %d 回（start の記録漏れ）\n", p, starts[p], approved[p]
+    }
     END {
-      for (p in approved) {
-        if (starts[p] == 0)
-          printf "  WARN %s: approved があるのに start が無い（所要時間が導出できません）\n", p
-        else if (starts[p] < approved[p])
-          printf "  WARN %s: start %d 回に対し approved %d 回（start の記録漏れ）\n", p, starts[p], approved[p]
-      }
+      # 出力順は PHASES 順（未知の phase は初出順で後ろに）。ハッシュの列挙順（for (p in ...)）に
+      # 任せると awk と PowerShell で並びが変わり「出力を一致させる」契約が破れる。
+      n = split(phases, ord, " ")
+      for (i = 1; i <= n; i++) { p = ord[i]; if (p in approved) { emit(p); known[p] = 1 } }
+      for (i = 1; i <= nseen; i++) { p = order[i]; if ((p in approved) && !(p in known)) emit(p) }
     }
   ' "$1"
   return 0
@@ -1003,6 +1009,8 @@ wt_rm() {
   [ -n "$target" ] || die "使用法: aidev worktree rm <slug|path> [--force] [--delete-branch]"
   git_present
 
+  # git worktree list は Windows で `C:/Users/...` を返すが MSYS の pwd は `/c/Users/...` を返す。
+  # 素の文字列比較だと必ず外れるので、比較する両辺を同じ手（cd && pwd）で正規化する。
   abst=""; [ -d "$target" ] && abst=$(cd "$target" && pwd)
   wtinfo=$(wt_porcelain)
   main_wt=$(printf '%s\n' "$wtinfo" | head -n1 | cut -f1)  # porcelain 先頭＝main worktree（rm 対象外）
@@ -1012,7 +1020,8 @@ wt_rm() {
   for line in $wtinfo; do
     p=${line%%	*}; b=${line#*	}
     if [ -n "$abst" ]; then
-      [ "$p" = "$abst" ] && { rpath=$p; rbranch=$b; break; }
+      pn=$(cd "$p" 2>/dev/null && pwd); [ -n "$pn" ] || pn=$p
+      [ "$pn" = "$abst" ] && { rpath=$p; rbranch=$b; break; }
     else
       if [ "$(basename "$p")" = "$target" ] || [ "$b" = "feature/$target" ] || [ "$b" = "$target" ]; then
         if [ "$p" = "$main_wt" ]; then hit_main=yes; continue; fi  # slug が main worktree に一致しても対象にしない
