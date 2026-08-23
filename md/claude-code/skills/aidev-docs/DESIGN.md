@@ -38,7 +38,7 @@ flowchart TD
 
   test -- 失敗 --> coding
   review -- "must/should 指摘" --> coding
-  deliver -. 完了後（任意・ユーザー指定） .-> retro["90 retro"]
+  deliver -. 完了後（任意・ユーザー指定） .-> retro["95 retro"]
 
   classDef opt fill:#eef,stroke:#88a,stroke-dasharray:4 3
   class research,design,walkthrough,retro opt

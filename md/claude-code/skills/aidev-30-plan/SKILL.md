@@ -19,6 +19,7 @@ spec を実装可能な作業単位に分解し、`plan.md`（方針・順序）
 ## 入力
 
 - 対象フォルダの `spec.md` と、あれば `design.md`（必要に応じて `requirement.md`）。
+- あれば `research.md`。特に「実装アンカー」は `tasks.md` の `対象` 欄の出所になる。
 
 ## 出力
 
@@ -27,7 +28,7 @@ spec を実装可能な作業単位に分解し、`plan.md`（方針・順序）
 ## 手順
 
 1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定。「2. 前提チェック」に従い `spec.md` を確認
-   （`design.md` があればそれも読み込む）。
+   （`design.md` / `research.md` があればそれも読み込む）。
    - **この work が subtask か親かを見分ける**（state.yml に `parent` があれば subtask）。
      **subtask の plan は split 判定（手順3）と subtask 生成（手順4）を行わない**。手順5の「scope 凍結の
      tasks.md 分解」だけを実施し、**再分割（subtask の下に subtask を作る）は禁止**（CLI も多段ネストを弾く）。
@@ -51,8 +52,16 @@ spec を実装可能な作業単位に分解し、`plan.md`（方針・順序）
 5. **（分割しない場合）** spec を独立して検証可能な小さなタスクに分解し、`tasks.md` をチェックリストで作る。
    - 各タスクは coding 工程で 1 つずつ消化できる粒度にする。
    - 依存があるタスクは順序が分かるように並べる。依存が複雑なら mermaid で図示する（protocol.md「9.」）。
+   - **各タスクに `対象` を添える**。`research.md` の「実装アンカー」や `design.md` で位置が特定できている場合、
+     変更・参照の起点を `file:line` またはシンボル名で書き、根拠の項目 ID（`research A1` 等）を併記する。
+     coding が探索をやり直さずに済み、差し戻し・再開時の再探索も防げる。
+   - **特定できていないタスクは `対象: 未特定` と明示する**（空欄にすると「調査済みで対象なし」と誤読され、
+     coding が必要な探索を省いてしまう）。アンカーはあくまで**探索の省略**であり、読解の省略ではない。
 6. protocol.md「3. 工程終了プロトコル」に従って終了する（次工程: 分割時は最初の subtask の `plan`、
-   非分割時は `coding`）。承認は `aidev approve plan tasks_planned=<tasks.md のタスク総数>`（protocol.md「3.」「8.」）。
+   非分割時は `coding`）。承認は
+   `aidev approve plan tasks_planned=<tasks.md のタスク総数> tasks_anchored=<対象が特定済みのタスク数>`
+   （protocol.md「3.」「8.」）。`tasks_anchored` は `対象: 未特定` を除いた数——
+   coding の `unplanned_lookups` と対になり、アンカー的中率の分母になる。
 
 ## plan.md テンプレート
 
@@ -75,15 +84,22 @@ spec を実装可能な作業単位に分解し、`plan.md`（方針・順序）
 
 ## tasks.md テンプレート
 
+チェックボックスは**行頭の `- [ ]`** で書く（進捗の単一の真実）。
+`対象` は次行にインデントして添える（チェック行の書式を壊さない）。
+
 ```markdown
 # タスク: <タイトル>
 
 - [ ] T1: <タスク内容>
+      対象: `path/to/file.ts:120` `symbolName` / 根拠: research A1
 - [ ] T2: <タスク内容>（依存: T1）
+      対象: 未特定
 - [ ] T3: <タスク内容>
+      対象: `path/to/other.ts` （新規作成）
 ```
 
 ## 完了の目安
 
 - spec の全範囲が tasks に漏れなく落ちている。
 - 各タスクが「1 タスク = 1 つの検証可能な変更」になっている。
+- 各タスクに `対象` がある（特定できないものは `未特定` と明示されている）。

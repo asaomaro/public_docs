@@ -85,8 +85,15 @@ review を通過した変更を、コミット・PR 作成によって実際に�
      入って初めて効くため、この順でないと素通りする）:
 
      ```
-     台帳の同期（手順 3.5）→ aidev approve deliver → aidev verify → コミット → push/PR
+     台帳の同期（手順 3.5）→ 変更規模の計測 → aidev approve deliver → aidev verify → コミット → push/PR
      ```
+   - **変更規模の計測**（protocol.md「8.」）: `aidev approve deliver` の直前に、着地する**実装**の規模を
+     `git diff --stat HEAD -- . ':!.aidev'` で計測する。**工程成果物（`.aidev/` 配下）は規模に含めない**
+     （含めると実装の規模が水増しされ、work 間の比較が壊れる）。
+     承認は `aidev approve deliver files_changed=<n> insertions=<n> deletions=<n>`。
+     - 事後記録モード（手順 1.5）では、既着地コミットの範囲で計測する
+       （`git diff --stat <base>..<着地コミット> -- . ':!.aidev'`）。
+     - この値は insights で「規模あたりの手戻り」の分母になる（タスク数は粒度の癖でぶれるため）。
    - **metrics.yml の必須化**（protocol.md「8.」）: 記録は `aidev`（event/approve）が行い、`metrics.yml`
      不在なら自動生成する（CLI 無し環境は `events:` で生成してから手で追記）。事後記録モードでも同様。
 

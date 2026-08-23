@@ -387,28 +387,60 @@ events:
 - **差し戻し回数**：sent_back の件数（工程別）。
 - **リードタイム**：最初の start 〜 deliver の approved。
 - **任意工程の使用**：research / design の start 有無。
+- **アンカー的中率**：`1 − unplanned_lookups / tasks_anchored`（research/plan の位置特定がどれだけ当たったか）。
+  低ければ research の問いが的外れ、常に 100% なら research が過剰——**任意工程の発火条件を調整する材料**になる。
+- **規模あたりの手戻り**：手戻り回数 ÷（`insertions` + `deletions`）。tasks 数は粒度の癖でぶれるため、
+  work 間を比較するときはこちらで正規化する。
 
 > 注意: 経過時間は承認待ち・セッション中断を含む壁時計値であり、純粋な作業時間ではない。
 > 品質傾向としては**手戻り回数**の方が示唆に富む（上流工程の弱さを示すため）。
+> 経過時間を比較するときは `state.yml` の `mode` で**層別する**（interactive は人間の承認待ちが支配的で、
+> 工程の重さをほとんど反映しない。比較が成立するのは autonomous 同士）。
 
 ### 工程別の付加メトリクス
 
 該当工程の `approved` イベントに `metrics` を付与する（任意キー。値が出せる工程のみ）。
 
 ```yaml
-  - { ts: ..., phase: plan,   event: approved, metrics: { tasks_planned: 4 } }
-  - { ts: ..., phase: coding, event: approved, metrics: { tasks_done: 4 } }
-  - { ts: ..., phase: test,   event: approved, metrics: { passed: 12, failed: 0 } }
-  - { ts: ..., phase: review, event: approved, metrics: { must: 0, should: 1, nit: 2 } }
+  - { ts: ..., phase: plan,    event: approved, metrics: { tasks_planned: 4, tasks_anchored: 3 } }
+  - { ts: ..., phase: coding,  event: approved, metrics: { tasks_done: 4, unplanned_lookups: 1 } }
+  - { ts: ..., phase: test,    event: approved, metrics: { passed: 12, failed: 0 } }
+  - { ts: ..., phase: review,  event: approved, metrics: { must: 0, should: 1, nit: 2 } }
+  - { ts: ..., phase: deliver, event: approved, metrics: { files_changed: 7, insertions: 169, deletions: 31 } }
 ```
 
-- **plan**: `tasks_planned`（tasks.md のタスク総数）
-- **coding**: `tasks_done`（チェック済みタスク数）
+- **plan**: `tasks_planned`（tasks.md のタスク総数）/
+  `tasks_anchored`（`対象` が特定済みのタスク数。`対象: 未特定` は数えない）
+- **coding**: `tasks_done`（チェック済みタスク数）/
+  `unplanned_lookups`（**アンカー付きタスクなのに**探索し直した回数。`未特定` のタスクでの探索は
+  最初から想定内なので数えない——分母 `tasks_anchored` と対応させる）
 - **test**: `passed` / `failed`（検証結果の件数）
 - **review**: `must` / `should` / `nit`（重大度別の指摘件数）
+- **deliver**: `files_changed` / `insertions` / `deletions`（着地した**実装**の変更規模）。
+  `git diff --stat` から機械取得し、工程成果物（`.aidev/` 配下）は除外する
+  （例: `git diff --stat HEAD -- . ':!.aidev'`。事後記録モードは既着地コミットの範囲で計測）。
 - **CLI 形式**: `k=v` を `aidev approve` に渡すと `metrics:` になる。例:
-  `aidev approve plan tasks_planned=4` / `aidev approve coding tasks_done=4` /
-  `aidev approve test passed=12 failed=0` / `aidev approve review must=0 should=1 nit=2`。
+  `aidev approve plan tasks_planned=4 tasks_anchored=3` /
+  `aidev approve coding tasks_done=4 unplanned_lookups=1` /
+  `aidev approve test passed=12 failed=0` / `aidev approve review must=0 should=1 nit=2` /
+  `aidev approve deliver files_changed=7 insertions=169 deletions=31`。
+
+#### キーを増やすときの基準
+
+記録コストは毎工程かかるため、新しいキーは次の**3つすべて**を満たす場合に限って足す。
+
+- **(a) 実測できる**——機械（git / テストランナー / チェックボックス）から取れるか、
+  **モデル自身の行動回数**として数えられるもの。自分の**内部状態**（消費トークン等）や
+  主観的な難易度は不可。行動は数えられるが、内部状態は「それらしい数」に流れ、
+  「捏造して埋めない」原則（上記「必須化」）を崩す。
+- **(b) 改善アクションに直結する**——任意工程の発火条件・テンプレート・規約を変える材料になる。
+- **(c) 既存から導出できない**——イベント列や他キーで代替できるなら足さない。
+  （例: 「research の効果」は `research` の start 有無 × 手戻り回数で層別すれば足りる）
+
+**トークン消費は記録しない。** 工程単位に按分できず（1 工程が複数セッションにまたがり、
+1 セッションで複数工程を回す）、モデルは自分の消費量を正確に知らないため (a) を満たさない。
+実測が必要なら Claude Code の OpenTelemetry 等**外側の経路**で取り、`metrics.yml` には混ぜない。
+無駄に読んだ量の近似としては `unplanned_lookups` で足りる。
 
 ### レビュー指摘の内容（review.md）
 

@@ -28,6 +28,10 @@ per-work の `retro` が「その作業1件」を振り返るのに対し、こ�
     **reworks（手戻り）** / **sent_backs（差し戻し）**。
   - `.claude/skills/aidev-docs/bin/aidev metrics --all --phases`：work×工程の start / approved / **elapsed_sec（工程時間）**。
   - `--format tsv` で機械パース可（列の集計・平均算出に使う）。Windows は `pwsh .claude/skills/aidev-docs/bin/aidev.ps1 metrics ...`（pwsh 無しなら `powershell -NoProfile -File ...`）。
+  - **例外: 工程別の付加メトリクスは CLI の派生テーブルに出ない**（`aidev metrics` はイベント列からの
+    導出値だけを出力する）。`tasks_anchored` / `unplanned_lookups` / `files_changed` 等が必要な場合に限り、
+    `.aidev/works/*/metrics.yml` の `approved` 行から抽出する（1 イベント 1 行なので grep で足りる）。
+    protocol.md「8.」の「工程別の付加メトリクス」がキーの正典。
 - `.aidev/works/*/review.md`：レビュー指摘の内容（再発パターン分析の主材料。**テキストは読む**）。
 - `.aidev/works/*/decisions.md`：繰り返される設計逸脱（テキスト）。
 - `.aidev/works/*/retro.md`：過去の per-work 改善提案（再発・未対応の把握。テキスト）。
@@ -46,6 +50,13 @@ per-work の `retro` が「その作業1件」を振り返るのに対し、こ�
    - **レビュー指摘の再発**：同種・同観点の指摘が複数作業で繰り返されていないか。
    - **ボトルネック工程**：手戻り回数(reworks)・差し戻し(sent_backs)・経過時間(elapsed_sec)が突出する工程はどれか。
    - **上流の効き**：research/design を挟んだ作業は手戻りが少ないか（任意工程の効果）。
+   - **アンカー的中率**：`1 − unplanned_lookups / tasks_anchored`。低ければ research の問いの立て方が
+     的外れ（実装の起点を特定できていない）、常に 100% なら research が過剰。
+     → **任意工程 research の発火条件そのものを調整する材料**にする。
+   - **規模あたりの手戻り**：reworks ÷（`insertions` + `deletions`）。tasks 数は粒度の癖でぶれるため、
+     work 間の比較はこの正規化で行う。
+   - **経過時間の層別**：`elapsed_sec` を比べるときは `state.yml` の `mode` で分ける
+     （interactive は人間の承認待ちが支配的で工程の重さを反映しない。比較が成立するのは autonomous 同士）。
    - **未対応の改善**：過去 retro の提案で、繰り返し挙がるが未反映のもの。
    - **未着手キューの滞留（任意）**：`.aidev/backlog/*.md`（archive 除く）の未処理件数・滞留や
      `(needs:…)` で止まっている項目を、残作業のコンテキストとして添えてよい（完了作業の分析が主旨）。
@@ -67,6 +78,7 @@ per-work の `retro` が「その作業1件」を振り返るのに対し、こ�
 ## 主要メトリクス（横断）
 - 平均リードタイム / 手戻り回数の分布 / ボトルネック工程
 - research・design 使用有無と手戻りの相関（わかる範囲で）
+- アンカー的中率（`1 − unplanned_lookups / tasks_anchored`）と、規模あたりの手戻り
 
 ## 再発パターン
 ### レビュー指摘
