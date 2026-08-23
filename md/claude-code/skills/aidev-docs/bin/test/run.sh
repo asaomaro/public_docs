@@ -239,7 +239,10 @@ if command -v git >/dev/null 2>&1; then
   ADD_OUT=$(run_repo worktree add probe 2>&1); ADD_RC=$?
   assert_eq "$ADD_RC" "0" "worktree add exit 0"
   assert_contains "$ADD_OUT" "worktree 追加" "add: 追加メッセージ"
-  assert_contains "$ADD_OUT" "languageId" "add: 規約警告(languageId)を出力"
+  # 共有ファイル警告は .aidev/config.yml の sharedFiles から生成する（PJ 固有名を CLI に埋めない）。
+  # このフィクスチャは config.yml を持たないので、名指しではなく汎用文言になる。
+  assert_contains "$ADD_OUT" "共有するもの" "add: sharedFiles 未設定なら汎用の共有ファイル警告"
+  assert_contains "$ADD_OUT" "sharedFiles" "add: 未設定時は sharedFiles で名指しできると案内する"
   WP="$TMP/repo-wt/probe"
   assert_eq "$([ -d "$WP" ] && echo yes || echo no)" "yes" "add: 既定 path に worktree 作成"
   WT_CUR=$(cat "$WP/.aidev/current" 2>/dev/null)
@@ -283,6 +286,15 @@ if command -v git >/dev/null 2>&1; then
   assert_eq "$RMM_RC" "1" "rm: main worktree に一致する slug は exit 1"
   assert_contains "$RMM_OUT" "main worktree は rm できません" "rm: main worktree 一致時は明確な文言で拒否"
   assert_eq "$([ -d "$REPO" ] && echo yes || echo no)" "yes" "rm: main worktree は削除されない"
+
+  # sharedFiles を設定すると、その名前で警告する（PJ 固有名は config 側にだけ存在する）。
+  # 読むのは main tree の .aidev/config.yml（worktree 側ではない）＝ add は main tree で実行されるため。
+  printf 'sharedFiles: [package.json, src/fileScope.ts]\n' > "$REPO/.aidev/config.yml"
+  CFG_OUT=$(run_repo worktree add cfgprobe 2>&1)
+  assert_contains "$CFG_OUT" "共有ファイル（package.json, src/fileScope.ts）" "add: sharedFiles を名指しで警告"
+  case "$CFG_OUT" in *"共有するもの"*) ng "add: sharedFiles 設定時は汎用文言を出さない" ;; *) ok "add: sharedFiles 設定時は汎用文言を出さない" ;; esac
+  run_repo worktree rm cfgprobe --force --delete-branch >/dev/null 2>&1
+  rm -f "$REPO/.aidev/config.yml"
 else
   skip "git 不在のため worktree テストを省略"
 fi

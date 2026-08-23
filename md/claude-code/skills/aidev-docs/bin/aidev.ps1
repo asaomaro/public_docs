@@ -972,6 +972,20 @@ function WtPorcelain() {
   return $out
 }
 
+# 共有ファイル警告。PJ 固有のファイル名は CLI に埋めず .aidev/config.yml の sharedFiles から生成する
+# （基盤は PJ 非依存＝DESIGN「1.」「2.」。機械が言えるのは config にある事実だけで、検証義務のような
+#  PJ 規約は散文＝AGENTS.md / protocol-worktree.md の担当。DESIGN「2.6」の線引きと同じ）。
+function Wt-SharedWarn {
+  $sh = @(YList (Join-Path $script:AIDEV 'config.yml') 'sharedFiles')
+  if ($sh.Count -gt 0) {
+    Write-Output "⚠ この work が共有ファイル（$($sh -join ', ')）に触るなら、他 worktree と"
+    Write-Output "  波及・マージ衝突が起きうる（PJ 規約は AGENTS.md）。並行可否はユーザー判断。"
+  } else {
+    Write-Output "⚠ この work が他 worktree と共有するもの（ビルド設定・登録テーブル・共有モジュール等）に触るなら、"
+    Write-Output "  波及・マージ衝突が起きうる（PJ 規約は AGENTS.md。config.yml の sharedFiles で名指しできる）。並行可否はユーザー判断。"
+  }
+}
+
 function Wt-Add($rest) {
   $slug=''; $branch=''; $base='HEAD'; $wpath=''; $mode='interactive'; $ticket=''; $depends=''
   for ($i=0; $i -lt $rest.Count; $i++) {
@@ -1030,9 +1044,7 @@ function Wt-Add($rest) {
   Write-Output "worktree 追加: $wpath"
   Write-Output "  branch: $branch / base: $base"
   Write-Output "  work:   $workNote"
-  Write-Output "⚠ この work が package.json(contributes) / src/fileScope.ts / 言語登録に触るなら、"
-  Write-Output "  他 worktree と languageId 波及・マージ衝突が起きうる（AGENTS.md「languageId 下流波及」）。並行可否はユーザー判断。"
-  Write-Output "⚠ CL/RPG プロンプター定義など原典照合が要る work は主エージェント実施が必須（委譲して検証を落とさない）。"
+  Wt-SharedWarn
   Write-Output "次: cd $wpath して各工程 skill を実行。"
 }
 

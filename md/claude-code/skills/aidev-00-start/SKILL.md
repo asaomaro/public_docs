@@ -41,6 +41,16 @@ AI 開発ワークフローの入口（ルーター）。
 - **外部トラッカー（任意）**: `.aidev/config.yml` の `tracker.type` が `github` 等なら、必要に応じ
   `gh issue list`（または各ツール）で open を「未着手（トラッカー）」として併記してよい（status の対象外）。
 
+**並行作業（worktree）を使っているなら `aidev worktree list` も実行して併記する**（`protocol.md`「1.5」）。
+
+```sh
+.claude/skills/aidev-docs/bin/aidev worktree list          # aidev 管理 worktree を path/branch/work/phase で
+```
+
+`aidev status` は **worktree を横断しない**——`.aidev/works/*` は追跡対象なので各 worktree の
+ブランチに載り、マージされるまで main tree の status には現れない。よって worktree 上で進行中の作業は
+**status だけ見ていると存在ごと見落とす**。git が無い環境ではこのコマンドは失敗するので、その場合は省く。
+
 CLI が使えない環境のフォールバック: `cat .aidev/current` / `ls .aidev/works` と各 `state.yml`
 （`current`/`approved`/`dependsOn`）＋ `.aidev/backlog/*.md`（`archive/` 除く）を読んで同等に要約する。
 
@@ -62,6 +72,15 @@ CLI が使えない環境のフォールバック: `cat .aidev/current` / `ls .a
     2026-08-01 に、5 日前に完了済みの項目を選んで requirement を書きかけた実例がある。
   - **backlog 由来なら手順 4 で `--backlog <file>` を渡す**（deliver での消し込みを verify が強制する）。
 - **新規 requirement を起こす**：手順 4 へ。
+- **並行で始める（worktree・任意）**：進行中の作業を**止めずに**別の作業へ着手したいと
+  **ユーザーが望むとき**だけ。`aidev worktree add <slug>` が work 専用の worktree と
+  `feature/<slug>` ブランチを作る（work が無ければ内部で `new` まで済ませる）ので、
+  `cd` してから手順 4 の続き（工程の実行）へ進む。
+  - **この選択肢をハーネスから推奨しない**。並列の要否判断はユーザーの責任で、既定は単一
+    ワーキングツリーの直列（`protocol.md`「1.5」）。作業が溜まっていることを理由に AI 側から
+    並列化を勧めない。
+  - 選ばれたら **`protocol-worktree.md` を読んでから**実行する（current の worktree ローカル性・
+    既存 work を継続する場合のコミット前提・共有ファイルに触るときの注意）。
 
 作業が複数ある場合は、まず対象の works フォルダを選ばせてから上記を提示してよい。
 
@@ -110,6 +129,7 @@ CLI が使えない環境のフォールバック: `cat .aidev/current` / `ls .a
    - 無ければ PJ 規約に沿って作成する（例: `feature/<slug>`）。
    - trunk-based 等ブランチを使わない PJ ではスキップする。
    - 既に作業ブランチ上にいる場合は新規作成しない（重複防止）。
+   - **`aidev worktree add` で来た場合は不要**——既に `feature/<slug>` の上にいる（重複して切らない）。
    - 成果物（`.aidev/works/...`）も同じブランチに乗せると、後段の PR がきれいになる。
 4. `aidev-10-requirement` 工程の開始を案内する（`profile: light` の場合も同じ——上流 3 工程は
    requirement 1 ゲートに畳まれ、`aidev-10-requirement` がそのゲートを担う。`protocol.md`「11.」）。
