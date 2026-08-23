@@ -29,10 +29,15 @@ AI 関連情報を WebSearch で収集し、HTML メールとして配信する�
 - `AI funding round startup this week`
 - `AI 最新ニュース 今週`
 
-**WebFetch は使わないこと。** クラウド環境の egress proxy が許可リスト外のドメインを
-遮断するため、`anthropic.com` / `openai.com` / `blog.google` / `deepmind.google` など
-一次情報サイトへの直接アクセスは `EGRESS_BLOCKED` で失敗する。
-WebSearch はサンドボックスのネットワークを通らないので影響を受けない。
+### 一次情報の裏取り
+
+このルーチンは専用環境 `AI Digest`（Network access: Custom）で動く。ラボ公式・論文・
+規制当局・主要ニュースのドメインが許可済みなので、**採用候補の日付と事実は WebFetch で
+一次情報にあたって裏取りする**。許可ドメインの一覧は `allowed-domains.txt` を参照。
+
+許可外のドメインは `EGRESS_BLOCKED` で失敗する。その場合は深追いせず、WebSearch の
+結果だけで判断できる範囲に留めるか、その記事を落とす。WebSearch 自体はサンドボックスの
+ネットワークを通らないので、許可リストの影響を受けない。
 
 ## 採否基準
 

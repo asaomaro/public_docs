@@ -11,7 +11,7 @@ claude.ai/code/routines の **Instructions** 欄に貼るテキスト。
 | 項目 | 値 |
 | :-- | :-- |
 | Repositories | `asaomaro/public_docs` |
-| Environment | `Default`（Trusted のままでよい。WebSearch はサンドボックスのネットワークを通らない） |
+| Environment | `AI Digest` (`env_015TuMfJLi69QMZx2LUkaD4L`) — Custom / `allowed-domains.txt` を許可 |
 | Connectors | **Gmail のみ**。他は全部外す |
 | Trigger | Schedule / Daily / 07:00（ローカル時刻で指定。数分の stagger あり） |
 | Model | 好みで。Sonnet で十分 |
@@ -28,8 +28,9 @@ claude.ai/code/routines の **Instructions** 欄に貼るテキスト。
    最新の 1 通を読む。そこに載っている URL と見出しは今回の対象から除外する。
    該当メールが無ければ除外なしで進む。
 
-2. CLAUDE.md の「収集クエリ」を全部 WebSearch で実行する。WebFetch は外部ドメインへの
-   アクセスが egress proxy でブロックされるので使わないこと。
+2. CLAUDE.md の「収集クエリ」を全部 WebSearch で実行する。採用候補の日付と事実は
+   WebFetch で一次情報にあたって裏取りする。許可ドメインは allowed-domains.txt を
+   参照。許可外は EGRESS_BLOCKED になるので深追いしない。
 
 3. CLAUDE.md の採否基準で選別し、日本語で要約して /tmp/items.json を書く。
    スキーマは CLAUDE.md の定義に厳密に従うこと。
@@ -61,9 +62,10 @@ claude.ai/code/routines の **Instructions** 欄に貼るテキスト。
 - **`htmlBody` と `body` を取り違えない。** 初回実行では HTML を `body` に入れてしまい、
   エスケープされた生ソースが届いた。`body` は `htmlBody` 併用時のプレーンテキスト
   代替として扱われる。
-- **WebFetch は使えない。** 環境の Network access が `Trusted` のため、一次情報サイト
-  （anthropic.com / openai.com / blog.google / deepmind.google など）は `EGRESS_BLOCKED`
-  になる。WebSearch はサーバ側ツールなので影響を受けない。一次情報にあたりたい場合は
-  環境の Network access を `Custom` にして該当ドメインを許可する。
+- **WebFetch は許可ドメインでのみ使える。** 専用環境 `AI Digest`
+  (`env_015TuMfJLi69QMZx2LUkaD4L`) の Network access を `Custom` にし、
+  `allowed-domains.txt` のドメインを許可してある。許可外は `EGRESS_BLOCKED` で失敗する。
+  WebSearch はサーバ側ツールなので許可リストの影響を受けない。
+  ドメインを足すときは `allowed-domains.txt` と環境設定の両方を更新すること。
 - **ルーチン ID**: `trig_01N4xVWJ1novQerHbTG1ZGDP`
   （https://claude.ai/code/routines/trig_01N4xVWJ1novQerHbTG1ZGDP）
