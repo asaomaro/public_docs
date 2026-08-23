@@ -16,7 +16,9 @@
 #   aidev event <phase> <start|approved|sent_back> [key=value ...]
 #   aidev approve <phase> [key=value ...]      # approved 追記 + current 更新 + approved イベント
 #   aidev guard <phase>                        # 前提成果物 + dependsOn の充足を検査（exit!=0で未充足）
-#   aidev verify [slug]                        # 現在(or指定)workの不変条件を version-aware に検査
+#   aidev verify [slug] [--strict]             # 現在(or指定)workの不変条件を version-aware に検査
+#     --strict は**記録漏れ(event の start 欠落)だけ**を致命(exit 5)にする。機械ゲート（Claude Code の
+#     Stop フック等）から使う想定。light の逸脱 WARN は人間の判断なので strict でも致命にしない
 #   aidev doctor                               # 全 work を横断検査（legacy は免除）＋ backlog ファイル検査（WARN）
 #   aidev use [<slug>]                         # 継続する作業を切り替える（引数なしで現在値を表示）
 #   aidev backlog new <name> --kind standing|split|topic [--parent <p>] [--priority <n>]
@@ -31,6 +33,7 @@
 #   aidev help
 #
 # 終了コード: 0=OK / 1=使用法・環境エラー / 2=前提成果物の不足 / 3=依存(dependsOn)未充足 / 4=不変条件違反
+#             5=記録漏れ（verify --strict のときのみ。既定の verify では WARN 止まりで 0）
 
 set -eu
 
@@ -434,9 +437,9 @@ needs_start() { # phase
 }
 
 # --- コマンド: verify（version-aware） -----------------------------------------
-verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail
+verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail / 5 strict時の記録漏れ
   st="$WORK/state.yml"
-  VF=""
+  VF=""; EPW=""
   if [ ! -f "$st" ]; then printf '  FAIL state.yml なし\n'; return 4; fi
   for k in slug current approved; do
     grep -q "^$k:" "$st" || VF="$VF state.yml:$k欠落"
@@ -479,13 +482,21 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail
   # 欠落し、所要時間が導出できなくなった）。記録漏れは後から気付けないので、
   # deliver 前に verify が知らせる。
   if [ -f "$WORK/metrics.yml" ]; then
-    event_pair_warnings "$WORK/metrics.yml"
+    EPW=$(event_pair_warnings "$WORK/metrics.yml")
+    if [ -n "$EPW" ]; then printf '%s\n' "$EPW"; fi
   fi
 
   # profile: light の逸脱検査（WARN）
   light_warnings
 
   if [ -n "$VF" ]; then printf '  FAIL%s\n' "$VF"; return 4; fi
+  # --strict: **記録漏れだけ**を致命扱いにする（Stop フック等の機械ゲート用）。
+  # 記録漏れは「今しか直せない」（metrics は追記のみで、当時の時刻は復元できない）。
+  # 対して light の逸脱は人間の判断（昇格するか）なので strict でも致命にしない。
+  if [ "${STRICT:-no}" = yes ] && [ -n "$EPW" ]; then
+    printf '  FAIL(strict) 記録漏れ: 上記 WARN を解消してから終えること（timestamp は後から復元できません）\n'
+    return 5
+  fi
   printf '  OK\n'; return 0
 }
 
@@ -546,9 +557,19 @@ event_pair_warnings() { # metrics_file
 }
 
 cmd_verify() {
-  resolve_work "${1:-}"
+  STRICT=no; vslug=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --strict) STRICT=yes; shift ;;
+      -*) die "未知のオプション: $1" ;;
+      *) [ -z "$vslug" ] && vslug=$1 || die "slug は1つだけ"; shift ;;
+    esac
+  done
+  resolve_work "$vslug"
   printf 'verify: %s\n' "$SLUG"
-  if verify_work; then return 0; else return 4; fi
+  verify_work; rc=$?
+  STRICT=no
+  return $rc
 }
 
 # --- コマンド: escalate（profile: light -> full。片方向） -------------------------

@@ -31,7 +31,7 @@ PJ非依存の開発ワークフローを、skill 群で制御・進捗管理す
 | 番号 | 工程 | 種別 | 役割 |
 |------|------|------|------|
 | 00 | start | 入口 | ルーター。状況確認と工程案内 |
-| 10 | requirement | 標準 | 何を・なぜ作るか（requirement.md） |
+| 10 | requirement | 標準 | 何を・なぜ作るか。ゴール（達成したい状態）・ユーザーストーリー・受け入れ基準（requirement.md） |
 | 15 | research | 任意 | spec 前の事実調査（research.md） |
 | 20 | spec | 標準 | どう作るか・仕様（spec.md） |
 | 25 | design | 任意 | 構造設計（design.md） |
@@ -159,8 +159,64 @@ light は**上流3工程（requirement / spec / plan）を1ゲートに畳む**�
 
 基盤はドメイン非依存。PJ固有の知識・実作業は AGENTS.md と PJ skill 側が担う。
 
+## 任意セットアップ: Stop フック（Claude Code のみ）
+
+**記録漏れの予防**を機械化する。`aidev` の `guard` と `event start` は別コマンドなので、
+guard だけ実行して工程に入り start を記録し忘れる事故が構造的に起こりうる。`verify` は
+これを deliver 前に WARN で**事後検知**できるが、`Stop` フックなら**停止の手前で防げる**。
+
+**任意である**（`protocol.md`「2.10」の第三層）。設定しなくても第一層（散文規約）と
+第二層（`aidev verify`）は効く。判定はフックではなく CLI（`verify --strict`）が持つ。
+
+`~/.claude/settings.json`（または `.claude/settings.json`）の `hooks` に追加する:
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "statusMessage": "aidev: 記録漏れを検査中",
+            "timeout": 20,
+            "command": "[ -d .aidev ] || exit 0; A=\"$HOME/.claude/skills/aidev-docs/bin/aidev\"; [ -f \"$A\" ] || exit 0; [ -f .aidev/current ] || exit 0; sh \"$A\" verify --strict >/dev/null 2>&1; if [ $? -eq 5 ]; then printf \"%s\" \"{\\\"decision\\\":\\\"block\\\",\\\"reason\\\":\\\"aidev: 工程の記録漏れがあります。aidev verify --strict で該当工程を確認し、aidev event <工程> start 等で記録を補ってから終えてください（metrics.yml は追記のみで、当時の timestamp は後から復元できません）。\\\"}\"; fi; exit 0"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+- **`.aidev` の無いディレクトリでは即 `exit 0`**——aidev を使っていないリポジトリには一切影響しない。
+- 記録漏れ以外（`profile: light` の逸脱など）では**止めない**。止めるのは「今しか直せないもの」だけ。
+- 設定後は `/hooks` で確認できる（設定ファイルの監視は、セッション開始時に存在したディレクトリのみ
+  対象なので、初回は `/hooks` を開くか再起動が必要な場合がある）。
+- `aidev` を別パスに置いた場合は `A=` を書き換える。
+
 ## 他エージェントについて
 
-選択肢UX（AskUserQuestion）とサブエージェント委譲（Agent）は Claude Code 上の実現手段。
-Copilot / Codex 等では、選択肢はテキスト提示、委譲は各機構またはインライン実行にフォールバックする
-（規約本体は散文で書かれており挙動は同等を意図）。
+Claude Code 固有の機構は**すべて任意の高速化層**で、無くても不変条件は保たれる（`protocol.md`「2.10」）。
+採用基準は「**同じことを指示で書けるものに限る**」で、ハードな層（判定・不変条件）は必ず `aidev` CLI 側にある。
+
+| Claude Code 固有 | 他エージェントでのフォールバック |
+|---|---|
+| `Stop` フック | 指示に「終える前に `aidev verify --strict`」を書く |
+| `/goal`（停止前チェック） | 同じ内容を指示で書く |
+| plan モード | 「先に方針を提示して承認を得てから書く」を指示で行う |
+| `AskUserQuestion`（選択肢UX） | 同じ選択肢をテキストで提示 |
+| サブエージェント委譲（`Agent`） | 各機構、または同一セッションでインライン実行 |
+
+Copilot / Codex 等では、各エージェントのルールファイル（`AGENTS.md` /
+`.github/copilot-instructions.md`）に次を書けば第三層の代替になる。
+
+```markdown
+## aidev（AI開発ワークフロー）
+- 工程を開始したら `aidev event <工程> start` を記録する。
+- **工程を終える前に必ず `.claude/skills/aidev-docs/bin/aidev verify --strict` を実行する。**
+  非ゼロで終われば（5＝記録漏れ）記録を補ってから終える。
+  `metrics.yml` は追記のみで、**当時の timestamp は後から復元できない**。
+- 各工程の完了条件は対応する SKILL.md の「完了の目安」に従う。
+```

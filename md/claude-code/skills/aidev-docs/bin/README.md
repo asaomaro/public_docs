@@ -40,7 +40,7 @@ Git Bash（Git for Windows 同梱）があるなら POSIX 版の `aidev` がそ�
 | `event <phase> <start\|approved\|sent_back> [k=v ...]` | `metrics.yml` に **UTC 時刻を自分で打って**イベント追記。`metrics.yml` 不在なら自動生成。`events: []` も block 形式へ変換。 |
 | `approve <phase> [k=v ...]` | `state.yml` の `approved` 追記（冪等）＋ `current` 更新 ＋ approved イベント追記を一括・検証付きで。 |
 | `guard <phase>` | 工程開始時の**前提チェック**（前提成果物の有無・前提工程の承認・`dependsOn` 充足）。未充足なら非ゼロ終了。 |
-| `verify [slug]` | 現在(または指定)work の**不変条件**を version-aware に検査。違反で非ゼロ終了。**deliver の commit 前ゲート**に使う。deliver 承認済で `backlog:` 刻印がある work は、**その backlog ファイルに自分の slug が現れること**も検査する（消し込み忘れの検知。`protocol.md`「2.9」）。`profile: light` の work では**条件逸脱**も見る——任意工程の実施と `files_changed` の上限超過（`.aidev/config.yml` の `lightMaxFiles`、既定 3）。**WARN 止まりで exit code は変えない**（昇格漏れは事後検知。硬ゲートは既存判定に任せる）。 |
+| `verify [slug] [--strict]` | 現在(または指定)work の**不変条件**を version-aware に検査。違反で非ゼロ終了。**deliver の commit 前ゲート**に使う。deliver 承認済で `backlog:` 刻印がある work は、**その backlog ファイルに自分の slug が現れること**も検査する（消し込み忘れの検知。`protocol.md`「2.9」）。`profile: light` の work では**条件逸脱**も見る——任意工程の実施と `files_changed` の上限超過（`.aidev/config.yml` の `lightMaxFiles`、既定 3）。**WARN 止まりで exit code は変えない**（昇格漏れは事後検知。硬ゲートは既存判定に任せる）。<br>**`--strict`**: **記録漏れ（`event` の start 欠落）だけ**を致命（exit 5）にする。機械ゲート（Claude Code の `Stop` フック等）専用の入口。既定を FAIL に変えると start が欠けた過去の work が deliver できなくなるため、入口を分けた。**light の逸脱は strict でも致命にしない**——記録漏れは「今しか直せない」（metrics は追記のみで当時の timestamp は復元不能）が、light の昇格は人間の判断だから。 |
 | `escalate [slug]` | `profile` を **`light` → `full` に片方向で昇格**（`protocol.md`「11.」）。`full` からは戻せない。`state.yml` の手編集を避け、昇格を単一の検証済み経路に集約するためのコマンド。`decisions.md` への経緯記録と `escalated_from_light=1` の付与は skill 側の仕事。 |
 | `doctor` | 全 work を横断検査しドリフトを報告（legacy は免除）。retro/insights の冒頭で事後検知に使う。続けて **backlog ファイル自体**も横断検査する（全消化した `split`・`topic` の退避漏れ／`kind` frontmatter の欠落と誤記／`status` が数えない書式の項目／`archive/` に残った未消化）。**WARN 止まりで exit code は works の fail だけで決める**（ファイルの一生には持ち主の work がおらず `verify` で硬ゲートにできないため。`protocol.md`「2.9」）。 |
 | `status [--format table\|tsv]` | **読み取り専用**。全 work を横断（work/ticket/mode/current/next/done/deps）＋ backlog（`*.md`・`archive/` 除く）の未着手件数（todo/needs）と **`inflight`（そのファイルの項目を掴んだまま未 deliver の work 数）**を機械抽出。backlog 行が `[x]` になるのは deliver なので、着手中の項目は `todo` からは区別できない——`inflight` はそこを埋め、**別セッションが同じ項目を二重に選ぶのを防ぐ**（`protocol.md`「2.9」）。`aidev-00-start` の状況把握に使う。既定は人間可読表、`--format tsv` は機械パース向け（先頭列 `work`/`backlog` でレコード種別を判別）。 |
@@ -68,6 +68,7 @@ Git Bash（Git for Windows 同梱）があるなら POSIX 版の `aidev` がそ�
 | 2 | 前提成果物／前提工程の不足（guard） |
 | 3 | 依存（`dependsOn`）未充足（guard） |
 | 4 | 不変条件違反（verify/doctor） |
+| 5 | 記録漏れ（`verify --strict` のときのみ。既定の `verify` は WARN 止まりで 0） |
 
 ## version-aware verify（「PJと一緒に育てる」ための要）
 

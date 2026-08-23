@@ -710,8 +710,66 @@ OV=$(run_lsh verify 20260101-oldwork)
 assert_absent "$OV" "profile=light" "profile 未記載の work は full 扱い（後方互換）"
 run_lsh escalate 20260101-oldwork >/dev/null 2>&1; assert_eq "$?" "1" "profile 未記載の work は escalate 不可（full 扱い）"
 
+echo "== verify --strict（記録漏れを致命にする機械ゲート） =="
+# protocol.md「2.6」第三層（フック）から使う。既定の verify は WARN 止まり（既存 work を壊さない）
+# ままにし、--strict のときだけ「今しか直せない」記録漏れを exit 5 にする。
+SREPO="$TMP/srepo"
+mkdir -p "$SREPO/.aidev/works" "$SREPO/.aidev/backlog"
+run_ssh() { ( cd "$SREPO" && "$AIDEV_SH" "$@" ); }
+
+run_ssh new rec-gap >/dev/null
+S_SLUG=$(cat "$SREPO/.aidev/current")
+# start の無い approved（＝記録漏れ）を仕込む
+printf 'events:\n  - { ts: 2026-08-23T01:00:00Z, phase: coding, event: approved }\n' \
+  > "$SREPO/.aidev/works/$S_SLUG/metrics.yml"
+
+SV=$(run_ssh verify); assert_contains "$SV" "WARN coding" "既定 verify: 記録漏れを WARN で出す"
+run_ssh verify >/dev/null 2>&1; assert_eq "$?" "0" "既定 verify: 記録漏れでも exit 0（既存 work を壊さない）"
+
+SVS=$(run_ssh verify --strict)
+assert_contains "$SVS" "WARN coding" "--strict: WARN も従来どおり出す"
+assert_contains "$SVS" "FAIL(strict) 記録漏れ" "--strict: 記録漏れを FAIL として明示"
+run_ssh verify --strict >/dev/null 2>&1; assert_eq "$?" "5" "--strict: 記録漏れは exit 5"
+
+# 記録を補えば通る（＝直し方が伝わる形になっている）
+printf '  - { ts: 2026-08-23T00:50:00Z, phase: coding, event: start }\n' \
+  >> "$SREPO/.aidev/works/$S_SLUG/metrics.yml"
+run_ssh verify --strict >/dev/null 2>&1; assert_eq "$?" "0" "--strict: start を補えば exit 0"
+
+# light の逸脱は「人間の判断」なので strict でも致命にしない
+run_ssh new light-dev --light >/dev/null
+L2_SLUG=$(cat "$SREPO/.aidev/current")
+cat >> "$SREPO/.aidev/works/$L2_SLUG/metrics.yml" <<'EOF'
+  - { ts: 2026-08-23T01:00:00Z, phase: research, event: start }
+  - { ts: 2026-08-23T01:10:00Z, phase: research, event: approved }
+EOF
+LS_OUT=$(run_ssh verify --strict "$L2_SLUG")
+assert_contains "$LS_OUT" "profile=light だが任意工程 research" "--strict: light の逸脱は WARN のまま出す"
+run_ssh verify --strict "$L2_SLUG" >/dev/null 2>&1
+assert_eq "$?" "0" "--strict: light の逸脱は致命にしない（昇格は人間の判断）"
+
+run_ssh verify --bogus >/dev/null 2>&1; assert_eq "$?" "1" "verify: 未知のオプションは exit 1"
+
+# doctor は横断スキャンなので strict にならない（verify_work の STRICT が漏れない）
+printf 'events:\n  - { ts: 2026-08-23T01:00:00Z, phase: coding, event: approved }\n' \
+  > "$SREPO/.aidev/works/$S_SLUG/metrics.yml"
+run_ssh doctor >/dev/null 2>&1; assert_eq "$?" "0" "doctor: --strict の影響を受けない（WARN 止まり）"
+
 echo "== sh ⇔ ps1 パリティ =="
 if [ -n "$PS_HOST" ]; then
+  # verify --strict のパリティ（exit code と出力が sh と一致すること）
+  for sargs in "verify --strict $S_SLUG" "verify --strict $L2_SLUG"; do
+    # shellcheck disable=SC2086
+    S_SH=$( ( cd "$SREPO" && "$AIDEV_SH" $sargs ) 2>&1 ); S_SH_RC=$?
+    # shellcheck disable=SC2086
+    # 注意: `$(… | tr)` の `$?` は **tr の** 終了コードになり、常に 0 を拾ってしまう。
+    #       exit code を比べるなら CR 除去は代入を分ける（この取り違えを実際にやった）
+    S_PS_RAW=$( ( cd "$SREPO" && run_ps1 "$AIDEV_PS1" $sargs ) 2>&1 ); S_PS_RC=$?
+    S_PS=$(printf '%s' "$S_PS_RAW" | tr -d '\r')
+    assert_eq "$S_SH" "$S_PS" "パリティ: $sargs（出力）"
+    assert_eq "$S_SH_RC" "$S_PS_RC" "パリティ: $sargs（exit code）"
+  done
+
   # profile 系のパリティ（同じフィクスチャに対して同じ出力になること）
   for pargs in "verify $L_SLUG" "verify $F_SLUG" "verify 20260101-oldwork"; do
     # shellcheck disable=SC2086

@@ -12,7 +12,8 @@
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 event <phase> <start|approved|sent_back> [key=value ...]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 approve <phase> [key=value ...]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 guard <phase>
-#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 verify [slug]
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 verify [slug] [--strict]
+#     --strict は記録漏れ(event の start 欠落)だけを致命(exit 5)にする（機械ゲート用）
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 doctor
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 status [--format table|tsv]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 metrics [slug] [--all] [--phases] [--format table|tsv]
@@ -29,6 +30,7 @@ $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
 
 $script:CURRENT_SCHEMA = 3   # schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema<=2 は legacy 免除
+$script:STRICT = $false      # verify --strict（記録漏れを致命にする）。doctor 経由では常に false
 $script:PHASES = @('requirement','research','spec','design','plan','coding','test','review','walkthrough','deliver','retro')
 $script:Utf8 = New-Object System.Text.UTF8Encoding($false)  # BOM なし
 
@@ -464,12 +466,19 @@ function VerifyWork($work) {
   # 欠落し、所要時間が導出できなくなった）。記録漏れは後から気付けないので、
   # deliver 前に verify が知らせる。
   $mf2 = Join-Path $work 'metrics.yml'
-  if (Test-Path $mf2) { EventPairWarnings $mf2 }
+  $epw = @()
+  if (Test-Path $mf2) { $epw = @(EventPairWarnings $mf2) }
+  foreach ($l in $epw) { [Console]::Out.WriteLine($l) }
 
   # profile: light の逸脱検査（WARN）
   LightWarnings $work
 
   if ($vf.Count -gt 0) { [Console]::Out.WriteLine("  FAIL " + ($vf -join ' ')); return 4 }
+  # --strict: 記録漏れだけを致命扱い（sh 版と同一。理由は sh 側のコメント参照）
+  if ($script:STRICT -and $epw.Count -gt 0) {
+    [Console]::Out.WriteLine("  FAIL(strict) 記録漏れ: 上記 WARN を解消してから終えること（timestamp は後から復元できません）")
+    return 5
+  }
   [Console]::Out.WriteLine("  OK"); return 0
 }
 
@@ -530,21 +539,30 @@ function EventPairWarnings($metricsFile) {
   # awk と PowerShell で並びが変わり「出力を一致させる」契約が破れる。
   $order = @($script:PHASES | Where-Object { $approved.ContainsKey($_) })
   $order += @($seen | Where-Object { $approved.ContainsKey($_) -and ($script:PHASES -notcontains $_) })
+  # 行は**返す**（呼び出し側が出力する）。--strict で件数を数える必要があるため。sh 版の
+  # `EPW=$(event_pair_warnings …)` と同じ形にして、出力内容・順序は従来どおりに保つ。
   foreach ($p in $order) {
     $s = [int]$starts[$p]; $a = [int]$approved[$p]
     if ($s -eq 0) {
-      [Console]::Out.WriteLine("  WARN ${p}: approved があるのに start が無い（所要時間が導出できません）")
+      "  WARN ${p}: approved があるのに start が無い（所要時間が導出できません）"
     } elseif ($s -lt $a) {
-      [Console]::Out.WriteLine("  WARN ${p}: start $s 回に対し approved $a 回（start の記録漏れ）")
+      "  WARN ${p}: start $s 回に対し approved $a 回（start の記録漏れ）"
     }
   }
 }
 
 function Cmd-Verify($rest) {
-  $slug=''; if ($rest.Count -ge 1) { $slug=$rest[0] }
+  $slug=''; $script:STRICT = $false
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    if ($rest[$i] -eq '--strict') { $script:STRICT = $true }
+    elseif ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+    elseif ($slug) { Die "slug は1つだけ" }
+    else { $slug = $rest[$i] }
+  }
   ResolveWork $slug
   Write-Output "verify: $($script:SLUG)"
   $rc = VerifyWork $script:WORK
+  $script:STRICT = $false
   exit $rc
 }
 
