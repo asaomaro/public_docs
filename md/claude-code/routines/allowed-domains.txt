@@ -1,0 +1,51 @@
+# AI Daily Digest 用クラウド環境の Allowed domains
+#
+# claude.ai/code の環境セレクタ → 環境の設定 → Network access: Custom
+# → Allowed domains にこの一覧を貼る（# の行は貼らない）。
+# 「Also include default list of common package managers」は必ずチェックする。
+#
+# 一次情報 = ラボ公式 / 論文 / 規制当局。二次情報 = 日付と事実の裏取り用。
+
+# --- ラボ公式 ---
+anthropic.com
+*.anthropic.com
+claude.com
+*.claude.com
+openai.com
+*.openai.com
+blog.google
+deepmind.google
+research.google
+ai.meta.com
+mistral.ai
+x.ai
+qwenlm.github.io
+huggingface.co
+*.huggingface.co
+
+# --- 論文 ---
+arxiv.org
+*.arxiv.org
+openreview.net
+
+# --- 規制当局 ---
+europa.eu
+*.europa.eu
+federalregister.gov
+ftc.gov
+soumu.go.jp
+*.soumu.go.jp
+meti.go.jp
+*.meti.go.jp
+
+# --- ニュース（日付・事実の裏取り用） ---
+techcrunch.com
+*.techcrunch.com
+reuters.com
+*.reuters.com
+arstechnica.com
+theverge.com
+*.theverge.com
+news.crunchbase.com
+itmedia.co.jp
+*.itmedia.co.jp
