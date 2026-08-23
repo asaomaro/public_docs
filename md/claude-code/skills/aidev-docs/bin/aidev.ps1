@@ -346,8 +346,29 @@ function Cmd-Guard($rest) {
   if ($script:miss.Count -gt 0)  { [Console]::Error.WriteLine("NG 前提成果物が不足: " + ($script:miss -join ' ')); $rc=2 }
   if ($script:unapp.Count -gt 0) { [Console]::Error.WriteLine("NG 前提工程が未承認: " + ($script:unapp -join ' ')); $rc=2 }
   if ($dep.Count -gt 0)          { [Console]::Error.WriteLine("NG 依存(dependsOn)が未充足: " + ($dep -join ' ')); if ($rc -eq 0) { $rc=3 } }
-  if ($rc -eq 0) { Write-Output "OK guard $ph @ $($script:SLUG)" }
+  if ($rc -eq 0) {
+    Write-Output "OK guard $ph @ $($script:SLUG)"
+    # guard は「入ってよいか」の判定で、start の記録は別コマンド。
+    # 分かれているため記録を忘れる事故が実際に起きた（review の start が両ラウンドとも欠落）。
+    # start を自動記録はしない（skill 側の event start と二重になり、手戻り回数を
+    # 誤って数えるため）。代わりに、まだ必要な場合だけ促す。
+    if (NeedsStart $script:WORK $ph) { Write-Output "   → 忘れずに: aidev event $ph start" }
+  }
   exit $rc
+}
+
+# その工程に新しい start の記録が要るか（start 回数 <= approved 回数なら要る）。
+function NeedsStart($work, $phase) {
+  $mf = Join-Path $work 'metrics.yml'
+  if (-not (Test-Path $mf)) { return $true }
+  $s = 0; $a = 0
+  foreach ($l in [System.IO.File]::ReadAllLines($mf)) {
+    $m = [regex]::Match($l, 'phase:\s*([a-z]+)')
+    if (-not $m.Success -or $m.Groups[1].Value -ne $phase) { continue }
+    if ($l -match 'event:\s*start')    { $s++ }
+    if ($l -match 'event:\s*approved') { $a++ }
+  }
+  return ($s -le $a)
 }
 
 # --- verify ------------------------------------------------------------------
@@ -393,8 +414,37 @@ function VerifyWork($work) {
       }
     }
   }
+  # イベント対の検査（WARN。既存 work を壊さないよう終了コードは変えない）
+  #
+  # guard と event start が別コマンドなので、guard だけ実行して工程に入り
+  # start を記録し忘れる事故が起きる（実際に review の start が両ラウンドとも
+  # 欠落し、所要時間が導出できなくなった）。記録漏れは後から気付けないので、
+  # deliver 前に verify が知らせる。
+  $mf2 = Join-Path $work 'metrics.yml'
+  if (Test-Path $mf2) { EventPairWarnings $mf2 }
+
   if ($vf.Count -gt 0) { [Console]::Out.WriteLine("  FAIL " + ($vf -join ' ')); return 4 }
   [Console]::Out.WriteLine("  OK"); return 0
+}
+
+# metrics.yml のイベント対を検査し、WARN 行を出す（終了コードには影響しない）。
+function EventPairWarnings($metricsFile) {
+  $starts = @{}; $approved = @{}
+  foreach ($l in [System.IO.File]::ReadAllLines($metricsFile)) {
+    $m = [regex]::Match($l, 'phase:\s*([a-z]+)')
+    if (-not $m.Success) { continue }
+    $p = $m.Groups[1].Value
+    if ($l -match 'event:\s*start')    { $starts[$p]    = [int]$starts[$p] + 1 }
+    if ($l -match 'event:\s*approved') { $approved[$p]  = [int]$approved[$p] + 1 }
+  }
+  foreach ($p in $approved.Keys) {
+    $s = [int]$starts[$p]; $a = [int]$approved[$p]
+    if ($s -eq 0) {
+      [Console]::Out.WriteLine("  WARN ${p}: approved があるのに start が無い（所要時間が導出できません）")
+    } elseif ($s -lt $a) {
+      [Console]::Out.WriteLine("  WARN ${p}: start $s 回に対し approved $a 回（start の記録漏れ）")
+    }
+  }
 }
 
 function Cmd-Verify($rest) {

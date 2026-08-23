@@ -124,6 +124,49 @@ assert_eq "$SUM1" "$SUM2" "status/metrics 実行後も state/metrics 不変"
 echo "== 既存コマンド回帰 =="
 run_sh verify 20260101-alpha >/dev/null 2>&1; assert_eq "$?" "0" "verify(alpha) exit 0"
 run_sh doctor >/dev/null 2>&1; assert_eq "$?" "0" "doctor exit 0"
+
+# verify: イベント対の検査（approved があるのに start が無い＝記録漏れ）
+# guard と event start が別コマンドなので実際に踏んだ事故。WARN であり exit は変えない。
+mkdir -p "$TMP/.aidev/works/20260101-gap"
+cat > "$TMP/.aidev/works/20260101-gap/state.yml" <<'YML'
+schema: 3
+slug: gap
+current: spec
+approved: [requirement]
+YML
+cat > "$TMP/.aidev/works/20260101-gap/metrics.yml" <<'YML'
+events:
+  - { ts: 2026-01-01T00:00:00Z, phase: requirement, event: approved }
+  - { ts: 2026-01-01T01:00:00Z, phase: spec, event: start }
+  - { ts: 2026-01-01T02:00:00Z, phase: spec, event: approved }
+YML
+V_GAP=$(run_sh verify 20260101-gap 2>&1); V_RC=$?
+echo "$V_GAP" | grep -q "WARN requirement" && ok "verify: start 欠落を WARN で知らせる" || ng "verify: start 欠落の WARN が出ない"
+echo "$V_GAP" | grep -q "WARN spec" && ng "verify: 対の揃った工程に WARN が出ている" || ok "verify: 対の揃った工程には WARN を出さない"
+assert_eq "$V_RC" "0" "verify: WARN は exit コードを変えない"
+rm -rf "$TMP/.aidev/works/20260101-gap"
+
+# guard: start の記録が要るときだけ促す（自動記録はしない＝手戻り回数の二重計上を避ける）
+mkdir -p "$TMP/.aidev/works/20260101-hint"
+cat > "$TMP/.aidev/works/20260101-hint/state.yml" <<'YML'
+schema: 3
+slug: hint
+current: requirement
+approved: []
+YML
+: > "$TMP/.aidev/works/20260101-hint/requirement.md"
+cat > "$TMP/.aidev/works/20260101-hint/metrics.yml" <<'YML'
+events:
+  - { ts: 2026-01-01T00:00:00Z, phase: requirement, event: start }
+YML
+PREV_CURRENT=$(cat "$TMP/.aidev/current")
+echo "20260101-hint" > "$TMP/.aidev/current"
+H1=$(run_sh guard spec 2>&1)
+echo "$H1" | grep -q "aidev event spec start" && ok "guard: 未 start の工程では start を促す" || ng "guard: start の促しが出ない"
+H2=$(run_sh guard requirement 2>&1)
+echo "$H2" | grep -q "aidev event requirement start" && ng "guard: start 済なのに促している" || ok "guard: start 済の工程では促さない"
+rm -rf "$TMP/.aidev/works/20260101-hint"
+printf '%s\n' "$PREV_CURRENT" > "$TMP/.aidev/current"
 # beta は plan 前提(spec.md)が無いので guard plan は exit 2
 run_sh guard plan >/dev/null 2>&1; assert_eq "$?" "2" "guard plan(前提成果物なし) exit 2"
 G_OUT=$(run_sh guard spec 2>&1); echo "$G_OUT" | grep -q "advisory" && ok "guard: #99 を advisory(warn) 表示" || ng "guard advisory 表示"
