@@ -57,6 +57,12 @@ per-work の `retro` が「その作業1件」を振り返るのに対し、こ�
      work 間の比較はこの正規化で行う。
    - **経過時間の層別**：`elapsed_sec` を比べるときは `state.yml` の `mode` で分ける
      （interactive は人間の承認待ちが支配的で工程の重さを反映しない。比較が成立するのは autonomous 同士）。
+   - **light プロファイルの健全性**（`state.yml` の `profile`。protocol.md「11.」）。次の3点を見る。
+     - **light の手戻り率が full と同等か**。有意に高ければ light の適用条件が緩い。
+     - **昇格率**（`escalated_from_light` の件数 ÷ light の件数）。高ければ入口判定が機能していない。
+     - **light の比率**。9割を超えたら light が新しい full になっているサイン（＝full の存在意義が消えている）。
+     `aidev verify` / `doctor` の「profile=light だが…」WARN が残っている work は**昇格漏れ**として扱う
+     （light のまま着地した work は、上の手戻り率を実態より良く見せる）。
    - **未対応の改善**：過去 retro の提案で、繰り返し挙がるが未反映のもの。
    - **未着手キューの滞留（任意）**：`.aidev/backlog/*.md`（archive 除く）の未処理件数・滞留や
      `(needs:…)` で止まっている項目を、残作業のコンテキストとして添えてよい（完了作業の分析が主旨）。

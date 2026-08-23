@@ -298,7 +298,9 @@ ticket: <ID または 省略>     # 任意。外部チケット/issue の ID（�
                             # 後方互換: 旧 `issue: <番号>`（GitHub前提）も受理する。新規は ticket を使う。
 current: <直近で作業した工程の論理名>
 approved: [<承認済み工程の論理名…>]
-mode: interactive           # interactive（既定）| autonomous。「10.」参照
+mode: interactive           # interactive（既定）| autonomous。「10.」参照＝**誰が承認するか**
+profile: full               # full（既定・省略可）| light。「11.」参照＝**どこまで回すか**
+                            # mode と直交する別軸。省略＝full（既存 work は記載が無く full 扱い＝後方互換）
 humanGates: []              # autonomous 時に人間ゲートを残す工程の論理名（部分自律）。例: [spec]
 maxSendBacks: 3             # autonomous 時の差し戻し上限（同一工程あたり）。未指定なら 3。「10.」参照
 dependsOn: []              # この作業の前提（他の works slug / 同一親内の兄弟 subtask 名 / 外部チケット #N・PROJ-123）。未充足なら着手前に警告。「2.7」参照
@@ -333,6 +335,10 @@ parent: <親 work の dated 名> # 子が親 work を逆参照（例 20260622-fe
 | 65 | walkthrough | aidev-65-walkthrough | 任意 | `walkthrough.md`（人間レビュー補助） | review 通過 |
 | 70 | deliver | aidev-70-deliver | 標準（最終） | コミット / PR | review 通過 |
 | 95 | retro | aidev-95-retro | 任意 | `retro.md`（改善提案） | 作業完了（deliver 済み） |
+
+- **`profile: light` の場合**（「11.」）: 上流 3 工程（requirement / spec / plan）を **1 ゲートに畳む**。
+  成果物は 4 つとも作る（薄く書く）が、承認は `requirement` として 1 回だけ記録する。
+  以降 coding → test → review → deliver は full と**完全に同一**。任意工程は使わない。
 
 ## 8. メトリクス記録
 
@@ -416,6 +422,8 @@ events:
   最初から想定内なので数えない——分母 `tasks_anchored` と対応させる）
 - **test**: `passed` / `failed`（検証結果の件数）
 - **review**: `must` / `should` / `nit`（重大度別の指摘件数）
+- **任意工程（light からの昇格時）**: `escalated_from_light`（`1` を刻む。昇格が起きた工程の approved に付す。
+  「11.」参照。昇格率＝light の入口判定が機能しているかの指標になる）
 - **deliver**: `files_changed` / `insertions` / `deletions`（着地した**実装**の変更規模）。
   `git diff --stat` から機械取得し、工程成果物（`.aidev/` 配下）は除外する
   （例: `git diff --stat HEAD -- . ':!.aidev'`。事後記録モードは既着地コミットの範囲で計測）。
@@ -503,3 +511,122 @@ review 工程はラウンドごとに追記する（差し戻し後の再レビ�
 ### 実行手段（別レイヤ）
 autonomous の「夜間に回す」には実行主体が要る（headless 実行 / スケジュール起動でオーケストレーターが
 本 skill 群を駆動）。これは harness（プロセス定義）とは別レイヤで用意する。
+
+### Claude Code の plan モードとの関係
+
+plan モードは Write / Edit を禁じるが、**aidev の全工程は成果物（`*.md` / コード）を書くのが仕事**。
+そのため「plan モードのまま工程を完走する」ことはできない。正しい使い方は
+**plan モード内で探索して方針の承認を取り、解除してから成果物を書く**——この形なら成立する。
+
+```
+EnterPlanMode → read-only で探索 → 方針を提案 → ExitPlanMode（承認）→ 解除 → 成果物を書く
+```
+
+#### 使う場所
+
+- **`aidev-00-start` の三層判定（推奨）**: 対象外 / light / full を決めるには影響範囲の調査が要る。
+  read-only の探索が承認で終わり、**この時点で aidev のゲートはまだ無い＝二重ゲートにならない**。
+  解除後 `aidev new [--light]` へ引き渡す。
+- **spec / design（`full` × `interactive` のみ・任意）**: 有力な案が複数あるとき、**spec.md を書く前に
+  方針の承認を取れる**。`EnterPlanMode` の適用例（Multiple Valid Approaches / Architectural Decisions）
+  に該当する。二重ゲートにはなるが、承認の対象が「方針」と「文書」で異なるため許容する。
+  自明な作業では使わない（ゲートが増えるだけ）。
+- **ハーネス自体の改修**: `aidev-*` / `aidev` CLI の変更（retro / insights の「ハーネス自体」提案を
+  人間が適用するとき）。これは aidev の対象作業ではなく、plan モードが素直に効く。
+
+#### 使わない場所
+
+| 対象 | 理由 |
+|---|---|
+| **research** | `ExitPlanMode` が「調査・理解のタスクでは使うな」と定義。`EnterPlanMode` も純粋な調査は Agent へ回すよう指示——「2.6」のサブエージェント委譲が既にそれ |
+| **plan** | 成果物が完全に重複する。plan ファイルを承認させ、同じ内容を `plan.md` に書き直す＝**計画を二度書く** |
+| **coding** | `plan.md` / `tasks.md` が承認済みの計画そのもの。方針変更が必要なら **差し戻し**（「3.」）を使う——差し戻しは metrics に残り、plan モードは残らない |
+| **test / review / deliver / retro** | 実装計画ではない |
+| **`profile: light`**（「11.」） | 承認の往復を減らすのが目的なので、ゲートを増やすのは逆行 |
+| **`mode: autonomous`** | `ExitPlanMode` は人間の承認が前提。承認者がいない |
+
+#### 運用上の注意
+
+- **plan モード中に工程を起動された場合**は、成果物が書けないため**先に plan モードを抜けるよう促す**
+  （工程を中途で失敗させない）。
+- 「工程内で段階的に確認したい」という要求には **段階レビュー（「3.1」）**が対応する。成果物を
+  見出し節ごとに提示して 1 項目ずつ承認するもので、plan モードとは併用しない。
+
+## 11. 実行プロファイル（full / light）
+
+`state.yml` の `profile` で**どこまで工程を回すか**を選ぶ。`mode`（誰が承認するか）とは**直交する別軸**で、
+`light × interactive` と `light × autonomous` の両方が成立する。省略時は `full`。
+
+### 三層の切り分け
+
+| 層 | 対象 | 扱い |
+|---|---|---|
+| **対象外** | typo・コメント・整形・生成物の再生成など、判断を伴わない変更 | **aidev を通さない**（直接コミット） |
+| **light** | 振る舞いを変えない / 小規模 / 下記条件を満たす | 上流 1 ゲート ＋ coding 以降は full と同一 |
+| **full** | それ以外すべて | 現行パイプライン |
+
+**「対象外」を明示することが light の健全性を守る。** typo まで light で回すと、中身のない成果物と
+機械的な承認が量産され、ハーネスへの信頼が最も速く壊れる。下限を決めないと light が
+「形だけ通す」の受け皿になる。
+
+### light を選べる条件（すべて満たすこと）
+
+- 既存の**振る舞いを変えない**、または変更が単一の閉じた挙動に収まる。
+- 触るファイルが **N 個以下**（既定 3。`.aidev/config.yml` の `lightMaxFiles` で調整可。
+  CLI の最小 YAML 読み取りはフロー形式のフラットキーのみ対応なので、ネストキーにしない）。
+- **共有モジュール / 公開 API / スキーマに触らない**。
+- 新規の外部依存を追加しない。
+
+判定は着手時に行うが、**自己申告を信用しない**（小さい変更ほど影響範囲を読み違える）。下記の昇格で救う。
+
+### 上流 1 ゲートの規約
+
+成果物は **4 つとも作る**（`requirement.md` / `spec.md` / `plan.md` / `tasks.md`）。**スタブは作らない**——
+`plan.md` は test 工程が「テスト方針」を読む先（`aidev-50-test`）であり、空にすると test が検証対象を失う。
+薄く書くのは各文書の**節を絞る**ことで実現し、light 専用テンプレートは作らない（既存テンプレの部分集合）。
+
+| 文書 | light の必須節 | 省略可 |
+|---|---|---|
+| `requirement.md` | 背景 / 課題、完了条件（受け入れ基準） | スコープ、機能要件、非機能要件 / 制約 |
+| `spec.md` | 設計方針、対象範囲 | I/F・データ構造、振る舞いの詳細、ドメイン固有、エラー処理 |
+| `plan.md` | 作業順序と依存関係、テスト方針 | リスク / 留意点 |
+| `tasks.md` | すべて（`対象` アンカー含む。「8.」） | — |
+
+**記録は `requirement` 1 件**にする（`aidev event requirement start` → `aidev approve requirement`）。
+
+- 理由 1: `requirement` は guard の前提が無い唯一の上流工程。`spec` は `requirement.md`、`plan` は
+  `spec.md` を要求するため、**まだ書いていない時点で guard を叩くと NG になる**。
+- 理由 2: requirement / spec / plan を同一 ts で 3 件記録すると、工程別の所要時間が失われる（「8.」）。
+
+`approved` に `spec` / `plan` が入らないが、`need_approved` を使うのは walkthrough / deliver（review 依存）と
+retro（deliver 依存）だけなので影響しない。metrics 上は **`spec` / `plan` の start が無いこと**自体が
+light の指紋になる（`profile` と二重に判別できる）。
+
+### 任意工程
+
+light では **research / design / walkthrough を使わない**。必要と判断した時点で、それは light の条件
+（振る舞い不変・小規模）を外れている——**昇格の合図**として扱う。
+
+### 昇格（light → full）
+
+| 昇格トリガ | 検知点 |
+|---|---|
+| 想定外のファイルに触った / 影響が広がった | coding |
+| `test` が落ちた | test |
+| `review` で `must` が出た | review |
+| 変更ファイル数が N を超えた | deliver（`files_changed` で機械検知。`aidev verify` が WARN） |
+| 任意工程（research / design）が必要になった | 任意 |
+
+**昇格は片方向**（`full` → `light` は不可）。手順:
+
+1. `aidev escalate`（`profile` を `full` に書き換える）。state.yml の編集は CLI に集約する（`aidev` の役割定義）。
+2. `decisions.md` に 1 エントリ（既存テンプレの用途に合致——「設計から逸脱した判断」）。
+3. 該当工程の approved に `escalated_from_light=1`（「8.」）。
+4. 省略していた節を各文書に**足す**（書き換えではない。文書が育つだけで孤児は出ない）。
+
+### light と full の違い（まとめ）
+
+- **ゲート数**: 7 → 5（上流 3 工程が 1 ゲート）
+- **文書の深さ**: 必須節のサブセット
+- **任意工程**: 使わない
+- **coding / test / review / deliver**: **完全に同一**（review を残すことが light の品質の担保）

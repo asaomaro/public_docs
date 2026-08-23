@@ -13,6 +13,11 @@ spec を実装可能な作業単位に分解し、`plan.md`（方針・順序）
 ## 前提
 
 - `spec.md` が存在すること。無ければ実行を中止し、spec 工程を促す。
+- **`profile: light` の work ではこの工程を単独で起動しない**（protocol.md「11.」）。light では
+  `plan.md` / `tasks.md` は requirement の 1 ゲートで既に書かれている。起動されたら実行を中止し、
+  `coding` へ進むか、`aidev escalate` で full に昇格してから plan を踏み直すかを確認する。
+  なお **light の work は subtask 分割しない**（手順3の split 判定は「大規模で漸進レビューの価値がある」
+  ケースを対象とし、light の前提と正反対）。
 - `design.md` があれば**それも前提に含める**（protocol.md「7.」: plan の前提は「spec.md（design があればそれも）」）。
   design 工程を挟んだ場合、その構造設計を踏まえて分解する。
 

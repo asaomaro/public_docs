@@ -7,10 +7,12 @@
 # Windows 版は同ディレクトリの aidev.ps1（挙動を一致させること）。
 #
 # 使い方:
-#   aidev new <slug> [--mode interactive|autonomous] [--ticket ID] [--depends a,b,#N] [--parent <親work>]
-#                    [--backlog <file>]
+#   aidev new <slug> [--mode interactive|autonomous] [--profile full|light] [--light] [--ticket ID]
+#                    [--depends a,b,#N] [--parent <親work>] [--backlog <file>]
 #     --parent 指定時は親 work 配下に subtask（<NN>-<subslug>・date prefix なし・current=plan）を作る
 #     --backlog は backlog 項目から起こした work に出自を刻む（deliver での消し込みを verify が強制する）
+#     --profile/--light は「どこまで工程を回すか」（protocol.md「11.」）。mode（誰が承認するか）と直交
+#   aidev escalate [slug]                      # profile を light -> full に昇格（片方向。full からは戻せない）
 #   aidev event <phase> <start|approved|sent_back> [key=value ...]
 #   aidev approve <phase> [key=value ...]      # approved 追記 + current 更新 + approved イベント
 #   aidev guard <phase>                        # 前提成果物 + dependsOn の充足を検査（exit!=0で未充足）
@@ -130,10 +132,12 @@ append_event() { # phase event [key=value ...]
 
 # --- コマンド: new ------------------------------------------------------------
 cmd_new() {
-  slug=""; mode=""; ticket=""; depends=""; parent=""; backlog=""
+  slug=""; mode=""; profile=""; ticket=""; depends=""; parent=""; backlog=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --mode) mode=$2; shift 2 ;;
+      --profile) profile=$2; shift 2 ;;
+      --light) profile=light; shift ;;
       --ticket) ticket=$2; shift 2 ;;
       --depends) depends=$2; shift 2 ;;
       --parent) parent=$2; shift 2 ;;
@@ -142,7 +146,7 @@ cmd_new() {
       *) [ -z "$slug" ] && slug=$1 || die "slug は1つだけ"; shift ;;
     esac
   done
-  [ -n "$slug" ] || die "使用法: aidev new <slug> [--mode ..] [--ticket ..] [--depends ..] [--parent <親work>] [--backlog <file>]"
+  [ -n "$slug" ] || die "使用法: aidev new <slug> [--mode ..] [--profile ..|--light] [--ticket ..] [--depends ..] [--parent <親work>] [--backlog <file>]"
   # backlog 出自は「消し込み忘れ」を verify で捕まえるための刻印。存在しないファイルを
   # 指したまま進むと deliver 直前まで気づけないので、この場で弾く
   if [ -n "$backlog" ] && [ ! -f "$AIDEV/backlog/$backlog" ]; then
@@ -177,6 +181,11 @@ cmd_new() {
     [ -n "$mode" ] || mode=$(yget "$pdir/state.yml" mode)
     [ -n "$mode" ] || mode=interactive
     case "$mode" in interactive|autonomous) ;; *) die "mode は interactive|autonomous" ;; esac
+    # profile も mode と同様に親から継承する（省略時）。light 親は本来分割しないが、
+    # 継承しておけば「親 light / 子 full」という食い違いが構造的に起きない
+    [ -n "$profile" ] || profile=$(yget "$pdir/state.yml" profile)
+    [ -n "$profile" ] || profile=full
+    case "$profile" in full|light) ;; *) die "profile は full|light" ;; esac
     mkdir -p "$WORK"
 
     {
@@ -187,6 +196,7 @@ cmd_new() {
       printf 'current: plan\n'
       printf 'approved: []\n'
       printf 'mode: %s\n' "$mode"
+      printf 'profile: %s\n' "$profile"
       printf 'humanGates: []\n'
       printf 'maxSendBacks: 3\n'
       printf 'dependsOn: %s\n' "$deps_yaml"
@@ -205,13 +215,15 @@ cmd_new() {
     if [ -z "$act" ] || [ "$act" = "done" ]; then set_or_append "$pst" activeSubtask "activeSubtask: $slug"; fi
 
     printf '%s\n' "$name" > "$AIDEV/current"
-    printf 'created subtask: %s (parent %s, schema %s, mode %s)\n' "$WORK" "$parent" "$CURRENT_SCHEMA" "$mode"
+    printf 'created subtask: %s (parent %s, schema %s, mode %s, profile %s)\n' "$WORK" "$parent" "$CURRENT_SCHEMA" "$mode" "$profile"
     return 0
   fi
 
   # --- 通常(top-level) work ---
   [ -n "$mode" ] || mode=interactive
   case "$mode" in interactive|autonomous) ;; *) die "mode は interactive|autonomous" ;; esac
+  [ -n "$profile" ] || profile=full
+  case "$profile" in full|light) ;; *) die "profile は full|light" ;; esac
 
   date_p=$(date -u +%Y%m%d)
   base="$date_p-$slug"; name="$base"; n=2
@@ -226,6 +238,7 @@ cmd_new() {
     printf 'current: requirement\n'
     printf 'approved: []\n'
     printf 'mode: %s\n' "$mode"
+    printf 'profile: %s\n' "$profile"
     printf 'humanGates: []\n'
     printf 'maxSendBacks: 3\n'
     printf 'dependsOn: %s\n' "$deps_yaml"
@@ -235,7 +248,10 @@ cmd_new() {
 
   printf 'events:\n' > "$WORK/metrics.yml"
   printf '%s\n' "$name" > "$AIDEV/current"
-  printf 'created: %s (schema %s, mode %s)\n' "$WORK" "$CURRENT_SCHEMA" "$mode"
+  printf 'created: %s (schema %s, mode %s, profile %s)\n' "$WORK" "$CURRENT_SCHEMA" "$mode" "$profile"
+  if [ "$profile" = light ]; then
+    printf 'note: profile=light。上流3工程は requirement 1ゲートに畳む（protocol.md「11.」）\n'
+  fi
   # 注意: ここを `[ -n "$backlog" ] && printf …` と書くと、backlog 未指定時に
   # **関数の戻り値が 1 になる**（末尾コマンドの終了状態がそのまま返る）。
   # worktree add は cmd_new の戻り値を見るので、それだけで add が失敗する
@@ -466,8 +482,41 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail
     event_pair_warnings "$WORK/metrics.yml"
   fi
 
+  # profile: light の逸脱検査（WARN）
+  light_warnings
+
   if [ -n "$VF" ]; then printf '  FAIL%s\n' "$VF"; return 4; fi
   printf '  OK\n'; return 0
+}
+
+# profile=light の条件逸脱を WARN で知らせる（終了コードには影響しない）。
+#
+# light は「振る舞い不変・小規模」を前提にした軽量プロファイル（protocol.md「11.」）。
+# 条件を外れたら full へ昇格するのが正だが、**昇格漏れは後から気付けない**
+# （light のまま着地すると、insights の「light の手戻り率」が実態より良く見える）。
+# 判定は事後なので WARN 止まりにし、硬いゲートは既存の verify の判定に任せる。
+light_warnings() { # WORK/SLUG は解決済み
+  [ -f "$WORK/state.yml" ] || return 0
+  [ "$(yget "$WORK/state.yml" profile)" = light ] || return 0
+  mf="$WORK/metrics.yml"
+  [ -f "$mf" ] || return 0
+
+  # 任意工程を使った＝「小規模」の前提を外れている（protocol.md「11.」任意工程）
+  for p in research design walkthrough; do
+    if grep -Eq "phase:[[:space:]]*$p," "$mf" 2>/dev/null; then
+      printf '  WARN profile=light だが任意工程 %s を実施（aidev escalate で full へ）\n' "$p"
+    fi
+  done
+
+  # 変更規模が上限超過（deliver の files_changed。上限は .aidev/config.yml の lightMaxFiles、既定 3）
+  max=$(yget "$AIDEV/config.yml" lightMaxFiles)
+  case "$max" in ''|*[!0-9]*) max=3 ;; esac
+  fc=$(grep -E 'phase:[[:space:]]*deliver,' "$mf" 2>/dev/null | grep -E 'event:[[:space:]]*approved' \
+        | sed -n 's/.*files_changed:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | tail -n1)
+  if [ -n "$fc" ] && [ "$fc" -gt "$max" ] 2>/dev/null; then
+    printf '  WARN profile=light だが変更 %s ファイル（上限 %s）。aidev escalate で full へ\n' "$fc" "$max"
+  fi
+  return 0
 }
 
 # metrics.yml のイベント対を検査し、WARN 行を出す（終了コードには影響しない）。
@@ -500,6 +549,25 @@ cmd_verify() {
   resolve_work "${1:-}"
   printf 'verify: %s\n' "$SLUG"
   if verify_work; then return 0; else return 4; fi
+}
+
+# --- コマンド: escalate（profile: light -> full。片方向） -------------------------
+# state.yml の更新を CLI に集約するための経路（この CLI の役割定義。冒頭コメント参照）。
+# 手編集を許すと「どの work がいつ昇格したか」が state だけ見ても分からなくなる。
+cmd_escalate() {
+  resolve_work "${1:-}"
+  st="$WORK/state.yml"
+  cur=$(yget "$st" profile)
+  [ -n "$cur" ] || cur=full   # 未記載 = full（profile 導入前の work）
+  case "$cur" in
+    light) ;;
+    full)  die "既に profile=full です（昇格は片方向。full -> light は不可）: $SLUG" ;;
+    *)     die "未知の profile: $cur" ;;
+  esac
+  set_or_append "$st" profile "profile: full"
+  printf 'escalated: %s (light -> full)\n' "$SLUG"
+  printf 'next: 省略していた節を各文書に足す / decisions.md に経緯を残す /\n'
+  printf '      該当工程の承認に escalated_from_light=1 を付ける（protocol.md「11.」）\n'
 }
 
 # --- backlog ファイル横断検査（doctor の一部） ------------------------------------
@@ -1188,6 +1256,7 @@ case "$cmd" in
   approve) cmd_approve "$@" ;;
   guard)   cmd_guard "$@" ;;
   verify)  cmd_verify "$@" ;;
+  escalate) cmd_escalate "$@" ;;
   doctor)  cmd_doctor "$@" ;;
   status)  cmd_status "$@" ;;
   metrics) cmd_metrics "$@" ;;

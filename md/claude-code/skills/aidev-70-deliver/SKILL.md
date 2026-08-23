@@ -94,6 +94,10 @@ review を通過した変更を、コミット・PR 作成によって実際に�
      - 事後記録モード（手順 1.5）では、既着地コミットの範囲で計測する
        （`git diff --stat <base>..<着地コミット> -- . ':!.aidev'`）。
      - この値は insights で「規模あたりの手戻り」の分母になる（タスク数は粒度の癖でぶれるため）。
+     - **`profile: light` の昇格判定**（protocol.md「11.」）: `files_changed` が上限
+       （`.aidev/config.yml` の `lightMaxFiles`、既定 3）を超えていたら light の条件を外れている。
+       `aidev escalate` で full に昇格し、`decisions.md` に経緯を残してから着地する
+       （`aidev verify` も同じ判定で WARN を出す）。
    - **metrics.yml の必須化**（protocol.md「8.」）: 記録は `aidev`（event/approve）が行い、`metrics.yml`
      不在なら自動生成する（CLI 無し環境は `events:` で生成してから手で追記）。事後記録モードでも同様。
 

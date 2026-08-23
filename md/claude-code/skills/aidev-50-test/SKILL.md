@@ -46,6 +46,12 @@ AI 開発ワークフローの **test（テスト / 検証）工程**を実行�
      coding を**再開する際は `aidev event coding start` を記録する**（さもないと手戻り回数を取りこぼす。protocol.md「3.」「8.」）。
 5. 承認は `aidev approve test passed=<合格数> failed=<失敗数>`（protocol.md「3.」「8.」）。
 
+## light の昇格トリガ
+
+`profile: light`（protocol.md「11.」）で**テストが落ちたら、それは「振る舞いを変えない」という
+light の前提が崩れた合図**。coding へ差し戻す前に `aidev escalate` で full へ昇格し、
+`decisions.md` に経緯を残す（昇格は片方向。省略していた節を足すだけでよい）。
+
 ## 完了の目安
 
 - spec の全受け入れ基準に対する検証結果が揃っている。

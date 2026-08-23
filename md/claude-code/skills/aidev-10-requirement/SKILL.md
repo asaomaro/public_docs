@@ -25,9 +25,14 @@ AI 開発ワークフローの **requirement（要件定義）工程**を実行�
 
 対象フォルダ（`.aidev/works/<YYYYMMDD-slug>/`）に `requirement.md` を生成する。
 
+**`profile: light` の場合**（`state.yml`。protocol.md「11.」）は、この工程が**上流 1 ゲート**を担う。
+`requirement.md` / `spec.md` / `plan.md` / `tasks.md` の **4 つすべてを薄く書き**、承認は `requirement`
+として 1 回だけ記録する（下記「light の手順」）。
+
 ## 手順
 
 1. protocol.md「1. 対象作業の特定」に従い、`.aidev/current` から対象フォルダを確定する。
+   **`state.yml` の `profile` を確認し、`light` なら下記「light の手順」に分岐する。**
 2. ユーザーの要望をヒアリングし、曖昧な点は質問して埋める。
    - 解決したい課題・背景（なぜ）
    - 対象ユーザー／利用シーン
@@ -79,7 +84,40 @@ AI 開発ワークフローの **requirement（要件定義）工程**を実行�
 - <あれば。spec で解消する>
 ```
 
+## light の手順（`profile: light`）
+
+上流 3 工程（requirement / spec / plan）を**この 1 ゲートに畳む**（protocol.md「11.」）。
+**文書は 4 つとも作る。スタブは作らない**——`plan.md` は test 工程が「テスト方針」を読む先
+（`aidev-50-test`）で、空にすると test が検証対象を失う。薄くするのは**節を絞る**ことで実現する。
+
+1. 対象フォルダを確定し、`profile: light` を確認する。
+2. `aidev event requirement start` を記録する。
+3. 要望をヒアリングする（full より簡略でよい。grilling はしない）。
+4. 次の 4 文書を、**既存テンプレートの必須節だけ**埋めて書く（light 専用テンプレートは無い）。
+
+   | 文書 | 必須節 | 省略する節 |
+   |---|---|---|
+   | `requirement.md` | 背景 / 課題、完了条件 (受け入れ基準) | スコープ、機能要件、非機能要件 / 制約 |
+   | `spec.md` | 設計方針、対象範囲 | I/F・データ構造、振る舞いの詳細、ドメイン固有、エラー処理 |
+   | `plan.md` | 作業順序と依存関係、テスト方針 | リスク / 留意点 |
+   | `tasks.md` | すべて（各タスクの `対象` アンカーを含む。`aidev-30-plan`） | — |
+
+5. protocol.md「3. 工程終了プロトコル」に従って終了する。**段階レビュー（「3.1」）と相性が良い**——
+   4 文書を見出し節ごとに提示すれば、1 ゲートでも確認の粒度は落ちない。
+   - 承認は `aidev approve requirement tasks_planned=<n> tasks_anchored=<n>`
+     （plan 相当の付加メトリクスもこのゲートで記録する。protocol.md「8.」）。
+   - **次工程は `coding`**（`spec` / `plan` は畳まれているので通らない）。
+6. 途中で light の条件を外れたと判断したら（任意工程が必要・影響が広い・共有モジュールに触る等）、
+   **`aidev escalate` で full に昇格**し、通常の requirement → spec → plan を踏み直す
+   （省略した節を足すだけで、書き換えは不要）。
+
+### light で任意工程が必要になったら
+
+research / design が要ると判断した時点で、それは「振る舞い不変・小規模」の前提を外れている。
+**任意工程を light のまま実施しない**（`aidev verify` が WARN を出す）。昇格してから実施する。
+
 ## 完了の目安
 
 - 「なぜ・何を」が第三者に伝わり、完了条件が検証可能な形で書けている。
 - 実装の詳細に踏み込んでいない（手段の決定は spec へ送る）。
+- **light の場合**: 4 文書がそろい、`tasks.md` の各タスクに `対象` がある（未特定なら明示）。

@@ -640,8 +640,90 @@ else
 fi
 rm -rf "$CLR"
 
+echo "== 実行プロファイル（profile: full / light・escalate） =="
+# protocol.md「11.」。mode（誰が承認するか）と直交する軸で、既定は full。
+# 別リポジトリで回す（$TMP 側の status 件数アサートを壊さないため）。
+LREPO="$TMP/lrepo"
+mkdir -p "$LREPO/.aidev/works" "$LREPO/.aidev/backlog"
+run_lsh() { ( cd "$LREPO" && "$AIDEV_SH" "$@" ); }
+
+L_NEW=$(run_lsh new tiny --light)
+assert_contains "$L_NEW" "profile light" "new --light: profile light を報告"
+assert_contains "$L_NEW" "requirement 1ゲート" "new --light: 上流1ゲートの注意を出す"
+L_SLUG=$(cat "$LREPO/.aidev/current")
+assert_contains "$(cat "$LREPO/.aidev/works/$L_SLUG/state.yml")" "profile: light" "new --light: state.yml に profile: light"
+
+F_NEW=$(run_lsh new normal)
+F_SLUG=$(cat "$LREPO/.aidev/current")
+assert_contains "$F_NEW" "profile full" "new(既定): profile full"
+assert_absent  "$F_NEW" "requirement 1ゲート" "new(既定): light の注意は出さない"
+
+run_lsh new bad --profile medium >/dev/null 2>&1; assert_eq "$?" "1" "不正な --profile は exit 1"
+
+# subtask は親の profile を継承する（親 light / 子 full の食い違いを構造的に防ぐ）
+P_NEW=$(run_lsh new parent-light --light); P_SLUG=$(cat "$LREPO/.aidev/current")
+assert_contains "$P_NEW" "profile light" "new --light(親): profile light"
+S_NEW=$(run_lsh new 01-a --parent "$P_SLUG")
+assert_contains "$S_NEW" "profile light" "subtask: 親の profile を継承する"
+
+# light 逸脱の WARN: 任意工程の実施 + 変更規模の上限超過
+cat >> "$LREPO/.aidev/works/$L_SLUG/metrics.yml" <<'EOF'
+  - { ts: 2026-08-23T01:00:00Z, phase: research, event: start }
+  - { ts: 2026-08-23T03:00:00Z, phase: deliver, event: start }
+  - { ts: 2026-08-23T03:10:00Z, phase: deliver, event: approved, metrics: { files_changed: 9 } }
+EOF
+LV=$(run_lsh verify "$L_SLUG")
+assert_contains "$LV" "任意工程 research を実施" "verify: light で任意工程を使ったら WARN"
+assert_contains "$LV" "変更 9 ファイル（上限 3）" "verify: light で規模超過なら WARN"
+run_lsh verify "$L_SLUG" >/dev/null 2>&1; assert_eq "$?" "0" "light の WARN は exit code を変えない（硬ゲートは既存判定）"
+
+printf 'lightMaxFiles: 20\n' > "$LREPO/.aidev/config.yml"
+LV2=$(run_lsh verify "$L_SLUG")
+assert_absent "$LV2" "変更 9 ファイル" "config.yml の lightMaxFiles で上限を緩められる"
+rm -f "$LREPO/.aidev/config.yml"
+
+FV=$(run_lsh verify "$F_SLUG")
+assert_absent "$FV" "profile=light" "full な work に light の WARN は出ない"
+
+# escalate は片方向（full -> light には戻せない）
+LE=$(run_lsh escalate "$L_SLUG")
+assert_contains "$LE" "light -> full" "escalate: 昇格を報告"
+assert_contains "$(cat "$LREPO/.aidev/works/$L_SLUG/state.yml")" "profile: full" "escalate: state.yml が full になる"
+run_lsh escalate "$L_SLUG" >/dev/null 2>&1; assert_eq "$?" "1" "escalate: full からは戻せない（片方向）"
+LV3=$(run_lsh verify "$L_SLUG")
+assert_absent "$LV3" "profile=light" "昇格後は light の WARN が消える"
+
+# profile 未記載（導入前の work）は full 扱い＝WARN も escalate も対象外
+mkdir -p "$LREPO/.aidev/works/20260101-oldwork"
+cat > "$LREPO/.aidev/works/20260101-oldwork/state.yml" <<'EOF'
+schema: 2
+slug: oldwork
+current: coding
+approved: [requirement, spec, plan]
+mode: interactive
+humanGates: []
+maxSendBacks: 3
+dependsOn: []
+EOF
+printf 'events:\n' > "$LREPO/.aidev/works/20260101-oldwork/metrics.yml"
+OV=$(run_lsh verify 20260101-oldwork)
+assert_absent "$OV" "profile=light" "profile 未記載の work は full 扱い（後方互換）"
+run_lsh escalate 20260101-oldwork >/dev/null 2>&1; assert_eq "$?" "1" "profile 未記載の work は escalate 不可（full 扱い）"
+
 echo "== sh ⇔ ps1 パリティ =="
 if [ -n "$PS_HOST" ]; then
+  # profile 系のパリティ（同じフィクスチャに対して同じ出力になること）
+  for pargs in "verify $L_SLUG" "verify $F_SLUG" "verify 20260101-oldwork"; do
+    # shellcheck disable=SC2086
+    P_SH=$( ( cd "$LREPO" && "$AIDEV_SH" $pargs ) 2>&1 )
+    # shellcheck disable=SC2086
+    P_PS=$( ( cd "$LREPO" && run_ps1 "$AIDEV_PS1" $pargs ) 2>&1 | tr -d '\r' )
+    assert_eq "$P_SH" "$P_PS" "パリティ: $pargs（profile 判定）"
+  done
+  PE_SH=$( ( cd "$LREPO" && "$AIDEV_SH" escalate "$F_SLUG" ) 2>&1 )
+  PE_PS=$( ( cd "$LREPO" && run_ps1 "$AIDEV_PS1" escalate "$F_SLUG" ) 2>&1 | tr -d '\r' )
+  assert_eq "$PE_SH" "$PE_PS" "パリティ: escalate（full からの拒否メッセージ）"
+
   for args in "status --format tsv" "metrics --all --format tsv" "metrics 20260101-alpha --phases --format tsv"; do
     # shellcheck disable=SC2086
     O_SH=$( ( cd "$TMP" && "$AIDEV_SH" $args ) )

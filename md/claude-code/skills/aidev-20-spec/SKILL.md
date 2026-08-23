@@ -13,6 +13,9 @@ requirement を「どう作るか」の実装仕様に落とす。設計判断�
 ## 前提
 
 - `requirement.md` が存在すること。無ければ実行を中止し、requirement 工程を促す。
+- **`profile: light` の work ではこの工程を単独で起動しない**（protocol.md「11.」）。light では
+  `spec.md` は requirement の 1 ゲートで既に書かれている。起動されたら実行を中止し、
+  `coding` へ進むか、`aidev escalate` で full に昇格してから spec を書き直すかを確認する。
 
 ## 入力
 
@@ -27,6 +30,13 @@ requirement を「どう作るか」の実装仕様に落とす。設計判断�
 
 1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定。「2. 前提チェック」に従い `requirement.md` を確認。
 2. `requirement.md` を読み、完了条件を満たす実装方針を検討する。
+   - **有力な案が複数あるなら plan モードを使ってよい**（任意。`protocol.md`「10.」）。`EnterPlanMode` で
+     read-only のまま既存コードを調べ、方針案を提示して `ExitPlanMode` で承認を取り、**解除してから
+     手順 4 で `spec.md` を書く**。**spec.md を書く前に方針の合意が取れる**のが利点。
+     - 使わない場合: 方針が自明なとき／`profile: light`（承認の往復を減らす趣旨に反する）／
+       `mode: autonomous`（`ExitPlanMode` は人間の承認が前提で、承認者がいない）。
+     - 使った場合も**工程の承認ゲート（手順 6）は省かない**。plan モードは方針、aidev のゲートは
+       文書を承認するもので、対象が違う。
 3. 設計判断を行う。PJ のドメイン固有の論点（PJ ルールに記載があれば、それに従う）は明示的に扱う。
    - **設計選択が多い／複雑な場合は「深掘り質問（grilling）」を opt-in で行う**：主要な設計選択を
      **推奨回答つきで問い詰め**、依存関係を洗い出してから spec を固める。質問深掘り skill（例: `grill-me`）が

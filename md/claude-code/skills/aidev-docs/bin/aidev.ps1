@@ -5,8 +5,10 @@
 # 役割と正典は `aidev` 冒頭コメント／protocol.md「4.1」を参照。
 #
 # 使い方:
-#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 new <slug> [--mode interactive|autonomous] [--ticket ID] [--depends a,b,#N] [--parent <親work>]
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 new <slug> [--mode interactive|autonomous] [--profile full|light] [--light] [--ticket ID] [--depends a,b,#N] [--parent <親work>]
 #     --parent 指定時は親 work 配下に subtask（<NN>-<subslug>・date prefix なし・current=plan）を作る
+#     --profile/--light は「どこまで工程を回すか」（protocol.md「11.」）。mode（誰が承認するか）と直交
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 escalate [slug]   # profile を light -> full に昇格（片方向）
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 event <phase> <start|approved|sent_back> [key=value ...]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 approve <phase> [key=value ...]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 guard <phase>
@@ -167,10 +169,12 @@ function AppendEvent($work,$phase,$event,$kvs) {
 
 # --- new ---------------------------------------------------------------------
 function Cmd-New($rest) {
-  $slug=''; $mode=''; $ticket=''; $depends=''; $parent=''; $backlog=''
+  $slug=''; $mode=''; $profile=''; $ticket=''; $depends=''; $parent=''; $backlog=''
   for ($i=0; $i -lt $rest.Count; $i++) {
     switch ($rest[$i]) {
       '--mode'    { $mode=$rest[++$i] }
+      '--profile' { $profile=$rest[++$i] }
+      '--light'   { $profile='light' }
       '--ticket'  { $ticket=$rest[++$i] }
       '--depends' { $depends=$rest[++$i] }
       '--parent'  { $parent=$rest[++$i] }
@@ -181,7 +185,7 @@ function Cmd-New($rest) {
       }
     }
   }
-  if (-not $slug) { Die "使用法: aidev new <slug> [--mode ..] [--ticket ..] [--depends ..] [--parent <親work>] [--backlog <file>]" }
+  if (-not $slug) { Die "使用法: aidev new <slug> [--mode ..] [--profile ..|--light] [--ticket ..] [--depends ..] [--parent <親work>] [--backlog <file>]" }
   # backlog 出自は「消し込み忘れ」を verify で捕まえるための刻印。存在しないファイルを
   # 指したまま進むと deliver 直前まで気づけないので、この場で弾く（sh 版と同一）
   if ($backlog -and -not (Test-Path (Join-Path (Join-Path $script:AIDEV 'backlog') $backlog))) {
@@ -210,11 +214,15 @@ function Cmd-New($rest) {
     if (-not $mode) { $mode = YGet $pst 'mode' }
     if (-not $mode) { $mode = 'interactive' }
     if ($mode -ne 'interactive' -and $mode -ne 'autonomous') { Die "mode は interactive|autonomous" }
+    # profile も mode と同様に親から継承（省略時）。sh 版と同一
+    if (-not $profile) { $profile = YGet $pst 'profile' }
+    if (-not $profile) { $profile = 'full' }
+    if ($profile -ne 'full' -and $profile -ne 'light') { Die "profile は full|light" }
     New-Item -ItemType Directory -Path $work -Force | Out-Null
 
     $sb = "schema: $($script:CURRENT_SCHEMA)`nslug: $slug`nparent: $parent`n"
     if ($ticket) { $sb += "ticket: $ticket`n" }
-    $sb += "current: plan`napproved: []`nmode: $mode`nhumanGates: []`nmaxSendBacks: 3`ndependsOn: $depsYaml`n"
+    $sb += "current: plan`napproved: []`nmode: $mode`nprofile: $profile`nhumanGates: []`nmaxSendBacks: 3`ndependsOn: $depsYaml`n"
     WriteText (Join-Path $work 'state.yml') $sb
     WriteText (Join-Path $work 'metrics.yml') "events:`n"
 
@@ -226,13 +234,15 @@ function Cmd-New($rest) {
     if (-not $act -or $act -eq 'done') { SetOrAppend $pst 'activeSubtask' "activeSubtask: $slug" }
 
     WriteText (Join-Path $script:AIDEV 'current') "$name`n"
-    Write-Output "created subtask: $work (parent $parent, schema $($script:CURRENT_SCHEMA), mode $mode)"
+    Write-Output "created subtask: $work (parent $parent, schema $($script:CURRENT_SCHEMA), mode $mode, profile $profile)"
     return
   }
 
   # --- 通常(top-level) work ---
   if (-not $mode) { $mode = 'interactive' }
   if ($mode -ne 'interactive' -and $mode -ne 'autonomous') { Die "mode は interactive|autonomous" }
+  if (-not $profile) { $profile = 'full' }
+  if ($profile -ne 'full' -and $profile -ne 'light') { Die "profile は full|light" }
 
   $dateP = [DateTime]::UtcNow.ToString('yyyyMMdd')
   $base = "$dateP-$slug"; $name=$base; $n=2
@@ -242,12 +252,13 @@ function Cmd-New($rest) {
 
   $sb = "schema: $($script:CURRENT_SCHEMA)`nslug: $slug`n"
   if ($ticket) { $sb += "ticket: $ticket`n" }
-  $sb += "current: requirement`napproved: []`nmode: $mode`nhumanGates: []`nmaxSendBacks: 3`ndependsOn: $depsYaml`n"
+  $sb += "current: requirement`napproved: []`nmode: $mode`nprofile: $profile`nhumanGates: []`nmaxSendBacks: 3`ndependsOn: $depsYaml`n"
   if ($backlog) { $sb += "backlog: $backlog`n" }
   WriteText (Join-Path $work 'state.yml') $sb
   WriteText (Join-Path $work 'metrics.yml') "events:`n"
   WriteText (Join-Path $script:AIDEV 'current') "$name`n"
-  Write-Output "created: $work (schema $($script:CURRENT_SCHEMA), mode $mode)"
+  Write-Output "created: $work (schema $($script:CURRENT_SCHEMA), mode $mode, profile $profile)"
+  if ($profile -eq 'light') { Write-Output "note: profile=light。上流3工程は requirement 1ゲートに畳む（protocol.md「11.」）" }
   if ($backlog) { Write-Output "backlog: $backlog（deliver で該当行を [x] にすること。verify が検査する）" }
 }
 
@@ -455,8 +466,53 @@ function VerifyWork($work) {
   $mf2 = Join-Path $work 'metrics.yml'
   if (Test-Path $mf2) { EventPairWarnings $mf2 }
 
+  # profile: light の逸脱検査（WARN）
+  LightWarnings $work
+
   if ($vf.Count -gt 0) { [Console]::Out.WriteLine("  FAIL " + ($vf -join ' ')); return 4 }
   [Console]::Out.WriteLine("  OK"); return 0
+}
+
+# profile=light の条件逸脱を WARN で知らせる（終了コードには影響しない）。sh 版 light_warnings と同一。
+#
+# light は「振る舞い不変・小規模」を前提にした軽量プロファイル（protocol.md「11.」）。
+# 条件を外れたら full へ昇格するのが正だが、昇格漏れは後から気付けない
+# （light のまま着地すると insights の「light の手戻り率」が実態より良く見える）。
+function LightWarnings($work) {
+  $st = Join-Path $work 'state.yml'
+  if (-not (Test-Path $st)) { return }
+  if ((YGet $st 'profile') -ne 'light') { return }
+  $mf = Join-Path $work 'metrics.yml'
+  if (-not (Test-Path $mf)) { return }
+  $lines = [System.IO.File]::ReadAllLines($mf)
+
+  # 任意工程を使った＝「小規模」の前提を外れている（出力順は sh 版のループと同一）
+  foreach ($p in @('research','design','walkthrough')) {
+    foreach ($l in $lines) {
+      if ($l -match ("phase:\s*" + $p + ",")) {
+        [Console]::Out.WriteLine("  WARN profile=light だが任意工程 $p を実施（aidev escalate で full へ）")
+        break
+      }
+    }
+  }
+
+  # 変更規模が上限超過（deliver の files_changed。上限は .aidev/config.yml の lightMaxFiles、既定 3）
+  $max = 3
+  $cfg = Join-Path $script:AIDEV 'config.yml'
+  if (Test-Path $cfg) {
+    $v = YGet $cfg 'lightMaxFiles'
+    if ($v -match '^\d+$') { $max = [int]$v }
+  }
+  $fc = $null
+  foreach ($l in $lines) {
+    if ($l -match 'phase:\s*deliver,' -and $l -match 'event:\s*approved') {
+      $m = [regex]::Match($l, 'files_changed:\s*(\d+)')
+      if ($m.Success) { $fc = [int]$m.Groups[1].Value }   # sh 版の tail -n1 と同じく最後の一致を採る
+    }
+  }
+  if ($null -ne $fc -and $fc -gt $max) {
+    [Console]::Out.WriteLine("  WARN profile=light だが変更 $fc ファイル（上限 $max）。aidev escalate で full へ")
+  }
 }
 
 # metrics.yml のイベント対を検査し、WARN 行を出す（終了コードには影響しない）。
@@ -490,6 +546,22 @@ function Cmd-Verify($rest) {
   Write-Output "verify: $($script:SLUG)"
   $rc = VerifyWork $script:WORK
   exit $rc
+}
+
+# --- escalate（profile: light -> full。片方向） --------------------------------
+# state.yml の更新を CLI に集約するための経路（sh 版 cmd_escalate と同一）。
+function Cmd-Escalate($rest) {
+  $slug=''; if ($rest.Count -ge 1) { $slug=$rest[0] }
+  ResolveWork $slug
+  $st = Join-Path $script:WORK 'state.yml'
+  $cur = YGet $st 'profile'
+  if (-not $cur) { $cur = 'full' }   # 未記載 = full（profile 導入前の work）
+  if ($cur -eq 'full')  { Die "既に profile=full です（昇格は片方向。full -> light は不可）: $($script:SLUG)" }
+  if ($cur -ne 'light') { Die "未知の profile: $cur" }
+  SetOrAppend $st 'profile' 'profile: full'
+  Write-Output "escalated: $($script:SLUG) (light -> full)"
+  Write-Output "next: 省略していた節を各文書に足す / decisions.md に経緯を残す /"
+  Write-Output "      該当工程の承認に escalated_from_light=1 を付ける（protocol.md「11.」）"
 }
 
 # --- doctor ------------------------------------------------------------------
@@ -1169,6 +1241,7 @@ switch ($cmd) {
   'approve' { Cmd-Approve $rest }
   'guard'   { Cmd-Guard $rest }
   'verify'  { Cmd-Verify $rest }
+  'escalate' { Cmd-Escalate $rest }
   'doctor'  { Cmd-Doctor }
   'status'  { Cmd-Status $rest }
   'metrics' { Cmd-Metrics $rest }

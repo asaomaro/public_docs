@@ -44,6 +44,34 @@ flowchart TD
   class research,design,walkthrough,retro opt
 ```
 
+`profile: light`（「11.」）では上流3工程を1ゲートに畳む。成果物は4つとも作り（薄く）、
+承認は `requirement` 1件として記録する。coding 以降は full と同一で、任意工程は使わない。
+
+```mermaid
+flowchart TD
+  lstart["aidev-00-start<br/>対象外 / light / full を判定"]
+  lstart -. "typo・コメント・整形" .-> none["aidev を通さない<br/>（直接コミット）"]
+  lstart -- "light" --> lgate
+
+  subgraph LG["上流1ゲート（記録は requirement）"]
+    direction TB
+    lgate["10 requirement<br/>requirement.md / spec.md<br/>plan.md / tasks.md を薄く書く"]
+  end
+
+  lgate --> lcoding["40 coding"] --> ltest["50 test"] --> lreview["60 review"] --> ldeliver["70 deliver"]
+
+  lcoding -. "想定外のファイル" .-> esc
+  ltest -. "テスト失敗" .-> esc
+  lreview -. "must 指摘" .-> esc
+  ldeliver -. "files_changed > 上限" .-> esc
+  esc["aidev escalate<br/>light → full（片方向）"]
+
+  classDef sk fill:#eef,stroke:#88a,stroke-dasharray:4 3
+  classDef warn fill:#fee,stroke:#a88
+  class none sk
+  class esc warn
+```
+
 ### 0.2 三層の責務分担
 
 基盤（PJ非依存）／知識（AGENTS.md）／実作業（PJ固有 skill）を分離。各工程は実作業を PJ 資産へ
@@ -176,6 +204,59 @@ flowchart LR
   **全入口（batch / 手動 / 直叩き）に一律に効く**。充足判定は works slug→approved に deliver / issue `#N`→クローズ。
   挙動は **soft**（interactive=警告して続行可、autonomous/batch=保留して次へ）＝「硬ゲートは承認のみ」の思想に合わせる。
   当初は backlog 行への `blocked-by:` 注記＋batch ガードを検討したが、入口非依存にならないため退けた。
+
+- **実行プロファイル（`profile: full | light`）を `mode` とは別フィールドにした**：`mode` は
+  **誰が承認するか**（interactive / autonomous）、`profile` は**どこまで工程を回すか**。この2つは直交し、
+  `light × autonomous`（夜間に小修正を回す）と `light × interactive`（手元の小修正）の両方が実在する。
+  `mode` の3つ目の値（`interactive | autonomous | light`）にすると、この掛け算が表現できなくなるため退けた。
+  省略時 `full` とし、`profile` を持たない既存 work は自然に full 扱い＝**schema を上げずに後方互換**
+  （フィールドの有無自体がバージョンマーカーになる）。詳細は `protocol.md`「11.」。
+
+- **light は「文書を1枚に畳む」のではなく「ゲートを1回に畳む」**：当初は上流3工程を統合した
+  1文書（`brief.md`）案を検討したが、**guard が要求するファイル**（`coding`→plan.md/tasks.md、
+  `review`→spec.md）を満たすために空スタブが2つ必要になり、退けた。理由は3つ。
+  (1) 中身のないファイルでゲートを通すのは「欠落は欠落として残す・捏造して埋めない」（`protocol.md`「8.」）
+  という本ハーネスの思想と正面から衝突し、`verify` が「spec.md あり」と誤判定する。
+  (2) **`plan.md` スタブは有害**——test 工程は `plan.md` から「テスト方針」を読む（`aidev-50-test`）ため、
+  空にすると test が検証対象を失う。つまり plan.md には light でも書くべき中身が最初から存在する。
+  (3) 昇格（light→full）時に `brief.md` が古い記述の残った第3の文書＝孤児になる。
+  結論として **4文書を薄く（必須節のサブセットで）書き、承認を1ゲートにまとめる**形にした。
+  これでスタブ0個・下流 skill の分岐0箇所・新しい成果物名0個・`need_file` の CLI 変更0で成立する。
+
+- **light の上流ゲートは `requirement` として記録する**：`plan` や `spec` として記録する案は guard と
+  衝突する（`plan`→`spec.md`、`spec`→`requirement.md` を要求するため、**まだ書いていない時点で
+  guard を叩くと NG**）。`requirement` は前提を持たない唯一の上流工程で、意味的にも統合文書の主節が
+  「何を・なぜ」なので自然。3件を同一 ts で記録する案は、工程別所要時間が失われるため退けた
+  （`protocol.md`「8.」）。副作用として **`spec` / `plan` の start が無いこと自体が light の指紋**になる。
+
+- **昇格（light→full）は片方向で CLI 経路に集約**：`aidev escalate` を足した。`state.yml` の手編集を
+  許すと「どの work がいつ昇格したか」が state だけ見て分からなくなり、この CLI の役割定義
+  （state/metrics 更新の単一の検証済み経路）が崩れる。逆方向（full→light）は提供しない。
+  昇格漏れは**後から気付けない**（light のまま着地すると insights の「light の手戻り率」が実態より
+  良く見える）ので、`verify` が deliver 前に WARN を出す——任意工程の実施と `files_changed` の上限超過。
+  **exit code は変えない**（既存 work を壊さないため。「2.6」の二層モデルと同じ判断）。
+
+- **「対象外」層を light と同時に定義した**：typo・コメント・整形は **aidev を通さない**と明示する。
+  下限を決めないと、中身のない成果物と機械的な承認が量産され（＝「形だけ通す」）、ハーネスへの信頼が
+  最も速く壊れる。light を作るとき同時に決めるべきは「どこから使うか」ではなく「**どこまで使わないか**」。
+
+- **Claude Code の plan モードは「探索して承認を取り、解除してから書く」形でのみ使う**：plan モードは
+  Write/Edit を禁じるので、成果物を書くのが仕事である aidev の工程を**そのまま完走することはできない**。
+  一方、plan モード内で探索して方針の承認を取り、解除してから成果物を書く形なら成立する。
+  当初「工程内では一切使わない」と決めたが、これは**言い過ぎだった**（禁じられるのは完走のみ）。
+  適用の可否は「二重ゲートに見合う利得があるか」で決めた。
+  - **使う**: (1) `aidev-00-start` の三層判定——影響範囲の調査が必要で、**この時点で aidev のゲートが
+    まだ無い＝二重ゲートにならない**ため最も素直に効く。解除後 `aidev new` へ引き渡す。
+    (2) spec / design（`full` × `interactive`・任意）——有力案が複数あるとき、**文書を書く前に方針の
+    合意が取れる**。承認の対象が「方針」と「文書」で異なるので二重ゲートを許容する。
+    (3) ハーネス自体の改修（aidev の対象作業ではない）。
+  - **使わない**: research（`ExitPlanMode` が「調査・理解では使うな」と定義。`EnterPlanMode` も純粋な
+    調査は Agent へ回すよう指示＝「2.6」の委譲が既にそれ）／**plan（成果物が完全に重複＝計画を
+    二度書く）**／coding（`tasks.md` が承認済みの計画そのもの。方針変更は差し戻しを使う——差し戻しは
+    metrics に残り、plan モードは残らない）／test・review・deliver・retro（実装計画ではない）／
+    `profile: light`（承認の往復を減らす趣旨に反する）／`autonomous`（`ExitPlanMode` は人間の承認が前提）。
+  - 「工程内で段階的に確認したい」要求には**段階レビュー**（`protocol.md`「3.1」）が対応する。
+    成果物を見出し節ごとに承認するもので、plan モードとは併用しない。
 
 ## 2.5 タスク管理モデル（works = 実行の正 / backlog = 遅延キュー）
 

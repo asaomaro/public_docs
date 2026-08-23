@@ -58,6 +58,15 @@ AI 開発ワークフローの **review（レビュー）工程**を実行する
        （推奨）を加え理由を添える（次工程: 推奨時 `walkthrough`、それ以外 `deliver`）。
 5. 承認は `aidev approve review must=<件数> should=<件数> nit=<件数>`（protocol.md「3.」「8.」）。
 
+## light の昇格トリガ
+
+`profile: light`（protocol.md「11.」）で **`must` の指摘が出たら、上流を薄くしたことが原因である
+可能性が高い**。coding へ差し戻す前に `aidev escalate` で full へ昇格し、`decisions.md` に経緯を残す
+（昇格は片方向。省略していた節を足すだけでよい）。`should` / `nit` だけなら light のまま続けてよい。
+
+なお **light でも入力に `requirement.md` は存在する**（薄いが必須節は埋まっている）。
+節が足りずレビュー観点を確認できない場合も、昇格の合図として扱う。
+
 ## 完了の目安
 
 - must/should の指摘が解消されている。

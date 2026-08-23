@@ -96,6 +96,25 @@ planner の方針は `.aidev/charter.md` で縛る。
   安全弁: test は硬いゲート（未通過なら draft PR）／差し戻し回数・予算に上限／成果物・walkthrough を証跡として残す。
   ※夜間に回す実行手段（headless/スケジュール）は harness とは別レイヤで用意する。
 
+## 実行プロファイル（full / light）
+
+`state.yml` の `profile` で「どこまで工程を回すか」を選ぶ。`mode`（誰が承認するか）とは**直交**する軸で、
+`light × autonomous` のような組み合わせも成立する。省略時は `full`。
+
+| 層 | 対象 | 使い方 |
+|---|---|---|
+| **対象外** | typo・コメント・整形など判断を伴わない変更 | **aidev を通さない**（直接コミット） |
+| **light** | 振る舞い不変・小規模（3 ファイル以下・共有モジュールや公開 API に触らない） | `aidev new <slug> --light` |
+| **full** | それ以外 | `aidev new <slug>`（既定） |
+
+light は**上流3工程（requirement / spec / plan）を1ゲートに畳む**。成果物は4つとも作るが、
+各文書は必須節だけに絞る（`protocol.md`「11.」）。**coding / test / review / deliver は full と完全に同一**で、
+品質ゲートは省かない。任意工程（research / design / walkthrough）は light では使わない。
+
+条件を外れたら `aidev escalate` で **full へ片方向に昇格**する（省略していた節を足すだけ）。
+昇格の合図は「想定外のファイルに触った」「test が落ちた」「review で must が出た」
+「`files_changed` が上限超過」。昇格漏れは `aidev verify` が WARN で知らせる。
+
 ## 任意工程の起動
 
 - **ユーザー指定**：明示的に `/aidev-15-research` 等を選ぶ。
@@ -122,7 +141,7 @@ planner の方針は `.aidev/charter.md` で縛る。
   config.yml           PJ単位の設定（tracker 種類など。コミット対象）
   current              現在の作業フォルダ名（.gitignore 対象）
   works/<YYYYMMDD-slug>/  作業単位ごとの成果物（命名: 日付(UTC)-slug）
-    state.yml          進捗（schema / current / approved / dependsOn / ticket / mode）
+    state.yml          進捗（schema / current / approved / dependsOn / ticket / mode / profile）
     metrics.yml        工程の実施日時・時間・件数などのイベントログ
     requirement.md / spec.md / plan.md / tasks.md / decisions.md / review.md など
   backlog/             遅延キュー（任意）。<domain>.md（standing）/ split-<親>.md（split）/ archive/

@@ -67,11 +67,34 @@ CLI が使えない環境のフォールバック: `cat .aidev/current` / `ls .a
 
 ## 4. 新規作業の開始
 
+0. **三層のどれかを判定する**（`protocol.md`「11.」）。ここを飛ばすと、typo 修正に全工程を回すか、
+   逆に影響の大きい変更を軽い経路に流すことになる。
+
+   | 層 | 対象 | 案内 |
+   |---|---|---|
+   | **対象外** | typo・コメント・整形・生成物の再生成など、判断を伴わない変更 | **aidev を通さない**。直接修正・コミットを案内してここで終了する |
+   | **light** | 振る舞いを変えない / 小規模（触るファイルが 3 個以下・共有モジュールや公開 API に触らない・新規依存なし） | `aidev new <slug> --light`。上流 3 工程を 1 ゲートに畳む |
+   | **full** | それ以外すべて | `aidev new <slug>`（既定） |
+
+   - **判定はユーザーに確認する**（`AskUserQuestion`）。「小さい変更」の見立ては外れやすく、
+     特に共有モジュールの 1 行変更は影響範囲を読み違えやすい。
+   - **影響範囲が読めないときは plan モードを使う**（`protocol.md`「10.」）。`EnterPlanMode` で
+     read-only のまま影響範囲を調べ、三層の判定と着手方針を提案して `ExitPlanMode` で承認を取り、
+     **解除してから手順 2 の `aidev new` に引き渡す**。この時点では aidev のゲートがまだ無いので
+     二重ゲートにならず、plan モードが最も素直に効く場所になる。
+     - 判定が自明なとき（typo・明らかに大きい機能追加）は使わない。
+     - `aidev new` は書き込みなので、**必ず plan モードを解除してから**実行する。
+   - 迷ったら **full を選ぶ**。light は後から full へ昇格できる（`aidev escalate`）が、逆はできない。
+   - **light を選んでも review / test / deliver は full と同一**に通る。省くのは上流の文書の深さと
+     承認の往復だけで、品質ゲートは残る。
+
 1. requirement の概要をユーザーに確認し、簡潔な slug を決める（kebab-case、英小文字）。
 2. **`aidev new <slug>` を実行**して作業を作成する（フォルダ作成・日付プレフィックス採番・
    `state.yml`/`metrics.yml` 初期化・`.aidev/current` 設定・`schema` 刻印を一括で行う）。
    - 実行モード（`protocol.md`「10.」）: 既定 `--mode interactive`。夜間自律で PR まで回すなら
      `--mode autonomous`（必要なら作成後に `state.yml` の `humanGates` を設定＝部分自律。例 `[spec]`）。
+   - 実行プロファイル（`protocol.md`「11.」）: 手順 0 が light なら `--light`。**mode とは直交**するので
+     `--mode autonomous --light` のような組み合わせも成立する。
    - 外部チケット連携時は `--ticket <ID>`（種類は `.aidev/config.yml` の `tracker`）。
    - 前提となる作業/issue があれば `--depends <works slug,#N,…>`（`protocol.md`「2.7」「6.」）。
    - **backlog 項目から起こしたなら `--backlog <file>`**（例 `--backlog hostserver.md`）。
@@ -88,9 +111,12 @@ CLI が使えない環境のフォールバック: `cat .aidev/current` / `ls .a
    - trunk-based 等ブランチを使わない PJ ではスキップする。
    - 既に作業ブランチ上にいる場合は新規作成しない（重複防止）。
    - 成果物（`.aidev/works/...`）も同じブランチに乗せると、後段の PR がきれいになる。
-4. `aidev-10-requirement` 工程の開始を案内する。
+4. `aidev-10-requirement` 工程の開始を案内する（`profile: light` の場合も同じ——上流 3 工程は
+   requirement 1 ゲートに畳まれ、`aidev-10-requirement` がそのゲートを担う。`protocol.md`「11.」）。
 
 ## 5. 注意
 
 - この skill は工程を直接実行しない。あくまで現在地の把握と次工程の案内に徹する。
 - 工程の実行可否・終了処理は各工程 skill と `protocol.md` に委譲する。
+- **plan モード中に呼ばれたら、先に plan モードを抜けるよう促す**（`protocol.md`「10.」）。
+  aidev の工程は成果物を書くのが仕事なので、plan モードのままでは工程が途中で止まる。
