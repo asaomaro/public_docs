@@ -1034,6 +1034,12 @@ body{font-family:var(--font);color:var(--ink);background:var(--bg);line-height:1
 .topbar-tools{display:flex;align-items:center;gap:10px;flex:0 0 auto}
 .hamburger{display:none;background:none;border:1px solid var(--line);
   border-radius:8px;padding:6px 10px;color:var(--ink);font-size:18px;cursor:pointer}
+/* サイドメニューの展開/非表示トグル（サイド目次があるときだけ出す） */
+.toc-toggle{display:none;align-items:center;justify-content:center;flex:0 0 auto;
+  width:32px;height:30px;padding:0;background:none;border:1px solid var(--line);
+  border-radius:8px;color:var(--muted);cursor:pointer;transition:.15s}
+.toc-toggle:hover{color:var(--accent);background:var(--accent-soft);border-color:var(--accent)}
+.toc-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 /* 表示モード切替（ライト / ダーク / システム設定） */
 .mode-switch{display:inline-flex;gap:2px;padding:3px;border:1px solid var(--line);
   border-radius:999px;background:color-mix(in srgb,var(--card) 65%,transparent)}
@@ -1056,18 +1062,45 @@ body{font-family:var(--font);color:var(--ink);background:var(--bg);line-height:1
   padding:4px 12px;border-radius:999px}
 .layout{max-width:var(--maxw);margin:0 auto;padding:0 24px 90px;display:grid;
   grid-template-columns:220px 1fr;gap:40px;align-items:start}
-.toc{position:sticky;top:calc(var(--nav-h) + 24px);max-height:calc(100vh - var(--nav-h) - 48px);overflow-y:auto;overscroll-behavior:contain;font-size:13.5px;padding-top:32px;padding-right:8px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+.toc{position:sticky;top:calc(var(--nav-h) + 24px);max-height:calc(100vh - var(--nav-h) - 48px);overflow-y:auto;overscroll-behavior:contain;font-size:13.5px;padding-right:8px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
 .toc::-webkit-scrollbar{width:8px}
 .toc::-webkit-scrollbar-thumb{background:var(--line);border-radius:8px}
 .toc::-webkit-scrollbar-thumb:hover{background:var(--muted)}
 .toc::-webkit-scrollbar-track{background:transparent}
+/* 見出し＋検索欄は目次内スクロールでも常に見えるよう上端に固定 */
+.toc-head{position:sticky;top:0;z-index:1;background:var(--bg);padding:32px 0 10px}
 .toc .toc-ttl{font-family:var(--font-head);font-weight:800;font-size:12px;letter-spacing:.1em;
-  color:var(--muted);margin-bottom:12px}
+  color:var(--muted);margin-bottom:10px}
 .toc a{display:block;color:var(--muted);text-decoration:none;padding:4px 10px;border-left:2px solid var(--line);
   transition:.15s}
 .toc a.lv3{padding-left:22px;font-size:12.5px}
 .toc a:hover{color:var(--accent)}
 .toc a.active{color:var(--accent);border-left-color:var(--accent);font-weight:700}
+/* 目次の検索欄 */
+.toc-search{display:block;width:100%;box-sizing:border-box;padding:6px 10px;
+  -webkit-appearance:none;appearance:none;
+  font-family:var(--font);font-size:12.5px;color:var(--ink);
+  background:var(--card);border:1px solid var(--line);border-radius:8px}
+.toc-search::placeholder{color:var(--muted);opacity:.9}
+.toc-search:focus{outline:none;border-color:var(--accent);
+  box-shadow:0 0 0 2px var(--accent-soft)}
+.toc-empty{display:none;color:var(--muted);font-size:12px;padding:6px 10px}
+/* 章（h2）単位のアコーディオン */
+.toc-sec{margin-bottom:2px}
+.toc-row{display:flex;align-items:stretch;gap:2px}
+.toc-row>a{flex:1 1 auto;min-width:0}
+.toc-acc{flex:0 0 auto;width:22px;padding:0;background:none;border:none;border-radius:6px;
+  color:var(--muted);font-size:10px;line-height:1;cursor:pointer;transition:.15s}
+.toc-acc:hover{color:var(--accent);background:var(--accent-soft)}
+.toc-acc:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.toc-caret{display:inline-block;transition:transform .18s}
+.toc-acc[aria-expanded="false"] .toc-caret{transform:rotate(-90deg)}
+.toc-sec.collapsed .toc-sub{display:none}
+.toc-sec.no-sub .toc-acc{visibility:hidden}
+/* 検索中は章の開閉状態に関わらず、ヒットした項目をすべて見せる */
+.toc.toc-searching .toc-sec .toc-sub{display:block}
+.toc.toc-searching .toc-acc{visibility:hidden}
+.toc .toc-hide{display:none}
 .content{min-width:0;padding-top:32px}
 .content h2.hl{font-family:var(--font-head);font-size:23px;font-weight:800;margin:48px 0 18px;
   padding-left:14px;border-left:5px solid var(--accent);color:var(--accent-2)}
@@ -1189,6 +1222,10 @@ blockquote{margin:16px 0;padding:8px 18px;border-left:3px solid var(--line);colo
 /* 目次の表示モード */
 .toc-menu .toc,.toc-none .toc{display:none}
 .toc-menu .layout,.toc-none .layout{grid-template-columns:1fr}
+.toc-sidebar .toc-toggle,.toc-both .toc-toggle{display:inline-flex}
+/* トグルで畳んだ状態（初期は展開。localStorage に保存される） */
+.toc-collapsed .toc{display:none}
+.toc-collapsed .layout{grid-template-columns:1fr}
 .toc-sidebar .nav-menu{display:none}
 .toc-none .nav-menu,.toc-none .hamburger{display:none!important}
 /* nav-menu が消えるレイアウトでは、ツール群を右端へ寄せる */
@@ -1206,6 +1243,8 @@ footer{max-width:var(--maxw);margin:40px auto 0;padding:24px;text-align:center;
     border-bottom:1px solid var(--line);flex-direction:column;padding:8px;display:none}
   .nav-menu.open{display:flex}.hamburger{display:block}
   .topbar-tools{margin-left:auto}
+  /* 狭い画面はサイド目次自体を出さないので、トグルも隠す */
+  .toc-toggle{display:none!important}
 }
 @media print{
   /* 紙は常にライト配色の図を使う */
@@ -1238,6 +1277,70 @@ var m=localStorage.getItem('__MODE_KEY__')||'__DEFAULT_MODE__';
 if(m==='light'||m==='dark')document.documentElement.setAttribute('data-theme',m);
 }catch(e){}})();"""
 
+# サイドメニューの開閉状態を、レイアウトが描かれる前に確定させる（初期表示は展開）
+TOC_STORAGE_KEY = "md2doc-toc-open"
+
+TOC_BOOT_JS = """(function(){try{
+if(localStorage.getItem('__TOC_KEY__')==='0')document.documentElement.classList.add('toc-collapsed');
+}catch(e){}})();"""
+
+# サイドメニュー: 展開/非表示トグル・章アコーディオン・メニュー検索
+TOC_SCRIPT_JS = """(function(){
+  var KEY='__TOC_KEY__',root=document.documentElement;
+  var toc=document.querySelector('.toc'),tgl=document.querySelector('.toc-toggle');
+  function setOpen(open){
+    root.classList.toggle('toc-collapsed',!open);
+    if(tgl){
+      tgl.setAttribute('aria-expanded',open?'true':'false');
+      var lab=open?'サイドメニューを隠す':'サイドメニューを表示';
+      tgl.title=lab;tgl.setAttribute('aria-label',lab);
+    }
+    try{localStorage.setItem(KEY,open?'1':'0');}catch(e){}
+  }
+  setOpen(!root.classList.contains('toc-collapsed'));
+  if(tgl)tgl.addEventListener('click',function(){
+    setOpen(root.classList.contains('toc-collapsed'));
+  });
+  if(!toc) return;
+  // 章（h2）ごとのアコーディオン。初期状態は全て展開。
+  toc.querySelectorAll('.toc-sec').forEach(function(sec){
+    var btn=sec.querySelector('.toc-acc'),sub=sec.querySelector('.toc-sub');
+    if(!btn) return;
+    if(!sub||!sub.children.length){
+      sec.classList.add('no-sub');btn.tabIndex=-1;btn.setAttribute('aria-hidden','true');return;
+    }
+    btn.addEventListener('click',function(){
+      var c=sec.classList.toggle('collapsed');
+      btn.setAttribute('aria-expanded',c?'false':'true');
+    });
+  });
+  // メニュー検索。章名がヒットしたらその小見出しも全部残す。
+  var q=toc.querySelector('.toc-search'),empty=toc.querySelector('.toc-empty');
+  if(!q) return;
+  function norm(s){return s.toLowerCase().replace(/\\s+/g,'');}
+  function filter(){
+    var v=norm(q.value),hit=0;
+    toc.classList.toggle('toc-searching',!!v);
+    toc.querySelectorAll('.toc-sec').forEach(function(sec){
+      var top=sec.querySelector('a.lv2'),sm=0;
+      var tm=!v||!!(top&&norm(top.textContent).indexOf(v)>=0);
+      sec.querySelectorAll('a.lv3').forEach(function(a){
+        var on=tm||norm(a.textContent).indexOf(v)>=0;
+        a.classList.toggle('toc-hide',!on);
+        if(on)sm++;
+      });
+      var show=tm||sm>0;
+      sec.classList.toggle('toc-hide',!show);
+      if(show)hit++;
+    });
+    if(empty)empty.style.display=(v&&!hit)?'block':'none';
+  }
+  q.addEventListener('input',filter);
+  q.addEventListener('keydown',function(e){
+    if(e.key==='Escape'||e.key==='Esc'){q.value='';filter();q.blur();}
+  });
+})();"""
+
 MODE_SCRIPT_JS = """(function(){
   var KEY='__MODE_KEY__',DEF='__DEFAULT_MODE__',root=document.documentElement;
   var btns=[].slice.call(document.querySelectorAll('.mode-switch button'));
@@ -1267,10 +1370,13 @@ __THEMECSS__
 __STATIC_CSS__
 </style>
 <script>__MODE_BOOT_JS__</script>
+<script>__TOC_BOOT_JS__</script>
 </head>
 <body id="top" class="__BODYCLASS__">
 <div class="progress-track" title="クリックした位置へ移動"><div class="progress"></div></div>
 <nav class="topbar"><div class="topbar-inner">
+  <button class="toc-toggle" type="button" aria-expanded="true" aria-controls="doc-toc"
+    title="サイドメニューを隠す" aria-label="サイドメニューを隠す"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><rect x="1.2" y="2.4" width="13.6" height="11.2" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.4"/><line x1="6.2" y1="2.4" x2="6.2" y2="13.6" stroke="currentColor" stroke-width="1.4"/></svg></button>
   <a href="#top" class="brand">__BRAND__</a>
   <div class="nav-menu">__NAV__</div>
   <div class="topbar-tools">
@@ -1282,13 +1388,20 @@ __STATIC_CSS__
   __EYEBROW____H1____DATE____TAGS__
 </div></header>
 <div class="layout">
-  <aside class="toc"><div class="toc-ttl">目次</div>__TOC__</aside>
+  <aside class="toc" id="doc-toc">
+    <div class="toc-head">
+      <div class="toc-ttl">目次</div>
+      <input class="toc-search" type="search" placeholder="メニューを検索" aria-label="メニューを検索" autocomplete="off">
+    </div>
+    <div class="toc-body">__TOC__<div class="toc-empty">該当する見出しがありません</div></div>
+  </aside>
   <main class="content">__CONTENT__</main>
 </div>
 <button class="backtop" type="button" aria-label="トップへ">↑</button>
 <footer>__FOOTER__</footer>
 <script>
 __MODE_SCRIPT_JS__
+__TOC_SCRIPT_JS__
 (function(){
   var navH=parseInt(getComputedStyle(document.documentElement).getPropertyValue('--nav-h'))||60;
   var links=[].slice.call(document.querySelectorAll('.nav-menu a, .toc a'));
@@ -1298,6 +1411,8 @@ __MODE_SCRIPT_JS__
   // アクティブな目次項目が、スクロール可能な目次(.toc=縦 / .nav-menu=横)の
   // 表示範囲外にある場合、その項目が見えるように目次側をスクロールする
   function keepInView(a){
+    // 畳まれた章の中／非表示のサイドメニューにある項目は追わない
+    if(!a.offsetParent) return;
     var box=a.closest('.toc')||a.closest('.nav-menu');
     if(!box) return;
     var lr=a.getBoundingClientRect(), br=box.getBoundingClientRect(), m=16;
@@ -1363,12 +1478,43 @@ __MODE_SCRIPT_JS__
 """
 
 
+def build_toc_html(headings):
+    """サイド目次を「章(h2) = アコーディオン、配下に h3」の形で組み立てる。
+    初期状態は全章とも展開（collapsed クラスを付けない）。"""
+    if not headings:
+        return '<span style="color:var(--muted);font-size:12px">―</span>'
+    # h2 を境に章へ束ねる（先頭が h3 の場合は見出しなしの章として扱う）
+    groups = []
+    for h in headings:
+        if h["level"] == 2 or not groups:
+            groups.append([h if h["level"] == 2 else None,
+                           [] if h["level"] == 2 else [h]])
+        else:
+            groups[-1][1].append(h)
+
+    out = []
+    for top, subs in groups:
+        out.append('<div class="toc-sec">')
+        if top is not None:
+            txt = html.escape(top["text"])
+            out.append('<div class="toc-row">'
+                       '<a class="lv2" href="#%s">%s</a>'
+                       '<button class="toc-acc" type="button" aria-expanded="true"'
+                       ' title="この章の小見出しを開閉" aria-label="%s の小見出しを開閉">'
+                       '<span class="toc-caret">▾</span></button>'
+                       '</div>' % (top["slug"], txt, txt))
+        out.append('<div class="toc-sub">')
+        out.extend('<a class="lv3" href="#%s">%s</a>' % (s["slug"], html.escape(s["text"]))
+                   for s in subs)
+        out.append("</div></div>")
+    return "".join(out)
+
+
 def build_html(meta, content_html, headings, theme_key, title, brand, footer,
                toc_mode="sidebar", default_mode="system"):
     nav = "".join('<a href="#%s">%s</a>' % (h["slug"], html.escape(h["text"]))
                   for h in headings if h["level"] == 2)
-    toc = "".join('<a class="lv%d" href="#%s">%s</a>' % (h["level"], h["slug"], html.escape(h["text"]))
-                  for h in headings) or '<span style="color:var(--muted);font-size:12px">―</span>'
+    toc = build_toc_html(headings)
     eyebrow = '<span class="eyebrow">%s</span>' % html.escape(meta["eyebrow"]) if meta.get("eyebrow") else ""
     h1 = "<h1>%s</h1>" % html.escape(title)
     date = '<div class="date">%s</div>' % html.escape(meta["date"]) if meta.get("date") else ""
@@ -1381,6 +1527,7 @@ def build_html(meta, content_html, headings, theme_key, title, brand, footer,
         "__STATIC_CSS__": STATIC_CSS, "__BRAND__": html.escape(brand),
         "__MODE_SWITCH__": MODE_SWITCH_HTML,
         "__MODE_BOOT_JS__": MODE_BOOT_JS, "__MODE_SCRIPT_JS__": MODE_SCRIPT_JS,
+        "__TOC_BOOT_JS__": TOC_BOOT_JS, "__TOC_SCRIPT_JS__": TOC_SCRIPT_JS,
         "__NAV__": nav, "__TOC__": toc, "__EYEBROW__": eyebrow, "__H1__": h1,
         "__DATE__": date, "__TAGS__": tags, "__CONTENT__": content_html,
         "__FOOTER__": html.escape(footer), "__BODYCLASS__": "toc-" + toc_mode,
@@ -1389,7 +1536,9 @@ def build_html(meta, content_html, headings, theme_key, title, brand, footer,
     for k, v in repl.items():
         page = page.replace(k, v)
     # スクリプト中のプレースホルダは、JS を差し込んだ後にまとめて解決する
-    page = page.replace("__MODE_KEY__", MODE_STORAGE_KEY).replace("__DEFAULT_MODE__", default_mode)
+    page = (page.replace("__MODE_KEY__", MODE_STORAGE_KEY)
+                .replace("__DEFAULT_MODE__", default_mode)
+                .replace("__TOC_KEY__", TOC_STORAGE_KEY))
     return page
 
 
