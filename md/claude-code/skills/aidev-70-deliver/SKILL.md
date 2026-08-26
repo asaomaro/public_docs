@@ -25,7 +25,14 @@ review を通過した変更を、コミット・PR 作成によって実際に�
 
 ## 手順
 
-1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定する。
+1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定し、**`aidev event deliver start` を記録する**。
+   - **ここを飛ばすと deliver の所要時間が導出できない**（`aidev verify` が WARN を出す）。
+     他工程は skill の冒頭で打つ形だが、deliver は下の「記録順序」が `approve` を軸に書いてあるため
+     **`event start` が手順から抜け落ちやすい**——実際に打ち忘れた実例がある
+     （`20260826-datetime-picker` の decisions D15。approve より後に打ったので ts が逆転し、
+     その work の deliver 区間は無効になった）。
+   - **後から打ち直して ts を辻褄合わせしない**（protocol.md「8. タイムスタンプ」: 捏造しない）。
+     打ち忘れに気付いたら、その旨を `decisions.md` に残して所要時間を無効として扱う。
 1.5. **既着地の検知（事後記録モード判定）**: 着地作業に入る前に、対象の変更が
    **aidev ゲート外で既に着地していないか**を確認する。実装が直接コミット／別 PR で main に入り、
    issue も閉じているのに deliver ゲートだけ未記録、という状態（実体と state の乖離）を防ぐため。
@@ -148,7 +155,25 @@ review を通過した変更を、コミット・PR 作成によって実際に�
   worktree で着手した場合は既にブランチ上にいるので不要。
   trunk-based 等ブランチを使わない PJ ではこの限りでない。
 
+## deliver 後に作業が続いたら（PR レビュー・利用者の指摘）
+
+**PR を出したら終わり、ではない。** レビューや実物を触った利用者の指摘で作業が続くことがあり、
+そのぶんは**放っておくと metrics に 1 行も残らない**。
+
+- **工程を踏み直す。** 指摘に対応するときは `aidev event coding start` から入り、
+  `test` → `review` → **`aidev approve deliver` をもう一度**通す。
+  - `approve` は冪等（`approved` の一覧は二重登録しない）だが、**`metrics.yml` には
+    新しい `approved` イベントが積まれる**。`aidev metrics` は
+    **最後の deliver approved までを `lead_sec`** とし、工程の再 `start` を `reworks` に数えるので、
+    **これだけで実態に追従する**（CLI の変更は要らない）。
+  - `deliver` の付加メトリクス（`files_changed` 等）は**その時点の累計**で測り直す。
+- **なぜ要るか**: 記録しないと、指摘の多かった work ほど「速く・手戻り無く終わった」ように見える。
+  実例（`20260826-datetime-picker`）: deliver 後に**経過時間の 76%・実装行の 47%・コミット 8 本**が
+  あったのに `lead_sec` はその 1/4 しか測っておらず、insights ではこの work が優秀に見えてしまう。
+- **PR がマージされるまでを 1 work とみなす。** 「PR を出した」で記録を止めない。
+
 ## 完了の目安
 
 - 変更がコミットされ、PJ 運用に沿って PR 等で着地している。
 - `state.yml` の `approved` に `deliver` が記録されている。
+- **`metrics.yml` に `deliver` の `start` と `approved` が揃っている**（`aidev verify` が WARN を出さない）。
