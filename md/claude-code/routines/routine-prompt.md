@@ -44,7 +44,7 @@ claude.ai/code/routines の **Instructions** 欄に貼るテキスト。
    ファイル名がそのまま引数名なので、必ず突き合わせて確認する。
    to:       ["{{宛先}}"]
    subject:  build.mjs が出力した「件名:」の行の値をそのまま（接尾辞を付けない）
-   htmlBody: /tmp/digest/htmlBody.html の中身をそのまま（8〜15KB。省略・要約しない）
+   htmlBody: /tmp/digest/htmlBody.html の中身をそのまま（12〜20KB。省略・要約しない）
    body:     /tmp/digest/body.txt の中身をそのまま
 
    HTML を body に入れてはいけない。エスケープされた生ソースが届いてしまう。

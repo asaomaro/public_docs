@@ -109,12 +109,19 @@ function normalizeUrl(u) {
 }
 
 // ---------- render ----------
+// md-to-doc の corporate テーマを移植。Gmail は var() 非対応なので hex を焼き込み、
+// ダークモードは template.html の @media によるクラス上書きで対応する。
 
 const esc = (s) => String(s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
-const SANS = "-apple-system,BlinkMacSystemFont,'Hiragino Sans','Yu Gothic',Meiryo,sans-serif";
+const FONT = "'Hiragino Kaku Gothic ProN','Yu Gothic',system-ui,sans-serif";
+const MONO = "'SFMono-Regular',Menlo,Consolas,monospace";
+
+// corporate の循環アクセント（ライト値）。ダーク値は template.html 側の .aNt/.aNb。
+const ACCENTS = ['#1a56db', '#0ea5e9', '#6366f1', '#0d9488'];
+const INK = '#1f2937', MUTED = '#6b7280', LINE = '#e5e7eb', SOFT = '#eff4ff';
 
 function formatDate(iso) {
   const [y, m, d] = iso.split('-').map(Number);
@@ -124,24 +131,54 @@ function formatDate(iso) {
 
 const total = sections.reduce((n, s) => n + s.items.length, 0);
 
-const body = sections.map((sec) => {
-  const head = `      <tr><td class="pad" style="padding:28px 32px 0 32px;">
+// --- .stat-row 相当 ---
+const stat = (num, cap) => `<td style="padding-right:30px;">
+          <div class="statnum" style="font-family:${FONT}; font-size:27px; font-weight:700; line-height:1.1; color:${ACCENTS[0]};">${esc(num)}</div>
+          <div class="muted" style="font-family:${FONT}; font-size:10.5px; font-weight:600; letter-spacing:0.07em; color:${MUTED}; padding-top:4px;">${esc(cap)}</div>
+        </td>`;
+
+const stats = stat(String(total), '件') + stat(String(sections.length), '分野');
+
+// --- .chips 相当 ---
+const chips = sections.map((sec) =>
+  `<span class="chip line" style="display:inline-block; background-color:${SOFT}; color:${INK}; border:1px solid ${LINE}; border-radius:999px; padding:4px 12px; margin:0 6px 7px 0; font-family:${FONT}; font-size:11.5px; font-weight:600;">${esc(sec.title)}</span>`
+).join('\n        ');
+
+// --- 本体 ---
+const body = sections.map((sec, si) => {
+  const ac = ACCENTS[si % ACCENTS.length];
+  const t = `a${si % ACCENTS.length}t`;
+  const b = `a${si % ACCENTS.length}b`;
+
+  const head = `      <tr><td class="pad" style="padding:30px 32px 0 32px;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
-          <td class="muted" style="font-family:${SANS}; font-size:11px; font-weight:700; letter-spacing:0.08em; color:#78716c; white-space:nowrap; padding-right:12px;">${esc(sec.title).toUpperCase()}</td>
-          <td class="rule" style="border-top:1px solid #e7e5e4; font-size:0; line-height:0;">&nbsp;</td>
+          <td class="${t}" style="font-family:${FONT}; font-size:11.5px; font-weight:700; letter-spacing:0.09em; color:${ac}; white-space:nowrap; padding-right:12px;">${esc(sec.title)}</td>
+          <td class="line" style="border-top:1px solid ${LINE}; font-size:0; line-height:0;">&nbsp;</td>
         </tr></table>
       </td></tr>`;
 
   const items = sec.items.map((it) => {
     const meta = [esc(it.source), it.published ? esc(it.published) : null]
       .filter(Boolean).join(' &nbsp;·&nbsp; ');
-    const why = isStr(it.why)
-      ? `\n        <p class="muted" style="margin:8px 0 0 0; font-family:${SANS}; font-size:13px; line-height:1.6; color:#78716c;"><span class="chip" style="display:inline-block; background-color:#f5f5f4; color:#57534e; border-radius:4px; padding:1px 6px; font-size:11px; font-weight:700; margin-right:6px;">なぜ重要か</span>${esc(it.why)}</p>`
-      : '';
-    return `      <tr><td class="pad" style="padding:20px 32px 0 32px;">
-        <a class="link" href="${esc(it.url)}" style="font-family:${SANS}; font-size:16px; font-weight:700; line-height:1.5; color:#b45309; text-decoration:none;">${esc(it.title)}</a>
-        <p class="muted" style="margin:6px 0 0 0; font-family:${SANS}; font-size:12px; color:#78716c;">${meta}</p>
-        <p class="text" style="margin:8px 0 0 0; font-family:${SANS}; font-size:14px; line-height:1.75; color:#1c1917;">${esc(it.summary)}</p>${why}
+
+    // .callout 相当
+    const why = isStr(it.why) ? `
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:12px;">
+          <tr><td class="soft ${b}" style="background-color:${SOFT}; border-left:3px solid ${ac}; border-radius:0 8px 8px 0; padding:11px 14px;">
+            <div class="${t}" style="font-family:${FONT}; font-size:10px; font-weight:700; letter-spacing:0.09em; color:${ac}; padding-bottom:4px;">なぜ重要か</div>
+            <div class="text" style="font-family:${FONT}; font-size:13px; line-height:1.7; color:${INK};">${esc(it.why)}</div>
+          </td></tr>
+          </table>` : '';
+
+    // .doc-card 相当（左アクセント罫）
+    return `      <tr><td class="pad" style="padding:18px 32px 0 32px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr><td class="${b}" style="border-left:3px solid ${ac}; padding-left:15px;">
+          <a class="link" href="${esc(it.url)}" style="font-family:${FONT}; font-size:16.5px; font-weight:700; line-height:1.5; color:${ACCENTS[0]}; text-decoration:none;">${esc(it.title)}</a>
+          <div class="muted" style="font-family:${FONT}; font-size:11.5px; color:${MUTED}; padding-top:6px;">${meta}</div>
+          <div class="text" style="font-family:${FONT}; font-size:14px; line-height:1.8; color:${INK}; padding-top:9px;">${esc(it.summary)}</div>${why}
+        </td></tr>
+        </table>
       </td></tr>`;
   }).join('\n');
 
@@ -153,7 +190,8 @@ const preheader = `${formatDate(data.date)} — ${total} 件 / ${String(data.sum
 const html = template
   .replace(/\{\{DATE\}\}/g, esc(formatDate(data.date)))
   .replace(/\{\{SUMMARY\}\}/g, esc(data.summary))
-  .replace(/\{\{COUNT\}\}/g, String(total))
+  .replace(/\{\{STATS\}\}/g, stats)
+  .replace(/\{\{CHIPS\}\}/g, chips)
   .replace(/\{\{PREHEADER\}\}/g, esc(preheader))
   .replace(/\{\{BODY\}\}/g, body);
 
