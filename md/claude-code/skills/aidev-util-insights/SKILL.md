@@ -74,7 +74,11 @@ per-work の `retro` が「その作業1件」を振り返るのに対し、こ�
 
    **(a) PJ規約の条項**（`protocol.md`「12.」／詳細は `protocol-conventions.md`）:
    - `aidev convention status` で `ready=yes`（母集団が揃って未判定）の条項を洗い出す。
-     `aidev doctor` の「母集団が揃った(N/M)のに未判定」WARN も同じものを指す。
+     `aidev doctor` の「母集団が揃った(N/M)のに未判定」WARN、および `approve deliver` の到達通知も
+     同じものを指す。母集団は **`introduced` 以降に着手し deliver 済み**の work だけ。
+   - **`index` 列が `no` の条項は判定しない**。索引に載っていない＝自動読込されず**読まれていない**ので、
+     指摘が減っていなくてもそれは条項の効果ではない。先に索引へ足し、母集団を取り直す
+     （ここで `ineffective` を打つと、届いていないだけの条項を誤って退役させる）。
    - 判定材料は `review.md` の条項参照タグ。**その条項の `introduced` 以降に着手した works だけ**を
      母集団にする（`pop` が数えている件数と一致させる）。
 

@@ -21,8 +21,21 @@
   追うときに突合できない。
 - **`--verify-after`** は判定に要する母集団の最低件数（既定 5）。条項が関係する work は一部だけなので、
   ハーネス改修より判定に必要な件数は**増える**方向で見積もる。
+  母集団に数えるのは **`introduced` 以降に着手し、かつ deliver 済み**の work だけ
+  （着手しただけの work は review を通っておらず判定材料が無い）。
+  なお数えるのは **top-level work のみ**で、subtask は親と二重に数えない。
 - 起こしたら **AGENTS.md の索引ブロックに1行足す**（`protocol.md`「12.」）。
   これを飛ばすと条項は自動読込されず、**読まれていないだけなのに「効かなかった」と判定される**。
+  `convention new` が**足すべき行をそのまま出力する**ので、`<いつ参照するか>` を埋めて貼る:
+
+  ```markdown
+  <!-- aidev:conventions -->
+  - <いつ参照するか> → docs/aidev/<id>.md
+  <!-- /aidev:conventions -->
+  ```
+
+  飛ばしても `aidev doctor` が「索引に無い」と WARN し、`aidev convention status` の `index` 列が
+  `no` になる。**マーカー外に書いても索引とは認めない**（マーカー外は PJ の領域なので harness は見ない）。
 
 ### 起こす前に既存 PJ ドキュメントを確認する（入口の重複排除）
 
@@ -33,23 +46,27 @@ PJ の既存ドキュメントに**既に書いてある**規約を条項とし�
 ```yaml
 # .aidev/config.yml
 conventionsDir: docs/aidev     # 条項の置き場（既定。変更可）
-docsRoots:                     # 条項を起こす前に既存規約を探す場所（PJ が申告）
-  - docs/
-  - AGENTS.md
+conventionsIndex: AGENTS.md    # 索引ブロックを置くファイル（未設定なら AGENTS.md → CLAUDE.md を探す）
+docsRoots: [docs/, AGENTS.md]  # 条項を起こす前に既存規約を探す場所（PJ が申告）
 ```
 
-`docsRoots` が未設定なら検査を飛ばし、**「既存 docs を確認していない」と retro / insights に明記する**
+`aidev convention new` は起票時に **`docsRoots` の内容をそのまま出力**して確認を促し、
+**未設定なら「機械的に絞れないので、確認していない旨を明記せよ」と告げる**
 （`protocol.md`「8.」の「欠落を捏造で埋めない」と同じ態度）。
 
-> 注: `docsRoots` は**散文の規約**で、CLI は読まない。探索範囲の決定は判断（どのファイルが規約か）で、
-> 機械にできるのは「どこを見ればよいか」の申告までだから。CLI が読むのは `conventionsDir` だけ。
+> 注: CLI がするのは**申告された探索先を提示するところまで**。実際に「同じ規約が既にあるか」の
+> 判定は散文（＝読んで判断する）に残す。どのファイルのどの記述が同じ規約かは判断であって、
+> grep で決まる話ではないから。CLI が値として使うのは `conventionsDir` と `conventionsIndex` だけ。
 
 ## 効果を判定する（`confirmed` / `ineffective`）
 
 判定は `aidev-util-insights`（横断分析）の仕事。起動の合図は2つ:
 
-1. `aidev doctor` の **「母集団が揃った(N/M)のに未判定」** WARN（retro / insights の冒頭で回る）
-2. `aidev convention status` の **`ready=yes`**
+1. **`aidev approve deliver` の到達通知**（`note: 条項 <id> の母集団が揃いました(N/M)`）。
+   母集団が増える瞬間は deliver の1点なので、**到達の一報はここで鳴る**。
+2. `aidev doctor` の **「母集団が揃った(N/M)のに未判定」** WARN（retro / insights の冒頭で回る）。
+   doctor は**既に見に行った人にしか届かない**ので、1 の一報と併せて機能する。
+3. `aidev convention status` の **`ready=yes`**
 
 判定材料は `review.md` の**条項参照タグ**（`protocol.md`「8.」）:
 
@@ -79,6 +96,7 @@ aidev convention retire  <id> --status ineffective --note "散文層の限界。
      dangling な `promoted_to` は「本文がどこにも無い」という、二重管理より悪い状態を作る。
    - 条項ファイルは**本文を捨てて tombstone 化**され `archive/` へ退避される。
 3. **AGENTS.md 索引ブロックのリンク先を張り替える**（`docs/aidev/<id>.md` → 移送先）。
+   忘れると `aidev doctor` が「索引が移送前を指したまま」と WARN する。
 
 ### 移送を自己給餌ループに乗せる
 

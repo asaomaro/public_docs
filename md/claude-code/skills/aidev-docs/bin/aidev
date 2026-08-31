@@ -205,9 +205,14 @@ cv_find() { # id -> パスを出力（active 優先、無ければ archive）。
   return 1
 }
 
-# 母集団＝その条項の導入日以降に**着手した** work の件数。
-# 導入前から走っていた work は条項の効果を半分しか受けていないので数えない
-#（またがり work を母集団に入れると効果が薄まる方向にバイアスがかかる）。
+# 母集団＝その条項の導入日以降に着手し、**かつ deliver 済み**の work の件数。
+#
+# 条件が2つある理由:
+#  - **導入日以降に着手**: 導入前から走っていた work は条項の効果を半分しか受けていない
+#    （またがり work を入れると効果が薄まる方向にバイアスがかかる）。
+#  - **deliver 済み**: 着手しただけの work は review を通っていない＝**判定材料を1つも産んでいない**。
+#    着手だけで数えると、レビュー記録がまだ無いのに ready=yes が立ち、insights が
+#    空の材料で判定してしまう。母集団の増える瞬間は `approve deliver` の1点になる。
 cv_pop() { # introduced(YYYY-MM-DD) -> 件数
   n=0
   [ -d "$AIDEV/works" ] || { printf '0'; return 0; }
@@ -217,6 +222,7 @@ cv_pop() { # introduced(YYYY-MM-DD) -> 件数
     [ -d "$d" ] || continue
     f="${d}metrics.yml"
     [ -f "$f" ] || continue
+    ylist "${d}state.yml" approved | grep -qw deliver || continue
     ts=$(sed -n 's/.*ts:[[:space:]]*\([0-9][0-9-]*\).*/\1/p' "$f" | head -n1)
     [ -n "$ts" ] || continue
     _a=$(printf '%s' "${ts%%T*}" | tr -d '-')
@@ -224,6 +230,27 @@ cv_pop() { # introduced(YYYY-MM-DD) -> 件数
     if [ "$_a" -ge "$_b" ]; then n=$((n+1)); fi
   done
   printf '%s' "$n"
+}
+
+# 判定可能になった条項の通知。**works が母集団に加わる唯一の瞬間＝`approve deliver`** に鳴らす。
+# doctor にも同じ検査があるが、doctor の WARN は retro/insights を叩いた人にしか見えない
+#（＝既に見に行った人にしか届かない）。判定できる状態になったことは、その瞬間に知らせる。
+cv_ready_notice() {
+  d=$(cv_dir)
+  [ -d "$d" ] || return 0
+  for f in "$d"/*.md; do
+    [ -f "$f" ] || continue
+    [ "$(cv_get "$f" status)" = pending ] || continue
+    intro=$(cv_get "$f" introduced); [ -n "$intro" ] || continue
+    va=$(cv_get "$f" verify_after)
+    case "$va" in ''|*[!0-9]*) continue ;; esac
+    [ "$va" -gt 0 ] || continue
+    pop=$(cv_pop "$intro")
+    if [ "$pop" -ge "$va" ]; then
+      printf 'note: 条項 %s の母集団が揃いました(%s/%s)。insights で効果を判定してください\n' \
+        "$(basename "$f" .md)" "$pop" "$va"
+    fi
+  done
 }
 
 # --- コマンド: new ------------------------------------------------------------
@@ -404,6 +431,8 @@ cmd_approve() {
     if [ -n "$_hr0" ] && [ "$_hr0" != "$_hr" ] && [ "$_hr0" != unknown ] && [ "$_hr" != unknown ]; then
       printf 'note: ハーネス版が着手時(%s)と着地時(%s)で異なる＝またがり work。効果検証の母集団からは除外される\n' "$_hr0" "$_hr"
     fi
+    # この deliver で母集団が揃った条項があれば、その場で知らせる（下の cv_ready_notice の注記参照）
+    cv_ready_notice
   fi
 
 
@@ -1391,6 +1420,43 @@ bl_do_archive() {
   fi
 }
 
+# --- 索引（AGENTS.md の aidev:conventions ブロック）------------------------------
+# AGENTS.md / CLAUDE.md は**自動読込**されるが `docs/aidev/` はされない。索引に載っていない条項は
+# **読まれないまま**works が流れ、効果検証で「効かなかった」と誤判定される——条項の内容の問題ではなく
+# 単に届いていないだけなのに。CLI が「索引に足せ」と言うだけで誰も見ていないと、この誤判定が
+# 静かに積み上がる。そこで doctor が索引を突き合わせる。
+CV_IDX_OPEN='<!-- aidev:conventions -->'
+CV_IDX_CLOSE='<!-- /aidev:conventions -->'
+
+# 索引ファイルの決定。PJ 固有ファイル名を CLI に埋めないため config を優先し、
+# 未設定のときだけ慣行（AGENTS.md → CLAUDE.md）にフォールバックする。
+cv_index_file() {
+  f=$(yget "$AIDEV/config.yml" conventionsIndex)
+  if [ -n "$f" ]; then
+    case "$f" in /*) printf '%s' "$f" ;; *) printf '%s/%s' "$ROOT" "$f" ;; esac
+    return 0
+  fi
+  for c in AGENTS.md CLAUDE.md; do
+    [ -f "$ROOT/$c" ] && { printf '%s' "$ROOT/$c"; return 0; }
+  done
+  printf ''
+}
+
+# 索引ブロックの中身だけを取り出す（マーカー外は PJ のもので、harness は見ない）。
+cv_index_block() { # file
+  [ -f "$1" ] || return 0
+  awk -v o="$CV_IDX_OPEN" -v c="$CV_IDX_CLOSE" '
+    index($0,o) {inb=1; next}
+    index($0,c) {inb=0; next}
+    inb {print}' "$1" 2>/dev/null
+}
+
+# 条項ディレクトリの ROOT 相対表記（索引に書かれるリンクの形）。
+cv_dir_rel() {
+  d=$(cv_dir)
+  case "$d" in "$ROOT"/*) printf '%s' "${d#"$ROOT"/}" ;; *) printf '%s' "$d" ;; esac
+}
+
 # --- コマンド: convention -----------------------------------------------------
 # **起こす／状態を進める／退避する**だけを持たせる。本文を PJ ドキュメントへ実際に移す作業は
 # 文体・配置・既存章との統合という判断なので CLI にしない（backlog の消し込み本体と同じ線引き）。
@@ -1449,7 +1515,20 @@ cv_new() {
     printf '%s\n' '<!-- どのレビュー指摘/分析から起こしたか（source を人間向けに補足）。 -->'
   } > "$f"
   printf 'created: %s (status pending, verify_after %s)\n' "$f" "$va"
-  printf 'next: AGENTS.md の索引ブロックに「読む条件つき」の1行を足すこと（protocol.md「12.」）\n'
+  # 索引に載せないと自動読込されない＝読まれない。doctor も見るが、まずここで促す
+  _rel="$(cv_dir_rel)/$id.md"
+  _idxf=$(cv_index_file)
+  if [ -n "$_idxf" ]; then _idxl=$(basename "$_idxf"); else _idxl="AGENTS.md"; fi
+  printf 'next: %s の索引ブロックに1行足すこと（読む条件つき。無いと読まれない。protocol.md「12.」）\n' "$_idxl"
+  printf '      - <いつ参照するか> → %s\n' "$_rel"
+  # 入口の重複排除。どこを見るかは PJ が config で申告する（探索範囲の決定は判断なので CLI はしない）
+  _dr=$(ylist "$AIDEV/config.yml" docsRoots | sed 's/^ *//; s/ *$//; s/  */, /g')
+  if [ -n "$_dr" ]; then
+    printf 'check: 同じ規約が既存 docs に無いか確認すること（docsRoots: %s）\n' "$_dr"
+  else
+    printf 'check: .aidev/config.yml に docsRoots が未設定です。既存 docs との重複を機械的に絞れないので、\n'
+    printf '       確認していない旨を retro/insights に明記すること（捏造で埋めない。protocol.md「8.」）\n'
+  fi
 }
 
 cv_confirm() {
@@ -1547,7 +1626,11 @@ cv_do_status() {
   [ -d "$d" ] || die "条項ディレクトリがありません: $d（aidev convention new で起こす）"
   # 行は status と同じく「タブ区切り文字列を積んで最後に fmt_table へ流す」形にする
   # （command substitution は末尾改行を落とすので、行の組み立てに $( ) を使わない）
-  rows=""; npend=0; nready=0; nconf=0
+  CV_IDXF=$(cv_index_file)
+  CV_IDXB=""
+  if [ -n "$CV_IDXF" ]; then CV_IDXB=$(cv_index_block "$CV_IDXF"); fi
+  CV_REL=$(cv_dir_rel)
+  rows=""; npend=0; nready=0; nconf=0; nidx=0
   for f in "$d"/*.md "$d/archive"/*.md; do
     [ -f "$f" ] || continue
     id=$(basename "$f" .md)
@@ -1563,18 +1646,33 @@ cv_do_status() {
       if [ "$va" -gt 0 ] && [ "$pop" -ge "$va" ]; then ready=yes; nready=$((nready+1)); else ready=no; fi
     fi
     if [ "$st" = confirmed ]; then nconf=$((nconf+1)); fi
-    rows="${rows}${id}	${st}	${intro}	${pop}	${va}	${ready}	${pt}
+    # index 列: active な条項が索引に載っているか。載っていない＝自動読込されない＝読まれない。
+    # 読まれていないだけの条項を「効かなかった」と判定しないための可視化。
+    idx="-"
+    case "$f" in
+      "$d/archive/"*) ;;
+      *) case "$st" in
+           pending|confirmed)
+             if [ -n "$CV_IDXF" ] && printf '%s' "$CV_IDXB" | grep -qF "$CV_REL/$(basename "$f")"; then
+               idx=yes
+             else
+               idx=no; nidx=$((nidx+1))
+             fi ;;
+         esac ;;
+    esac
+    rows="${rows}${id}	${st}	${intro}	${pop}	${va}	${ready}	${idx}	${pt}
 "
   done
   if [ "$fmt" = tsv ]; then
-    printf '%s' "$rows" | while IFS='	' read -r a b c e f g h; do
+    printf '%s' "$rows" | while IFS='	' read -r a b c e f g h i; do
       [ -n "$a" ] || continue
-      printf 'convention	%s	%s	%s	%s	%s	%s	%s\n' "$a" "$b" "$c" "$e" "$f" "$g" "$h"
+      printf 'convention	%s	%s	%s	%s	%s	%s	%s	%s\n' "$a" "$b" "$c" "$e" "$f" "$g" "$h" "$i"
     done
   else
-    { printf 'id	status	introduced	pop	need	ready	promoted_to\n'; printf '%s' "$rows"; } | fmt_table
+    { printf 'id	status	introduced	pop	need	ready	index	promoted_to\n'; printf '%s' "$rows"; } | fmt_table
   fi
-  printf 'convention-summary: pending=%s ready=%s confirmed(未移送)=%s\n' "$npend" "$nready" "$nconf"
+  printf 'convention-summary: pending=%s ready=%s confirmed(未移送)=%s 索引漏れ=%s\n' \
+    "$npend" "$nready" "$nconf" "$nidx"
 }
 
 # 条項ファイルの一生を見る（backlog と同じく**持ち主の work がいない**ので verify では硬ゲートにできない）。
@@ -1582,6 +1680,14 @@ cv_do_status() {
 doctor_conventions() {
   d=$(cv_dir)
   [ -d "$d" ] || return 0
+  # 索引はファイル単位で1回だけ読む（条項ごとに読み直さない）
+  CV_IDXF=$(cv_index_file)
+  CV_IDXB=""
+  CV_IDXL="-"
+  if [ -n "$CV_IDXF" ]; then
+    CV_IDXB=$(cv_index_block "$CV_IDXF")
+    CV_IDXL=$(basename "$CV_IDXF")
+  fi
   cfiles=0; carch=0; cwarn=0; cout=""
   for f in "$d"/*.md "$d/archive"/*.md; do
     [ -f "$f" ] || continue
@@ -1634,6 +1740,30 @@ doctor_conventions() {
       *)
         w="$w    WARN 未知の status: $st（pending/confirmed/promoted/ineffective/superseded）
 " ;;
+    esac
+    # 索引の突き合わせ（active な条項＝読まれる必要があるもの、と移送済みの張り替え漏れ）
+    _rel="$(cv_dir_rel)/$(basename "$f")"
+    case "$st" in
+      pending|confirmed)
+        if [ "$arch" = no ]; then
+          if [ -z "$CV_IDXF" ]; then
+            w="$w    WARN 索引ファイルが無い: 条項が自動読込されず、読まれないまま「効かなかった」と誤判定される
+"
+          elif ! printf '%s' "$CV_IDXB" | grep -qF "$_rel"; then
+            w="$w    WARN 索引に無い（$CV_IDXL）: 自動読込されないので読まれない。ブロック内に足すこと
+"
+            w="$w         例: - <いつ参照するか> → $_rel
+"
+          fi
+        fi ;;
+      promoted)
+        pt=$(cv_get "$f" promoted_to)
+        if [ -n "$CV_IDXF" ] && [ -n "$pt" ]; then
+          if printf '%s' "$CV_IDXB" | grep -qF "$_rel"; then
+            w="$w    WARN 索引が移送前を指したまま（$CV_IDXL）: $_rel → $pt に張り替えること
+"
+          fi
+        fi ;;
     esac
     if [ -n "$w" ]; then
       cwarn=$((cwarn+1))
