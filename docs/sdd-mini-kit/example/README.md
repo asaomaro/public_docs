@@ -4,21 +4,21 @@
 
 ## どの時点の状態か
 
-**`/sdd-tasks` を終えた直後**（実装前）の状態です。
+**`sdd-tasks` を終えた直後**（実装前）の状態です。
 これから真似して書くのはこの形なので、実装後ではなくここで止めてあります。
 
 | ファイル | 何の記録か |
 |---|---|
-| `spec.md` | 何を作るか。受け入れ条件は**まだ未チェック**（`/sdd-verify` が付ける） |
+| `spec.md` | 何を作るか。受け入れ条件は**まだ未チェック**（`sdd-verify` が付ける） |
 | `plan.md` | どう作るか。受け入れ条件と確認方法が1対1で並んでいる |
-| `tasks.md` | 手順。**まだ未チェック**（`/sdd-implement` が付ける） |
+| `tasks.md` | 手順。**まだ未チェック**（`sdd-implement` が付ける） |
 
-このあと `/sdd-implement` → `/sdd-verify` → `/sdd-review` と進むと、2つ増えます。
+このあと `sdd-implement` → `sdd-verify` → `sdd-review` と進むと、2つ増えます。
 
 | 増えるファイル | 何の記録か | 書式 |
 |---|---|---|
-| `test-result.md` | 仕様どおりか（○ / × / −） | [`test-result.md`](../.github/sdd-templates/test-result.md) |
-| `review-result.md` | コードとして妥当か（must / should / nit） | [`review-result.md`](../.github/sdd-templates/review-result.md) |
+| `test-result.md` | 仕様どおりか（○ / × / −） | [`test-result.md`](../sdd-mini/templates/test-result.md) |
+| `review-result.md` | コードとして妥当か（must / should / nit） | [`review-result.md`](../sdd-mini/templates/review-result.md) |
 
 **どちらのテンプレートにも記入例が載せてあります。** 先にそれを読むと、
 何を書く欄なのかが掴めます。

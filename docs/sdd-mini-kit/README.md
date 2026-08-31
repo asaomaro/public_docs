@@ -25,48 +25,89 @@ SDD（Spec-Driven Development・仕様駆動開発）を**手を動かして掴�
 
 ## 入れ方
 
-このフォルダの `.github/` を、自分のプロジェクトの直下にコピーするだけです。
+**このフォルダの `sdd-mini/` を、自分のプロジェクトの直下にコピーする**だけです。
+（`README.md` と `example/` はコピー不要。読むためのものです。）
 
 ```
 あなたのプロジェクト/
-└── .github/
-    ├── prompts/
-    │   ├── sdd-specify.prompt.md
-    │   ├── sdd-plan.prompt.md
-    │   ├── sdd-tasks.prompt.md
-    │   ├── sdd-implement.prompt.md
-    │   ├── sdd-verify.prompt.md
-    │   └── sdd-review.prompt.md
-    ├── instructions/
-    │   └── project-rules.instructions.md   ← 書き換えて使う
-    └── sdd-templates/
-        ├── test-result.md                  ← テスト結果の書式。書き換えて使う
-        └── review-result.md                ← レビュー結果の書式。書き換えて使う
+├── sdd-mini/              ← コピーしたキット
+│   ├── sdd-specify.md
+│   ├── sdd-plan.md
+│   ├── sdd-tasks.md
+│   ├── sdd-implement.md
+│   ├── sdd-verify.md
+│   ├── sdd-review.md
+│   └── templates/
+│       ├── test-result.md      ← テスト結果の書式。書き換えて使う
+│       └── review-result.md    ← レビュー結果の書式。書き換えて使う
+├── AGENTS.md              ← 任意。AGENTS.sample.md をコピーして書き換える
+└── .sdd/                  ← 出力（使い始めると自動でできる）
 ```
 
-すでに `.github/instructions/` や `copilot-instructions.md` がある場合は、
-上書きせず**中身を追記**してください。
+これで**どのエージェントでも使えます**。特別な機構は何も使っていません。
 
-> **初回だけ確認**：チャットで `/` を打って `sdd-specify` が候補に出るか見てください。
-> 出ないときはプロンプトファイルの有効化設定を確認します。
+### 呼び出し方は2通り
 
----
+**① そのまま使う（機構に一切依存しない）**
+
+チャットでファイルを指して言うだけです。
+
+```
+sdd-mini/sdd-specify.md の手順で進めて
+```
+
+Claude Code / Codex / GitHub Copilot、どれでもこれで動きます。**まずはこれで十分**です。
+
+**② スラッシュコマンドにする（任意・エージェント別）**
+
+毎回パスを打つのが面倒なら、各エージェントのコマンド置き場にコピーすると `sdd-specify` で呼べます。
+**中身は同じファイル**で、置き場所と拡張子だけが違います。
+
+| エージェント | コピー先 | ファイル名 | 補足 |
+|---|---|---|---|
+| Claude Code | `.claude/commands/` | `sdd-specify.md` | そのまま |
+| GitHub Copilot (VS Code) | `.github/prompts/` | `sdd-specify.prompt.md` | 拡張子を変える |
+| その他 | 各エージェントの規約に従う | — | 下記 |
+
+> **確認事項**：コマンド置き場の名前とファイル名の規約は、エージェントとバージョンで変わります。
+> **お使いのエージェントの最新ドキュメントで確認してください。**
+> Copilot は frontmatter に `mode: agent` を足すと確実です（無くても動く想定ですが未検証）。
+>
+> **分からなければ ① で使ってください。** ①はどのエージェントでも確実に動きます。
+
+### 規約ファイル（任意だが推奨）
+
+`AGENTS.sample.md` をプロジェクト直下に `AGENTS.md` としてコピーし、書き換えます。
+Claude Code なら `CLAUDE.md`、Copilot なら `.github/copilot-instructions.md` でも同じ役割です。
+**どれか1つあれば足ります**——各段はあるものを読みます。
+
+これが `sdd-review` の指摘の根拠になります。空のままだとレビューが薄くなります。
 
 ## 使い方
 
-チャットで上から順に打つだけです。
+上から順に、6つの手順書を1つずつ実行します。
+
+| 段 | 手順書 | 出力 |
+|---|---|---|
+| 1 | `sdd-mini/sdd-specify.md` | 何を作るか → `.sdd/<機能名>/spec.md` |
+| 2 | `sdd-mini/sdd-plan.md` | どう作るか → `.sdd/<機能名>/plan.md` |
+| 3 | `sdd-mini/sdd-tasks.md` | 手順に割る → `.sdd/<機能名>/tasks.md` |
+| 4 | `sdd-mini/sdd-implement.md` | 作る → コード |
+| 5 | `sdd-mini/sdd-verify.md` | 仕様どおりか → `.sdd/<機能名>/test-result.md` |
+| 6 | `sdd-mini/sdd-review.md` | コードは妥当か → `.sdd/<機能名>/review-result.md` |
+
+呼び出し方は「入れ方」で選んだ方で。
 
 ```
-/sdd-specify     何を作るか      → .sdd/<機能名>/spec.md
-/sdd-plan        どう作るか      → .sdd/<機能名>/plan.md
-/sdd-tasks       手順に割る      → .sdd/<機能名>/tasks.md
-/sdd-implement   作る            → コード
-/sdd-verify      仕様どおりか    → .sdd/<機能名>/test-result.md
-/sdd-review      コードは妥当か  → .sdd/<機能名>/review-result.md
+① sdd-mini/sdd-specify.md の手順で進めて     ← どのエージェントでも動く
+② /sdd-specify                                ← コマンド登録した場合
 ```
+
+> **以降このドキュメントでは `sdd-specify` のように名前だけで書きます。**
+> ①なら `sdd-mini/sdd-specify.md`、②なら `/sdd-specify` と読み替えてください。
 
 **各段の最後で AI は必ず止まります。** そこがゲートです。
-読んで、直して、よければ次を打つ。**この止まる回数が SDD の値打ちです。**
+読んで、直して、よければ次を呼ぶ。**この止まる回数が SDD の値打ちです。**
 
 ### ファイルがそのまま進捗を表す
 
@@ -83,13 +124,13 @@ SDD（Spec-Driven Development・仕様駆動開発）を**手を動かして掴�
 中断しても、これを見れば続きから再開できます。
 
 > `spec.md` のチェックと `test-result.md` が食い違ったら **`test-result.md` が正**です。
-> 両方 `/sdd-verify` が同時に更新するので、通常ずれません。
+> 両方 `sdd-verify` が同時に更新するので、通常ずれません。
 
 ### なぜ implement / verify / review を分けるのか
 
 **作った本人がその場で「できました」と言う形にしないため**です。
 
-`/sdd-implement` は結果ファイルもチェックボックスも**触りません**。書くのは verify と review だけ。
+`sdd-implement` は結果ファイルもチェックボックスも**触りません**。書くのは verify と review だけ。
 確かめる側は「実装したのだから満たしているはず」を認めず、**根拠**（テスト結果・読んだコードの箇所）
 を示せないものは合格にしません。
 
@@ -97,11 +138,11 @@ SDD（Spec-Driven Development・仕様駆動開発）を**手を動かして掴�
 
 | | 見るもの | 合否を決めるもの |
 |---|---|---|
-| `/sdd-verify` | 仕様どおりに動くか | `spec.md` の受け入れ条件 |
-| `/sdd-review` | コードとして妥当か | 規約と、保守する人の目 |
+| `sdd-verify` | 仕様どおりに動くか | `spec.md` の受け入れ条件 |
+| `sdd-review` | コードとして妥当か | 規約と、保守する人の目 |
 
 混ぜると「仕様に無いことを理由に不合格」になり、**何が基準か分からなくなります**。
-レビューで「この仕様はおかしい」は言いません（それは `/sdd-specify` の担当）。
+レビューで「この仕様はおかしい」は言いません（それは `sdd-specify` の担当）。
 
 ### レビューの重大度と差し戻し
 
@@ -111,15 +152,15 @@ SDD（Spec-Driven Development・仕様駆動開発）を**手を動かして掴�
 | **should** | 直すべきだが、判断次第で見送れる（重複・責務混在・命名） |
 | **nit** | 好みの範囲。直さなくてよい |
 
-**must か should が1件でもあれば差し戻し**（`/sdd-implement` に戻る）。nit のみなら通過です。
-直したら `/sdd-verify` → `/sdd-review` をもう一度。**ラウンドとして追記される**ので、
+**must か should が1件でもあれば差し戻し**（`sdd-implement` に戻る）。nit のみなら通過です。
+直したら `sdd-verify` → `sdd-review` をもう一度。**ラウンドとして追記される**ので、
 何が直って何が残ったかの経過が記録になります。
 
 > **迷ったら重大度を下げる。** must を安売りすると、本当に止めるべき指摘が埋もれます。
 
 終わったとき、**`test-result.md` と `review-result.md` に「何を・どう見て・どう判定したか」が残ります。**
 
-書式は `.github/sdd-templates/` の2枚にあります。**書き換えれば出力も変わります**
+書式は `sdd-mini/templates/` の2枚にあります。**書き換えれば出力も変わります**
 （プロンプト側を触らずに、報告の形だけ自分たちのやり方に合わせられます）。
 
 ---
@@ -130,12 +171,12 @@ SDD（Spec-Driven Development・仕様駆動開発）を**手を動かして掴�
 
 | 気づいたこと | 戻る先 |
 |---|---|
-| 決めていないことが出てきた | `/sdd-specify`（仕様の穴） |
-| 触るファイルが想定より多い | `/sdd-specify`（仕様が大きすぎる） |
-| 実装したら仕様の方が間違っていた | `/sdd-specify`（spec.md を直してから実装） |
-| 条件が曖昧で確かめようがない | `/sdd-specify`（条件を書き直す） |
-| 実装が足りない | `/sdd-implement` |
-| レビューで must / should が出た | `/sdd-implement`（直して再度 verify → review） |
+| 決めていないことが出てきた | `sdd-specify`（仕様の穴） |
+| 触るファイルが想定より多い | `sdd-specify`（仕様が大きすぎる） |
+| 実装したら仕様の方が間違っていた | `sdd-specify`（spec.md を直してから実装） |
+| 条件が曖昧で確かめようがない | `sdd-specify`（条件を書き直す） |
+| 実装が足りない | `sdd-implement` |
+| レビューで must / should が出た | `sdd-implement`（直して再度 verify → review） |
 
 **戻るのは手戻りではなく、上流で捕まえたということ**です。
 コードを書き切ってから気づくより、ずっと安く済んでいます。
@@ -145,7 +186,7 @@ SDD（Spec-Driven Development・仕様駆動開発）を**手を動かして掴�
 ## 完成例
 
 `example/` に、メモアプリの検索機能を一周させた記録が入っています。
-**`/sdd-tasks` を終えた直後**の状態なので、これから書く形がそのまま見られます。
+**`sdd-tasks` を終えた直後**の状態なので、これから書く形がそのまま見られます。
 読み方は [`example/README.md`](example/README.md) に。
 
 ---
