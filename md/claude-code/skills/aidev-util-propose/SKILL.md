@@ -28,6 +28,10 @@ AI 開発ワークフローの **planner（課題提案 / L_planner・A 層）**
 2. **実信号**（あれば優先）:
    - `.aidev/insights/*`（横断分析の改善提案）
    - `.aidev/works/*/retro.md`（per-work 改善提案）
+   - **`aidev doctor` の convention 検査**（`protocol.md`「12.」）。特に次の2つは**そのままタスクになる**:
+     - **`confirmed` だが未移送** → 「条項 <id> の本文を PJ ドキュメントへ移送し promote する」
+       （放置すると `docs/aidev/` と PJ ドキュメントの二重管理になる。最優先で拾う）
+     - **母集団が揃ったのに未判定** → 「insights で条項 <id> の効果を判定する」
    - lint / テスト失敗 / カバレッジ欠落 / TODO・FIXME / 既知の技術的負債
 3. **既存の open issue ＋ バックログ**（重複排除のため）。
 
@@ -44,11 +48,18 @@ AI 開発ワークフローの **planner（課題提案 / L_planner・A 層）**
    - 規模は引き金。**結合度**で可否を決める。低結合で単独検証可なら**複数課題に分割提案**。
    - 高結合は1課題のまま（大規模＋高結合は依存順分割/リファクタ先行を提案）。
 4. **重複排除**: 既存 open issue / バックログと突き合わせ、重複・包含を除く。
+   - **規約系の提案は条項の archive も見る**（`aidev convention status`）。`promoted` の tombstone が
+     あるなら**その規約は既に PJ ドキュメントにある**＝重複。`ineffective` で退役したものの再提案は、
+     同じ手を繰り返すことになるので**層を下げる提案に変換**する（`protocol.md`「12.」）。
 5. **優先度付け**: charter のゴール・価値・リスク・依存で並べる。
 6. **採否**（protocol「10.」のモードに従う）:
    - interactive: `AskUserQuestion` で「どの課題を作るか」を選ばせる（複数選択可）。
    - autonomous: ガード内で自動採用（**grounded・独立・1回の件数上限内**のみ。曖昧/高結合/根拠薄は採用しない）。
 7. 採用分を起票: `create-issue` で issue 化（ブランチ運用は委譲）かつ/または バックログへ `[ ]` 追記。
+   - **PJ規約の追補は issue/backlog ではなく条項として起こす**:
+     `aidev convention new <id> --hypothesis "<何がどう動けば効果ありと判定するか>" --source <信号のパス>`。
+     仮説を書けない提案は CLI が拒否する（＝検証できない改善を積まない）。`protocol-conventions.md` 参照。
+   - **移送タスクは backlog へ**（通常のリポジトリ変更なので batch が消化できる）。
    - **backlog へ追記する場合**: 定常ドメインキュー（`.aidev/backlog/<domain>.md`、`kind: standing`）か、
      1タスクを分割した産物なら `split-<親>.md`（`kind: split` / `parent`）に分ける（`aidev-util-batch`「backlog ファイル規約」）。
      着手前から既知の前提は項目行末に `(needs: <slug/#N>)` を付す。
@@ -68,3 +79,12 @@ AI 開発ワークフローの **planner（課題提案 / L_planner・A 層）**
 
 `insights/retro（信号）→ aidev-util-propose（課題化・承認）→ aidev-util-batch（autonomous 実装）→ PR（人間レビュー）`。
 両端（どの課題・どの PR）に人間ゲートを残し、間を自律化するのが実用形。完全自動（発案→マージ）は高リスク。
+
+**効果検証がこのループを閉じる**（`protocol.md`「12.」）。改善を入れっぱなしにせず、
+`insights` が判定して `confirmed` / `ineffective` に落とし、`confirmed` は PJ ドキュメントへ移送する。
+移送は通常のリポジトリ変更なので、そのタスク自体がこのループを一周する:
+
+`doctor（未移送 WARN）→ propose（backlog へ）→ batch（本文を移して promote）→ PR`
+
+**batch に許すのは条項の追加と移送まで。既存条項の削除・緩和は人間**が行う。追加は効かなければ消せる
+（可逆）が、緩和は「守らなくてよくなった」状態を作り、それが正しかったかを事後に検証できない。

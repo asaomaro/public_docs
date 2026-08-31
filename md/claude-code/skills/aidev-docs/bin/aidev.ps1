@@ -17,7 +17,11 @@
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 doctor
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 status [--format table|tsv]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 metrics [slug] [--all] [--phases] [--format table|tsv]
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 convention <new|confirm|retire|promote|status> ...
+#     PJ規約の条項を docs/aidev/ で起こし・判定し・PJ ドキュメントへ移送する（protocol.md「12.」）
+#     new は --hypothesis 必須（検証できない条項を作らせない入口ゲート）
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree add <slug> [--branch n] [--base ref] [--path dir] [--mode m] [--ticket id] [--depends list]
+
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree list [--format table|tsv]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree rm <slug|path> [--force] [--delete-branch]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 help
@@ -29,7 +33,7 @@ $ErrorActionPreference = 'Stop'
 # （git show-ref 等は ref 不在で 1 を返すのが正常系のため）。古い pwsh では通常変数になるだけで無害。
 $PSNativeCommandUseErrorActionPreference = $false
 
-$script:CURRENT_SCHEMA = 3   # schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema<=2 は legacy 免除
+$script:CURRENT_SCHEMA = 4   # schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema<=2 は legacy 免除
 $script:STRICT = $false      # verify --strict（記録漏れを致命にする）。doctor 経由では常に false
 $script:PHASES = @('requirement','research','spec','design','plan','coding','test','review','walkthrough','deliver','retro')
 $script:Utf8 = New-Object System.Text.UTF8Encoding($false)  # BOM なし
@@ -170,6 +174,105 @@ function AppendEvent($work,$phase,$event,$kvs) {
 }
 
 # --- new ---------------------------------------------------------------------
+# --- ハーネス版（効果検証の母集団特定） -------------------------------------------
+# その work が**どの版のハーネスで回されたか**が無いと、改修が効いたかを後から判定できない。
+# 刻印を手書きに任せると忘れられ、忘れられた work は母集団から静かに漏れる（schema: と同じ理由で new に一本化）。
+# 版の実体は「ハーネス・ディレクトリを最後に触ったコミット」。取れない環境では捏造せず 'unknown'。
+$script:HARNESS = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)   # <skills>/aidev-docs/bin -> <skills>
+
+function HarnessRev() {
+  if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return 'unknown' }
+  try {
+    $r = (& git -C $script:HARNESS log -1 --format=%h -- $script:HARNESS 2>$null | Select-Object -First 1)
+    if ([string]::IsNullOrWhiteSpace($r)) { return 'unknown' }
+    return $r.Trim()
+  } catch { return 'unknown' }
+}
+
+# --- 条項（docs/aidev の PJ規約）---------------------------------------------------
+# ハーネスが生成した規約は PJ 所有の AGENTS.md / CLAUDE.md に書き込まない（protocol.md「12.」）。
+# docs/aidev/ は終着点ではなく**検証中の待避所**で、条項は必ずここから出ていく
+#（効果あり -> PJ ドキュメントへ移送 / 効果なし・置換 -> 退役）。本文の在処を常に1箇所に保つ。
+function CvDir() {
+  $d = YGet (Join-Path $script:AIDEV 'config.yml') 'conventionsDir'
+  if (-not $d) { $d = 'docs/aidev' }
+  if ([System.IO.Path]::IsPathRooted($d)) { return $d }
+  return (Join-Path $script:ROOT $d)
+}
+
+# 条項ファイル先頭 frontmatter から key を読む（sh の cv_get と一致）。
+function CvGet($path,$key) {
+  if (-not (Test-Path $path)) { return '' }
+  $lines = [System.IO.File]::ReadAllLines($path)
+  if ($lines.Count -eq 0 -or $lines[0] -notmatch '^---\s*$') { return '' }
+  for ($i=1; $i -lt $lines.Count; $i++) {
+    if ($lines[$i] -match '^---\s*$') { return '' }
+    if ($lines[$i] -match ("^" + [regex]::Escape($key) + ":\s*(.*?)\s*$")) { return $Matches[1] }
+  }
+  return ''
+}
+
+# frontmatter 内の key を差し替え、無ければ frontmatter 末尾に足す（冪等）。
+function CvSet($path,$key,$value) {
+  $lines = [System.IO.File]::ReadAllLines($path)
+  $out=@(); $fm=0; $done=$false
+  for ($i=0; $i -lt $lines.Count; $i++) {
+    $l = $lines[$i]
+    if ($i -eq 0 -and $l -match '^---\s*$') { $out += $l; $fm=1; continue }
+    if ($fm -eq 1 -and $l -match '^---\s*$') {
+      if (-not $done) { $out += "${key}: $value" }
+      $out += $l; $fm=2; continue
+    }
+    if ($fm -eq 1 -and $l.StartsWith("${key}:")) { $out += "${key}: $value"; $done=$true; continue }
+    $out += $l
+  }
+  WriteText $path (($out -join "`n") + "`n")
+}
+
+# 本文を捨てて tombstone にする（本文が2箇所に存在する瞬間を作らない）。
+function CvTombstone($path,$msg) {
+  $lines = [System.IO.File]::ReadAllLines($path)
+  $out=@(); $fm=0
+  for ($i=0; $i -lt $lines.Count; $i++) {
+    $l = $lines[$i]
+    if ($i -eq 0 -and $l -match '^---\s*$') { $out += $l; $fm=1; continue }
+    if ($fm -eq 1 -and $l -match '^---\s*$') { $out += $l; $out += ''; $out += $msg; $fm=2; break }
+    if ($fm -eq 1) { $out += $l }
+  }
+  WriteText $path (($out -join "`n") + "`n")
+}
+
+function CvFind($id) {  # active 優先、無ければ archive。見つからなければ ''
+  $d = CvDir
+  $a = Join-Path $d "$id.md"
+  if (Test-Path $a) { return $a }
+  $b = Join-Path (Join-Path $d 'archive') "$id.md"
+  if (Test-Path $b) { return $b }
+  return ''
+}
+
+# 母集団＝その条項の導入日以降に**着手した** work の件数（またがり work は数えない）。
+function CvPop($introduced) {
+  $b = ($introduced -replace '-','')
+  if ($b -notmatch '^\d+$') { return 0 }
+  $worksRoot = Join-Path $script:AIDEV 'works'
+  if (-not (Test-Path $worksRoot)) { return 0 }
+  $n = 0
+  foreach ($d in (Get-ChildItem -Path $worksRoot -Directory | Sort-Object Name)) {
+    $f = Join-Path $d.FullName 'metrics.yml'
+    if (-not (Test-Path $f)) { continue }
+    $ts = ''
+    foreach ($l in [System.IO.File]::ReadAllLines($f)) {
+      if ($l -match 'ts:\s*([0-9][0-9-]*)') { $ts = $Matches[1]; break }
+    }
+    if (-not $ts) { continue }
+    $a = (($ts -split 'T')[0] -replace '-','')
+    if ($a -notmatch '^\d+$') { continue }
+    if ([int64]$a -ge [int64]$b) { $n++ }
+  }
+  return $n
+}
+
 function Cmd-New($rest) {
   $slug=''; $mode=''; $profile=''; $ticket=''; $depends=''; $parent=''; $backlog=''
   for ($i=0; $i -lt $rest.Count; $i++) {
@@ -225,6 +328,7 @@ function Cmd-New($rest) {
     $sb = "schema: $($script:CURRENT_SCHEMA)`nslug: $slug`nparent: $parent`n"
     if ($ticket) { $sb += "ticket: $ticket`n" }
     $sb += "current: plan`napproved: []`nmode: $mode`nprofile: $profile`nhumanGates: []`nmaxSendBacks: 3`ndependsOn: $depsYaml`n"
+    $sb += "harnessRev: $(HarnessRev)`n"
     WriteText (Join-Path $work 'state.yml') $sb
     WriteText (Join-Path $work 'metrics.yml') "events:`n"
 
@@ -255,6 +359,7 @@ function Cmd-New($rest) {
   $sb = "schema: $($script:CURRENT_SCHEMA)`nslug: $slug`n"
   if ($ticket) { $sb += "ticket: $ticket`n" }
   $sb += "current: requirement`napproved: []`nmode: $mode`nprofile: $profile`nhumanGates: []`nmaxSendBacks: 3`ndependsOn: $depsYaml`n"
+  $sb += "harnessRev: $(HarnessRev)`n"
   if ($backlog) { $sb += "backlog: $backlog`n" }
   WriteText (Join-Path $work 'state.yml') $sb
   WriteText (Join-Path $work 'metrics.yml') "events:`n"
@@ -293,6 +398,18 @@ function Cmd-Approve($rest) {
   ReplaceLine $st 'current' "current: $ph"
   AppendEvent $script:WORK $ph 'approved' $kvs
   Write-Output "approved: $ph @ $($script:SLUG)"
+
+  # deliver 時のハーネス版も刻む。new 時と食い違う work は改修をまたいで走った＝前半を旧版・
+  # 後半を新版で回している。どちらかに帰属させると効果が薄まるので母集団から除外する。
+  if ($ph -eq 'deliver') {
+    $hr = HarnessRev
+    SetOrAppend $st 'harnessRevDelivered' "harnessRevDelivered: $hr"
+    $hr0 = YGet $st 'harnessRev'
+    if ($hr0 -and $hr0 -ne $hr -and $hr0 -ne 'unknown' -and $hr -ne 'unknown') {
+      Write-Output "note: ハーネス版が着手時($hr0)と着地時($hr)で異なる＝またがり work。効果検証の母集団からは除外される"
+    }
+  }
+
 
   # D: subtask の review 承認でカーソルを前進させる（散文の手動カーソル操作を排除）。
   # 親 subtasks を順に見て review 未承認の最初の子を次の active にする。無ければ done（→親の統合 test へ）。
@@ -472,6 +589,20 @@ function VerifyWork($work) {
 
   # profile: light の逸脱検査（WARN）
   LightWarnings $work
+
+  # またがり work の検知（WARN）。schema 4 以降のみ＝旧 work を遡って違反扱いしない。
+  $vsc = YGet (Join-Path $work 'state.yml') 'schema'
+  if ($vsc -notmatch '^\d+$') { $vsc = '0' }
+  if ([int]$vsc -ge 4) {
+    $hr0 = YGet (Join-Path $work 'state.yml') 'harnessRev'
+    $hr1 = YGet (Join-Path $work 'state.yml') 'harnessRevDelivered'
+    if (-not $hr0) {
+      Write-Output "  WARN harnessRev が無い: 効果検証の母集団から漏れる（aidev new で刻まれる）"
+    } elseif ($hr1 -and $hr0 -ne $hr1 -and $hr0 -ne 'unknown' -and $hr1 -ne 'unknown') {
+      Write-Output "  WARN またがり work: ハーネス版が着手時($hr0)と着地時($hr1)で異なる。効果検証の母集団からは除外される"
+    }
+  }
+
 
   if ($vf.Count -gt 0) { [Console]::Out.WriteLine("  FAIL " + ($vf -join ' ')); return 4 }
   # --strict: 記録漏れだけを致命扱い（sh 版と同一。理由は sh 側のコメント参照）
@@ -688,6 +819,7 @@ function Cmd-Doctor() {
   }
   Write-Output "summary: works=$total fail=$fail legacy(免除)=$legacy"
   Doctor-Backlog
+  Doctor-Conventions
   if ($fail -eq 0) { exit 0 } else { exit 1 }
 }
 
@@ -1244,6 +1376,258 @@ function Bl-DoArchive($rest) {
   }
 }
 
+# --- コマンド: convention -----------------------------------------------------
+# 起こす／状態を進める／退避するだけを持たせる。本文を PJ ドキュメントへ実際に移す作業は
+# 文体・配置・既存章との統合という判断なので CLI にしない（backlog の消し込み本体と同じ線引き）。
+function Cmd-Convention($rest) {
+  if ($rest.Count -lt 1) { Die "使用法: aidev convention <new|confirm|retire|promote|status> ..." }
+  $sub = $rest[0]
+  $sr = @(); if ($rest.Count -gt 1) { $sr = $rest[1..($rest.Count-1)] }
+  switch ($sub) {
+    'new'     { Cv-New $sr }
+    'confirm' { Cv-Confirm $sr }
+    'retire'  { Cv-Retire $sr }
+    'promote' { Cv-Promote $sr }
+    'status'  { Cv-Status $sr }
+    default   { Die "未知の convention サブコマンド: $sub（new|confirm|retire|promote|status）" }
+  }
+}
+
+function Cv-ArchiveFile($path) {
+  $d = CvDir
+  $arc = Join-Path $d 'archive'
+  if (-not (Test-Path $arc)) { New-Item -ItemType Directory -Path $arc -Force | Out-Null }
+  $b = Split-Path -Leaf $path
+  $dest = Join-Path $arc $b
+  if (Test-Path $dest) { Die "archive に同名があります: $dest" }
+  Move-Item -Path $path -Destination $dest
+  Write-Output "archived: $dest"
+}
+
+function Cv-New($rest) {
+  $id=''; $hyp=''; $src=''; $va=''
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch ($rest[$i]) {
+      '--hypothesis'   { $hyp=$rest[++$i] }
+      '--source'       { $src=$rest[++$i] }
+      '--verify-after' { $va=$rest[++$i] }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        if ($id) { Die "id は1つだけ" } else { $id=$rest[$i] }
+      }
+    }
+  }
+  if (-not $id) { Die "使用法: aidev convention new <id> --hypothesis <text> [--source <path>] [--verify-after <n>]" }
+  if ($id.EndsWith('.md')) { $id = $id.Substring(0, $id.Length-3) }
+  $id = Split-Path -Leaf $id
+  # 仮説を必須にするのがこの層の入口ゲート。「どの指標がどう動けば成功か」を書けない条項は
+  # 後から検証できず、事後の物語作りにしかならない
+  if (-not $hyp) { Die "--hypothesis は必須です（何がどう動けば効果ありと判定するか。書けない条項は検証できない）" }
+  if (-not $va) { $va = '5' }
+  if ($va -notmatch '^\d+$') { Die "--verify-after は整数（母集団の最低件数）" }
+  $d = CvDir
+  if (-not (Test-Path $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
+  $f = Join-Path $d "$id.md"
+  if (Test-Path $f) { Die "すでにあります: $f" }
+  $arcf = Join-Path (Join-Path $d 'archive') "$id.md"
+  if (Test-Path $arcf) { Die "同じ id が archive にあります（$arcf）。移送済み条項の再提案は重複です" }
+  $today = ('{0:D4}-{1:D2}-{2:D2}' -f [DateTime]::UtcNow.Year, [DateTime]::UtcNow.Month, [DateTime]::UtcNow.Day)
+  $sb = "---`nconvention: $id`nstatus: pending`nintroduced: $today`n"
+  if ($src) { $sb += "source: $src`n" }
+  $sb += "hypothesis: $hyp`nverify_after: $va`n---`n`n"
+  $sb += "# $id`n`n"
+  $sb += "<!-- 条項の本文。PJ ドキュメントへ移送(promote)するまではここが唯一の在処。 -->`n`n"
+  $sb += "## 規約`n`n"
+  $sb += "<!-- 何を守るか。レビューで指摘するときの根拠になる粒度で書く。 -->`n`n"
+  $sb += "## 背景`n`n"
+  $sb += "<!-- どのレビュー指摘/分析から起こしたか（source を人間向けに補足）。 -->`n"
+  WriteText $f $sb
+  Write-Output "created: $f (status pending, verify_after $va)"
+  Write-Output "next: AGENTS.md の索引ブロックに「読む条件つき」の1行を足すこと（protocol.md「12.」）"
+}
+
+function Cv-Confirm($rest) {
+  $id=''; $result=''
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch ($rest[$i]) {
+      '--result' { $result=$rest[++$i] }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        if ($id) { Die "id は1つだけ" } else { $id=$rest[$i] }
+      }
+    }
+  }
+  if (-not $id) { Die "使用法: aidev convention confirm <id> [--result <text>]" }
+  $f = CvFind $id
+  if (-not $f) { Die "条項がありません: $id" }
+  if ($f -match '[\\/]archive[\\/]') { Die "退避済みの条項は変更できません: $id" }
+  CvSet $f 'status' 'confirmed'
+  if ($result) { CvSet $f 'result' $result }
+  Write-Output "confirmed: $id"
+  Write-Output "next: 本文を PJ ドキュメントへ移し、``aidev convention promote $id --to <path#anchor>`` で tombstone 化する"
+}
+
+function Cv-Retire($rest) {
+  $id=''; $st=''; $note=''
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch ($rest[$i]) {
+      '--status' { $st=$rest[++$i] }
+      '--note'   { $note=$rest[++$i] }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        if ($id) { Die "id は1つだけ" } else { $id=$rest[$i] }
+      }
+    }
+  }
+  if (-not $id) { Die "使用法: aidev convention retire <id> --status ineffective|superseded [--note <text>]" }
+  if ($st -eq '') { Die "--status は必須です（ineffective|superseded）" }
+  if ($st -ne 'ineffective' -and $st -ne 'superseded') { Die "未知の status: $st（ineffective|superseded）" }
+  $f = CvFind $id
+  if (-not $f) { Die "条項がありません: $id" }
+  if ($f -match '[\\/]archive[\\/]') { Die "すでに退避済みです: $id" }
+  CvSet $f 'status' $st
+  if ($note) { CvSet $f 'note' $note }
+  Cv-ArchiveFile $f
+  Write-Output "retired: $id ($st)"
+  if ($st -eq 'ineffective') {
+    Write-Output "note: 「効かなかった」は「条項が誤り」とは限らない。散文層の限界なら CLI/フック層へ寄せることを検討（DESIGN「2.6」）"
+  }
+}
+
+function Cv-Promote($rest) {
+  $id=''; $to=''
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch ($rest[$i]) {
+      '--to' { $to=$rest[++$i] }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        if ($id) { Die "id は1つだけ" } else { $id=$rest[$i] }
+      }
+    }
+  }
+  if (-not $id) { Die "使用法: aidev convention promote <id> --to <path#anchor>" }
+  if (-not $to) { Die "--to は必須です（移送先の PJ ドキュメント。例 docs/coding-standards.md#naming）" }
+  $f = CvFind $id
+  if (-not $f) { Die "条項がありません: $id" }
+  if ($f -match '[\\/]archive[\\/]') { Die "すでに退避済みです: $id" }
+  # 移送先の実在を確かめる。dangling な promoted_to は「本文がどこにも無い」状態を作る
+  $tgt = ($to -split '#')[0]
+  $tpath = if ([System.IO.Path]::IsPathRooted($tgt)) { $tgt } else { Join-Path $script:ROOT $tgt }
+  if (-not (Test-Path $tpath)) { Die "移送先が見つかりません: $tgt（先に本文を移してから promote する）" }
+  $today = ('{0:D4}-{1:D2}-{2:D2}' -f [DateTime]::UtcNow.Year, [DateTime]::UtcNow.Month, [DateTime]::UtcNow.Day)
+  CvSet $f 'status' 'promoted'
+  CvSet $f 'promoted_to' $to
+  CvSet $f 'promoted_at' $today
+  CvTombstone $f "本文は promoted_to へ移送済み。ここには置かない（本文の在処は常に1箇所）。"
+  Cv-ArchiveFile $f
+  Write-Output "promoted: $id -> $to"
+  Write-Output "next: AGENTS.md 索引ブロックのリンク先を $to に張り替えること"
+}
+
+function Cv-Status($rest) {
+  $fmt='table'
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch ($rest[$i]) {
+      '--format' { $fmt=$rest[++$i] }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        Die "余分な引数: $($rest[$i])"
+      }
+    }
+  }
+  if ($fmt -ne 'table' -and $fmt -ne 'tsv') { Die "--format は table|tsv" }
+  $d = CvDir
+  if (-not (Test-Path $d)) { Die "条項ディレクトリがありません: $d（aidev convention new で起こす）" }
+  $files = @()
+  $files += (Get-ChildItem -Path $d -File -Filter *.md -ErrorAction SilentlyContinue | Sort-Object Name)
+  $arc = Join-Path $d 'archive'
+  if (Test-Path $arc) { $files += (Get-ChildItem -Path $arc -File -Filter *.md -ErrorAction SilentlyContinue | Sort-Object Name) }
+  $rows=@(); $npend=0; $nready=0; $nconf=0
+  foreach ($fi in $files) {
+    $id = [System.IO.Path]::GetFileNameWithoutExtension($fi.Name)
+    $st = CvGet $fi.FullName 'status'; if (-not $st) { $st='-' }
+    $intro = CvGet $fi.FullName 'introduced'; if (-not $intro) { $intro='-' }
+    $va = CvGet $fi.FullName 'verify_after'; if ($va -notmatch '^\d+$') { $va='0' }
+    $pt = CvGet $fi.FullName 'promoted_to'; if (-not $pt) { $pt='-' }
+    $pop = if ($intro -eq '-') { 0 } else { CvPop $intro }
+    $ready='-'
+    if ($st -eq 'pending') {
+      $npend++
+      if ([int]$va -gt 0 -and [int]$pop -ge [int]$va) { $ready='yes'; $nready++ } else { $ready='no' }
+    }
+    if ($st -eq 'confirmed') { $nconf++ }
+    $rows += "$id`t$st`t$intro`t$pop`t$va`t$ready`t$pt"
+  }
+  if ($fmt -eq 'tsv') {
+    foreach ($r in $rows) { Write-Output "convention`t$r" }
+  } else {
+    $all = @("id`tstatus`tintroduced`tpop`tneed`tready`tpromoted_to") + $rows
+    foreach ($l in (Fmt-Table $all)) { Write-Output $l }
+  }
+  Write-Output "convention-summary: pending=$npend ready=$nready confirmed(未移送)=$nconf"
+}
+
+# 条項ファイルの一生を見る（backlog と同じく持ち主の work がいないので verify では硬ゲートにできない）。
+function Doctor-Conventions() {
+  $d = CvDir
+  if (-not (Test-Path $d)) { return }
+  $items=@()
+  foreach ($f in (Get-ChildItem -Path $d -File -Filter *.md -ErrorAction SilentlyContinue | Sort-Object Name)) {
+    $items += ,@($f.FullName, $f.Name, $false)
+  }
+  $arc = Join-Path $d 'archive'
+  if (Test-Path $arc) {
+    foreach ($f in (Get-ChildItem -Path $arc -File -Filter *.md -ErrorAction SilentlyContinue | Sort-Object Name)) {
+      $items += ,@($f.FullName, "archive/$($f.Name)", $true)
+    }
+  }
+  $cfiles=0; $carch=0; $cwarn=0; $out=@()
+  foreach ($it in $items) {
+    $path=$it[0]; $label=$it[1]; $isArc=$it[2]
+    if ($isArc) { $carch++ } else { $cfiles++ }
+    $st = CvGet $path 'status'
+    $intro = CvGet $path 'introduced'
+    $va = CvGet $path 'verify_after'
+    $w=@()
+    # switch は条件が $null のとき default ごと素通りする。status 欠落を**必ず**拾いたい検査なので
+    # if/elseif で書く（sh 版の case と分岐を一致させる）。
+    if (-not $st) {
+      $w += "    WARN frontmatter(status)が無い: 検証の進み方が決まらない（pending/confirmed/promoted/ineffective/superseded）"
+    } elseif ($st -eq 'pending') {
+      if ($isArc) {
+        $w += "    WARN 退避済みだが status=pending: 判定前に退避されている"
+      } else {
+        if ($va -notmatch '^\d+$') { $va='0' }
+        if ($intro -and [int]$va -gt 0) {
+          $pop = CvPop $intro
+          if ([int]$pop -ge [int]$va) {
+            $w += "    WARN 母集団が揃った($pop/$va)のに未判定: insights で効果を判定すること"
+          }
+        }
+      }
+    } elseif ($st -eq 'confirmed') {
+      # 効果が確認された条項が docs/aidev に居座ると PJ ドキュメントと二重管理になる
+      if (-not $isArc) { $w += "    WARN confirmed だが未移送: PJ ドキュメントへ移して promote すること" }
+    } elseif ($st -eq 'promoted') {
+      if (-not (CvGet $path 'promoted_to')) { $w += "    WARN promoted だが promoted_to が無い: 本文の行き先が辿れない" }
+      if (-not $isArc) { $w += "    WARN promoted だが未退避: active に残ると重複提案の検査対象からずれる" }
+    } elseif ($st -eq 'ineffective' -or $st -eq 'superseded') {
+      if (-not $isArc) { $w += "    WARN $st だが未退避: archive/ へ移すこと" }
+    } else {
+      $w += "    WARN 未知の status: $st（pending/confirmed/promoted/ineffective/superseded）"
+    }
+    if ($w.Count -gt 0) {
+      $cwarn++
+      $shown = if ($st) { $st } else { '-' }
+      $out += "- $label (status=$shown)"
+      $out += $w
+    }
+  }
+  Write-Output "convention: 条項ファイル横断検査"
+  foreach ($l in $out) { Write-Output $l }
+  Write-Output "convention-summary: files=$cfiles archived=$carch warn=$cwarn"
+}
+
 function Cmd-Worktree($rest) {
   if ($rest.Count -lt 1) { Die "使用法: aidev worktree <add|list|rm> ..." }
   $sub=$rest[0]; $sr=@(); if ($rest.Count -gt 1) { $sr=$rest[1..($rest.Count-1)] }
@@ -1277,6 +1661,7 @@ switch ($cmd) {
   'metrics' { Cmd-Metrics $rest }
   'use'     { Cmd-Use $rest }
   'backlog' { Cmd-Backlog $rest }
+  'convention' { Cmd-Convention $rest }
   'worktree' { Cmd-Worktree $rest }
   'help'    { Usage }
   '-h'      { Usage }

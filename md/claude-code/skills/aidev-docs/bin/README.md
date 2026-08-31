@@ -36,17 +36,22 @@ Git Bash（Git for Windows 同梱）があるなら POSIX 版の `aidev` がそ�
 
 | コマンド | 役割 |
 |---|---|
-| `new <slug> [--mode interactive\|autonomous] [--profile full\|light] [--light] [--ticket ID] [--depends a,b,#N] [--backlog <file>]` | work 作成。`state.yml`/`metrics.yml` を**スキーマ付きで原子的に初期化**し `.aidev/current` を設定。`schema` を刻む。`--backlog` は backlog 項目から起こした出自（`.aidev/backlog/` 内のファイル名）を刻み、**deliver での消し込みを `verify` が強制**する（存在しないファイルは着手前に弾く）。`--profile`/`--light` は「どこまで工程を回すか」（`protocol.md`「11.」）で **`--mode` と直交**。既定 `full`。subtask は親の `profile` を継承する。 |
+| `new <slug> [--mode interactive\|autonomous] [--profile full\|light] [--light] [--ticket ID] [--depends a,b,#N] [--backlog <file>]` | work 作成。`state.yml`/`metrics.yml` を**スキーマ付きで原子的に初期化**し `.aidev/current` を設定。`schema` を刻む。`--backlog` は backlog 項目から起こした出自（`.aidev/backlog/` 内のファイル名）を刻み、**deliver での消し込みを `verify` が強制**する（存在しないファイルは着手前に弾く）。`--profile`/`--light` は「どこまで工程を回すか」（`protocol.md`「11.」）で **`--mode` と直交**。既定 `full`。subtask は親の `profile` を継承する。**`harnessRev`（ハーネスの版）も自動で刻む**——ハーネス改修の効果検証で母集団を特定するための刻印で、手書きに任せると忘れられ、忘れられた work は母集団から静かに漏れる（`schema:` を `new` 一本化したのと同じ理由）。取れない環境は `unknown`。`protocol.md`「12.」 |
 | `event <phase> <start\|approved\|sent_back> [k=v ...]` | `metrics.yml` に **UTC 時刻を自分で打って**イベント追記。`metrics.yml` 不在なら自動生成。`events: []` も block 形式へ変換。 |
-| `approve <phase> [k=v ...]` | `state.yml` の `approved` 追記（冪等）＋ `current` 更新 ＋ approved イベント追記を一括・検証付きで。 |
+| `approve <phase> [k=v ...]` | `state.yml` の `approved` 追記（冪等）＋ `current` 更新 ＋ approved イベント追記を一括・検証付きで。`deliver` のときは **`harnessRevDelivered`** も刻む（`harnessRev` と違えば**またがり work**＝効果検証の母集団から除外。`protocol.md`「12.」）。 |
 | `guard <phase>` | 工程開始時の**前提チェック**（前提成果物の有無・前提工程の承認・`dependsOn` 充足）。未充足なら非ゼロ終了。 |
 | `verify [slug] [--strict]` | 現在(または指定)work の**不変条件**を version-aware に検査。違反で非ゼロ終了。**deliver の commit 前ゲート**に使う。deliver 承認済で `backlog:` 刻印がある work は、**その backlog ファイルに自分の slug が現れること**も検査する（消し込み忘れの検知。`protocol.md`「2.9」）。`profile: light` の work では**条件逸脱**も見る——任意工程の実施と `files_changed` の上限超過（`.aidev/config.yml` の `lightMaxFiles`、既定 3）。**WARN 止まりで exit code は変えない**（昇格漏れは事後検知。硬ゲートは既存判定に任せる）。<br>**`--strict`**: **記録漏れ（`event` の start 欠落）だけ**を致命（exit 5）にする。機械ゲート（Claude Code の `Stop` フック等）専用の入口。既定を FAIL に変えると start が欠けた過去の work が deliver できなくなるため、入口を分けた。**light の逸脱は strict でも致命にしない**——記録漏れは「今しか直せない」（metrics は追記のみで当時の timestamp は復元不能）が、light の昇格は人間の判断だから。 |
 | `escalate [slug]` | `profile` を **`light` → `full` に片方向で昇格**（`protocol.md`「11.」）。`full` からは戻せない。`state.yml` の手編集を避け、昇格を単一の検証済み経路に集約するためのコマンド。`decisions.md` への経緯記録と `escalated_from_light=1` の付与は skill 側の仕事。 |
-| `doctor` | 全 work を横断検査しドリフトを報告（legacy は免除）。retro/insights の冒頭で事後検知に使う。続けて **backlog ファイル自体**も横断検査する（全消化した `split`・`topic` の退避漏れ／`kind` frontmatter の欠落と誤記／`status` が数えない書式の項目／`archive/` に残った未消化）。**WARN 止まりで exit code は works の fail だけで決める**（ファイルの一生には持ち主の work がおらず `verify` で硬ゲートにできないため。`protocol.md`「2.9」）。 |
+| `doctor` | 全 work を横断検査しドリフトを報告（legacy は免除）。retro/insights の冒頭で事後検知に使う。続けて **backlog ファイル自体**も横断検査する（全消化した `split`・`topic` の退避漏れ／`kind` frontmatter の欠落と誤記／`status` が数えない書式の項目／`archive/` に残った未消化）。**WARN 止まりで exit code は works の fail だけで決める**（ファイルの一生には持ち主の work がおらず `verify` で硬ゲートにできないため。`protocol.md`「2.9」）。続けて **条項ファイル**（`docs/aidev/`）も検査する（`status` の欠落・誤記／**母集団が揃ったのに未判定**／**`confirmed` の移送漏れ**＝二重管理予備軍／終状態の退避漏れ）。こちらも同じ理由で WARN 止まり。 |
 | `status [--format table\|tsv]` | **読み取り専用**。全 work を横断（work/ticket/mode/current/next/done/deps）＋ backlog（`*.md`・`archive/` 除く）の未着手件数（todo/needs）と **`inflight`（そのファイルの項目を掴んだまま未 deliver の work 数）**を機械抽出。backlog 行が `[x]` になるのは deliver なので、着手中の項目は `todo` からは区別できない——`inflight` はそこを埋め、**別セッションが同じ項目を二重に選ぶのを防ぐ**（`protocol.md`「2.9」）。`aidev-00-start` の状況把握に使う。既定は人間可読表、`--format tsv` は機械パース向け（先頭列 `work`/`backlog` でレコード種別を判別）。 |
 | `metrics [slug] [--all] [--phases] [--format table\|tsv]` | **読み取り専用**。`metrics.yml` のイベントログから protocol §8 の派生指標を集計。既定 per-work（first_start/delivered/lead_sec/reworks/sent_backs）、`--phases` で工程別（phase/start/approved/elapsed_sec）。`--all` で全 work。`aidev-util-insights` の集計に使う。ts は `Z`/`UTC`/無しを許容。 |
 | `use [<slug>]` | 継続する作業を切り替える（`.aidev/current` を書く）。引数なしなら現在値を表示。存在しない slug は弾く。**`new` と `approve` 以外に current を書く手段が無かった**ため、「続きから」は手書きに頼っていた。 |
 | `backlog new <name> --kind standing\|split\|topic [--parent <p>] [--priority <n>]` | frontmatter 付きで backlog ファイルを起こす。**`--kind` を必須**にして欠落を構造的に防ぐ（`split` は `--parent` 必須）。 |
+| `convention new <id> --hypothesis <text> [--source <p>] [--verify-after <n>]` | PJ規約の条項を `docs/aidev/` に起こす（場所は `.aidev/config.yml` の `conventionsDir`。既定 `docs/aidev`）。**`--hypothesis` を必須**にして「検証できない条項」を構造的に防ぐ——「どの指標がどう動けば成功か」を先に書かないと、後から見た指標は常に何かしら動いているので都合のいい説明がつき、検証ではなく事後の物語作りになる。archive に同 id があれば**重複として弾く**（移送済み規約の再提案）。`protocol.md`「12.」 |
+| `convention confirm <id> [--result <text>]` | 効果ありと判定（`status: confirmed`）。次は PJ ドキュメントへの移送。 |
+| `convention promote <id> --to <path#anchor>` | 本文を PJ docs へ移した**後**に打つ。`promoted_to`/`promoted_at` を刻み、**本文を捨てて tombstone 化**して `archive/` へ退避する（本文の在処を常に1箇所に保ち二重管理を防ぐ）。**移送先ファイルの実在を検査**する（dangling な `promoted_to` は「本文がどこにも無い」状態を作るため）。tombstone を消さないのは**重複排除**のため。 |
+| `convention retire <id> --status ineffective\|superseded [--note <t>]` | 退役して退避。`ineffective` は「条項が誤り」ではなく「**散文層の限界に当たった**」可能性がある（DESIGN「2.6」）ので、CLI/フック層へ寄せる検討を促す。 |
+| `convention status [--format table\|tsv]` | **読み取り専用**。条項の `status` / `introduced` / **`pop`（母集団＝導入日以降に着手した work 件数）** / `need` / **`ready`（判定可能か）** / `promoted_to` を一覧。`aidev-util-insights` の縦断分析の入口。 |
 | `backlog archive [<file>...] [--force]` | 消化しきった backlog（`split`/`topic` で全項目 `[x]`）を `archive/` へ退避。無指定なら条件を満たすものだけ。**判定は `doctor` の WARN と同じ関数**を通る。`mv` のみで **git は触らない**（`verify && commit` 方針）。 |
 | `worktree add <slug> [--branch n] [--base ref] [--path dir] [--mode m] [--ticket id] [--depends list]` | **ユーザー責任の並行作業 on-ramp**。work 専用の git worktree（既定 `<repo>-wt/<slug>`）と `feature/<slug>` ブランチ（既定 base=HEAD）を作る。worktree 内に該当 slug の work が無ければ `new` を委譲し（add 内で new）、有れば current 設定のみ。**main tree の `.aidev/current` は書き換えない（INV-1）**。完了時に共有ファイル警告を出す——名指しする対象は `.aidev/config.yml` の `sharedFiles`（例 `sharedFiles: [package.json, src/registry.ts]`）から取り、未設定なら汎用文言にフォールバックする（PJ 固有名を CLI に埋めない）。 |
 | `worktree list [--format table\|tsv]` | **読み取り専用**。aidev 管理 worktree（判定キー = worktree ローカル `.aidev/current` の有無）を path/branch/work/phase で一覧。`--format tsv` の先頭列は `worktree`。 |
@@ -76,9 +81,11 @@ Git Bash（Git for Windows 同梱）があるなら POSIX 版の `aidev` がそ�
 不変条件だけ**を強制する。`schema` 未記載の旧 work は **legacy として免除**（「過去分は捏造しない」方針。
 `protocol.md`「8.」）。これにより新ガードを足しても**過去 work を遡及的に違反扱いしない**。
 
-- 現行 `CURRENT_SCHEMA = 2`。
+- 現行 `CURRENT_SCHEMA = 4`。
 - schema ≥ 2 の不変条件: `metrics.yml` の存在 ／ review 承認済なら `review.md` 存在 ／ deliver 承認済なら
   metrics に deliver の approved イベントが存在。
+- schema ≥ 4 の検査（WARN）: `harnessRev` の存在 ／ **またがり work**（`harnessRev` ≠ `harnessRevDelivered`）。
+  効果検証の母集団を正しく切るための刻印なので、旧 work は遡って違反扱いしない（`protocol.md`「12.」）。
 - 新しい不変条件を足すときは `CURRENT_SCHEMA` を上げ、検査をそのバージョン以上に限定する。
 
 ## deliver ゲートの使い方（`land` を別コマンドにしない理由）
