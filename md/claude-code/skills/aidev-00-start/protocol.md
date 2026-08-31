@@ -23,6 +23,7 @@
   | `protocol-subtask.md` | 「2.8」 | plan の split 判定 / `state.yml` に `parent` がある work の工程 |
   | `protocol-backlog.md` | 「2.9」 | backlog 項目を選ぶ / deliver で消し込む |
   | `protocol-analysis.md` | 「8.」 | retro / insights の定量分析 |
+  | `protocol-conventions.md` | 「12.」 | PJ規約の条項を起こす / 効果を判定する / PJ ドキュメントへ移送する |
 - 実行時状態: `.aidev/`（リポジトリ内に生成）
   - `.aidev/current`: 現在作業中の works フォルダ名（ポインタ）
   - `.aidev/works/<YYYYMMDD-slug>/`: 作業単位ごとのフォルダ。成果物と `state.yml` を格納
@@ -325,8 +326,9 @@ skill の命名軸は **「役割／レイヤ」**とする。**「人間が呼�
 各 works フォルダ内に 1 つ置く。
 
 ```yaml
-schema: 3                   # state スキーマ版（aidev new が刻む）。verify は導入版以上の不変条件のみ強制。未記載=legacy として免除
+schema: 4                   # state スキーマ版（aidev new が刻む）。verify は導入版以上の不変条件のみ強制。未記載=legacy として免除
                             # schema 3=subtask 層（subtasks/activeSubtask/parent）導入。schema<=2 work は subtask 不変条件を免除（後方互換）
+                            # schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema<=3 work は harnessRev 検査を免除
 slug: <作業slug>            # 例: user-login
 ticket: <ID または 省略>     # 任意。外部チケット/issue の ID（ツール非依存。例 "#18" / "PROJ-123"）。種類は .aidev/config.yml の tracker
                             # 後方互換: 旧 `issue: <番号>`（GitHub前提）も受理する。新規は ticket を使う。
@@ -340,6 +342,10 @@ maxSendBacks: 3             # autonomous 時の差し戻し上限（同一工程
 dependsOn: []              # この作業の前提（他の works slug / 同一親内の兄弟 subtask 名 / 外部チケット #N・PROJ-123）。未充足なら着手前に警告。「2.7」参照
 backlog: <file>            # 任意。backlog 項目から起こした場合の出自（`.aidev/backlog/` 内のファイル名。例 hostserver.md）
                            # `aidev new --backlog <file>` が刻む。deliver でその行を [x] にすることを verify が強制する（「2.9」）
+harnessRev: <短縮SHA>      # この work を回したハーネスの版。`aidev new` が自動で刻む（schema 4〜）
+                           # ハーネス改修の効果検証で母集団を特定するための刻印。取れない環境は unknown。「12.」参照
+harnessRevDelivered: <SHA> # deliver 承認時の版。`aidev approve deliver` が刻む
+                           # harnessRev と違う work＝またがり work で、効果検証の母集団からは除外される
 # --- subtask 層（schema 3・親 work のみが持つ。「2.8」参照）---
 subtasks: []               # 親が持つ子 subtask 名の一覧（フローリスト。例 [01-backend, 02-frontend]）
 activeSubtask: <名 or done> # 実行中の子（.aidev/current の冗長コピー。propose/metrics 用。全完了で done）
@@ -469,11 +475,31 @@ review 工程はラウンドごとに追記する（差し戻し後の再レビ�
 # レビュー記録
 
 ## ラウンド <n>（<ts>）
-- [must] <ファイル:行> <指摘内容> / 対応: <差し戻し or 修正済 or 許容>
-- [should] <…>
-- [nit] <…>
+- [must][conv:naming-boolean] <ファイル:行> <指摘内容> / 対応: <差し戻し or 修正済 or 許容>
+- [should][conv:-] <…>
+- [nit][conv:-] <…>
 （指摘なしの場合はその旨）
 ```
+
+### 条項参照タグ（`[conv:…]`）
+
+各指摘に、その根拠となる**条項の id** を付ける（「12.」の `docs/aidev/<id>.md` または
+移送済み条項の id）。対応する条項が無ければ **`[conv:-]`**。
+
+**分類の語彙を新規に発明しない**のが要点。「この指摘は何類型か」を毎回考えさせると判断がぶれて
+書かれなくなる（`kind` frontmatter が全ファイルで欠落した失敗と同じ形）。選択肢は
+`aidev convention status` が出す id の一覧なので、判断軸は「どの条項の話か」の一本になる。
+
+タグから2つのことが機械的に読める（どちらも `review.md` の grep で足りるので、**metrics のキーは
+増やさない**——「8.」の追加基準「既存から導出できない」を満たさないため）。
+
+| 読めること | 使い道 |
+|---|---|
+| `[conv:-]` の頻度と内容 | **規約の穴**。条項を起こす候補（retro / insights） |
+| 条項 id 別の指摘件数の推移 | **条項の効果**。`introduced` の前後で減ったか（insights の判定材料） |
+
+id を持つ指摘が繰り返し出るなら、それは「規約が無い」ではなく「**規約はあるのに守られていない**」。
+条項に追記しても効かないので、「12.」の表に従って層を下げる判断に回す。
 
 ## 9. 図示（mermaid）規約
 
@@ -611,3 +637,130 @@ light では **research / design / walkthrough を使わない**。必要と判�
 4. 省略していた節を各文書に**足す**（書き換えではない）。
 
 **light でも coding / test / review / deliver は full と完全に同一**（review を残すことが品質の担保）。
+## 12. PJ規約の条項（docs/aidev）と効果検証
+
+ハーネスが生成した規約を **PJ 所有の AGENTS.md / CLAUDE.md に書き込まない**ための層。
+retro / insights の「PJ プロセス / 規約」カテゴリの出力先はここになる。
+
+### なぜ AGENTS.md に直接書かないか
+
+このファイルの冒頭が宣言しているとおり、harness は **PJ 固有ファイル（AGENTS.md / CLAUDE.md / docs 等）
+には依存しない**。にもかかわらず改善提案の宛先が AGENTS.md だと、**依存しないと宣言したファイルに
+harness が書き戻す**ことになる。AGENTS.md は PJ が所有し、aidev を使わない人も編集する。
+所有権の衝突を構造に埋め込まないため、生成物は `docs/aidev/` に置く。
+
+### docs/aidev は終着点ではない（二重管理の防止）
+
+`docs/aidev/` は保管庫ではなく**検証中の待避所（インキュベーター）**。条項は必ずここから出ていく。
+
+| status | 意味 | 次にすること |
+|---|---|---|
+| `pending` | 導入済み・母集団が未達 | 待つ（`aidev convention status` の `ready` を見る） |
+| `confirmed` | 効果が確認できた | **PJ ドキュメントへ本文を移送**し `promote` |
+| `promoted` | 移送済み | 何もしない（tombstone として `archive/` に残る） |
+| `ineffective` | 効果が無かった | 撤去、または CLI / フック層へ寄せる（下記） |
+| `superseded` | 別条項に置き換わった | 撤去 |
+
+**本文の在処は常に1箇所**。移送したら `docs/aidev/` 側は本文を捨てて tombstone（frontmatter と
+`promoted_to` リンクだけ）にする。本文が2箇所に存在する瞬間を作らないことで二重管理を構造的に防ぐ。
+
+**tombstone を消さない理由は重複排除**。跡形なく消すと、同じ提案が retro から再び上がってくる
+（`aidev-util-propose` の柱の一つが重複排除であるのと同じ理由）。`aidev convention new` は
+archive に同じ id があれば**重複として弾く**。
+
+**定常状態では `pending` の条項しか残らない**。確定したものも否定されたものも出ていくので、
+`docs/aidev/` が膨らんできたら**それ自体が異常の信号**（検証が回っていない / 移送が滞っている）。
+
+### AGENTS.md に置くのは「読む条件つきの索引」だけ
+
+AGENTS.md / CLAUDE.md は**自動読込**される。`docs/aidev/` 配下はされない。移設は
+「確実に読まれる」を「リンクを辿れば読まれるかもしれない」に落とすので、そこを索引で埋める。
+
+裸のリンクは辿られない。**いつ辿るかが書かれたリンク**は辿られる——これは「0.」の付録テーブルが
+このファイル自身に対してやっていることと同じ形で、要約も併記して**辿らなくても「何があるか」は
+分かる**状態を保つ。
+
+```markdown
+<!-- aidev:conventions -->
+- 命名を判断するとき → docs/coding-standards.md#boolean-naming（移送済み）
+- エラー処理の粒度を決めるとき → docs/aidev/error-granularity.md（検証中）
+<!-- /aidev:conventions -->
+```
+
+- **harness が触るのはマーカーの内側だけ**。導入時に人間が1回置き、以後は索引行の増減と
+  リンク先の張り替え（移送時）のみ。マーカー外は完全に PJ のもの。
+- aidev を使わない PJ は**索引ブロックごと削除すれば無害に切り離せる**。
+- **矛盾したときは PJ の AGENTS.md 本体が上位**。`docs/aidev/` は追補であって上書きではない
+  （ハーネスの提案が PJ の明示的な意思を覆すのは越権）。
+
+### 条項ファイルのスキーマ
+
+`docs/aidev/<id>.md`（場所は `.aidev/config.yml` の `conventionsDir` で変更可。既定 `docs/aidev`）。
+
+```yaml
+---
+convention: naming-boolean      # id（ファイル名と一致）
+status: pending                 # pending | confirmed | promoted | ineffective | superseded
+introduced: 2026-08-30          # 導入日（UTC）。母集団の起点になる
+source: .aidev/insights/2026-08-28-insights.md   # この条項を生んだ信号（任意）
+hypothesis: 命名に関する must/should 指摘が減る    # 必須。書けない条項は作らせない
+verify_after: 5                 # 判定に要する母集団の最低件数（既定 5）
+result: <判定の内訳>             # confirm 時
+promoted_to: docs/coding-standards.md#boolean-naming  # promote 時
+promoted_at: 2026-09-15         # promote 時
+note: <退役理由>                 # retire 時
+---
+```
+
+**`hypothesis` を必須にするのがこの層の入口ゲート**。「どの指標がどう動けば成功か」を先に書かないと、
+後から見た指標は常に何かしら動いているので都合のいい説明がついてしまう。それは検証ではなく
+事後の物語作り。書けないなら条項にすべきでない、と CLI が拒否する。
+
+**母集団**＝`introduced` 以降に**着手した** work の件数（`aidev convention status` の `pop`）。
+導入前から走っていた work は条項の効果を半分しか受けていないので数えない。
+
+### 効果が無かった条項の行き先（重要）
+
+`ineffective` は「条項の内容が間違っていた」とは限らない。「2.6」の三層モデルどおり、
+**散文規約は LLM が守る前提で実効が非決定的**なので、**散文層の限界に当たった**可能性がある。
+その場合の打ち手は削除ではなく **CLI（ハード層）かフック（自動化層）へ寄せる**こと。
+
+この診断を立てられるようにするのが、review.md の**条項参照タグ**（「8.」）。
+
+| review 指摘が条項に | 意味 | 打ち手 |
+|---|---|---|
+| 対応しない（`conv:-`） | 規約に穴がある | 条項を起こす |
+| 対応する（なのに指摘された） | 規約はあるが守られていない | **追記しても効かない**。層を下げる |
+
+### CLI（`aidev convention`）
+
+起こす・状態を進める・退避するは CLI にある（「検査だけあって実行が無い」を作らない）。
+**本文を PJ ドキュメントへ実際に移す作業だけは CLI にしない**——文体・配置・既存章との統合が
+判断だから（backlog の消し込み本体と同じ線引き）。
+
+| コマンド | 役割 |
+|---|---|
+| `aidev convention new <id> --hypothesis <text> [--source <p>] [--verify-after <n>]` | 起こす |
+| `aidev convention confirm <id> [--result <text>]` | 効果ありと判定 |
+| `aidev convention promote <id> --to <path#anchor>` | tombstone 化して退避（移送先の実在を検査） |
+| `aidev convention retire <id> --status ineffective\|superseded [--note <t>]` | 退役して退避 |
+| `aidev convention status [--format table\|tsv]` | 状態・母集団・判定可否の一覧 |
+
+**ファイル自身の一生は `aidev doctor` が見る**（backlog と同じく、条項ファイルには持ち主の work が
+いないので `verify` の硬ゲートにできない）。検知するのは `status` の欠落・誤記／**判定可能なのに
+未判定**／**confirmed の移送漏れ**／終状態の退避漏れ。**WARN 止まり**。
+
+### ハーネス自身の効果検証（harnessRev）
+
+条項（PJ規約）と同じ問いを**ハーネス自身**に向けたものが `state.yml` の `harnessRev`（「6.」）。
+`aidev new` が自動で刻み、`aidev approve deliver` が `harnessRevDelivered` を刻む。
+
+- 刻印を手書きに任せると忘れられ、**忘れられた work は母集団から静かに漏れる**
+  （`schema:` を `new` に一本化したのと同じ理由）。
+- **またがり work**（着手時と着地時で版が違う）は、改修の効果を半分しか受けていない。
+  どちらかに帰属させると効果が薄まる方向にバイアスがかかるので、**母集団から除外**する
+  （`aidev verify` が WARN で知らせる）。
+- git が無い等で版が取れない環境では **`unknown` を刻む**（「8.」の「捏造して埋めない」と同じ態度）。
+
+判定は `aidev-util-insights`（横断分析）が行う。
+

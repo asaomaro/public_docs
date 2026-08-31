@@ -26,6 +26,10 @@ run_ps1() { # script args...
   esac
 }
 
+# CLI が刻む現行スキーマ版。テストで版番号を二重管理しない（bump のたびに期待値を書き換えると
+# 「テストを通すために期待値を直す」形になり、刻印そのものの回帰を守れなくなる）。
+CUR_SCHEMA=$(sed -n 's/^CURRENT_SCHEMA=\([0-9][0-9]*\).*/\1/p' "$AIDEV_SH" | head -n1)
+
 PASS=0; FAIL=0; SKIP=0
 ok()   { PASS=$((PASS+1)); printf '  ok: %s\n' "$1"; }
 ng()   { FAIL=$((FAIL+1)); printf '  NG: %s\n' "$1" >&2; }
@@ -323,7 +327,7 @@ assert_contains "$(cat "$SPST")" "activeSubtask: 01-be" "親 activeSubtask 設�
 SCST="$SUB/.aidev/works/$SP/01-be/state.yml"
 assert_contains "$(cat "$SCST")" "parent: $SP" "子 state.yml に parent 逆参照"
 assert_contains "$(cat "$SCST")" "current: plan" "子 current=plan"
-assert_contains "$(cat "$SCST")" "schema: 3" "子 schema=3"
+assert_contains "$(cat "$SCST")" "schema: $CUR_SCHEMA" "子 schema=CURRENT_SCHEMA"
 
 # 2つ目: activeSubtask は先頭(01-be)のまま・subtasks に追記
 run_sub new 02-fe --parent "$SP" --depends 01-be >/dev/null
@@ -767,6 +771,140 @@ printf 'events:\n  - { ts: 2026-08-23T01:00:00Z, phase: coding, event: approved 
   > "$SREPO/.aidev/works/$S_SLUG/metrics.yml"
 run_ssh doctor >/dev/null 2>&1; assert_eq "$?" "0" "doctor: --strict の影響を受けない（WARN 止まり）"
 
+echo "== convention（条項の一生 / 効果検証の母集団 / 二重管理の防止） =="
+# 背景: retro/insights の「PJ プロセス / 規約」の宛先が AGENTS.md（=PJ 所有）だったため、
+# 「依存しないと宣言したファイルに harness が書き戻す」構造になっていた。生成物は docs/aidev/ へ移し、
+# **効果が確認できたら PJ ドキュメントへ移送して本文を1箇所に保つ**（protocol.md「12.」）。
+CVR=$(mktemp -d); mkdir -p "$CVR/.aidev/works" "$CVR/docs"
+run_cv() { ( cd "$CVR" && "$AIDEV_SH" "$@" ); }
+
+# --- 入口ゲート: 仮説の無い条項は作らせない（検証不能な改善を積まない） ---
+run_cv convention new naming >/dev/null 2>&1
+assert_eq "$?" "1" "convention new: --hypothesis は必須（検証できない条項を弾く）"
+run_cv convention new naming --hypothesis "x" --verify-after abc >/dev/null 2>&1
+assert_eq "$?" "1" "convention new: --verify-after は整数"
+
+CV_NEW=$(run_cv convention new naming-boolean --hypothesis "命名の must/should 指摘が減る" \
+  --source ".aidev/insights/2026-08-28-insights.md" --verify-after 2 2>&1)
+assert_contains "$CV_NEW" "status pending" "convention new: pending で起こす"
+assert_contains "$CV_NEW" "AGENTS.md の索引ブロック" "convention new: 索引への追記を促す（自動読込されないため）"
+CVF="$CVR/docs/aidev/naming-boolean.md"
+assert_eq "$([ -f "$CVF" ] && echo yes || echo no)" "yes" "convention new: 既定の conventionsDir は docs/aidev"
+CVB=$(cat "$CVF")
+assert_contains "$CVB" "hypothesis: 命名の must/should 指摘が減る" "convention new: 仮説を frontmatter に残す"
+assert_contains "$CVB" "verify_after: 2" "convention new: 判定に要する母集団件数を残す"
+assert_contains "$CVB" "source: .aidev/insights/2026-08-28-insights.md" "convention new: 出所を残す"
+run_cv convention new naming-boolean --hypothesis "again" >/dev/null 2>&1
+assert_eq "$?" "1" "convention new: 同名の active は拒否"
+
+# --- 母集団: introduced 以降に着手した work だけを数える ---
+CV_S0=$(run_cv convention status --format tsv)
+assert_contains "$CV_S0" "naming-boolean	pending" "convention status: pending を出す"
+assert_contains "$CV_S0" "	0	2	no	" "convention status: 母集団 0 件では ready=no"
+
+TODAY=$(date -u +%Y%m%d)
+for w in one two; do
+  mkdir -p "$CVR/.aidev/works/$TODAY-$w"
+  printf 'schema: 4\nslug: %s\ncurrent: requirement\napproved: []\nharnessRev: aaa1111\n' "$w" \
+    > "$CVR/.aidev/works/$TODAY-$w/state.yml"
+  printf 'events:\n  - { ts: %s-01:00:00Z, phase: requirement, event: start }\n' \
+    "$(date -u +%Y-%m-%dT)" > "$CVR/.aidev/works/$TODAY-$w/metrics.yml"
+done
+# 導入日より前に着手した work は母集団に入れない（効果を受けていないため）
+mkdir -p "$CVR/.aidev/works/20200101-old"
+printf 'schema: 4\nslug: old\ncurrent: requirement\napproved: []\n' > "$CVR/.aidev/works/20200101-old/state.yml"
+printf 'events:\n  - { ts: 2020-01-01T01:00:00Z, phase: requirement, event: start }\n' \
+  > "$CVR/.aidev/works/20200101-old/metrics.yml"
+
+CV_S1=$(run_cv convention status --format tsv)
+assert_contains "$CV_S1" "	2	2	yes	" "convention status: 母集団が揃うと ready=yes（導入前の work は数えない）"
+
+# --- doctor: 判定できる状態になったら催促する（人間が思い立つまで待たない） ---
+CV_D1=$(run_cv doctor 2>&1)
+assert_contains "$CV_D1" "母集団が揃った(2/2)のに未判定" "doctor: 判定可能なのに未判定を WARN"
+assert_contains "$CV_D1" "convention-summary: files=1 archived=0 warn=1" "doctor: 条項のサマリを出す"
+
+# --- confirmed のまま放置＝二重管理予備軍 ---
+run_cv convention confirm naming-boolean --result "must 3件 -> 0件" >/dev/null
+assert_contains "$(cat "$CVF")" "status: confirmed" "convention confirm: status を進める"
+assert_contains "$(cat "$CVF")" "result: must 3件 -> 0件" "convention confirm: 判定の内訳を残す"
+CV_D2=$(run_cv doctor 2>&1)
+assert_contains "$CV_D2" "confirmed だが未移送" "doctor: 移送漏れ（PJ docs との二重管理予備軍）を WARN"
+
+# --- promote: 移送先の実在を検査し、本文を捨てて tombstone にする ---
+run_cv convention promote naming-boolean --to docs/coding-standards.md#naming >/dev/null 2>&1
+assert_eq "$?" "1" "convention promote: 実在しない移送先を弾く（dangling な promoted_to を作らない）"
+printf '# coding standards\n' > "$CVR/docs/coding-standards.md"
+CV_P=$(run_cv convention promote naming-boolean --to docs/coding-standards.md#naming 2>&1)
+assert_contains "$CV_P" "索引ブロックのリンク先" "convention promote: 索引の張り替えを促す"
+assert_eq "$([ -f "$CVF" ] && echo yes || echo no)" "no" "convention promote: active から退避される"
+CVT=$(cat "$CVR/docs/aidev/archive/naming-boolean.md")
+assert_contains "$CVT" "promoted_to: docs/coding-standards.md#naming" "convention promote: 移送先を刻む"
+assert_contains "$CVT" "本文は promoted_to へ移送済み" "convention promote: 本文を捨てて tombstone にする"
+assert_absent "$CVT" "## 規約" "convention promote: 本文が2箇所に存在しない（二重管理の防止）"
+
+# --- tombstone は重複排除のために残す（消すと同じ提案がまた上がる） ---
+run_cv convention new naming-boolean --hypothesis "again" >/dev/null 2>&1
+assert_eq "$?" "1" "convention new: archive の tombstone と同 id は重複として弾く"
+
+# --- retire: 効かなかった条項の行き先は「削除」ではなく「層を下げる」 ---
+run_cv convention new err-gran --hypothesis "エラー粒度の指摘が減る" >/dev/null
+run_cv convention retire err-gran --status bogus >/dev/null 2>&1
+assert_eq "$?" "1" "convention retire: 未知の status を弾く"
+CV_R=$(run_cv convention retire err-gran --status ineffective --note "散文層の限界" 2>&1)
+assert_contains "$CV_R" "CLI/フック層へ寄せる" "convention retire: ineffective は層を下げる検討を促す"
+assert_contains "$(cat "$CVR/docs/aidev/archive/err-gran.md")" "note: 散文層の限界" "convention retire: 理由を残す"
+
+# 全部退避されたので警告は消える（定常状態では pending だけが active に残る）
+CV_D3=$(run_cv doctor 2>&1)
+assert_contains "$CV_D3" "convention-summary: files=0 archived=2 warn=0" "doctor: 退避済みなら警告なし"
+
+# --- 手編集で壊れた条項も拾う（frontmatter は人間も触る） ---
+mkdir -p "$CVR/docs/aidev"
+printf -- '---\nconvention: broken\n---\n\n# broken\n' > "$CVR/docs/aidev/broken.md"
+printf -- '---\nconvention: weird\nstatus: kinda\n---\n\n# weird\n' > "$CVR/docs/aidev/weird.md"
+CV_D4=$(run_cv doctor 2>&1)
+assert_contains "$CV_D4" "frontmatter(status)が無い" "doctor: status 欠落を WARN"
+assert_contains "$CV_D4" "未知の status: kinda" "doctor: 誤記を黙って通さない"
+
+# --- conventionsDir は PJ が変えられる ---
+CVR2=$(mktemp -d); mkdir -p "$CVR2/.aidev/works"
+printf 'conventionsDir: docs/rules\n' > "$CVR2/.aidev/config.yml"
+( cd "$CVR2" && "$AIDEV_SH" convention new x --hypothesis "y" >/dev/null )
+assert_eq "$([ -f "$CVR2/docs/rules/x.md" ] && echo yes || echo no)" "yes" "conventionsDir で置き場を変えられる"
+rm -rf "$CVR2"
+
+echo "== harnessRev（効果検証の母集団の刻印） =="
+# 背景: ハーネス改修が効いたかを後から判定するには「どの版で回した work か」が要る。
+# 手書きに任せると忘れられ、忘れられた work は母集団から静かに漏れる（schema: と同じ理由で new に一本化）。
+HVR=$(mktemp -d); mkdir -p "$HVR/.aidev/works"
+run_hv() { ( cd "$HVR" && "$AIDEV_SH" "$@" ); }
+run_hv new hv >/dev/null
+HVW=$(ls "$HVR/.aidev/works")
+HVST="$HVR/.aidev/works/$HVW/state.yml"
+assert_contains "$(cat "$HVST")" "harnessRev:" "new: harnessRev を自動で刻む"
+assert_contains "$(cat "$HVST")" "schema: $CUR_SCHEMA" "new: schema は CURRENT_SCHEMA"
+
+# またがり work（着手時と着地時で版が違う）は効果を半分しか受けていないので母集団から外す
+for p in requirement spec plan coding test review deliver; do
+  run_hv event "$p" start >/dev/null
+done
+: > "$HVR/.aidev/works/$HVW/review.md"
+# 着手後にハーネスが改修された状況を作る（着手時の刻印だけを別版に書き換える）
+awk '{ if ($0 ~ /^harnessRev:/) print "harnessRev: deadbee"; else print }' "$HVST" > "$HVST.t" && mv "$HVST.t" "$HVST"
+run_hv approve deliver files_changed=1 insertions=1 deletions=0 >/dev/null
+assert_contains "$(cat "$HVST")" "harnessRevDelivered:" "approve deliver: 着地時の版も刻む"
+HV_V=$(run_hv verify 2>&1)
+assert_contains "$HV_V" "またがり work" "verify: またがり work を WARN（母集団から除外する合図）"
+
+# schema<4 の旧 work は遡って違反扱いしない（version-aware）
+mkdir -p "$HVR/.aidev/works/20200101-legacy"
+printf 'schema: 3\nslug: legacy\ncurrent: requirement\napproved: []\n' > "$HVR/.aidev/works/20200101-legacy/state.yml"
+printf 'events:\n' > "$HVR/.aidev/works/20200101-legacy/metrics.yml"
+HV_L=$(run_hv verify 20200101-legacy 2>&1)
+assert_absent "$HV_L" "harnessRev が無い" "verify: schema<4 の work に harnessRev を要求しない"
+rm -rf "$HVR"
+
 echo "== sh ⇔ ps1 パリティ =="
 if [ -n "$PS_HOST" ]; then
   # verify --strict のパリティ（exit code と出力が sh と一致すること）
@@ -782,6 +920,54 @@ if [ -n "$PS_HOST" ]; then
     assert_eq "$S_SH_RC" "$S_PS_RC" "パリティ: $sargs（exit code）"
   done
 
+
+  # convention のパリティ（条項の一生が OS で食い違うと、片方の環境だけ二重管理が起きる）
+  PCV=$(mktemp -d); mkdir -p "$PCV/.aidev/works" "$PCV/docs"
+  printf '# std\n' > "$PCV/docs/std.md"
+  mkdir -p "$PCV/.aidev/works/20200101-w1"
+  printf 'schema: 4\nslug: w1\ncurrent: requirement\napproved: []\n' > "$PCV/.aidev/works/20200101-w1/state.yml"
+  printf 'events:\n  - { ts: 2020-01-01T01:00:00Z, phase: requirement, event: start }\n' \
+    > "$PCV/.aidev/works/20200101-w1/metrics.yml"
+
+  # sh 側で一生を進め、同じ操作を ps1 側でも行って生成物を突き合わせる
+  ( cd "$PCV" && "$AIDEV_SH" convention new sh-side --hypothesis "h1" --verify-after 1 >/dev/null )
+  ( cd "$PCV" && run_ps1 "$AIDEV_PS1" convention new ps-side --hypothesis "h1" --verify-after 1 >/dev/null )
+  CP_SH=$(sed 's/^introduced: .*/introduced: X/' "$PCV/docs/aidev/sh-side.md")
+  CP_PS=$(tr -d '\r' < "$PCV/docs/aidev/ps-side.md" | sed 's/^introduced: .*/introduced: X/; s/^convention: ps-side/convention: sh-side/; s/^# ps-side/# sh-side/')
+  assert_eq "$CP_SH" "$CP_PS" "パリティ: convention new の生成ファイルが一致"
+
+  CS_SH=$( ( cd "$PCV" && "$AIDEV_SH" convention status --format tsv ) 2>&1 )
+  CS_PS=$( ( cd "$PCV" && run_ps1 "$AIDEV_PS1" convention status --format tsv ) 2>&1 | tr -d '\r' )
+  assert_eq "$CS_SH" "$CS_PS" "パリティ: convention status（母集団の数え方が一致）"
+
+  CD_SH=$( ( cd "$PCV" && "$AIDEV_SH" doctor ) 2>&1 | sed -n '/^convention:/,$p' )
+  CD_PS=$( ( cd "$PCV" && run_ps1 "$AIDEV_PS1" doctor ) 2>&1 | tr -d '\r' | sed -n '/^convention:/,$p' )
+  assert_eq "$CD_SH" "$CD_PS" "パリティ: doctor の条項検査（未判定の催促が一致）"
+
+  ( cd "$PCV" && "$AIDEV_SH" convention confirm sh-side >/dev/null )
+  ( cd "$PCV" && run_ps1 "$AIDEV_PS1" convention confirm ps-side >/dev/null )
+  ( cd "$PCV" && "$AIDEV_SH" convention promote sh-side --to docs/std.md#a >/dev/null )
+  ( cd "$PCV" && run_ps1 "$AIDEV_PS1" convention promote ps-side --to docs/std.md#a >/dev/null )
+  CT_SH=$(sed 's/^introduced: .*/introduced: X/; s/^promoted_at: .*/promoted_at: X/' "$PCV/docs/aidev/archive/sh-side.md")
+  CT_PS=$(tr -d '\r' < "$PCV/docs/aidev/archive/ps-side.md" | sed 's/^introduced: .*/introduced: X/; s/^promoted_at: .*/promoted_at: X/; s/^convention: ps-side/convention: sh-side/')
+  assert_eq "$CT_SH" "$CT_PS" "パリティ: promote の tombstone が一致（本文の捨て方が同じ）"
+
+  # 入口ゲート（仮説必須）と重複排除は両実装で同じ exit code
+  ( cd "$PCV" && "$AIDEV_SH" convention new nohyp >/dev/null 2>&1 ); CG_SH=$?
+  ( cd "$PCV" && run_ps1 "$AIDEV_PS1" convention new nohyp >/dev/null 2>&1 ); CG_PS=$?
+  assert_eq "$CG_SH" "$CG_PS" "パリティ: --hypothesis 必須の exit code"
+  ( cd "$PCV" && "$AIDEV_SH" convention new sh-side --hypothesis h >/dev/null 2>&1 ); CX_SH=$?
+  ( cd "$PCV" && run_ps1 "$AIDEV_PS1" convention new sh-side --hypothesis h >/dev/null 2>&1 ); CX_PS=$?
+  assert_eq "$CX_SH" "$CX_PS" "パリティ: tombstone との重複拒否の exit code"
+  rm -rf "$PCV"
+
+  # harnessRev のパリティ（刻印が片方だけ欠けると、その OS の work が母集団から漏れる）
+  PHV=$(mktemp -d); mkdir -p "$PHV/.aidev/works"
+  ( cd "$PHV" && "$AIDEV_SH" new a >/dev/null ) && ( cd "$PHV" && run_ps1 "$AIDEV_PS1" new b >/dev/null )
+  HA=$(sed -n 's/^harnessRev: //p' "$PHV/.aidev/works/"*-a/state.yml)
+  HB=$(tr -d '\r' < "$PHV/.aidev/works/"*-b/state.yml | sed -n 's/^harnessRev: //p')
+  assert_eq "$HA" "$HB" "パリティ: harnessRev の刻印が一致"
+  rm -rf "$PHV"
   # profile 系のパリティ（同じフィクスチャに対して同じ出力になること）
   for pargs in "verify $L_SLUG" "verify $F_SLUG" "verify 20260101-oldwork"; do
     # shellcheck disable=SC2086

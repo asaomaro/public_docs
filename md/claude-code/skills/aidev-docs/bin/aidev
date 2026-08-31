@@ -24,6 +24,12 @@
 #   aidev backlog new <name> --kind standing|split|topic [--parent <p>] [--priority <n>]
 #     frontmatter 付きで backlog ファイルを起こす（kind 欠落を構造的に防ぐ）
 #   aidev backlog archive [<file>...] [--force]  # 消化しきった backlog を archive/ へ退避（mv のみ・git は触らない）
+#   aidev convention new <id> --hypothesis <text> [--source <path>] [--verify-after <n>]
+#     PJ規約の条項を docs/aidev/ に起こす（--hypothesis 必須＝検証できない条項を作らせない入口ゲート）
+#   aidev convention confirm <id> [--result <text>]     # 効果あり -> PJ ドキュメントへ移送待ちになる
+#   aidev convention retire  <id> --status ineffective|superseded [--note <text>]  # 効果なし/置換で退役
+#   aidev convention promote <id> --to <path#anchor>    # 本文を PJ docs へ移した後、tombstone 化して退避
+#   aidev convention status [--format table|tsv]        # 条項の状態・母集団件数・判定可否を一覧
 #   aidev status [--format table|tsv]          # works横断＋backlog未着手の状況サマリ（読み取り専用）
 #   aidev metrics [slug] [--all] [--phases] [--format table|tsv]  # metrics.yml から派生指標を集計（読み取り専用）
 #   aidev worktree add <slug> [--branch n] [--base ref] [--path dir] [--mode m] [--ticket id] [--depends list]
@@ -37,7 +43,8 @@
 
 set -eu
 
-CURRENT_SCHEMA=3   # 現行スキーマ版。new がこの値を刻む。schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema<=2 は legacy として subtask 不変条件を免除。
+CURRENT_SCHEMA=4   # 現行スキーマ版。new がこの値を刻む。schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema<=2 は legacy として subtask 不変条件を免除。
+
 PHASES="requirement research spec design plan coding test review walkthrough deliver retro"
 
 die()  { printf 'aidev: %s\n' "$*" >&2; exit 1; }
@@ -133,6 +140,92 @@ append_event() { # phase event [key=value ...]
   printf '  - %s\n' "$entry" >> "$WORK/metrics.yml"
 }
 
+# --- ハーネス版（効果検証の母集団特定） -------------------------------------------
+# ハーネス自身の改修が効いたかを後から判定するには、その work が**どの版のハーネスで回されたか**が
+# 要る。刻印を手書きに任せると忘れられ、忘れられた work は母集団から静かに漏れる（schema: を new に
+# 一本化したのと同じ理由）。そこで new が自動で刻む。
+# 版の実体は「ハーネス・ディレクトリを最後に触ったコミット」。git が無い/取れない環境では捏造せず
+# 'unknown' を刻む（protocol.md「8.」の「過去分は捏造しない」と同じ態度）。
+BIN_DIR=$(cd "$(dirname "$0")" && pwd)
+HARNESS=$(dirname "$(dirname "$BIN_DIR")")   # <skills>/aidev-docs/bin -> <skills>
+
+harness_rev() {
+  command -v git >/dev/null 2>&1 || { printf 'unknown'; return 0; }
+  r=$(git -C "$HARNESS" log -1 --format=%h -- "$HARNESS" 2>/dev/null || true)
+  [ -n "$r" ] || r=unknown
+  printf '%s' "$r"
+}
+
+# --- 条項（docs/aidev の PJ規約）---------------------------------------------------
+# ハーネスが生成した規約は **PJ 所有の AGENTS.md / CLAUDE.md に書き込まない**（protocol.md「12.」）。
+# docs/aidev/ は終着点ではなく**検証中の待避所**で、条項は必ずここから出ていく:
+#   効果あり -> PJ ドキュメントへ移送(promote) / 効果なし・置換 -> 退役(retire)
+# 本文の在処を常に1箇所に保つことで二重管理を構造的に防ぐ（移送後は tombstone＝リンクのみ）。
+CV_TERMINAL="promoted ineffective superseded"
+
+cv_dir() {
+  d=$(yget "$AIDEV/config.yml" conventionsDir)
+  [ -n "$d" ] || d="docs/aidev"
+  case "$d" in /*) printf '%s' "$d" ;; *) printf '%s/%s' "$ROOT" "$d" ;; esac
+}
+
+# 条項ファイル先頭 frontmatter から key を読む（bl_kind の汎用版）。
+cv_get() { # file key
+  awk -v k="$2" '
+    NR==1 && $0 !~ /^---[[:space:]]*$/ {exit}
+    NR==1 {next}
+    /^---[[:space:]]*$/ {exit}
+    index($0, k ":")==1 { sub("^" k ":[[:space:]]*",""); sub(/[[:space:]]*$/,""); print; exit }' "$1" 2>/dev/null
+}
+
+# frontmatter 内の key を差し替え、無ければ frontmatter 末尾に足す（冪等）。
+cv_set() { # file key value
+  awk -v k="$2" -v v="$3" '
+    BEGIN{fm=0; done=0}
+    NR==1 && /^---[[:space:]]*$/ {print; fm=1; next}
+    fm==1 && /^---[[:space:]]*$/ { if(!done) print k": "v; print; fm=2; next }
+    fm==1 && index($0, k ":")==1 { print k": "v; done=1; next }
+    {print}' "$1" > "$1.tmp" && mv "$1.tmp" "$1"
+}
+
+# 本文を捨てて tombstone にする。**本文が2箇所に存在する瞬間を作らない**のが移送の要点。
+cv_tombstone() { # file text
+  awk -v msg="$2" '
+    BEGIN{fm=0}
+    NR==1 && /^---[[:space:]]*$/ {print; fm=1; next}
+    fm==1 && /^---[[:space:]]*$/ {print; print ""; print msg; fm=2; next}
+    fm==1 {print; next}
+    {next}' "$1" > "$1.tmp" && mv "$1.tmp" "$1"
+}
+
+cv_find() { # id -> パスを出力（active 優先、無ければ archive）。見つからなければ 1
+  _d=$(cv_dir)
+  if [ -f "$_d/$1.md" ]; then printf '%s' "$_d/$1.md"; return 0; fi
+  if [ -f "$_d/archive/$1.md" ]; then printf '%s' "$_d/archive/$1.md"; return 0; fi
+  return 1
+}
+
+# 母集団＝その条項の導入日以降に**着手した** work の件数。
+# 導入前から走っていた work は条項の効果を半分しか受けていないので数えない
+#（またがり work を母集団に入れると効果が薄まる方向にバイアスがかかる）。
+cv_pop() { # introduced(YYYY-MM-DD) -> 件数
+  n=0
+  [ -d "$AIDEV/works" ] || { printf '0'; return 0; }
+  _b=$(printf '%s' "$1" | tr -d '-')
+  case "$_b" in ''|*[!0-9]*) printf '0'; return 0 ;; esac
+  for d in "$AIDEV/works"/*/; do
+    [ -d "$d" ] || continue
+    f="${d}metrics.yml"
+    [ -f "$f" ] || continue
+    ts=$(sed -n 's/.*ts:[[:space:]]*\([0-9][0-9-]*\).*/\1/p' "$f" | head -n1)
+    [ -n "$ts" ] || continue
+    _a=$(printf '%s' "${ts%%T*}" | tr -d '-')
+    case "$_a" in ''|*[!0-9]*) continue ;; esac
+    if [ "$_a" -ge "$_b" ]; then n=$((n+1)); fi
+  done
+  printf '%s' "$n"
+}
+
 # --- コマンド: new ------------------------------------------------------------
 cmd_new() {
   slug=""; mode=""; profile=""; ticket=""; depends=""; parent=""; backlog=""
@@ -203,6 +296,8 @@ cmd_new() {
       printf 'humanGates: []\n'
       printf 'maxSendBacks: 3\n'
       printf 'dependsOn: %s\n' "$deps_yaml"
+      printf 'harnessRev: %s\n' "$(harness_rev)"
+
     } > "$WORK/state.yml"
     printf 'events:\n' > "$WORK/metrics.yml"
 
@@ -245,6 +340,7 @@ cmd_new() {
     printf 'humanGates: []\n'
     printf 'maxSendBacks: 3\n'
     printf 'dependsOn: %s\n' "$deps_yaml"
+    printf 'harnessRev: %s\n' "$(harness_rev)"
     # `[ … ] && printf` にしない（set -eu 下で group の戻り値が 1 になる形を避ける。下の注記と同じ理由）
     if [ -n "$backlog" ]; then printf 'backlog: %s\n' "$backlog"; fi
   } > "$WORK/state.yml"
@@ -297,6 +393,19 @@ cmd_approve() {
   replace_line "$st" current "current: $ph"
   append_event "$ph" approved "$@"
   printf 'approved: %s @ %s\n' "$ph" "$SLUG"
+
+  # deliver 時のハーネス版も刻む。new 時と食い違う work は**改修をまたいで走った**ので、
+  # 前半を旧版・後半を新版で回している。どちらかに帰属させると効果が薄まるため、
+  # 効果検証の母集団からは除外する（判定は insights、検知は verify の WARN）。
+  if [ "$ph" = deliver ]; then
+    _hr=$(harness_rev)
+    set_or_append "$st" harnessRevDelivered "harnessRevDelivered: $_hr"
+    _hr0=$(yget "$st" harnessRev)
+    if [ -n "$_hr0" ] && [ "$_hr0" != "$_hr" ] && [ "$_hr0" != unknown ] && [ "$_hr" != unknown ]; then
+      printf 'note: ハーネス版が着手時(%s)と着地時(%s)で異なる＝またがり work。効果検証の母集団からは除外される\n' "$_hr0" "$_hr"
+    fi
+  fi
+
 
   # D: subtask の review 承認でカーソルを前進させる（散文の手動カーソル操作を排除）。
   # 親 subtasks を順に見て review 未承認の最初の子を次の active にする。無ければ done（→親の統合 test へ）。
@@ -488,6 +597,22 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail / 5 stri
 
   # profile: light の逸脱検査（WARN）
   light_warnings
+
+  # またがり work の検知（WARN）。schema 4 以降のみ＝旧 work を遡って違反扱いしない。
+  # 着手時と着地時でハーネス版が違う work は、改修の効果を半分しか受けていない。
+  # 気付かずに母集団へ入れると効果検証が鈍るので、ここで見えるようにしておく。
+  vsc=$(yget "$WORK/state.yml" schema)
+  case "$vsc" in ''|*[!0-9]*) vsc=0 ;; esac
+  if [ "$vsc" -ge 4 ]; then
+    hr0=$(yget "$WORK/state.yml" harnessRev)
+    hr1=$(yget "$WORK/state.yml" harnessRevDelivered)
+    if [ -z "$hr0" ]; then
+      printf '  WARN harnessRev が無い: 効果検証の母集団から漏れる（aidev new で刻まれる）\n'
+    elif [ -n "$hr1" ] && [ "$hr0" != "$hr1" ] && [ "$hr0" != unknown ] && [ "$hr1" != unknown ]; then
+      printf '  WARN またがり work: ハーネス版が着手時(%s)と着地時(%s)で異なる。効果検証の母集団からは除外される\n' "$hr0" "$hr1"
+    fi
+  fi
+
 
   if [ -n "$VF" ]; then printf '  FAIL%s\n' "$VF"; return 4; fi
   # --strict: **記録漏れだけ**を致命扱いにする（Stop フック等の機械ゲート用）。
@@ -697,6 +822,7 @@ cmd_doctor() {
   done
   printf 'summary: works=%s fail=%s legacy(免除)=%s\n' "$total" "$fail" "$legacy"
   doctor_backlog
+  doctor_conventions
   [ "$fail" -eq 0 ]
 }
 
@@ -1265,6 +1391,261 @@ bl_do_archive() {
   fi
 }
 
+# --- コマンド: convention -----------------------------------------------------
+# **起こす／状態を進める／退避する**だけを持たせる。本文を PJ ドキュメントへ実際に移す作業は
+# 文体・配置・既存章との統合という判断なので CLI にしない（backlog の消し込み本体と同じ線引き）。
+cmd_convention() {
+  [ $# -ge 1 ] || die "使用法: aidev convention <new|confirm|retire|promote|status> ..."
+  sub=$1; shift
+  case "$sub" in
+    new)     cv_new "$@" ;;
+    confirm) cv_confirm "$@" ;;
+    retire)  cv_retire "$@" ;;
+    promote) cv_promote "$@" ;;
+    status)  cv_do_status "$@" ;;
+    *) die "未知の convention サブコマンド: $sub（new|confirm|retire|promote|status）" ;;
+  esac
+}
+
+cv_new() {
+  id=""; hyp=""; src=""; va=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --hypothesis)   hyp=${2:-}; shift 2 ;;
+      --source)       src=${2:-}; shift 2 ;;
+      --verify-after) va=${2:-}; shift 2 ;;
+      -*) die "未知のオプション: $1" ;;
+      *) if [ -z "$id" ]; then id=$1; else die "id は1つだけ"; fi; shift ;;
+    esac
+  done
+  [ -n "$id" ] || die "使用法: aidev convention new <id> --hypothesis <text> [--source <path>] [--verify-after <n>]"
+  id=$(basename "$id" .md)
+  # 仮説を必須にするのが**この層の入口ゲート**。「どの指標がどう動けば成功か」を書けない条項は
+  # 後から検証できず、事後の物語作りにしかならない。書けないなら条項にすべきでない
+  [ -n "$hyp" ] || die "--hypothesis は必須です（何がどう動けば効果ありと判定するか。書けない条項は検証できない）"
+  [ -n "$va" ] || va=5
+  case "$va" in ''|*[!0-9]*) die "--verify-after は整数（母集団の最低件数）" ;; esac
+  d=$(cv_dir)
+  mkdir -p "$d"
+  f="$d/$id.md"
+  [ -e "$f" ] && die "すでにあります: $f"
+  if [ -f "$d/archive/$id.md" ]; then
+    die "同じ id が archive にあります（$d/archive/$id.md）。移送済み条項の再提案は重複です"
+  fi
+  {
+    printf '%s\n' '---'
+    printf 'convention: %s\n' "$id"
+    printf 'status: pending\n'
+    printf 'introduced: %s\n' "$(date -u +%F)"
+    if [ -n "$src" ]; then printf 'source: %s\n' "$src"; fi
+    printf 'hypothesis: %s\n' "$hyp"
+    printf 'verify_after: %s\n' "$va"
+    printf '%s\n\n' '---'
+    printf '# %s\n\n' "$id"
+    printf '%s\n\n' '<!-- 条項の本文。PJ ドキュメントへ移送(promote)するまではここが唯一の在処。 -->'
+    printf '%s\n\n' '## 規約'
+    printf '%s\n\n' '<!-- 何を守るか。レビューで指摘するときの根拠になる粒度で書く。 -->'
+    printf '%s\n\n' '## 背景'
+    printf '%s\n' '<!-- どのレビュー指摘/分析から起こしたか（source を人間向けに補足）。 -->'
+  } > "$f"
+  printf 'created: %s (status pending, verify_after %s)\n' "$f" "$va"
+  printf 'next: AGENTS.md の索引ブロックに「読む条件つき」の1行を足すこと（protocol.md「12.」）\n'
+}
+
+cv_confirm() {
+  id=""; result=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --result) result=${2:-}; shift 2 ;;
+      -*) die "未知のオプション: $1" ;;
+      *) if [ -z "$id" ]; then id=$1; else die "id は1つだけ"; fi; shift ;;
+    esac
+  done
+  [ -n "$id" ] || die "使用法: aidev convention confirm <id> [--result <text>]"
+  f=$(cv_find "$id") || die "条項がありません: $id"
+  case "$f" in *"/archive/"*) die "退避済みの条項は変更できません: $id" ;; esac
+  cv_set "$f" status confirmed
+  if [ -n "$result" ]; then cv_set "$f" result "$result"; fi
+  printf 'confirmed: %s\n' "$id"
+  printf 'next: 本文を PJ ドキュメントへ移し、`aidev convention promote %s --to <path#anchor>` で tombstone 化する\n' "$id"
+}
+
+cv_retire() {
+  id=""; st=""; note=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --status) st=${2:-}; shift 2 ;;
+      --note)   note=${2:-}; shift 2 ;;
+      -*) die "未知のオプション: $1" ;;
+      *) if [ -z "$id" ]; then id=$1; else die "id は1つだけ"; fi; shift ;;
+    esac
+  done
+  [ -n "$id" ] || die "使用法: aidev convention retire <id> --status ineffective|superseded [--note <text>]"
+  case "$st" in
+    ineffective|superseded) ;;
+    "") die "--status は必須です（ineffective|superseded）" ;;
+    *) die "未知の status: $st（ineffective|superseded）" ;;
+  esac
+  f=$(cv_find "$id") || die "条項がありません: $id"
+  case "$f" in *"/archive/"*) die "すでに退避済みです: $id" ;; esac
+  cv_set "$f" status "$st"
+  if [ -n "$note" ]; then cv_set "$f" note "$note"; fi
+  cv_archive_file "$f"
+  printf 'retired: %s (%s)\n' "$id" "$st"
+  if [ "$st" = ineffective ]; then
+    printf 'note: 「効かなかった」は「条項が誤り」とは限らない。散文層の限界なら CLI/フック層へ寄せることを検討（DESIGN「2.6」）\n'
+  fi
+}
+
+cv_promote() {
+  id=""; to=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --to) to=${2:-}; shift 2 ;;
+      -*) die "未知のオプション: $1" ;;
+      *) if [ -z "$id" ]; then id=$1; else die "id は1つだけ"; fi; shift ;;
+    esac
+  done
+  [ -n "$id" ] || die "使用法: aidev convention promote <id> --to <path#anchor>"
+  [ -n "$to" ] || die "--to は必須です（移送先の PJ ドキュメント。例 docs/coding-standards.md#naming）"
+  f=$(cv_find "$id") || die "条項がありません: $id"
+  case "$f" in *"/archive/"*) die "すでに退避済みです: $id" ;; esac
+  # 移送先の実在を確かめる。dangling な promoted_to を作ると索引が壊れ、
+  # 「本文がどこにも無い」という二重管理より悪い状態になる（アンカーまでは見ない）
+  tgt=${to%%#*}
+  case "$tgt" in /*) tpath=$tgt ;; *) tpath="$ROOT/$tgt" ;; esac
+  [ -f "$tpath" ] || die "移送先が見つかりません: $tgt（先に本文を移してから promote する）"
+  cv_set "$f" status promoted
+  cv_set "$f" promoted_to "$to"
+  cv_set "$f" promoted_at "$(date -u +%F)"
+  cv_tombstone "$f" "本文は promoted_to へ移送済み。ここには置かない（本文の在処は常に1箇所）。"
+  cv_archive_file "$f"
+  printf 'promoted: %s -> %s\n' "$id" "$to"
+  printf 'next: AGENTS.md 索引ブロックのリンク先を %s に張り替えること\n' "$to"
+}
+
+cv_archive_file() { # path
+  d=$(cv_dir)
+  mkdir -p "$d/archive"
+  b=$(basename "$1")
+  [ -e "$d/archive/$b" ] && die "archive に同名があります: $d/archive/$b"
+  mv "$1" "$d/archive/$b"
+  printf 'archived: %s\n' "$d/archive/$b"
+}
+
+cv_do_status() {
+  fmt=table
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --format) fmt=${2:-}; shift 2 ;;
+      -*) die "未知のオプション: $1" ;;
+      *) die "余分な引数: $1" ;;
+    esac
+  done
+  case "$fmt" in table|tsv) ;; *) die "--format は table|tsv" ;; esac
+  d=$(cv_dir)
+  [ -d "$d" ] || die "条項ディレクトリがありません: $d（aidev convention new で起こす）"
+  # 行は status と同じく「タブ区切り文字列を積んで最後に fmt_table へ流す」形にする
+  # （command substitution は末尾改行を落とすので、行の組み立てに $( ) を使わない）
+  rows=""; npend=0; nready=0; nconf=0
+  for f in "$d"/*.md "$d/archive"/*.md; do
+    [ -f "$f" ] || continue
+    id=$(basename "$f" .md)
+    st=$(cv_get "$f" status); [ -n "$st" ] || st="-"
+    intro=$(cv_get "$f" introduced); [ -n "$intro" ] || intro="-"
+    va=$(cv_get "$f" verify_after)
+    case "$va" in ''|*[!0-9]*) va=0 ;; esac
+    pt=$(cv_get "$f" promoted_to); [ -n "$pt" ] || pt="-"
+    if [ "$intro" = "-" ]; then pop=0; else pop=$(cv_pop "$intro"); fi
+    ready="-"
+    if [ "$st" = pending ]; then
+      npend=$((npend+1))
+      if [ "$va" -gt 0 ] && [ "$pop" -ge "$va" ]; then ready=yes; nready=$((nready+1)); else ready=no; fi
+    fi
+    if [ "$st" = confirmed ]; then nconf=$((nconf+1)); fi
+    rows="${rows}${id}	${st}	${intro}	${pop}	${va}	${ready}	${pt}
+"
+  done
+  if [ "$fmt" = tsv ]; then
+    printf '%s' "$rows" | while IFS='	' read -r a b c e f g h; do
+      [ -n "$a" ] || continue
+      printf 'convention	%s	%s	%s	%s	%s	%s	%s\n' "$a" "$b" "$c" "$e" "$f" "$g" "$h"
+    done
+  else
+    { printf 'id	status	introduced	pop	need	ready	promoted_to\n'; printf '%s' "$rows"; } | fmt_table
+  fi
+  printf 'convention-summary: pending=%s ready=%s confirmed(未移送)=%s\n' "$npend" "$nready" "$nconf"
+}
+
+# 条項ファイルの一生を見る（backlog と同じく**持ち主の work がいない**ので verify では硬ゲートにできない）。
+# 見るのは4つ: frontmatter の欠落・未知 status / 判定可能なのに未判定 / confirmed の移送漏れ / 終状態の退避漏れ。
+doctor_conventions() {
+  d=$(cv_dir)
+  [ -d "$d" ] || return 0
+  cfiles=0; carch=0; cwarn=0; cout=""
+  for f in "$d"/*.md "$d/archive"/*.md; do
+    [ -f "$f" ] || continue
+    case "$f" in
+      "$d/archive/"*) arch=yes; label="archive/$(basename "$f")"; carch=$((carch+1)) ;;
+      *)              arch=no;  label=$(basename "$f");           cfiles=$((cfiles+1)) ;;
+    esac
+    st=$(cv_get "$f" status)
+    intro=$(cv_get "$f" introduced)
+    va=$(cv_get "$f" verify_after)
+    w=""
+    case "$st" in
+      "")
+        w="$w    WARN frontmatter(status)が無い: 検証の進み方が決まらない（pending/confirmed/promoted/ineffective/superseded）
+" ;;
+      pending)
+        if [ "$arch" = yes ]; then
+          w="$w    WARN 退避済みだが status=pending: 判定前に退避されている
+"
+        else
+          case "$va" in ''|*[!0-9]*) va=0 ;; esac
+          if [ -n "$intro" ] && [ "$va" -gt 0 ]; then
+            pop=$(cv_pop "$intro")
+            if [ "$pop" -ge "$va" ]; then
+              w="$w    WARN 母集団が揃った(${pop}/${va})のに未判定: insights で効果を判定すること
+"
+            fi
+          fi
+        fi ;;
+      confirmed)
+        if [ "$arch" = no ]; then
+          # 効果が確認された条項が docs/aidev に居座ると、PJ ドキュメントと二重管理になる
+          w="$w    WARN confirmed だが未移送: PJ ドキュメントへ移して promote すること
+"
+        fi ;;
+      promoted)
+        if [ -z "$(cv_get "$f" promoted_to)" ]; then
+          w="$w    WARN promoted だが promoted_to が無い: 本文の行き先が辿れない
+"
+        fi
+        if [ "$arch" = no ]; then
+          w="$w    WARN promoted だが未退避: active に残ると重複提案の検査対象からずれる
+"
+        fi ;;
+      ineffective|superseded)
+        if [ "$arch" = no ]; then
+          w="$w    WARN $st だが未退避: archive/ へ移すこと
+"
+        fi ;;
+      *)
+        w="$w    WARN 未知の status: $st（pending/confirmed/promoted/ineffective/superseded）
+" ;;
+    esac
+    if [ -n "$w" ]; then
+      cwarn=$((cwarn+1))
+      cout="$cout- $label (status=${st:--})
+$w"
+    fi
+  done
+  printf 'convention: 条項ファイル横断検査\n'
+  if [ -n "$cout" ]; then printf '%s' "$cout"; fi
+  printf 'convention-summary: files=%s archived=%s warn=%s\n' "$cfiles" "$carch" "$cwarn"
+}
+
 cmd_worktree() {
   [ $# -ge 1 ] || die "使用法: aidev worktree <add|list|rm> ..."
   sub=$1; shift
@@ -1295,6 +1676,8 @@ case "$cmd" in
   metrics) cmd_metrics "$@" ;;
   use)     cmd_use "$@" ;;
   backlog) cmd_backlog "$@" ;;
+  convention) cmd_convention "$@" ;;
+
   worktree) cmd_worktree "$@" ;;
   help|-h|--help) usage ;;
   *) die "未知のコマンド: $cmd（aidev help）" ;;
