@@ -13,6 +13,10 @@
 | `plan.md` | どう作るか。受け入れ条件と確認方法が1対1で並んでいる |
 | `tasks.md` | 手順。**まだ未チェック**（`/sdd-implement` が付ける） |
 
+このあと `/sdd-implement` → `/sdd-verify` と進むと、`test-result.md` が増えます。
+その書式は [`../.github/sdd-templates/test-result.md`](../.github/sdd-templates/test-result.md)
+にあり、**記入例も載せてあります**。
+
 ## 読み方
 
 **上から順に3枚読むと、後の段が前の段だけを根拠に書かれている**のが分かります。

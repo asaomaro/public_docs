@@ -36,8 +36,10 @@ SDD（Spec-Driven Development・仕様駆動開発）を**手を動かして掴�
     │   ├── sdd-tasks.prompt.md
     │   ├── sdd-implement.prompt.md
     │   └── sdd-verify.prompt.md
-    └── instructions/
-        └── project-rules.instructions.md   ← 書き換えて使う
+    ├── instructions/
+    │   └── project-rules.instructions.md   ← 書き換えて使う
+    └── sdd-templates/
+        └── test-result.md                  ← テスト結果の書式。書き換えて使う
 ```
 
 すでに `.github/instructions/` や `copilot-instructions.md` がある場合は、
@@ -57,13 +59,13 @@ SDD（Spec-Driven Development・仕様駆動開発）を**手を動かして掴�
 /sdd-plan        どう作るか      → .sdd/<機能名>/plan.md
 /sdd-tasks       手順に割る      → .sdd/<機能名>/tasks.md
 /sdd-implement   作る            → コード
-/sdd-verify      確かめる        → spec.md のチェックが埋まる
+/sdd-verify      確かめる        → .sdd/<機能名>/test-result.md
 ```
 
 **各段の最後で AI は必ず止まります。** そこがゲートです。
 読んで、直して、よければ次を打つ。**この止まる回数が SDD の値打ちです。**
 
-### 3つのチェックリストが進捗を表す
+### ファイルがそのまま進捗を表す
 
 進捗を管理する仕組みはありません。**ファイルとチェックボックスがそのまま状態**です。
 
@@ -71,9 +73,13 @@ SDD（Spec-Driven Development・仕様駆動開発）を**手を動かして掴�
 |---|---|
 | `.sdd/<機能名>/` にあるファイル | どの段まで進んだか |
 | `tasks.md` のチェック | 実装がどこまで進んだか |
-| **`spec.md` の受け入れ条件のチェック** | **何が確かめ済みか** |
+| `spec.md` の受け入れ条件のチェック | 最新の合否（一目で見る用） |
+| **`test-result.md`** | **何を根拠にそう判定したか・過去のラウンド** |
 
-中断しても、この3つを見れば続きから再開できます。
+中断しても、これを見れば続きから再開できます。
+
+> `spec.md` のチェックと `test-result.md` が食い違ったら **`test-result.md` が正**です。
+> 両方 `/sdd-verify` が同時に更新するので、通常ずれません。
 
 ### なぜ implement と verify を分けるのか
 
@@ -83,7 +89,11 @@ SDD（Spec-Driven Development・仕様駆動開発）を**手を動かして掴�
 確かめる側は「実装したのだから満たしているはず」を認めず、**根拠**（テスト結果・読んだコードの箇所）
 を示せない条件は満たしていない扱いにします。
 
-終わったとき、**`spec.md` の受け入れ条件がそのまま結果表**になっています。
+終わったとき、**`test-result.md` に「何を・どう確かめて・どう判定したか」が残ります。**
+再検証したらラウンドが追記されるので、何が直って何が残ったかの経過もそのまま記録になります。
+
+書式は `.github/sdd-templates/test-result.md` にあります。**書き換えれば出力も変わります**
+（プロンプト側を触らずに、報告の形だけ自分たちのやり方に合わせられます）。
 
 ---
 
