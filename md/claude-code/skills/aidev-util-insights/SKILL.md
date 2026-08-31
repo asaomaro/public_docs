@@ -44,6 +44,11 @@ per-work の `retro` が「その作業1件」を振り返るのに対し、こ�
     `.aidev/works/*/metrics.yml` の `approved` 行から抽出する（1 イベント 1 行なので grep で足りる）。
     protocol.md「8.」の「工程別の付加メトリクス」がキーの正典。
 - `.aidev/works/*/review.md`：レビュー指摘の内容（再発パターン分析の主材料。**テキストは読む**）。
+  - **「タスク点検ログ」節（coding 工程内の独立点検。protocol.md「3.3」(b)「8.」）はラウンド指摘と分けて数える**。
+    点検で潰れた欠陥は工程に到達しなかったもので、母集団が違う。`[conv:…]` タグの集計は節をまたいでよい
+    （タグの規約は同じ）が、`must` 件数の推移を見るときは混ぜない。
+  - 点検の効き具合は `task_checks` / `task_check_findings`（coding の付加メトリクス）と `must` の推移を
+    突き合わせて読む——**findings が出ているのに `must` が減らないなら、点検の観点か発火条件がずれている**。
 - `.aidev/works/*/decisions.md`：繰り返される設計逸脱（テキスト）。
 - `.aidev/works/*/retro.md`：過去の per-work 改善提案（再発・未対応の把握。テキスト）。
 - **`aidev convention status`**：PJ規約の条項の状態・母集団件数(`pop`)・判定可否(`ready`)。
