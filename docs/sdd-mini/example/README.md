@@ -13,9 +13,15 @@
 | `plan.md` | どう作るか。受け入れ条件と確認方法が1対1で並んでいる |
 | `tasks.md` | 手順。**まだ未チェック**（`/sdd-implement` が付ける） |
 
-このあと `/sdd-implement` → `/sdd-verify` と進むと、`test-result.md` が増えます。
-その書式は [`../.github/sdd-templates/test-result.md`](../.github/sdd-templates/test-result.md)
-にあり、**記入例も載せてあります**。
+このあと `/sdd-implement` → `/sdd-verify` → `/sdd-review` と進むと、2つ増えます。
+
+| 増えるファイル | 何の記録か | 書式 |
+|---|---|---|
+| `test-result.md` | 仕様どおりか（○ / × / −） | [`test-result.md`](../.github/sdd-templates/test-result.md) |
+| `review-result.md` | コードとして妥当か（must / should / nit） | [`review-result.md`](../.github/sdd-templates/review-result.md) |
+
+**どちらのテンプレートにも記入例が載せてあります。** 先にそれを読むと、
+何を書く欄なのかが掴めます。
 
 ## 読み方
 

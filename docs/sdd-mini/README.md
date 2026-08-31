@@ -1,7 +1,7 @@
-# sdd-mini — プロンプトファイル5枚で作る SDD
+# sdd-mini — プロンプトファイル6枚で作る SDD
 
 SDD（Spec-Driven Development・仕様駆動開発）を**手を動かして掴むための最小キット**です。
-インストールも CLI も要りません。**Markdown を5枚置くだけ**です。
+インストールも CLI も要りません。**Markdown を6枚置くだけ**です。
 
 > 設計判断は [`../copilot-sdd-mini.md`](../copilot-sdd-mini.md) を参照。
 
@@ -35,11 +35,13 @@ SDD（Spec-Driven Development・仕様駆動開発）を**手を動かして掴�
     │   ├── sdd-plan.prompt.md
     │   ├── sdd-tasks.prompt.md
     │   ├── sdd-implement.prompt.md
-    │   └── sdd-verify.prompt.md
+    │   ├── sdd-verify.prompt.md
+    │   └── sdd-review.prompt.md
     ├── instructions/
     │   └── project-rules.instructions.md   ← 書き換えて使う
     └── sdd-templates/
-        └── test-result.md                  ← テスト結果の書式。書き換えて使う
+        ├── test-result.md                  ← テスト結果の書式。書き換えて使う
+        └── review-result.md                ← レビュー結果の書式。書き換えて使う
 ```
 
 すでに `.github/instructions/` や `copilot-instructions.md` がある場合は、
@@ -59,7 +61,8 @@ SDD（Spec-Driven Development・仕様駆動開発）を**手を動かして掴�
 /sdd-plan        どう作るか      → .sdd/<機能名>/plan.md
 /sdd-tasks       手順に割る      → .sdd/<機能名>/tasks.md
 /sdd-implement   作る            → コード
-/sdd-verify      確かめる        → .sdd/<機能名>/test-result.md
+/sdd-verify      仕様どおりか    → .sdd/<機能名>/test-result.md
+/sdd-review      コードは妥当か  → .sdd/<機能名>/review-result.md
 ```
 
 **各段の最後で AI は必ず止まります。** そこがゲートです。
@@ -74,25 +77,49 @@ SDD（Spec-Driven Development・仕様駆動開発）を**手を動かして掴�
 | `.sdd/<機能名>/` にあるファイル | どの段まで進んだか |
 | `tasks.md` のチェック | 実装がどこまで進んだか |
 | `spec.md` の受け入れ条件のチェック | 最新の合否（一目で見る用） |
-| **`test-result.md`** | **何を根拠にそう判定したか・過去のラウンド** |
+| **`test-result.md`** | **仕様どおりか**。根拠と過去のラウンド |
+| **`review-result.md`** | **コードとして妥当か**。must / should / nit と根拠 |
 
 中断しても、これを見れば続きから再開できます。
 
 > `spec.md` のチェックと `test-result.md` が食い違ったら **`test-result.md` が正**です。
 > 両方 `/sdd-verify` が同時に更新するので、通常ずれません。
 
-### なぜ implement と verify を分けるのか
+### なぜ implement / verify / review を分けるのか
 
 **作った本人がその場で「できました」と言う形にしないため**です。
 
-`/sdd-implement` は受け入れ条件のチェックを**触りません**。付けるのは `/sdd-verify` だけ。
+`/sdd-implement` は結果ファイルもチェックボックスも**触りません**。書くのは verify と review だけ。
 確かめる側は「実装したのだから満たしているはず」を認めず、**根拠**（テスト結果・読んだコードの箇所）
-を示せない条件は満たしていない扱いにします。
+を示せないものは合格にしません。
 
-終わったとき、**`test-result.md` に「何を・どう確かめて・どう判定したか」が残ります。**
-再検証したらラウンドが追記されるので、何が直って何が残ったかの経過もそのまま記録になります。
+**verify と review も分けてあります。基準が違うからです。**
 
-書式は `.github/sdd-templates/test-result.md` にあります。**書き換えれば出力も変わります**
+| | 見るもの | 合否を決めるもの |
+|---|---|---|
+| `/sdd-verify` | 仕様どおりに動くか | `spec.md` の受け入れ条件 |
+| `/sdd-review` | コードとして妥当か | 規約と、保守する人の目 |
+
+混ぜると「仕様に無いことを理由に不合格」になり、**何が基準か分からなくなります**。
+レビューで「この仕様はおかしい」は言いません（それは `/sdd-specify` の担当）。
+
+### レビューの重大度と差し戻し
+
+| 重大度 | 意味 |
+|---|---|
+| **must** | 直さないと着地させられない（不具合・規約違反・「やらないこと」を作っている） |
+| **should** | 直すべきだが、判断次第で見送れる（重複・責務混在・命名） |
+| **nit** | 好みの範囲。直さなくてよい |
+
+**must か should が1件でもあれば差し戻し**（`/sdd-implement` に戻る）。nit のみなら通過です。
+直したら `/sdd-verify` → `/sdd-review` をもう一度。**ラウンドとして追記される**ので、
+何が直って何が残ったかの経過が記録になります。
+
+> **迷ったら重大度を下げる。** must を安売りすると、本当に止めるべき指摘が埋もれます。
+
+終わったとき、**`test-result.md` と `review-result.md` に「何を・どう見て・どう判定したか」が残ります。**
+
+書式は `.github/sdd-templates/` の2枚にあります。**書き換えれば出力も変わります**
 （プロンプト側を触らずに、報告の形だけ自分たちのやり方に合わせられます）。
 
 ---
@@ -108,6 +135,7 @@ SDD（Spec-Driven Development・仕様駆動開発）を**手を動かして掴�
 | 実装したら仕様の方が間違っていた | `/sdd-specify`（spec.md を直してから実装） |
 | 条件が曖昧で確かめようがない | `/sdd-specify`（条件を書き直す） |
 | 実装が足りない | `/sdd-implement` |
+| レビューで must / should が出た | `/sdd-implement`（直して再度 verify → review） |
 
 **戻るのは手戻りではなく、上流で捕まえたということ**です。
 コードを書き切ってから気づくより、ずっと安く済んでいます。
@@ -132,6 +160,8 @@ SDD（Spec-Driven Development・仕様駆動開発）を**手を動かして掴�
 | AI が仕様に無いことを作る | plan の「触るファイル」を見て、想定より広ければその場で止めます |
 | 実装したら仕様が間違っていた | **spec.md を直してから**実装します。コードだけ直すと、次に読む人が嘘の仕様を読みます |
 | verify で全部チェックが付いて怪しい | 根拠を聞いてください。「実装したので満たしています」は根拠ではありません |
+| レビューが nit ばかりで手応えがない | 規約（`instructions`）が空の可能性。観点を1つ書くだけで指摘が変わります |
+| must だらけで進まない | 重大度が上がりすぎです。**着地を止めるものだけ** must にします |
 
 ---
 
