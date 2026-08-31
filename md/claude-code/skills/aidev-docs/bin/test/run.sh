@@ -805,11 +805,18 @@ assert_contains "$CV_S0" "	0	2	no	" "convention status: 母集団 0 件では re
 TODAY=$(date -u +%Y%m%d)
 for w in one two; do
   mkdir -p "$CVR/.aidev/works/$TODAY-$w"
-  printf 'schema: 4\nslug: %s\ncurrent: requirement\napproved: []\nharnessRev: aaa1111\n' "$w" \
+  printf 'schema: 4\nslug: %s\ncurrent: deliver\napproved: [deliver]\nharnessRev: aaa1111\n' "$w" \
     > "$CVR/.aidev/works/$TODAY-$w/state.yml"
   printf 'events:\n  - { ts: %s-01:00:00Z, phase: requirement, event: start }\n' \
     "$(date -u +%Y-%m-%dT)" > "$CVR/.aidev/works/$TODAY-$w/metrics.yml"
 done
+# 着手しただけの work は review を通っていない＝判定材料を1つも産んでいないので数えない。
+# ここを数えると、レビュー記録がまだ無いのに ready=yes が立ち insights が空の材料で判定する。
+mkdir -p "$CVR/.aidev/works/$TODAY-inflight"
+printf 'schema: 4\nslug: inflight\ncurrent: coding\napproved: [requirement, spec]\n' \
+  > "$CVR/.aidev/works/$TODAY-inflight/state.yml"
+printf 'events:\n  - { ts: %s-01:00:00Z, phase: requirement, event: start }\n' \
+  "$(date -u +%Y-%m-%dT)" > "$CVR/.aidev/works/$TODAY-inflight/metrics.yml"
 # 導入日より前に着手した work は母集団に入れない（効果を受けていないため）
 mkdir -p "$CVR/.aidev/works/20200101-old"
 printf 'schema: 4\nslug: old\ncurrent: requirement\napproved: []\n' > "$CVR/.aidev/works/20200101-old/state.yml"
@@ -817,7 +824,7 @@ printf 'events:\n  - { ts: 2020-01-01T01:00:00Z, phase: requirement, event: star
   > "$CVR/.aidev/works/20200101-old/metrics.yml"
 
 CV_S1=$(run_cv convention status --format tsv)
-assert_contains "$CV_S1" "	2	2	yes	" "convention status: 母集団が揃うと ready=yes（導入前の work は数えない）"
+assert_contains "$CV_S1" "	2	2	yes	" "convention status: 母集団は deliver 済みだけを数える（導入前・着手中は数えない）"
 
 # --- doctor: 判定できる状態になったら催促する（人間が思い立つまで待たない） ---
 CV_D1=$(run_cv doctor 2>&1)
@@ -874,6 +881,73 @@ printf 'conventionsDir: docs/rules\n' > "$CVR2/.aidev/config.yml"
 assert_eq "$([ -f "$CVR2/docs/rules/x.md" ] && echo yes || echo no)" "yes" "conventionsDir で置き場を変えられる"
 rm -rf "$CVR2"
 
+
+echo "== convention: 索引（AGENTS.md の aidev:conventions ブロック） =="
+# 背景: AGENTS.md は自動読込されるが docs/aidev/ はされない。索引に載っていない条項は**読まれないまま**
+# works が流れ、効果検証で「効かなかった」と誤判定される——条項の内容の問題ではなく届いていないだけなのに。
+# CLI が「索引に足せ」と言うだけで誰も見ていないと、この誤判定が静かに積み上がる。
+IXR=$(mktemp -d); mkdir -p "$IXR/.aidev/works" "$IXR/docs"
+run_ix() { ( cd "$IXR" && "$AIDEV_SH" "$@" ); }
+IX_NEW=$(run_ix convention new naming --hypothesis "命名の指摘が減る" --verify-after 1 2>&1)
+assert_contains "$IX_NEW" "docs/aidev/naming.md" "convention new: 索引に足す行を提示する（機械にできる部分は機械が出す）"
+assert_contains "$IX_NEW" "docsRoots が未設定" "convention new: 未設定なら「確認していない」と明記させる（捏造で埋めない）"
+
+IX_D0=$(run_ix doctor 2>&1)
+assert_contains "$IX_D0" "索引ファイルが無い" "doctor: 索引ファイル自体が無いことを WARN"
+
+printf '# AGENTS\n\n<!-- aidev:conventions -->\n<!-- /aidev:conventions -->\n' > "$IXR/AGENTS.md"
+IX_D1=$(run_ix doctor 2>&1)
+assert_contains "$IX_D1" "索引に無い（AGENTS.md）" "doctor: 索引に未登録の条項を WARN"
+assert_contains "$IX_D1" "→ docs/aidev/naming.md" "doctor: 足すべき行をそのまま示す（検査だけあって実行が無い形にしない）"
+assert_contains "$(run_ix convention status)" "no" "convention status: index 列で索引漏れが見える"
+assert_contains "$(run_ix convention status)" "索引漏れ=1" "convention status: 索引漏れ件数をサマリに出す"
+
+# 索引に登録すれば警告は消える
+printf '# AGENTS\n\n<!-- aidev:conventions -->\n- 命名を判断するとき → docs/aidev/naming.md\n<!-- /aidev:conventions -->\n' > "$IXR/AGENTS.md"
+IX_D2=$(run_ix doctor 2>&1)
+assert_absent "$IX_D2" "索引に無い" "doctor: 索引に載っていれば警告しない"
+assert_contains "$(run_ix convention status)" "索引漏れ=0" "convention status: 登録済みなら索引漏れ 0"
+
+# マーカー外に書いても索引とは認めない（harness が見るのはブロック内だけ）
+printf '# AGENTS\n\n- 命名 → docs/aidev/naming.md\n\n<!-- aidev:conventions -->\n<!-- /aidev:conventions -->\n' > "$IXR/AGENTS.md"
+assert_contains "$(run_ix doctor 2>&1)" "索引に無い" "doctor: マーカー外の記述は索引と認めない（PJ の領域は見ない）"
+
+# 移送したら索引の張り替え漏れを検知する（promote が「張り替えろ」と言うだけでは誰も見ていない）
+printf '# AGENTS\n\n<!-- aidev:conventions -->\n- 命名を判断するとき → docs/aidev/naming.md\n<!-- /aidev:conventions -->\n' > "$IXR/AGENTS.md"
+printf '# std\n' > "$IXR/docs/std.md"
+run_ix convention confirm naming >/dev/null
+run_ix convention promote naming --to docs/std.md#naming >/dev/null
+IX_D3=$(run_ix doctor 2>&1)
+assert_contains "$IX_D3" "索引が移送前を指したまま" "doctor: 移送後の張り替え漏れを WARN"
+printf '# AGENTS\n\n<!-- aidev:conventions -->\n- 命名を判断するとき → docs/std.md#naming\n<!-- /aidev:conventions -->\n' > "$IXR/AGENTS.md"
+assert_absent "$(run_ix doctor 2>&1)" "索引が移送前" "doctor: 張り替え済みなら警告しない"
+
+# 索引ファイルは PJ が config で指定できる（PJ 固有名を CLI に埋めない）
+printf 'conventionsIndex: docs/rules.md\n' > "$IXR/.aidev/config.yml"
+printf 'x\n' > "$IXR/docs/rules.md"
+run_ix convention new err --hypothesis h >/dev/null
+assert_contains "$(run_ix doctor 2>&1)" "索引に無い（rules.md）" "conventionsIndex で索引ファイルを差し替えられる"
+rm -rf "$IXR"
+
+echo "== convention: 母集団は deliver で増える（到達をその瞬間に知らせる） =="
+# 背景: doctor の WARN は retro/insights を叩いた人にしか見えない＝既に見に行った人にしか届かない。
+# works が母集団に加わる唯一の瞬間は approve deliver なので、そこで鳴らす。
+RDR=$(mktemp -d); mkdir -p "$RDR/.aidev/works"
+run_rd() { ( cd "$RDR" && "$AIDEV_SH" "$@" ); }
+run_rd convention new conv1 --hypothesis h --verify-after 1 >/dev/null
+run_rd new rd >/dev/null
+RDW=$(ls "$RDR/.aidev/works")
+for p in requirement spec plan coding test review; do
+  run_rd event "$p" start >/dev/null; run_rd approve "$p" >/dev/null
+done
+: > "$RDR/.aidev/works/$RDW/review.md"
+# deliver 前は判定材料が無いので ready にならない
+assert_contains "$(run_rd convention status --format tsv)" "	0	1	no	" "母集団: deliver 前の work は数えない（review 記録がまだ無い）"
+run_rd event deliver start >/dev/null
+RD_A=$(run_rd approve deliver files_changed=1 insertions=1 deletions=0 2>&1)
+assert_contains "$RD_A" "条項 conv1 の母集団が揃いました(1/1)" "approve deliver: 母集団が揃った瞬間に知らせる"
+assert_contains "$(run_rd convention status --format tsv)" "	1	1	yes	" "母集団: deliver 済みになって初めて数える"
+rm -rf "$RDR"
 echo "== harnessRev（効果検証の母集団の刻印） =="
 # 背景: ハーネス改修が効いたかを後から判定するには「どの版で回した work か」が要る。
 # 手書きに任せると忘れられ、忘れられた work は母集団から静かに漏れる（schema: と同じ理由で new に一本化）。
@@ -961,6 +1035,33 @@ if [ -n "$PS_HOST" ]; then
   assert_eq "$CX_SH" "$CX_PS" "パリティ: tombstone との重複拒否の exit code"
   rm -rf "$PCV"
 
+
+  # 索引検査のパリティ（片方だけ検査が緩いと、その OS では読まれない条項が野放しになる）
+  PIX=$(mktemp -d); mkdir -p "$PIX/.aidev/works" "$PIX/docs"
+  printf '# AGENTS\n\n<!-- aidev:conventions -->\n<!-- /aidev:conventions -->\n' > "$PIX/AGENTS.md"
+  ( cd "$PIX" && "$AIDEV_SH" convention new ix --hypothesis h --verify-after 1 >/dev/null )
+  IX_SH=$( ( cd "$PIX" && "$AIDEV_SH" doctor ) 2>&1 | sed -n '/^convention:/,$p' )
+  IX_PS=$( ( cd "$PIX" && run_ps1 "$AIDEV_PS1" doctor ) 2>&1 | tr -d '\r' | sed -n '/^convention:/,$p' )
+  assert_eq "$IX_SH" "$IX_PS" "パリティ: doctor の索引検査"
+  IS_SH=$( ( cd "$PIX" && "$AIDEV_SH" convention status --format tsv ) 2>&1 )
+  IS_PS=$( ( cd "$PIX" && run_ps1 "$AIDEV_PS1" convention status --format tsv ) 2>&1 | tr -d '\r' )
+  assert_eq "$IS_SH" "$IS_PS" "パリティ: convention status の index 列"
+  rm -rf "$PIX"
+
+  # deliver 到達通知のパリティ（母集団の数え方が食い違うと判定タイミングがずれる）
+  PRD=$(mktemp -d); mkdir -p "$PRD/.aidev/works"
+  ( cd "$PRD" && "$AIDEV_SH" convention new rc --hypothesis h --verify-after 1 >/dev/null )
+  ( cd "$PRD" && "$AIDEV_SH" new pa >/dev/null )
+  PAW=$(ls "$PRD/.aidev/works")
+  for p in requirement spec plan coding test review; do
+    ( cd "$PRD" && "$AIDEV_SH" event "$p" start >/dev/null; cd "$PRD" && "$AIDEV_SH" approve "$p" >/dev/null )
+  done
+  : > "$PRD/.aidev/works/$PAW/review.md"
+  ( cd "$PRD" && "$AIDEV_SH" event deliver start >/dev/null )
+  RA_SH=$( ( cd "$PRD" && "$AIDEV_SH" approve deliver files_changed=1 ) 2>&1 )
+  RA_PS=$( ( cd "$PRD" && run_ps1 "$AIDEV_PS1" approve deliver files_changed=1 ) 2>&1 | tr -d '\r' )
+  assert_eq "$RA_SH" "$RA_PS" "パリティ: approve deliver の到達通知（冪等なので2回目も同じ出力）"
+  rm -rf "$PRD"
   # harnessRev のパリティ（刻印が片方だけ欠けると、その OS の work が母集団から漏れる）
   PHV=$(mktemp -d); mkdir -p "$PHV/.aidev/works"
   ( cd "$PHV" && "$AIDEV_SH" new a >/dev/null ) && ( cd "$PHV" && run_ps1 "$AIDEV_PS1" new b >/dev/null )

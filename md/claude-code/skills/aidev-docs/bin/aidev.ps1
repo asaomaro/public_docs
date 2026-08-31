@@ -251,7 +251,10 @@ function CvFind($id) {  # active 優先、無ければ archive。見つからな
   return ''
 }
 
-# 母集団＝その条項の導入日以降に**着手した** work の件数（またがり work は数えない）。
+# 母集団＝その条項の導入日以降に着手し、**かつ deliver 済み**の work の件数。
+#  - 導入前から走っていた work は条項の効果を半分しか受けていない。
+#  - 着手しただけの work は review を通っていない＝判定材料を1つも産んでいない。数えると
+#    レビュー記録が無いのに ready=yes が立ち、insights が空の材料で判定してしまう。
 function CvPop($introduced) {
   $b = ($introduced -replace '-','')
   if ($b -notmatch '^\d+$') { return 0 }
@@ -261,6 +264,7 @@ function CvPop($introduced) {
   foreach ($d in (Get-ChildItem -Path $worksRoot -Directory | Sort-Object Name)) {
     $f = Join-Path $d.FullName 'metrics.yml'
     if (-not (Test-Path $f)) { continue }
+    if ((YList (Join-Path $d.FullName 'state.yml') 'approved') -notcontains 'deliver') { continue }
     $ts = ''
     foreach ($l in [System.IO.File]::ReadAllLines($f)) {
       if ($l -match 'ts:\s*([0-9][0-9-]*)') { $ts = $Matches[1]; break }
@@ -271,6 +275,69 @@ function CvPop($introduced) {
     if ([int64]$a -ge [int64]$b) { $n++ }
   }
   return $n
+}
+
+# 判定可能になった条項の通知。works が母集団に加わる唯一の瞬間＝`approve deliver` に鳴らす。
+# doctor にも同じ検査があるが、doctor の WARN は retro/insights を叩いた人にしか見えない。
+function CvReadyNotice() {
+  $d = CvDir
+  if (-not (Test-Path $d)) { return }
+  foreach ($fi in (Get-ChildItem -Path $d -File -Filter *.md -ErrorAction SilentlyContinue | Sort-Object Name)) {
+    if ((CvGet $fi.FullName 'status') -ne 'pending') { continue }
+    $intro = CvGet $fi.FullName 'introduced'
+    if (-not $intro) { continue }
+    $va = CvGet $fi.FullName 'verify_after'
+    if ($va -notmatch '^\d+$') { continue }
+    if ([int]$va -le 0) { continue }
+    $pop = CvPop $intro
+    if ([int]$pop -ge [int]$va) {
+      $id = [System.IO.Path]::GetFileNameWithoutExtension($fi.Name)
+      Write-Output "note: 条項 $id の母集団が揃いました($pop/$va)。insights で効果を判定してください"
+    }
+  }
+}
+
+# --- 索引（AGENTS.md の aidev:conventions ブロック）------------------------------
+# AGENTS.md / CLAUDE.md は自動読込されるが docs/aidev/ はされない。索引に載っていない条項は
+# 読まれないまま works が流れ、効果検証で「効かなかった」と誤判定される（条項の内容の問題ではなく
+# 単に届いていないだけなのに）。doctor が索引を突き合わせる。
+$script:CV_IDX_OPEN = '<!-- aidev:conventions -->'
+$script:CV_IDX_CLOSE = '<!-- /aidev:conventions -->'
+
+# PJ 固有ファイル名を CLI に埋めないため config を優先し、未設定時のみ慣行にフォールバック。
+function CvIndexFile() {
+  $f = YGet (Join-Path $script:AIDEV 'config.yml') 'conventionsIndex'
+  if ($f) {
+    if ([System.IO.Path]::IsPathRooted($f)) { return $f }
+    return (Join-Path $script:ROOT $f)
+  }
+  foreach ($c in @('AGENTS.md','CLAUDE.md')) {
+    $p = Join-Path $script:ROOT $c
+    if (Test-Path $p) { return $p }
+  }
+  return ''
+}
+
+# 索引ブロックの中身だけを取り出す（マーカー外は PJ のもので harness は見ない）。
+function CvIndexBlock($path) {
+  if (-not $path -or -not (Test-Path $path)) { return '' }
+  $out = @(); $inb = $false
+  foreach ($l in [System.IO.File]::ReadAllLines($path)) {
+    if ($l.Contains($script:CV_IDX_OPEN))  { $inb = $true;  continue }
+    if ($l.Contains($script:CV_IDX_CLOSE)) { $inb = $false; continue }
+    if ($inb) { $out += $l }
+  }
+  return ($out -join "`n")
+}
+
+# 条項ディレクトリの ROOT 相対表記（索引に書かれるリンクの形）。
+function CvDirRel() {
+  $d = CvDir
+  $r = $script:ROOT
+  if ($d.StartsWith($r)) {
+    return ($d.Substring($r.Length).TrimStart('\','/') -replace '\\','/')
+  }
+  return $d
 }
 
 function Cmd-New($rest) {
@@ -408,6 +475,8 @@ function Cmd-Approve($rest) {
     if ($hr0 -and $hr0 -ne $hr -and $hr0 -ne 'unknown' -and $hr -ne 'unknown') {
       Write-Output "note: ハーネス版が着手時($hr0)と着地時($hr)で異なる＝またがり work。効果検証の母集団からは除外される"
     }
+    # この deliver で母集団が揃った条項があれば、その場で知らせる
+    CvReadyNotice
   }
 
 
@@ -1443,7 +1512,20 @@ function Cv-New($rest) {
   $sb += "<!-- どのレビュー指摘/分析から起こしたか（source を人間向けに補足）。 -->`n"
   WriteText $f $sb
   Write-Output "created: $f (status pending, verify_after $va)"
-  Write-Output "next: AGENTS.md の索引ブロックに「読む条件つき」の1行を足すこと（protocol.md「12.」）"
+  # 索引に載せないと自動読込されない＝読まれない。doctor も見るが、まずここで促す
+  $rel = "$(CvDirRel)/$id.md"
+  $idxf = CvIndexFile
+  $idxl = if ($idxf) { Split-Path -Leaf $idxf } else { 'AGENTS.md' }
+  Write-Output "next: $idxl の索引ブロックに1行足すこと（読む条件つき。無いと読まれない。protocol.md「12.」）"
+  Write-Output "      - <いつ参照するか> → $rel"
+  # 入口の重複排除。どこを見るかは PJ が config で申告する（探索範囲の決定は判断なので CLI はしない）
+  $dr = @(YList (Join-Path $script:AIDEV 'config.yml') 'docsRoots')
+  if ($dr.Count -gt 0) {
+    Write-Output "check: 同じ規約が既存 docs に無いか確認すること（docsRoots: $($dr -join ', ')）"
+  } else {
+    Write-Output "check: .aidev/config.yml に docsRoots が未設定です。既存 docs との重複を機械的に絞れないので、"
+    Write-Output "       確認していない旨を retro/insights に明記すること（捏造で埋めない。protocol.md「8.」）"
+  }
 }
 
 function Cv-Confirm($rest) {
@@ -1542,7 +1624,11 @@ function Cv-Status($rest) {
   $files += (Get-ChildItem -Path $d -File -Filter *.md -ErrorAction SilentlyContinue | Sort-Object Name)
   $arc = Join-Path $d 'archive'
   if (Test-Path $arc) { $files += (Get-ChildItem -Path $arc -File -Filter *.md -ErrorAction SilentlyContinue | Sort-Object Name) }
-  $rows=@(); $npend=0; $nready=0; $nconf=0
+  $idxf = CvIndexFile
+  $idxb = if ($idxf) { CvIndexBlock $idxf } else { '' }
+  $rel = CvDirRel
+  $arcPath = Join-Path $d 'archive'
+  $rows=@(); $npend=0; $nready=0; $nconf=0; $nidx=0
   foreach ($fi in $files) {
     $id = [System.IO.Path]::GetFileNameWithoutExtension($fi.Name)
     $st = CvGet $fi.FullName 'status'; if (-not $st) { $st='-' }
@@ -1556,15 +1642,22 @@ function Cv-Status($rest) {
       if ([int]$va -gt 0 -and [int]$pop -ge [int]$va) { $ready='yes'; $nready++ } else { $ready='no' }
     }
     if ($st -eq 'confirmed') { $nconf++ }
-    $rows += "$id`t$st`t$intro`t$pop`t$va`t$ready`t$pt"
+    # index 列: active な条項が索引に載っているか。載っていない＝自動読込されない＝読まれない。
+    # 読まれていないだけの条項を「効かなかった」と判定しないための可視化。
+    $idx = '-'
+    $isArc = $fi.DirectoryName -eq $arcPath
+    if ((-not $isArc) -and ($st -eq 'pending' -or $st -eq 'confirmed')) {
+      if ($idxf -and $idxb.Contains("$rel/$($fi.Name)")) { $idx = 'yes' } else { $idx = 'no'; $nidx++ }
+    }
+    $rows += "$id`t$st`t$intro`t$pop`t$va`t$ready`t$idx`t$pt"
   }
   if ($fmt -eq 'tsv') {
     foreach ($r in $rows) { Write-Output "convention`t$r" }
   } else {
-    $all = @("id`tstatus`tintroduced`tpop`tneed`tready`tpromoted_to") + $rows
+    $all = @("id`tstatus`tintroduced`tpop`tneed`tready`tindex`tpromoted_to") + $rows
     foreach ($l in (Fmt-Table $all)) { Write-Output $l }
   }
-  Write-Output "convention-summary: pending=$npend ready=$nready confirmed(未移送)=$nconf"
+  Write-Output "convention-summary: pending=$npend ready=$nready confirmed(未移送)=$nconf 索引漏れ=$nidx"
 }
 
 # 条項ファイルの一生を見る（backlog と同じく持ち主の work がいないので verify では硬ゲートにできない）。
@@ -1581,6 +1674,11 @@ function Doctor-Conventions() {
       $items += ,@($f.FullName, "archive/$($f.Name)", $true)
     }
   }
+  # 索引はファイル単位で1回だけ読む（条項ごとに読み直さない）
+  $idxf = CvIndexFile
+  $idxb = if ($idxf) { CvIndexBlock $idxf } else { '' }
+  $idxl = if ($idxf) { Split-Path -Leaf $idxf } else { '-' }
+  $rel = CvDirRel
   $cfiles=0; $carch=0; $cwarn=0; $out=@()
   foreach ($it in $items) {
     $path=$it[0]; $label=$it[1]; $isArc=$it[2]
@@ -1615,6 +1713,21 @@ function Doctor-Conventions() {
       if (-not $isArc) { $w += "    WARN $st だが未退避: archive/ へ移すこと" }
     } else {
       $w += "    WARN 未知の status: $st（pending/confirmed/promoted/ineffective/superseded）"
+    }
+    # 索引の突き合わせ（active な条項＝読まれる必要があるもの、と移送済みの張り替え漏れ）
+    $link = "$rel/$(Split-Path -Leaf $path)"
+    if ((-not $isArc) -and ($st -eq 'pending' -or $st -eq 'confirmed')) {
+      if (-not $idxf) {
+        $w += "    WARN 索引ファイルが無い: 条項が自動読込されず、読まれないまま「効かなかった」と誤判定される"
+      } elseif (-not $idxb.Contains($link)) {
+        $w += "    WARN 索引に無い（$idxl）: 自動読込されないので読まれない。ブロック内に足すこと"
+        $w += "         例: - <いつ参照するか> → $link"
+      }
+    } elseif ($st -eq 'promoted') {
+      $pt = CvGet $path 'promoted_to'
+      if ($idxf -and $pt -and $idxb.Contains($link)) {
+        $w += "    WARN 索引が移送前を指したまま（$idxl）: $link → $pt に張り替えること"
+      }
     }
     if ($w.Count -gt 0) {
       $cwarn++
