@@ -24,7 +24,9 @@
 
   ```sh
   # 数え方の例: 過去の review.md を読み、その観点の指摘を拾う
-  grep -c 'boolean\|真偽' .aidev/works/*/review.md
+  # -r で works 配下を再帰する。subtask は works/<親>/<NN>-<子>/ にあり、
+  # `works/*/review.md` の1段グロブからは落ちるため（分割 work の指摘は大半がそこに入る）
+  grep -rho 'boolean\|真偽' .aidev/works | wc -l
   ```
 
   - **数えるのは id ではなく観点**。「何をその観点とみなしたか」を値に文章で残す
@@ -40,7 +42,8 @@
   母集団に数えるのは **`introduced` 以降に着手し、かつ deliver 済み**の work だけ
   （着手しただけの work は review を通っておらず判定材料が無い）。
   なお数えるのは **top-level work のみ**で、subtask は親と二重に数えない。
-- 起こしたら **AGENTS.md の索引ブロックに1行足す**（`protocol.md`「12.」）。
+- 起こしたら **索引ファイルの索引ブロックに1行足す**（既定 `AGENTS.md`。`conventionsIndex` で変更可。
+  `protocol.md`「12.」）。
   これを飛ばすと条項は自動読込されず、**読まれていないだけなのに「効かなかった」と判定される**。
   `convention new` が**足すべき行をそのまま出力する**ので、`<いつ参照するか>` を埋めて貼る:
 
@@ -72,7 +75,8 @@ docsRoots: [docs/, AGENTS.md]  # 条項を起こす前に既存規約を探す�
 
 > 注: CLI がするのは**申告された探索先を提示するところまで**。実際に「同じ規約が既にあるか」の
 > 判定は散文（＝読んで判断する）に残す。どのファイルのどの記述が同じ規約かは判断であって、
-> grep で決まる話ではないから。CLI が値として使うのは `conventionsDir` と `conventionsIndex` だけ。
+> grep で決まる話ではないから。CLI が**パス解決に**使うのは `conventionsDir` と `conventionsIndex` だけで、
+> `docsRoots` は読み上げて提示するだけ（判定には使わない）。
 
 ## 効果を判定する（`confirmed` / `ineffective`）
 
@@ -88,15 +92,23 @@ docsRoots: [docs/, AGENTS.md]  # 条項を起こす前に既存規約を探す�
 `baseline` に「前を作れない」と書かれている条項は**比較が成立しない**ので、
 件数ではなく個別の根拠を示して判定する（示せないなら `pending` のまま置く）。
 
-導入後の件数は `review.md` のタグから数える:
+「前」＝`baseline` は条項ファイルの frontmatter にある（`<conventionsDir>/<id>.md`。
+`convention status` はこの値を出さないので、判定するときはファイルを開く）。
+「後」＝導入後の件数は `review.md` のタグから数える:
 
 ```sh
-# 条項 id 別の指摘件数を introduced の前後で比べる
-grep -ho '\[conv:[^]]*\]' .aidev/works/*/review.md | sort | uniq -c | sort -rn
+# 導入後の件数を数える（「前」は frontmatter の baseline。id では前後比較できない）
+# -r で再帰するのは、subtask が works/<親>/<NN>-<子>/ にあり、
+# `works/*/review.md` の1段グロブからは落ちるため（分子だけ落ちると「効いた」側に倒れる）
+grep -rho '\[conv:[^]]*\]' .aidev/works | sort | uniq -c | sort -rn
 ```
 
-- **母集団は `introduced` 以降に着手した work だけ**（`aidev convention status` の `pop` が数える）。
+- **母集団は `introduced` 以降に着手し、かつ deliver 済みの work だけ**
+  （`aidev convention status` の `pop` が数える）。
   導入前から走っていた work は条項の効果を半分しか受けていない。
+- **上の grep は全 works を舐める**ので、`pop` に合わせて対象を絞ってから数えること。
+  絞らずに数えると、分子（タグ）と分母（母集団）が別のものを指す。
+  **subtask は親に属する**——親が `introduced` より前に着手していれば、その子のタグも数えない。
 - **陰性は結論にならない**。遵守が LLM 依存で非決定的なので、指摘が減らなくても
   「条項の内容が間違っていた」とは言えない。言えるのは「**散文では効かなかった**」まで。
 
@@ -115,7 +127,8 @@ aidev convention retire  <id> --status ineffective --note "散文層の限界。
    - 移送先の**ファイルの実在を CLI が検査**する（アンカーまでは見ない）。
      dangling な `promoted_to` は「本文がどこにも無い」という、二重管理より悪い状態を作る。
    - 条項ファイルは**本文を捨てて tombstone 化**され `archive/` へ退避される。
-3. **AGENTS.md 索引ブロックのリンク先を張り替える**（`docs/aidev/<id>.md` → 移送先）。
+3. **索引ブロックのリンク先を張り替える**（`docs/aidev/<id>.md` → 移送先）。
+   どのファイルかは `promote` の出力が名指しする（`conventionsIndex` に従う）。
    忘れると `aidev doctor` が「索引が移送前を指したまま」と WARN する。
 
 ### 移送を自己給餌ループに乗せる

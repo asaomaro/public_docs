@@ -560,7 +560,7 @@ coding の独立点検（「3.3」(b)）で見つけて**その場で直した**
 | 読めること | 使い道 |
 |---|---|
 | `[conv:-]` の頻度と内容 | **規約の穴**。条項を起こす候補（retro / insights） |
-| 条項 id 別の指摘件数の推移 | **条項の効果**。`introduced` の前後で減ったか（insights の判定材料） |
+| 条項 id 別の指摘件数 | **条項の効果**。frontmatter の `baseline` と比べる。**id で前後は比べられない**（id は `introduced` の瞬間に生まれるので `0 → N` と増えるだけ。「12.」） |
 
 id を持つ指摘が繰り返し出るなら、それは「規約が無い」ではなく「**規約はあるのに守られていない**」。
 条項に追記しても効かないので、「12.」の表に従って層を下げる判断に回す。
@@ -848,7 +848,7 @@ note: <退役理由>                 # retire 時
 
 | コマンド | 役割 |
 |---|---|
-| `aidev convention new <id> --hypothesis <text> [--source <p>] [--verify-after <n>]` | 起こす |
+| `aidev convention new <id> --hypothesis <text> --baseline <text> [--source <p>] [--verify-after <n>]` | 起こす（`--hypothesis` と `--baseline` は必須） |
 | `aidev convention confirm <id> [--result <text>]` | 効果ありと判定 |
 | `aidev convention promote <id> --to <path#anchor>` | tombstone 化して退避（移送先の実在を検査） |
 | `aidev convention retire <id> --status ineffective\|superseded [--note <t>]` | 退役して退避 |
