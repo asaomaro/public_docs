@@ -882,6 +882,61 @@ assert_eq "$([ -f "$CVR2/docs/rules/x.md" ] && echo yes || echo no)" "yes" "conv
 rm -rf "$CVR2"
 
 
+
+echo "== convention: 破壊的操作のガード（データ喪失の回帰） =="
+# 背景: promote は本文を捨てて tombstone にする。その前に「条項ファイルか」「行き先が空か」を
+# 確かめないと、無関係な md を 0 バイトにしたり、失敗した後に破壊だけが残ったりする。
+# 実際に3件とも起きていた（README を消す / ../foo で外を壊す / 衝突時に本文だけ消える）。
+GRD=$(mktemp -d); mkdir -p "$GRD/.aidev/works" "$GRD/docs/aidev"
+run_gd() { ( cd "$GRD" && "$AIDEV_SH" "$@" ); }
+printf '# tgt\n' > "$GRD/tgt.md"
+
+# --- frontmatter が無いファイルを条項として扱わない ---
+printf '# README\n\nこのディレクトリの説明。消えてはいけない。\n' > "$GRD/docs/aidev/README.md"
+SZ0=$(wc -c < "$GRD/docs/aidev/README.md")
+run_gd convention promote README --to 'tgt.md#x' >/dev/null 2>&1
+assert_eq "$?" "1" "promote: frontmatter の無いファイルを弾く"
+assert_eq "$(wc -c < "$GRD/docs/aidev/README.md")" "$SZ0" "promote: 弾いたファイルの本文が無傷（0バイト化しない）"
+run_gd convention confirm README >/dev/null 2>&1
+assert_eq "$?" "1" "confirm: frontmatter の無いファイルを弾く"
+
+# --- id にパス成分を書いても条項ディレクトリの外に出ない ---
+# 外のファイルを**正しい条項の見た目**にしておく。こうしないと frontmatter 検査の方が
+# 先に弾いてしまい、id の sanitize が効いているかを確かめられない（両方を独立に検査する）。
+printf -- '---\nconvention: important\nstatus: pending\nintroduced: 2026-01-01\nhypothesis: h\nverify_after: 1\n---\n\n# 重要\n\n消えてはいけない本文。\n' > "$GRD/docs/important.md"
+SZ1=$(wc -c < "$GRD/docs/important.md")
+run_gd convention promote ../important --to 'tgt.md#a' >/dev/null 2>&1
+assert_eq "$?" "1" "promote: id のパス成分を潰す（../ で外に出ない）"
+assert_eq "$(wc -c < "$GRD/docs/important.md")" "$SZ1" "promote: 条項ディレクトリ外のファイルが無傷"
+run_gd convention retire ../important --status ineffective >/dev/null 2>&1
+assert_eq "$?" "1" "retire: id のパス成分を潰す"
+assert_eq "$([ -f "$GRD/docs/important.md" ] && echo yes || echo no)" "yes" "retire: 外のファイルを移動しない"
+
+# --- 退避先が埋まっているときは、破壊する前に失敗する ---
+run_gd convention new dup --hypothesis h >/dev/null
+run_gd convention retire dup --status ineffective >/dev/null
+printf -- '---\nconvention: dup\nstatus: pending\nintroduced: 2026-01-01\nhypothesis: h\nverify_after: 1\n---\n\n# dup\n\n本文。\n' > "$GRD/docs/aidev/dup.md"
+SZ2=$(wc -c < "$GRD/docs/aidev/dup.md")
+run_gd convention promote dup --to 'tgt.md#a' >/dev/null 2>&1
+assert_eq "$?" "1" "promote: archive が埋まっていれば失敗する"
+assert_eq "$(wc -c < "$GRD/docs/aidev/dup.md")" "$SZ2" "promote: 失敗時に本文を破壊しない（非原子性の回帰）"
+rm -rf "$GRD"
+
+echo "== convention: 母集団の着手日を metrics キーと取り違えない =="
+# 背景: `.*ts:` は貪欲なので行内の最後の ts: を拾う。metrics キーが ts で終わる
+# （defects / commits / tests / artifacts …）と、その数値を着手日として読んでいた。
+TSR=$(mktemp -d); mkdir -p "$TSR/.aidev/works"
+run_ts() { ( cd "$TSR" && "$AIDEV_SH" "$@" ); }
+run_ts convention new tsconv --hypothesis h --verify-after 1 >/dev/null
+TODAY_D=$(date -u +%Y%m%d); TODAY_T=$(date -u +%Y-%m-%d)
+mkdir -p "$TSR/.aidev/works/$TODAY_D-w"
+printf 'schema: 4\nslug: w\ncurrent: deliver\napproved: [deliver]\n' > "$TSR/.aidev/works/$TODAY_D-w/state.yml"
+# 1行目のイベントに ts で終わる metrics キーを載せる
+printf 'events:\n  - { ts: %sT01:00:00Z, phase: coding, event: start, metrics: { defects: 3 } }\n' \
+  "$TODAY_T" > "$TSR/.aidev/works/$TODAY_D-w/metrics.yml"
+assert_contains "$(run_ts convention status --format tsv)" "	1	1	yes	" \
+  "母集団: metrics キー(defects)を着手日と取り違えない"
+rm -rf "$TSR"
 echo "== convention: 索引（AGENTS.md の aidev:conventions ブロック） =="
 # 背景: AGENTS.md は自動読込されるが docs/aidev/ はされない。索引に載っていない条項は**読まれないまま**
 # works が流れ、効果検証で「効かなかった」と誤判定される——条項の内容の問題ではなく届いていないだけなのに。
@@ -1036,6 +1091,32 @@ if [ -n "$PS_HOST" ]; then
   rm -rf "$PCV"
 
 
+
+  # 破壊的操作のガードのパリティ（片方だけ緩いと、その OS でだけデータが消える）
+  PGD=$(mktemp -d); mkdir -p "$PGD/.aidev/works" "$PGD/docs/aidev"
+  printf '# tgt\n' > "$PGD/tgt.md"
+  printf '# README\n\n消えてはいけない。\n' > "$PGD/docs/aidev/README.md"
+  ( cd "$PGD" && "$AIDEV_SH" convention promote README --to 'tgt.md#x' >/dev/null 2>&1 ); GS=$?
+  ( cd "$PGD" && run_ps1 "$AIDEV_PS1" convention promote README --to 'tgt.md#x' >/dev/null 2>&1 ); GP=$?
+  assert_eq "$GS" "$GP" "パリティ: frontmatter 無しを弾く exit code"
+  assert_eq "$(wc -c < "$PGD/docs/aidev/README.md")" "40" "パリティ: どちらの実装でも本文が無傷"
+  ( cd "$PGD" && "$AIDEV_SH" convention promote ../tgt --to 'tgt.md#x' >/dev/null 2>&1 ); IS=$?
+  ( cd "$PGD" && run_ps1 "$AIDEV_PS1" convention promote ../tgt --to 'tgt.md#x' >/dev/null 2>&1 ); IP=$?
+  assert_eq "$IS" "$IP" "パリティ: id のパス成分を潰す exit code"
+  rm -rf "$PGD"
+
+  # 着手日の抽出パリティ（sh は sed・ps1 は -match。母集団の数え方が食い違うと判定時期がずれる）
+  PTS=$(mktemp -d); mkdir -p "$PTS/.aidev/works"
+  ( cd "$PTS" && "$AIDEV_SH" convention new tsp --hypothesis h --verify-after 1 >/dev/null )
+  TD=$(date -u +%Y%m%d); TT=$(date -u +%Y-%m-%d)
+  mkdir -p "$PTS/.aidev/works/$TD-w"
+  printf 'schema: 4\nslug: w\ncurrent: deliver\napproved: [deliver]\n' > "$PTS/.aidev/works/$TD-w/state.yml"
+  printf 'events:\n  - { ts: %sT01:00:00Z, phase: coding, event: start, metrics: { defects: 3 } }\n' \
+    "$TT" > "$PTS/.aidev/works/$TD-w/metrics.yml"
+  TS_SH=$( ( cd "$PTS" && "$AIDEV_SH" convention status --format tsv ) 2>&1 )
+  TS_PS=$( ( cd "$PTS" && run_ps1 "$AIDEV_PS1" convention status --format tsv ) 2>&1 | tr -d '\r' )
+  assert_eq "$TS_SH" "$TS_PS" "パリティ: metrics キーを含む行からの着手日抽出"
+  rm -rf "$PTS"
   # 索引検査のパリティ（片方だけ検査が緩いと、その OS では読まれない条項が野放しになる）
   PIX=$(mktemp -d); mkdir -p "$PIX/.aidev/works" "$PIX/docs"
   printf '# AGENTS\n\n<!-- aidev:conventions -->\n<!-- /aidev:conventions -->\n' > "$PIX/AGENTS.md"

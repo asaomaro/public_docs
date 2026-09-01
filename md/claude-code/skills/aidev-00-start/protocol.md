@@ -705,6 +705,13 @@ light では **research / design / walkthrough を使わない**。必要と判�
 ハーネスが生成した規約を **PJ 所有の AGENTS.md / CLAUDE.md に書き込まない**ための層。
 retro / insights の「PJ プロセス / 規約」カテゴリの出力先はここになる。
 
+### 置き場所の住み分け（`.aidev/` ではなく `docs/aidev/`）
+
+軸は**PJ 依存かどうか**。`.claude/skills/aidev-*` と `.aidev/` は **PJ 非依存で、改修を各PJへ
+配布する対象**なので、PJ 固有の内容を混ぜない。条項は PJ ごとに中身が違うため配布物に入れられず、
+PJ 領域（`docs/`）に置く。構造が backlog（`.aidev/backlog/`）と似ているのは*ファイルの扱い方*が
+同じだからで、*PJ 依存かどうか*は別の軸（`DESIGN.md`「2.」「3.」）。
+
 ### なぜ AGENTS.md に直接書かないか
 
 このファイルの冒頭が宣言しているとおり、harness は **PJ 固有ファイル（AGENTS.md / CLAUDE.md / docs 等）

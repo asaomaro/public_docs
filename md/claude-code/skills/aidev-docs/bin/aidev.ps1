@@ -242,13 +242,44 @@ function CvTombstone($path,$msg) {
   WriteText $path (($out -join "`n") + "`n")
 }
 
+# id は必ずここで潰す——`../foo` のような値をそのまま連結すると、条項ディレクトリの外の
+# ファイルを confirm/retire/promote が破壊・移動できてしまう（Cv-New だけが潰していた）。
+function CvId($id) {
+  $i = Split-Path -Leaf $id
+  if ($i.EndsWith('.md')) { $i = $i.Substring(0, $i.Length-3) }
+  if (-not $i -or $i -eq '.' -or $i -eq '..') { Die "id が不正です: $id" }
+  return $i
+}
+
 function CvFind($id) {  # active 優先、無ければ archive。見つからなければ ''
   $d = CvDir
-  $a = Join-Path $d "$id.md"
-  if (Test-Path $a) { return $a }
-  $b = Join-Path (Join-Path $d 'archive') "$id.md"
-  if (Test-Path $b) { return $b }
+  $i = CvId $id
+  $a = Join-Path $d "$i.md"
+  if (Test-Path $a -PathType Leaf) { return $a }
+  $b = Join-Path (Join-Path $d 'archive') "$i.md"
+  if (Test-Path $b -PathType Leaf) { return $b }
   return ''
+}
+
+# 条項ファイルであることを確かめる。frontmatter が無いものに CvTombstone をかけると
+# 本文が丸ごと消えるため、破壊的な操作の前に必ず通す。
+function CvRequire($path) {
+  $lines = [System.IO.File]::ReadAllLines($path)
+  if ($lines.Count -eq 0 -or $lines[0].TrimEnd() -ne '---') {
+    Die "条項ファイルではありません（frontmatter が無い）: $path"
+  }
+  if (-not (CvGet $path 'convention') -and -not (CvGet $path 'status')) {
+    Die "条項ファイルではありません（convention / status がどちらも無い）: $path"
+  }
+}
+
+# 退避先が空いているか。破壊的な操作の前に呼べるよう、移動本体と分けてある。
+function CvArchiveFree($path) {
+  $d = CvDir
+  $b = Split-Path -Leaf $path
+  if (Test-Path (Join-Path (Join-Path $d 'archive') $b)) {
+    Die "archive に同名があります: $(Join-Path (Join-Path $d 'archive') $b)"
+  }
 }
 
 # 母集団＝その条項の導入日以降に着手し、**かつ deliver 済み**の work の件数。
@@ -267,7 +298,9 @@ function CvPop($introduced) {
     if ((YList (Join-Path $d.FullName 'state.yml') 'approved') -notcontains 'deliver') { continue }
     $ts = ''
     foreach ($l in [System.IO.File]::ReadAllLines($f)) {
-      if ($l -match 'ts:\s*([0-9][0-9-]*)') { $ts = $Matches[1]; break }
+      # 行内に metrics キー（defects / commits / tests …）があっても最初の ts: を拾うよう、
+      # イベント行の形 `- { ts: … }` の `{` の直後にアンカーする（sh の sed と揃える）。
+      if ($l -match '^[^{]*\{\s*ts:\s*([0-9][0-9-]*)') { $ts = $Matches[1]; break }
     }
     if (-not $ts) { continue }
     $a = (($ts -split 'T')[0] -replace '-','')
@@ -1463,12 +1496,12 @@ function Cmd-Convention($rest) {
 }
 
 function Cv-ArchiveFile($path) {
+  CvArchiveFree $path
   $d = CvDir
   $arc = Join-Path $d 'archive'
   if (-not (Test-Path $arc)) { New-Item -ItemType Directory -Path $arc -Force | Out-Null }
   $b = Split-Path -Leaf $path
   $dest = Join-Path $arc $b
-  if (Test-Path $dest) { Die "archive に同名があります: $dest" }
   Move-Item -Path $path -Destination $dest
   Write-Output "archived: $dest"
 }
@@ -1543,6 +1576,7 @@ function Cv-Confirm($rest) {
   $f = CvFind $id
   if (-not $f) { Die "条項がありません: $id" }
   if ($f -match '[\\/]archive[\\/]') { Die "退避済みの条項は変更できません: $id" }
+  CvRequire $f
   CvSet $f 'status' 'confirmed'
   if ($result) { CvSet $f 'result' $result }
   Write-Output "confirmed: $id"
@@ -1567,6 +1601,7 @@ function Cv-Retire($rest) {
   $f = CvFind $id
   if (-not $f) { Die "条項がありません: $id" }
   if ($f -match '[\\/]archive[\\/]') { Die "すでに退避済みです: $id" }
+  CvRequire $f
   CvSet $f 'status' $st
   if ($note) { CvSet $f 'note' $note }
   Cv-ArchiveFile $f
@@ -1592,10 +1627,14 @@ function Cv-Promote($rest) {
   $f = CvFind $id
   if (-not $f) { Die "条項がありません: $id" }
   if ($f -match '[\\/]archive[\\/]') { Die "すでに退避済みです: $id" }
+  CvRequire $f
   # 移送先の実在を確かめる。dangling な promoted_to は「本文がどこにも無い」状態を作る
   $tgt = ($to -split '#')[0]
   $tpath = if ([System.IO.Path]::IsPathRooted($tgt)) { $tgt } else { Join-Path $script:ROOT $tgt }
-  if (-not (Test-Path $tpath)) { Die "移送先が見つかりません: $tgt（先に本文を移してから promote する）" }
+  if (-not (Test-Path $tpath -PathType Leaf)) { Die "移送先が見つかりません: $tgt（先に本文を移してから promote する）" }
+  # 破壊の前に退避先の衝突を見る。後ろで見ると、本文を捨てた後に失敗して
+  # 「tombstone だけが active に残る」という直せない状態になる
+  CvArchiveFree $f
   $today = ('{0:D4}-{1:D2}-{2:D2}' -f [DateTime]::UtcNow.Year, [DateTime]::UtcNow.Month, [DateTime]::UtcNow.Day)
   CvSet $f 'status' 'promoted'
   CvSet $f 'promoted_to' $to

@@ -198,11 +198,33 @@ cv_tombstone() { # file text
     {next}' "$1" > "$1.tmp" && mv "$1.tmp" "$1"
 }
 
+# id からパスを解決する。**id は必ずここで潰す**——`../foo` のような値をそのまま連結すると、
+# 条項ディレクトリの外のファイルを confirm/retire/promote が破壊・移動できてしまう
+#（cv_new だけが basename を通しており、他3つが素通しだった）。
+cv_id() { # 生の id -> 安全な id（パス成分とスラッシュを落とす）
+  _i=$(basename "$1" .md)
+  case "$_i" in ''|.|..) die "id が不正です: $1" ;; esac
+  printf '%s' "$_i"
+}
+
 cv_find() { # id -> パスを出力（active 優先、無ければ archive）。見つからなければ 1
   _d=$(cv_dir)
-  if [ -f "$_d/$1.md" ]; then printf '%s' "$_d/$1.md"; return 0; fi
-  if [ -f "$_d/archive/$1.md" ]; then printf '%s' "$_d/archive/$1.md"; return 0; fi
+  _id=$(cv_id "$1")
+  if [ -f "$_d/$_id.md" ]; then printf '%s' "$_d/$_id.md"; return 0; fi
+  if [ -f "$_d/archive/$_id.md" ]; then printf '%s' "$_d/archive/$_id.md"; return 0; fi
   return 1
+}
+
+# 条項ファイルであることを確かめる。**frontmatter が無いものを触らせない**——
+# cv_tombstone は「frontmatter 内の行だけ残す」実装なので、frontmatter が無いファイルに
+# かけると本文が丸ごと消える（README を条項ディレクトリに置いただけで 0 バイトになった）。
+cv_require() { # path id
+  if [ "$(head -n1 "$1" 2>/dev/null | tr -d '\r')" != "---" ]; then
+    die "条項ファイルではありません（frontmatter が無い）: $1"
+  fi
+  if [ -z "$(cv_get "$1" convention)" ] && [ -z "$(cv_get "$1" status)" ]; then
+    die "条項ファイルではありません（convention / status がどちらも無い）: $1"
+  fi
 }
 
 # 母集団＝その条項の導入日以降に着手し、**かつ deliver 済み**の work の件数。
@@ -223,7 +245,10 @@ cv_pop() { # introduced(YYYY-MM-DD) -> 件数
     f="${d}metrics.yml"
     [ -f "$f" ] || continue
     ylist "${d}state.yml" approved | grep -qw deliver || continue
-    ts=$(sed -n 's/.*ts:[[:space:]]*\([0-9][0-9-]*\).*/\1/p' "$f" | head -n1)
+    # `.*ts:` は貪欲で、行内の**最後の** ts: を拾う。metrics キーが ts で終わる
+    # （defects / commits / tests / artifacts …）と、その数値を着手日として読んでしまう。
+    # イベント行の形 `- { ts: … }` に合わせて、最初の `{` の直後にアンカーする。
+    ts=$(sed -n 's/^[^{]*{[[:space:]]*ts:[[:space:]]*\([0-9][0-9-]*\).*/\1/p' "$f" | head -n1)
     [ -n "$ts" ] || continue
     _a=$(printf '%s' "${ts%%T*}" | tr -d '-')
     case "$_a" in ''|*[!0-9]*) continue ;; esac
@@ -1543,6 +1568,7 @@ cv_confirm() {
   [ -n "$id" ] || die "使用法: aidev convention confirm <id> [--result <text>]"
   f=$(cv_find "$id") || die "条項がありません: $id"
   case "$f" in *"/archive/"*) die "退避済みの条項は変更できません: $id" ;; esac
+  cv_require "$f" "$id"
   cv_set "$f" status confirmed
   if [ -n "$result" ]; then cv_set "$f" result "$result"; fi
   printf 'confirmed: %s\n' "$id"
@@ -1567,6 +1593,7 @@ cv_retire() {
   esac
   f=$(cv_find "$id") || die "条項がありません: $id"
   case "$f" in *"/archive/"*) die "すでに退避済みです: $id" ;; esac
+  cv_require "$f" "$id"
   cv_set "$f" status "$st"
   if [ -n "$note" ]; then cv_set "$f" note "$note"; fi
   cv_archive_file "$f"
@@ -1589,11 +1616,15 @@ cv_promote() {
   [ -n "$to" ] || die "--to は必須です（移送先の PJ ドキュメント。例 docs/coding-standards.md#naming）"
   f=$(cv_find "$id") || die "条項がありません: $id"
   case "$f" in *"/archive/"*) die "すでに退避済みです: $id" ;; esac
+  cv_require "$f" "$id"
   # 移送先の実在を確かめる。dangling な promoted_to を作ると索引が壊れ、
   # 「本文がどこにも無い」という二重管理より悪い状態になる（アンカーまでは見ない）
   tgt=${to%%#*}
   case "$tgt" in /*) tpath=$tgt ;; *) tpath="$ROOT/$tgt" ;; esac
   [ -f "$tpath" ] || die "移送先が見つかりません: $tgt（先に本文を移してから promote する）"
+  # **破壊の前に**退避先の衝突を見る。後ろで見ると、本文を捨てた後に失敗して
+  # 「tombstone だけが active に残る」という直せない状態になる
+  cv_archive_free "$f"
   cv_set "$f" status promoted
   cv_set "$f" promoted_to "$to"
   cv_set "$f" promoted_at "$(date -u +%F)"
@@ -1603,11 +1634,18 @@ cv_promote() {
   printf 'next: AGENTS.md 索引ブロックのリンク先を %s に張り替えること\n' "$to"
 }
 
+# 退避先が空いているか。**破壊的な操作の前に**呼べるよう、移動本体と分けてある。
+cv_archive_free() { # path
+  _d=$(cv_dir)
+  _b=$(basename "$1")
+  if [ -e "$_d/archive/$_b" ]; then die "archive に同名があります: $_d/archive/$_b"; fi
+}
+
 cv_archive_file() { # path
   d=$(cv_dir)
+  cv_archive_free "$1"
   mkdir -p "$d/archive"
   b=$(basename "$1")
-  [ -e "$d/archive/$b" ] && die "archive に同名があります: $d/archive/$b"
   mv "$1" "$d/archive/$b"
   printf 'archived: %s\n' "$d/archive/$b"
 }
