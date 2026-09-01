@@ -44,6 +44,15 @@
 
 set -eu
 
+# オプション値の取り出し口。`--opt) v=$2; shift 2` を裸で書くと、値が欠けたときに
+# 「shift: can't shift that many」「parameter not set」という**シェルの内部エラー**が
+# rc=2 で漏れる。何が悪いのか読めないうえ、ps1 側は $null を拾って素通りし別の rc で終わる
+#（同じ入力で OS ごとに違う挙動＝この CLI が一番やってはいけないこと）。使い方エラーは
+# 他と同じ die(rc=1) に揃える。呼び方: `--opt) need_arg "$1" $#; v=$2; shift 2 ;;`
+need_arg() { # opt残り引数数
+  [ "$2" -ge 2 ] || die "$1 には値が必要です"
+}
+
 CURRENT_SCHEMA=4   # 現行スキーマ版。new がこの値を刻む。schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema<=2 は legacy として subtask 不変条件を免除。
 
 PHASES="requirement research spec design plan coding test review walkthrough deliver retro"
@@ -152,7 +161,13 @@ HARNESS=$(dirname "$(dirname "$BIN_DIR")")   # <skills>/aidev-docs/bin -> <skill
 
 harness_rev() {
   command -v git >/dev/null 2>&1 || { printf 'unknown'; return 0; }
-  r=$(git -C "$HARNESS" log -1 --format=%h -- "$HARNESS" 2>/dev/null || true)
+  # 見る範囲は **aidev-* の skill だけ**。<skills> 全体を見ると、同居する無関係な skill
+  # （md-to-doc など）の変更でも版が上がり、その間に走った work が全部「またがり」に見える。
+  # またがり判定は母集団からの除外なので、誤検知はそのまま**効果検証の母集団を痩せさせる**。
+  set --
+  for _d in "$HARNESS"/aidev-*; do [ -d "$_d" ] && set -- "$@" "$_d"; done
+  [ "$#" -gt 0 ] || { printf 'unknown'; return 0; }
+  r=$(git -C "$HARNESS" log -1 --format=%h -- "$@" 2>/dev/null || true)
   [ -n "$r" ] || r=unknown
   printf '%s' "$r"
 }
@@ -284,13 +299,13 @@ cmd_new() {
   slug=""; mode=""; profile=""; ticket=""; depends=""; parent=""; backlog=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --mode) mode=$2; shift 2 ;;
-      --profile) profile=$2; shift 2 ;;
+      --mode) need_arg "$1" $#; mode=$2; shift 2 ;;
+      --profile) need_arg "$1" $#; profile=$2; shift 2 ;;
       --light) profile=light; shift ;;
-      --ticket) ticket=$2; shift 2 ;;
-      --depends) depends=$2; shift 2 ;;
-      --parent) parent=$2; shift 2 ;;
-      --backlog) backlog=$(basename "$2"); shift 2 ;;
+      --ticket) need_arg "$1" $#; ticket=$2; shift 2 ;;
+      --depends) need_arg "$1" $#; depends=$2; shift 2 ;;
+      --parent) need_arg "$1" $#; parent=$2; shift 2 ;;
+      --backlog) need_arg "$1" $#; backlog=$(basename "$2"); shift 2 ;;
       -*) die "未知のオプション: $1" ;;
       *) [ -z "$slug" ] && slug=$1 || die "slug は1つだけ"; shift ;;
     esac
@@ -661,10 +676,15 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail / 5 stri
   if [ "$vsc" -ge 4 ]; then
     hr0=$(yget "$WORK/state.yml" harnessRev)
     hr1=$(yget "$WORK/state.yml" harnessRevDelivered)
+    # `harnessRevDelivered` を書くのは **approve deliver**、verify が走るのは **その前**。
+    # 着地時の刻印を待つ書き方だと、この検査は通常の順序では一度も発火しない。
+    # まだ無いときは**今の版**と比べる（このまま deliver すればそれが着地時の版になる）。
+    hrw=着地時
+    if [ -z "$hr1" ]; then hr1=$(harness_rev); hrw=現在; fi
     if [ -z "$hr0" ]; then
       printf '  WARN harnessRev が無い: 効果検証の母集団から漏れる（aidev new で刻まれる）\n'
     elif [ -n "$hr1" ] && [ "$hr0" != "$hr1" ] && [ "$hr0" != unknown ] && [ "$hr1" != unknown ]; then
-      printf '  WARN またがり work: ハーネス版が着手時(%s)と着地時(%s)で異なる。効果検証の母集団からは除外される\n' "$hr0" "$hr1"
+      printf '  WARN またがり work: ハーネス版が着手時(%s)と%s(%s)で異なる。効果検証の母集団からは除外される\n' "$hr0" "$hrw" "$hr1"
     fi
   fi
 
@@ -913,7 +933,7 @@ cmd_status() {
   fmt=table; subflag=no
   while [ $# -gt 0 ]; do
     case "$1" in
-      --format) fmt=${2:-}; shift 2 ;;
+      --format) need_arg "$1" $#; fmt=${2:-}; shift 2 ;;
       --subtasks) subflag=yes; shift ;;
       -*) die "未知のオプション: $1" ;;
       *) die "status は位置引数を取りません: $1" ;;
@@ -1100,7 +1120,7 @@ cmd_metrics() {
     case "$1" in
       --all) allf=yes; shift ;;
       --phases) phasesf=yes; shift ;;
-      --format) fmt=${2:-}; shift 2 ;;
+      --format) need_arg "$1" $#; fmt=${2:-}; shift 2 ;;
       -*) die "未知のオプション: $1" ;;
       *) [ -z "$mslug" ] && mslug=$1 || die "slug は1つだけ"; shift ;;
     esac
@@ -1187,12 +1207,12 @@ wt_add() {
   slug=""; branch=""; base="HEAD"; wpath=""; mode=interactive; ticket=""; depends=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --branch)  branch=$2; shift 2 ;;
-      --base)    base=$2; shift 2 ;;
-      --path)    wpath=$2; shift 2 ;;
-      --mode)    mode=$2; shift 2 ;;
-      --ticket)  ticket=$2; shift 2 ;;
-      --depends) depends=$2; shift 2 ;;
+      --branch)  need_arg "$1" $#; branch=$2; shift 2 ;;
+      --base)    need_arg "$1" $#; base=$2; shift 2 ;;
+      --path)    need_arg "$1" $#; wpath=$2; shift 2 ;;
+      --mode)    need_arg "$1" $#; mode=$2; shift 2 ;;
+      --ticket)  need_arg "$1" $#; ticket=$2; shift 2 ;;
+      --depends) need_arg "$1" $#; depends=$2; shift 2 ;;
       -*) die "未知のオプション: $1" ;;
       *) [ -z "$slug" ] && slug=$1 || die "slug は1つだけ"; shift ;;
     esac
@@ -1239,7 +1259,7 @@ wt_list() {
   fmt=table
   while [ $# -gt 0 ]; do
     case "$1" in
-      --format) fmt=${2:-}; shift 2 ;;
+      --format) need_arg "$1" $#; fmt=${2:-}; shift 2 ;;
       -*) die "未知のオプション: $1" ;;
       *) die "list は位置引数を取りません: $1" ;;
     esac
@@ -1368,9 +1388,9 @@ bl_new() {
   name=""; kind=""; parent=""; priority=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --kind)     kind=${2:-}; shift 2 ;;
-      --parent)   parent=${2:-}; shift 2 ;;
-      --priority) priority=${2:-}; shift 2 ;;
+      --kind)     need_arg "$1" $#; kind=${2:-}; shift 2 ;;
+      --parent)   need_arg "$1" $#; parent=${2:-}; shift 2 ;;
+      --priority) need_arg "$1" $#; priority=${2:-}; shift 2 ;;
       -*) die "未知のオプション: $1" ;;
       *) if [ -z "$name" ]; then name=$1; else die "名前は1つだけ"; fi; shift ;;
     esac
@@ -1468,6 +1488,18 @@ cv_index_file() {
   printf ''
 }
 
+# 索引ファイルの**表示名**。config も慣行も外れている PJ に「AGENTS.md に足せ」と言うと、
+# 存在しないファイルを名指しすることになる。決まっていないなら決まっていないと言い、
+# どこで決めるか（conventionsIndex）を示す。
+cv_index_label() {
+  _f=$(cv_index_file)
+  if [ -n "$_f" ]; then
+    basename "$_f"
+  else
+    printf '索引ファイル（.aidev/config.yml の conventionsIndex。未設定なら AGENTS.md → CLAUDE.md を探す）'
+  fi
+}
+
 # 索引ブロックの中身だけを取り出す（マーカー外は PJ のもので、harness は見ない）。
 cv_index_block() { # file
   [ -f "$1" ] || return 0
@@ -1503,10 +1535,10 @@ cv_new() {
   id=""; hyp=""; src=""; va=""; base=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --hypothesis)   hyp=${2:-}; shift 2 ;;
-      --baseline)     base=${2:-}; shift 2 ;;
-      --source)       src=${2:-}; shift 2 ;;
-      --verify-after) va=${2:-}; shift 2 ;;
+      --hypothesis)   need_arg "$1" $#; hyp=${2:-}; shift 2 ;;
+      --baseline)     need_arg "$1" $#; base=${2:-}; shift 2 ;;
+      --source)       need_arg "$1" $#; src=${2:-}; shift 2 ;;
+      --verify-after) need_arg "$1" $#; va=${2:-}; shift 2 ;;
       -*) die "未知のオプション: $1" ;;
       *) if [ -z "$id" ]; then id=$1; else die "id は1つだけ"; fi; shift ;;
     esac
@@ -1550,8 +1582,7 @@ cv_new() {
   printf 'created: %s (status pending, verify_after %s)\n' "$f" "$va"
   # 索引に載せないと自動読込されない＝読まれない。doctor も見るが、まずここで促す
   _rel="$(cv_dir_rel)/$id.md"
-  _idxf=$(cv_index_file)
-  if [ -n "$_idxf" ]; then _idxl=$(basename "$_idxf"); else _idxl="AGENTS.md"; fi
+  _idxl=$(cv_index_label)
   printf 'next: %s の索引ブロックに1行足すこと（読む条件つき。無いと読まれない。protocol.md「12.」）\n' "$_idxl"
   printf '      - <いつ参照するか> → %s\n' "$_rel"
   # 入口の重複排除。どこを見るかは PJ が config で申告する（探索範囲の決定は判断なので CLI はしない）
@@ -1568,7 +1599,7 @@ cv_confirm() {
   id=""; result=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --result) result=${2:-}; shift 2 ;;
+      --result) need_arg "$1" $#; result=${2:-}; shift 2 ;;
       -*) die "未知のオプション: $1" ;;
       *) if [ -z "$id" ]; then id=$1; else die "id は1つだけ"; fi; shift ;;
     esac
@@ -1587,8 +1618,8 @@ cv_retire() {
   id=""; st=""; note=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --status) st=${2:-}; shift 2 ;;
-      --note)   note=${2:-}; shift 2 ;;
+      --status) need_arg "$1" $#; st=${2:-}; shift 2 ;;
+      --note)   need_arg "$1" $#; note=${2:-}; shift 2 ;;
       -*) die "未知のオプション: $1" ;;
       *) if [ -z "$id" ]; then id=$1; else die "id は1つだけ"; fi; shift ;;
     esac
@@ -1615,7 +1646,7 @@ cv_promote() {
   id=""; to=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --to) to=${2:-}; shift 2 ;;
+      --to) need_arg "$1" $#; to=${2:-}; shift 2 ;;
       -*) die "未知のオプション: $1" ;;
       *) if [ -z "$id" ]; then id=$1; else die "id は1つだけ"; fi; shift ;;
     esac
@@ -1639,7 +1670,7 @@ cv_promote() {
   cv_tombstone "$f" "本文は promoted_to へ移送済み。ここには置かない（本文の在処は常に1箇所）。"
   cv_archive_file "$f"
   printf 'promoted: %s -> %s\n' "$id" "$to"
-  printf 'next: AGENTS.md 索引ブロックのリンク先を %s に張り替えること\n' "$to"
+  printf 'next: %s の索引ブロックのリンク先を %s に張り替えること\n' "$(cv_index_label)" "$to"
 }
 
 # 退避先が空いているか。**破壊的な操作の前に**呼べるよう、移動本体と分けてある。
@@ -1662,7 +1693,7 @@ cv_do_status() {
   fmt=table
   while [ $# -gt 0 ]; do
     case "$1" in
-      --format) fmt=${2:-}; shift 2 ;;
+      --format) need_arg "$1" $#; fmt=${2:-}; shift 2 ;;
       -*) die "未知のオプション: $1" ;;
       *) die "余分な引数: $1" ;;
     esac

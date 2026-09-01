@@ -85,6 +85,8 @@ Git Bash（Git for Windows 同梱）があるなら POSIX 版の `aidev` がそ�
 - schema ≥ 2 の不変条件: `metrics.yml` の存在 ／ review 承認済なら `review.md` 存在 ／ deliver 承認済なら
   metrics に deliver の approved イベントが存在。
 - schema ≥ 4 の検査（WARN）: `harnessRev` の存在 ／ **またがり work**（`harnessRev` ≠ `harnessRevDelivered`）。
+  `verify` は deliver 承認の**前**に走るので `harnessRevDelivered` をまだ持っていない。着地時の刻印を
+  待つと**この検査は通常の順序では一度も発火しない**ため、まだ無いときは**現在の版**と比べる。
   効果検証の母集団を正しく切るための刻印なので、旧 work は遡って違反扱いしない（`protocol.md`「12.」）。
 - 新しい不変条件を足すときは `CURRENT_SCHEMA` を上げ、検査をそのバージョン以上に限定する。
 

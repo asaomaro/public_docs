@@ -387,6 +387,7 @@ harnessRev: <短縮SHA>      # この work を回したハーネスの版。`aid
                            # ハーネス改修の効果検証で母集団を特定するための刻印。取れない環境は unknown。「12.」参照
 harnessRevDelivered: <SHA> # deliver 承認時の版。`aidev approve deliver` が刻む
                            # harnessRev と違う work＝またがり work で、効果検証の母集団からは除外される
+                           # deliver 前の verify は、この値の代わりに**現在の版**と比べる（「12.」）
 # --- subtask 層（schema 3・親 work のみが持つ。「2.8」参照）---
 subtasks: []               # 親が持つ子 subtask 名の一覧（フローリスト。例 [01-backend, 02-frontend]）
 activeSubtask: <名 or done> # 実行中の子（.aidev/current の冗長コピー。propose/metrics 用。全完了で done）
@@ -867,6 +868,12 @@ note: <退役理由>                 # retire 時
 - **またがり work**（着手時と着地時で版が違う）は、改修の効果を半分しか受けていない。
   どちらかに帰属させると効果が薄まる方向にバイアスがかかるので、**母集団から除外**する
   （`aidev verify` が WARN で知らせる）。
+- **`verify` は deliver 承認の「前」に走る**ので、`harnessRevDelivered` をまだ持っていない。
+  着地時の刻印を待つ検査にすると**通常の順序では一度も発火しない**ので、まだ無いときは
+  **現在の版**と比べる（このまま deliver すればそれが着地時の版になる）。
+- 版が見る範囲は **`aidev-*` の skill だけ**。`<skills>` 全体を見ると同居する無関係な skill の
+  変更でも版が上がり、その間の work が全部またがり扱いになる。またがり判定は**母集団からの除外**
+  なので、誤検知はそのまま**効果検証の母集団を痩せさせる**。
 - git が無い等で版が取れない環境では **`unknown` を刻む**（「8.」の「捏造して埋めない」と同じ態度）。
 
 判定は `aidev-util-insights`（横断分析）が行う。

@@ -44,6 +44,9 @@ assert_absent() { # haystack needle desc
 assert_eq() { # got want desc
   if [ "$1" = "$2" ]; then ok "$3"; else ng "$3 (got=[$1] want=[$2])"; fi
 }
+assert_ne() { # got unwanted desc
+  if [ "$1" != "$2" ]; then ok "$3"; else ng "$3 (同じであってはいけない: [$1])"; fi
+}
 
 # ---- フィクスチャ作成 -------------------------------------------------------
 TMP=$(mktemp -d)
@@ -791,7 +794,10 @@ assert_eq "$?" "1" "convention new: --verify-after は整数"
 CV_NEW=$(run_cv convention new naming-boolean --hypothesis "命名の must/should 指摘が減る" --baseline "b" \
   --source ".aidev/insights/2026-08-28-insights.md" --verify-after 2 2>&1)
 assert_contains "$CV_NEW" "status pending" "convention new: pending で起こす"
-assert_contains "$CV_NEW" "AGENTS.md の索引ブロック" "convention new: 索引への追記を促す（自動読込されないため）"
+# 索引ファイルが決まっていない PJ に「AGENTS.md に足せ」と言うと存在しないファイルを名指しする。
+# 決まっていないことは決まっていないと言い、どこで決めるか（conventionsIndex）を示す
+assert_contains "$CV_NEW" "の索引ブロックに1行足すこと" "convention new: 索引への追記を促す（自動読込されないため）"
+assert_contains "$CV_NEW" "conventionsIndex" "convention new: 索引ファイル未確定なら決め方を示す（無い名前を断言しない）"
 CVF="$CVR/docs/aidev/naming-boolean.md"
 assert_eq "$([ -f "$CVF" ] && echo yes || echo no)" "yes" "convention new: 既定の conventionsDir は docs/aidev"
 CVB=$(cat "$CVF")
@@ -989,6 +995,13 @@ printf 'conventionsIndex: docs/rules.md\n' > "$IXR/.aidev/config.yml"
 printf 'x\n' > "$IXR/docs/rules.md"
 run_ix convention new err --hypothesis h --baseline "b" >/dev/null
 assert_contains "$(run_ix doctor 2>&1)" "索引に無い（rules.md）" "conventionsIndex で索引ファイルを差し替えられる"
+# 案内文も追随すること。CLI が config を無視して「AGENTS.md に足せ」と言うと、
+# 索引ファイルを移した PJ では**存在しない場所**へ誘導される（検査と案内が食い違う）
+assert_contains "$(run_ix convention new err2 --hypothesis h --baseline b 2>&1)" \
+  "rules.md の索引ブロックに1行足すこと" "convention new: 案内する索引ファイル名が conventionsIndex に従う"
+run_ix convention confirm err2 >/dev/null
+IX_PR=$(run_ix convention promote err2 --to docs/std.md#err2 2>&1)
+assert_contains "$IX_PR" "rules.md の索引ブロックのリンク先" "convention promote: 案内する索引ファイル名が conventionsIndex に従う"
 rm -rf "$IXR"
 
 echo "== convention: 母集団は deliver で増える（到達をその瞬間に知らせる） =="
@@ -1028,6 +1041,11 @@ done
 : > "$HVR/.aidev/works/$HVW/review.md"
 # 着手後にハーネスが改修された状況を作る（着手時の刻印だけを別版に書き換える）
 awk '{ if ($0 ~ /^harnessRev:/) print "harnessRev: deadbee"; else print }' "$HVST" > "$HVST.t" && mv "$HVST.t" "$HVST"
+# `harnessRevDelivered` を書くのは approve deliver、verify が走るのはその前。着地時の刻印を
+# 待つ書き方だと、この検査は通常の順序では**一度も発火しない**。deliver 前に鳴ること自体を固定する
+HV_VB=$(run_hv verify 2>&1)
+assert_contains "$HV_VB" "またがり work" "verify: deliver 承認の前でもまたがりを検知する（着地の刻印を待たない）"
+assert_contains "$HV_VB" "現在" "verify: deliver 前は「現在の版」と比べていると分かる"
 run_hv approve deliver files_changed=1 insertions=1 deletions=0 >/dev/null
 assert_contains "$(cat "$HVST")" "harnessRevDelivered:" "approve deliver: 着地時の版も刻む"
 HV_V=$(run_hv verify 2>&1)
@@ -1040,6 +1058,38 @@ printf 'events:\n' > "$HVR/.aidev/works/20200101-legacy/metrics.yml"
 HV_L=$(run_hv verify 20200101-legacy 2>&1)
 assert_absent "$HV_L" "harnessRev が無い" "verify: schema<4 の work に harnessRev を要求しない"
 rm -rf "$HVR"
+
+# --- 版の粒度: aidev-* の外を触っても版は動かない ---
+# 背景: <skills> 全体を見ていると、同居する無関係な skill の変更で版が上がり、その間に走った
+# work が全部「またがり」に見える。またがり判定は母集団からの**除外**なので、誤検知は
+# そのまま効果検証の母集団を痩せさせる。
+if command -v git >/dev/null 2>&1; then
+  GRR=$(mktemp -d)
+  mkdir -p "$GRR/skills/aidev-docs/bin" "$GRR/skills/other-skill"
+  cp "$AIDEV_SH" "$GRR/skills/aidev-docs/bin/aidev"
+  printf 'x\n' > "$GRR/skills/aidev-docs/note.md"
+  printf 'x\n' > "$GRR/skills/other-skill/SKILL.md"
+  ( cd "$GRR" && git init -q . && git add -A \
+    && git -c user.email=t@t -c user.name=t commit -qm init ) >/dev/null 2>&1
+  mkdir -p "$GRR/w/.aidev/works"
+  GR1=$( ( cd "$GRR/w" && "$GRR/skills/aidev-docs/bin/aidev" new g1 >/dev/null 2>&1; \
+           yg() { sed -n 's/^harnessRev: //p' "$1"; }; yg "$GRR/w/.aidev/works/"*g1/state.yml ) )
+  # aidev-* の**外**を変更 -> 版は動かないはず
+  printf 'y\n' > "$GRR/skills/other-skill/SKILL.md"
+  ( cd "$GRR" && git add -A && git -c user.email=t@t -c user.name=t commit -qm other ) >/dev/null 2>&1
+  GR2=$( ( cd "$GRR/w" && "$GRR/skills/aidev-docs/bin/aidev" new g2 >/dev/null 2>&1; \
+           sed -n 's/^harnessRev: //p' "$GRR/w/.aidev/works/"*g2/state.yml ) )
+  assert_eq "$GR2" "$GR1" "harnessRev: aidev-* の外の変更では版が動かない（またがりの誤検知を作らない）"
+  # aidev-* の中を変更 -> 版が動くこと（検知そのものを殺していないか）
+  printf 'z\n' > "$GRR/skills/aidev-docs/note.md"
+  ( cd "$GRR" && git add -A && git -c user.email=t@t -c user.name=t commit -qm harness ) >/dev/null 2>&1
+  GR3=$( ( cd "$GRR/w" && "$GRR/skills/aidev-docs/bin/aidev" new g3 >/dev/null 2>&1; \
+           sed -n 's/^harnessRev: //p' "$GRR/w/.aidev/works/"*g3/state.yml ) )
+  assert_ne "$GR3" "$GR1" "harnessRev: aidev-* の中の変更では版が動く（絞り込みで検知を殺していない）"
+  rm -rf "$GRR"
+else
+  skip "harnessRev の粒度（git 不在）"
+fi
 
 echo "== sh ⇔ ps1 パリティ =="
 if [ -n "$PS_HOST" ]; then
@@ -1106,10 +1156,13 @@ if [ -n "$PS_HOST" ]; then
   PGD=$(mktemp -d); mkdir -p "$PGD/.aidev/works" "$PGD/docs/aidev"
   printf '# tgt\n' > "$PGD/tgt.md"
   printf '# README\n\n消えてはいけない。\n' > "$PGD/docs/aidev/README.md"
+  # 期待値は手で書かず**実行前のサイズ**を採る（バイト数を直書きすると、本文を1文字直しただけで
+  # 「テストを通すために期待値を書き換える」形になり、0バイト化の回帰を守れなくなる）
+  PGD_SZ0=$(wc -c < "$PGD/docs/aidev/README.md")
   ( cd "$PGD" && "$AIDEV_SH" convention promote README --to 'tgt.md#x' >/dev/null 2>&1 ); GS=$?
   ( cd "$PGD" && run_ps1 "$AIDEV_PS1" convention promote README --to 'tgt.md#x' >/dev/null 2>&1 ); GP=$?
   assert_eq "$GS" "$GP" "パリティ: frontmatter 無しを弾く exit code"
-  assert_eq "$(wc -c < "$PGD/docs/aidev/README.md")" "40" "パリティ: どちらの実装でも本文が無傷"
+  assert_eq "$(wc -c < "$PGD/docs/aidev/README.md")" "$PGD_SZ0" "パリティ: どちらの実装でも本文が無傷"
   ( cd "$PGD" && "$AIDEV_SH" convention promote ../tgt --to 'tgt.md#x' >/dev/null 2>&1 ); IS=$?
   ( cd "$PGD" && run_ps1 "$AIDEV_PS1" convention promote ../tgt --to 'tgt.md#x' >/dev/null 2>&1 ); IP=$?
   assert_eq "$IS" "$IP" "パリティ: id のパス成分を潰す exit code"
@@ -1153,11 +1206,38 @@ if [ -n "$PS_HOST" ]; then
   RA_PS=$( ( cd "$PRD" && run_ps1 "$AIDEV_PS1" approve deliver files_changed=1 ) 2>&1 | tr -d '\r' )
   assert_eq "$RA_SH" "$RA_PS" "パリティ: approve deliver の到達通知（冪等なので2回目も同じ出力）"
   rm -rf "$PRD"
+  # --- 引数の解釈のパリティ ---
+  # PowerShell の switch は既定で**大文字小文字を区別しない**ので、放っておくと Windows でだけ
+  # `aidev NEW x` や `--MODE` が通る。同じスクリプトが OS で違う解釈をするのが一番まずい。
+  PAR=$(mktemp -d); mkdir -p "$PAR/.aidev/works"
+  for bad in "NEW x" "new x --MODE interactive" "New x"; do
+    # shellcheck disable=SC2086
+    ( cd "$PAR" && "$AIDEV_SH" $bad >/dev/null 2>&1 ); AS=$?
+    # shellcheck disable=SC2086
+    ( cd "$PAR" && run_ps1 "$AIDEV_PS1" $bad >/dev/null 2>&1 ); AP=$?
+    assert_eq "$AS" "$AP" "パリティ: 大文字小文字を区別する（[$bad]）"
+  done
+  # オプションの値が欠けたとき。sh は素で書くと shift の内部エラー(rc=2)、ps1 は $null で素通り。
+  # どちらも使い方エラー＝die(rc=1) に揃える
+  for miss in "new x --mode" "convention new c --hypothesis" "backlog new b --kind"; do
+    # shellcheck disable=SC2086
+    MS=$( ( cd "$PAR" && "$AIDEV_SH" $miss ) 2>&1 ); MSC=$?
+    # shellcheck disable=SC2086
+    MP=$( ( cd "$PAR" && run_ps1 "$AIDEV_PS1" $miss ) 2>&1 ); MPC=$?
+    MP=$(printf '%s' "$MP" | tr -d '\r')
+    assert_eq "$MSC" "$MPC" "パリティ: 値の無いオプションの exit code（[$miss]）"
+    assert_eq "$MS" "$MP" "パリティ: 値の無いオプションのメッセージ（[$miss]）"
+    assert_contains "$MS" "には値が必要です" "値の無いオプションは使い方エラーとして落とす（[$miss]）"
+  done
+  rm -rf "$PAR"
+
   # harnessRev のパリティ（刻印が片方だけ欠けると、その OS の work が母集団から漏れる）
   PHV=$(mktemp -d); mkdir -p "$PHV/.aidev/works"
   ( cd "$PHV" && "$AIDEV_SH" new a >/dev/null ) && ( cd "$PHV" && run_ps1 "$AIDEV_PS1" new b >/dev/null )
   HA=$(sed -n 's/^harnessRev: //p' "$PHV/.aidev/works/"*-a/state.yml)
-  HB=$(tr -d '\r' < "$PHV/.aidev/works/"*-b/state.yml | sed -n 's/^harnessRev: //p')
+  # 注意: POSIX sh は**リダイレクトの語にパス名展開をしない**。`< .../*-b/state.yml` は
+  # glob のままファイル名として開かれ、常に失敗する（このテストが長く skip だったので気付けなかった）
+  HB=$(cat "$PHV/.aidev/works/"*-b/state.yml | tr -d '\r' | sed -n 's/^harnessRev: //p')
   assert_eq "$HA" "$HB" "パリティ: harnessRev の刻印が一致"
   rm -rf "$PHV"
   # profile 系のパリティ（同じフィクスチャに対して同じ出力になること）
@@ -1257,5 +1337,8 @@ fi
 echo
 printf 'RESULT: pass=%s fail=%s skip=%s\n' "$PASS" "$FAIL" "$SKIP"
 # skip>0＝環境不足で未実行の検証（未検証の穴）。deliver/PR で「未検証 surface」として引き継ぐこと(#32)。
-[ "$SKIP" -gt 0 ] && printf 'NOTE: %s 件の検証が環境不足で skip された（未検証の穴）。pwsh/git のある環境(CI)で再実行して埋めること。\n' "$SKIP" >&2
+# pwsh を入れるだけで埋まる穴を「環境が無い」で放置しないよう、入れ方まで書く。
+# 実際、パリティテストが skip のままだった間に**ps1 側の実バグ2件**（値の無いオプションを
+# 素通り／switch の大文字小文字）と**テスト自身のバグ2件**が緑の裏に隠れていた。
+[ "$SKIP" -gt 0 ] && printf 'NOTE: %s 件の検証が環境不足で skip された（未検証の穴）。pwsh/git のある環境で再実行して埋めること。\n      Linux なら: curl -fsSL -o /tmp/pwsh.tar.gz https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/powershell-7.4.6-linux-x64.tar.gz \\\n                  && mkdir -p /opt/pwsh && tar -xzf /tmp/pwsh.tar.gz -C /opt/pwsh && export PATH=/opt/pwsh:$PATH\n' "$SKIP" >&2
 [ "$FAIL" -eq 0 ]
