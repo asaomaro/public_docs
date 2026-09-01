@@ -1,7 +1,7 @@
 ---
 name: sdd-tasks
 description: ［SDD 第3段］plan.md をチェックリストに割り、.sdd/<機能名>/tasks.md に書く。「タスクに分けたい」「plan ができたので次へ」と言われたときに使用する。この段でもコードを書かない。
-allowed-tools: [Read, Write, Edit, AskUserQuestion]
+allowed-tools: [Read, Write, Edit, Glob, AskUserQuestion]
 ---
 
 # /sdd-tasks — 手順に割る
@@ -13,8 +13,13 @@ allowed-tools: [Read, Write, Edit, AskUserQuestion]
 `.sdd/` の中を見る。
 
 - 機能フォルダが1つならそれ。
-- 複数なら、**`plan.md` はあるが `tasks.md` が無いもの**を選ぶ。それでも複数ならユーザーに聞く。
+- 複数なら、ユーザーが機能名を言っていればそれ。言っていなければ**候補を挙げて聞く**。
 - `spec.md` か `plan.md` が無ければ**止まって前の段を案内する**。
+
+> **既に `tasks.md` がある場合は改訂**として扱う（`plan.md` が直されて戻ってきた場合）。
+> **チェック済み `- [x]` の行は消さない**——どこまで実装が進んでいたかの記録なので、
+> 消すと `sdd-implement` が最初からやり直しになる。増減した分だけ足し引きし、
+> **何をなぜ変えたかを伝える**。
 
 ## 手順
 

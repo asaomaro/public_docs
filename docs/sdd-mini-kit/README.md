@@ -3,7 +3,7 @@
 SDD（Spec-Driven Development・仕様駆動開発）を**手を動かして掴むための最小キット**です。
 インストールも CLI も要りません。**`.claude/skills/` にフォルダを6つ置くだけ**です。
 
-> 設計判断は [`../copilot-sdd-mini.md`](../copilot-sdd-mini.md) を参照。
+> 設計判断は [`../sdd-mini-design.md`](../sdd-mini-design.md) を参照。
 
 ---
 
@@ -77,7 +77,7 @@ skills/sdd-specify/SKILL.md の手順で進めて
 
 | 段 | 絞っていること |
 |---|---|
-| `sdd-specify` / `sdd-tasks` | コードを触れない（Bash も検索も無し） |
+| `sdd-specify` / `sdd-tasks` | コードを書けない・実行できない（Bash 無し）。中身の検索もしない（Grep 無し）。`.sdd/` の一覧を見るための `Glob` だけ持つ |
 | `sdd-review` | 実行できない（Bash 無し）。読んで指摘するだけ |
 
 **これは Claude Code の機能で、他のエージェントでは無視されます。**
@@ -155,9 +155,14 @@ Claude Code なら `CLAUDE.md`、Copilot なら `.github/copilot-instructions.md
 | **should** | 直すべきだが、判断次第で見送れる（重複・責務混在・命名） |
 | **nit** | 好みの範囲。直さなくてよい |
 
-**must か should が1件でもあれば差し戻し**（`sdd-implement` に戻る）。nit のみなら通過です。
+**must があれば差し戻し**（`sdd-implement` に戻る）。**should は「直す」か「見送る」かを聞かれます**
+——見送ると決めたものは記録に残り、**次のラウンドでは再指摘されません**。nit のみなら通過です。
 直したら `sdd-verify` → `sdd-review` をもう一度。**ラウンドとして追記される**ので、
 何が直って何が残ったかの経過が記録になります。
+
+> **見送りの出口が要る理由**：should は定義上「見送れる」指摘です。それでも
+> 「should が1件でも差し戻し」だけを規則にすると、見送ると決めた1件が次のラウンドでも
+> 同じように指摘され、**永久に着地できません**。だから見送りを記録して再指摘しない形にしてあります。
 
 > **迷ったら重大度を下げる。** must を安売りすると、本当に止めるべき指摘が埋もれます。
 
@@ -178,7 +183,8 @@ Claude Code なら `CLAUDE.md`、Copilot なら `.github/copilot-instructions.md
 | 実装したら仕様の方が間違っていた | `sdd-specify`（spec.md を直してから実装） |
 | 条件が曖昧で確かめようがない | `sdd-specify`（条件を書き直す） |
 | 実装が足りない | `sdd-implement` |
-| レビューで must / should が出た | `sdd-implement`（直して再度 verify → review） |
+| レビューで must が出た | `sdd-implement`（直して再度 verify → review） |
+| レビューで should が出た | 直すなら `sdd-implement`。**見送るなら、そう決めて記録すれば通過** |
 
 **戻るのは手戻りではなく、上流で捕まえたということ**です。
 コードを書き切ってから気づくより、ずっと安く済んでいます。
@@ -218,5 +224,5 @@ Claude Code なら `CLAUDE.md`、Copilot なら `.github/copilot-instructions.md
 - 規約が守られたかの検証
 
 **まずは一周してください。** 足りなさを感じたところが、次に足すべき仕組みです。
-何が足りなくなるかは [`../copilot-sdd-mini.md`](../copilot-sdd-mini.md)
+何が足りなくなるかは [`../sdd-mini-design.md`](../sdd-mini-design.md)
 の「一周した先に何が起きるか」に整理してあります。
