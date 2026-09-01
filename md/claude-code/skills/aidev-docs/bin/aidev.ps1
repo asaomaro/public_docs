@@ -60,7 +60,7 @@ function PsHost() {
     $exe = [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
     if ($exe) { return $exe }
   } catch {}
-  if ($PSVersionTable.PSEdition -eq 'Core') { return 'pwsh' } else { return 'powershell' }
+  if ($PSVersionTable.PSEdition -ceq 'Core') { return 'pwsh' } else { return 'powershell' }
 }
 function PsHostArgs($script) {
   # -ExecutionPolicy は Windows のみ有効（Linux/macOS の pwsh では不正オプション）
@@ -99,7 +99,7 @@ function FindRoot() {
   while ($true) {
     if (IsDir (Join-Path $d '.aidev')) { return $d }
     $parent = Split-Path $d -Parent
-    if ([string]::IsNullOrEmpty($parent) -or $parent -eq $d) { break }
+    if ([string]::IsNullOrEmpty($parent) -or $parent -eq $d) { break }   # パス比較は OS の流儀に従う
     $d = $parent
   }
   return $null
@@ -129,7 +129,7 @@ function SetOrAppend($file,$key,$newline) {
   else { AppendText $file ($newline + "`n") }
 }
 
-function IsPhase($p) { return $script:PHASES -contains $p }
+function IsPhase($p) { return $script:PHASES -ccontains $p }
 
 # scalar 読み取り（前後空白と囲み二重引用符を除去）。inline コメント(#)は除去しない
 # （ticket/dependsOn は '#18' 等 '#' 始まりの値を持つため）。sh の yget と一致。
@@ -149,10 +149,10 @@ function YList($file,$key) {
   if ($v.EndsWith(']'))   { $v = $v.Substring(0, $v.Length - 1) }
   $v = $v -replace '"',''
   if ([string]::IsNullOrWhiteSpace($v)) { return @() }
-  return @($v -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+  return @($v -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -cne '' })
 }
 
-function ApprovedHas($work,$phase) { return (YList (Join-Path $work 'state.yml') 'approved') -contains $phase }
+function ApprovedHas($work,$phase) { return (YList (Join-Path $work 'state.yml') 'approved') -ccontains $phase }
 
 function ReplaceLine($file,$key,$newline) {
   $lines = [System.IO.File]::ReadAllLines($file)
@@ -192,9 +192,12 @@ function AppendEvent($work,$phase,$event,$kvs) {
 # その work が**どの版のハーネスで回されたか**が無いと、改修が効いたかを後から判定できない。
 # 刻印を手書きに任せると忘れられ、忘れられた work は母集団から静かに漏れる（schema: と同じ理由で new に一本化）。
 # 版の実体は「ハーネス・ディレクトリを最後に触ったコミット」。取れない環境では捏造せず 'unknown'。
-$script:HARNESS = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)   # <skills>/aidev-docs/bin -> <skills>
+# 浅いパスに置くと内側の Split-Path が空を返し、外側が例外でスクリプトごと落ちる（=全コマンドが死ぬ）。
+# sh の dirname は '/' を返し続けるので落ちない。取れなければ空にして HarnessRev を unknown に倒す
+$script:HARNESS = try { Split-Path -Parent (Split-Path -Parent $PSScriptRoot) } catch { '' }   # <skills>/aidev-docs/bin -> <skills>
 
 function HarnessRev() {
+  if (-not $script:HARNESS) { return 'unknown' }
   if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return 'unknown' }
   # 見る範囲は aidev-* の skill だけ。<skills> 全体を見ると、同居する無関係な skill の変更でも
   # 版が上がり、その間に走った work が全部「またがり」に見える。またがり判定は母集団からの
@@ -267,7 +270,7 @@ function CvTombstone($path,$msg) {
 function CvId($id) {
   $i = Split-Path -Leaf $id
   if ($i.EndsWith('.md')) { $i = $i.Substring(0, $i.Length-3) }
-  if (-not $i -or $i -eq '.' -or $i -eq '..') { Die "id が不正です: $id" }
+  if (-not $i -or $i -ceq '.' -or $i -ceq '..') { Die "id が不正です: $id" }
   return $i
 }
 
@@ -285,7 +288,7 @@ function CvFind($id) {  # active 優先、無ければ archive。見つからな
 # 本文が丸ごと消えるため、破壊的な操作の前に必ず通す。
 function CvRequire($path) {
   $lines = [System.IO.File]::ReadAllLines($path)
-  if ($lines.Count -eq 0 -or $lines[0].TrimEnd() -ne '---') {
+  if ($lines.Count -eq 0 -or $lines[0].TrimEnd() -cne '---') {
     Die "条項ファイルではありません（frontmatter が無い）: $path"
   }
   if (-not (CvGet $path 'convention') -and -not (CvGet $path 'status')) {
@@ -297,7 +300,9 @@ function CvRequire($path) {
 function CvArchiveFree($path) {
   $d = CvDir
   $b = Split-Path -Leaf $path
-  if (IsFile (Join-Path (Join-Path $d 'archive') $b)) {
+  # sh は [ -e ]。種別を問わず「そこに何かある」なら止める——ここは**破壊の前の衝突検査**なので、
+  # ディレクトリを見逃すと Move-Item がその中へ移し、本文の在処が想定外の場所になる
+  if (PathExists (Join-Path (Join-Path $d 'archive') $b)) {
     Die "archive に同名があります: $(Join-Path (Join-Path $d 'archive') $b)"
   }
 }
@@ -312,10 +317,10 @@ function CvPop($introduced) {
   $worksRoot = Join-Path $script:AIDEV 'works'
   if (-not (IsDir $worksRoot)) { return 0 }
   $n = 0
-  foreach ($d in (Get-ChildItem -Path $worksRoot -Directory | Sort-Object Name)) {
+  foreach ($d in (Get-ChildItem -LiteralPath $worksRoot -Directory | Sort-Object Name)) {
     $f = Join-Path $d.FullName 'metrics.yml'
     if (-not (IsFile $f)) { continue }
-    if ((YList (Join-Path $d.FullName 'state.yml') 'approved') -notcontains 'deliver') { continue }
+    if ((YList (Join-Path $d.FullName 'state.yml') 'approved') -cnotcontains 'deliver') { continue }
     $ts = ''
     foreach ($l in [System.IO.File]::ReadAllLines($f)) {
       # 行内に metrics キー（defects / commits / tests …）があっても最初の ts: を拾うよう、
@@ -335,8 +340,8 @@ function CvPop($introduced) {
 function CvReadyNotice() {
   $d = CvDir
   if (-not (IsDir $d)) { return }
-  foreach ($fi in (Get-ChildItem -Path $d -File -Filter *.md -ErrorAction SilentlyContinue | Sort-Object Name)) {
-    if ((CvGet $fi.FullName 'status') -ne 'pending') { continue }
+  foreach ($fi in (Get-ChildItem -LiteralPath $d -File -Filter *.md -ErrorAction SilentlyContinue | Sort-Object Name)) {
+    if ((CvGet $fi.FullName 'status') -cne 'pending') { continue }
     $intro = CvGet $fi.FullName 'introduced'
     if (-not $intro) { continue }
     $va = CvGet $fi.FullName 'verify_after'
@@ -412,7 +417,10 @@ function Cmd-New($rest) {
       '--ticket'  { $i++; $ticket=(ArgAt $rest $i '--ticket') }
       '--depends' { $i++; $depends=(ArgAt $rest $i '--depends') }
       '--parent'  { $i++; $parent=(ArgAt $rest $i '--parent') }
-      '--backlog' { $i++; $backlog=Split-Path -Leaf (ArgAt $rest $i '--backlog') }
+      # 空文字は sh 側（basename "" が空を返し、未指定として扱われる）に合わせる。
+      # 素で Split-Path に渡すと 'Cannot bind argument...' の生の .NET 例外が出て、
+      # 同じ入力で片方は work を作り片方は落ちる
+      '--backlog' { $i++; $_bv=(ArgAt $rest $i '--backlog'); if ($_bv) { $backlog=Split-Path -Leaf $_bv } }
       default {
         if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
         if ($slug) { Die "slug は1つだけ" } else { $slug=$rest[$i] }
@@ -428,7 +436,7 @@ function Cmd-New($rest) {
 
   $depsYaml='[]'
   if ($depends) {
-    $parts = @($depends -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+    $parts = @($depends -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -cne '' })
     $depsYaml = '[' + ([string]::Join(', ',$parts)) + ']'
   }
   $worksRoot = Join-Path $script:AIDEV 'works'
@@ -447,11 +455,11 @@ function Cmd-New($rest) {
     if (IsDir $work) { Die "subtask が既に存在します: $name" }
     if (-not $mode) { $mode = YGet $pst 'mode' }
     if (-not $mode) { $mode = 'interactive' }
-    if ($mode -ne 'interactive' -and $mode -ne 'autonomous') { Die "mode は interactive|autonomous" }
+    if ($mode -cne 'interactive' -and $mode -cne 'autonomous') { Die "mode は interactive|autonomous" }
     # profile も mode と同様に親から継承（省略時）。sh 版と同一
     if (-not $profile) { $profile = YGet $pst 'profile' }
     if (-not $profile) { $profile = 'full' }
-    if ($profile -ne 'full' -and $profile -ne 'light') { Die "profile は full|light" }
+    if ($profile -cne 'full' -and $profile -cne 'light') { Die "profile は full|light" }
     New-Item -ItemType Directory -Path $work -Force | Out-Null
 
     $sb = "schema: $($script:CURRENT_SCHEMA)`nslug: $slug`nparent: $parent`n"
@@ -463,10 +471,10 @@ function Cmd-New($rest) {
 
     # 親 subtasks に追記（重複排除）し、activeSubtask 未設定なら本 subtask を活性に
     $cur = @(YList $pst 'subtasks')
-    if ($cur -notcontains $slug) { $cur = @($cur + $slug) }
+    if ($cur -cnotcontains $slug) { $cur = @($cur + $slug) }
     SetOrAppend $pst 'subtasks' ("subtasks: [" + ([string]::Join(', ', $cur)) + "]")
     $act = YGet $pst 'activeSubtask'
-    if (-not $act -or $act -eq 'done') { SetOrAppend $pst 'activeSubtask' "activeSubtask: $slug" }
+    if (-not $act -or $act -ceq 'done') { SetOrAppend $pst 'activeSubtask' "activeSubtask: $slug" }
 
     WriteText (Join-Path $script:AIDEV 'current') "$name`n"
     Write-Output "created subtask: $work (parent $parent, schema $($script:CURRENT_SCHEMA), mode $mode, profile $profile)"
@@ -475,9 +483,9 @@ function Cmd-New($rest) {
 
   # --- 通常(top-level) work ---
   if (-not $mode) { $mode = 'interactive' }
-  if ($mode -ne 'interactive' -and $mode -ne 'autonomous') { Die "mode は interactive|autonomous" }
+  if ($mode -cne 'interactive' -and $mode -cne 'autonomous') { Die "mode は interactive|autonomous" }
   if (-not $profile) { $profile = 'full' }
-  if ($profile -ne 'full' -and $profile -ne 'light') { Die "profile は full|light" }
+  if ($profile -cne 'full' -and $profile -cne 'light') { Die "profile は full|light" }
 
   $dateP = [DateTime]::UtcNow.ToString('yyyyMMdd')
   $base = "$dateP-$slug"; $name=$base; $n=2
@@ -494,7 +502,7 @@ function Cmd-New($rest) {
   WriteText (Join-Path $work 'metrics.yml') "events:`n"
   WriteText (Join-Path $script:AIDEV 'current') "$name`n"
   Write-Output "created: $work (schema $($script:CURRENT_SCHEMA), mode $mode, profile $profile)"
-  if ($profile -eq 'light') { Write-Output "note: profile=light。上流3工程は requirement 1ゲートに畳む（protocol.md「11.」）" }
+  if ($profile -ceq 'light') { Write-Output "note: profile=light。上流3工程は requirement 1ゲートに畳む（protocol.md「11.」）" }
   if ($backlog) { Write-Output "backlog: $backlog（deliver で該当行を [x] にすること。verify が検査する）" }
 }
 
@@ -503,7 +511,7 @@ function Cmd-Event($rest) {
   if ($rest.Count -lt 2) { Die "使用法: aidev event <phase> <start|approved|sent_back> [k=v ...]" }
   $ph=$rest[0]; $ev=$rest[1]; $kvs=@(); if ($rest.Count -gt 2) { $kvs=$rest[2..($rest.Count-1)] }
   if (-not (IsPhase $ph)) { Die "未知の phase: $ph" }
-  if ('start','approved','sent_back' -notcontains $ev) { Die "event は start|approved|sent_back" }
+  if ('start','approved','sent_back' -cnotcontains $ev) { Die "event は start|approved|sent_back" }
   ResolveWork ''
   AppendEvent $script:WORK $ph $ev $kvs
   Write-Output "recorded: $($script:SLUG)/$ph/$ev"
@@ -530,11 +538,11 @@ function Cmd-Approve($rest) {
 
   # deliver 時のハーネス版も刻む。new 時と食い違う work は改修をまたいで走った＝前半を旧版・
   # 後半を新版で回している。どちらかに帰属させると効果が薄まるので母集団から除外する。
-  if ($ph -eq 'deliver') {
+  if ($ph -ceq 'deliver') {
     $hr = HarnessRev
     SetOrAppend $st 'harnessRevDelivered' "harnessRevDelivered: $hr"
     $hr0 = YGet $st 'harnessRev'
-    if ($hr0 -and $hr0 -ne $hr -and $hr0 -ne 'unknown' -and $hr -ne 'unknown') {
+    if ($hr0 -and $hr0 -cne $hr -and $hr0 -cne 'unknown' -and $hr -cne 'unknown') {
       Write-Output "note: ハーネス版が着手時($hr0)と着地時($hr)で異なる＝またがり work。効果検証の母集団からは除外される"
     }
     # この deliver で母集団が揃った条項があれば、その場で知らせる
@@ -544,7 +552,7 @@ function Cmd-Approve($rest) {
 
   # D: subtask の review 承認でカーソルを前進させる（散文の手動カーソル操作を排除）。
   # 親 subtasks を順に見て review 未承認の最初の子を次の active にする。無ければ done（→親の統合 test へ）。
-  if ($ph -eq 'review') {
+  if ($ph -ceq 'review') {
     $par = YGet $st 'parent'
     $worksRoot = Join-Path $script:AIDEV 'works'
     if ($par -and (IsDir (Join-Path $worksRoot $par))) {
@@ -552,7 +560,7 @@ function Cmd-Approve($rest) {
       $nextsub = ''
       foreach ($s in (YList $pst2 'subtasks')) {
         $subSt = Join-Path (Join-Path (Join-Path $worksRoot $par) $s) 'state.yml'
-        if ((YList $subSt 'approved') -notcontains 'review') { $nextsub = $s; break }
+        if ((YList $subSt 'approved') -cnotcontains 'review') { $nextsub = $s; break }
       }
       if ($nextsub) {
         SetOrAppend $pst2 'activeSubtask' "activeSubtask: $nextsub"
@@ -585,9 +593,9 @@ function Eval-Depends($workDir) {
       $da = YList (Join-Path $depWork 'state.yml') 'approved'
       # 完了判定: subtask(=parent あり)は review 承認、top-level work は deliver 承認
       if (YGet (Join-Path $depWork 'state.yml') 'parent') {
-        if ($da -notcontains 'review') { $script:EvalUnmet += "$d(未review)" }
+        if ($da -cnotcontains 'review') { $script:EvalUnmet += "$d(未review)" }
       } else {
-        if ($da -notcontains 'deliver') { $script:EvalUnmet += "$d(未deliver)" }
+        if ($da -cnotcontains 'deliver') { $script:EvalUnmet += "$d(未deliver)" }
       }
     } else { $script:EvalUnmet += "$d(work不明)" }
   }
@@ -605,14 +613,14 @@ function Cmd-Guard($rest) {
   $par = YGet (Join-Path $script:WORK 'state.yml') 'parent'
   if ($par) { $pd = Join-Path (Join-Path $script:AIDEV 'works') $par; if (IsDir $pd) { $script:PARENT_DIR=$pd } }
   # B: 親専用工程は subtask で実行不可（subtask の工程は plan/coding/test/review のみ）
-  if ($par -and ('requirement','research','spec','design','walkthrough','deliver','retro' -contains $ph)) {
+  if ($par -and ('requirement','research','spec','design','walkthrough','deliver','retro' -ccontains $ph)) {
     [Console]::Error.WriteLine("NG $ph は親 work 専用です（subtask では実行不可。subtask の工程は plan/coding/test/review）: $($script:SLUG)")
     exit 2
   }
   function needFile($f) {
     if (IsFile (Join-Path $script:WORK $f)) { return }
     # 上流成果物(requirement/spec/design)のみ親から継承。plan.md/tasks.md は subtask 固有なので継承しない。
-    if ($script:PARENT_DIR -and ('requirement.md','spec.md','design.md' -contains $f) -and (IsFile (Join-Path $script:PARENT_DIR $f))) { return }
+    if ($script:PARENT_DIR -and ('requirement.md','spec.md','design.md' -ccontains $f) -and (IsFile (Join-Path $script:PARENT_DIR $f))) { return }
     $script:miss += $f
   }
   function needApproved($p) { if (-not (ApprovedHas $script:WORK $p)) { $script:unapp += $p } }
@@ -657,7 +665,7 @@ function NeedsStart($work, $phase) {
   $s = 0; $a = 0
   foreach ($l in [System.IO.File]::ReadAllLines($mf)) {
     $m = [regex]::Match($l, 'phase:\s*([a-z]+)')
-    if (-not $m.Success -or $m.Groups[1].Value -ne $phase) { continue }
+    if (-not $m.Success -or $m.Groups[1].Value -cne $phase) { continue }
     if ($l -match 'event:\s*start')    { $s++ }
     if ($l -match 'event:\s*approved') { $a++ }
   }
@@ -731,10 +739,13 @@ function VerifyWork($work) {
     # 待つ書き方だと、この検査は通常の順序では一度も発火しない。まだ無いときは今の版と比べる。
     $hrw = '着地時'
     if (-not $hr1) { $hr1 = HarnessRev; $hrw = '現在' }
+    # ここで Write-Output を使うと、この関数の戻り値が Object[] になり `$rc = VerifyWork` が
+    # 壊れる（FAIL を出しながら rc=0、--strict の 5 も 0 になり、Windows で機械ゲートが素通りする）。
+    # 状態行は必ず [Console]::Out へ直接出すこと（この関数の先頭コメントの通り）
     if (-not $hr0) {
-      Write-Output "  WARN harnessRev が無い: 効果検証の母集団から漏れる（aidev new で刻まれる）"
-    } elseif ($hr1 -and $hr0 -ne $hr1 -and $hr0 -ne 'unknown' -and $hr1 -ne 'unknown') {
-      Write-Output "  WARN またがり work: ハーネス版が着手時($hr0)と$hrw($hr1)で異なる。効果検証の母集団からは除外される"
+      [Console]::Out.WriteLine("  WARN harnessRev が無い: 効果検証の母集団から漏れる（aidev new で刻まれる）")
+    } elseif ($hr1 -and $hr0 -cne $hr1 -and $hr0 -cne 'unknown' -and $hr1 -cne 'unknown') {
+      [Console]::Out.WriteLine("  note: またがり work: ハーネス版が着手時($hr0)と$hrw($hr1)で異なる。効果検証の母集団からは除外される")
     }
   }
 
@@ -756,7 +767,7 @@ function VerifyWork($work) {
 function LightWarnings($work) {
   $st = Join-Path $work 'state.yml'
   if (-not (IsFile $st)) { return }
-  if ((YGet $st 'profile') -ne 'light') { return }
+  if ((YGet $st 'profile') -cne 'light') { return }
   $mf = Join-Path $work 'metrics.yml'
   if (-not (IsFile $mf)) { return }
   $lines = [System.IO.File]::ReadAllLines($mf)
@@ -804,7 +815,7 @@ function EventPairWarnings($metricsFile) {
   # 出力順は PHASES 順（未知の phase は初出順で後ろに）。ハッシュの列挙順に任せると
   # awk と PowerShell で並びが変わり「出力を一致させる」契約が破れる。
   $order = @($script:PHASES | Where-Object { $approved.ContainsKey($_) })
-  $order += @($seen | Where-Object { $approved.ContainsKey($_) -and ($script:PHASES -notcontains $_) })
+  $order += @($seen | Where-Object { $approved.ContainsKey($_) -and ($script:PHASES -cnotcontains $_) })
   # 行は**返す**（呼び出し側が出力する）。--strict で件数を数える必要があるため。sh 版の
   # `EPW=$(event_pair_warnings …)` と同じ形にして、出力内容・順序は従来どおりに保つ。
   foreach ($p in $order) {
@@ -820,7 +831,7 @@ function EventPairWarnings($metricsFile) {
 function Cmd-Verify($rest) {
   $slug=''; $script:STRICT = $false
   for ($i=0; $i -lt $rest.Count; $i++) {
-    if ($rest[$i] -eq '--strict') { $script:STRICT = $true }
+    if ($rest[$i] -ceq '--strict') { $script:STRICT = $true }
     elseif ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
     elseif ($slug) { Die "slug は1つだけ" }
     else { $slug = $rest[$i] }
@@ -840,8 +851,8 @@ function Cmd-Escalate($rest) {
   $st = Join-Path $script:WORK 'state.yml'
   $cur = YGet $st 'profile'
   if (-not $cur) { $cur = 'full' }   # 未記載 = full（profile 導入前の work）
-  if ($cur -eq 'full')  { Die "既に profile=full です（昇格は片方向。full -> light は不可）: $($script:SLUG)" }
-  if ($cur -ne 'light') { Die "未知の profile: $cur" }
+  if ($cur -ceq 'full')  { Die "既に profile=full です（昇格は片方向。full -> light は不可）: $($script:SLUG)" }
+  if ($cur -cne 'light') { Die "未知の profile: $cur" }
   SetOrAppend $st 'profile' 'profile: full'
   Write-Output "escalated: $($script:SLUG) (light -> full)"
   Write-Output "next: 省略していた節を各文書に足す / decisions.md に経緯を残す /"
@@ -876,7 +887,7 @@ function BlStat($path) {
 # 退避してよいか＝消化しきったら終わるキュー（split/topic）で全項目 [x]。doctor と archive が同じ判定を通る。
 function BlArchivable($path) {
   BlStat $path
-  if ($script:BL_KIND -ne 'split' -and $script:BL_KIND -ne 'topic') { return $false }
+  if ($script:BL_KIND -cne 'split' -and $script:BL_KIND -cne 'topic') { return $false }
   return ($script:BL_TODO -eq 0 -and $script:BL_DN -gt 0)
 }
 
@@ -884,12 +895,12 @@ function Doctor-Backlog() {
   $blRoot = Join-Path $script:AIDEV 'backlog'
   if (-not (IsDir $blRoot)) { return }
   $items = @()
-  foreach ($f in (Get-ChildItem -Path $blRoot -File -Filter *.md | Sort-Object Name)) {
+  foreach ($f in (Get-ChildItem -LiteralPath $blRoot -File -Filter *.md | Sort-Object Name)) {
     $items += ,@($f.FullName, $f.Name, $false)
   }
   $arcRoot = Join-Path $blRoot 'archive'
   if (IsDir $arcRoot) {
-    foreach ($f in (Get-ChildItem -Path $arcRoot -File -Filter *.md | Sort-Object Name)) {
+    foreach ($f in (Get-ChildItem -LiteralPath $arcRoot -File -Filter *.md | Sort-Object Name)) {
       $items += ,@($f.FullName, ("archive/" + $f.Name), $true)
     }
   }
@@ -906,11 +917,11 @@ function Doctor-Backlog() {
       # kind はファイルの一生の宣言（sh 版と同一）。standing=退避しない / split・topic=退避する。
       if ([string]::IsNullOrEmpty($kind)) {
         $w += "    WARN frontmatter(kind)が無い: standing/split/topic を判定できず退避の要否が決まらない`n"
-      } elseif ($kind -eq 'split' -or $kind -eq 'topic') {
+      } elseif ($kind -ceq 'split' -or $kind -ceq 'topic') {
         if ($todo -eq 0 -and $dn -gt 0) {
           $w += "    WARN 全消化($kind)だが未退避: .aidev/backlog/archive/ へ移す`n"
         }
-      } elseif ($kind -ne 'standing') {
+      } elseif ($kind -cne 'standing') {
         # 誤記を黙って standing 扱いにしない（退避検査がまるごと効かなくなるため）
         $w += "    WARN 未知の kind: $kind（standing/split/topic のいずれか）`n"
       }
@@ -936,14 +947,14 @@ function Cmd-Doctor() {
   if (-not (IsDir $worksDir)) { Die "works がありません" }
   $total=0; $fail=0; $legacy=0
   Write-Output "doctor: 全 work 横断検査"
-  foreach ($d in (Get-ChildItem -Path $worksDir -Directory | Sort-Object Name)) {
+  foreach ($d in (Get-ChildItem -LiteralPath $worksDir -Directory | Sort-Object Name)) {
     $total++
     Write-Output ("- " + $d.Name)
     $sc = YGet (Join-Path $d.FullName 'state.yml') 'schema'
     if ([string]::IsNullOrEmpty($sc)) { $legacy++ }
     if ((VerifyWork $d.FullName) -ne 0) { $fail++ }
     # subtask（ネスト1段）も横断検査する
-    foreach ($sd in (Get-ChildItem -Path $d.FullName -Directory | Sort-Object Name)) {
+    foreach ($sd in (Get-ChildItem -LiteralPath $d.FullName -Directory | Sort-Object Name)) {
       if (-not (IsFile (Join-Path $sd.FullName 'state.yml'))) { continue }
       $total++
       Write-Output ("  - " + $d.Name + "/" + $sd.Name)
@@ -990,7 +1001,7 @@ function SubtaskProgress($workDir) {
   if ($subs.Count -eq 0) { return '' }
   $m = $subs.Count; $n = 0
   foreach ($s in $subs) {
-    if ((YList (Join-Path (Join-Path $workDir $s) 'state.yml') 'approved') -contains 'review') { $n++ }
+    if ((YList (Join-Path (Join-Path $workDir $s) 'state.yml') 'approved') -ccontains 'review') { $n++ }
   }
   return "$n $m"
 }
@@ -1007,27 +1018,27 @@ function Cmd-Status($rest) {
       }
     }
   }
-  if ($fmt -ne 'table' -and $fmt -ne 'tsv') { Die "--format は table|tsv" }
+  if ($fmt -cne 'table' -and $fmt -cne 'tsv') { Die "--format は table|tsv" }
 
   $worksDir = Join-Path $script:AIDEV 'works'
   $wrows=@(); $wn=0   # 各要素は型タグ付き: "W`t…7列…" / "S`t親`t子`tcurrent`tdone"
   if (IsDir $worksDir) {
-    foreach ($d in (Get-ChildItem -Path $worksDir -Directory | Sort-Object Name)) {
+    foreach ($d in (Get-ChildItem -LiteralPath $worksDir -Directory | Sort-Object Name)) {
       $st = Join-Path $d.FullName 'state.yml'
       if (-not (IsFile $st)) { continue }
       $ticket = YGet $st 'ticket';  if (-not $ticket)  { $ticket='-' }
       $mode = YGet $st 'mode';      if (-not $mode)    { $mode='-' }
       $current = YGet $st 'current';if (-not $current) { $current='-' }
       $appr = YList $st 'approved'
-      $wdone = if ($appr -contains 'deliver') { 'yes' } else { 'no' }
+      $wdone = if ($appr -ccontains 'deliver') { 'yes' } else { 'no' }
       $next='-'
-      if ($wdone -eq 'no') { foreach ($p in $script:STD_PIPELINE) { if ($appr -notcontains $p) { $next=$p; break } } }
+      if ($wdone -ceq 'no') { foreach ($p in $script:STD_PIPELINE) { if ($appr -cnotcontains $p) { $next=$p; break } } }
       # subtask を持つ親は next を subtask 進捗に差し替える（未完=sub N/M、全完了=統合工程の次）
       $sp = SubtaskProgress $d.FullName
-      if ($sp -and $wdone -eq 'no') {
+      if ($sp -and $wdone -ceq 'no') {
         $spp = $sp -split ' '; $spn=[int]$spp[0]; $spm=[int]$spp[1]
         if ($spn -lt $spm) { $next = "sub $spn/$spm" }
-        else { $next='-'; foreach ($p in @('test','review','deliver')) { if ($appr -notcontains $p) { $next=$p; break } } }
+        else { $next='-'; foreach ($p in @('test','review','deliver')) { if ($appr -cnotcontains $p) { $next=$p; break } } }
       }
       Eval-Depends $d.FullName
       $tok=@()
@@ -1041,7 +1052,7 @@ function Cmd-Status($rest) {
         foreach ($cs in @(YList $st 'subtasks')) {
           $cst = Join-Path (Join-Path $d.FullName $cs) 'state.yml'
           $ccur = YGet $cst 'current'; if (-not $ccur) { $ccur='-' }
-          $cdone = if ((YList $cst 'approved') -contains 'review') { 'yes' } else { 'no' }
+          $cdone = if ((YList $cst 'approved') -ccontains 'review') { 'yes' } else { 'no' }
           $wrows += ("S`t" + $d.Name + "`t" + $cs + "`t" + $ccur + "`t" + $cdone)
         }
       }
@@ -1053,12 +1064,12 @@ function Cmd-Status($rest) {
   $inflight = @{}
   $iworks = Join-Path $script:AIDEV 'works'
   if (IsDir $iworks) {
-    foreach ($d in (Get-ChildItem -Path $iworks -Directory | Sort-Object Name)) {
+    foreach ($d in (Get-ChildItem -LiteralPath $iworks -Directory | Sort-Object Name)) {
       $ist = Join-Path $d.FullName 'state.yml'
       if (-not (IsFile $ist)) { continue }
       $ibl = YGet $ist 'backlog'
       if ([string]::IsNullOrEmpty($ibl)) { continue }
-      if ((YList $ist 'approved') -contains 'deliver') { continue }
+      if ((YList $ist 'approved') -ccontains 'deliver') { continue }
       if ($inflight.ContainsKey($ibl)) { $inflight[$ibl]++ } else { $inflight[$ibl] = 1 }
     }
   }
@@ -1066,7 +1077,7 @@ function Cmd-Status($rest) {
   $backlogDir = Join-Path $script:AIDEV 'backlog'
   $brows=@(); $bf=0; $bn=0
   if (IsDir $backlogDir) {
-    foreach ($f in (Get-ChildItem -Path $backlogDir -File -Filter *.md | Sort-Object Name)) {
+    foreach ($f in (Get-ChildItem -LiteralPath $backlogDir -File -Filter *.md | Sort-Object Name)) {
       $todo=0; $needs=0
       foreach ($l in [System.IO.File]::ReadAllLines($f.FullName)) {
         if ($l -match '^\s*- \[ \]') { $todo++; if ($l -match '\(needs:') { $needs++ } }
@@ -1078,10 +1089,10 @@ function Cmd-Status($rest) {
     }
   }
 
-  if ($fmt -eq 'tsv') {
+  if ($fmt -ceq 'tsv') {
     foreach ($r in $wrows) {
       $c = $r -split "`t"
-      if ($c[0] -eq 'W') { Write-Output ("work`t" + ($c[1..7] -join "`t")) }
+      if ($c[0] -ceq 'W') { Write-Output ("work`t" + ($c[1..7] -join "`t")) }
       else { Write-Output ("subtask`t" + $c[1] + "/" + $c[2] + "`t" + $c[3] + "`t" + $c[4]) }
     }
     foreach ($r in $brows) { Write-Output ("backlog`t" + $r) }
@@ -1093,7 +1104,7 @@ function Cmd-Status($rest) {
     $disp = @("work`tticket`tmode`tcurrent`tnext`tdone`tdeps")
     foreach ($r in $wrows) {
       $c = $r -split "`t"
-      if ($c[0] -eq 'W') { $disp += ($c[1..7] -join "`t") }
+      if ($c[0] -ceq 'W') { $disp += ($c[1..7] -join "`t") }
       else { $disp += ("  ↳ " + $c[2] + "`t-`t-`t" + $c[3] + "`t-`t" + $c[4] + "`t-") }
     }
     foreach ($l in (Fmt-Table $disp)) { Write-Output $l }
@@ -1106,7 +1117,7 @@ function Cmd-Status($rest) {
 # --- metrics（読み取り専用・metrics.yml から派生指標を集計） ----------------------
 function Mt-Epoch($ts) {
   $t = ($ts -replace 'Z$','') -replace 'UTC$',''
-  if ($t.Length -lt 19 -or $t.Substring(10,1) -ne 'T') { return -1 }
+  if ($t.Length -lt 19 -or $t.Substring(10,1) -cne 'T') { return -1 }
   try {
     $dt = [DateTime]::ParseExact($t.Substring(0,19), 'yyyy-MM-ddTHH:mm:ss', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None)
     return [int64]([DateTimeOffset]::new($dt, [TimeSpan]::Zero).ToUnixTimeSeconds())
@@ -1126,12 +1137,12 @@ function Cmd-Metrics($rest) {
       }
     }
   }
-  if ($fmt -ne 'table' -and $fmt -ne 'tsv') { Die "--format は table|tsv" }
+  if ($fmt -cne 'table' -and $fmt -cne 'tsv') { Die "--format は table|tsv" }
 
   $worksDir = Join-Path $script:AIDEV 'works'
   $dirs=@()
   if ($allf) {
-    if (IsDir $worksDir) { $dirs = @(Get-ChildItem -Path $worksDir -Directory | Sort-Object Name | ForEach-Object { $_.FullName }) }
+    if (IsDir $worksDir) { $dirs = @(Get-ChildItem -LiteralPath $worksDir -Directory | Sort-Object Name | ForEach-Object { $_.FullName }) }
   } elseif ($mslug) {
     $p = Join-Path $worksDir $mslug
     if (-not (IsDir $p)) { Die "work が存在しません: $mslug" }
@@ -1160,16 +1171,16 @@ function Cmd-Metrics($rest) {
         if ($line -match 'event:\s*([A-Za-z_]+)'){ $ev = $Matches[1] }
         if (-not $ph -or -not $ev) { continue }
         $e = Mt-Epoch $ts
-        if ($ev -eq 'start') {
+        if ($ev -ceq 'start') {
           if ($scount.ContainsKey($ph)) { $scount[$ph]++ } else { $scount[$ph]=1 }
           if ($e -ge 0) {
             if ($first -lt 0 -or $e -lt $first) { $first=$e; $firstts=$ts }
             if (-not $laststart.ContainsKey($ph) -or $e -gt $laststart[$ph]) { $laststart[$ph]=$e; $laststartTs[$ph]=$ts }
           }
-        } elseif ($ev -eq 'approved') {
+        } elseif ($ev -ceq 'approved') {
           if ($e -ge 0) { $appat[$ph]=$e; $appatTs[$ph]=$ts }
-          if ($ph -eq 'deliver') { $deliveredFlag=$true; if ($e -ge 0) { $deliveredE=$e } }
-        } elseif ($ev -eq 'sent_back') { $sback++ }
+          if ($ph -ceq 'deliver') { $deliveredFlag=$true; if ($e -ge 0) { $deliveredE=$e } }
+        } elseif ($ev -ceq 'sent_back') { $sback++ }
       }
     }
     if ($phasesf) {
@@ -1195,7 +1206,7 @@ function Cmd-Metrics($rest) {
   if ($phasesf) { $hdr = "work`tphase`tstart`tapproved`telapsed_sec" }
   else          { $hdr = "work`tfirst_start`tdelivered`tlead_sec`treworks`tsent_backs" }
 
-  if ($fmt -eq 'tsv') { foreach ($r in $rows) { Write-Output $r } }
+  if ($fmt -ceq 'tsv') { foreach ($r in $rows) { Write-Output $r } }
   else { foreach ($l in (Fmt-Table (@($hdr) + $rows))) { Write-Output $l } }
 }
 
@@ -1214,10 +1225,10 @@ function WorksMatchingSlug($path, $slug) {
   $res = @()
   $wd = Join-Path (Join-Path $path '.aidev') 'works'
   if (-not (IsDir $wd)) { return $res }
-  foreach ($d in (Get-ChildItem -Path $wd -Directory | Sort-Object Name)) {
+  foreach ($d in (Get-ChildItem -LiteralPath $wd -Directory | Sort-Object Name)) {
     $st = Join-Path $d.FullName 'state.yml'
     if (-not (IsFile $st)) { continue }
-    if ((YGet $st 'slug') -eq $slug) { $res += $d.Name }
+    if ((YGet $st 'slug') -ceq $slug) { $res += $d.Name }
   }
   return $res
 }
@@ -1227,7 +1238,7 @@ function WtPorcelain() {
   $out=@(); $p=''; $b=''
   foreach ($line in (git worktree list --porcelain)) {
     if ($line -like 'worktree *') {
-      if ($p -ne '') { $out += ($p + "`t" + ($(if ($b -eq '') { '-' } else { $b }))); $b='' }
+      if ($p -cne '') { $out += ($p + "`t" + ($(if ($b -ceq '') { '-' } else { $b }))); $b='' }
       $p = $line.Substring(9)
     } elseif ($line -like 'branch *') {
       $b = $line.Substring(7) -replace '^refs/heads/',''
@@ -1235,7 +1246,7 @@ function WtPorcelain() {
       $b = 'detached'
     }
   }
-  if ($p -ne '') { $out += ($p + "`t" + ($(if ($b -eq '') { '-' } else { $b }))) }
+  if ($p -cne '') { $out += ($p + "`t" + ($(if ($b -ceq '') { '-' } else { $b }))) }
   return $out
 }
 
@@ -1284,7 +1295,7 @@ function Wt-Add($rest) {
     git worktree add -b "$branch" "$wpath" "$base"
     if ($LASTEXITCODE -ne 0) { Die "git worktree add に失敗（branch=$branch base=$base）" }
   }
-  $wpath = (Resolve-Path $wpath).Path
+  $wpath = (Resolve-Path -LiteralPath $wpath).Path
 
   # worktree 内で work を確定（main tree の .aidev/current には触れない＝INV-1）
   # @() で配列強制（要素1個だと return がスカラー文字列にアンロールし $mw[0] が先頭1文字になるのを防ぐ）
@@ -1326,7 +1337,7 @@ function Wt-List($rest) {
       }
     }
   }
-  if ($fmt -ne 'table' -and $fmt -ne 'tsv') { Die "--format は table|tsv" }
+  if ($fmt -cne 'table' -and $fmt -cne 'tsv') { Die "--format は table|tsv" }
   GitPresent
 
   $rows=@()
@@ -1340,11 +1351,11 @@ function Wt-List($rest) {
     if (-not $work) { $work = '-' }
     $phase = '-'
     $st = Join-Path (Join-Path (Join-Path (Join-Path $path '.aidev') 'works') $work) 'state.yml'
-    if ($work -ne '-' -and (IsFile $st)) { $phase = YGet $st 'current'; if (-not $phase) { $phase='-' } }
+    if ($work -cne '-' -and (IsFile $st)) { $phase = YGet $st 'current'; if (-not $phase) { $phase='-' } }
     $rows += ($path + "`t" + $branch + "`t" + $work + "`t" + $phase)
   }
 
-  if ($fmt -eq 'tsv') {
+  if ($fmt -ceq 'tsv') {
     foreach ($r in $rows) { Write-Output ("worktree`t" + $r) }
     return
   }
@@ -1368,14 +1379,14 @@ function Wt-Rm($rest) {
   GitPresent
 
   $abst=''
-  if (IsDir $target) { $abst = PathKey (Resolve-Path $target).Path }
+  if (IsDir $target) { $abst = PathKey (Resolve-Path -LiteralPath $target).Path }
   $wts = @(WtPorcelain)
   $mainWt = if ($wts.Count -ge 1) { ($wts[0] -split "`t")[0] } else { '' }  # porcelain 先頭＝main worktree（rm 対象外）
   $rpath=''; $rbranch=''; $hitMain=$false
   foreach ($line in $wts) {
     $cols = $line -split "`t"; $p = $cols[0]; $b = $cols[1]
     if ($abst) {
-      if ((PathKey $p) -eq $abst) { $rpath=$p; $rbranch=$b; break }
+      if ((PathKey $p) -eq $abst) { $rpath=$p; $rbranch=$b; break }   # パス比較は OS の流儀に従う
     } else {
       if ((Split-Path $p -Leaf) -eq $target -or $b -eq "feature/$target" -or $b -eq $target) {
         if ($p -eq $mainWt) { $hitMain=$true; continue }  # slug が main worktree に一致しても対象にしない
@@ -1397,9 +1408,11 @@ function Wt-Rm($rest) {
   if ($LASTEXITCODE -ne 0) { Die "git worktree remove に失敗: $rpath" }
   Write-Output "worktree 撤去: $rpath"
   $container = Split-Path $rpath -Parent
-  if ((IsDir $container) -and -not (Get-ChildItem -Force $container)) { Remove-Item $container -Force }
+  # -Force を落とすと隠しファイルだけのディレクトリを「空」とみなして消す。
+  # sh 側は rmdir で、非空なら失敗して何もしない（隠しファイルも中身と数える）
+  if ((IsDir $container) -and -not (Get-ChildItem -LiteralPath $container -Force)) { Remove-Item -LiteralPath $container -Force }
 
-  if ($delbranch -and $rbranch -ne '-' -and $rbranch -ne 'detached') {
+  if ($delbranch -and $rbranch -cne '-' -and $rbranch -cne 'detached') {
     git branch -D "$rbranch"
     if ($LASTEXITCODE -eq 0) { Write-Output "  branch 削除: $rbranch" } else { Warn "branch 削除に失敗: $rbranch" }
   }
@@ -1448,11 +1461,11 @@ function Bl-New($rest) {
   if (-not $name) { Die "使用法: aidev backlog new <name> --kind standing|split|topic [--parent <slug>] [--priority <n>]" }
   if ($name.EndsWith('.md')) { $name = $name.Substring(0, $name.Length-3) }
   $name = Split-Path -Leaf $name
-  if ($kind -eq 'split') {
+  if ($kind -ceq 'split') {
     if (-not $parent) { Die "kind: split には --parent が要ります（親 work slug / チケット）" }
-  } elseif ($kind -eq '') {
+  } elseif ($kind -ceq '') {
     Die "--kind は必須です（standing|split|topic）"
-  } elseif ($kind -ne 'standing' -and $kind -ne 'topic') {
+  } elseif ($kind -cne 'standing' -and $kind -cne 'topic') {
     Die "未知の kind: $kind（standing|split|topic）"
   }
   $blRoot = Join-Path $script:AIDEV 'backlog'
@@ -1471,7 +1484,7 @@ function Bl-New($rest) {
 function Bl-DoArchive($rest) {
   $force=$false; $targets=@(); $explicit=$true
   foreach ($a in $rest) {
-    if ($a -eq '--force') { $force=$true }
+    if ($a -ceq '--force') { $force=$true }
     elseif ($a.StartsWith('-')) { Die "未知のオプション: $a" }
     else { $targets += (Split-Path -Leaf $a) }
   }
@@ -1479,7 +1492,7 @@ function Bl-DoArchive($rest) {
   if (-not (IsDir $blRoot)) { Die "backlog がありません" }
   if ($targets.Count -eq 0) {
     $explicit=$false
-    foreach ($f in (Get-ChildItem -Path $blRoot -File -Filter *.md | Sort-Object Name)) {
+    foreach ($f in (Get-ChildItem -LiteralPath $blRoot -File -Filter *.md | Sort-Object Name)) {
       if (BlArchivable $f.FullName) { $targets += $f.Name }
     }
   }
@@ -1502,7 +1515,7 @@ function Bl-DoArchive($rest) {
     if (PathExists (Join-Path $arcRoot $t)) {
       Write-Output "skip ${t}: archive/ に同名があります"; $skipped++; continue
     }
-    Move-Item -Path $f -Destination (Join-Path $arcRoot $t)
+    Move-Item -LiteralPath $f -Destination (Join-Path $arcRoot $t)
     Write-Output "archived: $t"; $moved++
   }
   Write-Output "summary: archived=$moved skipped=$skipped"
@@ -1535,7 +1548,7 @@ function Cv-ArchiveFile($path) {
   if (-not (IsDir $arc)) { New-Item -ItemType Directory -Path $arc -Force | Out-Null }
   $b = Split-Path -Leaf $path
   $dest = Join-Path $arc $b
-  Move-Item -Path $path -Destination $dest
+  Move-Item -LiteralPath $path -Destination $dest
   Write-Output "archived: $dest"
 }
 
@@ -1632,8 +1645,8 @@ function Cv-Retire($rest) {
     }
   }
   if (-not $id) { Die "使用法: aidev convention retire <id> --status ineffective|superseded [--note <text>]" }
-  if ($st -eq '') { Die "--status は必須です（ineffective|superseded）" }
-  if ($st -ne 'ineffective' -and $st -ne 'superseded') { Die "未知の status: $st（ineffective|superseded）" }
+  if ($st -ceq '') { Die "--status は必須です（ineffective|superseded）" }
+  if ($st -cne 'ineffective' -and $st -cne 'superseded') { Die "未知の status: $st（ineffective|superseded）" }
   $f = CvFind $id
   if (-not $f) { Die "条項がありません: $id" }
   if ($f -match '[\\/]archive[\\/]') { Die "すでに退避済みです: $id" }
@@ -1642,7 +1655,7 @@ function Cv-Retire($rest) {
   if ($note) { CvSet $f 'note' $note }
   Cv-ArchiveFile $f
   Write-Output "retired: $id ($st)"
-  if ($st -eq 'ineffective') {
+  if ($st -ceq 'ineffective') {
     Write-Output "note: 「効かなかった」は「条項が誤り」とは限らない。散文層の限界なら CLI/フック層へ寄せることを検討（DESIGN「2.6」）"
   }
 }
@@ -1692,13 +1705,13 @@ function Cv-Status($rest) {
       }
     }
   }
-  if ($fmt -ne 'table' -and $fmt -ne 'tsv') { Die "--format は table|tsv" }
+  if ($fmt -cne 'table' -and $fmt -cne 'tsv') { Die "--format は table|tsv" }
   $d = CvDir
   if (-not (IsDir $d)) { Die "条項ディレクトリがありません: $d（aidev convention new で起こす）" }
   $files = @()
-  $files += (Get-ChildItem -Path $d -File -Filter *.md -ErrorAction SilentlyContinue | Sort-Object Name)
+  $files += (Get-ChildItem -LiteralPath $d -File -Filter *.md -ErrorAction SilentlyContinue | Sort-Object Name)
   $arc = Join-Path $d 'archive'
-  if (IsDir $arc) { $files += (Get-ChildItem -Path $arc -File -Filter *.md -ErrorAction SilentlyContinue | Sort-Object Name) }
+  if (IsDir $arc) { $files += (Get-ChildItem -LiteralPath $arc -File -Filter *.md -ErrorAction SilentlyContinue | Sort-Object Name) }
   $idxf = CvIndexFile
   $idxb = if ($idxf) { CvIndexBlock $idxf } else { '' }
   $rel = CvDirRel
@@ -1710,23 +1723,23 @@ function Cv-Status($rest) {
     $intro = CvGet $fi.FullName 'introduced'; if (-not $intro) { $intro='-' }
     $va = CvGet $fi.FullName 'verify_after'; if ($va -notmatch '^\d+$') { $va='0' }
     $pt = CvGet $fi.FullName 'promoted_to'; if (-not $pt) { $pt='-' }
-    $pop = if ($intro -eq '-') { 0 } else { CvPop $intro }
+    $pop = if ($intro -ceq '-') { 0 } else { CvPop $intro }
     $ready='-'
-    if ($st -eq 'pending') {
+    if ($st -ceq 'pending') {
       $npend++
       if ([int]$va -gt 0 -and [int]$pop -ge [int]$va) { $ready='yes'; $nready++ } else { $ready='no' }
     }
-    if ($st -eq 'confirmed') { $nconf++ }
+    if ($st -ceq 'confirmed') { $nconf++ }
     # index 列: active な条項が索引に載っているか。載っていない＝自動読込されない＝読まれない。
     # 読まれていないだけの条項を「効かなかった」と判定しないための可視化。
     $idx = '-'
-    $isArc = $fi.DirectoryName -eq $arcPath
-    if ((-not $isArc) -and ($st -eq 'pending' -or $st -eq 'confirmed')) {
+    $isArc = $fi.DirectoryName -eq $arcPath   # パス比較は OS の流儀に従う
+    if ((-not $isArc) -and ($st -ceq 'pending' -or $st -ceq 'confirmed')) {
       if ($idxf -and $idxb.Contains("$rel/$($fi.Name)")) { $idx = 'yes' } else { $idx = 'no'; $nidx++ }
     }
     $rows += "$id`t$st`t$intro`t$pop`t$va`t$ready`t$idx`t$pt"
   }
-  if ($fmt -eq 'tsv') {
+  if ($fmt -ceq 'tsv') {
     foreach ($r in $rows) { Write-Output "convention`t$r" }
   } else {
     $all = @("id`tstatus`tintroduced`tpop`tneed`tready`tindex`tpromoted_to") + $rows
@@ -1740,12 +1753,12 @@ function Doctor-Conventions() {
   $d = CvDir
   if (-not (IsDir $d)) { return }
   $items=@()
-  foreach ($f in (Get-ChildItem -Path $d -File -Filter *.md -ErrorAction SilentlyContinue | Sort-Object Name)) {
+  foreach ($f in (Get-ChildItem -LiteralPath $d -File -Filter *.md -ErrorAction SilentlyContinue | Sort-Object Name)) {
     $items += ,@($f.FullName, $f.Name, $false)
   }
   $arc = Join-Path $d 'archive'
   if (IsDir $arc) {
-    foreach ($f in (Get-ChildItem -Path $arc -File -Filter *.md -ErrorAction SilentlyContinue | Sort-Object Name)) {
+    foreach ($f in (Get-ChildItem -LiteralPath $arc -File -Filter *.md -ErrorAction SilentlyContinue | Sort-Object Name)) {
       $items += ,@($f.FullName, "archive/$($f.Name)", $true)
     }
   }
@@ -1766,7 +1779,7 @@ function Doctor-Conventions() {
     # if/elseif で書く（sh 版の case と分岐を一致させる）。
     if (-not $st) {
       $w += "    WARN frontmatter(status)が無い: 検証の進み方が決まらない（pending/confirmed/promoted/ineffective/superseded）"
-    } elseif ($st -eq 'pending') {
+    } elseif ($st -ceq 'pending') {
       if ($isArc) {
         $w += "    WARN 退避済みだが status=pending: 判定前に退避されている"
       } else {
@@ -1778,27 +1791,27 @@ function Doctor-Conventions() {
           }
         }
       }
-    } elseif ($st -eq 'confirmed') {
+    } elseif ($st -ceq 'confirmed') {
       # 効果が確認された条項が docs/aidev に居座ると PJ ドキュメントと二重管理になる
       if (-not $isArc) { $w += "    WARN confirmed だが未移送: PJ ドキュメントへ移して promote すること" }
-    } elseif ($st -eq 'promoted') {
+    } elseif ($st -ceq 'promoted') {
       if (-not (CvGet $path 'promoted_to')) { $w += "    WARN promoted だが promoted_to が無い: 本文の行き先が辿れない" }
       if (-not $isArc) { $w += "    WARN promoted だが未退避: active に残ると重複提案の検査対象からずれる" }
-    } elseif ($st -eq 'ineffective' -or $st -eq 'superseded') {
+    } elseif ($st -ceq 'ineffective' -or $st -ceq 'superseded') {
       if (-not $isArc) { $w += "    WARN $st だが未退避: archive/ へ移すこと" }
     } else {
       $w += "    WARN 未知の status: $st（pending/confirmed/promoted/ineffective/superseded）"
     }
     # 索引の突き合わせ（active な条項＝読まれる必要があるもの、と移送済みの張り替え漏れ）
     $link = "$rel/$(Split-Path -Leaf $path)"
-    if ((-not $isArc) -and ($st -eq 'pending' -or $st -eq 'confirmed')) {
+    if ((-not $isArc) -and ($st -ceq 'pending' -or $st -ceq 'confirmed')) {
       if (-not $idxf) {
         $w += "    WARN 索引ファイルが無い: 条項が自動読込されず、読まれないまま「効かなかった」と誤判定される"
       } elseif (-not $idxb.Contains($link)) {
         $w += "    WARN 索引に無い（$idxl）: 自動読込されないので読まれない。ブロック内に足すこと"
         $w += "         例: - <いつ参照するか> → $link"
       }
-    } elseif ($st -eq 'promoted') {
+    } elseif ($st -ceq 'promoted') {
       $pt = CvGet $path 'promoted_to'
       if ($idxf -and $pt -and $idxb.Contains($link)) {
         $w += "    WARN 索引が移送前を指したまま（$idxl）: $link → $pt に張り替えること"

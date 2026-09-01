@@ -29,12 +29,32 @@ run_ps1() { # script args...
 # CLI が刻む現行スキーマ版。テストで版番号を二重管理しない（bump のたびに期待値を書き換えると
 # 「テストを通すために期待値を直す」形になり、刻印そのものの回帰を守れなくなる）。
 CUR_SCHEMA=$(sed -n 's/^CURRENT_SCHEMA=\([0-9][0-9]*\).*/\1/p' "$AIDEV_SH" | head -n1)
+# 抽出そのものが外れると `$CUR_SCHEMA` が空になり、needle が "schema: " に退化して**何にでも当たる**。
+# 二重管理を避けるための仕掛けが、黙って検査を無効化する仕掛けに変わるので、ここで止める
+case "$CUR_SCHEMA" in
+  ''|*[!0-9]*) printf 'CUR_SCHEMA を %s から抽出できません（テストが空振りします）\n' "$AIDEV_SH" >&2; exit 1 ;;
+esac
 
 PASS=0; FAIL=0; SKIP=0
 ok()   { PASS=$((PASS+1)); printf '  ok: %s\n' "$1"; }
 ng()   { FAIL=$((FAIL+1)); printf '  NG: %s\n' "$1" >&2; }
 # 環境不足で検証を飛ばしたら skip() を使う。RESULT に skip 件数を出して「未検証の穴」を可視化する(#32)。
-skip() { SKIP=$((SKIP+1)); printf '  skip: %s\n' "$1"; }
+# **件数は飛ばしたアサート数**を渡す（`skip <n> "<理由>"`）。1回=1件で数えると、53 件を覆う
+# パリティブロック1つが「skip 1」に見え、未検証の穴を1桁過小に申告することになる。
+# 数が実態からずれると、この可視化そのものが嘘になる。
+skip() { SKIP=$((SKIP+$1)); printf '  skip: %s（未実行 %s 件）\n' "$2" "$1"; }
+# 宣言した skip 件数は**実測と突き合わせる**。直書きのままだとアサートを足したときに
+# 申告が古くなり、「未検証の穴」の可視化そのものが静かに嘘になる。
+# 使い方: ブロックの直前で block_begin、直後で block_end <宣言件数> "<名前>"
+# 入れ子になる（パリティの中に worktree パリティがある）ので、控えは**スロット名ごと**に持つ。
+# 単一の変数だと内側の block_begin が外側の控えを上書きし、外側の実測が壊れる
+block_begin() { eval "_BP_$1=\$PASS; _BF_$1=\$FAIL; _BS_$1=\$SKIP"; }
+block_end() { # スロット 宣言件数 名前
+  eval "_bp=\$_BP_$1; _bf=\$_BF_$1; _bs=\$_BS_$1"
+  # +1 は block_end 自身のアサート。これもブロックが飛べば走らないので、申告に含める
+  _ran=$(( (PASS-_bp) + (FAIL-_bf) + (SKIP-_bs) + 1 ))
+  assert_eq "$_ran" "$2" "skip 申告の件数が実測と一致する（$3）"
+}
 assert_contains() { # haystack needle desc
   case "$1" in *"$2"*) ok "$3" ;; *) ng "$3 (期待を含まず: [$2])"; printf '    出力:\n%s\n' "$1" >&2 ;; esac
 }
@@ -139,10 +159,12 @@ assert_contains "$MTP" "20260101-alpha	coding	2026-01-01T01:05:00Z	2026-01-01T02
 assert_contains "$MTP" "20260101-alpha	requirement	2026-01-01T00:00:00Z	2026-01-01T00:10:00Z	600" "alpha --phases: requirement elapsed=600"
 
 echo "== 読み取り専用（status/metrics は state/metrics を書き換えない） =="
-SUM1=$(cat "$TMP/.aidev/works"/*/state.yml "$TMP/.aidev/works"/*/metrics.yml | cksum)
+# `.aidev/current` も含める。status/metrics が「今どの work か」を書き換えるのは
+# 読み取りコマンドの越権で、state.yml だけ見ていると気付けない
+SUM1=$(cat "$TMP/.aidev/works"/*/state.yml "$TMP/.aidev/works"/*/metrics.yml "$TMP/.aidev/current" 2>/dev/null | cksum)
 run_sh status >/dev/null; run_sh status --format tsv >/dev/null
 run_sh metrics --all >/dev/null; run_sh metrics 20260101-alpha --phases >/dev/null
-SUM2=$(cat "$TMP/.aidev/works"/*/state.yml "$TMP/.aidev/works"/*/metrics.yml | cksum)
+SUM2=$(cat "$TMP/.aidev/works"/*/state.yml "$TMP/.aidev/works"/*/metrics.yml "$TMP/.aidev/current" 2>/dev/null | cksum)
 assert_eq "$SUM1" "$SUM2" "status/metrics 実行後も state/metrics 不変"
 
 echo "== 既存コマンド回帰 =="
@@ -189,10 +211,12 @@ YML
 V_ORD=$(run_sh verify 20260101-order 2>&1 | grep -o 'WARN [a-z]*' | tr '\n' ' ')
 assert_eq "$V_ORD" "WARN requirement WARN spec WARN design WARN plan " "verify: WARN は PHASES 順（記録順やハッシュ順ではない）"
 if [ -n "$PS_HOST" ]; then
+  block_begin warnorder
   P_ORD=$( ( cd "$TMP" && run_ps1 "$AIDEV_PS1" verify 20260101-order ) | tr -d '\r' | grep -o 'WARN [a-z]*' | tr '\n' ' ')
   assert_eq "$P_ORD" "$V_ORD" "パリティ: WARN の並びが sh⇔ps1 で一致"
+  block_end warnorder "2" "warnorder"
 else
-  skip "PowerShell(pwsh/powershell) 不在のため WARN 並びのパリティを省略"
+  skip 2 "PowerShell(pwsh/powershell) 不在のため WARN 並びのパリティを省略"
 fi
 rm -rf "$TMP/.aidev/works/20260101-order"
 
@@ -223,6 +247,7 @@ G_OUT=$(run_sh guard spec 2>&1); echo "$G_OUT" | grep -q "advisory" && ok "guard
 
 echo "== worktree =="
 if command -v git >/dev/null 2>&1; then
+  block_begin worktree
   # フィクスチャ git リポジトリを $TMP/repo に作る（既定 worktree パスは $TMP/repo-wt/* ＝ $TMP 配下なので
   # 既存 trap の rm -rf "$TMP" で worktree ごと自動掃除される）。
   REPO="$TMP/repo"
@@ -275,7 +300,8 @@ if command -v git >/dev/null 2>&1; then
   RM_OUT=$(run_repo worktree rm probe --force --delete-branch 2>&1); assert_eq "$?" "0" "rm --force --delete-branch exit 0"
   assert_contains "$RM_OUT" "branch 削除: feature/probe" "rm: --delete-branch でブランチ削除"
   assert_eq "$([ -d "$WP" ] && echo yes || echo no)" "no" "rm: worktree 撤去済み"
-  ( cd "$REPO" && git show-ref --verify --quiet refs/heads/feature/probe ); assert_eq "$?" "1" "rm: ブランチも削除済み"
+  # `( cd … && git … )` だと cd 失敗でも 1 になり、何を確かめたのか曖昧になる
+  git -C "$REPO" show-ref --verify --quiet refs/heads/feature/probe; assert_eq "$?" "1" "rm: ブランチも削除済み"
   # INV-1（rm 後も main current 不変＝未作成のまま）
   assert_eq "$([ -f "$REPO/.aidev/current" ] && echo yes || echo no)" "no" "INV-1: rm 後も main current 不変"
 
@@ -302,8 +328,9 @@ if command -v git >/dev/null 2>&1; then
   case "$CFG_OUT" in *"共有するもの"*) ng "add: sharedFiles 設定時は汎用文言を出さない" ;; *) ok "add: sharedFiles 設定時は汎用文言を出さない" ;; esac
   run_repo worktree rm cfgprobe --force --delete-branch >/dev/null 2>&1
   rm -f "$REPO/.aidev/config.yml"
+  block_end worktree "28" "worktree"
 else
-  skip "git 不在のため worktree テストを省略"
+  skip 28 "git 不在のため worktree テストを省略"
 fi
 
 echo "== subtask 層（new --parent / guard 継承 / 兄弟 dependsOn / doctor 横断） =="
@@ -420,6 +447,8 @@ assert_eq "$WNF" "8" "rollup: tsv work 行は8フィールド維持(後方互換
 run_sub new solo >/dev/null; SSO=$(cat "$SUB/.aidev/current")
 : > "$SUB/.aidev/works/$SSO/requirement.md"; run_sub approve requirement >/dev/null
 SOLOLINE=$(run_sub status --subtasks | grep "$SSO")
+# grep が外れて空になっても assert_absent は通る。まず行が取れたことを確かめる
+assert_contains "$SOLOLINE" "$SSO" "rollup: solo work の行が取れている（この後の assert_absent の前提）"
 assert_absent "$SOLOLINE" "sub " "rollup: subtask 無し work(solo) は next に sub を出さない"
 
 echo "== backlog 出自の消し込み（new --backlog / verify） =="
@@ -488,7 +517,9 @@ for p in requirement spec plan coding test review deliver; do run_if approve "$p
 
 IF_TSV=$(run_if status --format tsv)
 assert_contains "$IF_TSV" "backlog	q.md	2	0	1" "status: inflight=1（未 deliver の刻印付きだけ数える）"
-assert_contains "$(run_if status)" "inflight" "status: 表形式に inflight 列が出る"
+# needle は**列見出しの並び**で見る。単語 "inflight" だけだと WORKS 表の work 名
+# （20260901-inflight-a）に当たり、BACKLOG 表の列が消えても通ってしまう
+assert_contains "$(run_if status | sed -n '/^BACKLOG/,$p')" "inflight" "status: 表形式に inflight 列が出る"
 
 # deliver 済は掴んでいない＝落ちる（着地したら backlog 行は [x] 側で表現される）
 assert_absent "$IF_TSV" "backlog	q.md	2	0	2" "status: deliver 済 work は inflight に数えない"
@@ -570,16 +601,20 @@ assert_contains "$DT" "frontmatter(kind)が無い" "doctor: frontmatter 欠落�
 assert_contains "$DT" "status が数えない書式の項目が 1 件" "doctor: 見出し形式の項目を検知"
 assert_contains "$DT" "archive 済だが未消化が 1 件" "doctor: archive 内の未消化を検知"
 assert_absent "$DT" "standing-done.md" "doctor: 全消化の standing は正常（WARN しない）"
-assert_contains "$DT" "backlog-summary: files=6 archived=1 warn=6" "doctor: backlog サマリの件数"
+# warn の**総数**は、別々の WARN が入れ替わっても同じなら通ってしまう（個別 WARN は上で検査済み）。
+# ファイル数と退避数だけを見る
+assert_contains "$DT" "backlog-summary: files=6 archived=1" "doctor: backlog サマリの件数"
 
 run_dt doctor >/dev/null 2>&1
 assert_eq "$?" "0" "doctor: backlog の WARN は exit code を変えない（硬ゲートは verify 側）"
 
 if [ -n "$PS_HOST" ]; then
+  block_begin doctorbl
   O_PS=$( ( cd "$DTR" && run_ps1 "$AIDEV_PS1" doctor ) | tr -d '\r' )
   assert_eq "$DT" "$O_PS" "パリティ: doctor(backlog 検査)"
+  block_end doctorbl "2" "doctorbl"
 else
-  skip "PowerShell(pwsh/powershell) 不在のため doctor(backlog) のパリティを省略"
+  skip 2 "PowerShell(pwsh/powershell) 不在のため doctor(backlog) のパリティを省略"
 fi
 rm -rf "$DTR"
 
@@ -647,6 +682,19 @@ run_cl use nosuch >/dev/null 2>&1
 assert_eq "$?" "1" "use: 存在しない slug を弾く（手書きの打ち間違い対策）"
 
 if [ -n "$PS_HOST" ]; then
+  block_begin usebl
+  # 比較の前に**退避対象を作り直す**。ここまでで backlog は全部退避済みなので、そのまま比べると
+  # 両実装とも `archived=0 skipped=0` の no-op 同士になり、kind 判定も skipped の報告も検査されない
+  printf -- '---\nkind: topic\n---\n\n- [x] done\n' > "$CLR/.aidev/backlog/pa-topic.md"
+  printf -- '---\nkind: standing\n---\n\n- [x] done\n' > "$CLR/.aidev/backlog/pa-standing.md"
+  printf -- '---\nkind: split\n---\n\n- [ ] todo\n' > "$CLR/.aidev/backlog/pa-split.md"
+  PA_SH=$( ( cd "$CLR" && "$AIDEV_SH" backlog archive ) 2>&1 )
+  assert_contains "$PA_SH" "archived=1" "backlog archive: 全消化した topic を退避する（no-op でないことの確認）"
+  # ps1 側にも同じ状態を作って比べる（sh が退避した後だと、また no-op 同士の比較になる）
+  printf -- '---\nkind: topic\n---\n\n- [x] done\n' > "$CLR/.aidev/backlog/pa-topic.md"
+  rm -f "$CLR/.aidev/backlog/archive/pa-topic.md"
+  PA_PS=$( ( cd "$CLR" && run_ps1 "$AIDEV_PS1" backlog archive ) 2>&1 ); PA_PS=$(printf '%s' "$PA_PS" | tr -d '\r')
+  assert_eq "$PA_SH" "$PA_PS" "パリティ: backlog archive（kind 判定と skipped の報告）"
   for args in "use" "backlog archive"; do
     # shellcheck disable=SC2086
     O_SH=$( ( cd "$CLR" && "$AIDEV_SH" $args ) )
@@ -654,8 +702,9 @@ if [ -n "$PS_HOST" ]; then
     O_PS=$( ( cd "$CLR" && run_ps1 "$AIDEV_PS1" $args ) | tr -d '\r' )
     assert_eq "$O_SH" "$O_PS" "パリティ: $args"
   done
+  block_end usebl "5" "usebl"
 else
-  skip "PowerShell(pwsh/powershell) 不在のため use / backlog のパリティを省略"
+  skip 5 "PowerShell(pwsh/powershell) 不在のため use / backlog のパリティを省略"
 fi
 rm -rf "$CLR"
 
@@ -697,11 +746,13 @@ assert_contains "$LV" "変更 9 ファイル（上限 3）" "verify: light で�
 run_lsh verify "$L_SLUG" >/dev/null 2>&1; assert_eq "$?" "0" "light の WARN は exit code を変えない（硬ゲートは既存判定）"
 
 printf 'lightMaxFiles: 20\n' > "$LREPO/.aidev/config.yml"
-LV2=$(run_lsh verify "$L_SLUG")
+LV2=$(run_lsh verify "$L_SLUG" 2>&1)
+assert_contains "$LV2" "verify: $L_SLUG" "verify が実際に走っている（この後の assert_absent の前提）"
 assert_absent "$LV2" "変更 9 ファイル" "config.yml の lightMaxFiles で上限を緩められる"
 rm -f "$LREPO/.aidev/config.yml"
 
-FV=$(run_lsh verify "$F_SLUG")
+FV=$(run_lsh verify "$F_SLUG" 2>&1)
+assert_contains "$FV" "verify: $F_SLUG" "verify が実際に走っている（この後の assert_absent の前提）"
 assert_absent "$FV" "profile=light" "full な work に light の WARN は出ない"
 
 # escalate は片方向（full -> light には戻せない）
@@ -725,9 +776,13 @@ maxSendBacks: 3
 dependsOn: []
 EOF
 printf 'events:\n' > "$LREPO/.aidev/works/20260101-oldwork/metrics.yml"
-OV=$(run_lsh verify 20260101-oldwork)
+OV=$(run_lsh verify 20260101-oldwork 2>&1)
+# 存在しない slug を渡すと verify は die して stdout が空になり、下の2件が**両方とも**
+# 「work が無くても緑」になる。まず work が見えていることを確かめる
+assert_contains "$OV" "verify: 20260101-oldwork" "verify が実際に走っている（この後の2件の前提）"
 assert_absent "$OV" "profile=light" "profile 未記載の work は full 扱い（後方互換）"
-run_lsh escalate 20260101-oldwork >/dev/null 2>&1; assert_eq "$?" "1" "profile 未記載の work は escalate 不可（full 扱い）"
+ESC_OUT=$(run_lsh escalate 20260101-oldwork 2>&1); assert_eq "$?" "1" "profile 未記載の work は escalate 不可（full 扱い）"
+assert_contains "$ESC_OUT" "full" "escalate の拒否理由が full 扱いであること（work 不在の die と区別する）"
 
 echo "== verify --strict（記録漏れを致命にする機械ゲート） =="
 # protocol.md「2.6」第三層（フック）から使う。既定の verify は WARN 止まり（既存 work を壊さない）
@@ -820,16 +875,16 @@ for w in one two; do
   mkdir -p "$CVR/.aidev/works/$TODAY-$w"
   printf 'schema: 4\nslug: %s\ncurrent: deliver\napproved: [deliver]\nharnessRev: aaa1111\n' "$w" \
     > "$CVR/.aidev/works/$TODAY-$w/state.yml"
-  printf 'events:\n  - { ts: %s-01:00:00Z, phase: requirement, event: start }\n' \
-    "$(date -u +%Y-%m-%dT)" > "$CVR/.aidev/works/$TODAY-$w/metrics.yml"
+  printf 'events:\n  - { ts: %sT01:00:00Z, phase: requirement, event: start }\n' \
+    "$(date -u +%Y-%m-%d)" > "$CVR/.aidev/works/$TODAY-$w/metrics.yml"
 done
 # 着手しただけの work は review を通っていない＝判定材料を1つも産んでいないので数えない。
 # ここを数えると、レビュー記録がまだ無いのに ready=yes が立ち insights が空の材料で判定する。
 mkdir -p "$CVR/.aidev/works/$TODAY-inflight"
 printf 'schema: 4\nslug: inflight\ncurrent: coding\napproved: [requirement, spec]\n' \
   > "$CVR/.aidev/works/$TODAY-inflight/state.yml"
-printf 'events:\n  - { ts: %s-01:00:00Z, phase: requirement, event: start }\n' \
-  "$(date -u +%Y-%m-%dT)" > "$CVR/.aidev/works/$TODAY-inflight/metrics.yml"
+printf 'events:\n  - { ts: %sT01:00:00Z, phase: requirement, event: start }\n' \
+  "$(date -u +%Y-%m-%d)" > "$CVR/.aidev/works/$TODAY-inflight/metrics.yml"
 # 導入日より前に着手した work は母集団に入れない（効果を受けていないため）
 mkdir -p "$CVR/.aidev/works/20200101-old"
 printf 'schema: 4\nslug: old\ncurrent: requirement\napproved: []\n' > "$CVR/.aidev/works/20200101-old/state.yml"
@@ -957,7 +1012,8 @@ echo "== convention: 索引（AGENTS.md の aidev:conventions ブロック） ==
 IXR=$(mktemp -d); mkdir -p "$IXR/.aidev/works" "$IXR/docs"
 run_ix() { ( cd "$IXR" && "$AIDEV_SH" "$@" ); }
 IX_NEW=$(run_ix convention new naming --hypothesis "命名の指摘が減る" --baseline "b" --verify-after 1 2>&1)
-assert_contains "$IX_NEW" "docs/aidev/naming.md" "convention new: 索引に足す行を提示する（機械にできる部分は機械が出す）"
+# `created:` 行にも同じパスが出るので、案内行だけを指す "→ " まで含める
+assert_contains "$IX_NEW" "→ docs/aidev/naming.md" "convention new: 索引に足す行を提示する（機械にできる部分は機械が出す）"
 assert_contains "$IX_NEW" "docsRoots が未設定" "convention new: 未設定なら「確認していない」と明記させる（捏造で埋めない）"
 
 IX_D0=$(run_ix doctor 2>&1)
@@ -967,7 +1023,10 @@ printf '# AGENTS\n\n<!-- aidev:conventions -->\n<!-- /aidev:conventions -->\n' >
 IX_D1=$(run_ix doctor 2>&1)
 assert_contains "$IX_D1" "索引に無い（AGENTS.md）" "doctor: 索引に未登録の条項を WARN"
 assert_contains "$IX_D1" "→ docs/aidev/naming.md" "doctor: 足すべき行をそのまま示す（検査だけあって実行が無い形にしない）"
-assert_contains "$(run_ix convention status)" "no" "convention status: index 列で索引漏れが見える"
+# needle "no" だけだと ready 列（この時点で no）に当たり、index 列が嘘をついても通る。
+# tsv で**列位置ごと**に見る（ready=no, index=no, promoted_to=-）
+assert_contains "$(run_ix convention status --format tsv)" "	no	no	-" \
+  "convention status: index 列で索引漏れが見える"
 assert_contains "$(run_ix convention status)" "索引漏れ=1" "convention status: 索引漏れ件数をサマリに出す"
 
 # 索引に登録すれば警告は消える
@@ -1023,11 +1082,43 @@ RD_A=$(run_rd approve deliver files_changed=1 insertions=1 deletions=0 2>&1)
 assert_contains "$RD_A" "条項 conv1 の母集団が揃いました(1/1)" "approve deliver: 母集団が揃った瞬間に知らせる"
 assert_contains "$(run_rd convention status --format tsv)" "	1	1	yes	" "母集団: deliver 済みになって初めて数える"
 rm -rf "$RDR"
+echo "== オプション値の欠落（sh 単体・pwsh 不要） =="
+# 背景: この検査は長らく parity ブロックの中にあり、pwsh の無い開発機では**1件も走らなかった**。
+# need_arg を no-op にする mutation が pwsh 無しでは生き残る＝27箇所の修正が無防備だった。
+# パリティ（sh と ps1 が一致するか）と、sh 単体の不変条件（使い方エラーとして落ちるか）は別物。
+NAR=$(mktemp -d); mkdir -p "$NAR/.aidev/works" "$NAR/.aidev/backlog"
+for miss in "new x --mode" "new x --profile" "new x --ticket" "new x --depends" "new x --parent" \
+            "new x --backlog" "convention new c --hypothesis" "convention new c --baseline" \
+            "convention new c --source" "convention new c --verify-after" "backlog new b --kind" \
+            "status --format" "metrics --format"; do
+  # shellcheck disable=SC2086
+  NA_OUT=$( ( cd "$NAR" && "$AIDEV_SH" $miss ) 2>&1 ); NA_RC=$?
+  assert_eq "$NA_RC" "1" "値の無いオプションは die(rc=1)（[$miss]）"
+  assert_contains "$NA_OUT" "には値が必要です" "値の無いオプションは使い方エラーとして落とす（[$miss]）"
+done
+rm -rf "$NAR"
+
+rm -rf "$CVR"
+
 echo "== harnessRev（効果検証の母集団の刻印） =="
 # 背景: ハーネス改修が効いたかを後から判定するには「どの版で回した work か」が要る。
 # 手書きに任せると忘れられ、忘れられた work は母集団から静かに漏れる（schema: と同じ理由で new に一本化）。
-HVR=$(mktemp -d); mkdir -p "$HVR/.aidev/works"
-run_hv() { ( cd "$HVR" && "$AIDEV_SH" "$@" ); }
+# **自前の git リポジトリに CLI を置いて走らせる**。harness_rev は `git -C <skills> log -- aidev-*`
+# を引くので、素の $AIDEV_SH を使うと**このリポジトリの履歴**を読む。すると:
+#   - tarball 配布や git archive の展開先では `unknown` になり、まただがり検査が発火せず FAIL する
+#   - テスト実行中に誰かが aidev-* を触るコミットを入れると、sh と ps1 の間で版が変わって偽陽性になる
+# どちらも「テストが置かれた場所の都合」で結果が変わる＝密閉されていない。
+HVR=$(mktemp -d); mkdir -p "$HVR/repo/skills/aidev-docs/bin" "$HVR/.aidev/works"
+cp "$AIDEV_SH" "$HVR/repo/skills/aidev-docs/bin/aidev"
+cp "$AIDEV_PS1" "$HVR/repo/skills/aidev-docs/bin/aidev.ps1"
+printf 'x\n' > "$HVR/repo/skills/aidev-docs/note.md"
+HV_BIN="$HVR/repo/skills/aidev-docs/bin/aidev"
+HV_PS1="$HVR/repo/skills/aidev-docs/bin/aidev.ps1"
+if command -v git >/dev/null 2>&1; then
+  ( cd "$HVR/repo" && git init -q . && git add -A \
+    && git -c user.email=t@t -c user.name=t commit -qm init ) >/dev/null 2>&1
+fi
+run_hv() { ( cd "$HVR" && "$HV_BIN" "$@" ); }
 run_hv new hv >/dev/null
 HVW=$(ls "$HVR/.aidev/works")
 HVST="$HVR/.aidev/works/$HVW/state.yml"
@@ -1044,19 +1135,54 @@ awk '{ if ($0 ~ /^harnessRev:/) print "harnessRev: deadbee"; else print }' "$HVS
 # `harnessRevDelivered` を書くのは approve deliver、verify が走るのはその前。着地時の刻印を
 # 待つ書き方だと、この検査は通常の順序では**一度も発火しない**。deliver 前に鳴ること自体を固定する
 HV_VB=$(run_hv verify 2>&1)
-assert_contains "$HV_VB" "またがり work" "verify: deliver 承認の前でもまたがりを検知する（着地の刻印を待たない）"
+assert_contains "$HV_VB" "note: またがり work" "verify: deliver 承認の前でもまたがりを検知する（着地の刻印を待たない）"
+# WARN ではなく note。またがりは事後に取り消せない事実で、人が直せることが無い。
+# ハーネスを1回コミットしただけで in-flight 全 work が鳴き続けるため、
+# 「いま直せる」WARN（記録漏れ・light 逸脱）と同列に置くとそちらが埋もれる
+assert_absent "$HV_VB" "WARN またがり" "verify: またがりは WARN ではなく note（直せる WARN を埋もれさせない）"
 assert_contains "$HV_VB" "現在" "verify: deliver 前は「現在の版」と比べていると分かる"
 run_hv approve deliver files_changed=1 insertions=1 deletions=0 >/dev/null
 assert_contains "$(cat "$HVST")" "harnessRevDelivered:" "approve deliver: 着地時の版も刻む"
 HV_V=$(run_hv verify 2>&1)
-assert_contains "$HV_V" "またがり work" "verify: またがり work を WARN（母集団から除外する合図）"
+assert_contains "$HV_V" "note: またがり work" "verify: またがり work を note で知らせる（母集団から除外する合図）"
 
 # schema<4 の旧 work は遡って違反扱いしない（version-aware）
 mkdir -p "$HVR/.aidev/works/20200101-legacy"
 printf 'schema: 3\nslug: legacy\ncurrent: requirement\napproved: []\n' > "$HVR/.aidev/works/20200101-legacy/state.yml"
 printf 'events:\n' > "$HVR/.aidev/works/20200101-legacy/metrics.yml"
 HV_L=$(run_hv verify 20200101-legacy 2>&1)
+assert_contains "$HV_L" "verify: 20200101-legacy" "verify が実際に走っている（この後の assert_absent の前提）"
 assert_absent "$HV_L" "harnessRev が無い" "verify: schema<4 の work に harnessRev を要求しない"
+
+# --- ps1 側の刻印と検知（sh 専用の検査だと、この3つは mutation で1つも殺せなかった） ---
+# ここまでの HVR は sh でしか回っておらず、ps1 の `CURRENT_SCHEMA` / `harnessRevDelivered` /
+# またがり検知は**削っても緑のまま**だった。schema<4 は harnessRev 検査のゲートなので、
+# ps1 の刻印がずれると Windows で作った work だけ効果検証が静かに無効化される。
+if [ -n "$PS_HOST" ]; then
+  block_begin hvps
+  HP=$(mktemp -d); mkdir -p "$HP/.aidev/works"
+  ( cd "$HP" && run_ps1 "$HV_PS1" new hp >/dev/null )
+  HPW=$(ls "$HP/.aidev/works"); HPST="$HP/.aidev/works/$HPW/state.yml"
+  HPBODY=$(tr -d '\r' < "$HPST")
+  assert_contains "$HPBODY" "schema: $CUR_SCHEMA" "ps1: new が刻む schema が sh と同じ（<4 だと検査が無効化される）"
+  assert_contains "$HPBODY" "harnessRev:" "ps1: new が harnessRev を刻む"
+  for ph in requirement spec plan coding test review deliver; do
+    ( cd "$HP" && run_ps1 "$HV_PS1" event "$ph" start >/dev/null )
+  done
+  : > "$HP/.aidev/works/$HPW/review.md"
+  # 着手後にハーネスが改修された状況（着手時の刻印だけを別版にする）
+  awk '{ if ($0 ~ /^harnessRev:/) print "harnessRev: deadbee"; else print }' "$HPST" > "$HPST.t" && mv "$HPST.t" "$HPST"
+  HP_VB=$( ( cd "$HP" && run_ps1 "$HV_PS1" verify ) 2>&1 | tr -d '\r' )
+  assert_contains "$HP_VB" "note: またがり work" "ps1: deliver 前にまたがりを検知する（削っても緑だった箇所）"
+  # **ps1 が自分で初めて着地させる**。sh が着地させた work を再承認する形だと、
+  # 初回着地でしか起きない副作用（harnessRevDelivered の刻印）が比較対象に入らない
+  ( cd "$HP" && run_ps1 "$HV_PS1" approve deliver files_changed=1 insertions=1 deletions=0 >/dev/null )
+  assert_contains "$(tr -d '\r' < "$HPST")" "harnessRevDelivered:" "ps1: approve deliver が着地時の版を刻む（削っても緑だった箇所）"
+  rm -rf "$HP"
+  block_end hvps "5" "hvps"
+else
+  skip 5 "PowerShell 不在のため ps1 側の harnessRev 刻印を省略"
+fi
 rm -rf "$HVR"
 
 # --- 版の粒度: aidev-* の外を触っても版は動かない ---
@@ -1064,6 +1190,7 @@ rm -rf "$HVR"
 # work が全部「またがり」に見える。またがり判定は母集団からの**除外**なので、誤検知は
 # そのまま効果検証の母集団を痩せさせる。
 if command -v git >/dev/null 2>&1; then
+  block_begin hrgrain
   GRR=$(mktemp -d)
   mkdir -p "$GRR/skills/aidev-docs/bin" "$GRR/skills/other-skill"
   cp "$AIDEV_SH" "$GRR/skills/aidev-docs/bin/aidev"
@@ -1087,12 +1214,14 @@ if command -v git >/dev/null 2>&1; then
            sed -n 's/^harnessRev: //p' "$GRR/w/.aidev/works/"*g3/state.yml ) )
   assert_ne "$GR3" "$GR1" "harnessRev: aidev-* の中の変更では版が動く（絞り込みで検知を殺していない）"
   rm -rf "$GRR"
+  block_end hrgrain "3" "hrgrain"
 else
-  skip "harnessRev の粒度（git 不在）"
+  skip 3 "harnessRev の粒度（git 不在）"
 fi
 
 echo "== sh ⇔ ps1 パリティ =="
 if [ -n "$PS_HOST" ]; then
+  block_begin parity
   # verify --strict のパリティ（exit code と出力が sh と一致すること）
   for sargs in "verify --strict $S_SLUG" "verify --strict $L2_SLUG"; do
     # shellcheck disable=SC2086
@@ -1204,7 +1333,10 @@ if [ -n "$PS_HOST" ]; then
   ( cd "$PRD" && "$AIDEV_SH" event deliver start >/dev/null )
   RA_SH=$( ( cd "$PRD" && "$AIDEV_SH" approve deliver files_changed=1 ) 2>&1 )
   RA_PS=$( ( cd "$PRD" && run_ps1 "$AIDEV_PS1" approve deliver files_changed=1 ) 2>&1 | tr -d '\r' )
-  assert_eq "$RA_SH" "$RA_PS" "パリティ: approve deliver の到達通知（冪等なので2回目も同じ出力）"
+  # 注意: これは sh が着地させた work を ps1 が**再承認**する形なので、検査しているのは
+  # 「冪等性」であって初回着地の副作用ではない。harnessRevDelivered の刻印など初回だけの
+  # 副作用は、ps1 が自分で着地させる「ps1 側の刻印と検知」ブロックで見ている
+  assert_eq "$RA_SH" "$RA_PS" "パリティ: approve deliver の再承認が冪等（初回着地は別ブロックで検査）"
   rm -rf "$PRD"
   # --- 引数の解釈のパリティ ---
   # PowerShell の switch は既定で**大文字小文字を区別しない**ので、放っておくと Windows でだけ
@@ -1216,6 +1348,8 @@ if [ -n "$PS_HOST" ]; then
     # shellcheck disable=SC2086
     ( cd "$PAR" && run_ps1 "$AIDEV_PS1" $bad >/dev/null 2>&1 ); AP=$?
     assert_eq "$AS" "$AP" "パリティ: 大文字小文字を区別する（[$bad]）"
+    # 「一致」だけだと、両方が大小を無視するようになっても通る。拒否そのものを要求する
+    assert_eq "$AS" "1" "大文字のコマンド／オプションは拒否する（[$bad]）"
   done
   # オプションの値が欠けたとき。sh は素で書くと shift の内部エラー(rc=2)、ps1 は $null で素通り。
   # どちらも使い方エラー＝die(rc=1) に揃える
@@ -1227,9 +1361,108 @@ if [ -n "$PS_HOST" ]; then
     MP=$(printf '%s' "$MP" | tr -d '\r')
     assert_eq "$MSC" "$MPC" "パリティ: 値の無いオプションの exit code（[$miss]）"
     assert_eq "$MS" "$MP" "パリティ: 値の無いオプションのメッセージ（[$miss]）"
-    assert_contains "$MS" "には値が必要です" "値の無いオプションは使い方エラーとして落とす（[$miss]）"
   done
   rm -rf "$PAR"
+
+  # --- verify の出力と exit code のパリティ ---
+  # 背景: ps1 の VerifyWork は「状態行は [Console]::Out へ直接出す」約束で書かれている。
+  # 1行でも Write-Output を混ぜると**関数の戻り値が Object[] になり `$rc = VerifyWork` が壊れる**——
+  # FAIL を印字しながら rc=0、--strict の 5 も 0 になり、**Windows で機械ゲートが素通りする**。
+  # これまでのパリティは harnessRev の「刻印値」しか見ておらず、verify の出力と rc を見ていなかった。
+  PVR=$(mktemp -d); mkdir -p "$PVR/.aidev/works/20260101-nohr"
+  printf 'schema: 4\nslug: nohr\ncurrent: requirement\napproved: [requirement]\n' \
+    > "$PVR/.aidev/works/20260101-nohr/state.yml"
+  printf 'events:\n  - { ts: 2026-01-01T01:00:00Z, phase: requirement, event: approved }\n' \
+    > "$PVR/.aidev/works/20260101-nohr/metrics.yml"
+  VO_SH=$( ( cd "$PVR" && "$AIDEV_SH" verify --strict 20260101-nohr ) 2>&1 ); VO_SHC=$?
+  VO_PS_RAW=$( ( cd "$PVR" && run_ps1 "$AIDEV_PS1" verify --strict 20260101-nohr ) 2>&1 ); VO_PSC=$?
+  VO_PS=$(printf '%s' "$VO_PS_RAW" | tr -d '\r')
+  assert_eq "$VO_SHC" "$VO_PSC" "パリティ: verify --strict の exit code（機械ゲートが片方で素通りしない）"
+  assert_eq "$VO_SH" "$VO_PS" "パリティ: verify の出力（WARN が片方だけ消えない）"
+  assert_contains "$VO_PS" "harnessRev が無い" "ps1: verify の WARN が出力される（Write-Output に戻すと消える）"
+  DO_SH=$( ( cd "$PVR" && "$AIDEV_SH" doctor ) 2>&1 | grep '^summary:' )
+  DO_PS=$( ( cd "$PVR" && run_ps1 "$AIDEV_PS1" doctor ) 2>&1 | tr -d '\r' | grep '^summary:' )
+  assert_eq "$DO_SH" "$DO_PS" "パリティ: doctor の summary（偽の fail を数えない）"
+  rm -rf "$PVR"
+
+  # --- 値の大小の扱いのパリティ ---
+  # PowerShell は switch だけでなく `-eq` / `-contains` も既定で大小を無視する。switch にだけ
+  # -CaseSensitive を付けても、値の検証側が素通しでは意味が無い。実害は state.yml に
+  # `current: DELIVER` が書かれること——**Windows で作った work が Linux で読めなくなる**。
+  PUC=$(mktemp -d); mkdir -p "$PUC/.aidev/works" "$PUC/.aidev/backlog"
+  for uc in "new x --mode INTERACTIVE" "new y --profile LIGHT" "backlog new n --kind TOPIC" \
+            "status --format TSV" "event REQUIREMENT start" "approve DELIVER" "guard CODING"; do
+    # shellcheck disable=SC2086
+    ( cd "$PUC" && "$AIDEV_SH" $uc >/dev/null 2>&1 ); US=$?
+    # shellcheck disable=SC2086
+    ( cd "$PUC" && run_ps1 "$AIDEV_PS1" $uc >/dev/null 2>&1 ); UP=$?
+    assert_eq "$US" "$UP" "パリティ: 大文字の値を同じように扱う（[$uc]）"
+  done
+  rm -rf "$PUC"
+
+  # --- 空文字のオプション値のパリティ ---
+  # need_arg / ArgAt は値の「個数」しか見ないので空文字を通す。ps1 側は Split-Path が
+  # 生の .NET 例外を投げ、sh は成功する＝同じ入力で片方だけ work ができる
+  PEV=$(mktemp -d); mkdir -p "$PEV/.aidev/works"
+  ( cd "$PEV" && "$AIDEV_SH" new e1 --backlog "" >/dev/null 2>&1 ); ES=$?
+  EP_OUT=$( ( cd "$PEV" && run_ps1 "$AIDEV_PS1" new e2 --backlog "" ) 2>&1 ); EP=$?
+  assert_eq "$ES" "$EP" "パリティ: 空文字のオプション値（--backlog \"\"）"
+  assert_absent "$EP_OUT" "Cannot bind argument" "ps1: 生の .NET 例外を漏らさない"
+  rm -rf "$PEV"
+
+  # --- ファイルとディレクトリの取り違え / グロブ解釈のパリティ ---
+  # 素の Test-Path は**ディレクトリもファイルも通し**、パスを**ワイルドカードとして解釈する**。
+  # sh は [ -f ] とリテラル比較なので、揃えないと同じ入力で結果が割れる。
+  # この2ケースは IsFile を素の Test-Path に戻すと両方とも sh と食い違う（＝この置換の見張り番）
+  PTP=$(mktemp -d); mkdir -p "$PTP/.aidev/works" "$PTP/.aidev/backlog/dir.md"
+  printf -- '---\nkind: standing\n---\n\n- [ ] a\n' > "$PTP/.aidev/backlog/q[1].md"
+  ( cd "$PTP" && "$AIDEV_SH" new d1 --backlog dir.md >/dev/null 2>&1 ); TS=$?
+  ( cd "$PTP" && run_ps1 "$AIDEV_PS1" new d2 --backlog dir.md >/dev/null 2>&1 ); TP=$?
+  assert_eq "$TS" "$TP" "パリティ: backlog がディレクトリなら両実装とも弾く（-PathType Leaf）"
+  assert_eq "$TS" "1" "backlog がディレクトリなら着手前に弾く（存在検査はファイルであること）"
+  ( cd "$PTP" && "$AIDEV_SH" new g1 --backlog 'q[1].md' >/dev/null 2>&1 ); GS2=$?
+  ( cd "$PTP" && run_ps1 "$AIDEV_PS1" new g2 --backlog 'q[1].md' >/dev/null 2>&1 ); GP2=$?
+  assert_eq "$GS2" "$GP2" "パリティ: グロブ文字を含む backlog 名を両実装とも受理する（-LiteralPath）"
+  assert_eq "$GS2" "0" "グロブ文字を含む backlog 名は実在するので受理する"
+  # IsDir 側。`.aidev` が**ファイル**なら「リポジトリの中ではない」。素の Test-Path は
+  # ファイルも通すので、そこをルートと誤認して WORKS を出してしまう（sh は [ -d ] で見送る）
+  PTD=$(mktemp -d); printf 'not a dir\n' > "$PTD/.aidev"
+  DS_OUT=$( ( cd "$PTD" && "$AIDEV_SH" status ) 2>&1 ); DS=$?
+  # `$(… | tr)` の `$?` は tr のもの。exit code を見るなら CR 除去は代入を分ける
+  DP_RAW=$( ( cd "$PTD" && run_ps1 "$AIDEV_PS1" status ) 2>&1 ); DP=$?
+  DP_OUT=$(printf '%s' "$DP_RAW" | tr -d '\r')
+  assert_eq "$DS" "$DP" "パリティ: .aidev がファイルなら両実装ともリポジトリと認めない（-PathType Container）"
+  assert_contains "$DS_OUT" ".aidev が見つかりません" "sh: .aidev がファイルならルートと認めない"
+  assert_contains "$DP_OUT" ".aidev が見つかりません" "ps1: .aidev がファイルならルートと認めない"
+  rm -rf "$PTD"
+  rm -rf "$PTP"
+
+  # --- 名前にグロブ文字を含む work のパリティ ---
+  # ps1 の Get-ChildItem -Path はパスをワイルドカードとして解釈する。Test-Path だけを
+  # -LiteralPath 化しても列挙側が残っていると、doctor が subtask を黙って落とす
+  PGL=$(mktemp -d); GW="$PGL/.aidev/works/20260101-a[b]c"
+  mkdir -p "$GW/01-sub"
+  printf 'schema: 4\nslug: a[b]c\ncurrent: plan\napproved: []\nsubtasks: [01-sub]\n' > "$GW/state.yml"
+  printf 'events:\n' > "$GW/metrics.yml"
+  printf 'schema: 4\nslug: 01-sub\ncurrent: plan\napproved: []\nparent: 20260101-a[b]c\n' > "$GW/01-sub/state.yml"
+  printf 'events:\n' > "$GW/01-sub/metrics.yml"
+  GS=$( ( cd "$PGL" && "$AIDEV_SH" doctor ) 2>&1 | grep '^summary:' )
+  GP=$( ( cd "$PGL" && run_ps1 "$AIDEV_PS1" doctor ) 2>&1 | tr -d '\r' | grep '^summary:' )
+  assert_eq "$GS" "$GP" "パリティ: グロブ文字を含む work 名でも subtask を数える"
+  rm -rf "$PGL"
+
+  # --- 破壊の前の衝突検査のパリティ（種別の取り違え） ---
+  # sh は [ -e ]（種別を問わない）。ps1 を IsFile にすると archive に**ディレクトリ**が
+  # あるときに素通りし、Move-Item がその中へ本文を移す＝本文の在処が想定外の場所になる
+  PAD=$(mktemp -d); mkdir -p "$PAD/.aidev/works" "$PAD/docs/aidev/archive/k.md"
+  printf -- '---\nconvention: k\nstatus: pending\nintroduced: 2026-01-01\nhypothesis: h\nbaseline: b\nverify_after: 1\n---\n\nbody\n' \
+    > "$PAD/docs/aidev/k.md"
+  ( cd "$PAD" && "$AIDEV_SH" convention retire k --status ineffective >/dev/null 2>&1 ); AS=$?
+  ( cd "$PAD" && run_ps1 "$AIDEV_PS1" convention retire k --status ineffective >/dev/null 2>&1 ); AP=$?
+  assert_eq "$AS" "$AP" "パリティ: archive に同名ディレクトリがあれば両実装とも止める"
+  assert_eq "$([ -f "$PAD/docs/aidev/k.md" ] && echo yes || echo no)" "yes" \
+    "衝突を検知したら本文を動かさない（archive/<id>.md がディレクトリでも埋没させない）"
+  rm -rf "$PAD"
 
   # harnessRev のパリティ（刻印が片方だけ欠けると、その OS の work が母集団から漏れる）
   PHV=$(mktemp -d); mkdir -p "$PHV/.aidev/works"
@@ -1241,7 +1474,9 @@ if [ -n "$PS_HOST" ]; then
   assert_eq "$HA" "$HB" "パリティ: harnessRev の刻印が一致"
   rm -rf "$PHV"
   # profile 系のパリティ（同じフィクスチャに対して同じ出力になること）
-  for pargs in "verify $L_SLUG" "verify $F_SLUG" "verify 20260101-oldwork"; do
+  # 注意: $L_SLUG は escalate で **full に昇格済み**（上でそれを assert している）。
+  # light のままの work は $L2_SLUG なので、light 側の判定はそちらで比べる
+  for pargs in "verify $L2_SLUG" "verify $L_SLUG" "verify $F_SLUG" "verify 20260101-oldwork"; do
     # shellcheck disable=SC2086
     P_SH=$( ( cd "$LREPO" && "$AIDEV_SH" $pargs ) 2>&1 )
     # shellcheck disable=SC2086
@@ -1277,6 +1512,7 @@ if [ -n "$PS_HOST" ]; then
   # worktree パリティ（git 必須）: ps1 の worktree 実装を実機で検証する（#28）。
   # pwsh 不在の開発機では skip されるため、ps1 の worktree は本節（pwsh 環境/CI）で初めて実行検証される。
   if command -v git >/dev/null 2>&1; then
+    block_begin wtparity
     PREPO="$TMP/prepo"
     # CLI は skills 配下（worktree add の self-invoke 先）。.aidev/ は追跡 work(20260101-existing)で worktree に存在。
     mkdir -p "$PREPO/.claude/skills/aidev-docs/bin" "$PREPO/.aidev/works/20260101-existing"
@@ -1313,7 +1549,10 @@ YML
 
     # (3) ps1 の add（新規 slug＝add 内で new に委譲する経路）。ここは長らく未検証で、
     #     委譲先パスが `.aidev/bin/aidev.ps1`（誤）かつホストが `pwsh` 決め打ちのまま壊れていた。
-    PN_OUT=$( ( cd "$PREPO" && run_ps1 "$AIDEV_PS1" worktree add fresh ) 2>&1 | tr -d '\r' ); PN_RC=$?
+    # 注意: `$(… | tr)` の `$?` は **tr の**終了コードで常に 0 になる。exit code を見るなら
+    # CR 除去は代入を分ける（このファイルの別の箇所で同じ取り違えを既にやっている）
+    PN_RAW=$( ( cd "$PREPO" && run_ps1 "$AIDEV_PS1" worktree add fresh ) 2>&1 ); PN_RC=$?
+    PN_OUT=$(printf '%s' "$PN_RAW" | tr -d '\r')
     assert_eq "$PN_RC" "0" "パリティ: ps1 add(新規slug) exit 0"
     assert_contains "$PN_OUT" "新規 work を作成" "パリティ: ps1 add(新規slug) は new に委譲"
     PN_CUR=$(cat "$TMP/prepo-wt/fresh/.aidev/current" 2>/dev/null | tr -d '\r')
@@ -1327,11 +1566,13 @@ YML
     ( cd "$PREPO" && run_ps1 "$AIDEV_PS1" worktree rm "$PB" --force --delete-branch >/dev/null 2>&1 )
     assert_eq "$?" "0" "パリティ: ps1 rm は list が出したパス表記をそのまま扱える"
     assert_eq "$([ -d "$TMP/prepo-wt/fresh" ] && echo yes || echo no)" "no" "パリティ: ps1 rm(path) で worktree 撤去済み"
+    block_end wtparity "10" "wtparity"
   else
-    skip "git 不在のため worktree パリティを省略"
+    skip 10 "git 不在のため worktree パリティを省略"
   fi
+  block_end parity "79" "parity"
 else
-  skip "PowerShell(pwsh/powershell) 不在のためパリティテストを省略"
+  skip 79 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
 fi
 
 echo
@@ -1340,5 +1581,5 @@ printf 'RESULT: pass=%s fail=%s skip=%s\n' "$PASS" "$FAIL" "$SKIP"
 # pwsh を入れるだけで埋まる穴を「環境が無い」で放置しないよう、入れ方まで書く。
 # 実際、パリティテストが skip のままだった間に**ps1 側の実バグ2件**（値の無いオプションを
 # 素通り／switch の大文字小文字）と**テスト自身のバグ2件**が緑の裏に隠れていた。
-[ "$SKIP" -gt 0 ] && printf 'NOTE: %s 件の検証が環境不足で skip された（未検証の穴）。pwsh/git のある環境で再実行して埋めること。\n      Linux なら: curl -fsSL -o /tmp/pwsh.tar.gz https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/powershell-7.4.6-linux-x64.tar.gz \\\n                  && mkdir -p /opt/pwsh && tar -xzf /tmp/pwsh.tar.gz -C /opt/pwsh && export PATH=/opt/pwsh:$PATH\n' "$SKIP" >&2
+[ "$SKIP" -gt 0 ] && printf 'NOTE: %s 件のアサートが環境不足で未実行（未検証の穴）。pwsh/git のある環境で再実行して埋めること。\n      パリティだけでなく **sh 単体の検査も一部**が pwsh ブロックの中にある。\n      Linux なら: curl -fsSL -o /tmp/pwsh.tar.gz https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/powershell-7.4.6-linux-x64.tar.gz \\\n                  && mkdir -p /opt/pwsh && tar -xzf /tmp/pwsh.tar.gz -C /opt/pwsh && export PATH=/opt/pwsh:$PATH\n' "$SKIP" >&2
 [ "$FAIL" -eq 0 ]

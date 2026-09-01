@@ -84,7 +84,10 @@ Git Bash（Git for Windows 同梱）があるなら POSIX 版の `aidev` がそ�
 - 現行 `CURRENT_SCHEMA = 4`。
 - schema ≥ 2 の不変条件: `metrics.yml` の存在 ／ review 承認済なら `review.md` 存在 ／ deliver 承認済なら
   metrics に deliver の approved イベントが存在。
-- schema ≥ 4 の検査（WARN）: `harnessRev` の存在 ／ **またがり work**（`harnessRev` ≠ `harnessRevDelivered`）。
+- schema ≥ 4 の検査: `harnessRev` の存在（**WARN**）／ **またがり work**（`harnessRev` ≠ `harnessRevDelivered`。**`note:`**）。
+  またがりが WARN でないのは、**事後に取り消せない事実**で人が直せることが無いから。ハーネスを
+  1回コミットしただけで in-flight の全 work が鳴き続けるので、「いま直せる」WARN（記録漏れ・light 逸脱）
+  と同列に置くとそちらが埋もれる。
   `verify` は deliver 承認の**前**に走るので `harnessRevDelivered` をまだ持っていない。着地時の刻印を
   待つと**この検査は通常の順序では一度も発火しない**ため、まだ無いときは**現在の版**と比べる。
   効果検証の母集団を正しく切るための刻印なので、旧 work は遡って違反扱いしない（`protocol.md`「12.」）。

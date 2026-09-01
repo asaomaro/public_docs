@@ -218,7 +218,7 @@ cv_tombstone() { # file text
 # 条項ディレクトリの外のファイルを confirm/retire/promote が破壊・移動できてしまう
 #（cv_new だけが basename を通しており、他3つが素通しだった）。
 cv_id() { # 生の id -> 安全な id（パス成分とスラッシュを落とす）
-  _i=$(basename "$1" .md)
+  _i=$(basename -- "$1" .md)
   case "$_i" in ''|.|..) die "id が不正です: $1" ;; esac
   printf '%s' "$_i"
 }
@@ -305,7 +305,9 @@ cmd_new() {
       --ticket) need_arg "$1" $#; ticket=$2; shift 2 ;;
       --depends) need_arg "$1" $#; depends=$2; shift 2 ;;
       --parent) need_arg "$1" $#; parent=$2; shift 2 ;;
-      --backlog) need_arg "$1" $#; backlog=$(basename "$2"); shift 2 ;;
+      # `--` を付けないと、値が `-` で始まるとき basename 自身の使い方エラーが
+      # `aidev:` 前置なしで漏れる（need_arg を入れた動機と同じ穴）
+      --backlog) need_arg "$1" $#; backlog=$(basename -- "$2"); shift 2 ;;
       -*) die "未知のオプション: $1" ;;
       *) [ -z "$slug" ] && slug=$1 || die "slug は1つだけ"; shift ;;
     esac
@@ -684,7 +686,11 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail / 5 stri
     if [ -z "$hr0" ]; then
       printf '  WARN harnessRev が無い: 効果検証の母集団から漏れる（aidev new で刻まれる）\n'
     elif [ -n "$hr1" ] && [ "$hr0" != "$hr1" ] && [ "$hr0" != unknown ] && [ "$hr1" != unknown ]; then
-      printf '  WARN またがり work: ハーネス版が着手時(%s)と%s(%s)で異なる。効果検証の母集団からは除外される\n' "$hr0" "$hrw" "$hr1"
+      # WARN ではなく note。またがりは**事後に取り消せない事実**で、人が直せることが無い。
+      # verify の WARN（記録漏れ・light 逸脱）はどれも「いま直せる」もので、そこに直せない
+      # 事実を毎回混ぜると——ハーネスを1回コミットしただけで in-flight 全 work が鳴き続ける——
+      # 直せる WARN がノイズに埋もれる。事実の通知は approve deliver の note: と同じ扱いにする
+      printf '  note: またがり work: ハーネス版が着手時(%s)と%s(%s)で異なる。効果検証の母集団からは除外される\n' "$hr0" "$hrw" "$hr1"
     fi
   fi
 
@@ -1244,7 +1250,12 @@ wt_add() {
     set -- new "$slug" --mode "$mode"
     [ -n "$ticket" ]  && set -- "$@" --ticket "$ticket"
     [ -n "$depends" ] && set -- "$@" --depends "$depends"
-    ( cd "$wpath" && "$wpath/.claude/skills/aidev-docs/bin/aidev" "$@" ) || die "worktree 内の new に失敗"
+    # 先に CLI の実在を見る。無いまま委譲すると「コマンドが無い」というシェルのエラーが出て、
+    # 本当の原因（skills が worktree に持ち込まれていない＝未追跡・未コミット）が読めない。
+    # ps1 側にも同じ事前検査がある（メッセージを揃える）
+    _wtbin="$wpath/.claude/skills/aidev-docs/bin/aidev"
+    [ -f "$_wtbin" ] || die "worktree 内に CLI がありません: $_wtbin（skills が追跡・コミット済みか確認）"
+    ( cd "$wpath" && "$_wtbin" "$@" ) || die "worktree 内の new に失敗"
     work_note="新規 work を作成（add 内で new）"
   fi
 
