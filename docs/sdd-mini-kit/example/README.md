@@ -14,14 +14,20 @@
 | `tasks.md` | 手順。**まだ未チェック**（`sdd-implement` が付ける） |
 
 このあと `sdd-implement` → `sdd-verify` → `sdd-review` と進むと、2つ増えます。
+**その見本が [`results-sample/`](results-sample/) にあります。**
 
-| 増えるファイル | 何の記録か | 書式 |
-|---|---|---|
-| `test-result.md` | 仕様どおりか（○ / × / −） | [`test-result-template.md`](../skills/sdd-verify/test-result-template.md) |
-| `review-result.md` | コードとして妥当か（must / should / nit） | [`review-result-template.md`](../skills/sdd-review/review-result-template.md) |
+| 見本 | 何の記録か |
+|---|---|
+| [`results-sample/test-result.md`](results-sample/test-result.md) | 仕様どおりか（○ / × / −）と、その**根拠** |
+| [`results-sample/review-result.md`](results-sample/review-result.md) | コードとして妥当か（must / should / nit）と、その**なぜ** |
 
-**どちらのテンプレートにも記入例が載せてあります。** 先にそれを読むと、
-何を書く欄なのかが掴めます。
+> `results-sample/` は `.sdd/memo-search/` とは**別の時点**の見本です
+> （こちらは一周した後、`.sdd/memo-search/` はこれから実装する直前）。
+> 同じフォルダに混ぜると、どちらの状態を真似ればよいか分からなくなるので分けています。
+
+**書式そのものは各 skill の `SKILL.md` の中**にあります
+（`sdd-verify` の「test-result.md テンプレート」節、`sdd-review` の同名の節）。
+書き換えれば出力が変わります。
 
 ## 読み方
 

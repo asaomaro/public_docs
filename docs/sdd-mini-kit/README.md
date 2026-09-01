@@ -35,12 +35,8 @@ SDD（Spec-Driven Development・仕様駆動開発）を**手を動かして掴�
 │   ├── sdd-plan/SKILL.md
 │   ├── sdd-tasks/SKILL.md
 │   ├── sdd-implement/SKILL.md
-│   ├── sdd-verify/
-│   │   ├── SKILL.md
-│   │   └── test-result-template.md      ← 書き換えて使う
-│   └── sdd-review/
-│       ├── SKILL.md
-│       └── review-result-template.md    ← 書き換えて使う
+│   ├── sdd-verify/SKILL.md
+│   └── sdd-review/SKILL.md
 ├── AGENTS.md              ← 任意。AGENTS.sample.md をコピーして書き換える
 └── .sdd/                  ← 出力（使い始めると自動でできる）
 ```
@@ -49,9 +45,9 @@ SDD（Spec-Driven Development・仕様駆動開発）を**手を動かして掴�
 
 > **skill 名はフラットです。** `skills/sdd/specify/` のような入れ子で名前空間は切れないので、
 > 6つを**横並びのフォルダ**にしてあります。
-> 一方で**1つの skill フォルダの中には階層を作れます**——テンプレートを
-> `sdd-verify/` `sdd-review/` の中に置いているのはそのためです。
-> **使う skill と書式が同じ場所にあるので、コピーすれば必ず一緒についてきます。**
+>
+> **出力の書式（テンプレート）は各 `SKILL.md` の中にコードブロックで書いてあります。**
+> 別ファイルにしないので、skill を1つコピーすれば手順も書式も必ず揃います。
 
 ### 他のエージェントで使う場合
 
@@ -61,10 +57,6 @@ SDD（Spec-Driven Development・仕様駆動開発）を**手を動かして掴�
 |---|---|---|
 | Claude Code | `.claude/skills/sdd-specify/` | `SKILL.md`（そのまま） |
 | GitHub Copilot (VS Code) | `.github/prompts/` | `sdd-specify.prompt.md` |
-
-Copilot 等に置く場合、テンプレートは skill フォルダから離れるので、
-**`SKILL.md` と同じ場所にテンプレートも一緒に置いてください**
-（各段は「同じフォルダの `*-template.md`」を読みます）。
 
 > **確認事項**：コマンド置き場の規約はエージェントとバージョンで変わります。
 > **お使いのエージェントの最新ドキュメントで確認してください。**
@@ -171,9 +163,7 @@ Claude Code なら `CLAUDE.md`、Copilot なら `.github/copilot-instructions.md
 
 終わったとき、**`test-result.md` と `review-result.md` に「何を・どう見て・どう判定したか」が残ります。**
 
-書式は各 skill フォルダの中にあります（`sdd-verify/test-result-template.md` /
-`sdd-review/review-result-template.md`）。**書き換えれば出力も変わります**
-（プロンプト側を触らずに、報告の形だけ自分たちのやり方に合わせられます）。
+書式は各 `SKILL.md` の「テンプレート」節にあります。**書き換えれば出力も変わります。**
 
 ---
 
