@@ -1,5 +1,7 @@
 ---
-description: SDD 第5段。spec.md の受け入れ条件をひとつずつ確かめ、test-result.md に結果を書く。
+name: sdd-verify
+description: ［SDD 第5段］spec.md の受け入れ条件をひとつずつ確かめ、根拠つきで test-result.md に結果を書く。「仕様どおりか確かめて」「テストして」と言われたときに使用する。実装は直さない。
+allowed-tools: [Read, Write, Edit, Glob, Grep, Bash, AskUserQuestion]
 ---
 
 # /sdd-verify — 仕様どおりか確かめる
@@ -19,7 +21,7 @@ description: SDD 第5段。spec.md の受け入れ条件をひとつずつ確か
 ## 手順
 
 1. `spec.md` の受け入れ条件と、`plan.md` の「確認方法」を読む。
-2. **書式テンプレートを読む**: `sdd-mini/templates/test-result.md`（リポジトリルートからの相対）
+2. **書式テンプレートを読む**: **この SKILL.md と同じフォルダの `test-result-template.md`**
    （見つからなければユーザーに伝え、テンプレート内と同じ表形式で代用する）。
    **テンプレートの「記入例」節は出力に写さない。**
 3. **条件をひとつずつ**、`plan.md` の確認方法に従って確かめる。

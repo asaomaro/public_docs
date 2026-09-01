@@ -17,8 +17,8 @@
 
 | 増えるファイル | 何の記録か | 書式 |
 |---|---|---|
-| `test-result.md` | 仕様どおりか（○ / × / −） | [`test-result.md`](../sdd-mini/templates/test-result.md) |
-| `review-result.md` | コードとして妥当か（must / should / nit） | [`review-result.md`](../sdd-mini/templates/review-result.md) |
+| `test-result.md` | 仕様どおりか（○ / × / −） | [`test-result-template.md`](../skills/sdd-verify/test-result-template.md) |
+| `review-result.md` | コードとして妥当か（must / should / nit） | [`review-result-template.md`](../skills/sdd-review/review-result-template.md) |
 
 **どちらのテンプレートにも記入例が載せてあります。** 先にそれを読むと、
 何を書く欄なのかが掴めます。

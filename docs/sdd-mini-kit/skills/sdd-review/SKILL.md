@@ -1,5 +1,7 @@
 ---
-description: SDD 第6段。コードを規約と設計の観点でレビューし、must/should/nit で review-result.md に書く。
+name: sdd-review
+description: ［SDD 第6段］コードを規約と設計の観点でレビューし、must/should/nit で review-result.md に書く。「レビューして」「コードを見て」と言われたときに使用する。指摘までで、自分では直さない。
+allowed-tools: [Read, Write, Edit, Glob, Grep, AskUserQuestion]
 ---
 
 # /sdd-review — コードとして妥当か見る
@@ -34,7 +36,7 @@ description: SDD 第6段。コードを規約と設計の観点でレビュー�
    - `test-result.md`（未解決の `×` はレビューでも must になる）
    - **リポジトリの規約**（`AGENTS.md` / `CLAUDE.md` /
      `.github/copilot-instructions.md` のいずれか。あるものを読む）——**ここでレビュー観点を使う**
-2. **書式テンプレートを読む**: `sdd-mini/templates/review-result.md`（リポジトリルートからの相対）
+2. **書式テンプレートを読む**: **この SKILL.md と同じフォルダの `review-result-template.md`**
    （見つからなければユーザーに伝え、テンプレート内と同じ形式で代用する）。
    **テンプレートの「記入例」節は出力に写さない。**
 3. `plan.md` の「触るファイル」の**実際の差分・コードを読む**。

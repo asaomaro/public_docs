@@ -1,5 +1,7 @@
 ---
-description: SDD 第1段。作りたいことを聞き取り、受け入れ条件つきの仕様を .sdd/<機能名>/spec.md に書く。
+name: sdd-specify
+description: ［SDD 第1段］作りたいことを聞き取り、受け入れ条件つきの仕様を .sdd/<機能名>/spec.md に書く。「仕様を書きたい」「SDD を始める」「新しい機能を作りたい」と言われたときに使用する。この段ではコードを書かない。
+allowed-tools: [Read, Write, Edit, AskUserQuestion]
 ---
 
 # /sdd-specify — 何を作るか（仕様）

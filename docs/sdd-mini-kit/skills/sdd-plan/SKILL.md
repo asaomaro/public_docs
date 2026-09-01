@@ -1,5 +1,7 @@
 ---
-description: SDD 第2段。spec.md を読み、どう作るかの方針を .sdd/<機能名>/plan.md に書く。
+name: sdd-plan
+description: ［SDD 第2段］spec.md を読み、どう作るかの方針を .sdd/<機能名>/plan.md に書く。「実装方針を決めたい」「spec ができたので次へ」と言われたときに使用する。この段でもコードを書かない。
+allowed-tools: [Read, Write, Edit, Glob, Grep, AskUserQuestion]
 ---
 
 # /sdd-plan — どう作るか（方針）

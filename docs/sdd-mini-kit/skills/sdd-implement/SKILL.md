@@ -1,5 +1,7 @@
 ---
-description: SDD 第4段。tasks.md のタスクを上から実装し、チェックを進める。検証は /sdd-verify。
+name: sdd-implement
+description: ［SDD 第4段］tasks.md のタスクを上から1つずつ実装し、チェックを進める。「実装して」「tasks ができたので作って」と言われたときに使用する。検証は sdd-verify が行う。
+allowed-tools: [Read, Write, Edit, Glob, Grep, Bash, AskUserQuestion]
 ---
 
 # /sdd-implement — 作る

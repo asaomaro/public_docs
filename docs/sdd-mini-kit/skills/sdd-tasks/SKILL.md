@@ -1,5 +1,7 @@
 ---
-description: SDD 第3段。plan.md をチェックリストに割り、.sdd/<機能名>/tasks.md に書く。
+name: sdd-tasks
+description: ［SDD 第3段］plan.md をチェックリストに割り、.sdd/<機能名>/tasks.md に書く。「タスクに分けたい」「plan ができたので次へ」と言われたときに使用する。この段でもコードを書かない。
+allowed-tools: [Read, Write, Edit, AskUserQuestion]
 ---
 
 # /sdd-tasks — 手順に割る

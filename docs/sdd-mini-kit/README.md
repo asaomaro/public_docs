@@ -1,7 +1,7 @@
-# sdd-mini — プロンプトファイル6枚で作る SDD
+# sdd-mini — skill 6つで作る SDD
 
 SDD（Spec-Driven Development・仕様駆動開発）を**手を動かして掴むための最小キット**です。
-インストールも CLI も要りません。**Markdown を6枚置くだけ**です。
+インストールも CLI も要りません。**`.claude/skills/` にフォルダを6つ置くだけ**です。
 
 > 設計判断は [`../copilot-sdd-mini.md`](../copilot-sdd-mini.md) を参照。
 
@@ -25,55 +25,72 @@ SDD（Spec-Driven Development・仕様駆動開発）を**手を動かして掴�
 
 ## 入れ方
 
-**このフォルダの `sdd-mini/` を、自分のプロジェクトの直下にコピーする**だけです。
+**このフォルダの `skills/` の中身を、`.claude/skills/` にコピーする**だけです。
 （`README.md` と `example/` はコピー不要。読むためのものです。）
 
 ```
 あなたのプロジェクト/
-├── sdd-mini/              ← コピーしたキット
-│   ├── sdd-specify.md
-│   ├── sdd-plan.md
-│   ├── sdd-tasks.md
-│   ├── sdd-implement.md
-│   ├── sdd-verify.md
-│   ├── sdd-review.md
-│   └── templates/
-│       ├── test-result.md      ← テスト結果の書式。書き換えて使う
-│       └── review-result.md    ← レビュー結果の書式。書き換えて使う
+├── .claude/skills/
+│   ├── sdd-specify/SKILL.md
+│   ├── sdd-plan/SKILL.md
+│   ├── sdd-tasks/SKILL.md
+│   ├── sdd-implement/SKILL.md
+│   ├── sdd-verify/
+│   │   ├── SKILL.md
+│   │   └── test-result-template.md      ← 書き換えて使う
+│   └── sdd-review/
+│       ├── SKILL.md
+│       └── review-result-template.md    ← 書き換えて使う
 ├── AGENTS.md              ← 任意。AGENTS.sample.md をコピーして書き換える
 └── .sdd/                  ← 出力（使い始めると自動でできる）
 ```
 
-これで**どのエージェントでも使えます**。特別な機構は何も使っていません。
+これで `/sdd-specify` のように呼べます。
 
-### 呼び出し方は2通り
+> **skill 名はフラットです。** `skills/sdd/specify/` のような入れ子で名前空間は切れないので、
+> 6つを**横並びのフォルダ**にしてあります。
+> 一方で**1つの skill フォルダの中には階層を作れます**——テンプレートを
+> `sdd-verify/` `sdd-review/` の中に置いているのはそのためです。
+> **使う skill と書式が同じ場所にあるので、コピーすれば必ず一緒についてきます。**
 
-**① そのまま使う（機構に一切依存しない）**
+### 他のエージェントで使う場合
 
-チャットでファイルを指して言うだけです。
+**中身はエージェントに依存していません。** 置き場所とファイル名だけが違います。
 
-```
-sdd-mini/sdd-specify.md の手順で進めて
-```
+| エージェント | コピー先 | ファイル名 |
+|---|---|---|
+| Claude Code | `.claude/skills/sdd-specify/` | `SKILL.md`（そのまま） |
+| GitHub Copilot (VS Code) | `.github/prompts/` | `sdd-specify.prompt.md` |
 
-Claude Code / Codex / GitHub Copilot、どれでもこれで動きます。**まずはこれで十分**です。
+Copilot 等に置く場合、テンプレートは skill フォルダから離れるので、
+**`SKILL.md` と同じ場所にテンプレートも一緒に置いてください**
+（各段は「同じフォルダの `*-template.md`」を読みます）。
 
-**② スラッシュコマンドにする（任意・エージェント別）**
-
-毎回パスを打つのが面倒なら、各エージェントのコマンド置き場にコピーすると `sdd-specify` で呼べます。
-**中身は同じファイル**で、置き場所と拡張子だけが違います。
-
-| エージェント | コピー先 | ファイル名 | 補足 |
-|---|---|---|---|
-| Claude Code | `.claude/commands/` | `sdd-specify.md` | そのまま |
-| GitHub Copilot (VS Code) | `.github/prompts/` | `sdd-specify.prompt.md` | 拡張子を変える |
-| その他 | 各エージェントの規約に従う | — | 下記 |
-
-> **確認事項**：コマンド置き場の名前とファイル名の規約は、エージェントとバージョンで変わります。
+> **確認事項**：コマンド置き場の規約はエージェントとバージョンで変わります。
 > **お使いのエージェントの最新ドキュメントで確認してください。**
-> Copilot は frontmatter に `mode: agent` を足すと確実です（無くても動く想定ですが未検証）。
->
-> **分からなければ ① で使ってください。** ①はどのエージェントでも確実に動きます。
+
+### コマンドを登録しない使い方（どのエージェントでも動く）
+
+置き場所が分からない、あるいは登録が面倒なら、**ファイルを指すだけ**でも動きます。
+
+```
+skills/sdd-specify/SKILL.md の手順で進めて
+```
+
+特別な機構を何も使わないので、**どのエージェントでも確実に動きます**。
+
+### `allowed-tools` について
+
+各 `SKILL.md` の frontmatter で、その段が使える道具を絞ってあります。
+
+| 段 | 絞っていること |
+|---|---|
+| `sdd-specify` / `sdd-tasks` | コードを触れない（Bash も検索も無し） |
+| `sdd-review` | 実行できない（Bash 無し）。読んで指摘するだけ |
+
+**これは Claude Code の機能で、他のエージェントでは無視されます。**
+なので各 `SKILL.md` の本文にも「この段ではコードを書きません」と書いてあり、
+**そちらが正**です。`allowed-tools` は Claude Code のときだけ効く補助と考えてください。
 
 ### 規約ファイル（任意だが推奨）
 
@@ -85,26 +102,20 @@ Claude Code なら `CLAUDE.md`、Copilot なら `.github/copilot-instructions.md
 
 ## 使い方
 
-上から順に、6つの手順書を1つずつ実行します。
-
-| 段 | 手順書 | 出力 |
-|---|---|---|
-| 1 | `sdd-mini/sdd-specify.md` | 何を作るか → `.sdd/<機能名>/spec.md` |
-| 2 | `sdd-mini/sdd-plan.md` | どう作るか → `.sdd/<機能名>/plan.md` |
-| 3 | `sdd-mini/sdd-tasks.md` | 手順に割る → `.sdd/<機能名>/tasks.md` |
-| 4 | `sdd-mini/sdd-implement.md` | 作る → コード |
-| 5 | `sdd-mini/sdd-verify.md` | 仕様どおりか → `.sdd/<機能名>/test-result.md` |
-| 6 | `sdd-mini/sdd-review.md` | コードは妥当か → `.sdd/<機能名>/review-result.md` |
-
-呼び出し方は「入れ方」で選んだ方で。
+上から順に、6つを1つずつ呼びます。
 
 ```
-① sdd-mini/sdd-specify.md の手順で進めて     ← どのエージェントでも動く
-② /sdd-specify                                ← コマンド登録した場合
+/sdd-specify     何を作るか      → .sdd/<機能名>/spec.md
+/sdd-plan        どう作るか      → .sdd/<機能名>/plan.md
+/sdd-tasks       手順に割る      → .sdd/<機能名>/tasks.md
+/sdd-implement   作る            → コード
+/sdd-verify      仕様どおりか    → .sdd/<機能名>/test-result.md
+/sdd-review      コードは妥当か  → .sdd/<機能名>/review-result.md
 ```
 
-> **以降このドキュメントでは `sdd-specify` のように名前だけで書きます。**
-> ①なら `sdd-mini/sdd-specify.md`、②なら `/sdd-specify` と読み替えてください。
+> コマンドを登録していない場合は、`skills/sdd-specify/SKILL.md` の手順で進めて
+> のようにファイルを指してください。**以降このドキュメントでは `sdd-specify` と
+> 名前だけで書きます。**
 
 **各段の最後で AI は必ず止まります。** そこがゲートです。
 読んで、直して、よければ次を呼ぶ。**この止まる回数が SDD の値打ちです。**
@@ -160,7 +171,8 @@ Claude Code なら `CLAUDE.md`、Copilot なら `.github/copilot-instructions.md
 
 終わったとき、**`test-result.md` と `review-result.md` に「何を・どう見て・どう判定したか」が残ります。**
 
-書式は `sdd-mini/templates/` の2枚にあります。**書き換えれば出力も変わります**
+書式は各 skill フォルダの中にあります（`sdd-verify/test-result-template.md` /
+`sdd-review/review-result-template.md`）。**書き換えれば出力も変わります**
 （プロンプト側を触らずに、報告の形だけ自分たちのやり方に合わせられます）。
 
 ---
