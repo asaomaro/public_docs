@@ -1,0 +1,74 @@
+# aidev CLI のテスト（sh 実装・ps1 実装・両者のパリティ）
+#
+# なぜ CI が要るか:
+#   `aidev` と `aidev.ps1` は**同じ挙動でなければならない**が、片方の処理系が無い環境では
+#   パリティテストが skip される。skip はそのまま**未検証の穴**で、実際この穴の裏に
+#   ps1 の実バグ2件とテスト自身のバグ2件が「緑のまま」隠れていた。
+#   だから CI では **skip=0 を満たせる環境**で走らせ、skip が出たら落とす。
+#
+# 走らせる環境:
+#   ubuntu  … pwsh 7 が入っている（PowerShell 7 系のパリティ）
+#   windows … Git Bash の sh ＋ **Windows PowerShell 5.1**。ps1 の本来の対象で、
+#             ここが緑でないと「Windows で動く」と言えない
+name: aidev CLI
+
+on:
+  push:
+    paths:
+      - 'md/claude-code/skills/aidev-docs/bin/**'
+      - '.github/workflows/aidev-cli.yml'
+  pull_request:
+    paths:
+      - 'md/claude-code/skills/aidev-docs/bin/**'
+      - '.github/workflows/aidev-cli.yml'
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: md/claude-code/skills/aidev-docs/bin
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # harnessRev は「aidev-* を最後に触ったコミット」なので、履歴が1コミットしか
+          # 無いと版が取れず 'unknown' になる。刻印まわりの検証が空振りしないよう深く取る
+          fetch-depth: 0
+
+      - name: 処理系の確認
+        run: |
+          echo "sh: $(sh --version 2>&1 | head -n1)"
+          command -v pwsh       && pwsh -v       || echo "pwsh: なし"
+          command -v powershell && echo "powershell(5.1): あり" || echo "powershell: なし"
+
+      - name: pwsh が無ければ入れる
+        run: |
+          command -v pwsh >/dev/null 2>&1 && exit 0
+          sh test/setup-pwsh.sh
+          echo "$HOME/.cache/aidev-pwsh" >> "$GITHUB_PATH"
+
+      - name: テスト（skip が残っていたら落とす）
+        # run.sh 自体は skip があっても exit 0 で終わる（開発者の手元では処理系が無いこともあり、
+        # そこで落とすと手元のテストが回らなくなる）。CI は処理系を揃えられる場所なので、
+        # **ここでだけ skip>0 を失敗として扱う**。そうしないと「CI が緑」と
+        # 「ps1 が検証された」が別物のまま、誰も気付けない。
+        # GitHub の bash は既定で `-eo pipefail` なので、テストが落ちればこの時点で止まる。
+        # 以降に来るのは「テストは緑」の場合だけ
+        run: |
+          sh test/run.sh 2>&1 | tee result.txt
+          skip=$(sed -n 's/^RESULT:.*skip=\([0-9][0-9]*\).*/\1/p' result.txt)
+          rm -f result.txt
+          if [ -z "$skip" ]; then
+            echo "::error::RESULT 行が読めませんでした（テストが最後まで走っていない可能性）"
+            exit 1
+          fi
+          if [ "$skip" -ne 0 ]; then
+            echo "::error::skip=$skip（未検証の穴が残っています。処理系が揃っているか確認してください）"
+            exit 1
+          fi
