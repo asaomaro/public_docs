@@ -19,7 +19,7 @@
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 metrics [slug] [--all] [--phases] [--format table|tsv]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 convention <new|confirm|retire|promote|status> ...
 #     PJ規約の条項を docs/aidev/ で起こし・判定し・PJ ドキュメントへ移送する（protocol.md「12.」）
-#     new は --hypothesis 必須（検証できない条項を作らせない入口ゲート）
+#     new は --hypothesis と --baseline が必須（検証できない条項を作らせない入口ゲート）
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree add <slug> [--branch n] [--base ref] [--path dir] [--mode m] [--ticket id] [--depends list]
 
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree list [--format table|tsv]
@@ -1507,10 +1507,11 @@ function Cv-ArchiveFile($path) {
 }
 
 function Cv-New($rest) {
-  $id=''; $hyp=''; $src=''; $va=''
+  $id=''; $hyp=''; $src=''; $va=''; $base=''
   for ($i=0; $i -lt $rest.Count; $i++) {
     switch ($rest[$i]) {
       '--hypothesis'   { $hyp=$rest[++$i] }
+      '--baseline'     { $base=$rest[++$i] }
       '--source'       { $src=$rest[++$i] }
       '--verify-after' { $va=$rest[++$i] }
       default {
@@ -1519,12 +1520,15 @@ function Cv-New($rest) {
       }
     }
   }
-  if (-not $id) { Die "使用法: aidev convention new <id> --hypothesis <text> [--source <path>] [--verify-after <n>]" }
+  if (-not $id) { Die "使用法: aidev convention new <id> --hypothesis <text> --baseline <text> [--source <path>] [--verify-after <n>]" }
   if ($id.EndsWith('.md')) { $id = $id.Substring(0, $id.Length-3) }
   $id = Split-Path -Leaf $id
   # 仮説を必須にするのがこの層の入口ゲート。「どの指標がどう動けば成功か」を書けない条項は
   # 後から検証できず、事後の物語作りにしかならない
   if (-not $hyp) { Die "--hypothesis は必須です（何がどう動けば効果ありと判定するか。書けない条項は検証できない）" }
+  # 条項 id は今この瞬間に生まれるので、導入前の review.md にその id は現れない。
+  # 「前」を作れるのは起票時に観点で数えて刻む道だけ（sh 版と同じ理由）。
+  if (-not $base) { Die "--baseline は必須です（導入前にこの観点の指摘が何件あったか。数えられないならその事実を書く。例: '直近10 works で must 2 / should 5' / '0件（review.md が無く前を作れない）'）" }
   if (-not $va) { $va = '5' }
   if ($va -notmatch '^\d+$') { Die "--verify-after は整数（母集団の最低件数）" }
   $d = CvDir
@@ -1536,7 +1540,7 @@ function Cv-New($rest) {
   $today = ('{0:D4}-{1:D2}-{2:D2}' -f [DateTime]::UtcNow.Year, [DateTime]::UtcNow.Month, [DateTime]::UtcNow.Day)
   $sb = "---`nconvention: $id`nstatus: pending`nintroduced: $today`n"
   if ($src) { $sb += "source: $src`n" }
-  $sb += "hypothesis: $hyp`nverify_after: $va`n---`n`n"
+  $sb += "hypothesis: $hyp`nbaseline: $base`nverify_after: $va`n---`n`n"
   $sb += "# $id`n`n"
   $sb += "<!-- 条項の本文。PJ ドキュメントへ移送(promote)するまではここが唯一の在処。 -->`n`n"
   $sb += "## 規約`n`n"

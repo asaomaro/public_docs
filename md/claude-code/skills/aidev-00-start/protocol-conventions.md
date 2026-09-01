@@ -11,12 +11,28 @@
 ```sh
 .claude/skills/aidev-docs/bin/aidev convention new <id> \
   --hypothesis "<何がどう動けば効果ありと判定するか>" \
+  --baseline "<導入前にこの観点の指摘が何件あったか>" \
   --source .aidev/insights/<日付>-insights.md \
   --verify-after 5
 ```
 
 - **`--hypothesis` は必須**。CLI が拒否する。書けない条項は後から検証できず、事後の物語作りに
   しかならない。**この関門自体に価値がある**——検証不能な改修は「効果を主張してはいけない改修」。
+- **`--baseline` も必須**。**「前」を作れるのは起票のこの瞬間だけ**だから。
+  条項 id はいま生まれるので、導入前の review.md にその id は決して現れない
+  （id 別の件数は必ず `0 → N` と増えるだけで、前後比較にならない）。
+
+  ```sh
+  # 数え方の例: 過去の review.md を読み、その観点の指摘を拾う
+  grep -c 'boolean\|真偽' .aidev/works/*/review.md
+  ```
+
+  - **数えるのは id ではなく観点**。「何をその観点とみなしたか」を値に文章で残す
+    （後から同じ基準で数え直せるように）。
+  - **数えられないならその事実を書く**：`0件（review.md がまだ無く、前を作れない）`。
+    捏造も空欄も不可。この条項は**前後比較が成立しない**ので、判定時は根拠を明示する。
+  - 数え方が前後で違う（前＝読んで数える／後＝タグを数える）ことは避けられない。
+    だからこそ境目の判断を `baseline` に書き残す。
 - **`--source` を付ける**。どの信号から起こしたかが残らないと、insights が「未対応の改善」を
   追うときに突合できない。
 - **`--verify-after`** は判定に要する母集団の最低件数（既定 5）。条項が関係する work は一部だけなので、
@@ -68,7 +84,11 @@ docsRoots: [docs/, AGENTS.md]  # 条項を起こす前に既存規約を探す�
    doctor は**既に見に行った人にしか届かない**ので、1 の一報と併せて機能する。
 3. `aidev convention status` の **`ready=yes`**
 
-判定材料は `review.md` の**条項参照タグ**（`protocol.md`「8.」）:
+判定は **`baseline` と、導入後のタグ件数の比較**で行う（`protocol.md`「12.」）。
+`baseline` に「前を作れない」と書かれている条項は**比較が成立しない**ので、
+件数ではなく個別の根拠を示して判定する（示せないなら `pending` のまま置く）。
+
+導入後の件数は `review.md` のタグから数える:
 
 ```sh
 # 条項 id 別の指摘件数を introduced の前後で比べる
@@ -81,7 +101,7 @@ grep -ho '\[conv:[^]]*\]' .aidev/works/*/review.md | sort | uniq -c | sort -rn
   「条項の内容が間違っていた」とは言えない。言えるのは「**散文では効かなかった**」まで。
 
 ```sh
-aidev convention confirm <id> --result "must 3件/5works -> 0件/6works"
+aidev convention confirm <id> --result "baseline 7件(must 2/should 5) -> 導入後 6works で [conv:<id>] 1件"
 aidev convention retire  <id> --status ineffective --note "散文層の限界。CLI の verify へ寄せる"
 ```
 

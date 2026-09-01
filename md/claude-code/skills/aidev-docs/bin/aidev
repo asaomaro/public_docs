@@ -24,8 +24,9 @@
 #   aidev backlog new <name> --kind standing|split|topic [--parent <p>] [--priority <n>]
 #     frontmatter 付きで backlog ファイルを起こす（kind 欠落を構造的に防ぐ）
 #   aidev backlog archive [<file>...] [--force]  # 消化しきった backlog を archive/ へ退避（mv のみ・git は触らない）
-#   aidev convention new <id> --hypothesis <text> [--source <path>] [--verify-after <n>]
-#     PJ規約の条項を docs/aidev/ に起こす（--hypothesis 必須＝検証できない条項を作らせない入口ゲート）
+#   aidev convention new <id> --hypothesis <text> --baseline <text> [--source <path>] [--verify-after <n>]
+#     PJ規約の条項を docs/aidev/ に起こす。--hypothesis と --baseline が必須＝検証できない条項を作らせない入口ゲート
+#     （baseline: 導入前にこの観点の指摘が何件あったか。id 別の件数は 0->N と増えるだけで前後比較にならないため）
 #   aidev convention confirm <id> [--result <text>]     # 効果あり -> PJ ドキュメントへ移送待ちになる
 #   aidev convention retire  <id> --status ineffective|superseded [--note <text>]  # 効果なし/置換で退役
 #   aidev convention promote <id> --to <path#anchor>    # 本文を PJ docs へ移した後、tombstone 化して退避
@@ -1499,21 +1500,27 @@ cmd_convention() {
 }
 
 cv_new() {
-  id=""; hyp=""; src=""; va=""
+  id=""; hyp=""; src=""; va=""; base=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --hypothesis)   hyp=${2:-}; shift 2 ;;
+      --baseline)     base=${2:-}; shift 2 ;;
       --source)       src=${2:-}; shift 2 ;;
       --verify-after) va=${2:-}; shift 2 ;;
       -*) die "未知のオプション: $1" ;;
       *) if [ -z "$id" ]; then id=$1; else die "id は1つだけ"; fi; shift ;;
     esac
   done
-  [ -n "$id" ] || die "使用法: aidev convention new <id> --hypothesis <text> [--source <path>] [--verify-after <n>]"
+  [ -n "$id" ] || die "使用法: aidev convention new <id> --hypothesis <text> --baseline <text> [--source <path>] [--verify-after <n>]"
   id=$(basename "$id" .md)
   # 仮説を必須にするのが**この層の入口ゲート**。「どの指標がどう動けば成功か」を書けない条項は
   # 後から検証できず、事後の物語作りにしかならない。書けないなら条項にすべきでない
   [ -n "$hyp" ] || die "--hypothesis は必須です（何がどう動けば効果ありと判定するか。書けない条項は検証できない）"
+  # baseline も必須。**条項 id は今この瞬間に生まれる**ので、導入前の review.md にその id は
+  # 決して現れない。id 別の件数は 0 -> N と増える方向にしか動かず、前後比較にならない。
+  # 「前」を作れるのは、起票時に**観点で**数えて刻んでおく道だけ。変更前に書くから事後の物語作りにならない。
+  # 履歴が無くて数えられないなら、その事実を値として書く（捏造も空欄も不可。protocol.md「8.」）
+  [ -n "$base" ] || die "--baseline は必須です（導入前にこの観点の指摘が何件あったか。数えられないならその事実を書く。例: '直近10 works で must 2 / should 5' / '0件（review.md が無く前を作れない）'）"
   [ -n "$va" ] || va=5
   case "$va" in ''|*[!0-9]*) die "--verify-after は整数（母集団の最低件数）" ;; esac
   d=$(cv_dir)
@@ -1530,6 +1537,7 @@ cv_new() {
     printf 'introduced: %s\n' "$(date -u +%F)"
     if [ -n "$src" ]; then printf 'source: %s\n' "$src"; fi
     printf 'hypothesis: %s\n' "$hyp"
+    printf 'baseline: %s\n' "$base"
     printf 'verify_after: %s\n' "$va"
     printf '%s\n\n' '---'
     printf '# %s\n\n' "$id"

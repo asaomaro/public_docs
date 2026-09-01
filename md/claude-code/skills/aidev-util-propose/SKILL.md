@@ -57,8 +57,9 @@ AI 開発ワークフローの **planner（課題提案 / L_planner・A 層）**
    - autonomous: ガード内で自動採用（**grounded・独立・1回の件数上限内**のみ。曖昧/高結合/根拠薄は採用しない）。
 7. 採用分を起票: `create-issue` で issue 化（ブランチ運用は委譲）かつ/または バックログへ `[ ]` 追記。
    - **PJ規約の追補は issue/backlog ではなく条項として起こす**:
-     `aidev convention new <id> --hypothesis "<何がどう動けば効果ありと判定するか>" --source <信号のパス>`。
-     仮説を書けない提案は CLI が拒否する（＝検証できない改善を積まない）。`protocol-conventions.md` 参照。
+     `aidev convention new <id> --hypothesis "<…>" --baseline "<…>" --source <信号のパス>`。
+     仮説と baseline を書けない提案は CLI が拒否する（＝検証できない改善を積まない）。
+     `baseline` は導入前のその観点の指摘件数で、**起票時にしか作れない**。`protocol-conventions.md` 参照。
    - **移送タスクは backlog へ**（通常のリポジトリ変更なので batch が消化できる）。
    - **backlog へ追記する場合**: 定常ドメインキュー（`.aidev/backlog/<domain>.md`、`kind: standing`）か、
      1タスクを分割した産物なら `split-<親>.md`（`kind: split` / `parent`）に分ける（`aidev-util-batch`「backlog ファイル規約」）。

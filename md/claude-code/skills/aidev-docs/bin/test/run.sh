@@ -781,10 +781,14 @@ run_cv() { ( cd "$CVR" && "$AIDEV_SH" "$@" ); }
 # --- 入口ゲート: 仮説の無い条項は作らせない（検証不能な改善を積まない） ---
 run_cv convention new naming >/dev/null 2>&1
 assert_eq "$?" "1" "convention new: --hypothesis は必須（検証できない条項を弾く）"
-run_cv convention new naming --hypothesis "x" --verify-after abc >/dev/null 2>&1
+run_cv convention new naming --hypothesis "x" >/dev/null 2>&1
+assert_eq "$?" "1" "convention new: --baseline は必須（起票時にしか「前」を作れない）"
+assert_eq "$([ -e "$CVR/docs/aidev/naming.md" ] && echo yes || echo no)" "no" \
+  "convention new: 入口ゲートで弾いたらファイルを作らない"
+run_cv convention new naming --hypothesis "x" --baseline "b" --verify-after abc >/dev/null 2>&1
 assert_eq "$?" "1" "convention new: --verify-after は整数"
 
-CV_NEW=$(run_cv convention new naming-boolean --hypothesis "命名の must/should 指摘が減る" \
+CV_NEW=$(run_cv convention new naming-boolean --hypothesis "命名の must/should 指摘が減る" --baseline "b" \
   --source ".aidev/insights/2026-08-28-insights.md" --verify-after 2 2>&1)
 assert_contains "$CV_NEW" "status pending" "convention new: pending で起こす"
 assert_contains "$CV_NEW" "AGENTS.md の索引ブロック" "convention new: 索引への追記を促す（自動読込されないため）"
@@ -794,7 +798,10 @@ CVB=$(cat "$CVF")
 assert_contains "$CVB" "hypothesis: 命名の must/should 指摘が減る" "convention new: 仮説を frontmatter に残す"
 assert_contains "$CVB" "verify_after: 2" "convention new: 判定に要する母集団件数を残す"
 assert_contains "$CVB" "source: .aidev/insights/2026-08-28-insights.md" "convention new: 出所を残す"
-run_cv convention new naming-boolean --hypothesis "again" >/dev/null 2>&1
+# 条項 id は今この瞬間に生まれるので、導入前の review.md にその id は決して現れない。
+# 「前」は起票時に観点で数えて刻んだこの値だけ。落ちると効果検証が前後比較でなくなる。
+assert_contains "$CVB" "baseline: b" "convention new: baseline を frontmatter に残す（判定の「前」）"
+run_cv convention new naming-boolean --hypothesis "again" --baseline "b" >/dev/null 2>&1
 assert_eq "$?" "1" "convention new: 同名の active は拒否"
 
 # --- 母集団: introduced 以降に着手した work だけを数える ---
@@ -851,11 +858,11 @@ assert_contains "$CVT" "本文は promoted_to へ移送済み" "convention promo
 assert_absent "$CVT" "## 規約" "convention promote: 本文が2箇所に存在しない（二重管理の防止）"
 
 # --- tombstone は重複排除のために残す（消すと同じ提案がまた上がる） ---
-run_cv convention new naming-boolean --hypothesis "again" >/dev/null 2>&1
+run_cv convention new naming-boolean --hypothesis "again" --baseline "b" >/dev/null 2>&1
 assert_eq "$?" "1" "convention new: archive の tombstone と同 id は重複として弾く"
 
 # --- retire: 効かなかった条項の行き先は「削除」ではなく「層を下げる」 ---
-run_cv convention new err-gran --hypothesis "エラー粒度の指摘が減る" >/dev/null
+run_cv convention new err-gran --hypothesis "エラー粒度の指摘が減る" --baseline "b" >/dev/null
 run_cv convention retire err-gran --status bogus >/dev/null 2>&1
 assert_eq "$?" "1" "convention retire: 未知の status を弾く"
 CV_R=$(run_cv convention retire err-gran --status ineffective --note "散文層の限界" 2>&1)
@@ -877,7 +884,7 @@ assert_contains "$CV_D4" "未知の status: kinda" "doctor: 誤記を黙って�
 # --- conventionsDir は PJ が変えられる ---
 CVR2=$(mktemp -d); mkdir -p "$CVR2/.aidev/works"
 printf 'conventionsDir: docs/rules\n' > "$CVR2/.aidev/config.yml"
-( cd "$CVR2" && "$AIDEV_SH" convention new x --hypothesis "y" >/dev/null )
+( cd "$CVR2" && "$AIDEV_SH" convention new x --hypothesis "y" --baseline "b" >/dev/null )
 assert_eq "$([ -f "$CVR2/docs/rules/x.md" ] && echo yes || echo no)" "yes" "conventionsDir で置き場を変えられる"
 rm -rf "$CVR2"
 
@@ -913,7 +920,7 @@ assert_eq "$?" "1" "retire: id のパス成分を潰す"
 assert_eq "$([ -f "$GRD/docs/important.md" ] && echo yes || echo no)" "yes" "retire: 外のファイルを移動しない"
 
 # --- 退避先が埋まっているときは、破壊する前に失敗する ---
-run_gd convention new dup --hypothesis h >/dev/null
+run_gd convention new dup --hypothesis h --baseline "b" >/dev/null
 run_gd convention retire dup --status ineffective >/dev/null
 printf -- '---\nconvention: dup\nstatus: pending\nintroduced: 2026-01-01\nhypothesis: h\nverify_after: 1\n---\n\n# dup\n\n本文。\n' > "$GRD/docs/aidev/dup.md"
 SZ2=$(wc -c < "$GRD/docs/aidev/dup.md")
@@ -927,7 +934,7 @@ echo "== convention: 母集団の着手日を metrics キーと取り違えな�
 # （defects / commits / tests / artifacts …）と、その数値を着手日として読んでいた。
 TSR=$(mktemp -d); mkdir -p "$TSR/.aidev/works"
 run_ts() { ( cd "$TSR" && "$AIDEV_SH" "$@" ); }
-run_ts convention new tsconv --hypothesis h --verify-after 1 >/dev/null
+run_ts convention new tsconv --hypothesis h --baseline "b" --verify-after 1 >/dev/null
 TODAY_D=$(date -u +%Y%m%d); TODAY_T=$(date -u +%Y-%m-%d)
 mkdir -p "$TSR/.aidev/works/$TODAY_D-w"
 printf 'schema: 4\nslug: w\ncurrent: deliver\napproved: [deliver]\n' > "$TSR/.aidev/works/$TODAY_D-w/state.yml"
@@ -943,7 +950,7 @@ echo "== convention: 索引（AGENTS.md の aidev:conventions ブロック） ==
 # CLI が「索引に足せ」と言うだけで誰も見ていないと、この誤判定が静かに積み上がる。
 IXR=$(mktemp -d); mkdir -p "$IXR/.aidev/works" "$IXR/docs"
 run_ix() { ( cd "$IXR" && "$AIDEV_SH" "$@" ); }
-IX_NEW=$(run_ix convention new naming --hypothesis "命名の指摘が減る" --verify-after 1 2>&1)
+IX_NEW=$(run_ix convention new naming --hypothesis "命名の指摘が減る" --baseline "b" --verify-after 1 2>&1)
 assert_contains "$IX_NEW" "docs/aidev/naming.md" "convention new: 索引に足す行を提示する（機械にできる部分は機械が出す）"
 assert_contains "$IX_NEW" "docsRoots が未設定" "convention new: 未設定なら「確認していない」と明記させる（捏造で埋めない）"
 
@@ -980,7 +987,7 @@ assert_absent "$(run_ix doctor 2>&1)" "索引が移送前" "doctor: 張り替え
 # 索引ファイルは PJ が config で指定できる（PJ 固有名を CLI に埋めない）
 printf 'conventionsIndex: docs/rules.md\n' > "$IXR/.aidev/config.yml"
 printf 'x\n' > "$IXR/docs/rules.md"
-run_ix convention new err --hypothesis h >/dev/null
+run_ix convention new err --hypothesis h --baseline "b" >/dev/null
 assert_contains "$(run_ix doctor 2>&1)" "索引に無い（rules.md）" "conventionsIndex で索引ファイルを差し替えられる"
 rm -rf "$IXR"
 
@@ -989,7 +996,7 @@ echo "== convention: 母集団は deliver で増える（到達をその瞬間�
 # works が母集団に加わる唯一の瞬間は approve deliver なので、そこで鳴らす。
 RDR=$(mktemp -d); mkdir -p "$RDR/.aidev/works"
 run_rd() { ( cd "$RDR" && "$AIDEV_SH" "$@" ); }
-run_rd convention new conv1 --hypothesis h --verify-after 1 >/dev/null
+run_rd convention new conv1 --hypothesis h --baseline "b" --verify-after 1 >/dev/null
 run_rd new rd >/dev/null
 RDW=$(ls "$RDR/.aidev/works")
 for p in requirement spec plan coding test review; do
@@ -1059,8 +1066,8 @@ if [ -n "$PS_HOST" ]; then
     > "$PCV/.aidev/works/20200101-w1/metrics.yml"
 
   # sh 側で一生を進め、同じ操作を ps1 側でも行って生成物を突き合わせる
-  ( cd "$PCV" && "$AIDEV_SH" convention new sh-side --hypothesis "h1" --verify-after 1 >/dev/null )
-  ( cd "$PCV" && run_ps1 "$AIDEV_PS1" convention new ps-side --hypothesis "h1" --verify-after 1 >/dev/null )
+  ( cd "$PCV" && "$AIDEV_SH" convention new sh-side --hypothesis "h1" --baseline "b" --verify-after 1 >/dev/null )
+  ( cd "$PCV" && run_ps1 "$AIDEV_PS1" convention new ps-side --hypothesis "h1" --baseline "b" --verify-after 1 >/dev/null )
   CP_SH=$(sed 's/^introduced: .*/introduced: X/' "$PCV/docs/aidev/sh-side.md")
   CP_PS=$(tr -d '\r' < "$PCV/docs/aidev/ps-side.md" | sed 's/^introduced: .*/introduced: X/; s/^convention: ps-side/convention: sh-side/; s/^# ps-side/# sh-side/')
   assert_eq "$CP_SH" "$CP_PS" "パリティ: convention new の生成ファイルが一致"
@@ -1085,8 +1092,11 @@ if [ -n "$PS_HOST" ]; then
   ( cd "$PCV" && "$AIDEV_SH" convention new nohyp >/dev/null 2>&1 ); CG_SH=$?
   ( cd "$PCV" && run_ps1 "$AIDEV_PS1" convention new nohyp >/dev/null 2>&1 ); CG_PS=$?
   assert_eq "$CG_SH" "$CG_PS" "パリティ: --hypothesis 必須の exit code"
-  ( cd "$PCV" && "$AIDEV_SH" convention new sh-side --hypothesis h >/dev/null 2>&1 ); CX_SH=$?
-  ( cd "$PCV" && run_ps1 "$AIDEV_PS1" convention new sh-side --hypothesis h >/dev/null 2>&1 ); CX_PS=$?
+  ( cd "$PCV" && "$AIDEV_SH" convention new nobase --hypothesis h >/dev/null 2>&1 ); CB_SH=$?
+  ( cd "$PCV" && run_ps1 "$AIDEV_PS1" convention new nobase --hypothesis h >/dev/null 2>&1 ); CB_PS=$?
+  assert_eq "$CB_SH" "$CB_PS" "パリティ: --baseline 必須の exit code"
+  ( cd "$PCV" && "$AIDEV_SH" convention new sh-side --hypothesis h --baseline "b" >/dev/null 2>&1 ); CX_SH=$?
+  ( cd "$PCV" && run_ps1 "$AIDEV_PS1" convention new sh-side --hypothesis h --baseline "b" >/dev/null 2>&1 ); CX_PS=$?
   assert_eq "$CX_SH" "$CX_PS" "パリティ: tombstone との重複拒否の exit code"
   rm -rf "$PCV"
 
@@ -1107,7 +1117,7 @@ if [ -n "$PS_HOST" ]; then
 
   # 着手日の抽出パリティ（sh は sed・ps1 は -match。母集団の数え方が食い違うと判定時期がずれる）
   PTS=$(mktemp -d); mkdir -p "$PTS/.aidev/works"
-  ( cd "$PTS" && "$AIDEV_SH" convention new tsp --hypothesis h --verify-after 1 >/dev/null )
+  ( cd "$PTS" && "$AIDEV_SH" convention new tsp --hypothesis h --baseline "b" --verify-after 1 >/dev/null )
   TD=$(date -u +%Y%m%d); TT=$(date -u +%Y-%m-%d)
   mkdir -p "$PTS/.aidev/works/$TD-w"
   printf 'schema: 4\nslug: w\ncurrent: deliver\napproved: [deliver]\n' > "$PTS/.aidev/works/$TD-w/state.yml"
@@ -1120,7 +1130,7 @@ if [ -n "$PS_HOST" ]; then
   # 索引検査のパリティ（片方だけ検査が緩いと、その OS では読まれない条項が野放しになる）
   PIX=$(mktemp -d); mkdir -p "$PIX/.aidev/works" "$PIX/docs"
   printf '# AGENTS\n\n<!-- aidev:conventions -->\n<!-- /aidev:conventions -->\n' > "$PIX/AGENTS.md"
-  ( cd "$PIX" && "$AIDEV_SH" convention new ix --hypothesis h --verify-after 1 >/dev/null )
+  ( cd "$PIX" && "$AIDEV_SH" convention new ix --hypothesis h --baseline "b" --verify-after 1 >/dev/null )
   IX_SH=$( ( cd "$PIX" && "$AIDEV_SH" doctor ) 2>&1 | sed -n '/^convention:/,$p' )
   IX_PS=$( ( cd "$PIX" && run_ps1 "$AIDEV_PS1" doctor ) 2>&1 | tr -d '\r' | sed -n '/^convention:/,$p' )
   assert_eq "$IX_SH" "$IX_PS" "パリティ: doctor の索引検査"
@@ -1131,7 +1141,7 @@ if [ -n "$PS_HOST" ]; then
 
   # deliver 到達通知のパリティ（母集団の数え方が食い違うと判定タイミングがずれる）
   PRD=$(mktemp -d); mkdir -p "$PRD/.aidev/works"
-  ( cd "$PRD" && "$AIDEV_SH" convention new rc --hypothesis h --verify-after 1 >/dev/null )
+  ( cd "$PRD" && "$AIDEV_SH" convention new rc --hypothesis h --baseline "b" --verify-after 1 >/dev/null )
   ( cd "$PRD" && "$AIDEV_SH" new pa >/dev/null )
   PAW=$(ls "$PRD/.aidev/works")
   for p in requirement spec plan coding test review; do
