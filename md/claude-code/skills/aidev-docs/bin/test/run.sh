@@ -1395,6 +1395,37 @@ if [ -n "$PS_HOST" ]; then
   done
   rm -rf "$PAR"
 
+  # --- 条項の一生の後始末のパリティ（改善ループ監査より） ---
+  # 背景: (1) --verify-after 0 は受理されるが判定側が va>0 を要求するので永久に ready=no、
+  # (2) retire は archive へ移すのに索引に触れず、doctor も見ないので dangling が残る、
+  # (3) 起票テンプレのまま本文を書かなくても誰も検知せず、「タグは付くが規約は無い」母集団ができる。
+  for impl in sh ps1; do
+    PCL=$(mktemp -d); mkdir -p "$PCL/.aidev/works" "$PCL/docs"
+    if [ "$impl" = sh ]; then rc_() { ( cd "$PCL" && "$AIDEV_SH" "$@" ); }
+    else rc_() { ( cd "$PCL" && run_ps1 "$AIDEV_PS1" "$@" ); }; fi
+    rc_ convention new z --hypothesis h --baseline b --verify-after 0 >/dev/null 2>&1
+    assert_eq "$?" "1" "[$impl] convention new: --verify-after 0 は弾く（永久に判定できない）"
+    rc_ convention new k --hypothesis h --baseline b --verify-after 1 >/dev/null
+    printf '# A\n\n<!-- aidev:conventions -->\n- x → docs/aidev/k.md\n<!-- /aidev:conventions -->\n' > "$PCL/AGENTS.md"
+    DK=$(rc_ doctor 2>&1 | tr -d '\r')
+    assert_contains "$DK" "本文が未記入" "[$impl] doctor: 起票テンプレのまま本文が無い条項を WARN"
+    # 本文を書けば消える
+    python3 - "$PCL/docs/aidev/k.md" <<'PYEOF'
+import io,sys
+p=sys.argv[1]; t=io.open(p,encoding='utf-8').read().replace('<!-- 何を守るか。レビューで指摘するときの根拠になる粒度で書く。 -->','boolean は is/has で始める')
+io.open(p,'w',encoding='utf-8').write(t)
+PYEOF
+    assert_absent "$(rc_ doctor 2>&1 | tr -d '\r')" "本文が未記入" "[$impl] doctor: 本文を書けば WARN は消える"
+    RT=$(rc_ convention retire k --status ineffective 2>&1 | tr -d '\r')
+    assert_contains "$RT" "索引ブロックから docs/aidev/k.md の行を消すこと" "[$impl] retire: 索引の行を消すよう促す"
+    DR=$(rc_ doctor 2>&1 | tr -d '\r')
+    assert_contains "$DR" "索引が退役済み条項を指したまま" "[$impl] doctor: 退役後に索引が dangling なら WARN"
+    printf '# A\n\n<!-- aidev:conventions -->\n<!-- /aidev:conventions -->\n' > "$PCL/AGENTS.md"
+    assert_absent "$(rc_ doctor 2>&1 | tr -d '\r')" "索引が退役済み" "[$impl] doctor: 行を消せば WARN は消える"
+    rm -rf "$PCL"
+  done
+  unset -f rc_ 2>/dev/null || true
+
   # --- unapprove / event の入口 / worktree のロールバックのパリティ ---
   # 背景: 差し戻しで `approved` から工程を外す手段が CLI に無く、protocol.md が「手で除く」と
   # 指示していた。これは escalate を作った理由（state.yml の更新を CLI に集約する）と矛盾し、
@@ -1793,9 +1824,9 @@ YML
   else
     skip 10 "git 不在のため worktree パリティを省略"
   fi
-  block_end parity "126" "parity"
+  block_end parity "138" "parity"
 else
-  skip 126 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
+  skip 138 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
 fi
 
 echo

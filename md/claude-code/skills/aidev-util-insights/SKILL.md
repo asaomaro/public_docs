@@ -127,7 +127,7 @@ per-work の `retro` が「その作業1件」を振り返るのに対し、こ�
 5. 観察を **systemic な改善提案**に変換し、3カテゴリに仕分ける。
    - **製品 / コード**：横断する技術的負債 → 新 issue 候補。
    - **PJ プロセス / 規約**：反復するレビュー指摘・観点抜け → **`docs/aidev/` の条項**として起こす
-     （`aidev convention new`。**AGENTS.md 本体には書かない**。protocol.md「12.」）。
+     （`aidev convention new` → **`## 規約` の本文を書く**。**AGENTS.md 本体には書かない**。protocol.md「12.」）。
      `confirmed` 済み条項の**移送タスク**もここに入れる（未移送は二重管理予備軍）。
    - **ハーネス自体**：工程・ゲート・protocol の構造的不備 → `aidev-*` への変更提案（提案のみ）。
 6. 下記テンプレートで `.aidev/insights/<日付>-insights.md` を生成し、サマリを提示する。

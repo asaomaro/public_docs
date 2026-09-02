@@ -1714,6 +1714,8 @@ function Cv-New($rest) {
   if (-not $base) { Die "--baseline は必須です（導入前にこの観点の指摘が何件あったか。数えられないならその事実を書く。例: '直近10 works で must 2 / should 5' / '0件（review.md が無く前を作れない）'）" }
   if (-not $va) { $va = '5' }
   if ($va -notmatch '^\d+$') { Die "--verify-after は整数（母集団の最低件数）" }
+  # 0 は受理すると永久に ready=no（判定側が va>0 を要求する）。入口で弾く
+  if ([int]$va -le 0) { Die "--verify-after は 1 以上（0 だと母集団が揃わず永久に判定できない）" }
   $d = CvDir
   if (-not (IsDir $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
   $f = Join-Path $d "$id.md"
@@ -1792,6 +1794,8 @@ function Cv-Retire($rest) {
   if ($note) { CvSet $f 'note' $note }
   Cv-ArchiveFile $f
   Write-Output "retired: $id ($st)"
+  # 退役しても索引ブロックの行は残る（promote の張り替えと同じ後始末）。doctor も検査するが、まずここで促す
+  Write-Output "next: $(CvIndexLabel) の索引ブロックから $(CvDirRel)/$id.md の行を消すこと"
   if ($st -ceq 'ineffective') {
     Write-Output "note: 「効かなかった」は「条項が誤り」とは限らない。散文層の限界なら CLI/フック層へ寄せることを検討（DESIGN「2.6」）"
   }
@@ -1939,6 +1943,12 @@ function Doctor-Conventions() {
     } else {
       $w += "    WARN 未知の status: $st（pending/confirmed/promoted/ineffective/superseded）"
     }
+    # 本文が未記入（起票テンプレのコメントが残ったまま）の active な条項。索引に載っても中身が無ければ効かない
+    if ((-not $isArc) -and ($st -ceq 'pending' -or $st -ceq 'confirmed')) {
+      if (([System.IO.File]::ReadAllText($path)).Contains('<!-- 何を守るか。')) {
+        $w += "    WARN 本文が未記入（起票テンプレのまま）: ## 規約 を書くこと。索引に載っても中身が無ければ効かない"
+      }
+    }
     # 索引の突き合わせ（active な条項＝読まれる必要があるもの、と移送済みの張り替え漏れ）
     $link = "$rel/$(Split-Path -Leaf $path)"
     if ((-not $isArc) -and ($st -ceq 'pending' -or $st -ceq 'confirmed')) {
@@ -1952,6 +1962,11 @@ function Doctor-Conventions() {
       $pt = CvGet $path 'promoted_to'
       if ($idxf -and $pt -and $idxb.Contains($link)) {
         $w += "    WARN 索引が移送前を指したまま（$idxl）: $link → $pt に張り替えること"
+      }
+    } elseif ($st -ceq 'ineffective' -or $st -ceq 'superseded') {
+      # 退役した条項の行が索引に残ると、存在しないファイルを指し続ける（promote の張り替え漏れと同型）
+      if ($isArc -and $idxf -and $idxb.Contains($link)) {
+        $w += "    WARN 索引が退役済み条項を指したまま（$idxl）: $link の行を消すこと"
       }
     }
     if ($w.Count -gt 0) {

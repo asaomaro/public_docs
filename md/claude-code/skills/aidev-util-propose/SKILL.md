@@ -58,6 +58,7 @@ AI 開発ワークフローの **planner（課題提案 / L_planner・A 層）**
 7. 採用分を起票: `create-issue` で issue 化（ブランチ運用は委譲）かつ/または バックログへ `[ ]` 追記。
    - **PJ規約の追補は issue/backlog ではなく条項として起こす**:
      `aidev convention new <id> --hypothesis "<…>" --baseline "<…>" --source <信号のパス>`。
+     **起票後に `## 規約` の本文を書く**（CLI は枠しか作らない）。
      仮説と baseline を書けない提案は CLI が拒否する（＝検証できない改善を積まない）。
      `baseline` は導入前のその観点の指摘件数で、**起票時にしか作れない**。`protocol-conventions.md` 参照。
    - **移送タスクは backlog へ**（通常のリポジトリ変更なので batch が消化できる）。

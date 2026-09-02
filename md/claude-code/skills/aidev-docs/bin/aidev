@@ -1731,6 +1731,8 @@ cv_new() {
   [ -n "$base" ] || die "--baseline は必須です（導入前にこの観点の指摘が何件あったか。数えられないならその事実を書く。例: '直近10 works で must 2 / should 5' / '0件（review.md が無く前を作れない）'）"
   [ -n "$va" ] || va=5
   case "$va" in ''|*[!0-9]*) die "--verify-after は整数（母集団の最低件数）" ;; esac
+  # 0 は受理すると永久に ready=no（判定側が va>0 を要求する）。入口で弾く
+  [ "$va" -gt 0 ] || die "--verify-after は 1 以上（0 だと母集団が揃わず永久に判定できない）"
   d=$(cv_dir)
   mkdir -p "$d"
   f="$d/$id.md"
@@ -1813,6 +1815,9 @@ cv_retire() {
   if [ -n "$note" ]; then cv_set "$f" note "$note"; fi
   cv_archive_file "$f"
   printf 'retired: %s (%s)\n' "$id" "$st"
+  # 退役しても索引ブロックの行は残る（promote の張り替えと同じ「後始末」）。
+  # 残ると索引が存在しないファイルを指し続ける。doctor も検査するが、まずここで促す
+  printf 'next: %s の索引ブロックから %s の行を消すこと\n' "$(cv_index_label)" "$(cv_dir_rel)/$id.md"
   if [ "$st" = ineffective ]; then
     printf 'note: 「効かなかった」は「条項が誤り」とは限らない。散文層の限界なら CLI/フック層へ寄せることを検討（DESIGN「2.6」）\n'
   fi
@@ -1994,6 +1999,17 @@ doctor_conventions() {
         w="$w    WARN 未知の status: $st（pending/confirmed/promoted/ineffective/superseded）
 " ;;
     esac
+    # 本文が未記入（起票テンプレのコメントが残ったまま）の active な条項。索引に載れば「読まれる」が
+    # 中身が無い＝タグは付くのに規約は無い、という空回りの母集団ができる。誰の手順にも「本文を書く」段が
+    # 無かったので、ここで拾う
+    if [ "$arch" = no ]; then
+      case "$st" in pending|confirmed)
+        if grep -qF '<!-- 何を守るか。' "$f" 2>/dev/null; then
+          w="$w    WARN 本文が未記入（起票テンプレのまま）: ## 規約 を書くこと。索引に載っても中身が無ければ効かない
+"
+        fi ;;
+      esac
+    fi
     # 索引の突き合わせ（active な条項＝読まれる必要があるもの、と移送済みの張り替え漏れ）
     _rel="$(cv_dir_rel)/$(basename "$f")"
     case "$st" in
@@ -2016,6 +2032,13 @@ doctor_conventions() {
             w="$w    WARN 索引が移送前を指したまま（$CV_IDXL）: $_rel → $pt に張り替えること
 "
           fi
+        fi ;;
+      ineffective|superseded)
+        # 退役した条項の行が索引に残ると、存在しないファイルを指し続ける（dangling）。
+        # promote の張り替え漏れと同じ型の後始末漏れ
+        if [ "$arch" = yes ] && [ -n "$CV_IDXF" ] && printf '%s' "$CV_IDXB" | grep -qF "$_rel"; then
+          w="$w    WARN 索引が退役済み条項を指したまま（$CV_IDXL）: $_rel の行を消すこと
+"
         fi ;;
     esac
     if [ -n "$w" ]; then
