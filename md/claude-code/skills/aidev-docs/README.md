@@ -71,7 +71,7 @@ description には書かない（15 本で同じ 50 字を繰り返しても弁�
 
 | skill | 役割 |
 |---|---|
-| `aidev-util-insights` | 複数作業を横断して傾向・再発パターンを分析し、改善提案を出す（`/aidev-util-insights`） |
+| `aidev-util-insights` | 複数作業を横断して傾向・再発パターンを分析し、改善提案と**条項・ハーネス改修の効果判定案**（CLI 行）を出す（`/aidev-util-insights`） |
 | `aidev-util-batch` | バックログの未処理項目を autonomous モードで順次処理（L1 バッチ駆動）。`/loop`・`/schedule` から起動可 |
 | `aidev-util-propose` | charter と信号(insights/retro/負債)から次の課題を提案・分割し、承認のうえ issue/バックログ化（L_planner / 最上流） |
 
@@ -82,6 +82,26 @@ insights/retro（信号） → aidev-util-propose（課題化・人間承認） 
 ```
 両端（どの課題・どの PR）に人間ゲートを残し、間を自律化する。完全自動（発案→マージ）は高リスクのため採らない。
 planner の方針は `.aidev/charter.md` で縛る。
+
+- **条項・ハーネス改修の効果判定も同じ経路に乗る**: insights は CLI 行の「判定案」を出すだけで打たず、
+  propose が backlog の判定タスクにし、batch が実行して PR に載せ、人間が見てから着地する。
+- **人間の却下は `.aidev/insights/rejected.md` に残す**（propose が書く。AI は書かない）。
+  insights / propose はこれを重複排除の入力にし、却下済みの提案を周回ごとに再浮上させない。
+- 人間由来の判定材料は deliver 後の **PR レビュー指摘**（`review.md` の「PR レビュー（人間）」節）。
+
+## PJ 規約とハーネスの効果検証（改善ループ）
+
+ループが「回っている」だけでなく「効いている」ことを機械で確かめるための仕組み（`protocol.md`「12.」）。
+
+- **PJ 規約の条項**は `docs/aidev/<id>.md` に置き、AGENTS.md には索引ブロック（`<!-- aidev:conventions -->`）
+  だけを置く。起票は仮説と baseline が必須（`aidev convention new`）。review は指摘に `[conv:<id>]` を付ける。
+- **母集団**は導入時刻以降に着手し deliver 済みの work（`aidev convention status`。`--members` で一覧）。
+  揃う前の `confirm` / `retire --status ineffective` は CLI が拒否する（`--force` は `forced: true` が残る）。
+  先送りは `aidev convention defer`。索引に無い条項は判定させない。
+- **ハーネス改修**は `aidev harness new` で `.aidev/harness/` に仮説を登録する。母集団は導入後に着手し、
+  またがらずに deliver した work。`aidev metrics --all` の `harnessRev` / `straddle` 列で版ごとに層別する。
+- `aidev approve deliver` が母集団の到達を知らせ、`aidev doctor` が未判定・索引漏れ・退避漏れを WARN する。
+  詳細は `protocol-conventions.md` と `aidev-docs/bin/README.md`。
 
 ## 承認ゲート（各工程の終わり）
 
@@ -113,7 +133,7 @@ planner の方針は `.aidev/charter.md` で縛る。
 | 層 | 対象 | 使い方 |
 |---|---|---|
 | **対象外** | typo・コメント・整形など判断を伴わない変更 | **aidev を通さない**（直接コミット） |
-| **light** | 振る舞い不変・小規模（3 ファイル以下・共有モジュールや公開 API に触らない） | `aidev new <slug> --light` |
+| **light** | 振る舞い不変・小規模（`lightMaxFiles`（既定 3）ファイル以下・共有モジュールや公開 API に触らない） | `aidev new <slug> --light` |
 | **full** | それ以外 | `aidev new <slug>`（既定） |
 
 light は**上流3工程（requirement / spec / plan）を1ゲートに畳む**。成果物は4つとも作るが、
@@ -134,8 +154,10 @@ light は**上流3工程（requirement / spec / plan）を1ゲートに畳む**�
 ## 中断と再開
 
 - 状態は `.aidev/works/<YYYYMMDD-slug>/state.yml`（`current` / `approved` / `dependsOn`）＋成果物ファイルで管理。
-- どこで止めても、`/aidev-00-start` で現在地が復元され、続きから再開できる。
-- 複数作業を並行可能。`.aidev/current` が「今どれを触っているか」を指す。
+- どこで止めても、`/aidev-00-start` で現在地が復元され、続きから再開できる（`aidev status`。works が
+  多ければ `--active` で deliver 済みを隠す）。
+- 複数作業を並行可能。`.aidev/current` が「今どれを触っているか」を指す（`aidev use <slug>` で切替）。
+- 差し戻しで後工程の承認を取り消すときは `aidev unapprove <工程>`（記録は消さず `sent_back` を刻む）。
 
 ## ファイル構成
 
@@ -147,14 +169,19 @@ light は**上流3工程（requirement / spec / plan）を1ゲートに畳む**�
   aidev-docs/          このREADMEとDESIGN（参照専用・skillではない）＋ bin/
     bin/               ランタイムガード CLI（aidev=POSIX sh / aidev.ps1=PowerShell・README.md / test/ 同梱）
 .aidev/                PJ固有の実行時状態（skill ではない）
-  config.yml           PJ単位の設定（tracker 種類など。コミット対象）
+  config.yml           PJ単位の設定（tracker / lightMaxFiles / conventionsDir / conventionsIndex / docsRoots。コミット対象）
+  charter.md           propose（planner）の方針（任意）
   current              現在の作業フォルダ名（.gitignore 対象）
   works/<YYYYMMDD-slug>/  作業単位ごとの成果物（命名: 日付(UTC)-slug）
-    state.yml          進捗（schema / current / approved / dependsOn / ticket / mode / profile）
+    state.yml          進捗（schema / current / approved / dependsOn / ticket / mode / profile / backlog / harnessRev）
     metrics.yml        工程の実施日時・時間・件数などのイベントログ
     requirement.md / spec.md / plan.md / tasks.md / decisions.md / review.md など
-  backlog/             遅延キュー（任意）。<domain>.md（standing）/ split-<親>.md（split）/ archive/
-  insights/            横断分析レポート（<日付>-insights.md）
+    <NN>-<subslug>/    分割 work（subtask。plan/coding/test/review のみ）
+  backlog/             遅延キュー（任意）。<domain>.md（standing）/ split-<親>.md（split）/ archive/（退避と <name>-done.md）
+  insights/            横断分析レポート（<日付>-insights.md）と却下記録（rejected.md）
+  harness/             ハーネス改修の仮説登録（<id>.md / archive/）
+docs/aidev/            PJ 規約の条項（検証中の待避所。場所は conventionsDir で変更可）/ archive/
+AGENTS.md              PJ 所有。<!-- aidev:conventions --> ブロックに条項の索引だけを置く
 ```
 
 ## 別PJへの導入
@@ -165,6 +192,11 @@ light は**上流3工程（requirement / spec / plan）を1ゲートに畳む**�
    存在させる。`config.yml` を置くか空ディレクトリでよい）。
 3. `.gitignore` に `.aidev/current` を追加（`.aidev/works/` 配下の成果物はコミット推奨）。
 4. PJ の AGENTS.md に規約・レビュー観点を書く。PJ固有 skill があればそのまま活かされる。
+5. 条項（PJ 規約の効果検証）を使うなら、AGENTS.md に索引ブロック（`<!-- aidev:conventions -->` … `<!-- /aidev:conventions -->`）
+   を 1 回置く。`docs/aidev/` は `aidev convention new` が作る。置き場を変えるなら `config.yml` の `conventionsDir` /
+   `conventionsIndex`、既存 docs との重複確認先は `docsRoots`。
+6. git が無い環境では `harnessRev` が `unknown` になり、ハーネス改修の効果検証から外れる（他は動く）。
+   Windows は `pwsh`（または Windows PowerShell 5.1）か Git Bash（`aidev-docs/bin/README.md`）。
 
 基盤はドメイン非依存。PJ固有の知識・実作業は AGENTS.md と PJ skill 側が担う。
 

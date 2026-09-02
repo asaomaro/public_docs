@@ -142,6 +142,19 @@ CI ではこれを失敗として扱う（`.github/workflows/aidev-cli.yml`）�
 `backlog:` 刻印を持つ work が deliver 承認済みのとき、その backlog ファイル（`active` → `archive/<file>` → `archive/<name>-done.md` の順）の **`- [x]` 行とその継続行**（次の項目・見出し・空行まで）に work の slug が現れなければ FAIL。ファイルのどこかに slug があるだけでは通さない（`- [ ] 次の課題 (needs: <slug>)` の未着手行で着地できていた）。`new --backlog` は未着手 0 件（todo=0）のファイルを拒否する。
 - 外部チケット（`#N`、または `PROJ-123` のような英字始まり・数字終わりの ID）→ 自動判定はせず **advisory**（警告のみ。CLI/API 連携は PJ 側 tracker に委ねる）。
 
+## 設定（`.aidev/config.yml`）
+
+CLI が読むキー。どれも任意で、無ければ既定で動く（PJ 固有のファイル名を CLI に埋めないための口）。
+
+| キー | 読む場所 | 意味 |
+|---|---|---|
+| `lightMaxFiles` | `verify`（light の逸脱 WARN） | light で触ってよいファイル数の上限（既定 3） |
+| `conventionsDir` | `convention *` / `doctor` | 条項の置き場（既定 `docs/aidev`） |
+| `conventionsIndex` | `convention *` / `doctor` | 索引ブロックを置くファイル（未設定なら AGENTS.md → CLAUDE.md の順で探す） |
+| `docsRoots` | `convention new` | 既存 docs との重複確認先（未設定なら「確認していない」と案内する） |
+| `sharedFiles` | `worktree add` | 並行作業で衝突しやすい共有ファイル名（完了時に名前を挙げて警告） |
+| `tracker` | （CLI は読まない） | 外部チケットの種類。判定は工程 skill が行う（`protocol.md`「2.7」） |
+
 ## 設計メモ
 
 - YAML は**フロー形式前提**の最小読み取り（`key: value` / `key: [a, b]`）。複雑な YAML は扱わない。
