@@ -474,9 +474,13 @@ function Cmd-New($rest) {
     if ($cur -cnotcontains $slug) { $cur = @($cur + $slug) }
     SetOrAppend $pst 'subtasks' ("subtasks: [" + ([string]::Join(', ', $cur)) + "]")
     $act = YGet $pst 'activeSubtask'
-    if (-not $act -or $act -ceq 'done') { SetOrAppend $pst 'activeSubtask' "activeSubtask: $slug" }
+    if (-not $act -or $act -ceq 'done') {
+      SetOrAppend $pst 'activeSubtask' "activeSubtask: $slug"
+      $act = $slug
+    }
 
-    WriteText (Join-Path $script:AIDEV 'current') "$name`n"
+    # カーソルは活性の子に合わせる（無条件に「今作った子」へ動かすと冗長コピーの定義が破れる）
+    WriteText (Join-Path $script:AIDEV 'current') "$parent/$act`n"
     Write-Output "created subtask: $work (parent $parent, schema $($script:CURRENT_SCHEMA), mode $mode, profile $profile)"
     return
   }
@@ -527,7 +531,9 @@ function Cmd-Approve($rest) {
   if (-not (IsFile $st)) { Die "state.yml がありません: $($script:SLUG)" }
 
   if (-not (ApprovedHas $script:WORK $ph)) {
-    $cur = YList $st 'approved'
+    # @() は必須。PowerShell は単一要素配列をスカラーに巻き戻すので、これが無いと
+    # 2回目の approve で `$cur + $ph` が**文字列連結**になり approved が壊れる
+    $cur = @(YList $st 'approved')
     if ($cur.Count -eq 0) { $newl = "[$ph]" }
     else { $newl = '[' + ([string]::Join(', ', ($cur + $ph))) + ']' }
     ReplaceLine $st 'approved' "approved: $newl"
@@ -558,7 +564,7 @@ function Cmd-Approve($rest) {
     if ($par -and (IsDir (Join-Path $worksRoot $par))) {
       $pst2 = Join-Path (Join-Path $worksRoot $par) 'state.yml'
       $nextsub = ''
-      foreach ($s in (YList $pst2 'subtasks')) {
+      foreach ($s in @(YList $pst2 'subtasks')) {
         $subSt = Join-Path (Join-Path (Join-Path $worksRoot $par) $s) 'state.yml'
         if ((YList $subSt 'approved') -cnotcontains 'review') { $nextsub = $s; break }
       }
@@ -582,7 +588,7 @@ function Eval-Depends($workDir) {
   $worksRoot = Join-Path $script:AIDEV 'works'
   # subtask は同一親配下の兄弟 subtask を bare 名（NN-subslug）で依存指定できる。
   $par = YGet (Join-Path $workDir 'state.yml') 'parent'
-  foreach ($d in (YList (Join-Path $workDir 'state.yml') 'dependsOn')) {
+  foreach ($d in @(YList (Join-Path $workDir 'state.yml') 'dependsOn')) {
     if (-not $d) { continue }
     if ($d.StartsWith('#')) { $script:EvalAdvisory += $d; continue }
     $depWork = Join-Path $worksRoot $d
@@ -590,7 +596,7 @@ function Eval-Depends($workDir) {
       $depWork = Join-Path (Join-Path $worksRoot $par) $d
     }
     if (IsDir $depWork) {
-      $da = YList (Join-Path $depWork 'state.yml') 'approved'
+      $da = @(YList (Join-Path $depWork 'state.yml') 'approved')
       # 完了判定: subtask(=parent あり)は review 承認、top-level work は deliver 承認
       if (YGet (Join-Path $depWork 'state.yml') 'parent') {
         if ($da -cnotcontains 'review') { $script:EvalUnmet += "$d(未review)" }
@@ -632,7 +638,20 @@ function Cmd-Guard($rest) {
     'design'      { needFile 'spec.md' }
     'plan'        { needFile 'spec.md' }
     'coding'      { needFile 'plan.md'; needFile 'tasks.md' }
-    'test'        { needFile 'tasks.md' }
+    'test'        {
+      # 分割 work の親は tasks.md を持たない（各 subtask の plan が作る）。一律に要求すると
+      # 書いてあるとおりに plan を書いた親の統合 test が必ず塞がる
+      $subs = @(YList (Join-Path $script:WORK 'state.yml') 'subtasks')
+      if ($subs.Count -gt 0) {
+        needFile 'plan.md'
+        foreach ($sub in $subs) {
+          $subAp = @(YList (Join-Path (Join-Path $script:WORK $sub) 'state.yml') 'approved')
+          if ($subAp -cnotcontains 'review') { $script:miss += "$sub(未review)" }
+        }
+      } else {
+        needFile 'tasks.md'
+      }
+    }
     'review'      { needFile 'spec.md' }
     'walkthrough' { needApproved 'review' }
     'deliver'     { needApproved 'review' }
@@ -1029,7 +1048,7 @@ function Cmd-Status($rest) {
       $ticket = YGet $st 'ticket';  if (-not $ticket)  { $ticket='-' }
       $mode = YGet $st 'mode';      if (-not $mode)    { $mode='-' }
       $current = YGet $st 'current';if (-not $current) { $current='-' }
-      $appr = YList $st 'approved'
+      $appr = @(YList $st 'approved')
       $wdone = if ($appr -ccontains 'deliver') { 'yes' } else { 'no' }
       $next='-'
       if ($wdone -ceq 'no') { foreach ($p in $script:STD_PIPELINE) { if ($appr -cnotcontains $p) { $next=$p; break } } }

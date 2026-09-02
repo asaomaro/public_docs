@@ -1364,6 +1364,62 @@ if [ -n "$PS_HOST" ]; then
   done
   rm -rf "$PAR"
 
+  # --- 分割 work の親のカーソルと統合 test のパリティ ---
+  # 背景: (1) 子を作るたび `.aidev/current` を無条件に上書きしていたため、親 plan で子を
+  # まとめて起こすと activeSubtask=先頭 / current=最後 になり、「冗長コピー」の定義
+  # （protocol.md「6.」）が生成直後から破れていた。(2) 親は tasks.md を作らない
+  # （aidev-30-plan「4.」）のに guard test が need_file tasks.md を課しており、
+  # **書いてあるとおりに plan を書くと親の統合 test が必ず塞がる**状態だった。
+  for impl in sh ps1; do
+    PSB=$(mktemp -d); mkdir -p "$PSB/.aidev/works"
+    if [ "$impl" = sh ]; then rb() { ( cd "$PSB" && "$AIDEV_SH" "$@" ); }
+    else rb() { ( cd "$PSB" && run_ps1 "$AIDEV_PS1" "$@" ); }; fi
+    rb new pb >/dev/null; PBW=$(ls "$PSB/.aidev/works")
+    for f in requirement spec plan; do : > "$PSB/.aidev/works/$PBW/$f.md"; done
+    for ph in requirement spec plan; do rb approve "$ph" >/dev/null; done
+    rb new 01-a --parent "$PBW" >/dev/null
+    rb new 02-b --parent "$PBW" >/dev/null
+    PB_CUR=$(tr -d '\r' < "$PSB/.aidev/current")
+    PB_ACT=$(tr -d '\r' < "$PSB/.aidev/works/$PBW/state.yml" | sed -n 's/^activeSubtask: //p')
+    assert_eq "$PB_CUR" "$PBW/$PB_ACT" "[$impl] 子を重ねて作ってもカーソルが activeSubtask と一致する"
+    rb use "$PBW" >/dev/null
+    rb guard test >/dev/null 2>&1
+    assert_eq "$?" "2" "[$impl] 子が未 review なら親の統合 test は塞がる"
+    for c in 01-a 02-b; do
+      rb use "$PBW/$c" >/dev/null
+      for f in plan tasks review; do : > "$PSB/.aidev/works/$PBW/$c/$f.md"; done
+      for ph in plan coding test review; do rb approve "$ph" >/dev/null; done
+    done
+    rb use "$PBW" >/dev/null
+    rb guard test >/dev/null 2>&1
+    assert_eq "$?" "0" "[$impl] 親は tasks.md 無しでも全子 review 済みなら統合 test に入れる"
+    rm -rf "$PSB"
+  done
+  unset -f rb 2>/dev/null || true
+
+  # --- 承認の積み上げのパリティ（**2回以上**打つこと自体が検査対象） ---
+  # 背景: ここまでのパリティは ps1 の approve を**1回しか打っていなかった**。そのため
+  # 「2回目から approved が壊れる」欠陥が 357 件のテストをすり抜けていた。
+  # PowerShell は単一要素配列をスカラーに巻き戻すので、`$cur + $ph` が配列追加ではなく
+  # **文字列連結**になり `approved: [requirementspec]` になる。以後 ApprovedHas が
+  # 永久に false になり、**Windows で作った work は二度と deliver できない**（sh で読んでも壊れている）。
+  PAP=$(mktemp -d); mkdir -p "$PAP/.aidev/works"
+  ( cd "$PAP" && run_ps1 "$AIDEV_PS1" new pa >/dev/null )
+  PAW=$(ls "$PAP/.aidev/works")
+  for f in requirement spec plan tasks review; do : > "$PAP/.aidev/works/$PAW/$f.md"; done
+  for ph in requirement spec plan coding test review; do
+    ( cd "$PAP" && run_ps1 "$AIDEV_PS1" approve "$ph" >/dev/null )
+  done
+  PAP_ST=$(tr -d '\r' < "$PAP/.aidev/works/$PAW/state.yml" | sed -n 's/^approved: //p')
+  assert_eq "$PAP_ST" "[requirement, spec, plan, coding, test, review]" \
+    "ps1: approve を重ねても approved が配列として積まれる（文字列連結にならない）"
+  # 壊れた state は sh からも読めない。両実装が同じ判断をすることまで見る
+  ( cd "$PAP" && run_ps1 "$AIDEV_PS1" guard deliver >/dev/null 2>&1 ); PA_P=$?
+  ( cd "$PAP" && "$AIDEV_SH" guard deliver >/dev/null 2>&1 ); PA_S=$?
+  assert_eq "$PA_P" "0" "ps1: 積み上げた approved で guard deliver が通る"
+  assert_eq "$PA_S" "$PA_P" "パリティ: ps1 が書いた state を sh が同じに読む"
+  rm -rf "$PAP"
+
   # --- verify の出力と exit code のパリティ ---
   # 背景: ps1 の VerifyWork は「状態行は [Console]::Out へ直接出す」約束で書かれている。
   # 1行でも Write-Output を混ぜると**関数の戻り値が Object[] になり `$rc = VerifyWork` が壊れる**——
@@ -1570,9 +1626,9 @@ YML
   else
     skip 10 "git 不在のため worktree パリティを省略"
   fi
-  block_end parity "79" "parity"
+  block_end parity "88" "parity"
 else
-  skip 79 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
+  skip 88 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
 fi
 
 echo
