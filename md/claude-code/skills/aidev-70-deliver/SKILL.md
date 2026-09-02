@@ -69,7 +69,7 @@ review を通過した変更を、コミット・PR 作成によって実際に�
      （`split`/`topic` のみ退避される。`standing` は対象外なので、そのまま実行して構わない）。
      移動は `mv` だけなので、**同じコミットに含める**こと（`git add -A .aidev/backlog`）。
 4. チケット連携があれば PR に紐付ける（`state.yml` の `ticket`（旧 `issue`）を参照）。
-   `.aidev/config.yml` の `tracker.type` に応じる（github: `Closes #<番号>` ／ jira・redmine: チケットURL/IDを本文に記載）。
+   `.aidev/config.yml` の `tracker` に応じる（github: `Closes #<番号>` ／ jira・redmine: チケットURL/IDを本文に記載）。
    - PR 本文は PJ の PR 作成 skill があればその体裁に従う。無ければ下記「PR 本文テンプレート」を既定とする。
    - 対象フォルダに `walkthrough.md`（レビューガイド）があれば、その**重要ポイントとリスクを3〜5行に要約**して
      PR 本文の `## レビューガイド` 節に載せ、`walkthrough.md` 自体へのリンクを添える（全文転記はしない）。

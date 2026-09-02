@@ -1,6 +1,6 @@
 ---
 name: aidev-20-spec
-description: ［aidev 標準工程］aidev の spec（仕様策定）工程。進行中の aidev 作業の requirement.md を実装仕様 spec.md に落とす。「aidev spec」「spec 工程」と言われたとき、または前工程から案内されたときに使用する。
+description: ［aidev 標準工程］aidev の spec（仕様策定）工程。進行中の aidev 作業の requirement.md を実装仕様 spec.md に落とす。「aidev spec」「spec 工程」と言われたとき、または前工程から案内されたときに使用する。aidev 作業の無い単発の仕様書作成では使わない。
 allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion, Agent]
 ---
 

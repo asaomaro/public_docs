@@ -48,8 +48,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # harnessRev は「aidev-* を最後に触ったコミット」なので、履歴が1コミットしか
-          # 無いと版が取れず 'unknown' になる。刻印まわりの検証が空振りしないよう深く取る
+          # harnessRev は HEAD の tree hash なので履歴は要らないが、浅い clone での挙動差を
+          # 避けるため全履歴を取る（テストの squash 不変性検査は自前の一時リポジトリで行う）
           fetch-depth: 0
 
       - name: 処理系の確認

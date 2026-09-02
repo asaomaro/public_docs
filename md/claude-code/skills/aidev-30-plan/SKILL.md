@@ -1,6 +1,6 @@
 ---
 name: aidev-30-plan
-description: ［aidev 標準工程］aidev の plan（計画/作業分解）工程。進行中の aidev 作業の spec.md から plan.md と tasks.md を作る。「aidev plan」「plan 工程」と言われたとき、または前工程から案内されたときに使用する。
+description: ［aidev 標準工程］aidev の plan（計画/作業分解）工程。進行中の aidev 作業の spec.md から plan.md と tasks.md を作る。「aidev plan」「plan 工程」と言われたとき、または前工程から案内されたときに使用する。aidev 作業の無い単発の計画作成では使わない。
 allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion]
 ---
 

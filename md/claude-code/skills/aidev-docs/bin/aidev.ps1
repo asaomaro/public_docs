@@ -1479,7 +1479,7 @@ function Hv-New($rest) {
   $sb += "## 判定メモ`n`n<!-- confirm/retire 時の内訳の補足（frontmatter の result/note が正） -->`n"
   WriteText $f $sb
   Write-Output "created: $f (status pending, verify_after $va, introduced_rev $rev)"
-  if ($rev -ceq 'unknown') { Write-Output "warn: harness_rev が取れない環境です（git 不在）。母集団は時刻だけで数えます" }
+  if ($rev -ceq 'unknown') { Write-Output "warn: harness_rev が取れない環境です（git 不在か aidev-* が未コミット）。harnessRev が unknown の work は母集団に数えないので、このままでは判定できません" }
   Write-Output "next: ## 改修内容 を書く。母集団は導入後に着手し、またがらずに deliver した work（aidev harness status）"
 }
 function Hv-Confirm($rest) {

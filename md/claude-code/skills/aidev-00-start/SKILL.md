@@ -39,7 +39,7 @@ AI 開発ワークフローの入口（ルーター）。
 - **BACKLOG 表**: backlog ファイルごとの未着手件数 `todo` と、依存待ち（`(needs:…)`）件数 `needs`。
   これで「進行中（works）＋未着手（backlog）」を1画面で把握できる（ビュー統合。`DESIGN.md`「2.5」）。
   各項目の本文（先頭数件）が必要なら、対象ファイルを `grep '- \[ \]' .aidev/backlog/<file>` で参照する。
-- **外部トラッカー（任意）**: `.aidev/config.yml` の `tracker.type` が `github` 等なら、必要に応じ
+- **外部トラッカー（任意）**: `.aidev/config.yml` の `tracker` が `github` 等なら、必要に応じ
   `gh issue list`（または各ツール）で open を「未着手（トラッカー）」として併記してよい（status の対象外）。
 
 **並行作業（worktree）を使っているなら `aidev worktree list` も実行して併記する**（`protocol.md`「1.5」）。

@@ -117,7 +117,7 @@ git worktree＋`feature/<slug>` ブランチを作って隔離着手できる。
   - works slug（例 `20260620-rpg-dialect-split`）→ 当該 works の `state.yml` の `approved` に `deliver` が含まれる
     （ツール非依存で最も推奨。依存解決を外部トラッカーに縛らない）。
   - 外部チケット（例 `#18` / `PROJ-123`）→ そのチケットがクローズ／完了。判定は `.aidev/config.yml` の
-    `tracker.type` に応じたアダプタで行う（github: `gh issue view <N> --json state -q .state` ／ jira・redmine:
+    `tracker`（`github` / `jira` / `redmine` / `none`。フラットなキー）に応じたアダプタで行う（github: `gh issue view <N> --json state -q .state` ／ jira・redmine:
     各CLI/API ／ `none` や CLI不在: **advisory＝参照のみで自動判定しない**）。
     `aidev status`/`guard` は外部チケット（`#N`／`PROJ-123` 型）を `advisory` と表示するだけで判定しない——判定はこの規約に従い工程 skill が行う。
   - 参照先が見つからない場合は「未充足（未着手）」とみなす。

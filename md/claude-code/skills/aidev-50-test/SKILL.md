@@ -1,6 +1,6 @@
 ---
 name: aidev-50-test
-description: ［aidev 標準工程］aidev の test（テスト/検証）工程。進行中の aidev 作業の spec の受け入れ基準を検証し、失敗時は coding へ差し戻す。「aidev test」「test 工程」と言われたとき、または前工程から案内されたときに使用する。
+description: ［aidev 標準工程］aidev の test（テスト/検証）工程。進行中の aidev 作業の spec の受け入れ基準を検証し、失敗時は coding へ差し戻す。「aidev test」「test 工程」と言われたとき、または前工程から案内されたときに使用する。aidev 作業の無い単発のテスト依頼では使わない。
 allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion, Agent]
 ---
 
