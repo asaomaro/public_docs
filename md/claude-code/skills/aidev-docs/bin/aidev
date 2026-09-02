@@ -1954,8 +1954,8 @@ cv_members() { # id fmt
       [ -n "$_pts" ] || continue
       _a=$(cv_ts_key "$_pts") || continue
       [ "$_a" -ge "$_b" ] || continue
-      _dts=$(grep 'phase: deliver, event: approved' "$_pf" | tail -n1 \
-             | sed -n 's/^[^{]*{[[:space:]]*ts:[[:space:]]*\([0-9][0-9:TZ.-]*\).*/\1/p')
+      # ts を持つ deliver approved 行のうち最後のもの（ps1 と同じ選び方。手編集で ts の無い行があっても揃う）
+      _dts=$(sed -n '/phase: deliver, event: approved/s/^[^{]*{[[:space:]]*ts:[[:space:]]*\([0-9][0-9:TZ.-]*\).*/\1/p' "$_pf" | tail -n1)
       [ -n "$_dts" ] || _dts="-"
       _tg=$(find "$_pd" -name review.md -exec grep -o -F "[conv:$_id]" {} + 2>/dev/null | wc -l | tr -d ' ')
       n=$((n+1)); tsum=$((tsum+_tg))

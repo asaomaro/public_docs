@@ -142,7 +142,7 @@ per-work の `retro` が「その作業1件」を振り返るのに対し、こ�
 ### PJ規約の条項
 | id | introduced | 母集団 | 判定 | 根拠 |
 |---|---|---|---|---|
-| <id> | <日付> | <pop>件 | confirmed / ineffective | <conv タグの増減> |
+| <id> | <時刻> | <pop>件 | confirmed / ineffective | <conv タグの増減> |
 
 ### ハーネス改修
 - <harnessRev X 以前 / 以後 の reworks 比較。またがり work・unknown は除外した件数を明記>
