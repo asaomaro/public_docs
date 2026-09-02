@@ -1,0 +1,90 @@
+# aidev CLI のテスト（sh 実装・ps1 実装・両者のパリティ）
+#
+# なぜ CI が要るか:
+#   `aidev` と `aidev.ps1` は**同じ挙動でなければならない**が、片方の処理系が無い環境では
+#   パリティテストが skip される。skip はそのまま**未検証の穴**で、実際この穴の裏に
+#   ps1 の実バグ2件とテスト自身のバグ2件が「緑のまま」隠れていた。
+#   だから CI では **skip=0 を満たせる環境**で走らせ、skip が出たら落とす。
+#
+# 走らせる環境:
+#   ubuntu  … pwsh 7 が入っている（PowerShell 7 系のパリティ）
+#   windows … Git Bash の sh ＋ **Windows PowerShell 5.1**。ps1 の本来の対象で、
+#             ここが緑でないと「Windows で動く」と言えない
+name: aidev CLI
+
+on:
+  push:
+    paths:
+      - 'md/claude-code/skills/aidev-docs/bin/**'
+      - '.github/workflows/aidev-cli.yml'
+  pull_request:
+    paths:
+      - 'md/claude-code/skills/aidev-docs/bin/**'
+      - '.github/workflows/aidev-cli.yml'
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ubuntu には pwsh 7 が入っている（PowerShell 7 系のパリティ）
+          - os: ubuntu-latest
+            ps_host: pwsh
+          # windows-latest には pwsh 7 と Windows PowerShell 5.1 の**両方**が入っている。
+          # run.sh の自動判定は pwsh を優先するので、放っておくと **ps1 の本来の対象である
+          # 5.1 が一度も走らない**。両方を明示的に回す。
+          - os: windows-latest
+            ps_host: pwsh
+          - os: windows-latest
+            ps_host: winps
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.os }} / ${{ matrix.ps_host }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: md/claude-code/skills/aidev-docs/bin
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # harnessRev は HEAD の tree hash なので履歴は要らないが、浅い clone での挙動差を
+          # 避けるため全履歴を取る（テストの squash 不変性検査は自前の一時リポジトリで行う）
+          fetch-depth: 0
+
+      - name: 処理系の確認
+        run: |
+          echo "sh: $(sh --version 2>&1 | head -n1)"
+          command -v pwsh       && pwsh -v       || echo "pwsh: なし"
+          command -v powershell && echo "powershell(5.1): あり" || echo "powershell: なし"
+
+      - name: pwsh が無ければ入れる
+        if: matrix.ps_host == 'pwsh'
+        run: |
+          command -v pwsh >/dev/null 2>&1 && exit 0
+          sh test/setup-pwsh.sh
+          echo "$HOME/.cache/aidev-pwsh" >> "$GITHUB_PATH"
+
+      - name: テスト（skip が残っていたら落とす）
+        # run.sh 自体は skip があっても exit 0 で終わる（開発者の手元では処理系が無いこともあり、
+        # そこで落とすと手元のテストが回らなくなる）。CI は処理系を揃えられる場所なので、
+        # **ここでだけ skip>0 を失敗として扱う**。そうしないと「CI が緑」と
+        # 「ps1 が検証された」が別物のまま、誰も気付けない。
+        # GitHub の bash は既定で `-eo pipefail` なので、テストが落ちればこの時点で止まる。
+        # 以降に来るのは「テストは緑」の場合だけ
+        env:
+          # 処理系を明示する。自動判定に任せると windows でも常に pwsh が選ばれ、
+          # 5.1 の経路が検証されないまま緑になる
+          AIDEV_PS_HOST: ${{ matrix.ps_host }}
+        run: |
+          sh test/run.sh 2>&1 | tee result.txt
+          skip=$(sed -n 's/^RESULT:.*skip=\([0-9][0-9]*\).*/\1/p' result.txt)
+          rm -f result.txt
+          if [ -z "$skip" ]; then
+            echo "::error::RESULT 行が読めませんでした（テストが最後まで走っていない可能性）"
+            exit 1
+          fi
+          if [ "$skip" -ne 0 ]; then
+            echo "::error::skip=$skip（未検証の穴が残っています。処理系が揃っているか確認してください）"
+            exit 1
+          fi

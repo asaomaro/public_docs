@@ -1,7 +1,7 @@
 ---
 name: aidev-00-start
-description: ［入口/ルーター／主トリガ:ユーザー起動］AI開発ワークフローの入口。作業状況を確認し、どの工程から始めるかをユーザーに確認して案内する。「AI開発を始めたい」「開発ワークフローを開始」「続きから再開」「aidev」などと言われたときに使用する。
-allowed-tools: [Bash, Read, AskUserQuestion]
+description: ［aidev 入口］aidev ワークフロー（SDD ハーネス）の入口。.aidev/ の作業状況を確認し、どの工程から始めるかをユーザーに確認して案内する。「aidev」「aidev を始めたい」「aidev の続きから」と言われたときに使用する。工程名だけの依頼（レビュー・コミット・テスト等）では使わない。
+allowed-tools: [Bash, Read, Write, AskUserQuestion]
 ---
 
 AI 開発ワークフローの入口（ルーター）。
@@ -14,7 +14,7 @@ AI 開発ワークフローの入口（ルーター）。
 
 以下を簡潔に提示する。
 
-- 工程は `requirement → spec → plan → coding → test → review` の順（推奨デフォルト）。
+- 工程は `requirement → spec → plan → coding → test → review → deliver` の順（推奨デフォルト）。
 - 各工程は **承認ゲート付き**で、自動では次に進まない（承認後に「次へ進むか」を確認する）。
 - 番号順は強制ではなく、差し戻し（例: review → coding）も可能。
 - 作業は `.aidev/works/<YYYYMMDD-slug>/` 単位で管理され、いつでも中断・再開できる。
@@ -25,6 +25,7 @@ AI 開発ワークフローの入口（ルーター）。
 
 ```sh
 .claude/skills/aidev-docs/bin/aidev status                 # 進行中(works)＋未着手(backlog) を人間可読表で
+# works が多いなら: .claude/skills/aidev-docs/bin/aidev status --active   # deliver 済みを隠す
 # 機械処理が必要なら: .claude/skills/aidev-docs/bin/aidev status --format tsv
 # Windows: pwsh .claude/skills/aidev-docs/bin/aidev.ps1 status
 #          （pwsh 無しなら powershell -NoProfile -File ... / Git Bash なら POSIX 版の aidev がそのまま動く）
@@ -38,7 +39,7 @@ AI 開発ワークフローの入口（ルーター）。
 - **BACKLOG 表**: backlog ファイルごとの未着手件数 `todo` と、依存待ち（`(needs:…)`）件数 `needs`。
   これで「進行中（works）＋未着手（backlog）」を1画面で把握できる（ビュー統合。`DESIGN.md`「2.5」）。
   各項目の本文（先頭数件）が必要なら、対象ファイルを `grep '- \[ \]' .aidev/backlog/<file>` で参照する。
-- **外部トラッカー（任意）**: `.aidev/config.yml` の `tracker.type` が `github` 等なら、必要に応じ
+- **外部トラッカー（任意）**: `.aidev/config.yml` の `tracker` が `github` 等なら、必要に応じ
   `gh issue list`（または各ツール）で open を「未着手（トラッカー）」として併記してよい（status の対象外）。
 
 **並行作業（worktree）を使っているなら `aidev worktree list` も実行して併記する**（`protocol.md`「1.5」）。
@@ -63,13 +64,15 @@ CLI が使えない環境のフォールバック: `cat .aidev/current` / `ls .a
 
 - **続きから**：既存の作業を選択 → `aidev use <slug>`（`.aidev/current` を更新。存在しない slug は弾かれる）
   → その工程の skill を案内。CLI 無し環境では `.aidev/current` を手で書く。
-- **別工程をやり直す（差し戻し）**：作業と工程を選択 → 当該工程の skill を案内。
+- **別工程をやり直す（差し戻し）**：作業と工程を選択 → **必ず `aidev use <slug>` してから**当該工程の
+  skill を案内（飛ばすと記録が無関係な work に落ち、誰も検知しない）。
+- **分割 work（subtask）に戻る**：`aidev status --subtasks` で活性の子を確認し、
+  `aidev use <親>/<子>`。`.aidev/current` は未追跡なのでセッションをまたぐと消える。
 - **未着手から着手する**：backlog／トラッカーの未着手項目を選び、その内容を requirement として手順 4 へ
   （依存 `(needs:…)` が未充足なら警告。`protocol.md`「2.7」）。
   - **選ぶ前に、その項目が本当に未着手か確かめる**（`inflight` の見方は `protocol-backlog.md`）。backlog は**遅れる**——別の作業が結果的に
     閉じていても、行は `[ ]` のまま残りうる。**works の記述ではなくリポジトリの現物**
     （ファイル・シンボル・テスト・ビルド出力）で裏を取ってから着手する。
-    2026-08-01 に、5 日前に完了済みの項目を選んで requirement を書きかけた実例がある。
   - **backlog 由来なら手順 4 で `--backlog <file>` を渡す**（deliver での消し込みを verify が強制する）。
 - **新規 requirement を起こす**：手順 4 へ。
 - **並行で始める（worktree・任意）**：進行中の作業を**止めずに**別の作業へ着手したいと
@@ -86,23 +89,19 @@ CLI が使えない環境のフォールバック: `cat .aidev/current` / `ls .a
 
 ## 4. 新規作業の開始
 
-0. **三層のどれかを判定する**（`protocol.md`「11.」）。ここを飛ばすと、typo 修正に全工程を回すか、
+0. **三層のどれかを判定する**（条件の正典は `protocol-light.md`）。ここを飛ばすと、typo 修正に全工程を回すか、
    逆に影響の大きい変更を軽い経路に流すことになる。
 
    | 層 | 対象 | 案内 |
    |---|---|---|
    | **対象外** | typo・コメント・整形・生成物の再生成など、判断を伴わない変更 | **aidev を通さない**。直接修正・コミットを案内してここで終了する |
-   | **light** | 振る舞いを変えない / 小規模（触るファイルが 3 個以下・共有モジュールや公開 API に触らない・新規依存なし） | `aidev new <slug> --light`。上流 3 工程を 1 ゲートに畳む |
+   | **light** | 振る舞いを変えない（または単一の閉じた挙動）／触るファイルが `lightMaxFiles`（既定 3）以下／共有モジュール・公開 API・スキーマに触らない／新規依存なし | `aidev new <slug> --light`。上流 3 工程を 1 ゲートに畳む |
    | **full** | それ以外すべて | `aidev new <slug>`（既定） |
 
    - **判定はユーザーに確認する**（`AskUserQuestion`）。「小さい変更」の見立ては外れやすく、
      特に共有モジュールの 1 行変更は影響範囲を読み違えやすい。
-   - **影響範囲が読めないときは plan モードを使う**（`protocol.md`「10.」）。`EnterPlanMode` で
-     read-only のまま影響範囲を調べ、三層の判定と着手方針を提案して `ExitPlanMode` で承認を取り、
-     **解除してから手順 2 の `aidev new` に引き渡す**。この時点では aidev のゲートがまだ無いので
-     二重ゲートにならず、plan モードが最も素直に効く場所になる。
-     - 判定が自明なとき（typo・明らかに大きい機能追加）は使わない。
-     - `aidev new` は書き込みなので、**必ず plan モードを解除してから**実行する。
+   - 影響範囲が読めないときは plan モードを使ってよい（`protocol-autonomous.md`。`aidev new` は書き込みなので
+     **解除してから**実行する）。
    - 迷ったら **full を選ぶ**。light は後から full へ昇格できる（`aidev escalate`）が、逆はできない。
    - **light を選んでも review / test / deliver は full と同一**に通る。省くのは上流の文書の深さと
      承認の往復だけで、品質ゲートは残る。

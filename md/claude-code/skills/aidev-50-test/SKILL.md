@@ -1,6 +1,6 @@
 ---
 name: aidev-50-test
-description: ［標準工程・末尾0／主トリガ:両方（直接起動 or 前工程からの遷移／autonomous 自動）］AI開発ワークフローの test（テスト/検証）工程。spec の受け入れ基準を検証し、失敗時は coding へ差し戻す。「テストしたい」「検証工程」「test工程」などと言われたとき、または前工程から案内されたときに使用する。
+description: ［aidev 標準工程］aidev の test（テスト/検証）工程。進行中の aidev 作業の spec の受け入れ基準を検証し、失敗時は coding へ差し戻す。「aidev test」「test 工程」と言われたとき、または前工程から案内されたときに使用する。aidev 作業の無い単発のテスト依頼では使わない。
 allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion, Agent]
 ---
 
@@ -26,13 +26,12 @@ AI 開発ワークフローの **test（テスト / 検証）工程**を実行�
 ## 手順
 
 1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定する。
+   `aidev guard test` で前提を検査する（exit≠0＝未充足。目視確認で代替しない）。
    - **対象が subtask（state.yml に `parent` あり）か親かを見分ける**（protocol.md「2.8」）。test の範囲が変わるので、subtask なら `protocol-subtask.md` を読む。
 2. `plan.md` のテスト方針と `spec.md` の受け入れ基準に沿って検証する。
    - 自動テストがあれば実行する。無ければ受け入れ基準ごとに確認手順を実施する。
    - 必要なら不足テストを追加する。
-   - **subtask の test**: **その slice 単独で検証可能な範囲（unit・契約モック）に限定**する。高結合 work の
-     subtask 境界は単独検証が効きにくい（`aidev-docs/DESIGN.md`「5.」: 検証可能性が seam の指標）。単独で
-     検証できない結合は**ここで無理に検証しない**（false-green を避ける）。結合検証は親の統合 test に委ねる。
+   - **subtask の test** は slice 単独で検証可能な範囲に限定する（`protocol-subtask.md`）。
    - **親の統合 test**: 全 subtask 完了後、subtask 横断の**結合**を検証する（契約整合・結線・e2e）。
      subtask test で意図的に保留した結合の検証は、ここで確実に実施する。
 3. 結果を要約する（合否、失敗したケースと原因）。
@@ -49,8 +48,7 @@ AI 開発ワークフローの **test（テスト / 検証）工程**を実行�
 ## light の昇格トリガ
 
 `profile: light`（protocol.md「11.」）で**テストが落ちたら、それは「振る舞いを変えない」という
-light の前提が崩れた合図**。coding へ差し戻す前に `aidev escalate` で full へ昇格し、
-`decisions.md` に経緯を残す（昇格は片方向。省略していた節を足すだけでよい）。
+light の前提が崩れた合図**。coding へ差し戻す前に `aidev escalate` で full へ昇格する。
 
 ## 完了の目安
 

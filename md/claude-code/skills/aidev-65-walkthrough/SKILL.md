@@ -1,6 +1,6 @@
 ---
 name: aidev-65-walkthrough
-description: ［任意工程・末尾5／主トリガ:AI検知推奨 or ユーザー指定］AI開発ワークフローの walkthrough（レビューガイド生成）工程。人間のPRレビューを補助する解説（重要ポイント・処理フローのmermaid図・該当コード）を作る。「レビューガイドを作って」「walkthrough工程」などと言われたとき、または review 通過後に複雑度が高いと検知され推奨されたときに使用する。
+description: ［aidev 任意工程］aidev の walkthrough（レビューガイド生成）工程。人間の PR レビューを補助する解説を作る。「aidev walkthrough」「walkthrough 工程」と言われたとき、または review 通過後に複雑度が高いと検知され推奨されたときに使用する。
 allowed-tools: [Bash, Read, Write, AskUserQuestion, Agent]
 ---
 
@@ -19,14 +19,10 @@ AI 開発ワークフローの **walkthrough（レビューガイド生成）工
 
 ## 起動判定（検知ロジック）
 
-review 終了時（review 工程の終了ゲート）に、以下の**いずれか1つ以上**に該当したら walkthrough を発火対象とする。
+review 終了時に **protocol.md「4.5」の walkthrough の3条件**のいずれかに該当したら発火対象とする（条件はそこが正典）。
 
-- **差分が大きい**（変更ファイル数・行数が多く、レビュアーが全体像を掴みにくい）。
-- 変更が**複数モジュールを横断**する。
-- **処理フローが複雑**（非自明な制御フロー・状態遷移・トリッキーな実装を含む）。
-
-- **interactive**: 上記検知時、遷移ゲートに `承認して walkthrough(任意) を挟む`（推奨）を理由付きで加える。却下されれば deliver へ直行。
-- **autonomous**: **既定で実施**する（protocol.md「10.」: 朝の一括レビューを助けるため、検知の有無によらず生成する）。
+- **interactive**: 検知時、遷移ゲートに `承認して walkthrough(任意) を挟む`（推奨）を理由付きで加える。却下されれば deliver へ直行。
+- **autonomous**: **既定で実施**する（`protocol-autonomous.md`。検知の有無によらず生成する。`profile: light` では実施しない）。
 
 ## 前提
 
@@ -45,6 +41,7 @@ review 終了時（review 工程の終了ゲート）に、以下の**いずれ�
 ## 手順
 
 1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定する。
+   `aidev guard walkthrough` で前提を検査する（exit≠0＝未充足。目視確認で代替しない）。
 2. 差分と成果物を読み、**レビュアーが知るべき非自明な点**を抽出する。
    - 重要ポイント（設計判断の要、トリッキーな箇所、影響範囲）
    - リスク・特に見てほしい点

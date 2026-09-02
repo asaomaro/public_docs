@@ -1,7 +1,7 @@
 ---
 name: aidev-70-deliver
-description: ［標準工程・末尾0（最終）／主トリガ:両方（直接起動 or 前工程からの遷移／autonomous 自動）］AI開発ワークフローの deliver（着地）工程。レビュー済みの変更をコミット・PR作成で着地させる最終工程。「コミットして」「PRを出して」「deliver工程」などと言われたとき、または review 通過後に使用する。
-allowed-tools: [Bash, Read, AskUserQuestion]
+description: ［aidev 標準工程］aidev の deliver（着地）工程。進行中の aidev 作業のレビュー済み変更をコミット・PR 作成で着地させ、台帳を同期する最終工程。「aidev deliver」「deliver 工程」と言われたとき、または review 通過後に使用する。aidev 作業の無い単発のコミット・PR 依頼では使わない。
+allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion]
 ---
 
 AI 開発ワークフローの **deliver（着地）工程**。ワークフローの最終工程。
@@ -25,12 +25,9 @@ review を通過した変更を、コミット・PR 作成によって実際に�
 
 ## 手順
 
-1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定し、**`aidev event deliver start` を記録する**。
+1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定し、`aidev guard deliver` で前提を検査してから
+   **`aidev event deliver start` を記録する**。
    - **ここを飛ばすと deliver の所要時間が導出できない**（`aidev verify` が WARN を出す）。
-     他工程は skill の冒頭で打つ形だが、deliver は下の「記録順序」が `approve` を軸に書いてあるため
-     **`event start` が手順から抜け落ちやすい**——実際に打ち忘れた実例がある
-     （`20260826-datetime-picker` の decisions D15。approve より後に打ったので ts が逆転し、
-     その work の deliver 区間は無効になった）。
    - **後から打ち直して ts を辻褄合わせしない**（protocol.md「8. タイムスタンプ」: 捏造しない）。
      打ち忘れに気付いたら、その旨を `decisions.md` に残して所要時間を無効として扱う。
 1.5. **既着地の検知（事後記録モード判定）**: 着地作業に入る前に、対象の変更が
@@ -65,17 +62,14 @@ review を通過した変更を、コミット・PR 作成によって実際に�
        手法や経緯の記録は残す価値があるので、**誤解を招く事実主張だけ**を消す。
      - 一部だけ済んだ項目は**割る**。`- [x]`（済んだ分）と `- [ ]`（残り）を**兄弟として並べる**
        ——インデントした子は `aidev status` の件数（行頭 `- [ ]`）に入らず、残作業が集計から消える。
-   - **なぜ必須か**: `aidev-util-batch` は消化した行を自動で `[x]` にするが、**直接入口
-     （`aidev-00-start` で backlog 項目を選ぶ）は誰も `[x]` にしない**。閉じ忘れると
-     **次に着手する人が完了済みの項目を選ぶ**（2026-08-01 に実際に発生。着手して初めて
-     5 日前に完了済みと分かり、同時に 7 件の閉じ忘れが見つかった）。
-   - **機械的強制**: `backlog:` を持つ work は、**その backlog ファイルに自分の slug が現れないと
-     `aidev verify` が FAIL する**（手順 5 の着地前ゲートで弾かれる）。刻印の無い work は従来どおり。
+   - **機械的強制**: `backlog:` を持つ work は、**その backlog ファイルの `- [x]` 行かその継続行に自分の slug が
+     現れないと `aidev verify` が FAIL する**（手順 5 の着地前ゲートで弾かれる。`(needs: <slug>)` の未着手行では
+     通らない。継続行は次の項目・見出し・**空行**までなので、根拠を空行で離して書かない）。刻印の無い work は従来どおり。
    - **消し込んだ結果そのファイルが全消化になったら `aidev backlog archive` を実行する**
      （`split`/`topic` のみ退避される。`standing` は対象外なので、そのまま実行して構わない）。
      移動は `mv` だけなので、**同じコミットに含める**こと（`git add -A .aidev/backlog`）。
 4. チケット連携があれば PR に紐付ける（`state.yml` の `ticket`（旧 `issue`）を参照）。
-   `.aidev/config.yml` の `tracker.type` に応じる（github: `Closes #<番号>` ／ jira・redmine: チケットURL/IDを本文に記載）。
+   `.aidev/config.yml` の `tracker` に応じる（github: `Closes #<番号>` ／ jira・redmine: チケットURL/IDを本文に記載）。
    - PR 本文は PJ の PR 作成 skill があればその体裁に従う。無ければ下記「PR 本文テンプレート」を既定とする。
    - 対象フォルダに `walkthrough.md`（レビューガイド）があれば、その**重要ポイントとリスクを3〜5行に要約**して
      PR 本文の `## レビューガイド` 節に載せ、`walkthrough.md` 自体へのリンクを添える（全文転記はしない）。
@@ -103,8 +97,7 @@ review を通過した変更を、コミット・PR 作成によって実際に�
      - この値は insights で「規模あたりの手戻り」の分母になる（タスク数は粒度の癖でぶれるため）。
      - **`profile: light` の昇格判定**（protocol.md「11.」）: `files_changed` が上限
        （`.aidev/config.yml` の `lightMaxFiles`、既定 3）を超えていたら light の条件を外れている。
-       `aidev escalate` で full に昇格し、`decisions.md` に経緯を残してから着地する
-       （`aidev verify` も同じ判定で WARN を出す）。
+       `aidev escalate` で full に昇格してから着地する（`aidev verify` も同じ判定で WARN を出す）。
    - **metrics.yml の必須化**（protocol.md「8.」）: 記録は `aidev`（event/approve）が行い、`metrics.yml`
      不在なら自動生成する（CLI 無し環境は `events:` で生成してから手で追記）。事後記録モードでも同様。
 6. **worktree の後始末（並行作業で着手していた場合のみ）**。`protocol-worktree.md` を読む。
@@ -112,11 +105,6 @@ review を通過した変更を、コミット・PR 作成によって実際に�
    人間の判断を待つ（`protocol.md`「1.5」）。
    - **deliver の中で撤去しない**。PR を出した時点で「マージ後に `aidev worktree rm <slug> --delete-branch`
      で撤去できる」ことを**報告に添える**に留める。
-   - **撤去の前に push 済みを自分で確かめる**。`worktree rm` は未コミット差分があれば既定で拒否するが、
-     **未 push のコミットは検知しない**（`git status --porcelain` は working tree しか見ない）。
-     コミットは済んでいるが push していない状態で `--force` を打つと、その作業は失われる。
-   - **`--delete-branch` は `git branch -D`（強制削除）**。マージ前に打つとブランチごと消える。
-     マージ前に worktree だけ外したいなら**付けない**（worktree が外れ、ブランチは残る）。
    - **autonomous モードでは撤去しない**（PR 作成で停止する以上、マージも撤去も人間の側にある）。
 
 ## PR 本文テンプレート（PJ の PR skill が無い場合の既定）
@@ -167,9 +155,11 @@ review を通過した変更を、コミット・PR 作成によって実際に�
     **最後の deliver approved までを `lead_sec`** とし、工程の再 `start` を `reworks` に数えるので、
     **これだけで実態に追従する**（CLI の変更は要らない）。
   - `deliver` の付加メトリクス（`files_changed` 等）は**その時点の累計**で測り直す。
-- **なぜ要るか**: 記録しないと、指摘の多かった work ほど「速く・手戻り無く終わった」ように見える。
-  実例（`20260826-datetime-picker`）: deliver 後に**経過時間の 76%・実装行の 47%・コミット 8 本**が
-  あったのに `lead_sec` はその 1/4 しか測っておらず、insights ではこの work が優秀に見えてしまう。
+- **人間の PR レビュー指摘は `review.md` に「PR レビュー（人間）」節として残す**（`protocol.md`「8.」）。
+  指摘ごとに `- [must|should|nit][conv:<id>|-] <ファイル:行> <指摘の要旨> / 対応: <…> / src: <PR コメントの URL>`。
+  要旨は AI の要約になるので短く原文を引き、判断（must/should）は指摘者の言い方に従う。これが工程内で
+  **唯一の人間由来の判定材料**で、insights は条項の効果判定でこの節を優先する。件数はラウンド指摘と分けて数える。
+- 記録しないと、指摘の多かった work ほど「速く・手戻り無く終わった」ように見える（実例は DESIGN「6.」）。
 - **PR がマージされるまでを 1 work とみなす。** 「PR を出した」で記録を止めない。
 
 ## 完了の目安

@@ -1,6 +1,6 @@
 ---
 name: aidev-util-batch
-description: ［ユーティリティ・パイプライン外／主トリガ:ユーザー起動・/loop・/schedule］AI開発ワークフローのバッチ駆動ユーティリティ。バックログ（チェックリスト）の未処理項目を順に autonomous モードの aidev で処理し、PRにまとめる。「バックログを消化して」「まとめて定義を作って」「batch」などと言われたとき、または /loop・/schedule から起動されたときに使用する。
+description: ［aidev ユーティリティ］aidev のバッチ駆動。.aidev/backlog の未処理項目を順に autonomous モードの aidev で処理し、1 つの PR にまとめる。「aidev batch」「aidev の backlog を消化して」と言われたとき、または /loop・/schedule から起動されたときに使用する。
 allowed-tools: [Bash, Read, Edit, AskUserQuestion, Agent]
 ---
 
@@ -8,7 +8,7 @@ AI 開発ワークフローの **バッチ駆動（L1 オーケストレータ�
 バックログの**未処理項目を1件ずつ autonomous モードの aidev で処理**し、反復する。
 1反復＝「次の1件を選ぶ → autonomous で処理 → 完了マーク」。
 
-**開始前に共通プロトコル `../aidev-00-start/protocol.md`（特に「10. 実行モード」）を読むこと。**
+**開始前に共通プロトコル `../aidev-00-start/protocol.md` と `protocol-autonomous.md` を読むこと。**
 
 ## 位置づけ（重要）
 
@@ -30,7 +30,7 @@ AI 開発ワークフローの **バッチ駆動（L1 オーケストレータ�
 # <タイトル> バックログ
 - [ ] <タスク1の指示（autonomous aidev に渡す内容）>
 - [ ] <タスク2の指示>
-- [x] <処理済み（PR: <url>）>
+- [x] <処理済み（PR: <url>）> <works slug>   ← slug が [x] 行（か継続行）に無いと verify が FAIL
 ```
 
 ## backlog ファイル規約（複数前提）
@@ -58,7 +58,8 @@ priority: <整数>               # 複数ファイルの選択順（小さいほ
     standing との違いは「またここに積むか」——積まないなら topic。
 - **archive**: 消化しきったら終わるキュー（`split` / `topic`）で全項目が `[x]` になったファイルは
   `.aidev/backlog/archive/` に退避し、active の glob（`archive/` を除く）を小さく保つ。
-  `standing` は全消化でも退避せず継続。
+  `standing` は全消化でも退避せず継続。`[x]` 行が溜まったら `aidev backlog compact` で
+  `archive/<name>-done.md` へ移す（`verify` の消し込み検査はそこも見る）。
   - **退避は `aidev backlog archive` で行う**（引数なしで条件を満たすものだけ退避。判定は `doctor` の
     WARN と同じ関数を通る）。`mv` のみなので、**コミットは呼び出し側の仕事**
     （`git add -A .aidev/backlog` でリネームとして拾われる）。
@@ -71,7 +72,7 @@ priority: <整数>               # 複数ファイルの選択順（小さいほ
 ## 出力
 
 - 各項目の autonomous 実行による成果物・コミット。
-- バックログの該当行を `[x]` に更新し、PR/コミット参照を追記。
+- バックログの該当行を `[x]` に更新し、PR/コミット参照と **works slug** を追記（`aidev-70-deliver`「3.5」の 3 点セット）。
 - バッチ実行サマリ（処理件数・スキップ・失敗）。
 
 ## 手順
@@ -92,7 +93,7 @@ priority: <整数>               # 複数ファイルの選択順（小さいほ
      - **定義・データ生成系（原典のある成果物）では、test硬ゲートに「原典との機械diff」を含める**:
        生成物のキー集合・必須/型・定義済み値を**一次資料の生テキストと機械的に突き合わせ**、過不足・
        required 誤りを着地前に弾く（要約や知識ではなく原典直読で確定。主エージェントが実施＝protocol §2.6）。
-4. 成功項目はバックログを `[x]` に更新し、コミット/PR 参照を追記。
+4. 成功項目はバックログを `[x]` に更新し、コミット/PR 参照と **works slug** を追記（slug が `[x]` 行かその継続行に無いと `verify` が FAIL）。
 5. **着地**: バッチ実行分を **1ブランチ・1PR にまとめる**（項目ごとに1コミット）。
    全件失敗なら PR を作らない／一部失敗は **draft PR** にして要点を報告。**auto-merge はしない**。
 6. 残件・上限・失敗の状況を報告して終了。次回起動（/loop 等）で続きから消化される。
@@ -102,9 +103,11 @@ priority: <整数>               # 複数ファイルの選択順（小さいほ
 - **1回の件数上限**（暴走防止）。**予算/時間上限**で停止・報告。
 - **test 硬ゲート**・**PRで停止（auto-merge禁止）**・**人間が PR レビュー**。
 - **独立な項目を選ぶ**（同一ファイルを争う項目は同時に処理しない）。
-- **PJ規約（条項）に対してできるのは追加と移送まで**（`protocol.md`「12.」）。既存条項の
-  **削除・緩和は人間**の判断に残す。追加は次のレビューで効かなければ消せる（可逆）が、緩和は
-  「守らなくてよくなった」状態を作り、それが正しかったかを事後に検証できない（ガードを外す方向は検証不能）。
+- **PJ規約（条項）とハーネス改修の記録に対してできるのは、追加・移送・判定案どおりの判定まで**
+  （`protocol-conventions.md`）。既存条項の**削除・緩和は人間**の判断に残す。
+  - **判定タスク**（項目に insights の判定案＝`--result`/`--note` 付きの `aidev convention confirm|retire` /
+    `aidev harness confirm|retire` の行がそのままある）は autonomous で実行してよい。**項目に CLI 行が無ければ
+    実行せず `[ ]` のまま残す**（batch が判定を発明しない）。結果は PR に載るので、人間が判定を見てから着地する。
   - 移送タスク（`confirmed` 条項の本文を PJ ドキュメントへ移す）は**通常のリポジトリ変更**なので
     autonomous で消化してよい。着地は `aidev convention promote <id> --to <path#anchor>`
     （移送先の実在を CLI が検査する）。詳細は `protocol-conventions.md`。

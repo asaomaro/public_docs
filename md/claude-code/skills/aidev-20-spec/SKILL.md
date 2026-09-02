@@ -1,7 +1,7 @@
 ---
 name: aidev-20-spec
-description: ［標準工程・末尾0／主トリガ:両方（直接起動 or 前工程からの遷移／autonomous 自動）］AI開発ワークフローの spec（仕様策定）工程。requirement.md を実装仕様 spec.md に落とす。「仕様を作りたい」「spec工程」などと言われたとき、または前工程から案内されたときに使用する。
-allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion]
+description: ［aidev 標準工程］aidev の spec（仕様策定）工程。進行中の aidev 作業の requirement.md を実装仕様 spec.md に落とす。「aidev spec」「spec 工程」と言われたとき、または前工程から案内されたときに使用する。aidev 作業の無い単発の仕様書作成では使わない。
+allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion, Agent]
 ---
 
 AI 開発ワークフローの **spec（仕様策定）工程**を実行する。
@@ -28,32 +28,20 @@ requirement を「どう作るか」の実装仕様に落とす。設計判断�
 
 ## 手順
 
-1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定。「2. 前提チェック」に従い `requirement.md` を確認。
+1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定。
+   `aidev guard spec` で前提を検査する（exit≠0＝未充足。目視確認で代替しない）。
 2. `requirement.md` を読み、完了条件を満たす実装方針を検討する。
-   - **有力な案が複数あるなら plan モードを使ってよい**（任意。`protocol.md`「10.」）。`EnterPlanMode` で
-     read-only のまま既存コードを調べ、方針案を提示して `ExitPlanMode` で承認を取り、**解除してから
-     手順 4 で `spec.md` を書く**。**spec.md を書く前に方針の合意が取れる**のが利点。
-     - 使わない場合: 方針が自明なとき／`profile: light`（承認の往復を減らす趣旨に反する）／
-       `mode: autonomous`（`ExitPlanMode` は人間の承認が前提で、承認者がいない）。
-     - 使った場合も**工程の承認ゲート（手順 6）は省かない**。plan モードは方針、aidev のゲートは
-       文書を承認するもので、対象が違う。
+   - 有力な案が複数あるなら plan モードを使ってよい（`full` × `interactive` のみ。解除してから書く。
+     `protocol-autonomous.md`）。
 3. 設計判断を行う。PJ のドメイン固有の論点（PJ ルールに記載があれば、それに従う）は明示的に扱う。
-   - **設計選択が多い／複雑な場合は「深掘り質問（grilling）」を opt-in で行う**：主要な設計選択を
-     **推奨回答つきで問い詰め**、依存関係を洗い出してから spec を固める。質問深掘り skill（例: `grill-me`）が
-     あれば優先、無ければインライン（PJ資産優先・protocol「2.5」）。小規模はスキップ。**autonomous では基本スキップ**。
+   - 設計選択が多いなら深掘り質問（grilling）を opt-in で行う（PJ の質問深掘り skill があれば優先。
+     小規模と autonomous ではスキップ）。
 4. 下記テンプレートに沿って `spec.md` を記述する。
    シーケンス・状態遷移・データモデルは、明確になるなら mermaid で図示する（protocol.md「9.」）。
-   - **書き終えたら、内部一貫性の点検を別コンテキストへ委譲してよい**（任意。protocol.md「3.3」(a)）。
-     requirement の各 `AC` に対応が付いているか、`対象範囲` と設計方針が食い違っていないか等を、
-     **書いた本人とは別のコンテキスト**に見せる。自分の spec の穴は同じコンテキストからは見えにくい。
-     - **一次資料照合は委譲しない**（protocol.md「2.6」）。委譲するのは内部一貫性のみ。
-     - 自明な spec ではやらない。`profile: light` では使わない（必要と感じたら昇格の合図）。
-5. **複雑度の自己評価（design 推奨判定）**：protocol.md「4.5」に従い、次のいずれかに該当するか確認する。
-   - 複数コンポーネントにまたがる
-   - アーキテクチャ上の判断が必要
-   - インターフェース / データモデルが複雑
-   - plan で分解するには設計が粗い
-   該当すれば、次の遷移ゲートの選択肢に `承認して design(任意) を挟む`（推奨）を加え、推奨理由を添える。
+   - 書き終えたら内部一貫性の点検（各 `AC` への対応・`対象範囲` と方針の整合）を別コンテキストへ
+     委譲してよい（任意。protocol.md「3.3」(a)。light では使わない）。
+5. **複雑度の自己評価（design 推奨判定）**：protocol.md「4.5」の design の4条件に該当すれば、
+   次の遷移ゲートの選択肢に `承認して design(任意) を挟む`（推奨）を加え、推奨理由を添える。
 6. protocol.md「3. 工程終了プロトコル」に従って終了する
    （次工程: `plan`、または推奨時は `design` へ進むか確認）。
 

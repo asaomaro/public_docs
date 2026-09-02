@@ -1,6 +1,6 @@
 ---
 name: aidev-95-retro
-description: ［任意工程・末尾5／主トリガ:ユーザー指定］AI開発ワークフローの retro（振り返り）工程。完了した作業を振り返り、改善提案（コード follow-up / PJ規約 / ハーネス自体）をまとめる。「振り返りをして」「retro工程」などと言われたとき、または作業完了後に使用する。
+description: ［aidev 任意工程］aidev の retro（振り返り）工程。完了した aidev 作業を振り返り、改善提案（コード follow-up / PJ 規約 / ハーネス）をまとめる。「aidev retro」「retro 工程」と言われたとき、または作業完了後に使用する。
 allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion, Agent]
 ---
 
@@ -27,7 +27,7 @@ AI 開発ワークフローの **retro（振り返り）工程**（任意）。�
 - `review.md`（レビュー指摘の内容。再発パターンの分析に使う）。**「タスク点検ログ」節**
   （coding 工程内の独立点検。protocol.md「3.3」(b)「8.」）があれば、ラウンド指摘とは**分けて**読む。
 - 差し戻しの履歴・`decisions.md`（手戻りの痕跡）。
-- `aidev convention status`（この作業に効いているはずの条項と、その判定状況）。
+- `aidev convention status`（活性条項の一覧と判定状況。この作業に効いた条項は `review.md` の `[conv:<id>]` タグから引く——status は work と条項の対応を持たない）。
 - 変更差分・テスト/レビュー結果。
 
 ## 出力
@@ -59,13 +59,14 @@ AI 開発ワークフローの **retro（振り返り）工程**（任意）。�
    - **製品 / コード**: 残課題・技術的負債 → 新 issue 化の候補
    - **PJ プロセス / 規約**: コーディング規約・レビュー観点の追補 → **`docs/aidev/` の条項**として起こす
      （protocol.md「12.」＋ `protocol-conventions.md`）。**AGENTS.md 本体には書かない**——PJ が所有する
-     ファイルで、aidev を使わない人も編集するため。AGENTS.md に触れるのは索引ブロック（`<!-- aidev:conventions -->`）
-     の1行だけ。
+     ファイルで、aidev を使わない人も編集するため。触れるのは索引ブロック（`<!-- aidev:conventions -->`）
+     の1行だけで、それをどのファイルに置くかは PJ が決める（既定 `AGENTS.md`。`conventionsIndex` で変更可）。
      - 材料は `review.md` の**条項参照タグ**（protocol.md「8.」）。**`[conv:-]` の指摘＝規約の穴**が条項の候補。
      - **id 付きの指摘が繰り返し出ている場合は条項を起こさない**。それは「規約はあるのに守られていない」で、
        追記しても効かない（打ち手は層を下げること。protocol.md「12.」の表）。この判別を明記する。
-     - 起票は `aidev convention new <id> --hypothesis "<何がどう動けば効果ありと判定するか>" --source <この retro.md>`。
-       **仮説を書けない提案は条項にしない**（CLI が拒否する）。検証できない改善は効果を主張できない。
+     - 起票は `aidev convention new <id> --hypothesis "<…>" --baseline "<…>" --source <この retro.md>`。
+       **起票後に `## 規約` の本文を書く**（CLI は枠しか作らない）。
+       **仮説と baseline を書けない提案は条項にしない**（CLI が拒否する。`protocol-conventions.md`）。
    - **ハーネス自体**: 工程・ゲート・protocol の不備 → `aidev-*` への変更提案（提案のみ）
 5. 下記テンプレートに沿って `retro.md` を記述する。
 6. protocol.md「3. 工程終了プロトコル」に従って終了する。
