@@ -53,6 +53,7 @@ per-work の `retro` が「その作業1件」を振り返るのに対し、こ�
 - `.aidev/works/**/decisions.md`：繰り返される設計逸脱（テキスト）。
 - `.aidev/works/**/retro.md`：過去の per-work 改善提案（再発・未対応の把握。テキスト）。
 - **`aidev convention status`**：PJ規約の条項の状態・母集団件数(`pop`)・判定可否(`ready`)。
+  `--members <id>` で母集団の work 一覧と `[conv:<id>]` 件数（分母と分子を同じ集合で見る）。
   縦断分析の入口（`protocol.md`「12.」＋ `protocol-conventions.md`）。
 - **`.aidev/works/**/state.yml` の `harnessRev`**：その work を回したハーネスの版。
   ハーネス改修の前後を分ける鍵（`aidev status --format tsv` には出ないので state.yml から grep する）。
@@ -64,6 +65,7 @@ per-work の `retro` が「その作業1件」を振り返るのに対し、こ�
 - **判定の反映**：`aidev convention confirm <id> --result "<内訳>"` または
   `aidev convention retire <id> --status ineffective|superseded --note "<理由>"`。
   レポートに書くだけで status を進めないと、doctor が WARN を出し続け、次回も同じ判定をやり直すことになる。
+  母集団が揃う前の `confirm` / `retire --status ineffective` は CLI が拒否する（`--force` は `forced: true` が残る）。
 
 ## 手順
 

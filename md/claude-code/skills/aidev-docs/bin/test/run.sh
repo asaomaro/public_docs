@@ -906,9 +906,16 @@ for w in one two; do
   mkdir -p "$CVR/.aidev/works/$TODAY-$w"
   printf 'schema: 4\nslug: %s\ncurrent: deliver\napproved: [deliver]\nharnessRev: aaa1111\n' "$w" \
     > "$CVR/.aidev/works/$TODAY-$w/state.yml"
-  printf 'events:\n  - { ts: %sT01:00:00Z, phase: requirement, event: start }\n' \
-    "$(date -u +%Y-%m-%d)" > "$CVR/.aidev/works/$TODAY-$w/metrics.yml"
+  # 着手は条項の introduced（いま）より後に固定する（23:59:59Z）。deliver も刻む（--members が出す）
+  printf 'events:\n  - { ts: %sT23:59:59Z, phase: requirement, event: start }\n  - { ts: %sT23:59:59Z, phase: deliver, event: approved }\n' \
+    "$(date -u +%Y-%m-%d)" "$(date -u +%Y-%m-%d)" > "$CVR/.aidev/works/$TODAY-$w/metrics.yml"
 done
+# 同じ日でも条項より**前**に着手した work は母集団に入れない。日付粒度で比べていた間は混入していた——
+# 条項は「その日回っていた work の retro」から起きるのが典型なので、最初の母集団はほぼ確実に汚染される
+mkdir -p "$CVR/.aidev/works/$TODAY-early"
+printf 'schema: 4\nslug: early\ncurrent: deliver\napproved: [deliver]\n' > "$CVR/.aidev/works/$TODAY-early/state.yml"
+printf 'events:\n  - { ts: %sT00:00:00Z, phase: requirement, event: start }\n' \
+  "$(date -u +%Y-%m-%d)" > "$CVR/.aidev/works/$TODAY-early/metrics.yml"
 # 着手しただけの work は review を通っていない＝判定材料を1つも産んでいないので数えない。
 # ここを数えると、レビュー記録がまだ無いのに ready=yes が立ち insights が空の材料で判定する。
 mkdir -p "$CVR/.aidev/works/$TODAY-inflight"
@@ -923,7 +930,21 @@ printf 'events:\n  - { ts: 2020-01-01T01:00:00Z, phase: requirement, event: star
   > "$CVR/.aidev/works/20200101-old/metrics.yml"
 
 CV_S1=$(run_cv convention status --format tsv)
-assert_contains "$CV_S1" "	2	2	yes	" "convention status: 母集団は deliver 済みだけを数える（導入前・着手中は数えない）"
+assert_contains "$CV_S1" "	2	2	yes	" "convention status: 母集団は deliver 済みだけを数える（導入前・同日でも介入前・着手中は数えない）"
+assert_contains "$(grep '^introduced:' "$CVF")" "T" "convention new: introduced は時刻まで刻む（日付粒度だと同日の先行 work が混入する）"
+
+# --- --members: 母集団の work を分子（タグ）と同じ集合で出す ---
+printf -- '- [must] x [conv:naming-boolean]\n- [should] y [conv:naming-boolean]\n' > "$CVR/.aidev/works/$TODAY-one/review.md"
+printf -- '- [should] z [conv:naming-boolean]\n' > "$CVR/.aidev/works/$TODAY-two/review.md"
+printf -- '- [must] 混入 [conv:naming-boolean]\n' > "$CVR/.aidev/works/$TODAY-early/review.md"
+CV_M=$(run_cv convention status --members naming-boolean --format tsv)
+assert_contains "$CV_M" "member	$TODAY-one	" "convention status --members: 母集団の work を列挙する"
+assert_absent "$CV_M" "$TODAY-early" "convention status --members: 介入前に着手した work は出さない"
+assert_absent "$CV_M" "$TODAY-inflight" "convention status --members: 未 deliver の work は出さない"
+assert_eq "$(printf '%s\n' "$CV_M" | grep "^member	$TODAY-one	" | awk -F'\t' '{print $5}')" "2" \
+  "convention status --members: work ごとの [conv:<id>] 件数を出す"
+assert_contains "$CV_M" "members-summary: id=naming-boolean pop=2 conv_tags=3" \
+  "convention status --members: 分母(pop)と分子(タグ)を同じ集合で合計する（early のタグを数えない）"
 
 # --- doctor: 判定できる状態になったら催促する（人間が思い立つまで待たない） ---
 CV_D1=$(run_cv doctor 2>&1)
@@ -953,8 +974,37 @@ assert_absent "$CVT" "## 規約" "convention promote: 本文が2箇所に存在�
 run_cv convention new naming-boolean --hypothesis "again" --baseline "b" >/dev/null 2>&1
 assert_eq "$?" "1" "convention new: archive の tombstone と同 id は重複として弾く"
 
+# --- 出口ゲート: 母集団が揃う前の confirm / retire ineffective は拒否。--force は forced: true を残す ---
+# 背景: 入口（new）には仮説の関門があるのに出口には無く、pop=0 の confirm が通っていた。
+# 「事後の物語作り」を防ぎたい層で、判定側では機械的に何も止まっていなかった
+run_cv convention new gate --hypothesis h --baseline b --verify-after 50 >/dev/null
+run_cv convention confirm gate >/dev/null 2>&1
+assert_eq "$?" "1" "convention confirm: --result 無しは弾く（内訳の無い判定は残せない）"
+run_cv convention confirm gate --result "pop=2 だが confirm" >/dev/null 2>&1
+assert_eq "$?" "1" "convention confirm: 母集団が揃う前は弾く（pop 2 / need 50）"
+assert_contains "$(cat "$CVR/docs/aidev/gate.md")" "status: pending" "convention confirm: 弾いたら status は動かない"
+run_cv convention retire gate --status ineffective >/dev/null 2>&1
+assert_eq "$?" "1" "convention retire: --note 無しは弾く（理由の無い退役は再提案を弾く根拠にならない）"
+run_cv convention retire gate --status ineffective --note n >/dev/null 2>&1
+assert_eq "$?" "1" "convention retire: ineffective も母集団が揃う前は弾く"
+assert_eq "$([ -f "$CVR/docs/aidev/gate.md" ] && echo yes || echo no)" "yes" "convention retire: 弾いたら退避しない"
+CV_FO=$(run_cv convention confirm gate --result "揃う前に確定（理由: 別 PJ で実証済み）" --force 2>&1)
+assert_contains "$CV_FO" "forced: true を刻む" "convention confirm --force: 揃う前でも通すが警告する"
+assert_contains "$(cat "$CVR/docs/aidev/gate.md")" "forced: true" "convention confirm --force: forced を frontmatter に残す（後から「揃う前の判定」と分かる）"
+run_cv convention promote gate --to docs/coding-standards.md#gate >/dev/null
+# superseded は「別の条項に置き換わった」なので母集団は要らない（置き換え先が判定を引き継ぐ）
+run_cv convention new sup --hypothesis h --baseline b >/dev/null
+run_cv convention retire sup --status superseded --note "gate に統合" >/dev/null 2>&1
+assert_eq "$?" "0" "convention retire: superseded は母集団が揃っていなくても通す"
+assert_absent "$(cat "$CVR/docs/aidev/archive/sup.md")" "forced" "convention retire superseded: forced を刻まない（免除であって強行ではない）"
+# 日付だけの introduced（旧記法）は 00:00:00Z として数える（既存条項を書き換えずに済む）
+printf -- '---\nconvention: legacy\nstatus: pending\nintroduced: 2020-06-01\nhypothesis: h\nbaseline: b\nverify_after: 1\n---\n\n# legacy\n\n本文\n' > "$CVR/docs/aidev/legacy.md"
+assert_contains "$(run_cv convention status --format tsv)" "legacy	pending	2020-06-01	3	1	yes" \
+  "convention status: 日付だけの introduced は 00:00:00Z 扱いで数える（後方互換）"
+run_cv convention retire legacy --status superseded --note "gate に統合" >/dev/null
+
 # --- retire: 効かなかった条項の行き先は「削除」ではなく「層を下げる」 ---
-run_cv convention new err-gran --hypothesis "エラー粒度の指摘が減る" --baseline "b" >/dev/null
+run_cv convention new err-gran --hypothesis "エラー粒度の指摘が減る" --baseline "b" --verify-after 2 >/dev/null
 run_cv convention retire err-gran --status bogus >/dev/null 2>&1
 assert_eq "$?" "1" "convention retire: 未知の status を弾く"
 CV_R=$(run_cv convention retire err-gran --status ineffective --note "散文層の限界" 2>&1)
@@ -963,7 +1013,7 @@ assert_contains "$(cat "$CVR/docs/aidev/archive/err-gran.md")" "note: 散文層�
 
 # 全部退避されたので警告は消える（定常状態では pending だけが active に残る）
 CV_D3=$(run_cv doctor 2>&1)
-assert_contains "$CV_D3" "convention-summary: files=0 archived=2 warn=0" "doctor: 退避済みなら警告なし"
+assert_contains "$CV_D3" "convention-summary: files=0 archived=5 warn=0" "doctor: 退避済みなら警告なし"
 
 # --- 手編集で壊れた条項も拾う（frontmatter は人間も触る） ---
 mkdir -p "$CVR/docs/aidev"
@@ -1007,13 +1057,13 @@ SZ1=$(wc -c < "$GRD/docs/important.md")
 run_gd convention promote ../important --to 'tgt.md#a' >/dev/null 2>&1
 assert_eq "$?" "1" "promote: id のパス成分を潰す（../ で外に出ない）"
 assert_eq "$(wc -c < "$GRD/docs/important.md")" "$SZ1" "promote: 条項ディレクトリ外のファイルが無傷"
-run_gd convention retire ../important --status ineffective >/dev/null 2>&1
+run_gd convention retire ../important --status ineffective --note n --force >/dev/null 2>&1
 assert_eq "$?" "1" "retire: id のパス成分を潰す"
 assert_eq "$([ -f "$GRD/docs/important.md" ] && echo yes || echo no)" "yes" "retire: 外のファイルを移動しない"
 
 # --- 退避先が埋まっているときは、破壊する前に失敗する ---
 run_gd convention new dup --hypothesis h --baseline "b" >/dev/null
-run_gd convention retire dup --status ineffective >/dev/null
+run_gd convention retire dup --status superseded --note n >/dev/null
 printf -- '---\nconvention: dup\nstatus: pending\nintroduced: 2026-01-01\nhypothesis: h\nverify_after: 1\n---\n\n# dup\n\n本文。\n' > "$GRD/docs/aidev/dup.md"
 SZ2=$(wc -c < "$GRD/docs/aidev/dup.md")
 run_gd convention promote dup --to 'tgt.md#a' >/dev/null 2>&1
@@ -1031,7 +1081,7 @@ TODAY_D=$(date -u +%Y%m%d); TODAY_T=$(date -u +%Y-%m-%d)
 mkdir -p "$TSR/.aidev/works/$TODAY_D-w"
 printf 'schema: 4\nslug: w\ncurrent: deliver\napproved: [deliver]\n' > "$TSR/.aidev/works/$TODAY_D-w/state.yml"
 # 1行目のイベントに ts で終わる metrics キーを載せる
-printf 'events:\n  - { ts: %sT01:00:00Z, phase: coding, event: start, metrics: { defects: 3 } }\n' \
+printf 'events:\n  - { ts: %sT23:59:59Z, phase: coding, event: start, metrics: { defects: 3 } }\n' \
   "$TODAY_T" > "$TSR/.aidev/works/$TODAY_D-w/metrics.yml"
 assert_contains "$(run_ts convention status --format tsv)" "	1	1	yes	" \
   "母集団: metrics キー(defects)を着手日と取り違えない"
@@ -1073,7 +1123,7 @@ assert_contains "$(run_ix doctor 2>&1)" "索引に無い" "doctor: マーカー�
 # 移送したら索引の張り替え漏れを検知する（promote が「張り替えろ」と言うだけでは誰も見ていない）
 printf '# AGENTS\n\n<!-- aidev:conventions -->\n- 命名を判断するとき → docs/aidev/naming.md\n<!-- /aidev:conventions -->\n' > "$IXR/AGENTS.md"
 printf '# std\n' > "$IXR/docs/std.md"
-run_ix convention confirm naming >/dev/null
+run_ix convention confirm naming --result r --force >/dev/null
 run_ix convention promote naming --to docs/std.md#naming >/dev/null
 IX_D3=$(run_ix doctor 2>&1)
 assert_contains "$IX_D3" "索引が移送前を指したまま" "doctor: 移送後の張り替え漏れを WARN"
@@ -1089,7 +1139,7 @@ assert_contains "$(run_ix doctor 2>&1)" "索引に無い（rules.md）" "convent
 # 索引ファイルを移した PJ では**存在しない場所**へ誘導される（検査と案内が食い違う）
 assert_contains "$(run_ix convention new err2 --hypothesis h --baseline b 2>&1)" \
   "rules.md の索引ブロックに1行足すこと" "convention new: 案内する索引ファイル名が conventionsIndex に従う"
-run_ix convention confirm err2 >/dev/null
+run_ix convention confirm err2 --result r --force >/dev/null
 IX_PR=$(run_ix convention promote err2 --to docs/std.md#err2 2>&1)
 assert_contains "$IX_PR" "rules.md の索引ブロックのリンク先" "convention promote: 案内する索引ファイル名が conventionsIndex に従う"
 rm -rf "$IXR"
@@ -1313,8 +1363,12 @@ if [ -n "$PS_HOST" ]; then
   CD_PS=$( ( cd "$PCV" && run_ps1 "$AIDEV_PS1" doctor ) 2>&1 | tr -d '\r' | sed -n '/^convention:/,$p' )
   assert_eq "$CD_SH" "$CD_PS" "パリティ: doctor の条項検査（未判定の催促が一致）"
 
-  ( cd "$PCV" && "$AIDEV_SH" convention confirm sh-side >/dev/null )
-  ( cd "$PCV" && run_ps1 "$AIDEV_PS1" convention confirm ps-side >/dev/null )
+  # 出口ゲートのパリティ（片方だけ緩いと、その OS でだけ揃う前の判定が通る）
+  ( cd "$PCV" && "$AIDEV_SH" convention confirm sh-side --result r >/dev/null 2>&1 ); GG_SH=$?
+  ( cd "$PCV" && run_ps1 "$AIDEV_PS1" convention confirm ps-side --result r >/dev/null 2>&1 ); GG_PS=$?
+  assert_eq "$GG_SH/$GG_PS" "1/1" "パリティ: 母集団が揃う前の confirm は両実装とも弾く"
+  ( cd "$PCV" && "$AIDEV_SH" convention confirm sh-side --result r --force >/dev/null )
+  ( cd "$PCV" && run_ps1 "$AIDEV_PS1" convention confirm ps-side --result r --force >/dev/null )
   ( cd "$PCV" && "$AIDEV_SH" convention promote sh-side --to docs/std.md#a >/dev/null )
   ( cd "$PCV" && run_ps1 "$AIDEV_PS1" convention promote ps-side --to docs/std.md#a >/dev/null )
   CT_SH=$(sed 's/^introduced: .*/introduced: X/; s/^promoted_at: .*/promoted_at: X/' "$PCV/docs/aidev/archive/sh-side.md")
@@ -1357,7 +1411,7 @@ if [ -n "$PS_HOST" ]; then
   TD=$(date -u +%Y%m%d); TT=$(date -u +%Y-%m-%d)
   mkdir -p "$PTS/.aidev/works/$TD-w"
   printf 'schema: 4\nslug: w\ncurrent: deliver\napproved: [deliver]\n' > "$PTS/.aidev/works/$TD-w/state.yml"
-  printf 'events:\n  - { ts: %sT01:00:00Z, phase: coding, event: start, metrics: { defects: 3 } }\n' \
+  printf 'events:\n  - { ts: %sT23:59:59Z, phase: coding, event: start, metrics: { defects: 3 } }\n' \
     "$TT" > "$PTS/.aidev/works/$TD-w/metrics.yml"
   TS_SH=$( ( cd "$PTS" && "$AIDEV_SH" convention status --format tsv ) 2>&1 )
   TS_PS=$( ( cd "$PTS" && run_ps1 "$AIDEV_PS1" convention status --format tsv ) 2>&1 | tr -d '\r' )
@@ -1391,6 +1445,14 @@ if [ -n "$PS_HOST" ]; then
   # 「冪等性」であって初回着地の副作用ではない。harnessRevDelivered の刻印など初回だけの
   # 副作用は、ps1 が自分で着地させる「ps1 側の刻印と検知」ブロックで見ている
   assert_eq "$RA_SH" "$RA_PS" "パリティ: approve deliver の再承認が冪等（初回着地は別ブロックで検査）"
+  # 母集団メンバー一覧のパリティ（subtask の review.md も親に合算する）
+  mkdir -p "$PRD/.aidev/works/$PAW/01-s"
+  printf 'x [conv:rc] y [conv:rc]\n' > "$PRD/.aidev/works/$PAW/review.md"
+  printf '[conv:rc]\n' > "$PRD/.aidev/works/$PAW/01-s/review.md"
+  MB_SH=$( ( cd "$PRD" && "$AIDEV_SH" convention status --members rc --format tsv ) 2>&1 )
+  MB_PS=$( ( cd "$PRD" && run_ps1 "$AIDEV_PS1" convention status --members rc --format tsv ) 2>&1 | tr -d '\r' )
+  assert_eq "$MB_SH" "$MB_PS" "パリティ: convention status --members（母集団の work とタグ件数）"
+  assert_contains "$MB_SH" "members-summary: id=rc pop=1 conv_tags=3" "members: subtask の review.md のタグも親に合算する"
   rm -rf "$PRD"
   # --- 引数の解釈のパリティ ---
   # PowerShell の switch は既定で**大文字小文字を区別しない**ので、放っておくと Windows でだけ
@@ -1439,7 +1501,7 @@ p=sys.argv[1]; t=io.open(p,encoding='utf-8').read().replace('<!-- 何を守る�
 io.open(p,'w',encoding='utf-8').write(t)
 PYEOF
     assert_absent "$(rc_ doctor 2>&1 | tr -d '\r')" "本文が未記入" "[$impl] doctor: 本文を書けば WARN は消える"
-    RT=$(rc_ convention retire k --status ineffective 2>&1 | tr -d '\r')
+    RT=$(rc_ convention retire k --status ineffective --note n --force 2>&1 | tr -d '\r')
     assert_contains "$RT" "索引ブロックから docs/aidev/k.md の行を消すこと" "[$impl] retire: 索引の行を消すよう促す"
     DR=$(rc_ doctor 2>&1 | tr -d '\r')
     assert_contains "$DR" "索引が退役済み条項を指したまま" "[$impl] doctor: 退役後に索引が dangling なら WARN"
@@ -1742,8 +1804,8 @@ PYEOF
   PAD=$(mktemp -d); mkdir -p "$PAD/.aidev/works" "$PAD/docs/aidev/archive/k.md"
   printf -- '---\nconvention: k\nstatus: pending\nintroduced: 2026-01-01\nhypothesis: h\nbaseline: b\nverify_after: 1\n---\n\nbody\n' \
     > "$PAD/docs/aidev/k.md"
-  ( cd "$PAD" && "$AIDEV_SH" convention retire k --status ineffective >/dev/null 2>&1 ); AS=$?
-  ( cd "$PAD" && run_ps1 "$AIDEV_PS1" convention retire k --status ineffective >/dev/null 2>&1 ); AP=$?
+  ( cd "$PAD" && "$AIDEV_SH" convention retire k --status ineffective --note n --force >/dev/null 2>&1 ); AS=$?
+  ( cd "$PAD" && run_ps1 "$AIDEV_PS1" convention retire k --status ineffective --note n --force >/dev/null 2>&1 ); AP=$?
   assert_eq "$AS" "$AP" "パリティ: archive に同名ディレクトリがあれば両実装とも止める"
   assert_eq "$([ -f "$PAD/docs/aidev/k.md" ] && echo yes || echo no)" "yes" \
     "衝突を検知したら本文を動かさない（archive/<id>.md がディレクトリでも埋没させない）"
@@ -1855,9 +1917,9 @@ YML
   else
     skip 10 "git 不在のため worktree パリティを省略"
   fi
-  block_end parity "142" "parity"
+  block_end parity "145" "parity"
 else
-  skip 142 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
+  skip 145 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
 fi
 
 echo

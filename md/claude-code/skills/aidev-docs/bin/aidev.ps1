@@ -321,27 +321,45 @@ function CvArchiveFree($path) {
 #  - 導入前から走っていた work は条項の効果を半分しか受けていない。
 #  - 着手しただけの work は review を通っていない＝判定材料を1つも産んでいない。数えると
 #    レビュー記録が無いのに ready=yes が立ち、insights が空の材料で判定してしまう。
-function CvPop($introduced) {
-  $b = ($introduced -replace '-','')
-  if ($b -notmatch '^\d+$') { return 0 }
+# ts（YYYY-MM-DD / YYYY-MM-DDTHH:MM:SSZ）→ 比較用の 14 桁 YYYYMMDDHHMMSS。
+# 日付だけの値は 00:00:00 扱い（introduced が日付粒度だった旧条項の後方互換）。8 桁未満なら ''
+function CvTsKey($ts) {
+  $k = ("$ts" -replace '[^0-9]','')
+  if ($k.Length -lt 8) { return '' }
+  return ($k + '00000000000000').Substring(0,14)
+}
+# 先頭イベントの ts。行内に metrics キー（defects / commits / tests …）があっても最初の ts: を拾うよう、
+# イベント行の形 `- { ts: … }` の `{` の直後にアンカーする（sh の sed と揃える）。
+function CvFirstTs($lines) {
+  foreach ($l in $lines) {
+    if ($l -match '^[^{]*\{\s*ts:\s*([0-9][0-9:TZ.-]*)') { return $Matches[1] }
+  }
+  return ''
+}
+# 母集団の材料（deliver 済み top-level work の着手時刻）を 1 回だけ走査して積む（sh の cv_pop_prime と同じ）。
+# 条項ごとに全 works を舐め直すと O(条項×works) になる
+function CvPopPrime() {
+  if ($script:CvTsReady) { return }
+  $script:CvTsReady = $true; $script:CvTs = @()
   $worksRoot = Join-Path $script:AIDEV 'works'
-  if (-not (IsDir $worksRoot)) { return 0 }
-  $n = 0
+  if (-not (IsDir $worksRoot)) { return }
   foreach ($d in (Get-ChildItem -LiteralPath $worksRoot -Directory | Sort-Object Name)) {
     $f = Join-Path $d.FullName 'metrics.yml'
     if (-not (IsFile $f)) { continue }
-    if ((YList (Join-Path $d.FullName 'state.yml') 'approved') -cnotcontains 'deliver') { continue }
-    $ts = ''
-    foreach ($l in [System.IO.File]::ReadAllLines($f)) {
-      # 行内に metrics キー（defects / commits / tests …）があっても最初の ts: を拾うよう、
-      # イベント行の形 `- { ts: … }` の `{` の直後にアンカーする（sh の sed と揃える）。
-      if ($l -match '^[^{]*\{\s*ts:\s*([0-9][0-9-]*)') { $ts = $Matches[1]; break }
-    }
+    if (@(YList (Join-Path $d.FullName 'state.yml') 'approved') -cnotcontains 'deliver') { continue }
+    $ts = CvFirstTs ([System.IO.File]::ReadAllLines($f))
     if (-not $ts) { continue }
-    $a = (($ts -split 'T')[0] -replace '-','')
-    if ($a -notmatch '^\d+$') { continue }
-    if ([int64]$a -ge [int64]$b) { $n++ }
+    $a = CvTsKey $ts
+    if (-not $a) { continue }
+    $script:CvTs += $a
   }
+}
+function CvPop($introduced) {
+  $b = CvTsKey $introduced
+  if (-not $b) { return 0 }
+  CvPopPrime
+  $n = 0
+  foreach ($a in @($script:CvTs)) { if ([int64]$a -ge [int64]$b) { $n++ } }
   return $n
 }
 
@@ -1734,8 +1752,8 @@ function Cv-New($rest) {
   if (PathExists $f) { Die "すでにあります: $f" }
   $arcf = Join-Path (Join-Path $d 'archive') "$id.md"
   if (IsFile $arcf) { Die "同じ id が archive にあります（$arcf）。移送済み条項の再提案は重複です" }
-  $today = ('{0:D4}-{1:D2}-{2:D2}' -f [DateTime]::UtcNow.Year, [DateTime]::UtcNow.Month, [DateTime]::UtcNow.Day)
-  $sb = "---`nconvention: $id`nstatus: pending`nintroduced: $today`n"
+  $now = Now
+  $sb = "---`nconvention: $id`nstatus: pending`nintroduced: $now`n"
   if ($src) { $sb += "source: $src`n" }
   $sb += "hypothesis: $hyp`nbaseline: $base`nverify_after: $va`n---`n`n"
   $sb += "# $id`n`n"
@@ -1761,49 +1779,78 @@ function Cv-New($rest) {
   }
 }
 
+# 出口ゲート: 母集団が verify_after に達していない条項は判定させない（sh の cv_exit_gate と同じ）。
+# --force は理由必須の非常口で、呼び出し側が frontmatter に forced: true を刻む
+$script:CvForced = $false
+function Cv-ExitGate($path, $force, $verb) {
+  $script:CvForced = $false
+  $va = CvGet $path 'verify_after'; if ($va -notmatch '^\d+$') { $va = '0' }
+  if ([int]$va -le 0) { return }
+  $in = CvGet $path 'introduced'
+  $pop = 0; if ($in) { $pop = CvPop $in }
+  if ([int]$pop -ge [int]$va) { return }
+  if ($force) {
+    Write-Output "warn: 母集団が揃っていません(pop $pop / need $va)。--force により $verb します（forced: true を刻む）"
+    $script:CvForced = $true
+    return
+  }
+  Die "母集団が揃っていません(pop $pop / need $va)。判定は揃ってから（aidev convention status）。それでも $verb するなら --force（理由を --result/--note に書く）"
+}
+
 function Cv-Confirm($rest) {
-  $id=''; $result=''
+  $id=''; $result=''; $force=$false
   for ($i=0; $i -lt $rest.Count; $i++) {
     switch -CaseSensitive ($rest[$i]) {
       '--result' { $i++; $result=(ArgAt $rest $i '--result') }
+      '--force'  { $force=$true }
       default {
         if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
         if ($id) { Die "id は1つだけ" } else { $id=$rest[$i] }
       }
     }
   }
-  if (-not $id) { Die "使用法: aidev convention confirm <id> [--result <text>]" }
+  if (-not $id) { Die "使用法: aidev convention confirm <id> --result <text> [--force]" }
+  # 内訳の無い confirm は後から検証できない
+  if (-not $result) { Die "--result は必須です（判定の内訳: baseline と導入後の件数、母集団の work 数。書けない判定は残せない）" }
   $f = CvFind $id
   if (-not $f) { Die "条項がありません: $id" }
   if ($f -match '[\\/]archive[\\/]') { Die "退避済みの条項は変更できません: $id" }
   CvRequire $f
+  Cv-ExitGate $f $force 'confirm'
   CvSet $f 'status' 'confirmed'
-  if ($result) { CvSet $f 'result' $result }
+  CvSet $f 'result' $result
+  if ($script:CvForced) { CvSet $f 'forced' 'true' }
   Write-Output "confirmed: $id"
   Write-Output "next: 本文を PJ ドキュメントへ移し、``aidev convention promote $id --to <path#anchor>`` で tombstone 化する"
 }
 
 function Cv-Retire($rest) {
-  $id=''; $st=''; $note=''
+  $id=''; $st=''; $note=''; $force=$false
   for ($i=0; $i -lt $rest.Count; $i++) {
     switch -CaseSensitive ($rest[$i]) {
       '--status' { $i++; $st=(ArgAt $rest $i '--status') }
       '--note'   { $i++; $note=(ArgAt $rest $i '--note') }
+      '--force'  { $force=$true }
       default {
         if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
         if ($id) { Die "id は1つだけ" } else { $id=$rest[$i] }
       }
     }
   }
-  if (-not $id) { Die "使用法: aidev convention retire <id> --status ineffective|superseded [--note <text>]" }
+  if (-not $id) { Die "使用法: aidev convention retire <id> --status ineffective|superseded --note <text> [--force]" }
   if ($st -ceq '') { Die "--status は必須です（ineffective|superseded）" }
   if ($st -cne 'ineffective' -and $st -cne 'superseded') { Die "未知の status: $st（ineffective|superseded）" }
+  # 理由の無い退役は tombstone に何も残さず、同じ観点の再提案を弾く根拠にならない
+  if (-not $note) { Die "--note は必須です（退役理由。ineffective なら何が効かなかったか、superseded なら何に置き換わったか）" }
   $f = CvFind $id
   if (-not $f) { Die "条項がありません: $id" }
   if ($f -match '[\\/]archive[\\/]') { Die "すでに退避済みです: $id" }
   CvRequire $f
+  # superseded は置き換えなので母集団は要らない。ineffective は効果判定なので要る
+  if ($st -ceq 'ineffective') { Cv-ExitGate $f $force 'retire' }
   CvSet $f 'status' $st
-  if ($note) { CvSet $f 'note' $note }
+  CvSet $f 'note' $note
+  if ($script:CvForced) { CvSet $f 'forced' 'true' }
   Cv-ArchiveFile $f
   Write-Output "retired: $id ($st)"
   # 退役しても索引ブロックの行は残る（promote の張り替えと同じ後始末）。doctor も検査するが、まずここで促す
@@ -1847,11 +1894,59 @@ function Cv-Promote($rest) {
   Write-Output "next: $(CvIndexLabel) の索引ブロックのリンク先を $to に張り替えること"
 }
 
+# 母集団のメンバー一覧（sh の cv_members と同じ）。pop の件数だけでは分子（タグ）を分母と同じ集合に絞れない。
+# タグは subtask の review.md も含めて数える（subtask は親に属する。母集団は top-level だけ）
+function Cv-Members($id, $fmt) {
+  $f = CvFind $id
+  if (-not $f) { Die "条項がありません: $id" }
+  $sid = CvId $id
+  $in = CvGet $f 'introduced'
+  if (-not $in) { Die "introduced が無い条項です: $sid" }
+  $b = CvTsKey $in
+  if (-not $b) { Die "introduced が不正です: $in" }
+  $worksRoot = Join-Path $script:AIDEV 'works'
+  $rows=@(); $n=0; $tsum=0
+  if (IsDir $worksRoot) {
+    foreach ($d in (Get-ChildItem -LiteralPath $worksRoot -Directory | Sort-Object Name)) {
+      $pf = Join-Path $d.FullName 'metrics.yml'
+      if (-not (IsFile $pf)) { continue }
+      if (@(YList (Join-Path $d.FullName 'state.yml') 'approved') -cnotcontains 'deliver') { continue }
+      $lines = [System.IO.File]::ReadAllLines($pf)
+      $pts = CvFirstTs $lines
+      if (-not $pts) { continue }
+      $a = CvTsKey $pts
+      if (-not $a) { continue }
+      if ([int64]$a -lt [int64]$b) { continue }
+      $dts = '-'
+      foreach ($l in $lines) {
+        if ($l.Contains('phase: deliver, event: approved') -and $l -match '^[^{]*\{\s*ts:\s*([0-9][0-9:TZ.-]*)') { $dts = $Matches[1] }
+      }
+      $tg = 0
+      $needle = "[conv:$sid]"
+      foreach ($rv in @(Get-ChildItem -LiteralPath $d.FullName -Recurse -File -Filter review.md -ErrorAction SilentlyContinue)) {
+        $txt = [System.IO.File]::ReadAllText($rv.FullName)
+        $ix = 0
+        while (($ix = $txt.IndexOf($needle, $ix, [StringComparison]::Ordinal)) -ge 0) { $tg++; $ix += $needle.Length }
+      }
+      $n++; $tsum += $tg
+      $rows += "$($d.Name)`t$pts`t$dts`t$tg"
+    }
+  }
+  if ($fmt -ceq 'tsv') {
+    foreach ($r in $rows) { Write-Output "member`t$r" }
+  } else {
+    $all = @("work`tstarted`tdelivered`tconv_tags") + $rows
+    foreach ($l in (Fmt-Table $all)) { Write-Output $l }
+  }
+  Write-Output "members-summary: id=$sid pop=$n conv_tags=$tsum"
+}
+
 function Cv-Status($rest) {
-  $fmt='table'
+  $fmt='table'; $members=''
   for ($i=0; $i -lt $rest.Count; $i++) {
     switch -CaseSensitive ($rest[$i]) {
-      '--format' { $i++; $fmt=(ArgAt $rest $i '--format') }
+      '--format'  { $i++; $fmt=(ArgAt $rest $i '--format') }
+      '--members' { $i++; $members=(ArgAt $rest $i '--members') }
       default {
         if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
         Die "余分な引数: $($rest[$i])"
@@ -1861,6 +1956,7 @@ function Cv-Status($rest) {
   if ($fmt -cne 'table' -and $fmt -cne 'tsv') { Die "--format は table|tsv" }
   $d = CvDir
   if (-not (IsDir $d)) { Die "条項ディレクトリがありません: $d（aidev convention new で起こす）" }
+  if ($members) { Cv-Members $members $fmt; return }
   $files = @()
   $files += (Get-ChildItem -LiteralPath $d -File -Filter *.md -ErrorAction SilentlyContinue | Sort-Object Name)
   $arc = Join-Path $d 'archive'

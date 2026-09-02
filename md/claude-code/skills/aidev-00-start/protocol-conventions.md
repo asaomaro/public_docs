@@ -26,7 +26,7 @@
 ---
 convention: naming-boolean      # id（ファイル名と一致）
 status: pending                 # pending | confirmed | promoted | ineffective | superseded
-introduced: 2026-08-30          # 導入日（UTC）。母集団の起点になる
+introduced: 2026-08-30T09:12:00Z # 導入時刻（UTC）。母集団の起点。日付だけの旧記法は 00:00:00Z 扱い
 source: .aidev/insights/2026-08-28-insights.md   # この条項を生んだ信号（任意）
 hypothesis: 命名に関する must/should 指摘が減る    # 必須。書けない条項は作らせない
 baseline: 直近10 works で boolean 命名の指摘 7件（must 2 / should 5）  # 必須。「前」の記録
@@ -34,7 +34,8 @@ verify_after: 5                 # 判定に要する母集団の最低件数（�
 result: <判定の内訳>             # confirm 時
 promoted_to: docs/coding-standards.md#boolean-naming  # promote 時
 promoted_at: 2026-09-15         # promote 時
-note: <退役理由>                 # retire 時
+note: <退役理由>                 # retire 時（必須）
+forced: true                    # 母集団が揃う前に --force で confirm/retire したとき（後から「揃う前の判定」と分かる）
 ---
 ```
 
@@ -158,9 +159,13 @@ grep -rho --include=review.md '\[conv:[^]]*\]' .aidev/works | sort | uniq -c | s
 - **母集団は `introduced` 以降に着手し、かつ deliver 済みの work だけ**
   （`aidev convention status` の `pop` が数える）。
   導入前から走っていた work は条項の効果を半分しか受けていない。
-- **上の grep は全 works を舐める**ので、`pop` に合わせて対象を絞ってから数えること。
-  絞らずに数えると、分子（タグ）と分母（母集団）が別のものを指す。
+- **上の grep は全 works を舐める**ので、分母と同じ集合で数えるには
+  `aidev convention status --members <id>` を使う（母集団の work ごとに着手・deliver・`[conv:<id>]` 件数。
+  subtask の `review.md` は親に合算）。絞らずに数えると、分子（タグ）と分母（母集団）が別のものを指す。
   **subtask は親に属する**——親が `introduced` より前に着手していれば、その子のタグも数えない。
+- **出口も CLI が守る**: `confirm` は `--result`、`retire` は `--note` が必須。母集団が `verify_after` に
+  達していない条項の `confirm` / `retire --status ineffective` は拒否される（`superseded` は置き換えなので免除）。
+  それでも進めるなら `--force`——`forced: true` が frontmatter に残り、後から「揃う前の判定」と分かる。
 - **陰性は結論にならない**。遵守が LLM 依存で非決定的なので、指摘が減らなくても
   「条項の内容が間違っていた」とは言えない。言えるのは「**散文では効かなかった**」まで。
   その場合の打ち手は削除ではなく **CLI（ハード層）かフック（自動化層）へ寄せる**こと。
@@ -217,10 +222,10 @@ doctor が「confirmed だが未移送」を WARN
 | コマンド | 役割 |
 |---|---|
 | `aidev convention new <id> --hypothesis <text> --baseline <text> [--source <p>] [--verify-after <n>]` | 起こす（`--hypothesis` と `--baseline` は必須） |
-| `aidev convention confirm <id> [--result <text>]` | 効果ありと判定 |
+| `aidev convention confirm <id> --result <text> [--force]` | 効果ありと判定（`--result` 必須。母集団が `verify_after` 未満なら拒否。`--force` は `forced: true` を刻む） |
 | `aidev convention promote <id> --to <path#anchor>` | tombstone 化して退避（移送先の実在を検査） |
-| `aidev convention retire <id> --status ineffective\|superseded [--note <t>]` | 退役して退避 |
-| `aidev convention status [--format table\|tsv]` | 状態・母集団・判定可否の一覧 |
+| `aidev convention retire <id> --status ineffective\|superseded --note <t> [--force]` | 退役して退避（`--note` 必須。`ineffective` は母集団が要る。`superseded` は置き換えなので免除） |
+| `aidev convention status [--format table\|tsv] [--members <id>]` | 状態・母集団・判定可否の一覧。`--members` は母集団の work ごとに着手・deliver・`[conv:<id>]` 件数（分母と分子を同じ集合で見る） |
 
 **ファイル自身の一生は `aidev doctor` が見る**（条項ファイルには持ち主の work がいないので `verify` の
 硬ゲートにできない）。検知するのは `status` の欠落・誤記／判定可能なのに未判定／confirmed の移送漏れ／

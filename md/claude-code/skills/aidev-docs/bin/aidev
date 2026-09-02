@@ -28,10 +28,10 @@
 #   aidev convention new <id> --hypothesis <text> --baseline <text> [--source <path>] [--verify-after <n>]
 #     PJ規約の条項を docs/aidev/ に起こす。--hypothesis と --baseline が必須＝検証できない条項を作らせない入口ゲート
 #     （baseline: 導入前にこの観点の指摘が何件あったか。id 別の件数は 0->N と増えるだけで前後比較にならないため）
-#   aidev convention confirm <id> [--result <text>]     # 効果あり -> PJ ドキュメントへ移送待ちになる
-#   aidev convention retire  <id> --status ineffective|superseded [--note <text>]  # 効果なし/置換で退役
+#   aidev convention confirm <id> --result <text> [--force]  # 効果あり -> 移送待ち。母集団が揃う前は --force（forced: true が残る）
+#   aidev convention retire  <id> --status ineffective|superseded --note <text> [--force]  # 効果なし/置換で退役（ineffective は母集団が要る）
 #   aidev convention promote <id> --to <path#anchor>    # 本文を PJ docs へ移した後、tombstone 化して退避
-#   aidev convention status [--format table|tsv]        # 条項の状態・母集団件数・判定可否を一覧
+#   aidev convention status [--format table|tsv] [--members <id>]  # 条項の一覧。--members は母集団の work 一覧（分母と分子を同じ集合で見る）
 #   aidev status [--format table|tsv]          # works横断＋backlog未着手の状況サマリ（読み取り専用）
 #   aidev metrics [slug] [--all] [--phases] [--format table|tsv]  # metrics.yml から派生指標を集計（読み取り専用）
 #   aidev worktree add <slug> [--branch n] [--base ref] [--path dir] [--mode m] [--ticket id] [--depends list]
@@ -248,11 +248,12 @@ cv_require() { # path id
   fi
 }
 
-# 母集団＝その条項の導入日以降に着手し、**かつ deliver 済み**の work の件数。
+# 母集団＝その条項の導入時刻以降に着手し、**かつ deliver 済み**の work の件数。
 #
 # 条件が2つある理由:
-#  - **導入日以降に着手**: 導入前から走っていた work は条項の効果を半分しか受けていない
-#    （またがり work を入れると効果が薄まる方向にバイアスがかかる）。
+#  - **導入時刻以降に着手**: 導入前から走っていた work は条項の効果を半分しか受けていない
+#    （またがり work を入れると効果が薄まる方向にバイアスがかかる）。日付粒度で比べると、条項が
+#    生まれるきっかけになった「同じ日に先に着手していた work」がほぼ確実に混入するので時刻で比べる。
 #  - **deliver 済み**: 着手しただけの work は review を通っていない＝**判定材料を1つも産んでいない**。
 #    着手だけで数えると、レビュー記録がまだ無いのに ready=yes が立ち、insights が
 #    空の材料で判定してしまう。母集団の増える瞬間は `approve deliver` の1点になる。
@@ -261,6 +262,13 @@ cv_require() { # path id
 # 100 works × 30 条項で convention status / doctor / approve deliver が 20 秒超になった。
 # **注意**: `pop=$(cv_pop …)` はサブシェルなので、キャッシュは呼び出しループの**手前・親シェル**で
 # prime すること（サブシェル内で積んでも親には残らない）
+# ts（`YYYY-MM-DD` / `YYYY-MM-DDTHH:MM:SSZ`）→ 比較用の 14 桁 `YYYYMMDDHHMMSS`。
+# 日付だけの値は 00:00:00 扱い（`introduced` が日付粒度だった旧条項の後方互換）。8 桁未満なら 1
+cv_ts_key() {
+  _k=$(printf '%s' "$1" | tr -cd '0-9')
+  [ "${#_k}" -ge 8 ] || return 1
+  printf '%s00000000000000' "$_k" | cut -c1-14
+}
 cv_pop_prime() {
   [ "${CV_TS_READY:-}" = yes ] && return 0
   CV_TS_READY=yes; CV_TS=""
@@ -271,18 +279,19 @@ cv_pop_prime() {
     [ -f "$_pf" ] || continue
     # 着手しただけの work は review を通っておらず判定材料が無いので数えない
     ylist "${_pd}state.yml" approved | grep -qw deliver || continue
-    # 先頭イベントの ts（行頭の `{ ts:` に固定。`metrics: { defects: 3 }` の 3 を日付と取り違えない）
-    _pts=$(sed -n 's/^[^{]*{[[:space:]]*ts:[[:space:]]*\([0-9][0-9-]*\).*/\1/p' "$_pf" | head -n1)
+    _pts=$(cv_first_ts "$_pf")
     [ -n "$_pts" ] || continue
-    _a=$(printf '%s' "${_pts%%T*}" | tr -d '-')
-    case "$_a" in ''|*[!0-9]*) continue ;; esac
+    _a=$(cv_ts_key "$_pts") || continue
     CV_TS="$CV_TS $_a"
   done
 }
-cv_pop() { # introduced(YYYY-MM-DD) -> 件数
+# 先頭イベントの ts（行頭の `{ ts:` に固定。`metrics: { defects: 3 }` の 3 を日付と取り違えない）
+cv_first_ts() { # metrics.yml
+  sed -n 's/^[^{]*{[[:space:]]*ts:[[:space:]]*\([0-9][0-9:TZ.-]*\).*/\1/p' "$1" | head -n1
+}
+cv_pop() { # introduced(YYYY-MM-DD | YYYY-MM-DDTHH:MM:SSZ) -> 件数
   n=0
-  _b=$(printf '%s' "$1" | tr -d '-')
-  case "$_b" in ''|*[!0-9]*) printf '0'; return 0 ;; esac
+  _b=$(cv_ts_key "$1") || { printf '0'; return 0; }
   cv_pop_prime
   for _a in $CV_TS; do [ "$_a" -ge "$_b" ] && n=$((n+1)); done
   printf '%s' "$n"
@@ -1765,7 +1774,7 @@ cv_new() {
     printf '%s\n' '---'
     printf 'convention: %s\n' "$id"
     printf 'status: pending\n'
-    printf 'introduced: %s\n' "$(date -u +%F)"
+    printf 'introduced: %s\n' "$(now)"
     if [ -n "$src" ]; then printf 'source: %s\n' "$src"; fi
     printf 'hypothesis: %s\n' "$hyp"
     printf 'baseline: %s\n' "$base"
@@ -1794,46 +1803,79 @@ cv_new() {
   fi
 }
 
+# 出口ゲート: 母集団が verify_after に達していない条項は判定させない。入口（new）に仮説の関門が
+# あっても、出口で何も止まらなければ「事後の物語作り」は判定側で起きる（pop=0 の confirm が通っていた）。
+# --force は理由必須の非常口で、frontmatter に `forced: true` が残る（後から読む人が「揃う前の判定」と分かる）。
+# 呼び出し側が forced を刻む（status/result の後ろに置いて frontmatter の並びを両実装で揃える）
+CV_FORCED=""
+cv_exit_gate() { # file force(yes|no) 動詞
+  CV_FORCED=""
+  _va=$(cv_get "$1" verify_after)
+  case "$_va" in ''|*[!0-9]*) _va=0 ;; esac
+  [ "$_va" -gt 0 ] || return 0
+  _in=$(cv_get "$1" introduced)
+  _pop=0
+  if [ -n "$_in" ]; then _pop=$(cv_pop "$_in"); fi
+  [ "$_pop" -ge "$_va" ] && return 0
+  if [ "$2" = yes ]; then
+    printf 'warn: 母集団が揃っていません(pop %s / need %s)。--force により %s します（forced: true を刻む）\n' "$_pop" "$_va" "$3"
+    CV_FORCED=yes
+    return 0
+  fi
+  die "母集団が揃っていません(pop $_pop / need $_va)。判定は揃ってから（aidev convention status）。それでも $3 するなら --force（理由を --result/--note に書く）"
+}
+
 cv_confirm() {
-  id=""; result=""
+  id=""; result=""; force=no
   while [ $# -gt 0 ]; do
     case "$1" in
       --result) need_arg "$1" $#; result=${2:-}; shift 2 ;;
+      --force)  force=yes; shift ;;
       -*) die "未知のオプション: $1" ;;
       *) if [ -z "$id" ]; then id=$1; else die "id は1つだけ"; fi; shift ;;
     esac
   done
-  [ -n "$id" ] || die "使用法: aidev convention confirm <id> [--result <text>]"
+  [ -n "$id" ] || die "使用法: aidev convention confirm <id> --result <text> [--force]"
+  # 内訳の無い confirm は後から検証できない（何と何を比べて「効いた」としたのかが残らない）
+  [ -n "$result" ] || die "--result は必須です（判定の内訳: baseline と導入後の件数、母集団の work 数。書けない判定は残せない）"
   f=$(cv_find "$id") || die "条項がありません: $id"
   case "$f" in *"/archive/"*) die "退避済みの条項は変更できません: $id" ;; esac
   cv_require "$f" "$id"
+  cv_exit_gate "$f" "$force" confirm
   cv_set "$f" status confirmed
-  if [ -n "$result" ]; then cv_set "$f" result "$result"; fi
+  cv_set "$f" result "$result"
+  if [ "$CV_FORCED" = yes ]; then cv_set "$f" forced true; fi
   printf 'confirmed: %s\n' "$id"
   printf 'next: 本文を PJ ドキュメントへ移し、`aidev convention promote %s --to <path#anchor>` で tombstone 化する\n' "$id"
 }
 
 cv_retire() {
-  id=""; st=""; note=""
+  id=""; st=""; note=""; force=no
   while [ $# -gt 0 ]; do
     case "$1" in
       --status) need_arg "$1" $#; st=${2:-}; shift 2 ;;
       --note)   need_arg "$1" $#; note=${2:-}; shift 2 ;;
+      --force)  force=yes; shift ;;
       -*) die "未知のオプション: $1" ;;
       *) if [ -z "$id" ]; then id=$1; else die "id は1つだけ"; fi; shift ;;
     esac
   done
-  [ -n "$id" ] || die "使用法: aidev convention retire <id> --status ineffective|superseded [--note <text>]"
+  [ -n "$id" ] || die "使用法: aidev convention retire <id> --status ineffective|superseded --note <text> [--force]"
   case "$st" in
     ineffective|superseded) ;;
     "") die "--status は必須です（ineffective|superseded）" ;;
     *) die "未知の status: $st（ineffective|superseded）" ;;
   esac
+  # 理由の無い退役は tombstone に何も残さず、同じ観点の再提案を弾く根拠にならない
+  [ -n "$note" ] || die "--note は必須です（退役理由。ineffective なら何が効かなかったか、superseded なら何に置き換わったか）"
   f=$(cv_find "$id") || die "条項がありません: $id"
   case "$f" in *"/archive/"*) die "すでに退避済みです: $id" ;; esac
   cv_require "$f" "$id"
+  # superseded は「別の条項に置き換わった」なので母集団は要らない。ineffective は効果判定なので要る
+  if [ "$st" = ineffective ]; then cv_exit_gate "$f" "$force" retire; fi
   cv_set "$f" status "$st"
-  if [ -n "$note" ]; then cv_set "$f" note "$note"; fi
+  cv_set "$f" note "$note"
+  if [ "$CV_FORCED" = yes ]; then cv_set "$f" forced true; fi
   cv_archive_file "$f"
   printf 'retired: %s (%s)\n' "$id" "$st"
   # 退役しても索引ブロックの行は残る（promote の張り替えと同じ「後始末」）。
@@ -1891,11 +1933,53 @@ cv_archive_file() { # path
   printf 'archived: %s\n' "$d/archive/$b"
 }
 
+# 母集団のメンバー一覧。`pop` は件数しか出さないので、判定側は「どの work を数えたか」を
+# state.yml/metrics.yml を自分で読んで復元するしかなく、review.md のタグ集計（分子）を
+# 母集団（分母）と同じ集合に絞れなかった。ここで work 名・着手・deliver・タグ件数を同じ集合で出す。
+# タグは subtask の review.md も含めて数える（subtask は親に属する。母集団は top-level だけ）
+cv_members() { # id fmt
+  f=$(cv_find "$1") || die "条項がありません: $1"
+  _id=$(cv_id "$1")
+  _in=$(cv_get "$f" introduced)
+  [ -n "$_in" ] || die "introduced が無い条項です: $_id"
+  _b=$(cv_ts_key "$_in") || die "introduced が不正です: $_in"
+  rows=""; n=0; tsum=0
+  if [ -d "$AIDEV/works" ]; then
+    for _pd in "$AIDEV/works"/*/; do
+      [ -d "$_pd" ] || continue
+      _pf="${_pd}metrics.yml"
+      [ -f "$_pf" ] || continue
+      ylist "${_pd}state.yml" approved | grep -qw deliver || continue
+      _pts=$(cv_first_ts "$_pf")
+      [ -n "$_pts" ] || continue
+      _a=$(cv_ts_key "$_pts") || continue
+      [ "$_a" -ge "$_b" ] || continue
+      _dts=$(grep 'phase: deliver, event: approved' "$_pf" | tail -n1 \
+             | sed -n 's/^[^{]*{[[:space:]]*ts:[[:space:]]*\([0-9][0-9:TZ.-]*\).*/\1/p')
+      [ -n "$_dts" ] || _dts="-"
+      _tg=$(find "$_pd" -name review.md -exec grep -o -F "[conv:$_id]" {} + 2>/dev/null | wc -l | tr -d ' ')
+      n=$((n+1)); tsum=$((tsum+_tg))
+      rows="${rows}$(basename "$_pd")	${_pts}	${_dts}	${_tg}
+"
+    done
+  fi
+  if [ "$2" = tsv ]; then
+    printf '%s' "$rows" | while IFS='	' read -r a b c e; do
+      [ -n "$a" ] || continue
+      printf 'member	%s	%s	%s	%s\n' "$a" "$b" "$c" "$e"
+    done
+  else
+    { printf 'work	started	delivered	conv_tags\n'; printf '%s' "$rows"; } | fmt_table
+  fi
+  printf 'members-summary: id=%s pop=%s conv_tags=%s\n' "$_id" "$n" "$tsum"
+}
+
 cv_do_status() {
-  fmt=table
+  fmt=table; members=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --format) need_arg "$1" $#; fmt=${2:-}; shift 2 ;;
+      --format)  need_arg "$1" $#; fmt=${2:-}; shift 2 ;;
+      --members) need_arg "$1" $#; members=${2:-}; shift 2 ;;
       -*) die "未知のオプション: $1" ;;
       *) die "余分な引数: $1" ;;
     esac
@@ -1903,6 +1987,7 @@ cv_do_status() {
   case "$fmt" in table|tsv) ;; *) die "--format は table|tsv" ;; esac
   d=$(cv_dir)
   [ -d "$d" ] || die "条項ディレクトリがありません: $d（aidev convention new で起こす）"
+  if [ -n "$members" ]; then cv_members "$members" "$fmt"; return 0; fi
   # 行は status と同じく「タブ区切り文字列を積んで最後に fmt_table へ流す」形にする
   # （command substitution は末尾改行を落とすので、行の組み立てに $( ) を使わない）
   CV_IDXF=$(cv_index_file)
