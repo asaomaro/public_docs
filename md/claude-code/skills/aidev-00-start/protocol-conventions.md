@@ -152,7 +152,7 @@ docsRoots: [docs/, AGENTS.md]  # 条項を起こす前に既存規約を探す�
 # 導入後の件数を数える（「前」は frontmatter の baseline。id では前後比較できない）
 # -r で再帰するのは、subtask が works/<親>/<NN>-<子>/ にあり、
 # `works/*/review.md` の1段グロブからは落ちるため（分子だけ落ちると「効いた」側に倒れる）
-grep -rho '\[conv:[^]]*\]' .aidev/works | sort | uniq -c | sort -rn
+grep -rho --include=review.md '\[conv:[^]]*\]' .aidev/works | sort | uniq -c | sort -rn
 ```
 
 - **母集団は `introduced` 以降に着手し、かつ deliver 済みの work だけ**
