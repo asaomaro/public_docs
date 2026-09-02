@@ -606,6 +606,8 @@ function Eval-Depends($workDir) {
   foreach ($d in @(YList (Join-Path $workDir 'state.yml') 'dependsOn')) {
     if (-not $d) { continue }
     if ($d.StartsWith('#')) { $script:EvalAdvisory += $d; continue }
+    # works slug は日付/連番で始まる。英字始まり+数字終わり（PROJ-123 型）は外部チケット＝advisory
+    if ($d -cmatch '^[A-Za-z][A-Za-z0-9_]*-[0-9]+$') { $script:EvalAdvisory += $d; continue }
     $depWork = Join-Path $worksRoot $d
     if (-not (IsDir $depWork) -and $par -and (IsDir (Join-Path (Join-Path $worksRoot $par) $d))) {
       $depWork = Join-Path (Join-Path $worksRoot $par) $d
@@ -1567,7 +1569,7 @@ function Cmd-Unapprove($rest) {
   ReplaceLine $st 'current' "current: $uph"
   AppendEvent $script:WORK $uph 'sent_back' @()
   Write-Output "unapproved: $uph @ $($script:SLUG)"
-  Write-Output "next: aidev event $uph start を記録してからやり直すこと"
+  Write-Output "next: やり直す工程で aidev event <phase> start を記録すること（統合 review からの差し戻しは coding）"
 
   $par = YGet $st 'parent'
   if ($par -and $uph -ceq 'review') {

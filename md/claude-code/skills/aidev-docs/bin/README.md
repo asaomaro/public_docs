@@ -101,6 +101,7 @@ CI ではこれを失敗として扱う（`.github/workflows/aidev-cli.yml`）�
 `protocol.md`「8.」）。これにより新ガードを足しても**過去 work を遡及的に違反扱いしない**。
 
 - 現行 `CURRENT_SCHEMA = 5`。
+- schema 3: subtask 層（`subtasks`/`activeSubtask`/`parent`）を導入。schema ≤ 2 の work は subtask 不変条件を免除。
 - schema ≥ 2 の不変条件: `metrics.yml` の存在 ／ review 承認済なら `review.md` 存在 ／ deliver 承認済なら
   metrics に deliver の approved イベントが存在。
 - schema ≥ 4 の検査: `harnessRev` の存在（**WARN**）／ **またがり work**（`harnessRev` ≠ `harnessRevDelivered`。**`note:`**）。
@@ -130,7 +131,7 @@ CI ではこれを失敗として扱う（`.github/workflows/aidev-cli.yml`）�
 ## 依存（dependsOn）の判定
 
 - `works slug`（例 `20260620-ruler-display`）→ その work の `approved` に `deliver` が含まれれば充足。
-- 外部チケット（`#N`）→ 自動判定はせず **advisory**（警告のみ。CLI/API 連携は PJ 側 tracker に委ねる）。
+- 外部チケット（`#N`、または `PROJ-123` のような英字始まり・数字終わりの ID）→ 自動判定はせず **advisory**（警告のみ。CLI/API 連携は PJ 側 tracker に委ねる）。
 
 ## 設計メモ
 

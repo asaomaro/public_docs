@@ -1526,6 +1526,14 @@ PYEOF
     rx new pp >/dev/null; PPW=$(ls "$PMX/.aidev/works" | grep -- '-pp$' | head -n1)
     rx new 01-x --parent "$PPW" --backlog b.md >/dev/null 2>&1
     assert_eq "$?" "1" "[$impl] --parent と --backlog の併用は弾く（刻印を黙って捨てない）"
+
+    # protocol.md 2.7 は `PROJ-123` 型の外部チケットを dependsOn に認めるが、CLI は `#N` しか
+    # advisory にせず works slug として探しに行き「work不明」で guard を exit 3 にしていた
+    rx new tk --depends PROJ-123 >/dev/null
+    rx guard requirement >/dev/null 2>&1; TK_RC=$?
+    TK_OUT=$(rx guard requirement 2>&1 | tr -d '\r')
+    assert_eq "$TK_RC" "0" "[$impl] guard: PROJ-123 型の外部チケットは advisory（未充足にしない）"
+    assert_contains "$TK_OUT" "advisory" "[$impl] guard: PROJ-123 を advisory として警告表示する"
     rm -rf "$PMX"
   done
   unset -f rx 2>/dev/null || true
@@ -1847,9 +1855,9 @@ YML
   else
     skip 10 "git 不在のため worktree パリティを省略"
   fi
-  block_end parity "138" "parity"
+  block_end parity "142" "parity"
 else
-  skip 138 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
+  skip 142 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
 fi
 
 echo

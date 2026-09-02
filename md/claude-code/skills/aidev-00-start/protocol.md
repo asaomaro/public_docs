@@ -119,7 +119,7 @@ git worktree＋`feature/<slug>` ブランチを作って隔離着手できる。
   - 外部チケット（例 `#18` / `PROJ-123`）→ そのチケットがクローズ／完了。判定は `.aidev/config.yml` の
     `tracker.type` に応じたアダプタで行う（github: `gh issue view <N> --json state -q .state` ／ jira・redmine:
     各CLI/API ／ `none` や CLI不在: **advisory＝参照のみで自動判定しない**）。
-    `aidev status`/`guard` は外部チケットを常に `advisory` と表示するだけで判定しない——判定はこの規約に従い工程 skill が行う。
+    `aidev status`/`guard` は外部チケット（`#N`／`PROJ-123` 型）を `advisory` と表示するだけで判定しない——判定はこの規約に従い工程 skill が行う。
   - 参照先が見つからない場合は「未充足（未着手）」とみなす。
 - **未充足時の挙動（soft）**:
   - **interactive**: 未充足の依存とその理由を警告し、`AskUserQuestion` で「依存を待つ＝中断 / 承知のうえ続行」を

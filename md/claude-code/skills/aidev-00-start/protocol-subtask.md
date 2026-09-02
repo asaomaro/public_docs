@@ -28,7 +28,7 @@ split 判定の3層決定木（`aidev-docs/DESIGN.md`「5.」）の中段に当�
   （producer→consumer 順。「2.7」の充足判定で、兄弟 subtask は **review 承認**を完了とみなす）。
 - **差し戻し**: 親の統合 review で結合起因の must/should が出たら、**該当 subtask の coding へ差し戻す**
   （親で `aidev event review sent_back` → `aidev use <親>/<子>` → 子で `aidev unapprove review` →
-  `aidev event coding start`。子の `activeSubtask` は `unapprove` が戻す）。`maxSendBacks` は親・子それぞれの
+  `aidev event coding start`。親の `activeSubtask` は `unapprove` がその子へ戻す）。`maxSendBacks` は親・子それぞれの
   `sent_back` 件数で独立に判定する。
 - **小〜中規模 work では使わない**。spec＋plan で 1 PR に収まるなら subtask 化しない（過剰分割の禁止）。
 - **機械的強制（CLI guard）**: 「同じ skill が親/子で走る」ことに起因する誤用は `aidev` CLI が弾く（散文に頼らない）。

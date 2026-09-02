@@ -564,7 +564,11 @@ eval_depends() { # work_dir
     case "$d" in
       \#*) # 外部チケット(#N): 自動判定不可＝advisory（手動確認）
         EVAL_ADVISORY="$EVAL_ADVISORY $d" ;;
-      *) # それ以外は works slug とみなす。top-level に無く親配下にあれば兄弟 subtask として解決
+      *) # works slug は日付/連番で始まる。英字始まり+数字終わり（PROJ-123 型）は外部チケット＝advisory
+        if printf '%s' "$d" | grep -Eq '^[A-Za-z][A-Za-z0-9_]*-[0-9]+$'; then
+          EVAL_ADVISORY="$EVAL_ADVISORY $d"; continue
+        fi
+        # それ以外は works slug とみなす。top-level に無く親配下にあれば兄弟 subtask として解決
         _dep="$AIDEV/works/$d"
         if [ ! -d "$_dep" ] && [ -n "$_par" ] && [ -d "$AIDEV/works/$_par/$d" ]; then
           _dep="$AIDEV/works/$_par/$d"
@@ -921,7 +925,7 @@ cmd_unapprove() {
   # 取り消しは手戻りの事実。イベントとして刻む（消さない）
   append_event "$uph" sent_back
   printf 'unapproved: %s @ %s\n' "$uph" "$SLUG"
-  printf 'next: aidev event %s start を記録してからやり直すこと\n' "$uph"
+  printf 'next: やり直す工程で aidev event <phase> start を記録すること（統合 review からの差し戻しは coding）\n'
 
   # 子の review を外したら、親のカーソルもその子へ戻す（60-review の統合差し戻し手順）
   par=$(yget "$st" parent)
