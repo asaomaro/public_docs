@@ -1112,6 +1112,13 @@ run_rd event deliver start >/dev/null
 RD_A=$(run_rd approve deliver files_changed=1 insertions=1 deletions=0 2>&1)
 assert_contains "$RD_A" "条項 conv1 の母集団が揃いました(1/1)" "approve deliver: 母集団が揃った瞬間に知らせる"
 assert_contains "$(run_rd convention status --format tsv)" "	1	1	yes	" "母集団: deliver 済みになって初めて数える"
+# 跨いだ**瞬間だけ**。-ge だと以後の全 deliver で全条項ぶん鳴り続ける（100 works×30 条項で 1 回 31 行）
+run_rd new rd2 >/dev/null; RDW2=$(ls "$RDR/.aidev/works" | grep -- '-rd2$')
+for f in requirement spec plan tasks review; do : > "$RDR/.aidev/works/$RDW2/$f.md"; done
+for p in requirement spec plan coding test review; do run_rd event "$p" start >/dev/null; run_rd approve "$p" >/dev/null; done
+run_rd event deliver start >/dev/null
+RD_B=$(run_rd approve deliver files_changed=1 insertions=1 deletions=0 2>&1)
+assert_absent "$RD_B" "母集団が揃いました" "approve deliver: 到達済みの条項は2回目以降鳴らさない（跨いだ瞬間だけ）"
 rm -rf "$RDR"
 echo "== オプション値の欠落（sh 単体・pwsh 不要） =="
 # 背景: この検査は長らく parity ブロックの中にあり、pwsh の無い開発機では**1件も走らなかった**。
@@ -1227,27 +1234,43 @@ if command -v git >/dev/null 2>&1; then
   cp "$AIDEV_SH" "$GRR/skills/aidev-docs/bin/aidev"
   printf 'x\n' > "$GRR/skills/aidev-docs/note.md"
   printf 'x\n' > "$GRR/skills/other-skill/SKILL.md"
-  ( cd "$GRR" && git init -q . && git add -A \
+  ( cd "$GRR" && git init -q -b master . && git add skills \
     && git -c user.email=t@t -c user.name=t commit -qm init ) >/dev/null 2>&1
   mkdir -p "$GRR/w/.aidev/works"
   GR1=$( ( cd "$GRR/w" && "$GRR/skills/aidev-docs/bin/aidev" new g1 >/dev/null 2>&1; \
            yg() { sed -n 's/^harnessRev: //p' "$1"; }; yg "$GRR/w/.aidev/works/"*g1/state.yml ) )
   # aidev-* の**外**を変更 -> 版は動かないはず
   printf 'y\n' > "$GRR/skills/other-skill/SKILL.md"
-  ( cd "$GRR" && git add -A && git -c user.email=t@t -c user.name=t commit -qm other ) >/dev/null 2>&1
+  ( cd "$GRR" && git add skills && git -c user.email=t@t -c user.name=t commit -qm other ) >/dev/null 2>&1
   GR2=$( ( cd "$GRR/w" && "$GRR/skills/aidev-docs/bin/aidev" new g2 >/dev/null 2>&1; \
            sed -n 's/^harnessRev: //p' "$GRR/w/.aidev/works/"*g2/state.yml ) )
   assert_eq "$GR2" "$GR1" "harnessRev: aidev-* の外の変更では版が動かない（またがりの誤検知を作らない）"
   # aidev-* の中を変更 -> 版が動くこと（検知そのものを殺していないか）
   printf 'z\n' > "$GRR/skills/aidev-docs/note.md"
-  ( cd "$GRR" && git add -A && git -c user.email=t@t -c user.name=t commit -qm harness ) >/dev/null 2>&1
+  ( cd "$GRR" && git add skills && git -c user.email=t@t -c user.name=t commit -qm harness ) >/dev/null 2>&1
   GR3=$( ( cd "$GRR/w" && "$GRR/skills/aidev-docs/bin/aidev" new g3 >/dev/null 2>&1; \
            sed -n 's/^harnessRev: //p' "$GRR/w/.aidev/works/"*g3/state.yml ) )
   assert_ne "$GR3" "$GR1" "harnessRev: aidev-* の中の変更では版が動く（絞り込みで検知を殺していない）"
+  # 版は**内容の tree hash**。コミット SHA だと squash / rebase で同一内容が別版に割れ、
+  # PR ブランチで回した work と main で回した work が常に別層になる（GitHub 既定の squash 運用で必ず起きる）
+  ( cd "$GRR" && git checkout -qb feat && printf 'w\n' > skills/aidev-docs/note.md \
+    && git add skills && git -c user.email=t@t -c user.name=t commit -qm feat ) >/dev/null 2>&1
+  GR4=$( ( cd "$GRR/w" && "$GRR/skills/aidev-docs/bin/aidev" new g4 >/dev/null 2>&1; \
+           sed -n 's/^harnessRev: //p' "$GRR/w/.aidev/works/"*g4/state.yml ) )
+  ( cd "$GRR" && git checkout -q master && git merge -q --squash feat \
+    && git -c user.email=t@t -c user.name=t commit -qm squashed ) >/dev/null 2>&1
+  # checkout / merge が黙って失敗すると HEAD が feat のままになり、下の比較が「同じ commit を
+  # 2回読む」空振りになる（実際にそうなっていた）。段取りが本当に進んだことを先に固定する
+  assert_eq "$(git -C "$GRR" branch --show-current)" "master" "harnessRev(squash): master へ戻れている（空振り防止）"
+  assert_ne "$(git -C "$GRR" rev-parse HEAD)" "$(git -C "$GRR" rev-parse feat)" "harnessRev(squash): squash commit が作られている（空振り防止）"
+  GR5=$( ( cd "$GRR/w" && "$GRR/skills/aidev-docs/bin/aidev" new g5 >/dev/null 2>&1; \
+           sed -n 's/^harnessRev: //p' "$GRR/w/.aidev/works/"*g5/state.yml ) )
+  assert_eq "$GR5" "$GR4" "harnessRev: squash しても内容が同じなら同じ版（SHA ではなく内容ハッシュ）"
+  assert_eq "${#GR5}" "12" "harnessRev: 固定長 12 桁（%h の自動伸長で偽またがりを作らない）"
   rm -rf "$GRR"
-  block_end hrgrain "3" "hrgrain"
+  block_end hrgrain "7" "hrgrain"
 else
-  skip 3 "harnessRev の粒度（git 不在）"
+  skip 7 "harnessRev の粒度（git 不在）"
 fi
 
 echo "== sh ⇔ ps1 パリティ =="

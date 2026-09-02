@@ -26,7 +26,7 @@
   # 数え方の例: 過去の review.md を読み、その観点の指摘を拾う
   # -r で works 配下を再帰する。subtask は works/<親>/<NN>-<子>/ にあり、
   # `works/*/review.md` の1段グロブからは落ちるため（分割 work の指摘は大半がそこに入る）
-  grep -rho 'boolean\|真偽' .aidev/works | wc -l
+  grep -rho --include=review.md 'boolean\|真偽' .aidev/works | wc -l
   ```
 
   - **数えるのは id ではなく観点**。「何をその観点とみなしたか」を値に文章で残す

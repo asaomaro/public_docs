@@ -63,10 +63,8 @@ CLI が使えない環境のフォールバック: `cat .aidev/current` / `ls .a
 
 - **続きから**：既存の作業を選択 → `aidev use <slug>`（`.aidev/current` を更新。存在しない slug は弾かれる）
   → その工程の skill を案内。CLI 無し環境では `.aidev/current` を手で書く。
-- **別工程をやり直す（差し戻し）**：作業と工程を選択 → **`aidev use <slug>` でカーソルを移してから**
-  当該工程の skill を案内。**`use` を飛ばすと記録が無関係な work に落ちる**（`event`/`approve`/`guard` は
-  `.aidev/current` しか見ない）。`verify` も `doctor` もこれを検知せず、`metrics` の `reworks` だけが
-  静かに水増しされる。
+- **別工程をやり直す（差し戻し）**：作業と工程を選択 → **必ず `aidev use <slug>` してから**当該工程の
+  skill を案内（飛ばすと記録が無関係な work に落ち、誰も検知しない）。
 - **分割 work（subtask）に戻る**：`aidev status --subtasks` で活性の子を確認し、
   `aidev use <親>/<子>`。`.aidev/current` は未追跡なのでセッションをまたぐと消える。
 - **未着手から着手する**：backlog／トラッカーの未着手項目を選び、その内容を requirement として手順 4 へ
@@ -74,7 +72,6 @@ CLI が使えない環境のフォールバック: `cat .aidev/current` / `ls .a
   - **選ぶ前に、その項目が本当に未着手か確かめる**（`inflight` の見方は `protocol-backlog.md`）。backlog は**遅れる**——別の作業が結果的に
     閉じていても、行は `[ ]` のまま残りうる。**works の記述ではなくリポジトリの現物**
     （ファイル・シンボル・テスト・ビルド出力）で裏を取ってから着手する。
-    2026-08-01 に、5 日前に完了済みの項目を選んで requirement を書きかけた実例がある。
   - **backlog 由来なら手順 4 で `--backlog <file>` を渡す**（deliver での消し込みを verify が強制する）。
 - **新規 requirement を起こす**：手順 4 へ。
 - **並行で始める（worktree・任意）**：進行中の作業を**止めずに**別の作業へ着手したいと
@@ -102,12 +99,8 @@ CLI が使えない環境のフォールバック: `cat .aidev/current` / `ls .a
 
    - **判定はユーザーに確認する**（`AskUserQuestion`）。「小さい変更」の見立ては外れやすく、
      特に共有モジュールの 1 行変更は影響範囲を読み違えやすい。
-   - **影響範囲が読めないときは plan モードを使う**（`protocol.md`「10.」）。`EnterPlanMode` で
-     read-only のまま影響範囲を調べ、三層の判定と着手方針を提案して `ExitPlanMode` で承認を取り、
-     **解除してから手順 2 の `aidev new` に引き渡す**。この時点では aidev のゲートがまだ無いので
-     二重ゲートにならず、plan モードが最も素直に効く場所になる。
-     - 判定が自明なとき（typo・明らかに大きい機能追加）は使わない。
-     - `aidev new` は書き込みなので、**必ず plan モードを解除してから**実行する。
+   - 影響範囲が読めないときは plan モードを使ってよい（`protocol.md`「10.」。`aidev new` は書き込みなので
+     **解除してから**実行する）。
    - 迷ったら **full を選ぶ**。light は後から full へ昇格できる（`aidev escalate`）が、逆はできない。
    - **light を選んでも review / test / deliver は full と同一**に通る。省くのは上流の文書の深さと
      承認の往復だけで、品質ゲートは残る。

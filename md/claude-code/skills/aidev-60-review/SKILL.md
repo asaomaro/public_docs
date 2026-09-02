@@ -29,11 +29,8 @@ AI 開発ワークフローの **review（レビュー）工程**を実行する
 ## 手順
 
 1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定する。
-   `aidev guard review` で前提を検査する（exit≠0＝未充足。目視確認で代替しない——guard は
-   三層モデルの**第二層＝ハード**なので、呼ぶ行が手順に無いと第一層＝散文だけの運用になる。
-   protocol.md「2.10」）。
-   - **対象が subtask（state.yml に `parent` あり）か親かを見分ける**。subtask の review は**その slice 単独**の
-     レビュー（局所欠陥を漸進的に潰す）。親の review は全 subtask 完了後の**統合 review**（結合起因の欠陥を見る）。
+   `aidev guard review` で前提を検査する（exit≠0＝未充足。目視確認で代替しない）。
+   - 対象が subtask（state.yml に `parent` あり）か親（統合 review）かを見分ける（`protocol-subtask.md`）。
 2. 差分を以下の観点で点検する。**実作業の優先順位は protocol.md「2.10」の三段階**に従う
    （PJ 固有 skill → エージェント組み込みのレビューコマンド → 下記のジェネリック観点）。
    - **組み込みコマンドは「委譲」ではなく「併用」**。カバーできるのは下記のうち
@@ -56,8 +53,6 @@ AI 開発ワークフローの **review（レビュー）工程**を実行する
    追記する（フォーマットは protocol.md「8.」）。
    - **条項参照タグ `[conv:<id>]`**: その指摘の根拠となる PJ規約の条項 id を付す。候補は
      `aidev convention status` が出す一覧（＝分類の語彙を新しく発明しない）。該当が無ければ **`[conv:-]`**。
-   - `[conv:-]` は「規約に穴がある」信号、id 付きの指摘が繰り返し出るのは「規約はあるのに守られていない」
-     信号で、**打ち手が違う**（protocol.md「12.」の表）。両方 retro / insights が拾う。
    - PJ に条項がまだ無い（`docs/aidev/` が空）なら全て `[conv:-]` でよい。それ自体が最初の材料になる。
    - **coding のタスク点検（protocol.md「3.3」(b)）で既に直された指摘は再掲しない**。`review.md` の
      「タスク点検ログ」節は読んでよい（同じ箇所が再発していないかの手掛かりになる）が、
@@ -73,10 +68,8 @@ AI 開発ワークフローの **review（レビュー）工程**を実行する
        再 coding→test→review 後の `approve review` が再びカーソルを前進させられる（D と整合）。
        再 split（親 plan 戻し）は避け、最小手戻りにする。
    - **指摘なし（または nit のみ）** → protocol.md「3. 工程終了プロトコル」に従って終了する。
-     - **subtask の review** なら、`aidev approve review` の時点で **CLI がカーソルを自動前進**させる
-       （手動の `activeSubtask` 操作は不要）: 親 `subtasks` の次の未完 subtask があれば `activeSubtask` と
-       `.aidev/current` をそこへ進め（次工程: その子の `plan`）、全 subtask 完了なら `activeSubtask=done` にして
-       `.aidev/current` を親へ戻す（次工程: 親の統合 `test`）。CLI の出力 `cursor: …` で遷移先を確認する。
+     - **subtask の review** なら `aidev approve review` の時点で CLI がカーソルを自動前進させる
+       （出力 `cursor: …` で遷移先を確認する）。
      - **親の統合 review** なら **複雑度の自己評価（walkthrough 推奨判定）**: protocol.md「4.5」に従い「差分が
        大きい/複数モジュール横断/処理フローが複雑」のいずれかなら、遷移ゲートに `承認して walkthrough(任意) を挟む`
        （推奨）を加え理由を添える（次工程: 推奨時 `walkthrough`、それ以外 `deliver`）。
@@ -85,8 +78,8 @@ AI 開発ワークフローの **review（レビュー）工程**を実行する
 ## light の昇格トリガ
 
 `profile: light`（protocol.md「11.」）で **`must` の指摘が出たら、上流を薄くしたことが原因である
-可能性が高い**。coding へ差し戻す前に `aidev escalate` で full へ昇格し、`decisions.md` に経緯を残す
-（昇格は片方向。省略していた節を足すだけでよい）。`should` / `nit` だけなら light のまま続けてよい。
+可能性が高い**。coding へ差し戻す前に `aidev escalate` で full へ昇格する。`should` / `nit` だけなら
+light のまま続けてよい。
 
 なお **light でも入力に `requirement.md` は存在する**（薄いが必須節は埋まっている）。
 節が足りずレビュー観点を確認できない場合も、昇格の合図として扱う。

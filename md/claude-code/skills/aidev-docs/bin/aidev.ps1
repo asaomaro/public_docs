@@ -207,9 +207,18 @@ function HarnessRev() {
     $paths = @(Get-ChildItem -LiteralPath $script:HARNESS -Directory -Filter 'aidev-*' -ErrorAction SilentlyContinue |
                ForEach-Object { $_.FullName })
     if ($paths.Count -eq 0) { return 'unknown' }
-    $r = (& git -C $script:HARNESS log -1 --format=%h -- @paths 2>$null | Select-Object -First 1)
+    # 版の実体は内容の tree hash（コミット SHA だと squash / rebase で同一内容が別版に割れる。sh 版と同じ）
+    $trees = @(& git -C $script:HARNESS ls-tree -d HEAD -- @paths 2>$null | ForEach-Object { ($_ -split '\s+')[2] })
+    if ($trees.Count -eq 0) { return 'unknown' }
+    # stdin パイプは使わない: PowerShell は native コマンドへ渡すとき自分で改行を足し、しかも
+    # Windows では CRLF になるので sh 版（LF）と別のハッシュになる。LF 固定の一時ファイルで渡す
+    $tmp = [System.IO.Path]::GetTempFileName()
+    try {
+      [System.IO.File]::WriteAllText($tmp, (($trees -join "`n") + "`n"), $script:Utf8)
+      $r = (& git hash-object -- $tmp 2>$null | Select-Object -First 1)
+    } finally { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
     if ([string]::IsNullOrWhiteSpace($r)) { return 'unknown' }
-    return $r.Trim()
+    return $r.Trim().Substring(0, 12)
   } catch { return 'unknown' }
 }
 
@@ -349,7 +358,8 @@ function CvReadyNotice() {
     if ($va -notmatch '^\d+$') { continue }
     if ([int]$va -le 0) { continue }
     $pop = CvPop $intro
-    if ([int]$pop -ge [int]$va) {
+    # 跨いだ瞬間だけ鳴らす（-ge だと以後の全 deliver で全条項ぶん鳴り続ける。sh 版と同じ）
+    if ([int]$pop -eq [int]$va) {
       $id = [System.IO.Path]::GetFileNameWithoutExtension($fi.Name)
       Write-Output "note: 条項 $id の母集団が揃いました($pop/$va)。insights で効果を判定してください"
     }

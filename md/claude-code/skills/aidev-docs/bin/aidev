@@ -168,7 +168,11 @@ harness_rev() {
   set --
   for _d in "$HARNESS"/aidev-*; do [ -d "$_d" ] && set -- "$@" "$_d"; done
   [ "$#" -gt 0 ] || { printf 'unknown'; return 0; }
-  r=$(git -C "$HARNESS" log -1 --format=%h -- "$@" 2>/dev/null || true)
+  # 版の実体は**内容の tree hash**であってコミット SHA ではない。SHA だと squash / rebase で
+  # 同一内容が別版になり、PR ブランチで回した work と main で回した work が常に別層に割れる
+  # （GitHub 既定の squash 運用で必ず起きる）。tree hash は内容が同じなら同じ。
+  # 未コミットの編集は版に出ない（従来どおり。またがり＝除外を増やさない側に倒す）
+  r=$(git -C "$HARNESS" ls-tree -d HEAD -- "$@" 2>/dev/null | awk '{print $3}' | git hash-object --stdin 2>/dev/null | cut -c1-12 || true)
   [ -n "$r" ] || r=unknown
   printf '%s' "$r"
 }
@@ -252,25 +256,35 @@ cv_require() { # path id
 #  - **deliver 済み**: 着手しただけの work は review を通っていない＝**判定材料を1つも産んでいない**。
 #    着手だけで数えると、レビュー記録がまだ無いのに ready=yes が立ち、insights が
 #    空の材料で判定してしまう。母集団の増える瞬間は `approve deliver` の1点になる。
+# 母集団の材料（deliver 済み top-level work の着手日）を **1 回だけ**走査して積む。
+# 条項ごとに全 works を舐め直すと O(条項×works) で毎回 sed/tr/grep を spawn し、
+# 100 works × 30 条項で convention status / doctor / approve deliver が 20 秒超になった。
+# **注意**: `pop=$(cv_pop …)` はサブシェルなので、キャッシュは呼び出しループの**手前・親シェル**で
+# prime すること（サブシェル内で積んでも親には残らない）
+cv_pop_prime() {
+  [ "${CV_TS_READY:-}" = yes ] && return 0
+  CV_TS_READY=yes; CV_TS=""
+  [ -d "$AIDEV/works" ] || return 0
+  for _pd in "$AIDEV/works"/*/; do
+    [ -d "$_pd" ] || continue
+    _pf="${_pd}metrics.yml"
+    [ -f "$_pf" ] || continue
+    # 着手しただけの work は review を通っておらず判定材料が無いので数えない
+    ylist "${_pd}state.yml" approved | grep -qw deliver || continue
+    # 先頭イベントの ts（行頭の `{ ts:` に固定。`metrics: { defects: 3 }` の 3 を日付と取り違えない）
+    _pts=$(sed -n 's/^[^{]*{[[:space:]]*ts:[[:space:]]*\([0-9][0-9-]*\).*/\1/p' "$_pf" | head -n1)
+    [ -n "$_pts" ] || continue
+    _a=$(printf '%s' "${_pts%%T*}" | tr -d '-')
+    case "$_a" in ''|*[!0-9]*) continue ;; esac
+    CV_TS="$CV_TS $_a"
+  done
+}
 cv_pop() { # introduced(YYYY-MM-DD) -> 件数
   n=0
-  [ -d "$AIDEV/works" ] || { printf '0'; return 0; }
   _b=$(printf '%s' "$1" | tr -d '-')
   case "$_b" in ''|*[!0-9]*) printf '0'; return 0 ;; esac
-  for d in "$AIDEV/works"/*/; do
-    [ -d "$d" ] || continue
-    f="${d}metrics.yml"
-    [ -f "$f" ] || continue
-    ylist "${d}state.yml" approved | grep -qw deliver || continue
-    # `.*ts:` は貪欲で、行内の**最後の** ts: を拾う。metrics キーが ts で終わる
-    # （defects / commits / tests / artifacts …）と、その数値を着手日として読んでしまう。
-    # イベント行の形 `- { ts: … }` に合わせて、最初の `{` の直後にアンカーする。
-    ts=$(sed -n 's/^[^{]*{[[:space:]]*ts:[[:space:]]*\([0-9][0-9-]*\).*/\1/p' "$f" | head -n1)
-    [ -n "$ts" ] || continue
-    _a=$(printf '%s' "${ts%%T*}" | tr -d '-')
-    case "$_a" in ''|*[!0-9]*) continue ;; esac
-    if [ "$_a" -ge "$_b" ]; then n=$((n+1)); fi
-  done
+  cv_pop_prime
+  for _a in $CV_TS; do [ "$_a" -ge "$_b" ] && n=$((n+1)); done
   printf '%s' "$n"
 }
 
@@ -280,6 +294,7 @@ cv_pop() { # introduced(YYYY-MM-DD) -> 件数
 cv_ready_notice() {
   d=$(cv_dir)
   [ -d "$d" ] || return 0
+  cv_pop_prime
   for f in "$d"/*.md; do
     [ -f "$f" ] || continue
     [ "$(cv_get "$f" status)" = pending ] || continue
@@ -288,7 +303,9 @@ cv_ready_notice() {
     case "$va" in ''|*[!0-9]*) continue ;; esac
     [ "$va" -gt 0 ] || continue
     pop=$(cv_pop "$intro")
-    if [ "$pop" -ge "$va" ]; then
+    # 跨いだ瞬間だけ鳴らす（-ge だと以後の全 deliver で全条項ぶん鳴り続ける）。
+    # doctor の WARN と status の ready=yes は従来どおり残る
+    if [ "$pop" -eq "$va" ]; then
       printf 'note: 条項 %s の母集団が揃いました(%s/%s)。insights で効果を判定してください\n' \
         "$(basename "$f" .md)" "$pop" "$va"
     fi
@@ -1888,6 +1905,7 @@ cv_do_status() {
   CV_IDXB=""
   if [ -n "$CV_IDXF" ]; then CV_IDXB=$(cv_index_block "$CV_IDXF"); fi
   CV_REL=$(cv_dir_rel)
+  cv_pop_prime   # 親シェルで1回。ループ内の $(cv_pop) はサブシェルなので、ここで積まないと毎回走査する
   rows=""; npend=0; nready=0; nconf=0; nidx=0
   for f in "$d"/*.md "$d/archive"/*.md; do
     [ -f "$f" ] || continue
@@ -1946,6 +1964,7 @@ doctor_conventions() {
     CV_IDXB=$(cv_index_block "$CV_IDXF")
     CV_IDXL=$(basename "$CV_IDXF")
   fi
+  cv_pop_prime   # 親シェルで1回（理由は cv_do_status と同じ）
   cfiles=0; carch=0; cwarn=0; cout=""
   for f in "$d"/*.md "$d/archive"/*.md; do
     [ -f "$f" ] || continue

@@ -398,9 +398,10 @@ maxSendBacks: 3             # autonomous 時の差し戻し上限（同一工程
 dependsOn: []              # この作業の前提（他の works slug / 同一親内の兄弟 subtask 名 / 外部チケット #N・PROJ-123）。未充足なら着手前に警告。「2.7」参照
 backlog: <file>            # 任意。backlog 項目から起こした場合の出自（`.aidev/backlog/` 内のファイル名。例 hostserver.md）
                            # `aidev new --backlog <file>` が刻む。deliver でその行を [x] にすることを verify が強制する（「2.9」）
-harnessRev: <短縮SHA>      # この work を回したハーネスの版。`aidev new` が自動で刻む（schema 4〜）
-                           # ハーネス改修の効果検証で母集団を特定するための刻印。取れない環境は unknown。「12.」参照
-harnessRevDelivered: <SHA> # deliver 承認時の版。`aidev approve deliver` が刻む
+harnessRev: <内容ハッシュ>  # この work を回したハーネスの版。`aidev new` が自動で刻む（schema 4〜）
+                           # aidev-* の**内容**の tree hash（12 桁）。コミット SHA ではないので squash / rebase で
+                           # 同一内容が別版に割れない。取れない環境は unknown。「12.」参照
+harnessRevDelivered: <同上> # deliver 承認時の版。`aidev approve deliver` が刻む
                            # harnessRev と違う work＝またがり work で、効果検証の母集団からは除外される
                            # deliver 前の verify は、この値の代わりに**現在の版**と比べる（「12.」）
 # --- subtask 層（schema 3・親 work のみが持つ。「2.8」参照）---
