@@ -31,7 +31,7 @@ AI 開発ワークフローの **review（レビュー）工程**を実行する
 1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定する。
    `aidev guard review` で前提を検査する（exit≠0＝未充足。目視確認で代替しない）。
    - 対象が subtask（state.yml に `parent` あり）か親（統合 review）かを見分ける（`protocol-subtask.md`）。
-2. 差分を以下の観点で点検する。**実作業の優先順位は protocol.md「2.10」の三段階**に従う
+2. 差分を以下の観点で点検する。**実作業の優先順位は protocol.md「2.5」の三段階**に従う
    （PJ 固有 skill → エージェント組み込みのレビューコマンド → 下記のジェネリック観点）。
    - **組み込みコマンドは「委譲」ではなく「併用」**。カバーできるのは下記のうち
      **正確性・保守性**までで、**要件適合 / 価値適合 / 規約適合は work の文脈（requirement.md /
@@ -54,7 +54,7 @@ AI 開発ワークフローの **review（レビュー）工程**を実行する
    - **条項参照タグ `[conv:<id>]`**: その指摘の根拠となる PJ規約の条項 id を付す。候補は
      `aidev convention status` が出す一覧（＝分類の語彙を新しく発明しない）。該当が無ければ **`[conv:-]`**。
    - PJ に条項がまだ無い（`docs/aidev/` が空）なら全て `[conv:-]` でよい。それ自体が最初の材料になる。
-   - **coding のタスク点検（protocol.md「3.3」(b)）で既に直された指摘は再掲しない**。`review.md` の
+   - **coding のタスク点検（`protocol-check.md`）で既に直された指摘は再掲しない**。`review.md` の
      「タスク点検ログ」節は読んでよい（同じ箇所が再発していないかの手掛かりになる）が、
      **その件数を `must` / `should` / `nit` に数えない**——点検で潰れた欠陥は工程に到達しておらず、
      ラウンド指摘とは母集団が違う（protocol.md「8.」）。
@@ -70,9 +70,9 @@ AI 開発ワークフローの **review（レビュー）工程**を実行する
    - **指摘なし（または nit のみ）** → protocol.md「3. 工程終了プロトコル」に従って終了する。
      - **subtask の review** なら `aidev approve review` の時点で CLI がカーソルを自動前進させる
        （出力 `cursor: …` で遷移先を確認する）。
-     - **親の統合 review** なら **複雑度の自己評価（walkthrough 推奨判定）**: protocol.md「4.5」に従い「差分が
-       大きい/複数モジュール横断/処理フローが複雑」のいずれかなら、遷移ゲートに `承認して walkthrough(任意) を挟む`
-       （推奨）を加え理由を添える（次工程: 推奨時 `walkthrough`、それ以外 `deliver`）。
+     - **親の統合 review** なら **複雑度の自己評価（walkthrough 推奨判定）**: protocol.md「4.5」の walkthrough の
+       3条件に該当すれば、遷移ゲートに `承認して walkthrough(任意) を挟む`（推奨）を加え理由を添える
+       （次工程: 推奨時 `walkthrough`、それ以外 `deliver`）。
 5. 承認は `aidev approve review must=<件数> should=<件数> nit=<件数>`（protocol.md「3.」「8.」）。
 
 ## light の昇格トリガ

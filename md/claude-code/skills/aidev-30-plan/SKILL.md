@@ -33,7 +33,7 @@ spec を実装可能な作業単位に分解し、`plan.md`（方針・順序）
 ## 手順
 
 1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定。`aidev guard plan` で前提を検査する
-   （exit≠0＝未充足。目視確認で代替しない。protocol.md「2.10」）。`spec.md` を確認
+   （exit≠0＝未充足。目視確認で代替しない）。`spec.md` を確認
    （`design.md` / `research.md` があればそれも読み込む）。
    - **この work が subtask か親かを見分ける**（state.yml に `parent` があれば subtask）。
      **subtask の plan は split 判定（手順3）と subtask 生成（手順4）を行わない**。手順5の「scope 凍結の

@@ -13,7 +13,7 @@
 #     --backlog は backlog 項目から起こした work に出自を刻む（deliver での消し込みを verify が強制する）
 #     --profile/--light は「どこまで工程を回すか」（protocol.md「11.」）。mode（誰が承認するか）と直交
 #   aidev escalate [slug]                      # profile を light -> full に昇格（片方向。full からは戻せない）
-#   aidev event <phase> <start|approved|sent_back> [key=value ...]
+#   aidev event <phase> <start|sent_back> [key=value ...]     # approved は approve が刻む
 #   aidev approve <phase> [key=value ...]      # approved 追記 + current 更新 + approved イベント
 #   aidev unapprove <phase> [--slug <work>]    # 差し戻しで後工程の承認を取り消す（記録は消さない）
 #   aidev guard <phase>                        # 前提成果物 + dependsOn の充足を検査（exit!=0で未充足）

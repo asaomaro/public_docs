@@ -5,8 +5,8 @@ aidev ハーネスの **state.yml / metrics.yml 更新を「単一の検証済�
 
 - **Node 非依存**。`aidev` は POSIX sh（`sed`/`awk`/`grep`/`date` のみ）、`aidev.ps1` は Windows PowerShell。
 - 両者は**挙動・出力・終了コードを一致**させてある（OS 差をここで吸収）。
-- hooks は使わない方針のため自動割り込みはしない。**各 skill がこの CLI を呼ぶ**ことで強制力を得る
-  （「正しいやり方＝ガードされたやり方」にする）。最後の砦は deliver の `verify` ゲートと `doctor` の事後検知。
+- 強制力の主体は**各 skill がこの CLI を呼ぶ**こと（「正しいやり方＝ガードされたやり方」にする）。
+  hooks（Stop フック等）は任意の自動化層で、無くても成立する（`DESIGN.md`「2.6」）。最後の砦は deliver の `verify` ゲートと `doctor` の事後検知。
 
 ## 使い方
 
@@ -94,13 +94,13 @@ CI ではこれを失敗として扱う（`.github/workflows/aidev-cli.yml`）�
 | 4 | 不変条件違反（verify）／**ドリフト検知（doctor）** |
 | 5 | 記録漏れ（`verify --strict` のときのみ。既定の `verify` は WARN 止まりで 0） |
 
-## version-aware verify（「PJと一緒に育てる」ための要）
+## schema の履歴（version-aware verify。「PJと一緒に育てる」ための要）
 
 `new` が `state.yml` に `schema: <N>` を刻む。`verify`/`doctor` は **その work の `schema` 以上で導入された
 不変条件だけ**を強制する。`schema` 未記載の旧 work は **legacy として免除**（「過去分は捏造しない」方針。
 `protocol.md`「8.」）。これにより新ガードを足しても**過去 work を遡及的に違反扱いしない**。
 
-- 現行 `CURRENT_SCHEMA = 4`。
+- 現行 `CURRENT_SCHEMA = 5`。
 - schema ≥ 2 の不変条件: `metrics.yml` の存在 ／ review 承認済なら `review.md` 存在 ／ deliver 承認済なら
   metrics に deliver の approved イベントが存在。
 - schema ≥ 4 の検査: `harnessRev` の存在（**WARN**）／ **またがり work**（`harnessRev` ≠ `harnessRevDelivered`。**`note:`**）。

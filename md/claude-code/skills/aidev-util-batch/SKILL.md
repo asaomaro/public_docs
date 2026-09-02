@@ -8,7 +8,7 @@ AI 開発ワークフローの **バッチ駆動（L1 オーケストレータ�
 バックログの**未処理項目を1件ずつ autonomous モードの aidev で処理**し、反復する。
 1反復＝「次の1件を選ぶ → autonomous で処理 → 完了マーク」。
 
-**開始前に共通プロトコル `../aidev-00-start/protocol.md`（特に「10. 実行モード」）を読むこと。**
+**開始前に共通プロトコル `../aidev-00-start/protocol.md` と `protocol-autonomous.md` を読むこと。**
 
 ## 位置づけ（重要）
 

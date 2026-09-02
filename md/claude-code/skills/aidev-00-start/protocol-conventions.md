@@ -6,6 +6,39 @@
 > （工程ごとの読み込み量を抑えるため。`protocol.md`「0.」の付録一覧を参照）。
 
 
+## 条項の一生
+
+| status | 意味 | 次にすること |
+|---|---|---|
+| `pending` | 導入済み・母集団が未達 | 待つ（`aidev convention status` の `ready` を見る） |
+| `confirmed` | 効果が確認できた | **PJ ドキュメントへ本文を移送**し `promote` |
+| `promoted` | 移送済み | 何もしない（tombstone として `archive/` に残る） |
+| `ineffective` | 効果が無かった | 撤去、または CLI / フック層へ寄せる（下記） |
+| `superseded` | 別条項に置き換わった | 撤去 |
+
+**本文の在処は常に1箇所**。移送したら `docs/aidev/` 側は本文を捨てて tombstone にする。
+
+### 条項ファイルのスキーマ
+
+`docs/aidev/<id>.md`（場所は `.aidev/config.yml` の `conventionsDir` で変更可。既定 `docs/aidev`）。
+
+```yaml
+---
+convention: naming-boolean      # id（ファイル名と一致）
+status: pending                 # pending | confirmed | promoted | ineffective | superseded
+introduced: 2026-08-30          # 導入日（UTC）。母集団の起点になる
+source: .aidev/insights/2026-08-28-insights.md   # この条項を生んだ信号（任意）
+hypothesis: 命名に関する must/should 指摘が減る    # 必須。書けない条項は作らせない
+baseline: 直近10 works で boolean 命名の指摘 7件（must 2 / should 5）  # 必須。「前」の記録
+verify_after: 5                 # 判定に要する母集団の最低件数（既定 5）
+result: <判定の内訳>             # confirm 時
+promoted_to: docs/coding-standards.md#boolean-naming  # promote 時
+promoted_at: 2026-09-15         # promote 時
+note: <退役理由>                 # retire 時
+---
+```
+
+
 ## 条項を起こす（`pending` にする）
 
 ```sh
@@ -57,7 +90,23 @@
   ```
 
   飛ばしても `aidev doctor` が「索引に無い」と WARN し、`aidev convention status` の `index` 列が
-  `no` になる。**マーカー外に書いても索引とは認めない**（マーカー外は PJ の領域なので harness は見ない）。
+  `no` になる。
+
+### 索引ブロックの規則
+
+- **harness が触るのはマーカーの内側だけ**。導入時に人間が1回置き、以後は索引行の増減と
+  リンク先の張り替え（移送時）のみ。マーカー外は完全に PJ のもの（**マーカー外の記述は索引と認めない**）。
+- **索引漏れは `aidev doctor` が検知する**。載っていない条項は読まれないので、
+  **効果検証で「効かなかった」と誤判定される**——条項の内容の問題ではなく届いていないだけなのに。
+  検査だけ置くと直す手がないので、WARN は**足すべき行をそのまま示す**。
+  `aidev convention status` の `index` 列でも一覧できる。
+- **移送したら索引の張り替えも検査される**（`docs/aidev/<id>.md` を指したままなら WARN）。
+- 索引ファイルは `.aidev/config.yml` の `conventionsIndex` で指定できる
+  （未設定なら AGENTS.md → CLAUDE.md の順で探す。PJ 固有ファイル名を CLI に埋めないため）。
+- aidev を使わない PJ は**索引ブロックごと削除すれば無害に切り離せる**。
+- **矛盾したときは PJ の AGENTS.md 本体が上位**。`docs/aidev/` は追補であって上書きではない
+  （ハーネスの提案が PJ の明示的な意思を覆すのは越権）。
+
 
 ### 起こす前に既存 PJ ドキュメントを確認する（入口の重複排除）
 
@@ -114,6 +163,17 @@ grep -rho '\[conv:[^]]*\]' .aidev/works | sort | uniq -c | sort -rn
   **subtask は親に属する**——親が `introduced` より前に着手していれば、その子のタグも数えない。
 - **陰性は結論にならない**。遵守が LLM 依存で非決定的なので、指摘が減らなくても
   「条項の内容が間違っていた」とは言えない。言えるのは「**散文では効かなかった**」まで。
+  その場合の打ち手は削除ではなく **CLI（ハード層）かフック（自動化層）へ寄せる**こと。
+- **タスク点検（`protocol-check.md`）は判定を保守側にずらす**。点検で潰れた欠陥は review のラウンド指摘に現れないため、
+`must` 件数だけを見ると条項の効果は**過小に**見える。判定材料の主役は `review.md` の `[conv:…]` タグで、
+タグは点検ログ節にも同じ規約で付く（「8.」）ので**節をまたいで grep すれば漏れない**。
+件数指標を使うときは `task_check_findings` を併せて見る。
+
+| review 指摘が条項に | 意味 | 打ち手 |
+|---|---|---|
+| 対応しない（`conv:-`） | 規約に穴がある | 条項を起こす |
+| 対応する（なのに指摘された） | 規約はあるが守られていない | **追記しても効かない**。層を下げる |
+
 
 ```sh
 aidev convention confirm <id> --result "baseline 7件(must 2/should 5) -> 導入後 6works で [conv:<id>] 1件"
@@ -148,6 +208,23 @@ doctor が「confirmed だが未移送」を WARN
 **batch に許すのは条項の追加と移送まで**。既存条項の**削除・緩和は人間**が行う。
 追加は次のレビューで効かなければ消せる（可逆）が、緩和は「守らなくてよくなった」状態を作り、
 それが正しかったかを事後に検証できない（ガードを外す方向は検証不能）。
+
+## CLI（`aidev convention`）
+
+起こす・状態を進める・退避するは CLI にある。**本文を PJ ドキュメントへ実際に移す作業だけは CLI にしない**
+（文体・配置・既存章との統合が判断だから）。
+
+| コマンド | 役割 |
+|---|---|
+| `aidev convention new <id> --hypothesis <text> --baseline <text> [--source <p>] [--verify-after <n>]` | 起こす（`--hypothesis` と `--baseline` は必須） |
+| `aidev convention confirm <id> [--result <text>]` | 効果ありと判定 |
+| `aidev convention promote <id> --to <path#anchor>` | tombstone 化して退避（移送先の実在を検査） |
+| `aidev convention retire <id> --status ineffective\|superseded [--note <t>]` | 退役して退避 |
+| `aidev convention status [--format table\|tsv]` | 状態・母集団・判定可否の一覧 |
+
+**ファイル自身の一生は `aidev doctor` が見る**（条項ファイルには持ち主の work がいないので `verify` の
+硬ゲートにできない）。検知するのは `status` の欠落・誤記／判定可能なのに未判定／confirmed の移送漏れ／
+終状態の退避漏れ／索引漏れ・張り替え漏れ／退役後の索引 dangling／本文未記入。**WARN 止まり**。
 
 ## tombstone を消さない
 
