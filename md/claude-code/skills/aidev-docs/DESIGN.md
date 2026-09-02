@@ -583,7 +583,7 @@ works/ ノイズや「なめる state.yml が無い」問題は status フィル
   やり方」から外れる。対処は `aidev backlog new`（`--kind` 必須）と `aidev backlog archive`
   （判定は doctor と同一関数 `bl_archivable`）、および `aidev use`（`current` の切替手段が無かった）。
   - **境界**: 消し込み本体（`[x]` 化と根拠の併記）は CLI にしない。行の同定と文面が判断だから
-    （`verify` 自身が「行の同定は諦め、slug が現れるかで見る」と割り切っている）。
+    （`verify` は「`[x]` 行とその継続行に slug があるか」だけを見る。文面の同定はしない）。
     **機械にできることだけを機械に寄せ、判断は散文に残す**のが層分けの線引き。
 - **version-aware verify が肝**：`new` が `state.yml` に `schema:` を刻み、`verify`/`doctor` は**導入版以上の
   不変条件のみ強制**。schema 未記載の旧 work は **legacy 免除**。これで「PJと一緒に育てる」中で新ガードを

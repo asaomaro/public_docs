@@ -136,7 +136,7 @@ docsRoots: [docs/, AGENTS.md]  # 条項を起こす前に既存規約を探す�
 
 ## 効果を判定する（`confirmed` / `ineffective`）
 
-判定は `aidev-util-insights`（横断分析）の仕事。起動の合図は2つ:
+判定案を出すのは `aidev-util-insights`（横断分析）の仕事（実行は propose→batch→PR。下の「batch に許す範囲」）。起動の合図は2つ:
 
 1. **`aidev approve deliver` の到達通知**（`note: 条項 <id> の母集団が揃いました(N/M)`）。
    母集団が増える瞬間は deliver の1点なので、**到達の一報はここで鳴る**。

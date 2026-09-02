@@ -1690,6 +1690,12 @@ PYEOF
   assert_eq "$CP_SH" "$CP_PS" "パリティ: backlog compact の報告"
   assert_eq "$(cat "$PHV/.aidev/backlog/s.md")" "$(tr -d '\r' < "$PHV/.aidev/backlog/s2.md")" "パリティ: backlog compact 後の active ファイル"
   assert_eq "$(sed 's/^# s /# X /' "$PHV/.aidev/backlog/archive/s-done.md")" "$(tr -d '\r' < "$PHV/.aidev/backlog/archive/s2-done.md" | sed 's/^# s2 /# X /')" "パリティ: backlog compact の done ファイル"
+  # CRLF のファイルでも両実装が同じ（LF）ファイルを作る（sh が \r を残すと Windows 側とだけ食い違う）
+  printf -- '---\r\nkind: standing\r\n---\r\n\r\n- [x] crlf done\r\n- [ ] crlf todo\r\n' > "$PHV/.aidev/backlog/c.md"
+  cp "$PHV/.aidev/backlog/c.md" "$PHV/.aidev/backlog/c2.md"
+  ( cd "$PHV" && "$AIDEV_SH" backlog compact c.md >/dev/null )
+  ( cd "$PHV" && run_ps1 "$AIDEV_PS1" backlog compact c2.md >/dev/null )
+  assert_eq "$(od -c "$PHV/.aidev/backlog/c.md" | tr -s ' ')" "$(od -c "$PHV/.aidev/backlog/c2.md" | tr -s ' ')" "パリティ: backlog compact は CRLF 入力でも同じバイト列（LF）を書く"
   rm -rf "$PHV"
 
   # --- 数え方・exit code・入口ゲートのパリティ ---
@@ -2050,9 +2056,9 @@ YML
   else
     skip 10 "git 不在のため worktree パリティを省略"
   fi
-  block_end parity "152" "parity"
+  block_end parity "153" "parity"
 else
-  skip 152 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
+  skip 153 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
 fi
 
 echo

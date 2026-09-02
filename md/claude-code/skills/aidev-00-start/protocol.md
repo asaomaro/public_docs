@@ -144,8 +144,9 @@ backlog は**遅延キュー**で、完了した行を閉じるのは deliver �
 （`DESIGN.md`「2.5」: 流れは backlog → works（consume）。**backlog 行は deliver で `[x]`**）。
 
 - **記録**: `aidev new <slug> --backlog <file>` で出自を刻む（「6.」）。**どちらの入口でも省略しない**。
-- **強制**: `backlog:` を持つ work は、その backlog ファイルに自分の slug が現れないと
-  **`aidev verify` が FAIL する**（deliver の着地前ゲートで弾かれる）。
+- **強制**: `backlog:` を持つ work は、その backlog ファイルの **`- [x]` 行かその継続行**に自分の slug が
+  現れないと **`aidev verify` が FAIL する**（deliver の着地前ゲートで弾かれる。未着手行の `(needs: <slug>)` は
+  消し込みと認めない）。
 - **backlog を扱うときは `protocol-backlog.md` を読む**——項目を選ぶとき（`inflight` の確認）と、
   deliver で消し込むとき。消し込みの書き方は `aidev-70-deliver`「3.5」。
 
@@ -512,7 +513,8 @@ AGENTS.md には**読む条件つきの索引**（`<!-- aidev:conventions -->` �
   （`schema:` を `new` に一本化したのと同じ理由）。
 - **またがり work**（着手時と着地時で版が違う）は、改修の効果を半分しか受けていない。
   どちらかに帰属させると効果が薄まる方向にバイアスがかかるので、**母集団から除外**する
-  （`aidev verify` が `note:` で知らせる。**WARN ではない**——またがりは事後に取り消せない事実で、
+  （deliver 前は `aidev verify` が `note:` で知らせ、deliver 済みは `aidev metrics --all` の `straddle` 列で
+  見る——doctor を回すたびに履歴 work ぶん鳴らし続けない。**WARN ではない**——またがりは事後に取り消せない事実で、
   人が直せることが無い。ハーネスを1回コミットしただけで in-flight の全 work が鳴き続けるため、
   「いま直せる」WARN と同列に置くとそちらが埋もれる）。
 - **`verify` は deliver 承認の「前」に走る**ので、`harnessRevDelivered` をまだ持っていない。

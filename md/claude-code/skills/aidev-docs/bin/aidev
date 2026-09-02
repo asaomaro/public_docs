@@ -1641,7 +1641,7 @@ cmd_use() {
 
 # --- コマンド: backlog --------------------------------------------------------
 # **積む/退避する**だけを持たせる。消し込み（[x] 化と根拠の併記）は行の同定と文面の判断が
-# 要るので CLI にしない（verify 自身が「行の同定は諦める」と割り切っている。protocol「2.9」）。
+# 要るので CLI にしない（verify は [x] 行とその継続行に slug があるかだけを見る。protocol「2.9」）。
 cmd_backlog() {
   [ $# -ge 1 ] || die "使用法: aidev backlog <new|archive|compact> ..."
   sub=$1; shift
@@ -1688,7 +1688,9 @@ bl_compact() {
       printf '# %s (done)\n\n<!-- aidev backlog compact が退避した消化済み項目。verify の消し込み検査はここも見る -->\n' "${t%.md}" > "$dn"
     fi
     # [x] 行とその継続行（次の項目・見出し・空行まで）を done ファイルへ移し、残りを書き戻す
+    # 行末の CR は落として LF に揃える（ps1 は常に LF で書き戻す。両実装で同じファイルを作る）
     awk -v out="$dn" '
+      { sub(/\r$/, "") }
       /^[[:space:]]*- \[[xX]\]/ { inx=1 }
       /^[[:space:]]*- \[[^xX]\]/ || /^#/ || /^[[:space:]]*$/ { inx=0 }
       inx { print >> out; next }
