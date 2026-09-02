@@ -38,7 +38,7 @@ AI 開発ワークフローの **planner（課題提案 / L_planner・A 層）**
 ## 出力
 
 - 提案課題の一覧（根拠・優先度・split 案つき）。
-- 承認分 → `create-issue`（PJの issue 作成 skill）で issue 化、かつ/または バックログ（`.aidev/backlog/*.md`）へ追記。
+- 承認分 → PJ の issue 作成手段（そういう skill があればそれ。無ければ手順どおり手で）で issue 化、かつ/または バックログ（`.aidev/backlog/*.md`）へ追記。
 
 ## 手順
 

@@ -1,6 +1,6 @@
 ---
 name: aidev-util-batch
-description: ［ユーティリティ・パイプライン外／主トリガ:ユーザー起動・/loop・/schedule］AI開発ワークフローのバッチ駆動ユーティリティ。バックログ（チェックリスト）の未処理項目を順に autonomous モードの aidev で処理し、PRにまとめる。「バックログを消化して」「まとめて定義を作って」「batch」などと言われたとき、または /loop・/schedule から起動されたときに使用する。
+description: ［ユーティリティ・パイプライン外／主トリガ:ユーザー起動・定期実行］AI開発ワークフローのバッチ駆動ユーティリティ。バックログ（チェックリスト）の未処理項目を順に autonomous モードの aidev で処理し、PRにまとめる。「バックログを消化して」「まとめて定義を作って」「batch」などと言われたとき、または /loop・/schedule から起動されたときに使用する。
 allowed-tools: [Bash, Read, Edit, AskUserQuestion, Agent]
 ---
 

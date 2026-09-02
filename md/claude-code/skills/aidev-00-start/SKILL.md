@@ -1,7 +1,7 @@
 ---
 name: aidev-00-start
 description: ［入口/ルーター／主トリガ:ユーザー起動］AI開発ワークフローの入口。作業状況を確認し、どの工程から始めるかをユーザーに確認して案内する。「AI開発を始めたい」「開発ワークフローを開始」「続きから再開」「aidev」などと言われたときに使用する。
-allowed-tools: [Bash, Read, AskUserQuestion]
+allowed-tools: [Bash, Read, Write, AskUserQuestion]
 ---
 
 AI 開発ワークフローの入口（ルーター）。
@@ -14,7 +14,7 @@ AI 開発ワークフローの入口（ルーター）。
 
 以下を簡潔に提示する。
 
-- 工程は `requirement → spec → plan → coding → test → review` の順（推奨デフォルト）。
+- 工程は `requirement → spec → plan → coding → test → review → deliver` の順（推奨デフォルト）。
 - 各工程は **承認ゲート付き**で、自動では次に進まない（承認後に「次へ進むか」を確認する）。
 - 番号順は強制ではなく、差し戻し（例: review → coding）も可能。
 - 作業は `.aidev/works/<YYYYMMDD-slug>/` 単位で管理され、いつでも中断・再開できる。
@@ -63,7 +63,12 @@ CLI が使えない環境のフォールバック: `cat .aidev/current` / `ls .a
 
 - **続きから**：既存の作業を選択 → `aidev use <slug>`（`.aidev/current` を更新。存在しない slug は弾かれる）
   → その工程の skill を案内。CLI 無し環境では `.aidev/current` を手で書く。
-- **別工程をやり直す（差し戻し）**：作業と工程を選択 → 当該工程の skill を案内。
+- **別工程をやり直す（差し戻し）**：作業と工程を選択 → **`aidev use <slug>` でカーソルを移してから**
+  当該工程の skill を案内。**`use` を飛ばすと記録が無関係な work に落ちる**（`event`/`approve`/`guard` は
+  `.aidev/current` しか見ない）。`verify` も `doctor` もこれを検知せず、`metrics` の `reworks` だけが
+  静かに水増しされる。
+- **分割 work（subtask）に戻る**：`aidev status --subtasks` で活性の子を確認し、
+  `aidev use <親>/<子>`。`.aidev/current` は未追跡なのでセッションをまたぐと消える。
 - **未着手から着手する**：backlog／トラッカーの未着手項目を選び、その内容を requirement として手順 4 へ
   （依存 `(needs:…)` が未充足なら警告。`protocol.md`「2.7」）。
   - **選ぶ前に、その項目が本当に未着手か確かめる**（`inflight` の見方は `protocol-backlog.md`）。backlog は**遅れる**——別の作業が結果的に

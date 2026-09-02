@@ -1,7 +1,7 @@
 ---
 name: aidev-70-deliver
 description: ［標準工程・末尾0（最終）／主トリガ:両方（直接起動 or 前工程からの遷移／autonomous 自動）］AI開発ワークフローの deliver（着地）工程。レビュー済みの変更をコミット・PR作成で着地させる最終工程。「コミットして」「PRを出して」「deliver工程」などと言われたとき、または review 通過後に使用する。
-allowed-tools: [Bash, Read, AskUserQuestion]
+allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion]
 ---
 
 AI 開発ワークフローの **deliver（着地）工程**。ワークフローの最終工程。
@@ -25,7 +25,8 @@ review を通過した変更を、コミット・PR 作成によって実際に�
 
 ## 手順
 
-1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定し、**`aidev event deliver start` を記録する**。
+1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定し、`aidev guard deliver` で前提を検査してから
+   **`aidev event deliver start` を記録する**。
    - **ここを飛ばすと deliver の所要時間が導出できない**（`aidev verify` が WARN を出す）。
      他工程は skill の冒頭で打つ形だが、deliver は下の「記録順序」が `approve` を軸に書いてあるため
      **`event start` が手順から抜け落ちやすい**——実際に打ち忘れた実例がある

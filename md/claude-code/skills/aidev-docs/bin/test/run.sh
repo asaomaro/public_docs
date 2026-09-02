@@ -1367,6 +1367,39 @@ if [ -n "$PS_HOST" ]; then
   done
   rm -rf "$PAR"
 
+  # --- 数え方・exit code・入口ゲートのパリティ ---
+  for impl in sh ps1; do
+    PMX=$(mktemp -d); mkdir -p "$PMX/.aidev/works" "$PMX/.aidev/backlog"
+    if [ "$impl" = sh ]; then rx() { ( cd "$PMX" && "$AIDEV_SH" "$@" ); }
+    else rx() { ( cd "$PMX" && run_ps1 "$AIDEV_PS1" "$@" ); }; fi
+
+    # reworks は「やり直した回数」。工程数で数えると上限が工程数で飽和し、
+    # protocol-analysis「規模あたりの手戻り」の分子が頭打ちになる
+    rx new rw >/dev/null; RWW=$(ls "$PMX/.aidev/works" | head -n1)
+    for _i in 1 2 3 4; do rx event coding start >/dev/null; done
+    RW_OUT=$(rx metrics "$RWW" --format tsv 2>&1 | tr -d '\r')
+    assert_contains "$RW_OUT" "	3	" "[$impl] reworks はやり直した回数（4回 start なら 3）"
+
+    # doctor の exit code は 4（不変条件違反）。1 は使用法・環境エラー用なので、
+    # 機械ゲートが「ドリフト検知」を「環境が壊れている」と誤読する
+    printf 'schema: 5\nslug: broken\ncurrent: review\napproved: [review]\n' \
+      > "$PMX/.aidev/works/20200101-broken/state.yml" 2>/dev/null \
+      || { mkdir -p "$PMX/.aidev/works/20200101-broken"; \
+           printf 'schema: 5\nslug: broken\ncurrent: review\napproved: [review]\n' \
+             > "$PMX/.aidev/works/20200101-broken/state.yml"; }
+    printf 'events:\n' > "$PMX/.aidev/works/20200101-broken/metrics.yml"
+    rx doctor >/dev/null 2>&1
+    assert_eq "$?" "4" "[$impl] doctor のドリフト検知は exit 4（1=環境エラーと区別する）"
+
+    # 子は backlog 出自を持たない設計。受理して黙って捨てない
+    printf -- '---\nkind: topic\n---\n\n- [ ] a\n' > "$PMX/.aidev/backlog/b.md"
+    rx new pp >/dev/null; PPW=$(ls "$PMX/.aidev/works" | grep -- '-pp$' | head -n1)
+    rx new 01-x --parent "$PPW" --backlog b.md >/dev/null 2>&1
+    assert_eq "$?" "1" "[$impl] --parent と --backlog の併用は弾く（刻印を黙って捨てない）"
+    rm -rf "$PMX"
+  done
+  unset -f rx 2>/dev/null || true
+
   # --- 成果物の実在検査 / subtask 横断 / light の next のパリティ ---
   # 背景: verify は deliver の**着地前ゲート**（70-deliver「PASS を着地の前提とする」）なのに、
   # (1) 承認済み工程の成果物を1つも見ておらず、**成果物ゼロの work が「deliver 済み・OK」**になり、
@@ -1684,9 +1717,9 @@ YML
   else
     skip 10 "git 不在のため worktree パリティを省略"
   fi
-  block_end parity "104" "parity"
+  block_end parity "110" "parity"
 else
-  skip 104 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
+  skip 110 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
 fi
 
 echo

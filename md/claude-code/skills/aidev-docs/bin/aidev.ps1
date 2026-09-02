@@ -5,7 +5,7 @@
 # 役割と正典は `aidev` 冒頭コメント／protocol.md「4.1」を参照。
 #
 # 使い方:
-#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 new <slug> [--mode interactive|autonomous] [--profile full|light] [--light] [--ticket ID] [--depends a,b,#N] [--parent <親work>]
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 new <slug> [--mode interactive|autonomous] [--profile full|light] [--light] [--ticket ID] [--depends a,b,#N] [--parent <親work>] [--backlog <file>]
 #     --parent 指定時は親 work 配下に subtask（<NN>-<subslug>・date prefix なし・current=plan）を作る
 #     --profile/--light は「どこまで工程を回すか」（protocol.md「11.」）。mode（誰が承認するか）と直交
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 escalate [slug]   # profile を light -> full に昇格（片方向）
@@ -441,6 +441,8 @@ function Cmd-New($rest) {
   }
   $worksRoot = Join-Path $script:AIDEV 'works'
 
+  # 子は backlog 出自を持たない設計（出自は親が持つ）。受理して黙って捨てない
+  if ($parent -and $backlog) { Die "--parent と --backlog は併用できません（backlog 出自は親 work に刻む）" }
   if ($parent) {
     # --- subtask 生成: 親 work 配下に <slug>(=NN-subslug) で作る（date prefix なし）。current は plan 開始 ---
     $pdir = Join-Path $worksRoot $parent
@@ -1011,7 +1013,8 @@ function Cmd-Doctor() {
   Write-Output "summary: works=$total fail=$fail legacy(免除)=$legacy"
   Doctor-Backlog
   Doctor-Conventions
-  if ($fail -eq 0) { exit 0 } else { exit 1 }
+  # 4（不変条件違反）に揃える。1 は使用法・環境エラー用（sh 版と同一）
+  if ($fail -eq 0) { exit 0 } else { exit 4 }
 }
 
 # --- status（読み取り専用・works横断＋backlog未着手） ----------------------------
@@ -1260,7 +1263,8 @@ function Cmd-Metrics($rest) {
       $dv = if ($deliveredFlag) { 'yes' } else { 'no' }
       $lead = '-'
       if ($deliveredFlag -and $first -ge 0 -and $deliveredE -ge 0) { $lead = $deliveredE-$first }
-      $rw=0; foreach ($k in $scount.Keys) { if ($scount[$k] -ge 2) { $rw++ } }
+      # 「手戻り回数」= やり直した回数（工程数で数えると分子が飽和する。sh 版と同一）
+      $rw=0; foreach ($k in $scount.Keys) { if ($scount[$k] -ge 2) { $rw += $scount[$k] - 1 } }
       $rows += ($name + "`t" + $fs + "`t" + $dv + "`t" + $lead + "`t" + $rw + "`t" + $sback)
     }
   }

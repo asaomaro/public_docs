@@ -1,7 +1,7 @@
 ---
 name: aidev-20-spec
 description: ［標準工程・末尾0／主トリガ:両方（直接起動 or 前工程からの遷移／autonomous 自動）］AI開発ワークフローの spec（仕様策定）工程。requirement.md を実装仕様 spec.md に落とす。「仕様を作りたい」「spec工程」などと言われたとき、または前工程から案内されたときに使用する。
-allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion]
+allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion, Agent]
 ---
 
 AI 開発ワークフローの **spec（仕様策定）工程**を実行する。
@@ -28,7 +28,10 @@ requirement を「どう作るか」の実装仕様に落とす。設計判断�
 
 ## 手順
 
-1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定。「2. 前提チェック」に従い `requirement.md` を確認。
+1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定。
+   `aidev guard spec` で前提を検査する（exit≠0＝未充足。目視確認で代替しない——guard は
+   三層モデルの**第二層＝ハード**なので、呼ぶ行が手順に無いと第一層＝散文だけの運用になる。
+   protocol.md「2.10」）。
 2. `requirement.md` を読み、完了条件を満たす実装方針を検討する。
    - **有力な案が複数あるなら plan モードを使ってよい**（任意。`protocol.md`「10.」）。`EnterPlanMode` で
      read-only のまま既存コードを調べ、方針案を提示して `ExitPlanMode` で承認を取り、**解除してから

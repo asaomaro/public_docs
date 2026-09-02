@@ -41,21 +41,22 @@ per-work の `retro` が「その作業1件」を振り返るのに対し、こ�
   - `--format tsv` で機械パース可（列の集計・平均算出に使う）。Windows は `pwsh .claude/skills/aidev-docs/bin/aidev.ps1 metrics ...`（pwsh 無しなら `powershell -NoProfile -File ...`）。
   - **例外: 工程別の付加メトリクスは CLI の派生テーブルに出ない**（`aidev metrics` はイベント列からの
     導出値だけを出力する）。`tasks_anchored` / `unplanned_lookups` / `files_changed` 等が必要な場合に限り、
-    `.aidev/works/*/metrics.yml` の `approved` 行から抽出する（1 イベント 1 行なので grep で足りる）。
+    `.aidev/works/**/metrics.yml` の `approved` 行から抽出する（1 イベント 1 行なので grep で足りる）。
+    **`*/` の1段グロブでは subtask（`works/<親>/<NN>-<子>/`）が落ちる**ので `grep -r` を使う。
     protocol.md「8.」の「工程別の付加メトリクス」がキーの正典。
-- `.aidev/works/*/review.md`：レビュー指摘の内容（再発パターン分析の主材料。**テキストは読む**）。
+- `.aidev/works/**/review.md`：レビュー指摘の内容（再発パターン分析の主材料。**テキストは読む**）。
   - **「タスク点検ログ」節（coding 工程内の独立点検。protocol.md「3.3」(b)「8.」）はラウンド指摘と分けて数える**。
     点検で潰れた欠陥は工程に到達しなかったもので、母集団が違う。`[conv:…]` タグの集計は節をまたいでよい
     （タグの規約は同じ）が、`must` 件数の推移を見るときは混ぜない。
   - 点検の効き具合は `task_checks` / `task_check_findings`（coding の付加メトリクス）と `must` の推移を
     突き合わせて読む——**findings が出ているのに `must` が減らないなら、点検の観点か発火条件がずれている**。
-- `.aidev/works/*/decisions.md`：繰り返される設計逸脱（テキスト）。
-- `.aidev/works/*/retro.md`：過去の per-work 改善提案（再発・未対応の把握。テキスト）。
+- `.aidev/works/**/decisions.md`：繰り返される設計逸脱（テキスト）。
+- `.aidev/works/**/retro.md`：過去の per-work 改善提案（再発・未対応の把握。テキスト）。
 - **`aidev convention status`**：PJ規約の条項の状態・母集団件数(`pop`)・判定可否(`ready`)。
   縦断分析の入口（`protocol.md`「12.」＋ `protocol-conventions.md`）。
-- **`.aidev/works/*/state.yml` の `harnessRev`**：その work を回したハーネスの版。
+- **`.aidev/works/**/state.yml` の `harnessRev`**：その work を回したハーネスの版。
   ハーネス改修の前後を分ける鍵（`aidev status --format tsv` には出ないので state.yml から grep する）。
-- **`.aidev/works/*/review.md` の条項参照タグ `[conv:…]`**：条項の効果判定の主材料（`protocol.md`「8.」）。
+- **`.aidev/works/**/review.md` の条項参照タグ `[conv:…]`**：条項の効果判定の主材料（`protocol.md`「8.」）。
 
 ## 出力
 
@@ -95,9 +96,9 @@ per-work の `retro` が「その作業1件」を振り返るのに対し、こ�
    - `harnessRev` で works を版ごとに層別し、改修の前後で指標を比べる。
 
      ```sh
-     grep -H '^harnessRev:' .aidev/works/*/state.yml
+     grep -rH '^harnessRev:' .aidev/works   # -r は必須（1段グロブでは subtask が落ちる）
      ```
-   - **またがり work は母集団から外す**（`harnessRev` ≠ `harnessRevDelivered`。`aidev verify` が WARN する）。
+   - **またがり work は母集団から外す**（`harnessRev` ≠ `harnessRevDelivered`。`aidev verify` が `note:` で知らせる）。
      改修の効果を半分しか受けておらず、どちらに帰属させても効果が薄まる。
    - 比較に使う指標は**手戻り回数(reworks)を第一に**選ぶ。`elapsed_sec` / `lead_sec` は
      `mode` の層別（autonomous 同士）が成立する件数がないと意味を持たない（`protocol-analysis.md`）。
