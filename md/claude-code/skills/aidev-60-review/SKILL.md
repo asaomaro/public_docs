@@ -68,8 +68,8 @@ AI 開発ワークフローの **review（レビュー）工程**を実行する
      差し戻しを提案する（protocol.md「4. 番号と順序」に基づく正当な遷移）。
      coding を**再開する際は `aidev event coding start` を記録する**（さもないと手戻り回数を取りこぼす。protocol.md「3.」「8.」）。
      - **統合 review の差し戻し先（protocol.md「2.8」＋ `protocol-subtask.md`）**: 結合起因の指摘は**原因となった subtask の coding** へ
-       戻す。`.aidev/current` を該当 subtask（`<親>/<NN>-<subslug>`）に切り替え、親 `activeSubtask` をその子に戻し、
-       **その子の `approved` から `review` を外して**（完了を取り消す）から `aidev event coding start`。これで
+       戻す。`aidev use <親>/<NN>-<subslug>`（親の `activeSubtask` も同期される）→
+       **`aidev unapprove review`**（完了を取り消す。記録は `sent_back` として残る）→ `aidev event coding start`。これで
        再 coding→test→review 後の `approve review` が再びカーソルを前進させられる（D と整合）。
        再 split（親 plan 戻し）は避け、最小手戻りにする。
    - **指摘なし（または nit のみ）** → protocol.md「3. 工程終了プロトコル」に従って終了する。

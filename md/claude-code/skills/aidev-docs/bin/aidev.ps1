@@ -9,8 +9,9 @@
 #     --parent 指定時は親 work 配下に subtask（<NN>-<subslug>・date prefix なし・current=plan）を作る
 #     --profile/--light は「どこまで工程を回すか」（protocol.md「11.」）。mode（誰が承認するか）と直交
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 escalate [slug]   # profile を light -> full に昇格（片方向）
-#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 event <phase> <start|approved|sent_back> [key=value ...]
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 event <phase> <start|sent_back> [key=value ...]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 approve <phase> [key=value ...]
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 unapprove <phase> [--slug <work>]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 guard <phase>
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 verify [slug] [--strict]
 #     --strict は記録漏れ(event の start 欠落)だけを致命(exit 5)にする（機械ゲート用）
@@ -514,10 +515,12 @@ function Cmd-New($rest) {
 
 # --- event -------------------------------------------------------------------
 function Cmd-Event($rest) {
-  if ($rest.Count -lt 2) { Die "使用法: aidev event <phase> <start|approved|sent_back> [k=v ...]" }
+  if ($rest.Count -lt 2) { Die "使用法: aidev event <phase> <start|sent_back> [k=v ...]" }
   $ph=$rest[0]; $ev=$rest[1]; $kvs=@(); if ($rest.Count -gt 2) { $kvs=$rest[2..($rest.Count-1)] }
   if (-not (IsPhase $ph)) { Die "未知の phase: $ph" }
-  if ('start','approved','sent_back' -cnotcontains $ev) { Die "event は start|approved|sent_back" }
+  # approved は approve の役割。event で書くと state.yml が更新されず metrics と乖離する
+  if ($ev -ceq 'approved') { Die "approved は aidev approve <phase> で記録すること（event では state.yml が更新されず、metrics と乖離する）" }
+  if ('start','sent_back' -cnotcontains $ev) { Die "event は start|sent_back（approved は approve コマンド）" }
   ResolveWork ''
   AppendEvent $script:WORK $ph $ev $kvs
   Write-Output "recorded: $($script:SLUG)/$ph/$ev"
@@ -862,7 +865,7 @@ function EventPairWarnings($metricsFile) {
     if ($s -eq 0) {
       "  WARN ${p}: approved があるのに start が無い（所要時間が導出できません）"
     } elseif ($s -lt $a) {
-      "  WARN ${p}: start $s 回に対し approved $a 回（start の記録漏れ）"
+      "  WARN ${p}: start $s 回に対し approved $a 回（start の記録漏れ、または approve の重複）"
     }
   }
 }
@@ -1355,19 +1358,34 @@ function Wt-Add($rest) {
   # ブランチ存在で分岐（既存→checkout / 新規→-b で base から作成）。branch は必ず明示。実 exit code を判定。
   git show-ref --verify --quiet "refs/heads/$branch"
   if ($LASTEXITCODE -eq 0) {
+    $wtNewBranch = $false
     git worktree add "$wpath" "$branch"
     if ($LASTEXITCODE -ne 0) { Die "git worktree add に失敗（branch=$branch）" }
   } else {
+    $wtNewBranch = $true
     git worktree add -b "$branch" "$wpath" "$base"
     if ($LASTEXITCODE -ne 0) { Die "git worktree add に失敗（branch=$branch base=$base）" }
   }
   $wpath = (Resolve-Path -LiteralPath $wpath).Path
 
+  # ここから先の Die は worktree を作った後に起きる。ロールバックしないと、失敗したのに
+  # worktree とブランチだけが残り、次の add が「既にある」で弾かれる（sh 版と同一）
+  $wtRollback = {
+    param($msg)
+    git worktree remove --force $wpath 2>$null | Out-Null
+    if ($wtNewBranch) { git branch -D $branch 2>$null | Out-Null }
+    git worktree prune 2>$null | Out-Null
+    # 既定のコンテナも空なら掃除する（rm と同じ後始末）
+    $cont = Split-Path $wpath -Parent
+    if ((IsDir $cont) -and -not (Get-ChildItem -LiteralPath $cont -Force)) { Remove-Item -LiteralPath $cont -Force }
+    Die "$msg（作りかけの worktree とブランチは撤去した）"
+  }
+
   # worktree 内で work を確定（main tree の .aidev/current には触れない＝INV-1）
   # @() で配列強制（要素1個だと return がスカラー文字列にアンロールし $mw[0] が先頭1文字になるのを防ぐ）
   $mw = @(WorksMatchingSlug $wpath $slug)
   if ($mw.Count -gt 1) {
-    Die "worktree 内に slug=$slug の work が複数あります。曖昧なため中断（手動で current 設定を）"
+    & $wtRollback "worktree 内に slug=$slug の work が複数あります。曖昧なため中断（手動で current 設定を）"
   } elseif ($mw.Count -eq 1) {
     WriteText (Join-Path (Join-Path $wpath '.aidev') 'current') ($mw[0] + "`n")
     $workNote = "既存 work をリンク: $($mw[0])（current 設定のみ）"
@@ -1375,13 +1393,17 @@ function Wt-Add($rest) {
     # add 内で new: worktree をカレントにして既存 new ロジックに委譲（単一検証経路の維持・DRY）
     # CLI は skills 同梱＝`.claude/skills/aidev-docs/bin/`（sh 版と同じ正典パス。protocol.md「4.1」）。
     $bin = [System.IO.Path]::Combine($wpath, '.claude', 'skills', 'aidev-docs', 'bin', 'aidev.ps1')
-    if (-not (IsFile $bin)) { Die "worktree 内に CLI がありません: $bin（skills が追跡・コミット済みか確認）" }
+    if (-not (IsFile $bin)) { & $wtRollback "worktree 内に CLI がありません: $bin（skills が追跡・コミット済みか確認）" }
     $argv = @('new', $slug, '--mode', $mode)
     if ($ticket)  { $argv += @('--ticket', $ticket) }
     if ($depends) { $argv += @('--depends', $depends) }
+    # ロールバックは **Pop-Location の後**に回す。try の中で呼ぶと finally の Pop-Location と
+    # 二重になり、しかも worktree の中に居るまま `git worktree remove` を打つことになる
     Push-Location $wpath
-    try { & (PsHost) @(PsHostArgs $bin) @argv; if ($LASTEXITCODE -ne 0) { Die "worktree 内の new に失敗" } }
+    $newFailed = $false
+    try { & (PsHost) @(PsHostArgs $bin) @argv; if ($LASTEXITCODE -ne 0) { $newFailed = $true } }
     finally { Pop-Location }
+    if ($newFailed) { & $wtRollback "worktree 内の new に失敗" }
     $workNote = "新規 work を作成（add 内で new）"
   }
 
@@ -1497,6 +1519,55 @@ function Cmd-Use($rest) {
   WriteText (Join-Path $script:AIDEV 'current') "$($script:SLUG)`n"
   $ph = YGet (Join-Path $script:WORK 'state.yml') 'current'
   Write-Output "current: $($script:SLUG) ($ph)"
+  # subtask に切り替えたら親の activeSubtask も合わせる（activeSubtask は current の冗長コピー）
+  $upar = YGet (Join-Path $script:WORK 'state.yml') 'parent'
+  if ($upar) {
+    $ppath = Join-Path (Join-Path $script:AIDEV 'works') $upar
+    if (IsDir $ppath) {
+      $leaf = Split-Path $script:WORK -Leaf
+      SetOrAppend (Join-Path $ppath 'state.yml') 'activeSubtask' "activeSubtask: $leaf"
+      Write-Output "cursor: 親 $upar の activeSubtask を $leaf に同期"
+    }
+  }
+}
+
+# --- unapprove ---------------------------------------------------------------
+# 差し戻しで無効化される後工程の承認を取り消す。元は「approved から手で除く」だったが、
+# それは state.yml の更新を CLI に集約するという原則と矛盾する（sh 版のコメント参照）。
+# 記録は消さない——取り消し自体を sent_back イベントとして刻む（手戻りは実際に起きた事実）。
+function Cmd-Unapprove($rest) {
+  $uslug=''; $uph=''
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch -CaseSensitive ($rest[$i]) {
+      '--slug' { $i++; $uslug=(ArgAt $rest $i '--slug') }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        elseif ($uph) { Die "工程は1つだけ" } else { $uph = $rest[$i] }
+      }
+    }
+  }
+  if (-not $uph) { Die "使用法: aidev unapprove <phase> [--slug <work>]" }
+  if (-not (IsPhase $uph)) { Die "未知の工程: $uph" }
+  ResolveWork $uslug
+  $st = Join-Path $script:WORK 'state.yml'
+  if (-not (ApprovedHas $script:WORK $uph)) { Die "承認されていません: $uph @ $($script:SLUG)" }
+
+  $keep = @(@(YList $st 'approved') | Where-Object { $_ -cne $uph })
+  ReplaceLine $st 'approved' ('approved: [' + ([string]::Join(', ', $keep)) + ']')
+  ReplaceLine $st 'current' "current: $uph"
+  AppendEvent $script:WORK $uph 'sent_back' @()
+  Write-Output "unapproved: $uph @ $($script:SLUG)"
+  Write-Output "next: aidev event $uph start を記録してからやり直すこと"
+
+  $par = YGet $st 'parent'
+  if ($par -and $uph -ceq 'review') {
+    $ppath = Join-Path (Join-Path $script:AIDEV 'works') $par
+    if (IsDir $ppath) {
+      $leaf = Split-Path $script:WORK -Leaf
+      SetOrAppend (Join-Path $ppath 'state.yml') 'activeSubtask' "activeSubtask: $leaf"
+      Write-Output "cursor: 親 $par の activeSubtask を $leaf に戻した"
+    }
+  }
 }
 
 # --- backlog（積む/退避する。消し込みは判断の仕事なので CLI に持たせない） -----------
@@ -1920,6 +1991,7 @@ switch -CaseSensitive ($cmd) {
   'new'     { Cmd-New $rest }
   'event'   { Cmd-Event $rest }
   'approve' { Cmd-Approve $rest }
+  'unapprove' { Cmd-Unapprove $rest }
   'guard'   { Cmd-Guard $rest }
   'verify'  { Cmd-Verify $rest }
   'escalate' { Cmd-Escalate $rest }

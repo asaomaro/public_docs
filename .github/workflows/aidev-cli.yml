@@ -28,8 +28,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        include:
+          # ubuntu には pwsh 7 が入っている（PowerShell 7 系のパリティ）
+          - os: ubuntu-latest
+            ps_host: pwsh
+          # windows-latest には pwsh 7 と Windows PowerShell 5.1 の**両方**が入っている。
+          # run.sh の自動判定は pwsh を優先するので、放っておくと **ps1 の本来の対象である
+          # 5.1 が一度も走らない**。両方を明示的に回す。
+          - os: windows-latest
+            ps_host: pwsh
+          - os: windows-latest
+            ps_host: winps
     runs-on: ${{ matrix.os }}
+    name: ${{ matrix.os }} / ${{ matrix.ps_host }}
     defaults:
       run:
         shell: bash
@@ -48,6 +59,7 @@ jobs:
           command -v powershell && echo "powershell(5.1): あり" || echo "powershell: なし"
 
       - name: pwsh が無ければ入れる
+        if: matrix.ps_host == 'pwsh'
         run: |
           command -v pwsh >/dev/null 2>&1 && exit 0
           sh test/setup-pwsh.sh
@@ -60,6 +72,10 @@ jobs:
         # 「ps1 が検証された」が別物のまま、誰も気付けない。
         # GitHub の bash は既定で `-eo pipefail` なので、テストが落ちればこの時点で止まる。
         # 以降に来るのは「テストは緑」の場合だけ
+        env:
+          # 処理系を明示する。自動判定に任せると windows でも常に pwsh が選ばれ、
+          # 5.1 の経路が検証されないまま緑になる
+          AIDEV_PS_HOST: ${{ matrix.ps_host }}
         run: |
           sh test/run.sh 2>&1 | tee result.txt
           skip=$(sed -n 's/^RESULT:.*skip=\([0-9][0-9]*\).*/\1/p' result.txt)

@@ -12,10 +12,23 @@ AIDEV_PS1="$BIN/aidev.ps1"
 # ps1 を走らせるホストを決める。pwsh は Windows に標準搭載ではないため、素の Windows では
 # Windows PowerShell 5.1（powershell.exe）へフォールバックする。ここを pwsh 決め打ちにすると
 # ps1 が「対象 OS で一度も検証されないまま緑」になる(#32 と同じ穴)。
+#
+# `AIDEV_PS_HOST` で処理系を**明示指定**できる（`pwsh` / `winps`）。これが無いと、
+# pwsh 7 と Windows PowerShell 5.1 が両方入っている環境（GitHub Actions の windows-latest が
+# まさにそれ）では常に pwsh が選ばれ、**ps1 の本来の対象である 5.1 が一度も走らない**。
+# 自動判定に任せると「Windows で検証した」と言えないまま緑になる。
 PS_HOST=""
-if command -v pwsh >/dev/null 2>&1; then PS_HOST=pwsh
+if [ -n "${AIDEV_PS_HOST:-}" ]; then
+  case "$AIDEV_PS_HOST" in
+    pwsh)  command -v pwsh >/dev/null 2>&1 || { echo "AIDEV_PS_HOST=pwsh だが pwsh がありません" >&2; exit 1; } ;;
+    winps) command -v powershell >/dev/null 2>&1 || { echo "AIDEV_PS_HOST=winps だが powershell がありません" >&2; exit 1; } ;;
+    *) echo "AIDEV_PS_HOST は pwsh|winps（指定: $AIDEV_PS_HOST）" >&2; exit 1 ;;
+  esac
+  PS_HOST=$AIDEV_PS_HOST
+elif command -v pwsh >/dev/null 2>&1; then PS_HOST=pwsh
 elif command -v powershell >/dev/null 2>&1; then PS_HOST=winps
 fi
+[ -n "$PS_HOST" ] && printf 'ps1 host: %s\n' "$PS_HOST"
 run_ps1() { # script args...
   _s=$1; shift
   case "$PS_HOST" in
@@ -302,6 +315,21 @@ if command -v git >/dev/null 2>&1; then
   assert_eq "$([ -d "$WP" ] && echo yes || echo no)" "no" "rm: worktree 撤去済み"
   # `( cd … && git … )` だと cd 失敗でも 1 になり、何を確かめたのか曖昧になる
   git -C "$REPO" show-ref --verify --quiet refs/heads/feature/probe; assert_eq "$?" "1" "rm: ブランチも削除済み"
+
+  # add が **worktree を作った後**に失敗したら撤去する。しないと失敗したのに worktree と
+  # ブランチだけが残り、次の add が「既にある」で弾かれる（skills を持ち込んでいない
+  # リポジトリで CLI 実在検査に落ちる経路で確かめる）
+  RBR=$(mktemp -d)
+  ( cd "$RBR" && git init -q . && mkdir -p .aidev/works && printf 'x\n' > f.txt && git add -A \
+    && git -c user.email=t@t -c user.name=t commit -qm init ) >/dev/null 2>&1
+  RB_OUT=$( ( cd "$RBR" && "$AIDEV_SH" worktree add rbdemo ) 2>&1 ); RB_RC=$?
+  assert_eq "$RB_RC" "1" "worktree add: CLI 不在なら失敗する"
+  assert_contains "$RB_OUT" "撤去した" "worktree add: 失敗したら撤去した旨を伝える"
+  assert_eq "$(git -C "$RBR" worktree list | wc -l | tr -d ' ')" "1" "worktree add: 失敗時に worktree を残さない"
+  git -C "$RBR" show-ref --verify --quiet refs/heads/feature/rbdemo
+  assert_eq "$?" "1" "worktree add: 失敗時に自分で作ったブランチを残さない"
+  assert_eq "$([ -d "$RBR-wt" ] && echo yes || echo no)" "no" "worktree add: 失敗時に空のコンテナを残さない"
+  rm -rf "$RBR" "$RBR-wt"
   # INV-1（rm 後も main current 不変＝未作成のまま）
   assert_eq "$([ -f "$REPO/.aidev/current" ] && echo yes || echo no)" "no" "INV-1: rm 後も main current 不変"
 
@@ -328,9 +356,9 @@ if command -v git >/dev/null 2>&1; then
   case "$CFG_OUT" in *"共有するもの"*) ng "add: sharedFiles 設定時は汎用文言を出さない" ;; *) ok "add: sharedFiles 設定時は汎用文言を出さない" ;; esac
   run_repo worktree rm cfgprobe --force --delete-branch >/dev/null 2>&1
   rm -f "$REPO/.aidev/config.yml"
-  block_end worktree "28" "worktree"
+  block_end worktree "33" "worktree"
 else
-  skip 28 "git 不在のため worktree テストを省略"
+  skip 33 "git 不在のため worktree テストを省略"
 fi
 
 echo "== subtask 層（new --parent / guard 継承 / 兄弟 dependsOn / doctor 横断） =="
@@ -1367,6 +1395,54 @@ if [ -n "$PS_HOST" ]; then
   done
   rm -rf "$PAR"
 
+  # --- unapprove / event の入口 / worktree のロールバックのパリティ ---
+  # 背景: 差し戻しで `approved` から工程を外す手段が CLI に無く、protocol.md が「手で除く」と
+  # 指示していた。これは escalate を作った理由（state.yml の更新を CLI に集約する）と矛盾し、
+  # しかも 60-review の統合差し戻し手順は「子の approved から review を外す」を要求していて、
+  # **手段が無いまま手順だけがあった**。
+  for impl in sh ps1; do
+    PUA=$(mktemp -d); mkdir -p "$PUA/.aidev/works"
+    if [ "$impl" = sh ]; then ru() { ( cd "$PUA" && "$AIDEV_SH" "$@" ); }
+    else ru() { ( cd "$PUA" && run_ps1 "$AIDEV_PS1" "$@" ); }; fi
+
+    ru new ua >/dev/null; UAW=$(ls "$PUA/.aidev/works" | head -n1)
+    for f in requirement spec plan; do : > "$PUA/.aidev/works/$UAW/$f.md"; done
+    for ph in requirement spec plan; do ru approve "$ph" >/dev/null; done
+    ru new 01-c --parent "$UAW" >/dev/null
+    ru use "$UAW/01-c" >/dev/null
+    for f in plan tasks review; do : > "$PUA/.aidev/works/$UAW/01-c/$f.md"; done
+    for ph in plan coding test review; do ru approve "$ph" >/dev/null; done
+    # 全子完了で activeSubtask=done になる
+    assert_contains "$(tr -d '\r' < "$PUA/.aidev/works/$UAW/state.yml")" "activeSubtask: done" \
+      "[$impl] 全 subtask 完了で activeSubtask=done"
+
+    # unapprove で子の review を取り消す → approved から外れ、current が戻り、親のカーソルも戻る
+    ru use "$UAW/01-c" >/dev/null
+    ru unapprove review >/dev/null
+    UA_C=$(tr -d '\r' < "$PUA/.aidev/works/$UAW/01-c/state.yml")
+    assert_contains "$UA_C" "approved: [plan, coding, test]" "[$impl] unapprove: approved から当該工程だけ外す"
+    assert_contains "$UA_C" "current: review" "[$impl] unapprove: current を取り消した工程へ戻す"
+    assert_contains "$(tr -d '\r' < "$PUA/.aidev/works/$UAW/state.yml")" "activeSubtask: 01-c" \
+      "[$impl] unapprove(子の review): 親の activeSubtask もその子へ戻す"
+    # **記録は消さない**。手戻りは実際に起きた事実なので、消すと reworks/sent_backs が過小になる
+    assert_contains "$(tr -d '\r' < "$PUA/.aidev/works/$UAW/01-c/metrics.yml")" "phase: review, event: sent_back" \
+      "[$impl] unapprove: 取り消しを sent_back として刻む（記録を消さない）"
+    ru unapprove review >/dev/null 2>&1
+    assert_eq "$?" "1" "[$impl] unapprove: 承認されていない工程は弾く"
+
+    # use が subtask を指したら親の activeSubtask も同期する（冗長コピーの定義を保つ）
+    ru use "$UAW" >/dev/null
+    ru use "$UAW/01-c" >/dev/null
+    assert_contains "$(tr -d '\r' < "$PUA/.aidev/works/$UAW/state.yml")" "activeSubtask: 01-c" \
+      "[$impl] use: subtask に切り替えたら親の activeSubtask も同期する"
+
+    # event <phase> approved は state を更新しないので metrics と乖離する。入口で弾く
+    ru event spec approved >/dev/null 2>&1
+    assert_eq "$?" "1" "[$impl] event で approved は書けない（state と metrics が乖離する）"
+    rm -rf "$PUA"
+  done
+  unset -f ru 2>/dev/null || true
+
   # --- 数え方・exit code・入口ゲートのパリティ ---
   for impl in sh ps1; do
     PMX=$(mktemp -d); mkdir -p "$PMX/.aidev/works" "$PMX/.aidev/backlog"
@@ -1717,9 +1793,9 @@ YML
   else
     skip 10 "git 不在のため worktree パリティを省略"
   fi
-  block_end parity "110" "parity"
+  block_end parity "126" "parity"
 else
-  skip 110 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
+  skip 126 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
 fi
 
 echo

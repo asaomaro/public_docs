@@ -37,8 +37,9 @@ Git Bash（Git for Windows 同梱）があるなら POSIX 版の `aidev` がそ�
 | コマンド | 役割 |
 |---|---|
 | `new <slug> [--mode interactive\|autonomous] [--profile full\|light] [--light] [--ticket ID] [--depends a,b,#N] [--parent <親work>] [--backlog <file>]` | work 作成。`state.yml`/`metrics.yml` を**スキーマ付きで原子的に初期化**し `.aidev/current` を設定。`schema` を刻む。`--backlog` は backlog 項目から起こした出自（`.aidev/backlog/` 内のファイル名）を刻み、**deliver での消し込みを `verify` が強制**する（存在しないファイルは着手前に弾く）。`--profile`/`--light` は「どこまで工程を回すか」（`protocol.md`「11.」）で **`--mode` と直交**。既定 `full`。subtask は親の `profile` を継承する。**`harnessRev`（ハーネスの版）も自動で刻む**——ハーネス改修の効果検証で母集団を特定するための刻印で、手書きに任せると忘れられ、忘れられた work は母集団から静かに漏れる（`schema:` を `new` 一本化したのと同じ理由）。取れない環境は `unknown`。`protocol.md`「12.」 |
-| `event <phase> <start\|approved\|sent_back> [k=v ...]` | `metrics.yml` に **UTC 時刻を自分で打って**イベント追記。`metrics.yml` 不在なら自動生成。`events: []` も block 形式へ変換。 |
+| `event <phase> <start\|sent_back> [k=v ...]` | `metrics.yml` に **UTC 時刻を自分で打って**イベント追記。`metrics.yml` 不在なら自動生成。`events: []` も block 形式へ変換。 |
 | `approve <phase> [k=v ...]` | `state.yml` の `approved` 追記（冪等）＋ `current` 更新 ＋ approved イベント追記を一括・検証付きで。`deliver` のときは **`harnessRevDelivered`** も刻み（`harnessRev` と違えば**またがり work**＝効果検証の母集団から除外）、**母集団が揃った条項をその場で通知**する——条項の母集団が増える瞬間は deliver の1点で、`doctor` の WARN は既に見に行った人にしか届かないため。`protocol.md`「12.」 |
+| `unapprove <phase> [--slug <work>]` | 差し戻しで無効化される後工程の**承認を取り消す**。`approved` から当該工程を外し、`current` をそこへ戻す。**記録は消さない**——取り消し自体を `sent_back` イベントとして刻む（手戻りは実際に起きた事実なので、消すと `reworks`/`sent_backs` が過小になる）。子の `review` を取り消したときは**親の `activeSubtask` もその子へ戻す**（`aidev-60-review` の統合差し戻し手順）。元は「`approved` から手で除く（CLI に削除は設けていない）」だったが、それは `state.yml` の更新を CLI に集約する原則と矛盾し、しかも手順だけあって手段が無かった。 |
 | `guard <phase>` | 工程開始時の**前提チェック**（前提成果物の有無・前提工程の承認・`dependsOn` 充足）。未充足なら非ゼロ終了。 |
 | `verify [slug] [--strict]` | 現在(または指定)work の**不変条件**を version-aware に検査。違反で非ゼロ終了。**deliver の commit 前ゲート**に使う。deliver 承認済で `backlog:` 刻印がある work は、**その backlog ファイルに自分の slug が現れること**も検査する（消し込み忘れの検知。`protocol.md`「2.9」）。`profile: light` の work では**条件逸脱**も見る——任意工程の実施と `files_changed` の上限超過（`.aidev/config.yml` の `lightMaxFiles`、既定 3）。**WARN 止まりで exit code は変えない**（昇格漏れは事後検知。硬ゲートは既存判定に任せる）。<br>**`--strict`**: **記録漏れ（`event` の start 欠落）だけ**を致命（exit 5）にする。機械ゲート（Claude Code の `Stop` フック等）専用の入口。既定を FAIL に変えると start が欠けた過去の work が deliver できなくなるため、入口を分けた。**light の逸脱は strict でも致命にしない**——記録漏れは「今しか直せない」（metrics は追記のみで当時の timestamp は復元不能）が、light の昇格は人間の判断だから。 |
 | `escalate [slug]` | `profile` を **`light` → `full` に片方向で昇格**（`protocol.md`「11.」）。`full` からは戻せない。`state.yml` の手編集を避け、昇格を単一の検証済み経路に集約するためのコマンド。`decisions.md` への経緯記録と `escalated_from_light=1` の付与は skill 側の仕事。 |
@@ -62,7 +63,25 @@ Git Bash（Git for Windows 同梱）があるなら POSIX 版の `aidev` がそ�
 > その work の成果物が**コミット済み**でブランチに乗っている必要がある（未コミットの work フォルダは worktree に伝播しない）。
 
 `k=v` は `metrics.yml` の `metrics:` マップになる（例: `approve plan tasks_planned=4` /
-`event test approved passed=12 failed=0` / `approve review must=0 should=1 nit=2`）。
+`approve test passed=12 failed=0` / `approve review must=0 should=1 nit=2`）。
+> **`approved` は `event` では書けない**——`event` は `metrics.yml` にしか書かないので、
+> `state.yml` の `approved` と乖離した work ができてしまう（`verify` はイベント対が壊れないので検知できない）。
+
+## テストの走らせ方
+
+```sh
+sh test/run.sh                      # 処理系は自動判定（pwsh → powershell の順）
+AIDEV_PS_HOST=winps sh test/run.sh  # Windows PowerShell 5.1 を明示指定
+sh test/setup-pwsh.sh               # pwsh が無ければ入れる（版固定・SHA-256 照合つき）
+```
+
+**`AIDEV_PS_HOST` で処理系を明示できる**（`pwsh` / `winps`）。pwsh 7 と Windows PowerShell 5.1 が
+両方入っている環境（GitHub Actions の `windows-latest` がまさにそれ）では、自動判定は pwsh を選ぶので、
+**ps1 の本来の対象である 5.1 が一度も走らないまま緑になる**。CI は3通り（ubuntu/pwsh・windows/pwsh・
+windows/winps）を回す。
+
+`RESULT` の `skip` は**未実行のアサート数**で、`skip>0` はそのまま未検証の穴。
+CI ではこれを失敗として扱う（`.github/workflows/aidev-cli.yml`）。
 
 ## 終了コード
 

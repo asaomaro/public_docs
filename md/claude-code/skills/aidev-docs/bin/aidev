@@ -15,6 +15,7 @@
 #   aidev escalate [slug]                      # profile を light -> full に昇格（片方向。full からは戻せない）
 #   aidev event <phase> <start|approved|sent_back> [key=value ...]
 #   aidev approve <phase> [key=value ...]      # approved 追記 + current 更新 + approved イベント
+#   aidev unapprove <phase> [--slug <work>]    # 差し戻しで後工程の承認を取り消す（記録は消さない）
 #   aidev guard <phase>                        # 前提成果物 + dependsOn の充足を検査（exit!=0で未充足）
 #   aidev verify [slug] [--strict]             # 現在(or指定)workの不変条件を version-aware に検査
 #     --strict は**記録漏れ(event の start 欠落)だけ**を致命(exit 5)にする。機械ゲート（Claude Code の
@@ -443,10 +444,17 @@ cmd_new() {
 
 # --- コマンド: event ----------------------------------------------------------
 cmd_event() {
-  [ $# -ge 2 ] || die "使用法: aidev event <phase> <start|approved|sent_back> [k=v ...]"
+  [ $# -ge 2 ] || die "使用法: aidev event <phase> <start|sent_back> [k=v ...]"
   ph=$1; ev=$2; shift 2
   is_phase "$ph" || die "未知の phase: $ph"
-  case "$ev" in start|approved|sent_back) ;; *) die "event は start|approved|sent_back" ;; esac
+  case "$ev" in
+    start|sent_back) ;;
+    # `event <phase> approved` は metrics にだけ approved を書き、state.yml の approved は
+    # 更新しない。両者が乖離した work は verify も検知できない（イベント対は壊れないため）。
+    # approved の記録は approve の役割（state 更新 + イベント追記を一括で行う）
+    approved) die "approved は aidev approve <phase> で記録すること（event では state.yml が更新されず、metrics と乖離する）" ;;
+    *) die "event は start|sent_back（approved は approve コマンド）" ;;
+  esac
   resolve_work
   append_event "$ph" "$ev" "$@"
   printf 'recorded: %s/%s/%s\n' "$SLUG" "$ph" "$ev"
@@ -797,7 +805,9 @@ event_pair_warnings() { # metrics_file
       if (starts[p] == 0)
         printf "  WARN %s: approved があるのに start が無い（所要時間が導出できません）\n", p
       else if (starts[p] < approved[p])
-        printf "  WARN %s: start %d 回に対し approved %d 回（start の記録漏れ）\n", p, starts[p], approved[p]
+        # 原因は2つある。start の記録漏れ「または」二重 approve で、後者は start を足しても
+        # 直らない。一律に「start の記録漏れ」と言うと、指示どおり直しても解消しない
+        printf "  WARN %s: start %d 回に対し approved %d 回（start の記録漏れ、または approve の重複）\n", p, starts[p], approved[p]
     }
     END {
       # 出力順は PHASES 順（未知の phase は初出順で後ろに）。ハッシュの列挙順（for (p in ...)）に
@@ -855,6 +865,53 @@ cmd_escalate() {
   printf 'escalated: %s (light -> full)\n' "$SLUG"
   printf 'next: 省略していた節を各文書に足す / decisions.md に経緯を残す /\n'
   printf '      該当工程の承認に escalated_from_light=1 を付ける（protocol.md「11.」）\n'
+}
+
+# --- コマンド: unapprove ------------------------------------------------------
+# 差し戻しで無効化される後工程の承認を取り消す。**なぜ CLI に置くか**: 元は
+# 「approved から手で除く（CLI に削除は設けていない）」だったが、それは escalate を
+# 作った理由（state.yml の更新を CLI に集約する。手編集を許すと state だけ見ても
+# 経緯が分からなくなる）と正面から矛盾する。しかも 60-review の統合差し戻し手順は
+# 「子の approved から review を外す」を要求しており、**手段が無いまま手順だけがあった**。
+#
+# 取り消しは**記録を消さない**。metrics の approved イベントはそのまま残し、
+# 取り消し自体を `sent_back` イベントとして刻む（手戻りは実際に起きた事実なので、
+# 消すと `reworks` / `sent_backs` が過小になる。protocol.md「8.」）。
+cmd_unapprove() {
+  uslug=""; uph=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --slug) need_arg "$1" $#; uslug=$2; shift 2 ;;
+      -*) die "未知のオプション: $1" ;;
+      *) [ -z "$uph" ] && uph=$1 || die "工程は1つだけ"; shift ;;
+    esac
+  done
+  [ -n "$uph" ] || die "使用法: aidev unapprove <phase> [--slug <work>]"
+  is_phase "$uph" || die "未知の工程: $uph"
+  resolve_work "$uslug"
+  st="$WORK/state.yml"
+  approved_has "$uph" || die "承認されていません: $uph @ $SLUG"
+
+  # approved から当該工程だけを外す（順序は保つ）
+  newl=""
+  for p in $(ylist "$st" approved); do
+    [ "$p" = "$uph" ] && continue
+    if [ -z "$newl" ]; then newl="$p"; else newl="$newl, $p"; fi
+  done
+  replace_line "$st" approved "approved: [$newl]"
+  # カーソルは取り消した工程へ戻す（そこからやり直すのが差し戻しの意味）
+  replace_line "$st" current "current: $uph"
+  # 取り消しは手戻りの事実。イベントとして刻む（消さない）
+  append_event "$uph" sent_back
+  printf 'unapproved: %s @ %s\n' "$uph" "$SLUG"
+  printf 'next: aidev event %s start を記録してからやり直すこと\n' "$uph"
+
+  # 子の review を外したら、親のカーソルもその子へ戻す（60-review の統合差し戻し手順）
+  par=$(yget "$st" parent)
+  if [ -n "$par" ] && [ "$uph" = review ] && [ -d "$AIDEV/works/$par" ]; then
+    set_or_append "$AIDEV/works/$par/state.yml" activeSubtask "activeSubtask: $(basename "$WORK")"
+    printf 'cursor: 親 %s の activeSubtask を %s に戻した\n' "$par" "$(basename "$WORK")"
+  fi
 }
 
 # --- backlog ファイル横断検査（doctor の一部） ------------------------------------
@@ -1316,17 +1373,31 @@ wt_add() {
 
   # ブランチ存在で分岐（既存→checkout / 新規→-b で base から作成）。branch は必ず明示（git の basename 自動命名に委ねない）。
   if git show-ref --verify --quiet "refs/heads/$branch"; then
+    _wt_newbranch=no
     git worktree add "$wpath" "$branch" || die "git worktree add に失敗（branch=$branch）"
   else
+    _wt_newbranch=yes
     git worktree add -b "$branch" "$wpath" "$base" || die "git worktree add に失敗（branch=$branch base=$base）"
   fi
   wpath=$(cd "$wpath" && pwd)  # 以降は絶対パスで扱う
+
+  # ここから先の die は**worktree を作った後**に起きる。ロールバックしないと、
+  # 失敗したのに worktree とブランチだけが残り、次の add が「既にある」で弾かれる。
+  # 作ったブランチは自分のものなので、この経路でだけ消してよい（既存 branch 指定時は消さない）
+  _wt_rollback() { # メッセージ
+    git worktree remove --force "$wpath" >/dev/null 2>&1 || true
+    if [ "$_wt_newbranch" = yes ]; then git branch -D "$branch" >/dev/null 2>&1 || true; fi
+    git worktree prune >/dev/null 2>&1 || true
+    # 既定のコンテナ（<repo>-wt/）も空なら掃除する。rm と同じ後始末（非空なら rmdir が失敗して何もしない）
+    rmdir "$(dirname "$wpath")" 2>/dev/null || true
+    die "$1（作りかけの worktree とブランチは撤去した）"
+  }
 
   # worktree 内で work を確定（main tree の .aidev/current には触れない＝INV-1）
   matches=$(works_matching_slug "$wpath" "$slug")
   mcount=$(printf '%s' "$matches" | grep -c . || true)
   if [ "$mcount" -gt 1 ]; then
-    die "worktree 内に slug=$slug の work が複数あります。曖昧なため中断（手動で current 設定を）"
+    _wt_rollback "worktree 内に slug=$slug の work が複数あります。曖昧なため中断（手動で current 設定を）"
   elif [ "$mcount" -eq 1 ]; then
     printf '%s\n' "$matches" > "$wpath/.aidev/current"
     work_note="既存 work をリンク: $matches（current 設定のみ）"
@@ -1339,8 +1410,8 @@ wt_add() {
     # 本当の原因（skills が worktree に持ち込まれていない＝未追跡・未コミット）が読めない。
     # ps1 側にも同じ事前検査がある（メッセージを揃える）
     _wtbin="$wpath/.claude/skills/aidev-docs/bin/aidev"
-    [ -f "$_wtbin" ] || die "worktree 内に CLI がありません: $_wtbin（skills が追跡・コミット済みか確認）"
-    ( cd "$wpath" && "$_wtbin" "$@" ) || die "worktree 内の new に失敗"
+    [ -f "$_wtbin" ] || _wt_rollback "worktree 内に CLI がありません: $_wtbin（skills が追跡・コミット済みか確認）"
+    ( cd "$wpath" && "$_wtbin" "$@" ) || _wt_rollback "worktree 内の new に失敗"
     work_note="新規 work を作成（add 内で new）"
   fi
 
@@ -1465,6 +1536,15 @@ cmd_use() {
   resolve_work "$1"
   printf '%s\n' "$SLUG" > "$AIDEV/current"
   printf 'current: %s (%s)\n' "$SLUG" "$(yget "$WORK/state.yml" current)"
+  # subtask に切り替えたら親の activeSubtask も合わせる。protocol.md「6.」が
+  # 「activeSubtask は .aidev/current の冗長コピー」と定義しているので、片方だけ動かすと
+  # その定義が破れる（60-review の差し戻し手順が要求する「親 activeSubtask を戻す」も、
+  # これが無いと手段が無い）
+  _upar=$(yget "$WORK/state.yml" parent)
+  if [ -n "$_upar" ] && [ -d "$AIDEV/works/$_upar" ]; then
+    set_or_append "$AIDEV/works/$_upar/state.yml" activeSubtask "activeSubtask: $(basename "$WORK")"
+    printf 'cursor: 親 %s の activeSubtask を %s に同期\n' "$_upar" "$(basename "$WORK")"
+  fi
 }
 
 # --- コマンド: backlog --------------------------------------------------------
@@ -1971,6 +2051,7 @@ case "$cmd" in
   new)     cmd_new "$@" ;;
   event)   cmd_event "$@" ;;
   approve) cmd_approve "$@" ;;
+  unapprove) cmd_unapprove "$@" ;;
   guard)   cmd_guard "$@" ;;
   verify)  cmd_verify "$@" ;;
   escalate) cmd_escalate "$@" ;;
