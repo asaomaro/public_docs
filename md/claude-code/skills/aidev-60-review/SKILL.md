@@ -1,6 +1,6 @@
 ---
 name: aidev-60-review
-description: ［標準工程・末尾0／主トリガ:両方（直接起動 or 前工程からの遷移／autonomous 自動）］AI開発ワークフローの review（レビュー）工程。差分を要件・仕様・規約の観点で点検し、指摘があれば coding へ差し戻す。「レビューして」「review工程」などと言われたとき、または前工程から案内されたときに使用する。
+description: ［aidev 標準工程］aidev の review（レビュー）工程。進行中の aidev 作業の差分を要件・仕様・規約の観点で点検し review.md に記録、指摘があれば coding へ差し戻す。「aidev review」「review 工程」と言われたとき、または前工程から案内されたときに使用する。aidev 作業の無い単発のレビュー依頼では使わない。
 allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion, Agent]
 ---
 

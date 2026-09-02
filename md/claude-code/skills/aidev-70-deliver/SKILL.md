@@ -1,6 +1,6 @@
 ---
 name: aidev-70-deliver
-description: ［標準工程・末尾0（最終）／主トリガ:両方（直接起動 or 前工程からの遷移／autonomous 自動）］AI開発ワークフローの deliver（着地）工程。レビュー済みの変更をコミット・PR作成で着地させる最終工程。「コミットして」「PRを出して」「deliver工程」などと言われたとき、または review 通過後に使用する。
+description: ［aidev 標準工程］aidev の deliver（着地）工程。進行中の aidev 作業のレビュー済み変更をコミット・PR 作成で着地させ、台帳を同期する最終工程。「aidev deliver」「deliver 工程」と言われたとき、または review 通過後に使用する。aidev 作業の無い単発のコミット・PR 依頼では使わない。
 allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion]
 ---
 
@@ -62,8 +62,9 @@ review を通過した変更を、コミット・PR 作成によって実際に�
        手法や経緯の記録は残す価値があるので、**誤解を招く事実主張だけ**を消す。
      - 一部だけ済んだ項目は**割る**。`- [x]`（済んだ分）と `- [ ]`（残り）を**兄弟として並べる**
        ——インデントした子は `aidev status` の件数（行頭 `- [ ]`）に入らず、残作業が集計から消える。
-   - **機械的強制**: `backlog:` を持つ work は、**その backlog ファイルに自分の slug が現れないと
-     `aidev verify` が FAIL する**（手順 5 の着地前ゲートで弾かれる）。刻印の無い work は従来どおり。
+   - **機械的強制**: `backlog:` を持つ work は、**その backlog ファイルの `- [x]` 行かその継続行に自分の slug が
+     現れないと `aidev verify` が FAIL する**（手順 5 の着地前ゲートで弾かれる。`(needs: <slug>)` の未着手行では
+     通らない）。刻印の無い work は従来どおり。
    - **消し込んだ結果そのファイルが全消化になったら `aidev backlog archive` を実行する**
      （`split`/`topic` のみ退避される。`standing` は対象外なので、そのまま実行して構わない）。
      移動は `mv` だけなので、**同じコミットに含める**こと（`git add -A .aidev/backlog`）。
@@ -154,6 +155,10 @@ review を通過した変更を、コミット・PR 作成によって実際に�
     **最後の deliver approved までを `lead_sec`** とし、工程の再 `start` を `reworks` に数えるので、
     **これだけで実態に追従する**（CLI の変更は要らない）。
   - `deliver` の付加メトリクス（`files_changed` 等）は**その時点の累計**で測り直す。
+- **人間の PR レビュー指摘は `review.md` に「PR レビュー（人間）」節として残す**（`protocol.md`「8.」）。
+  指摘ごとに `- [must|should|nit][conv:<id>|-] <ファイル:行> <指摘の要旨> / 対応: <…> / src: <PR コメントの URL>`。
+  要旨は AI の要約になるので短く原文を引き、判断（must/should）は指摘者の言い方に従う。これが工程内で
+  **唯一の人間由来の判定材料**で、insights は条項の効果判定でこの節を優先する。件数はラウンド指摘と分けて数える。
 - 記録しないと、指摘の多かった work ほど「速く・手戻り無く終わった」ように見える（実例は DESIGN「6.」）。
 - **PR がマージされるまでを 1 work とみなす。** 「PR を出した」で記録を止めない。
 

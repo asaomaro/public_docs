@@ -167,6 +167,26 @@ echo "== metrics =="
 MT=$(run_sh metrics --all --format tsv)
 assert_contains "$MT" "20260101-alpha	2026-01-01T00:00:00Z	yes	10800	1	1" "alpha: lead=10800/reworks=1/sent_backs=1"
 assert_contains "$MT" "20260103-legacy	-	no	-	0	0" "legacy: metrics空でも 0/-"
+# ハーネス版で層別する材料（harnessRev / straddle）。無いと insights は state.yml を grep して手で JOIN していた
+assert_contains "$MT" "20260101-alpha	2026-01-01T00:00:00Z	yes	10800	1	1	-	-" "metrics --all: harnessRev/straddle 列（刻印なしは -/-）"
+assert_contains "$(run_sh metrics --all)" "harnessRev  straddle" "metrics --all: 表形式の見出しにも出る"
+
+echo "== status --active / doctor --quiet（100 works で読める出力量にする） =="
+ST_ACT=$(run_sh status --active --format tsv)
+assert_absent "$ST_ACT" "work	20260101-alpha" "status --active: deliver 済みを隠す"
+assert_contains "$ST_ACT" "work	20260102-beta" "status --active: 進行中は出す"
+assert_contains "$(run_sh status --active)" "WORKS (2)" "status --active: 件数も隠した後の数"
+# OK だけの work を1つ足す（alpha/beta は記録漏れ WARN 付きで OK、legacy は SKIP＝どれも「OK だけ」ではない）
+run_sh new clean >/dev/null; CLEANW=$(cat "$TMP/.aidev/current")
+printf '20260102-beta\n' > "$TMP/.aidev/current"
+DQ=$(run_sh doctor --quiet 2>&1 || true)
+assert_absent "$DQ" "- $CLEANW" "doctor --quiet: OK だけの work は行ごと出さない"
+assert_contains "$(run_sh doctor 2>&1 || true)" "- $CLEANW" "doctor（既定）: OK だけの work も出す（--quiet でだけ省く）"
+assert_contains "$DQ" "- 20260101-alpha" "doctor --quiet: WARN 付きの work は OK でも出す（直せる WARN を隠さない）"
+assert_contains "$DQ" "20260103-legacy" "doctor --quiet: SKIP の work は出す"
+assert_contains "$DQ" "summary: works=4" "doctor --quiet: 件数は全件のまま"
+assert_contains "$DQ" "--quiet: OK は省略" "doctor --quiet: 省略していることを見出しで示す"
+rm -rf "$TMP/.aidev/works/$CLEANW"
 MTP=$(run_sh metrics 20260101-alpha --phases --format tsv)
 assert_contains "$MTP" "20260101-alpha	coding	2026-01-01T01:05:00Z	2026-01-01T02:00:00Z	3300" "alpha --phases: coding は直近start基準で elapsed=3300"
 assert_contains "$MTP" "20260101-alpha	requirement	2026-01-01T00:00:00Z	2026-01-01T00:10:00Z	600" "alpha --phases: requirement elapsed=600"
@@ -504,10 +524,29 @@ BLV=$(run_bl verify 2>&1); BLC=$?
 assert_eq "$BLC" "4" "verify: 消し込み前は FAIL（deliver 済 + backlog 出自）"
 assert_contains "$BLV" "消し込みが無い" "verify: 消し込み漏れを名指しする"
 
-# 消し込む（規約どおり works slug を根拠として併記する）
+# ファイルのどこかに slug があるだけでは通さない: `- [ ] 次 (needs: <slug>)` の未着手行や、
+# slug の無い [x] 行では「消し込み無しに着地」できてしまっていた
+printf '# demo\n\n- [ ] 次の課題 (needs: %s)\n- [x] 別件\n    → 20200101-other で完了\n' "$BLW" > "$BLR/.aidev/backlog/demo.md"
+run_bl verify >/dev/null 2>&1
+assert_eq "$?" "4" "verify: 未着手行の (needs: <slug>) では消し込みと認めない（[x] 行に限定）"
+# 消し込む（規約どおり works slug を根拠として**継続行**に併記する）
 printf '# demo\n\n- [x] やること\n    → %s で完了\n' "$BLW" > "$BLR/.aidev/backlog/demo.md"
 run_bl verify >/dev/null 2>&1
-assert_eq "$?" "0" "verify: 消し込み後は PASS"
+assert_eq "$?" "0" "verify: 消し込み後は PASS（[x] 行の継続行の slug を認める）"
+# 消化済み（todo=0）の backlog からは着手できない（status が todo=0/inflight=1 の自己矛盾を出していた）
+run_bl new again --backlog demo.md >/dev/null 2>&1
+assert_eq "$?" "1" "new --backlog: todo=0 の backlog からは着手しない"
+assert_eq "$(cat "$BLR/.aidev/current")" "$BLW" "new --backlog: 弾いたら current を動かさない"
+# compact: [x] 行（と継続行）を archive/<name>-done.md へ。verify はそこも見るので過去 work の検査は壊れない
+printf '# demo\n\n- [x] やること\n    → %s で完了\n- [ ] まだ\n' "$BLW" > "$BLR/.aidev/backlog/demo.md"
+CP=$(run_bl backlog compact demo.md)
+assert_contains "$CP" "compacted: demo.md -> archive/demo-done.md (1 件)" "backlog compact: 件数を報告する"
+assert_absent "$(cat "$BLR/.aidev/backlog/demo.md")" "[x]" "backlog compact: active から [x] 行が消える"
+assert_contains "$(cat "$BLR/.aidev/backlog/demo.md")" "- [ ] まだ" "backlog compact: [ ] 行は残る"
+assert_contains "$(cat "$BLR/.aidev/backlog/archive/demo-done.md")" "→ $BLW で完了" "backlog compact: 継続行ごと done ファイルへ移す"
+run_bl verify >/dev/null 2>&1
+assert_eq "$?" "0" "verify: compact 後も archive/<name>-done.md の消し込みを認める"
+assert_contains "$(run_bl backlog compact demo.md)" "skip demo.md: 消化済み項目がありません" "backlog compact: 二度目は何もしない"
 
 # archive へ退避しても追える（全項目 [x] のファイルは archive/ へ移る運用）
 mkdir -p "$BLR/.aidev/backlog/archive"
@@ -947,9 +986,30 @@ assert_contains "$CV_M" "members-summary: id=naming-boolean pop=2 conv_tags=3" \
   "convention status --members: 分母(pop)と分子(タグ)を同じ集合で合計する（early のタグを数えない）"
 
 # --- doctor: 判定できる状態になったら催促する（人間が思い立つまで待たない） ---
+# 索引に載っている条項だけ催促する（索引に無い＝読まれていない条項を判定させると ineffective に誤る）
+printf '# A\n\n<!-- aidev:conventions -->\n- x → docs/aidev/naming-boolean.md\n<!-- /aidev:conventions -->\n' > "$CVR/AGENTS.md"
 CV_D1=$(run_cv doctor 2>&1)
 assert_contains "$CV_D1" "母集団が揃った(2/2)のに未判定" "doctor: 判定可能なのに未判定を WARN"
 assert_contains "$CV_D1" "convention-summary: files=1 archived=0 warn=1" "doctor: 条項のサマリを出す"
+rm -f "$CVR/AGENTS.md"
+CV_D1b=$(run_cv doctor 2>&1)
+assert_absent "$CV_D1b" "のに未判定" "doctor: 索引に無い条項には「未判定」を催促しない（insights は判定禁止）"
+assert_contains "$CV_D1b" "索引に無いので判定しない" "doctor: 代わりに「索引に足して数え直す」を案内する"
+
+# --- defer: 「pending のまま置く」判断を CLI で黙らせる（frontmatter の手編集しか無かった） ---
+run_cv convention new dfr --hypothesis h --baseline b --verify-after 2 >/dev/null
+assert_contains "$(run_cv convention status --format tsv)" "dfr	pending	" "defer 前提: dfr は pending"
+run_cv convention defer dfr --verify-after 2 --note n >/dev/null 2>&1
+assert_eq "$?" "1" "convention defer: 現在の母集団以下の件数では黙らないので弾く"
+run_cv convention defer dfr --verify-after 3 >/dev/null 2>&1
+assert_eq "$?" "1" "convention defer: --note 無しは弾く（理由の無い先送りは滞留と区別できない）"
+CV_DF=$(run_cv convention defer dfr --verify-after 3 --note "母集団が薄い" 2>&1)
+assert_contains "$CV_DF" "deferred: dfr (verify_after 3, pop 2)" "convention defer: 必要件数を積み増す"
+assert_contains "$(run_cv convention status --format tsv)" "dfr	pending	" "convention defer: pending のまま"
+assert_eq "$(run_cv convention status --format tsv | awk -F'\t' '$2=="dfr"{print $6"/"$7}')" "3/no" "convention defer: need=3 / ready=no になる"
+assert_contains "$(cat "$CVR/docs/aidev/dfr.md")" "defer_note: 母集団が薄い" "convention defer: 理由を frontmatter に残す"
+assert_contains "$(cat "$CVR/docs/aidev/dfr.md")" "deferred: " "convention defer: 先送りした時刻を残す"
+run_cv convention retire dfr --status superseded --note "naming-boolean に統合" >/dev/null
 
 # --- confirmed のまま放置＝二重管理予備軍 ---
 run_cv convention confirm naming-boolean --result "must 3件 -> 0件" >/dev/null
@@ -1013,7 +1073,9 @@ assert_contains "$(cat "$CVR/docs/aidev/archive/err-gran.md")" "note: 散文層�
 
 # 全部退避されたので警告は消える（定常状態では pending だけが active に残る）
 CV_D3=$(run_cv doctor 2>&1)
-assert_contains "$CV_D3" "convention-summary: files=0 archived=5 warn=0" "doctor: 退避済みなら警告なし"
+assert_contains "$CV_D3" "convention-summary: files=0 archived=6 warn=0" "doctor: 退避済みなら警告なし"
+# archive 済み条項の pop は計算も表示もしない（意味が無く、条項数×works の走査コストの半分を占めていた）
+assert_eq "$(run_cv convention status --format tsv | awk -F'\t' '$2=="naming-boolean"{print $5"/"$7}')" "-/-" "convention status: archive 済みは pop/ready を出さない"
 
 # --- 手編集で壊れた条項も拾う（frontmatter は人間も触る） ---
 mkdir -p "$CVR/docs/aidev"
@@ -1232,7 +1294,59 @@ assert_contains "$HV_VB" "現在" "verify: deliver 前は「現在の版」と�
 run_hv approve deliver files_changed=1 insertions=1 deletions=0 >/dev/null
 assert_contains "$(cat "$HVST")" "harnessRevDelivered:" "approve deliver: 着地時の版も刻む"
 HV_V=$(run_hv verify 2>&1)
-assert_contains "$HV_V" "note: またがり work" "verify: またがり work を note で知らせる（母集団から除外する合図）"
+# deliver 済みのまたがりは state.yml に刻まれた事実で、doctor を回すたびに履歴 work ぶん永久に出ていた。
+# 層別の材料は metrics --all の straddle 列に移す
+assert_absent "$HV_V" "note: またがり work" "verify: deliver 済みのまたがりは鳴らさない（doctor で永久に出さない）"
+assert_contains "$(run_hv metrics --all --format tsv)" "	deadbee	yes" "metrics --all: またがり work は straddle=yes（母集団から外す合図はここで見る）"
+
+echo "== harness（ハーネス改修の仮説登録: 入口・出口ゲートと母集団） =="
+# 背景: 条項には仮説・baseline 必須の入口と母集団の出口があるのに、ハーネス自身の改修には受け口が無く、
+# DESIGN が最も警戒する「事後の物語作り」がそのまま起きていた。同じ型の記録を .aidev/harness/ に置く
+run_hv harness new nohyp >/dev/null 2>&1
+assert_eq "$?" "1" "harness new: --hypothesis は必須"
+run_hv harness new nobase --hypothesis h >/dev/null 2>&1
+assert_eq "$?" "1" "harness new: --baseline は必須"
+HN=$(run_hv harness new h1 --hypothesis "reworks が減る" --baseline "直近 10 works の reworks 平均 1.4" --verify-after 1 2>&1)
+assert_contains "$HN" "created:" "harness new: 登録する"
+HNF=$(cat "$HVR/.aidev/harness/h1.md")
+assert_contains "$HNF" "harness: h1" "harness new: frontmatter に id"
+assert_contains "$HNF" "introduced_rev: " "harness new: 今のハーネス版を刻む"
+assert_contains "$HNF" "hypothesis: reworks が減る" "harness new: 仮説を残す"
+# 母集団: またがり work（HVW は着手時 deadbee ≠ 着地時）は数えない。着手が導入前なのでどのみち外
+assert_contains "$(run_hv harness status --format tsv)" "harness	h1	pending	" "harness status: pending を出す"
+assert_eq "$(run_hv harness status --format tsv | awk -F'\t' '$2=="h1"{print $6"/"$8}')" "0/no" "harness status: 導入前・またがり work は母集団に入らない"
+# 導入後に着手し、またがらずに deliver した work が母集団に入り、揃った瞬間に知らせる
+run_hv new h1w >/dev/null; H1W=$(cat "$HVR/.aidev/current")
+for f in requirement spec plan tasks review; do : > "$HVR/.aidev/works/$H1W/$f.md"; done
+for p in requirement spec plan coding test review; do run_hv event "$p" start >/dev/null; run_hv approve "$p" >/dev/null; done
+run_hv event deliver start >/dev/null
+HA=$(run_hv approve deliver files_changed=1 2>&1)
+assert_contains "$HA" "ハーネス改修 h1 の母集団が揃いました(1/1)" "approve deliver: ハーネス改修の母集団到達も知らせる"
+assert_eq "$(run_hv harness status --format tsv | awk -F'\t' '$2=="h1"{print $6"/"$8}')" "1/yes" "harness status: またがらずに deliver した work を数える"
+# またがった work は数えない（着手時の刻印を別版に書き換えてから deliver）
+run_hv new h1s >/dev/null; H1S=$(cat "$HVR/.aidev/current")
+for f in requirement spec plan tasks review; do : > "$HVR/.aidev/works/$H1S/$f.md"; done
+awk '{ if ($0 ~ /^harnessRev:/) print "harnessRev: deadbee"; else print }' "$HVR/.aidev/works/$H1S/state.yml" > "$HVR/.aidev/works/$H1S/state.yml.t" && mv "$HVR/.aidev/works/$H1S/state.yml.t" "$HVR/.aidev/works/$H1S/state.yml"
+for p in requirement spec plan coding test review deliver; do run_hv approve "$p" >/dev/null; done
+assert_eq "$(run_hv harness status --format tsv | awk -F'\t' '$2=="h1"{print $6}')" "1" "harness status: またがり work は母集団に数えない"
+HD=$(run_hv doctor 2>&1 || true)
+assert_contains "$HD" "harness: ハーネス改修の記録検査" "doctor: ハーネス改修の記録も検査する"
+assert_contains "$HD" "母集団が揃った(1/1)のに未判定" "doctor: 判定可能なハーネス改修を催促する"
+# 出口ゲートは条項と同じ
+run_hv harness confirm h1 >/dev/null 2>&1
+assert_eq "$?" "1" "harness confirm: --result 無しは弾く"
+run_hv harness new h2 --hypothesis h --baseline b --verify-after 50 >/dev/null
+run_hv harness confirm h2 --result r >/dev/null 2>&1
+assert_eq "$?" "1" "harness confirm: 母集団が揃う前は弾く"
+run_hv harness retire h2 --status superseded --note "h1 に統合" >/dev/null 2>&1
+assert_eq "$?" "0" "harness retire: superseded は母集団が無くても通る"
+HC=$(run_hv harness confirm h1 --result "reworks 平均 1.4 -> 0.0（母集団 1）" 2>&1)
+assert_contains "$HC" "confirmed: h1" "harness confirm: 判定して退避する"
+assert_eq "$([ -f "$HVR/.aidev/harness/archive/h1.md" ] && echo yes || echo no)" "yes" "harness confirm: archive へ移る"
+assert_contains "$(cat "$HVR/.aidev/harness/archive/h1.md")" "result: reworks 平均 1.4 -> 0.0（母集団 1）" "harness confirm: 内訳を残す"
+run_hv harness new h1 --hypothesis h --baseline b >/dev/null 2>&1
+assert_eq "$?" "1" "harness new: 判定済み（archive）と同じ id は重複として弾く"
+assert_contains "$(run_hv doctor 2>&1 || true)" "harness-summary: files=0 archived=2 warn=0" "doctor: 判定済みなら警告なし"
 
 # schema<4 の旧 work は遡って違反扱いしない（version-aware）
 mkdir -p "$HVR/.aidev/works/20200101-legacy"
@@ -1559,6 +1673,25 @@ PYEOF
   done
   unset -f ru 2>/dev/null || true
 
+  # --- harness 登録 / convention defer / backlog compact のパリティ ---
+  PHV=$(mktemp -d); mkdir -p "$PHV/.aidev/works" "$PHV/.aidev/backlog"
+  ( cd "$PHV" && "$AIDEV_SH" harness new ph --hypothesis h --baseline b --verify-after 1 >/dev/null )
+  HS_SH=$( ( cd "$PHV" && "$AIDEV_SH" harness status --format tsv ) 2>&1 )
+  HS_PS=$( ( cd "$PHV" && run_ps1 "$AIDEV_PS1" harness status --format tsv ) 2>&1 | tr -d '\r' )
+  assert_eq "$HS_SH" "$HS_PS" "パリティ: harness status（母集団の数え方と列）"
+  ( cd "$PHV" && "$AIDEV_SH" convention new pd --hypothesis h --baseline b --verify-after 1 >/dev/null )
+  DF_SH=$( ( cd "$PHV" && "$AIDEV_SH" convention defer pd --verify-after 0 --note n ) 2>&1 )
+  DF_PS=$( ( cd "$PHV" && run_ps1 "$AIDEV_PS1" convention defer pd --verify-after 0 --note n ) 2>&1 | tr -d '\r' )
+  assert_eq "$DF_SH" "$DF_PS" "パリティ: convention defer の拒否メッセージ"
+  printf -- '---\nkind: standing\n---\n\n- [x] done1\n    → 20260101-x で完了\n- [ ] todo1\n' > "$PHV/.aidev/backlog/s.md"
+  cp "$PHV/.aidev/backlog/s.md" "$PHV/.aidev/backlog/s2.md"
+  CP_SH=$( ( cd "$PHV" && "$AIDEV_SH" backlog compact s.md ) | sed 's/s\.md/X.md/; s/s-done/X-done/' )
+  CP_PS=$( ( cd "$PHV" && run_ps1 "$AIDEV_PS1" backlog compact s2.md ) | tr -d '\r' | sed 's/s2\.md/X.md/; s/s2-done/X-done/' )
+  assert_eq "$CP_SH" "$CP_PS" "パリティ: backlog compact の報告"
+  assert_eq "$(cat "$PHV/.aidev/backlog/s.md")" "$(tr -d '\r' < "$PHV/.aidev/backlog/s2.md")" "パリティ: backlog compact 後の active ファイル"
+  assert_eq "$(sed 's/^# s /# X /' "$PHV/.aidev/backlog/archive/s-done.md")" "$(tr -d '\r' < "$PHV/.aidev/backlog/archive/s2-done.md" | sed 's/^# s2 /# X /')" "パリティ: backlog compact の done ファイル"
+  rm -rf "$PHV"
+
   # --- 数え方・exit code・入口ゲートのパリティ ---
   for impl in sh ps1; do
     PMX=$(mktemp -d); mkdir -p "$PMX/.aidev/works" "$PMX/.aidev/backlog"
@@ -1843,7 +1976,7 @@ PYEOF
   done
 
   # subtask 層のパリティ（$SUB フィクスチャ。doctor のネスト横断・status・metrics を sh⇔ps1 突合）
-  for args in "doctor" "status --format tsv" "status --subtasks --format tsv" "metrics --all --format tsv"; do
+  for args in "doctor" "doctor --quiet" "status --format tsv" "status --subtasks --format tsv" "status --active --format tsv" "metrics --all --format tsv"; do
     # shellcheck disable=SC2086
     O_SH=$( ( cd "$SUB" && "$AIDEV_SH" $args ) )
     # shellcheck disable=SC2086
@@ -1917,9 +2050,9 @@ YML
   else
     skip 10 "git 不在のため worktree パリティを省略"
   fi
-  block_end parity "145" "parity"
+  block_end parity "152" "parity"
 else
-  skip 145 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
+  skip 152 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
 fi
 
 echo

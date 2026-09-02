@@ -1,6 +1,6 @@
 ---
 name: aidev-10-requirement
-description: ［標準工程・末尾0／主トリガ:両方（直接起動 or 前工程からの遷移／autonomous 自動）］AI開発ワークフローの requirement（要件定義）工程。ユーザーの要望を整理し requirement.md を作成する。「要件定義を始めたい」「requirement工程」などと言われたとき、または aidev-00-start から案内されたときに使用する。
+description: ［aidev 標準工程］aidev の requirement（要件定義）工程。進行中の aidev 作業（.aidev/current）に対して要望を整理し requirement.md を作る。「aidev requirement」「requirement 工程」と言われたとき、または aidev-00-start / 前工程から案内されたときに使用する。
 allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion]
 ---
 

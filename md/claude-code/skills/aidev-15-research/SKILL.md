@@ -1,6 +1,6 @@
 ---
 name: aidev-15-research
-description: ［任意工程・末尾5／主トリガ:AI検知推奨 or ユーザー指定］AI開発ワークフローの research（事前調査）工程。spec の前に事実を集め不確実性を潰す。「先に調査して」「research工程」などと言われたとき、または requirement 終了時に調査不足が検知され推奨されたときに使用する。
+description: ［aidev 任意工程］aidev の research（事前調査）工程。spec の前に事実を集め不確実性を潰す。「aidev research」「research 工程」と言われたとき、または requirement 終了時に調査不足が検知され推奨されたときに使用する。
 allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion, Agent]
 ---
 

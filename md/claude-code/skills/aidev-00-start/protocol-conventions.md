@@ -30,7 +30,9 @@ introduced: 2026-08-30T09:12:00Z # 導入時刻（UTC）。母集団の起点。
 source: .aidev/insights/2026-08-28-insights.md   # この条項を生んだ信号（任意）
 hypothesis: 命名に関する must/should 指摘が減る    # 必須。書けない条項は作らせない
 baseline: 直近10 works で boolean 命名の指摘 7件（must 2 / should 5）  # 必須。「前」の記録
-verify_after: 5                 # 判定に要する母集団の最低件数（既定 5）
+verify_after: 5                 # 判定に要する母集団の最低件数（既定 5）。defer で積み増せる
+deferred: 2026-09-10T00:00:00Z  # defer 時（任意）
+defer_note: <先送りの理由>        # defer 時（必須）
 result: <判定の内訳>             # confirm 時
 promoted_to: docs/coding-standards.md#boolean-naming  # promote 時
 promoted_at: 2026-09-15         # promote 時
@@ -91,7 +93,8 @@ forced: true                    # 母集団が揃う前に --force で confirm/r
   ```
 
   飛ばしても `aidev doctor` が「索引に無い」と WARN し、`aidev convention status` の `index` 列が
-  `no` になる。
+  `no` になる。索引に無い間は母集団が揃っても **doctor は「未判定」を催促しない**（読まれていない条項を
+  判定させない）。索引に足したら `aidev convention defer` で必要件数を積み増し、読まれた work で数え直す。
 
 ### 索引ブロックの規則
 
@@ -141,9 +144,11 @@ docsRoots: [docs/, AGENTS.md]  # 条項を起こす前に既存規約を探す�
    doctor は**既に見に行った人にしか届かない**ので、1 の一報と併せて機能する。
 3. `aidev convention status` の **`ready=yes`**
 
-判定は **`baseline` と、導入後のタグ件数の比較**で行う（`protocol.md`「12.」）。
+判定は **`baseline` と、導入後のタグ件数の比較**で行う（`protocol.md`「12.」）。材料の中では
+`review.md` の**「PR レビュー（人間）」節**（`aidev-70-deliver`）を優先する（唯一の人間由来の信号）。
 `baseline` に「前を作れない」と書かれている条項は**比較が成立しない**ので、
-件数ではなく個別の根拠を示して判定する（示せないなら `pending` のまま置く）。
+件数ではなく個別の根拠を示して判定する（示せないなら `pending` のまま置く——
+`aidev convention defer <id> --verify-after <n> --note <理由>` で必要件数を積み増し、次に揃うまで催促を止める）。
 
 「前」＝`baseline` は条項ファイルの frontmatter にある（`<conventionsDir>/<id>.md`。
 `convention status` はこの値を出さないので、判定するときはファイルを開く）。
@@ -210,7 +215,9 @@ doctor が「confirmed だが未移送」を WARN
   → PR で人間がレビュー（auto-merge しない）
 ```
 
-**batch に許すのは条項の追加と移送まで**。既存条項の**削除・緩和は人間**が行う。
+**batch に許すのは条項の追加・移送・判定（insights の判定案どおりの `confirm` / `retire`）まで**。
+判定は PR に載って**人間が見てから着地する**——insights が直接 status を進めない理由（AI 単独の判定に
+人間ゲートを通す）。既存条項の**削除・緩和は人間**が行う。
 追加は次のレビューで効かなければ消せる（可逆）が、緩和は「守らなくてよくなった」状態を作り、
 それが正しかったかを事後に検証できない（ガードを外す方向は検証不能）。
 
@@ -223,6 +230,7 @@ doctor が「confirmed だが未移送」を WARN
 |---|---|
 | `aidev convention new <id> --hypothesis <text> --baseline <text> [--source <p>] [--verify-after <n>]` | 起こす（`--hypothesis` と `--baseline` は必須） |
 | `aidev convention confirm <id> --result <text> [--force]` | 効果ありと判定（`--result` 必須。母集団が `verify_after` 未満なら拒否。`--force` は `forced: true` を刻む） |
+| `aidev convention defer <id> --verify-after <n> --note <t>` | 判定を先送り（必要件数を積み増す。`n` は現在の母集団より大きいこと。理由必須） |
 | `aidev convention promote <id> --to <path#anchor>` | tombstone 化して退避（移送先の実在を検査） |
 | `aidev convention retire <id> --status ineffective\|superseded --note <t> [--force]` | 退役して退避（`--note` 必須。`ineffective` は母集団が要る。`superseded` は置き換えなので免除） |
 | `aidev convention status [--format table\|tsv] [--members <id>]` | 状態・母集団・判定可否の一覧。`--members` は母集団の work ごとに着手・deliver・`[conv:<id>]` 件数（分母と分子を同じ集合で見る） |

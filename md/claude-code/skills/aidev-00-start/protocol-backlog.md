@@ -14,12 +14,15 @@ backlog は**遅延キュー**で、作業が完了したらその行を閉じ�
 - **着手中は backlog から見えない**: 行が `[x]` になるのは deliver なので、着手から着地までの間、
   掴まれた項目と素の未着手を区別できない。`aidev status` の **`inflight` 列**がそこを埋める。
   **選ぶ前に必ず見る**（閉じ忘れると次の人が完了済みの項目を選ぶ。過去に実際に発生）。
-- **強制**: `backlog:` を持つ work は、**その backlog ファイルに自分の slug が現れないと
-  `aidev verify` が FAIL する**（deliver の着地前ゲートで弾かれる）。
+- **強制**: `backlog:` を持つ work は、**その backlog ファイルの `- [x]` 行かその継続行に自分の slug が
+  現れないと `aidev verify` が FAIL する**（deliver の着地前ゲートで弾かれる。未着手行の `(needs: <slug>)` は
+  消し込みと認めない）。`new --backlog` は未着手 0 件のファイルからの着手を拒否する。
 - **消し込みの書き方**は `aidev-70-deliver`「3.5」（根拠 3 点セット／取り消し線／部分完了は兄弟で割る）。
 - **ファイル自身の一生は `aidev doctor` が見る**（`verify` は work にぶら下がる検査なので、退避・
   `kind` frontmatter・項目の書式というファイル側の話は持ち主の work がいない）。検知するのは
   退避漏れ／`kind` の欠落・誤記／`status` が数えない書式／`archive/` に残った未消化。**WARN 止まり**。
-- **積む・退避するも CLI にある**（`aidev backlog new --kind …` / `archive`。判定は doctor と同一関数）。
+- **積む・退避するも CLI にある**（`aidev backlog new --kind …` / `archive` / `compact`。判定は doctor と同一関数）。
+  `standing` は退避されず `[x]` 行が増える一方なので、`aidev backlog compact` で消化済み行を
+  `archive/<name>-done.md` へ移す（`verify` はそこも見る）。
   **検査だけあって実行が無い**状態を作らないため。消し込み本体だけは判断が要るので散文に残す。
 - 刻印の無い work は検査しないが、**結果的に閉じた項目があれば deliver で反映する**のは同じ。

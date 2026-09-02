@@ -20,20 +20,26 @@
 #   aidev verify [slug] [--strict]             # 現在(or指定)workの不変条件を version-aware に検査
 #     --strict は**記録漏れ(event の start 欠落)だけ**を致命(exit 5)にする。機械ゲート（Claude Code の
 #     Stop フック等）から使う想定。light の逸脱 WARN は人間の判断なので strict でも致命にしない
-#   aidev doctor                               # 全 work を横断検査（legacy は免除）＋ backlog ファイル検査（WARN）
+#   aidev doctor [--quiet]                     # 全 work を横断検査（legacy は免除）＋ backlog/条項/ハーネス改修の検査（WARN）。--quiet は OK の work を出さない
 #   aidev use [<slug>]                         # 継続する作業を切り替える（引数なしで現在値を表示）
 #   aidev backlog new <name> --kind standing|split|topic [--parent <p>] [--priority <n>]
 #     frontmatter 付きで backlog ファイルを起こす（kind 欠落を構造的に防ぐ）
 #   aidev backlog archive [<file>...] [--force]  # 消化しきった backlog を archive/ へ退避（mv のみ・git は触らない）
+#   aidev backlog compact [<file>...]          # [x] 行（と継続行）を archive/<name>-done.md へ移す（無指定は standing 全部）。verify はそこも見る
 #   aidev convention new <id> --hypothesis <text> --baseline <text> [--source <path>] [--verify-after <n>]
 #     PJ規約の条項を docs/aidev/ に起こす。--hypothesis と --baseline が必須＝検証できない条項を作らせない入口ゲート
 #     （baseline: 導入前にこの観点の指摘が何件あったか。id 別の件数は 0->N と増えるだけで前後比較にならないため）
 #   aidev convention confirm <id> --result <text> [--force]  # 効果あり -> 移送待ち。母集団が揃う前は --force（forced: true が残る）
 #   aidev convention retire  <id> --status ineffective|superseded --note <text> [--force]  # 効果なし/置換で退役（ineffective は母集団が要る）
+#   aidev convention defer   <id> --verify-after <n> --note <text>  # 判定を先送り（母集団の必要件数を積み増す。理由必須）
 #   aidev convention promote <id> --to <path#anchor>    # 本文を PJ docs へ移した後、tombstone 化して退避
 #   aidev convention status [--format table|tsv] [--members <id>]  # 条項の一覧。--members は母集団の work 一覧（分母と分子を同じ集合で見る）
-#   aidev status [--format table|tsv]          # works横断＋backlog未着手の状況サマリ（読み取り専用）
-#   aidev metrics [slug] [--all] [--phases] [--format table|tsv]  # metrics.yml から派生指標を集計（読み取り専用）
+#   aidev status [--format table|tsv] [--active]  # works横断＋backlog未着手の状況サマリ（読み取り専用）。--active は deliver 済みを隠す
+#   aidev metrics [slug] [--all] [--phases] [--format table|tsv]  # metrics.yml から派生指標を集計（読み取り専用）。--all は harnessRev/straddle 列も出す（版で層別する）
+#   aidev harness new <id> --hypothesis <text> --baseline <text> [--source <p>] [--verify-after <n>]
+#     ハーネス改修の仮説を .aidev/harness/ に登録する（introduced_rev に今の版を刻む）。条項と同じ入口・出口ゲート
+#   aidev harness confirm <id> --result <text> [--force] / retire <id> --status ineffective|superseded --note <text> [--force]
+#   aidev harness status [--format table|tsv]   # 改修ごとの母集団（導入後に着手し、またがらずに deliver した work）と判定可否
 #   aidev worktree add <slug> [--branch n] [--base ref] [--path dir] [--mode m] [--ticket id] [--depends list]
 #                                              # work 専用の git worktree+ブランチを作る（ユーザー責任の並行 on-ramp）
 #   aidev worktree list [--format table|tsv]   # aidev 管理 worktree を一覧（読み取り専用）
@@ -345,6 +351,12 @@ cmd_new() {
   if [ -n "$backlog" ] && [ ! -f "$AIDEV/backlog/$backlog" ]; then
     die "backlog ファイルが無い: .aidev/backlog/$backlog"
   fi
+  # 消化済み（todo=0）の backlog から着手できると、status が todo=0 / inflight=1 という自己矛盾を出し、
+  # 何を掴んだのかも記録されない。項目を足してから着手する
+  if [ -n "$backlog" ] && [ -z "$parent" ]; then
+    _bt=$(grep -c '^[[:space:]]*- \[ \]' "$AIDEV/backlog/$backlog" 2>/dev/null || true); _bt=${_bt:-0}
+    [ "$_bt" -gt 0 ] || die "backlog に未着手項目がありません（todo=0）: .aidev/backlog/$backlog。項目を足してから着手する"
+  fi
 
   deps_yaml="[]"
   if [ -n "$depends" ]; then
@@ -522,6 +534,7 @@ cmd_approve() {
     fi
     # この deliver で母集団が揃った条項があれば、その場で知らせる（下の cv_ready_notice の注記参照）
     cv_ready_notice
+    hv_ready_notice
   fi
 
 
@@ -726,16 +739,24 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail / 5 stri
         # backlog 出自の消し込み（DESIGN「2.5」: backlog 行は deliver で [x]）。
         # 直接入口（aidev-00-start で backlog 項目を選ぶ）は batch と違い自動で [x] にしないため、
         # 閉じ忘れると「完了済みの項目を次の人が選ぶ」（2026-08-01 に実際に発生）。
-        # 行の同定は諦め、**backlog ファイルに自分の slug が現れるか**で見る
-        #（消し込みの根拠に works slug を併記する規約と同じものを検査対象にしている）。
+        # 見るのは **[x] 行とその継続行に自分の slug が現れるか**（消し込みの根拠に works slug を
+        # 併記する規約と同じもの）。ファイルのどこかに slug があるだけで通すと、
+        # `- [ ] 次の課題 (needs: <slug>)` の未着手行で消し込み無しに着地できてしまう。
+        # `backlog compact` が退避した archive/<name>-done.md も見る
         bl=$(yget "$st" backlog)
         if [ -n "$bl" ]; then
           blf="$AIDEV/backlog/$bl"
           [ -f "$blf" ] || blf="$AIDEV/backlog/archive/$bl"
-          if [ ! -f "$blf" ]; then
+          _bld="$AIDEV/backlog/archive/${bl%.md}-done.md"
+          if [ ! -f "$blf" ] && [ ! -f "$_bld" ]; then
             VF="$VF backlog:${bl}が見つからない"
-          elif ! grep -q "$SLUG" "$blf" 2>/dev/null; then
-            VF="$VF backlog:${bl}に${SLUG}の消し込みが無い"
+          else
+            _blok=no
+            if [ -f "$blf" ] && bl_done_has "$blf" "$SLUG"; then _blok=yes; fi
+            if [ "$_blok" = no ] && [ -f "$_bld" ] && bl_done_has "$_bld" "$SLUG"; then _blok=yes; fi
+            if [ "$_blok" = no ]; then
+              VF="$VF backlog:${bl}に${SLUG}の消し込みが無い（[x] 行かその継続行に slug が要る）"
+            fi
           fi
         fi
       fi
@@ -771,7 +792,10 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail / 5 stri
     if [ -z "$hr1" ]; then hr1=$(harness_rev); hrw=現在; fi
     if [ -z "$hr0" ]; then
       printf '  WARN harnessRev が無い: 効果検証の母集団から漏れる（aidev new で刻まれる）\n'
-    elif [ -n "$hr1" ] && [ "$hr0" != "$hr1" ] && [ "$hr0" != unknown ] && [ "$hr1" != unknown ]; then
+    elif [ "$hrw" = 現在 ] && [ "$hr0" != "$hr1" ] && [ "$hr0" != unknown ] && [ "$hr1" != unknown ]; then
+      # 鳴らすのは **deliver 前**（いま気付けば意味がある）だけ。deliver 済みのまたがりは事実として
+      # state.yml に刻まれており `metrics --all` の straddle 列で層別できるので、doctor を回すたびに
+      # 履歴 work ぶん永久に出し続けない（100 works で数十行のノイズになっていた）
       # WARN ではなく note。またがりは**事後に取り消せない事実**で、人が直せることが無い。
       # verify の WARN（記録漏れ・light 逸脱）はどれも「いま直せる」もので、そこに直せない
       # 事実を毎回混ぜると——ハーネスを1回コミットしただけで in-flight 全 work が鳴き続ける——
@@ -957,6 +981,15 @@ bl_kind() { # file -> 先頭 frontmatter の kind（frontmatter 自体が無け�
        /^kind:[[:space:]]*/ {sub(/^kind:[[:space:]]*/,""); sub(/[[:space:]]*$/,""); print; exit}' "$1" 2>/dev/null
 }
 
+# 消し込み検査: **[x] 行とその継続行**（次の項目・見出し・空行まで）に slug があるか
+bl_done_has() { # file slug -> 0=あり / 1=なし
+  awk -v s="$2" '
+    /^[[:space:]]*- \[[xX]\]/ { inx=1 }
+    /^[[:space:]]*- \[[^xX]\]/ || /^#/ || /^[[:space:]]*$/ { inx=0 }
+    inx && index($0, s) { found=1; exit }
+    END { exit found ? 0 : 1 }' "$1" 2>/dev/null
+}
+
 # backlog ファイル1件の数え上げ。**status と同じ glob** を使う（status に見えている姿を検査対象にする）。
 bl_stat() { # file -> BL_TODO / BL_DN / BL_HID / BL_KIND
   BL_TODO=$(grep -c '^[[:space:]]*- \[ \]' "$1" 2>/dev/null || true); BL_TODO=${BL_TODO:-0}
@@ -1024,33 +1057,50 @@ $w"
 }
 
 # --- コマンド: doctor ---------------------------------------------------------
+# 1 work ぶんの検査と出力。--quiet では「  OK」だけの work を行ごと出さない
+# （100 works で 9 割が OK 行になり、直すべき WARN が埋もれる）
+doctor_one() { # label
+  _vo=$(verify_work) && _vr=0 || _vr=$?
+  [ "$_vr" -eq 0 ] || fail=$((fail+1))
+  if [ "$DQUIET" = yes ] && [ "$_vo" = "  OK" ]; then return 0; fi
+  printf '%s\n' "$1"
+  printf '%s\n' "$_vo"
+}
+
 cmd_doctor() {
+  DQUIET=no
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --quiet) DQUIET=yes; shift ;;
+      -*) die "未知のオプション: $1" ;;
+      *) die "doctor は位置引数を取りません: $1" ;;
+    esac
+  done
   [ -d "$AIDEV/works" ] || die "works がありません"
   total=0; fail=0; legacy=0
-  printf 'doctor: 全 work 横断検査\n'
+  printf 'doctor: 全 work 横断検査%s\n' "$([ "$DQUIET" = yes ] && printf '（--quiet: OK は省略）' || true)"
   for d in "$AIDEV/works"/*/; do
     [ -d "$d" ] || continue
     WORK=${d%/}; SLUG=$(basename "$WORK")
     total=$((total+1))
-    printf '%s\n' "- $SLUG"
     sc=$(yget "$WORK/state.yml" schema 2>/dev/null || true)
     [ -z "$sc" ] && legacy=$((legacy+1))
-    if ! verify_work; then fail=$((fail+1)); fi
+    doctor_one "- $SLUG"
     # subtask（ネスト1段）も横断検査する
     for sd in "$d"*/; do
       [ -d "$sd" ] || continue
       [ -f "${sd}state.yml" ] || continue
       WORK=${sd%/}; SLUG="$(basename "$d")/$(basename "$WORK")"
       total=$((total+1))
-      printf '%s\n' "  - $SLUG"
       ssc=$(yget "$WORK/state.yml" schema 2>/dev/null || true)
       [ -z "$ssc" ] && legacy=$((legacy+1))
-      if ! verify_work; then fail=$((fail+1)); fi
+      doctor_one "  - $SLUG"
     done
   done
   printf 'summary: works=%s fail=%s legacy(免除)=%s\n' "$total" "$fail" "$legacy"
   doctor_backlog
   doctor_conventions
+  doctor_harness
   # exit code は 4（不変条件違反）に揃える。1 は「使用法・環境エラー」に割り当てられているので、
   # exit code で分岐する機械ゲートが「ドリフト検知」を「環境が壊れている」と誤読する
   [ "$fail" -eq 0 ] || return 4
@@ -1086,11 +1136,12 @@ subtask_progress() { # work_dir
 }
 
 cmd_status() {
-  fmt=table; subflag=no
+  fmt=table; subflag=no; activef=no
   while [ $# -gt 0 ]; do
     case "$1" in
       --format) need_arg "$1" $#; fmt=${2:-}; shift 2 ;;
       --subtasks) subflag=yes; shift ;;
+      --active) activef=yes; shift ;;
       -*) die "未知のオプション: $1" ;;
       *) die "status は位置引数を取りません: $1" ;;
     esac
@@ -1109,6 +1160,8 @@ cmd_status() {
       current=$(yget "$st" current); [ -z "$current" ]  && current=-
       appr=$(ylist "$st" approved)
       case " $appr " in *" deliver "*) wdone=yes ;; *) wdone=no ;; esac
+      # --active: deliver 済みは出さない（100 works で 9 割が done=yes になり、進行中が埋もれる）
+      if [ "$activef" = yes ] && [ "$wdone" = yes ]; then continue; fi
       next=-
       if [ "$wdone" = no ]; then
         # profile: light は spec/plan を畳む（protocol.md「11.」＝承認されないのが正常）。
@@ -1323,12 +1376,21 @@ cmd_metrics() {
     mf="$wd/metrics.yml"
     [ -f "$mf" ] || mf=/dev/null
     out=$(awk -v name="$name" -v phases="$phasesf" -v PH="$PHASES" "$metrics_awk" "$mf")
+    # ハーネス版で層別できるよう harnessRev / straddle（着手時と着地時で版が違う）を添える。
+    # これが無いと insights は state.yml を grep して手で JOIN するしかなかった
+    if [ "$phasesf" = no ] && [ -n "$out" ]; then
+      _hr=$(yget "$wd/state.yml" harnessRev); [ -n "$_hr" ] || _hr=-
+      _hd=$(yget "$wd/state.yml" harnessRevDelivered)
+      if [ -z "$_hd" ] || [ "$_hr" = - ] || [ "$_hr" = unknown ] || [ "$_hd" = unknown ]; then _sd=-
+      elif [ "$_hr" = "$_hd" ]; then _sd=no; else _sd=yes; fi
+      out="$out	$_hr	$_sd"
+    fi
     [ -n "$out" ] && rows="$rows$out
 "
   done
 
   if [ "$phasesf" = yes ]; then hdr='work	phase	start	approved	elapsed_sec'
-  else hdr='work	first_start	delivered	lead_sec	reworks	sent_backs'; fi
+  else hdr='work	first_start	delivered	lead_sec	reworks	sent_backs	harnessRev	straddle'; fi
 
   if [ "$fmt" = tsv ]; then
     printf '%s' "$rows" | sed '/^[[:space:]]*$/d'
@@ -1581,13 +1643,60 @@ cmd_use() {
 # **積む/退避する**だけを持たせる。消し込み（[x] 化と根拠の併記）は行の同定と文面の判断が
 # 要るので CLI にしない（verify 自身が「行の同定は諦める」と割り切っている。protocol「2.9」）。
 cmd_backlog() {
-  [ $# -ge 1 ] || die "使用法: aidev backlog <new|archive> ..."
+  [ $# -ge 1 ] || die "使用法: aidev backlog <new|archive|compact> ..."
   sub=$1; shift
   case "$sub" in
     new)     bl_new "$@" ;;
     archive) bl_do_archive "$@" ;;
-    *) die "未知の backlog サブコマンド: $sub（new|archive）" ;;
+    compact) bl_compact "$@" ;;
+    *) die "未知の backlog サブコマンド: $sub（new|archive|compact）" ;;
   esac
+}
+
+# standing（また積まれる）backlog は archive されないので [x] 行が増える一方になり、
+# propose/insights の重複排除入力が周回ごとに膨らむ。消化済み項目だけを archive/<name>-done.md へ
+# 移して active を薄く保つ。verify の消し込み検査は -done.md も見るので、過去 work の検査は壊れない
+bl_compact() {
+  targets=""; explicit=yes
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -*) die "未知のオプション: $1" ;;
+      *) targets="$targets $(basename "$1")"; shift ;;
+    esac
+  done
+  [ -d "$AIDEV/backlog" ] || die "backlog がありません"
+  if [ -z "$targets" ]; then
+    explicit=no
+    for f in "$AIDEV/backlog"/*.md; do
+      [ -f "$f" ] || continue
+      bl_stat "$f"
+      if [ "$BL_KIND" = standing ] && [ "$BL_DN" -gt 0 ]; then targets="$targets $(basename "$f")"; fi
+    done
+  fi
+  moved=0
+  for t in $targets; do
+    f="$AIDEV/backlog/$t"
+    if [ ! -f "$f" ]; then printf 'skip %s: active にありません\n' "$t"; continue; fi
+    bl_stat "$f"
+    if [ "$BL_DN" -eq 0 ]; then
+      if [ "$explicit" = yes ]; then printf 'skip %s: 消化済み項目がありません\n' "$t"; fi
+      continue
+    fi
+    mkdir -p "$AIDEV/backlog/archive"
+    dn="$AIDEV/backlog/archive/${t%.md}-done.md"
+    if [ ! -f "$dn" ]; then
+      printf '# %s (done)\n\n<!-- aidev backlog compact が退避した消化済み項目。verify の消し込み検査はここも見る -->\n' "${t%.md}" > "$dn"
+    fi
+    # [x] 行とその継続行（次の項目・見出し・空行まで）を done ファイルへ移し、残りを書き戻す
+    awk -v out="$dn" '
+      /^[[:space:]]*- \[[xX]\]/ { inx=1 }
+      /^[[:space:]]*- \[[^xX]\]/ || /^#/ || /^[[:space:]]*$/ { inx=0 }
+      inx { print >> out; next }
+      { print }' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+    printf 'compacted: %s -> archive/%s (%s 件)\n' "$t" "$(basename "$dn")" "$BL_DN"
+    moved=$((moved+BL_DN))
+  done
+  printf 'compact-summary: moved=%s\n' "$moved"
 }
 
 bl_new() {
@@ -1725,10 +1834,11 @@ cv_dir_rel() {
 # **起こす／状態を進める／退避する**だけを持たせる。本文を PJ ドキュメントへ実際に移す作業は
 # 文体・配置・既存章との統合という判断なので CLI にしない（backlog の消し込み本体と同じ線引き）。
 cmd_convention() {
-  [ $# -ge 1 ] || die "使用法: aidev convention <new|confirm|retire|promote|status> ..."
+  [ $# -ge 1 ] || die "使用法: aidev convention <new|confirm|retire|defer|promote|status> ..."
   sub=$1; shift
   case "$sub" in
     new)     cv_new "$@" ;;
+    defer)   cv_defer "$@" ;;
     confirm) cv_confirm "$@" ;;
     retire)  cv_retire "$@" ;;
     promote) cv_promote "$@" ;;
@@ -1823,6 +1933,36 @@ cv_exit_gate() { # file force(yes|no) 動詞
     return 0
   fi
   die "母集団が揃っていません(pop $_pop / need $_va)。判定は揃ってから（aidev convention status）。それでも $3 するなら --force（理由を --result/--note に書く）"
+}
+
+# 判定を先送りする。「示せないなら pending のまま置く」は正規の選択肢なのに、その後は
+# doctor の WARN と deliver の到達通知を止める手段が frontmatter の手編集しか無かった。
+# 必要件数を積み増して、次に揃うまで黙らせる（理由必須。理由の無い先送りは滞留と区別できない）
+cv_defer() {
+  id=""; va=""; note=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --verify-after) need_arg "$1" $#; va=${2:-}; shift 2 ;;
+      --note) need_arg "$1" $#; note=${2:-}; shift 2 ;;
+      -*) die "未知のオプション: $1" ;;
+      *) if [ -z "$id" ]; then id=$1; else die "id は1つだけ"; fi; shift ;;
+    esac
+  done
+  [ -n "$id" ] || die "使用法: aidev convention defer <id> --verify-after <n> --note <text>"
+  case "$va" in ''|*[!0-9]*) die "--verify-after は整数（先送り後に必要な母集団件数）" ;; esac
+  [ -n "$note" ] || die "--note は必須です（なぜ先送りするか。理由の無い先送りは pending の滞留と区別できない）"
+  f=$(cv_find "$id") || die "条項がありません: $id"
+  case "$f" in *"/archive/"*) die "退避済みの条項は変更できません: $id" ;; esac
+  cv_require "$f" "$id"
+  [ "$(cv_get "$f" status)" = pending ] || die "pending の条項だけ先送りできます: $id"
+  _in=$(cv_get "$f" introduced)
+  _pop=0
+  if [ -n "$_in" ]; then _pop=$(cv_pop "$_in"); fi
+  [ "$va" -gt "$_pop" ] || die "--verify-after $va は現在の母集団 $_pop 以下なので黙りません（$((_pop+1)) 以上を指定）"
+  cv_set "$f" verify_after "$va"
+  cv_set "$f" deferred "$(now)"
+  cv_set "$f" defer_note "$note"
+  printf 'deferred: %s (verify_after %s, pop %s)\n' "$id" "$va" "$_pop"
 }
 
 cv_confirm() {
@@ -2004,11 +2144,15 @@ cv_do_status() {
     va=$(cv_get "$f" verify_after)
     case "$va" in ''|*[!0-9]*) va=0 ;; esac
     pt=$(cv_get "$f" promoted_to); [ -n "$pt" ] || pt="-"
-    if [ "$intro" = "-" ]; then pop=0; else pop=$(cv_pop "$intro"); fi
+    # archive 済みの pop は意味を持たない（判定は済んでいる）ので計算も表示もしない
+    case "$f" in
+      "$d/archive/"*) pop="-" ;;
+      *) if [ "$intro" = "-" ]; then pop=0; else pop=$(cv_pop "$intro"); fi ;;
+    esac
     ready="-"
     if [ "$st" = pending ]; then
       npend=$((npend+1))
-      if [ "$va" -gt 0 ] && [ "$pop" -ge "$va" ]; then ready=yes; nready=$((nready+1)); else ready=no; fi
+      if [ "$pop" != "-" ] && [ "$va" -gt 0 ] && [ "$pop" -ge "$va" ]; then ready=yes; nready=$((nready+1)); else ready=no; fi
     fi
     if [ "$st" = confirmed ]; then nconf=$((nconf+1)); fi
     # index 列: active な条項が索引に載っているか。載っていない＝自動読込されない＝読まれない。
@@ -2064,6 +2208,9 @@ doctor_conventions() {
     st=$(cv_get "$f" status)
     intro=$(cv_get "$f" introduced)
     va=$(cv_get "$f" verify_after)
+    _rel="$(cv_dir_rel)/$(basename "$f")"
+    _inidx=no
+    if [ -n "$CV_IDXF" ] && printf '%s' "$CV_IDXB" | grep -qF "$_rel"; then _inidx=yes; fi
     w=""
     case "$st" in
       "")
@@ -2077,8 +2224,13 @@ doctor_conventions() {
           case "$va" in ''|*[!0-9]*) va=0 ;; esac
           if [ -n "$intro" ] && [ "$va" -gt 0 ]; then
             pop=$(cv_pop "$intro")
-            if [ "$pop" -ge "$va" ]; then
+            # 索引に無い条項は読まれていないので判定させない（insights も「判定しない」と書く。
+            # ここで催促すると、届いていないだけの条項が ineffective にされる）。索引漏れ自体は下で WARN する
+            if [ "$pop" -ge "$va" ] && [ "$_inidx" = yes ]; then
               w="$w    WARN 母集団が揃った(${pop}/${va})のに未判定: insights で効果を判定すること
+"
+            elif [ "$pop" -ge "$va" ]; then
+              w="$w    note 母集団は揃った(${pop}/${va})が索引に無いので判定しない: 索引に足してから aidev convention defer で必要件数を積み増し、読まれた work で数え直す
 "
             fi
           fi
@@ -2119,7 +2271,6 @@ doctor_conventions() {
       esac
     fi
     # 索引の突き合わせ（active な条項＝読まれる必要があるもの、と移送済みの張り替え漏れ）
-    _rel="$(cv_dir_rel)/$(basename "$f")"
     case "$st" in
       pending|confirmed)
         if [ "$arch" = no ]; then
@@ -2160,6 +2311,286 @@ $w"
   printf 'convention-summary: files=%s archived=%s warn=%s\n' "$cfiles" "$carch" "$cwarn"
 }
 
+# --- ハーネス改修の仮説登録（.aidev/harness/<id>.md） -----------------------------
+# 条項（docs/aidev）には入口（仮説・baseline 必須）と出口（母集団ゲート）があるのに、ハーネス自身の
+# 改修には仮説を受ける口が無く、DESIGN が最も警戒する「事後の物語作り」がそのまま起きていた。
+# 同じ型の記録を PJ の .aidev/harness/ に置く（この PJ で回した work を母集団にする）。
+# 母集団 = introduced 以降に着手し、deliver 済みで、**またがっていない**（harnessRev == harnessRevDelivered）
+# top-level work。またがり work は改修の効果を半分しか受けていないので数えない。
+hv_dir() { printf '%s/harness' "$AIDEV"; }
+hv_find() { # id -> path（active 優先、無ければ archive）。無ければ 1
+  _i=$(cv_id "$1")
+  if [ -f "$(hv_dir)/$_i.md" ]; then printf '%s' "$(hv_dir)/$_i.md"; return 0; fi
+  if [ -f "$(hv_dir)/archive/$_i.md" ]; then printf '%s' "$(hv_dir)/archive/$_i.md"; return 0; fi
+  return 1
+}
+hv_require() { # path id
+  if [ -z "$(cv_get "$1" harness)" ] && [ -z "$(cv_get "$1" status)" ]; then
+    die "ハーネス改修の記録ではありません（harness / status がどちらも無い）: $1"
+  fi
+}
+hv_pop_prime() {
+  [ "${HV_TS_READY:-}" = yes ] && return 0
+  HV_TS_READY=yes; HV_TS=""
+  [ -d "$AIDEV/works" ] || return 0
+  for _pd in "$AIDEV/works"/*/; do
+    [ -d "$_pd" ] || continue
+    _pf="${_pd}metrics.yml"; _ps="${_pd}state.yml"
+    [ -f "$_pf" ] && [ -f "$_ps" ] || continue
+    ylist "$_ps" approved | grep -qw deliver || continue
+    _hr=$(yget "$_ps" harnessRev); _hd=$(yget "$_ps" harnessRevDelivered)
+    [ -n "$_hr" ] && [ "$_hr" != unknown ] || continue
+    if [ -n "$_hd" ] && [ "$_hd" != "$_hr" ]; then continue; fi
+    _pts=$(cv_first_ts "$_pf"); [ -n "$_pts" ] || continue
+    _a=$(cv_ts_key "$_pts") || continue
+    HV_TS="$HV_TS $_a"
+  done
+}
+hv_pop() { # introduced -> 件数
+  n=0
+  _b=$(cv_ts_key "$1") || { printf '0'; return 0; }
+  hv_pop_prime
+  for _a in $HV_TS; do [ "$_a" -ge "$_b" ] && n=$((n+1)); done
+  printf '%s' "$n"
+}
+HV_FORCED=""
+hv_exit_gate() { # file force 動詞
+  HV_FORCED=""
+  _va=$(cv_get "$1" verify_after)
+  case "$_va" in ''|*[!0-9]*) _va=0 ;; esac
+  [ "$_va" -gt 0 ] || return 0
+  _in=$(cv_get "$1" introduced)
+  _pop=0
+  if [ -n "$_in" ]; then _pop=$(hv_pop "$_in"); fi
+  [ "$_pop" -ge "$_va" ] && return 0
+  if [ "$2" = yes ]; then
+    printf 'warn: 母集団が揃っていません(pop %s / need %s)。--force により %s します（forced: true を刻む）\n' "$_pop" "$_va" "$3"
+    HV_FORCED=yes
+    return 0
+  fi
+  die "母集団が揃っていません(pop $_pop / need $_va)。判定は揃ってから（aidev harness status）。それでも $3 するなら --force（理由を --result/--note に書く）"
+}
+hv_ready_notice() {
+  d=$(hv_dir)
+  [ -d "$d" ] || return 0
+  hv_pop_prime
+  for f in "$d"/*.md; do
+    [ -f "$f" ] || continue
+    [ "$(cv_get "$f" status)" = pending ] || continue
+    intro=$(cv_get "$f" introduced); [ -n "$intro" ] || continue
+    va=$(cv_get "$f" verify_after)
+    case "$va" in ''|*[!0-9]*) continue ;; esac
+    [ "$va" -gt 0 ] || continue
+    pop=$(hv_pop "$intro")
+    if [ "$pop" -eq "$va" ]; then
+      printf 'note: ハーネス改修 %s の母集団が揃いました(%s/%s)。insights で効果を判定してください\n' \
+        "$(basename "$f" .md)" "$pop" "$va"
+    fi
+  done
+}
+hv_archive() { # path
+  d=$(hv_dir)
+  mkdir -p "$d/archive"
+  [ ! -e "$d/archive/$(basename "$1")" ] || die "退避先が埋まっています: $d/archive/$(basename "$1")"
+  mv "$1" "$d/archive/$(basename "$1")"
+}
+hv_new() {
+  id=""; hyp=""; src=""; va=""; base=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --hypothesis)   need_arg "$1" $#; hyp=${2:-}; shift 2 ;;
+      --baseline)     need_arg "$1" $#; base=${2:-}; shift 2 ;;
+      --source)       need_arg "$1" $#; src=${2:-}; shift 2 ;;
+      --verify-after) need_arg "$1" $#; va=${2:-}; shift 2 ;;
+      -*) die "未知のオプション: $1" ;;
+      *) if [ -z "$id" ]; then id=$1; else die "id は1つだけ"; fi; shift ;;
+    esac
+  done
+  [ -n "$id" ] || die "使用法: aidev harness new <id> --hypothesis <text> --baseline <text> [--source <path>] [--verify-after <n>]"
+  id=$(cv_id "$id")
+  [ -n "$hyp" ] || die "--hypothesis は必須です（どの指標がどう動けば効果ありと判定するか。書けない改修は効果を主張できない）"
+  [ -n "$base" ] || die "--baseline は必須です（改修前の値。例: '直近 10 works の reworks 平均 1.4' / '0件（前を作れない）'）"
+  [ -n "$va" ] || va=5
+  case "$va" in ''|*[!0-9]*) die "--verify-after は整数（母集団の最低件数）" ;; esac
+  [ "$va" -gt 0 ] || die "--verify-after は 1 以上"
+  d=$(hv_dir); mkdir -p "$d"
+  f="$d/$id.md"
+  [ ! -e "$f" ] || die "すでにあります: $f"
+  [ ! -f "$d/archive/$id.md" ] || die "同じ id が archive にあります（$d/archive/$id.md）。判定済み改修の再登録は重複です"
+  rev=$(harness_rev)
+  {
+    printf -- '---\n'
+    printf 'harness: %s\n' "$id"
+    printf 'status: pending\n'
+    printf 'introduced: %s\n' "$(now)"
+    printf 'introduced_rev: %s\n' "$rev"
+    if [ -n "$src" ]; then printf 'source: %s\n' "$src"; fi
+    printf 'hypothesis: %s\n' "$hyp"
+    printf 'baseline: %s\n' "$base"
+    printf 'verify_after: %s\n' "$va"
+    printf -- '---\n\n'
+    printf '# %s\n\n' "$id"
+    printf '## 改修内容\n\n<!-- aidev-* のどこをどう変えたか。改修 PR/コミットへの参照 -->\n\n'
+    printf '## 判定メモ\n\n<!-- confirm/retire 時の内訳の補足（frontmatter の result/note が正） -->\n'
+  } > "$f"
+  printf 'created: %s (status pending, verify_after %s, introduced_rev %s)\n' "$f" "$va" "$rev"
+  [ "$rev" != unknown ] || printf 'warn: harness_rev が取れない環境です（git 不在）。母集団は時刻だけで数えます\n'
+  printf 'next: ## 改修内容 を書く。母集団は導入後に着手し、またがらずに deliver した work（aidev harness status）\n'
+}
+hv_confirm() {
+  id=""; result=""; force=no
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --result) need_arg "$1" $#; result=${2:-}; shift 2 ;;
+      --force)  force=yes; shift ;;
+      -*) die "未知のオプション: $1" ;;
+      *) if [ -z "$id" ]; then id=$1; else die "id は1つだけ"; fi; shift ;;
+    esac
+  done
+  [ -n "$id" ] || die "使用法: aidev harness confirm <id> --result <text> [--force]"
+  [ -n "$result" ] || die "--result は必須です（判定の内訳: baseline と導入後の値、母集団の work 数）"
+  f=$(hv_find "$id") || die "ハーネス改修の記録がありません: $id"
+  case "$f" in *"/archive/"*) die "判定済みです: $id" ;; esac
+  hv_require "$f" "$id"
+  hv_exit_gate "$f" "$force" confirm
+  cv_set "$f" status confirmed
+  cv_set "$f" result "$result"
+  if [ "$HV_FORCED" = yes ]; then cv_set "$f" forced true; fi
+  hv_archive "$f"
+  printf 'confirmed: %s（archive へ退避）\n' "$id"
+}
+hv_retire() {
+  id=""; st=""; note=""; force=no
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --status) need_arg "$1" $#; st=${2:-}; shift 2 ;;
+      --note)   need_arg "$1" $#; note=${2:-}; shift 2 ;;
+      --force)  force=yes; shift ;;
+      -*) die "未知のオプション: $1" ;;
+      *) if [ -z "$id" ]; then id=$1; else die "id は1つだけ"; fi; shift ;;
+    esac
+  done
+  [ -n "$id" ] || die "使用法: aidev harness retire <id> --status ineffective|superseded --note <text> [--force]"
+  case "$st" in
+    ineffective|superseded) ;;
+    "") die "--status は必須です（ineffective|superseded）" ;;
+    *) die "未知の status: $st（ineffective|superseded）" ;;
+  esac
+  [ -n "$note" ] || die "--note は必須です（退役理由）"
+  f=$(hv_find "$id") || die "ハーネス改修の記録がありません: $id"
+  case "$f" in *"/archive/"*) die "判定済みです: $id" ;; esac
+  hv_require "$f" "$id"
+  if [ "$st" = ineffective ]; then hv_exit_gate "$f" "$force" retire; fi
+  cv_set "$f" status "$st"
+  cv_set "$f" note "$note"
+  if [ "$HV_FORCED" = yes ]; then cv_set "$f" forced true; fi
+  hv_archive "$f"
+  printf 'retired: %s (%s)\n' "$id" "$st"
+}
+hv_status() {
+  fmt=table
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --format) need_arg "$1" $#; fmt=${2:-}; shift 2 ;;
+      -*) die "未知のオプション: $1" ;;
+      *) die "余分な引数: $1" ;;
+    esac
+  done
+  case "$fmt" in table|tsv) ;; *) die "--format は table|tsv" ;; esac
+  d=$(hv_dir)
+  [ -d "$d" ] || die "ハーネス改修の記録がありません: $d（aidev harness new で登録する）"
+  hv_pop_prime
+  rows=""; npend=0; nready=0
+  for f in "$d"/*.md "$d/archive"/*.md; do
+    [ -f "$f" ] || continue
+    id=$(basename "$f" .md)
+    st=$(cv_get "$f" status); [ -n "$st" ] || st="-"
+    intro=$(cv_get "$f" introduced); [ -n "$intro" ] || intro="-"
+    rev=$(cv_get "$f" introduced_rev); [ -n "$rev" ] || rev="-"
+    va=$(cv_get "$f" verify_after)
+    case "$va" in ''|*[!0-9]*) va=0 ;; esac
+    case "$f" in
+      "$d/archive/"*) pop="-" ;;
+      *) if [ "$intro" = "-" ]; then pop=0; else pop=$(hv_pop "$intro"); fi ;;
+    esac
+    ready="-"
+    if [ "$st" = pending ]; then
+      npend=$((npend+1))
+      if [ "$pop" != "-" ] && [ "$va" -gt 0 ] && [ "$pop" -ge "$va" ]; then ready=yes; nready=$((nready+1)); else ready=no; fi
+    fi
+    rows="${rows}${id}	${st}	${intro}	${rev}	${pop}	${va}	${ready}
+"
+  done
+  if [ "$fmt" = tsv ]; then
+    printf '%s' "$rows" | while IFS='	' read -r a b c e f g h; do
+      [ -n "$a" ] || continue
+      printf 'harness	%s	%s	%s	%s	%s	%s	%s\n' "$a" "$b" "$c" "$e" "$f" "$g" "$h"
+    done
+  else
+    { printf 'id	status	introduced	introduced_rev	pop	need	ready\n'; printf '%s' "$rows"; } | fmt_table
+  fi
+  printf 'harness-summary: pending=%s ready=%s\n' "$npend" "$nready"
+}
+doctor_harness() {
+  d=$(hv_dir)
+  [ -d "$d" ] || return 0
+  hv_pop_prime
+  hfiles=0; harch=0; hwarn=0; hout=""
+  for f in "$d"/*.md "$d/archive"/*.md; do
+    [ -f "$f" ] || continue
+    case "$f" in
+      "$d/archive/"*) arch=yes; label="archive/$(basename "$f")"; harch=$((harch+1)) ;;
+      *)              arch=no;  label=$(basename "$f");           hfiles=$((hfiles+1)) ;;
+    esac
+    st=$(cv_get "$f" status); intro=$(cv_get "$f" introduced); va=$(cv_get "$f" verify_after)
+    w=""
+    case "$st" in
+      "") w="$w    WARN frontmatter(status)が無い: pending/confirmed/ineffective/superseded
+" ;;
+      pending)
+        if [ "$arch" = yes ]; then
+          w="$w    WARN 退避済みだが status=pending: 判定前に退避されている
+"
+        else
+          case "$va" in ''|*[!0-9]*) va=0 ;; esac
+          if [ -n "$intro" ] && [ "$va" -gt 0 ]; then
+            pop=$(hv_pop "$intro")
+            if [ "$pop" -ge "$va" ]; then
+              w="$w    WARN 母集団が揃った(${pop}/${va})のに未判定: insights で効果を判定すること（aidev harness confirm|retire）
+"
+            fi
+          fi
+        fi ;;
+      confirmed|ineffective|superseded)
+        if [ "$arch" = no ]; then
+          w="$w    WARN $st だが未退避: archive/ へ移すこと（confirm/retire は CLI で打てば退避される）
+"
+        fi ;;
+      *) w="$w    WARN 未知の status: $st（pending/confirmed/ineffective/superseded）
+" ;;
+    esac
+    if [ -n "$w" ]; then
+      hwarn=$((hwarn+1))
+      hout="$hout- $label (status=${st:--})
+$w"
+    fi
+  done
+  printf 'harness: ハーネス改修の記録検査\n'
+  if [ -n "$hout" ]; then printf '%s' "$hout"; fi
+  printf 'harness-summary: files=%s archived=%s warn=%s\n' "$hfiles" "$harch" "$hwarn"
+}
+cmd_harness() {
+  [ $# -ge 1 ] || die "使用法: aidev harness <new|confirm|retire|status> ..."
+  sub=$1; shift
+  case "$sub" in
+    new)     hv_new "$@" ;;
+    confirm) hv_confirm "$@" ;;
+    retire)  hv_retire "$@" ;;
+    status)  hv_status "$@" ;;
+    *) die "未知の harness サブコマンド: $sub（new|confirm|retire|status）" ;;
+  esac
+}
+
 cmd_worktree() {
   [ $# -ge 1 ] || die "使用法: aidev worktree <add|list|rm> ..."
   sub=$1; shift
@@ -2192,6 +2623,7 @@ case "$cmd" in
   use)     cmd_use "$@" ;;
   backlog) cmd_backlog "$@" ;;
   convention) cmd_convention "$@" ;;
+  harness) cmd_harness "$@" ;;
 
   worktree) cmd_worktree "$@" ;;
   help|-h|--help) usage ;;

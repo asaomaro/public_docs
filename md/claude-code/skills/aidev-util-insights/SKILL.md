@@ -1,6 +1,6 @@
 ---
 name: aidev-util-insights
-description: ［ユーティリティ・パイプライン外／主トリガ:ユーザー起動］AI開発ワークフローの横断分析ユーティリティ。複数の作業（.aidev/works/*）を横断して review.md / metrics.yml / decisions.md を集計し、再発パターンと systemic な改善提案をまとめる。「横断分析して」「これまでの作業の傾向を見たい」「insights」などと言われたときに使用する。
+description: ［aidev ユーティリティ］aidev の横断分析。.aidev/works/* を横断して review.md / metrics.yml / decisions.md を集計し、条項・ハーネス改修の効果判定案と systemic な改善提案をまとめる。「aidev insights」「aidev の横断分析をして」と言われたときに使用する。
 allowed-tools: [Bash, Read, Write, AskUserQuestion, Agent]
 ---
 
@@ -55,24 +55,30 @@ per-work の `retro` が「その作業1件」を振り返るのに対し、こ�
 - **`aidev convention status`**：PJ規約の条項の状態・母集団件数(`pop`)・判定可否(`ready`)。
   `--members <id>` で母集団の work 一覧と `[conv:<id>]` 件数（分母と分子を同じ集合で見る）。
   縦断分析の入口（`protocol.md`「12.」＋ `protocol-conventions.md`）。
-- **`.aidev/works/**/state.yml` の `harnessRev`**：その work を回したハーネスの版。
-  ハーネス改修の前後を分ける鍵（`aidev status --format tsv` には出ないので state.yml から grep する）。
+- **`aidev harness status`** と **`aidev metrics --all` の `harnessRev`/`straddle` 列**：ハーネス改修の
+  仮説・母集団と、work を回した版。改修の前後を分ける鍵（`protocol.md`「12.」）。
 - **`.aidev/works/**/review.md` の条項参照タグ `[conv:…]`**：条項の効果判定の主材料（`protocol.md`「8.」）。
 
 ## 出力
 
 - `.aidev/insights/<YYYY-MM-DD>-insights.md`（日付は `date -u +%F` で取得）。履歴として残す。
-- **判定の反映**：`aidev convention confirm <id> --result "<内訳>"` または
-  `aidev convention retire <id> --status ineffective|superseded --note "<理由>"`。
-  レポートに書くだけで status を進めないと、doctor が WARN を出し続け、次回も同じ判定をやり直すことになる。
-  母集団が揃う前の `confirm` / `retire --status ineffective` は CLI が拒否する（`--force` は `forced: true` が残る）。
+- **判定案**：条項／ハーネス改修ごとに、**そのまま実行できる CLI 行**を書く
+  （`aidev convention confirm <id> --result "<内訳>"` ／ `aidev convention retire <id> --status ineffective|superseded --note "<理由>"` ／
+  `aidev harness confirm|retire …`）。**insights は CLI を打たない**。判定の実行は
+  propose → backlog（判定タスク）→ batch → PR の経路に乗せ、**人間が PR で判定を見てから着地する**
+  （`protocol-conventions.md`「batch に許す範囲」）。ユーザーが同席していてその場で承認したときだけ
+  interactive で打ってよい（打った変更はその PR に含める）。
+  レポートの散文に埋めると propose が拾えず doctor が WARN を出し続けるので、判定案はテンプレの「判定案」節に
+  CLI 行の形で残す。母集団が揃う前の `confirm` / `retire --status ineffective` は CLI が拒否する（`--force` は `forced: true` が残る）。
+- **却下記録は読むだけ**：`.aidev/insights/rejected.md`（propose が人間の却下を記録する）にある提案は
+  「未対応の改善」として再掲しない。再掲するなら**新しい信号**（新たな work・件数の変化）を添える。
 
 ## 手順
 
 1. 対象範囲を決める（既定は全 works）。必要なら期間や対象を `AskUserQuestion` で絞ってよい。
 2. **定量指標は `aidev metrics --all`（必要に応じ `--phases`/`--format tsv`）で機械集計**し、テキスト材料
    （review.md / decisions.md / retro.md）は読んで突き合わせる。重い場合は works 単位の読み取りを委譲する。
-   （記録ドリフト＝metrics/review 欠落は `aidev doctor` で機械検出できる。legacy work は免除される。）
+   （記録ドリフト＝metrics/review 欠落は `aidev doctor --quiet` で機械検出できる。legacy work は免除される。）
 3. **縦断分析＝過去に入れた改善の効果検証**（新しい提案より先に回す）。
 
    **(a) PJ規約の条項**（`protocol.md`「12.」／詳細は `protocol-conventions.md`）:
@@ -85,18 +91,21 @@ per-work の `retro` が「その作業1件」を振り返るのに対し、こ�
    - **数え方と判定手順は `protocol-conventions.md`「効果を判定する」に従う**（`baseline` と導入後の
      タグ件数の比較／数える範囲／`baseline` に「前を作れない」とある条項の扱い）。
    - **陰性は「条項が誤り」を意味しない**（protocol.md「12.」）。理由は `retire --status ineffective --note` に残す。
-   - 判定したら **CLI で status を進める**（`confirm` / `retire`）。レポートに書くだけでは残らない。
+   - **人間の信号を優先する**: `review.md` の「PR レビュー（人間）」節（`aidev-70-deliver`）の指摘は、AI が書いた
+     ラウンド指摘より判定の根拠として重い（他の材料は全段 AI 出力なので、これが唯一の外部信号）。
+   - 判定は **CLI 行の形の判定案**として残す（実行は propose→batch→PR 経路。上の「出力」）。
    - **`confirmed` のまま未移送の条項**（doctor が WARN する）は、`docs/aidev/` と PJ ドキュメントの
      二重管理予備軍。改善提案の「PJ プロセス / 規約」に**移送タスク**として挙げる。
 
    **(b) ハーネス自身の改修**（`state.yml` の `harnessRev`。`protocol.md`「12.」）:
-   - `harnessRev` で works を版ごとに層別し、改修の前後で指標を比べる。
-
-     ```sh
-     grep -rH '^harnessRev:' .aidev/works   # -r は必須（1段グロブでは subtask が落ちる）
-     ```
-   - **またがり work は母集団から外す**（`harnessRev` ≠ `harnessRevDelivered`。`aidev verify` が `note:` で知らせる）。
-     改修の効果を半分しか受けておらず、どちらに帰属させても効果が薄まる。
+   - `aidev harness status` で `ready=yes`（母集団が揃って未判定）の改修を洗い出す（`aidev doctor` の
+     WARN と `approve deliver` の到達通知も同じものを指す）。登録の無い改修は判定できない——見つけたら
+     「`aidev harness new` で登録する」を改善提案に挙げる（過去分の仮説を捏造しない）。
+   - `aidev metrics --all --format tsv` の **`harnessRev` / `straddle` 列**で works を版ごとに層別し、
+     改修の前後で指標を比べる（state.yml を grep して JOIN する必要は無い）。
+   - **またがり work（`straddle=yes`）は母集団から外す**。改修の効果を半分しか受けておらず、
+     どちらに帰属させても効果が薄まる。
+   - 判定は条項と同じく **CLI 行の形の判定案**（`aidev harness confirm <id> --result …` / `retire …`）で残す。
    - 比較に使う指標は**手戻り回数(reworks)を第一に**選ぶ。`elapsed_sec` / `lead_sec` は
      `mode` の層別（autonomous 同士）が成立する件数がないと意味を持たない（`protocol-analysis.md`）。
    - `harnessRev: unknown` の work は層別できないので数から外し、**その旨をレポートに書く**（捏造しない）。
@@ -119,6 +128,7 @@ per-work の `retro` が「その作業1件」を振り返るのに対し、こ�
      `aidev verify` / `doctor` の「profile=light だが…」WARN が残っている work は**昇格漏れ**として扱う
      （light のまま着地した work は、上の手戻り率を実態より良く見せる）。
    - **未対応の改善**：過去 retro の提案で、繰り返し挙がるが未反映のもの。
+     **`.aidev/insights/rejected.md` にある提案は除く**（人間が却下したものを毎周「未対応」として再掲しない）。
    - **未着手キューの滞留（任意）**：`.aidev/backlog/*.md`（archive 除く）の未処理件数・滞留や
      `(needs:…)` で止まっている項目を、残作業のコンテキストとして添えてよい（完了作業の分析が主旨）。
 5. 観察を **systemic な改善提案**に変換し、3カテゴリに仕分ける。
@@ -146,6 +156,11 @@ per-work の `retro` が「その作業1件」を振り返るのに対し、こ�
 
 ### ハーネス改修
 - <harnessRev X 以前 / 以後 の reworks 比較。またがり work・unknown は除外した件数を明記>
+
+### 判定案（そのまま backlog の判定タスクになる CLI 行。propose が拾う）
+- [ ] 条項 <id> を判定: `aidev convention confirm <id> --result "<baseline> -> <導入後>（母集団 <pop>）"`
+- [ ] 条項 <id> を判定: `aidev convention retire <id> --status ineffective --note "<理由>"`
+- [ ] ハーネス改修 <id> を判定: `aidev harness confirm <id> --result "<…>"`
 
 ### 未判定・未移送
 - <母集団が揃っていない条項（あと何件か）>
@@ -180,7 +195,7 @@ per-work の `retro` が「その作業1件」を振り返るのに対し、こ�
 
 ## 完了の目安
 
-- **未判定だった改善（条項 / ハーネス改修）が判定され、CLI で status が進んでいる**
-  （レポートに書いただけで `confirm` / `retire` を打っていないのは未完了）。
+- **未判定だった改善（条項 / ハーネス改修）の判定案が CLI 行の形で「判定案」節に残っている**
+  （散文で「効いたと思う」と書くだけでは propose が拾えず、doctor の WARN が止まらない）。
 - 単一作業では見えない**横断の再発パターン**が抽出されている。
 - 改善提案が3カテゴリに仕分けられ、次アクションが明確（提案止まりでよい）。

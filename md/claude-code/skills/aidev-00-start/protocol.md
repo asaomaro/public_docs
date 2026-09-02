@@ -453,13 +453,19 @@ review 工程はラウンドごとに追記する（差し戻し後の再レビ�
 - [should][conv:-] <…>
 - [nit][conv:-] <…>
 （指摘なしの場合はその旨）
+
+## PR レビュー（人間）（deliver 後・`aidev-70-deliver`）
+- [should][conv:naming-boolean] <ファイル:行> <指摘の要旨> / 対応: 修正済 / src: <PR コメント URL>
 ```
+
+「PR レビュー（人間）」節は deliver 後に人間の指摘を同じタグ規約で写したもの（唯一の人間由来の判定材料。
+ラウンド指摘と件数を混ぜない）。
 
 ### 条項参照タグ（`[conv:…]`）
 
 各指摘に根拠となる**条項の id** を付ける（無ければ `[conv:-]`）。候補は `aidev convention status` の一覧
 ——分類の語彙を新規に発明しない。タグから「規約の穴（`conv:-`）」と「条項の効果（id 別件数 vs `baseline`）」が
-機械的に読める。点検ログ節（`protocol-check.md`）にも同じ規約で付ける。詳細は `protocol-conventions.md`。
+機械的に読める。点検ログ節（`protocol-check.md`）と PR レビュー節にも同じ規約で付ける。詳細は `protocol-conventions.md`。
 
 ## 9. 図示（mermaid）規約
 
@@ -517,5 +523,14 @@ AGENTS.md には**読む条件つきの索引**（`<!-- aidev:conventions -->` �
   なので、誤検知はそのまま**効果検証の母集団を痩せさせる**。
 - git が無い等で版が取れない環境では **`unknown` を刻む**（「8.」の「捏造して埋めない」と同じ態度）。
 
-判定は `aidev-util-insights`（横断分析）が行う。
+### ハーネス改修の仮説登録（`aidev harness`）
+
+刻印だけでは「何を変えたら何がどう動くはずか」が残らず、条項側で塞いだ「事後の物語作り」がハーネス側で
+起きる。**ハーネス改修を入れたら `aidev harness new <id> --hypothesis … --baseline …` で `.aidev/harness/` に
+登録する**（`introduced` と `introduced_rev` が刻まれる）。母集団は導入後に着手し **またがらずに** deliver した
+work（`aidev harness status`）。判定は条項と同じ出口ゲート（`harness confirm --result` / `retire --note`。
+未達は拒否・`--force` は `forced: true`）。`doctor` が未判定を WARN し、`approve deliver` が到達を知らせる。
+`aidev metrics --all` の `harnessRev` / `straddle` 列で版ごとに層別する。
+
+判定案は `aidev-util-insights`（横断分析）が出す。
 

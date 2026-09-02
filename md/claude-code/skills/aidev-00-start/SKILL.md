@@ -1,6 +1,6 @@
 ---
 name: aidev-00-start
-description: ［入口/ルーター／主トリガ:ユーザー起動］AI開発ワークフローの入口。作業状況を確認し、どの工程から始めるかをユーザーに確認して案内する。「AI開発を始めたい」「開発ワークフローを開始」「続きから再開」「aidev」などと言われたときに使用する。
+description: ［aidev 入口］aidev ワークフロー（SDD ハーネス）の入口。.aidev/ の作業状況を確認し、どの工程から始めるかをユーザーに確認して案内する。「aidev」「aidev を始めたい」「aidev の続きから」と言われたときに使用する。工程名だけの依頼（レビュー・コミット・テスト等）では使わない。
 allowed-tools: [Bash, Read, Write, AskUserQuestion]
 ---
 
@@ -25,6 +25,7 @@ AI 開発ワークフローの入口（ルーター）。
 
 ```sh
 .claude/skills/aidev-docs/bin/aidev status                 # 進行中(works)＋未着手(backlog) を人間可読表で
+# works が多いなら: .claude/skills/aidev-docs/bin/aidev status --active   # deliver 済みを隠す
 # 機械処理が必要なら: .claude/skills/aidev-docs/bin/aidev status --format tsv
 # Windows: pwsh .claude/skills/aidev-docs/bin/aidev.ps1 status
 #          （pwsh 無しなら powershell -NoProfile -File ... / Git Bash なら POSIX 版の aidev がそのまま動く）

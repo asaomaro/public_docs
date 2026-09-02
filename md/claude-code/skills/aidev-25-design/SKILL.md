@@ -1,6 +1,6 @@
 ---
 name: aidev-25-design
-description: ［任意工程・末尾5／主トリガ:AI検知推奨 or ユーザー指定］AI開発ワークフローの design（詳細設計）工程。spec と plan の間で構造設計を固める。「設計を詰めたい」「design工程」などと言われたとき、または spec 終了時に複雑度が高いと検知され推奨されたときに使用する。
+description: ［aidev 任意工程］aidev の design（詳細設計）工程。spec と plan の間で構造設計を固める。「aidev design」「design 工程」と言われたとき、または spec 終了時に複雑度が高いと検知され推奨されたときに使用する。
 allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion, Agent]
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: aidev-util-batch
-description: ［ユーティリティ・パイプライン外／主トリガ:ユーザー起動・定期実行］AI開発ワークフローのバッチ駆動ユーティリティ。バックログ（チェックリスト）の未処理項目を順に autonomous モードの aidev で処理し、PRにまとめる。「バックログを消化して」「まとめて定義を作って」「batch」などと言われたとき、または /loop・/schedule から起動されたときに使用する。
+description: ［aidev ユーティリティ］aidev のバッチ駆動。.aidev/backlog の未処理項目を順に autonomous モードの aidev で処理し、1 つの PR にまとめる。「aidev batch」「aidev の backlog を消化して」と言われたとき、または /loop・/schedule から起動されたときに使用する。
 allowed-tools: [Bash, Read, Edit, AskUserQuestion, Agent]
 ---
 
@@ -58,7 +58,8 @@ priority: <整数>               # 複数ファイルの選択順（小さいほ
     standing との違いは「またここに積むか」——積まないなら topic。
 - **archive**: 消化しきったら終わるキュー（`split` / `topic`）で全項目が `[x]` になったファイルは
   `.aidev/backlog/archive/` に退避し、active の glob（`archive/` を除く）を小さく保つ。
-  `standing` は全消化でも退避せず継続。
+  `standing` は全消化でも退避せず継続。`[x]` 行が溜まったら `aidev backlog compact` で
+  `archive/<name>-done.md` へ移す（`verify` の消し込み検査はそこも見る）。
   - **退避は `aidev backlog archive` で行う**（引数なしで条件を満たすものだけ退避。判定は `doctor` の
     WARN と同じ関数を通る）。`mv` のみなので、**コミットは呼び出し側の仕事**
     （`git add -A .aidev/backlog` でリネームとして拾われる）。
@@ -102,8 +103,11 @@ priority: <整数>               # 複数ファイルの選択順（小さいほ
 - **1回の件数上限**（暴走防止）。**予算/時間上限**で停止・報告。
 - **test 硬ゲート**・**PRで停止（auto-merge禁止）**・**人間が PR レビュー**。
 - **独立な項目を選ぶ**（同一ファイルを争う項目は同時に処理しない）。
-- **PJ規約（条項）に対してできるのは追加と移送まで**（`protocol-conventions.md`）。既存条項の
-  **削除・緩和は人間**の判断に残す。
+- **PJ規約（条項）とハーネス改修の記録に対してできるのは、追加・移送・判定案どおりの判定まで**
+  （`protocol-conventions.md`）。既存条項の**削除・緩和は人間**の判断に残す。
+  - **判定タスク**（項目に insights の判定案＝`--result`/`--note` 付きの `aidev convention confirm|retire` /
+    `aidev harness confirm|retire` の行がそのままある）は autonomous で実行してよい。**項目に CLI 行が無ければ
+    実行せず `[ ]` のまま残す**（batch が判定を発明しない）。結果は PR に載るので、人間が判定を見てから着地する。
   - 移送タスク（`confirmed` 条項の本文を PJ ドキュメントへ移す）は**通常のリポジトリ変更**なので
     autonomous で消化してよい。着地は `aidev convention promote <id> --to <path#anchor>`
     （移送先の実在を CLI が検査する）。詳細は `protocol-conventions.md`。

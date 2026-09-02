@@ -1,6 +1,6 @@
 ---
 name: aidev-65-walkthrough
-description: ［任意工程・末尾5／主トリガ:AI検知推奨 or ユーザー指定］AI開発ワークフローの walkthrough（レビューガイド生成）工程。人間のPRレビューを補助する解説（重要ポイント・処理フローのmermaid図・該当コード）を作る。「レビューガイドを作って」「walkthrough工程」などと言われたとき、または review 通過後に複雑度が高いと検知され推奨されたときに使用する。
+description: ［aidev 任意工程］aidev の walkthrough（レビューガイド生成）工程。人間の PR レビューを補助する解説を作る。「aidev walkthrough」「walkthrough 工程」と言われたとき、または review 通過後に複雑度が高いと検知され推奨されたときに使用する。
 allowed-tools: [Bash, Read, Write, AskUserQuestion, Agent]
 ---
 
