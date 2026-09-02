@@ -53,7 +53,7 @@ need_arg() { # opt残り引数数
   [ "$2" -ge 2 ] || die "$1 には値が必要です"
 }
 
-CURRENT_SCHEMA=4   # 現行スキーマ版。new がこの値を刻む。schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema<=2 は legacy として subtask 不変条件を免除。
+CURRENT_SCHEMA=5   # 現行スキーマ版。new がこの値を刻む。schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema<=2 は legacy として subtask 不変条件を免除。
 
 PHASES="requirement research spec design plan coding test review walkthrough deliver retro"
 
@@ -601,7 +601,9 @@ cmd_guard() {
       else
         need_file tasks.md || :
       fi ;;
-    review) need_file spec.md || : ;;
+    # 60-review の前提「test 工程を通過していること」に経路を与える。
+    # 宣言だけで検査が無いと、protocol.md「2.」の「前提工程の承認を機械的に検査する」が嘘になる
+    review) need_file spec.md || : ; need_approved test || : ;;
     walkthrough|deliver) need_approved review || : ;;
     retro) need_approved deliver || : ;;
   esac
@@ -655,6 +657,26 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail / 5 stri
     if [ "$schema" -ge 2 ] 2>/dev/null; then
       [ -f "$WORK/metrics.yml" ] || VF="$VF metrics.yml欠落"
       if approved_has review; then [ -f "$WORK/review.md" ] || VF="$VF review.md欠落(review承認済)"; fi
+      # 承認済み工程の成果物が実在するか（protocol.md「7.」の成果物列）。
+      # ここを見ないと、**成果物を1つも作らずに全工程 approve した work が
+      # 「deliver 済み・verify OK」になる**。deliver の着地前ゲートが verify なので、
+      # SDD の最低限の前提（各工程が成果物を残す）が誰にも守られていなかった。
+      # 親（subtasks を持つ）は plan.md までで、tasks.md は子が持つ（aidev-30-plan「4.」）
+      _issub=$(yget "$st" parent)
+      _hassub=$(ylist "$st" subtasks)
+      if [ "$schema" -ge 5 ] 2>/dev/null; then
+      for _pf in requirement:requirement.md spec:spec.md plan:plan.md; do
+        _ph=${_pf%%:*}; _pfile=${_pf#*:}
+        approved_has "$_ph" || continue
+        # subtask は親の requirement/spec/design を継承する（aidev:need_file と同じ規則）
+        if [ -f "$WORK/$_pfile" ]; then continue; fi
+        if [ -n "$_issub" ] && [ -f "$AIDEV/works/$_issub/$_pfile" ]; then continue; fi
+        VF="$VF $_pfile欠落($_ph承認済)"
+      done
+      if approved_has plan && [ -z "$_hassub" ] && [ ! -f "$WORK/tasks.md" ]; then
+        VF="$VF tasks.md欠落(plan承認済)"
+      fi
+      fi
       if approved_has deliver; then
         grep -Eq 'phase:[[:space:]]*deliver.*event:[[:space:]]*approved|event:[[:space:]]*approved.*phase:[[:space:]]*deliver' "$WORK/metrics.yml" 2>/dev/null \
           || VF="$VF deliver承認イベントがmetricsに無い"
@@ -793,8 +815,20 @@ cmd_verify() {
     esac
   done
   resolve_work "$vslug"
+  _vroot=$WORK; _vrslug=$SLUG
   printf 'verify: %s\n' "$SLUG"
   verify_work; rc=$?
+  # 分割 work の親を verify するときは**子も見る**。着地するのは親1本の PR なので、
+  # 子だけ記録が欠けていても素通りしてしまう（protocol.md「6.」は metrics/review を
+  # 子にも必須と定めている）。数え方を doctor と揃える
+  for _sd in "$_vroot"/*/; do
+    [ -d "$_sd" ] || continue
+    [ -f "${_sd}state.yml" ] || continue
+    WORK=${_sd%/}; SLUG="$_vrslug/$(basename "$WORK")"
+    printf 'verify: %s\n' "$SLUG"
+    verify_work || { _vc=$?; [ "$rc" -eq 0 ] && rc=$_vc; }
+  done
+  WORK=$_vroot; SLUG=$_vrslug
   STRICT=no
   return $rc
 }
@@ -982,7 +1016,14 @@ cmd_status() {
       case " $appr " in *" deliver "*) wdone=yes ;; *) wdone=no ;; esac
       next=-
       if [ "$wdone" = no ]; then
-        for p in $STD_PIPELINE; do
+        # profile: light は spec/plan を畳む（protocol.md「11.」＝承認されないのが正常）。
+        # 素通しすると next が永久に spec を指し、20-spec 自身が「light では起動しない」と
+        # 書いている工程を案内し続けることになる
+        _pipe=$STD_PIPELINE
+        if [ "$(yget "$st" profile)" = light ]; then
+          _pipe="requirement coding test review deliver"
+        fi
+        for p in $_pipe; do
           case " $appr " in *" $p "*) ;; *) next=$p; break ;; esac
         done
       fi
@@ -1156,7 +1197,15 @@ cmd_metrics() {
 
   dirs=""
   if [ "$allf" = yes ]; then
-    for d in "$AIDEV/works"/*/; do [ -d "$d" ] && dirs="$dirs ${d%/}"; done
+    # ネスト1段（subtask）まで拾う。top-level だけだと、子の手戻り・差し戻しが
+    # 横断集計から丸ごと消える（doctor は既に1段辿っている。数え方を揃える）
+    for d in "$AIDEV/works"/*/; do
+      [ -d "$d" ] || continue
+      dirs="$dirs ${d%/}"
+      for sd in "$d"*/; do
+        [ -d "$sd" ] && [ -f "${sd}state.yml" ] && dirs="$dirs ${sd%/}"
+      done
+    done
   elif [ -n "$mslug" ]; then
     [ -d "$AIDEV/works/$mslug" ] || die "work が存在しません: $mslug"
     dirs="$AIDEV/works/$mslug"
@@ -1169,7 +1218,12 @@ cmd_metrics() {
 
   rows=""
   for wd in $dirs; do
-    name=$(basename "$wd"); mf="$wd/metrics.yml"
+    # subtask は <親>/<子> で出す。basename だけだと親の違う同名 subtask が同一に見える
+    case "$wd" in
+      "$AIDEV/works"/*/*) name="$(basename "$(dirname "$wd")")/$(basename "$wd")" ;;
+      *) name=$(basename "$wd") ;;
+    esac
+    mf="$wd/metrics.yml"
     [ -f "$mf" ] || mf=/dev/null
     out=$(awk -v name="$name" -v phases="$phasesf" -v PH="$PHASES" "$metrics_awk" "$mf")
     [ -n "$out" ] && rows="$rows$out

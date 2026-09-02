@@ -384,6 +384,9 @@ for ph in spec design deliver walkthrough requirement; do
   run_sub guard "$ph" >/dev/null 2>&1; assert_eq "$?" "2" "B: subtask の guard $ph は親専用で拒否(2)"
 done
 # B: subtask 固有工程(review)は親専用ブロックに掛からない（spec.md 継承で充足 0）
+# review の前提は「test 通過」（aidev-60-review「前提」）。順に打つのが実運用の形
+run_sub guard review >/dev/null 2>&1; assert_eq "$?" "2" "B: subtask の guard review は test 未承認なら未充足(2)"
+run_sub approve test >/dev/null 2>&1
 run_sub guard review >/dev/null 2>&1; assert_eq "$?" "0" "B: subtask の guard review は許可(0)"
 
 # 兄弟 dependsOn: 02-fe は 01-be 未review で未充足(3)、review 後に充足(0)
@@ -465,8 +468,8 @@ run_bl new demo-work --mode autonomous --backlog demo.md >/dev/null
 BLW=$(cat "$BLR/.aidev/current")
 assert_contains "$(cat "$BLR/.aidev/works/$BLW/state.yml")" "backlog: demo.md" "new --backlog: state.yml に出自を刻む"
 
-# deliver まで通す（review.md は schema>=2 の不変条件）
-: > "$BLR/.aidev/works/$BLW/review.md"
+# deliver まで通す（review.md は schema>=2、工程成果物は schema>=5 の不変条件）
+for f in requirement spec plan tasks review; do : > "$BLR/.aidev/works/$BLW/$f.md"; done
 for p in requirement spec plan coding test review deliver; do run_bl approve "$p" >/dev/null; done
 
 BLV=$(run_bl verify 2>&1); BLC=$?
@@ -488,7 +491,7 @@ assert_eq "$?" "0" "verify: archive/ へ退避後も消し込みを追える"
 run_bl new plain --mode autonomous >/dev/null
 PLW=$(cat "$BLR/.aidev/current")
 assert_absent "$(cat "$BLR/.aidev/works/$PLW/state.yml")" "backlog:" "new: --backlog 無しでは backlog 行を書かない"
-: > "$BLR/.aidev/works/$PLW/review.md"
+for f in requirement spec plan tasks review; do : > "$BLR/.aidev/works/$PLW/$f.md"; done
 for p in requirement spec plan coding test review deliver; do run_bl approve "$p" >/dev/null; done
 run_bl verify >/dev/null 2>&1
 assert_eq "$?" "0" "verify: backlog 出自の無い work は従来どおり PASS"
@@ -1364,6 +1367,61 @@ if [ -n "$PS_HOST" ]; then
   done
   rm -rf "$PAR"
 
+  # --- 成果物の実在検査 / subtask 横断 / light の next のパリティ ---
+  # 背景: verify は deliver の**着地前ゲート**（70-deliver「PASS を着地の前提とする」）なのに、
+  # (1) 承認済み工程の成果物を1つも見ておらず、**成果物ゼロの work が「deliver 済み・OK」**になり、
+  # (2) 分割 work の親を verify しても子を見ないので、子の記録欠落が硬ゲートを素通りし、
+  # (3) light の next が永久に spec を指していた（20-spec 自身が「light では起動しない」と書く工程）。
+  for impl in sh ps1; do
+    PNV=$(mktemp -d); mkdir -p "$PNV/.aidev/works"
+    if [ "$impl" = sh ]; then rv() { ( cd "$PNV" && "$AIDEV_SH" "$@" ); }
+    else rv() { ( cd "$PNV" && run_ps1 "$AIDEV_PS1" "$@" ); }; fi
+
+    # (1) 成果物ゼロで全工程 approve → verify は FAIL
+    rv new nf >/dev/null; NFW=$(ls "$PNV/.aidev/works" | head -n1)
+    : > "$PNV/.aidev/works/$NFW/review.md"
+    for ph in requirement spec plan coding test review; do rv approve "$ph" >/dev/null; done
+    NF_OUT=$(rv verify "$NFW" 2>&1); NF_RC=$?
+    NF_OUT=$(printf '%s' "$NF_OUT" | tr -d '\r')
+    assert_eq "$NF_RC" "4" "[$impl] 成果物を作らずに承認した work は verify が FAIL（着地前ゲートが効く）"
+    assert_contains "$NF_OUT" "requirement.md欠落(requirement承認済)" "[$impl] 欠けている成果物を名指しする"
+    assert_contains "$NF_OUT" "tasks.md欠落(plan承認済)" "[$impl] plan 承認済なら tasks.md も要る"
+    for f in requirement spec plan tasks; do : > "$PNV/.aidev/works/$NFW/$f.md"; done
+    rv verify "$NFW" >/dev/null 2>&1
+    assert_eq "$?" "0" "[$impl] 成果物が揃えば PASS"
+
+    # 導入前（schema<5）の work は遡って違反にしない（version-aware）
+    mkdir -p "$PNV/.aidev/works/20200101-old"
+    printf 'schema: 4\nslug: old\ncurrent: plan\napproved: [requirement, spec, plan]\nharnessRev: aaa1111\n' \
+      > "$PNV/.aidev/works/20200101-old/state.yml"
+    printf 'events:\n' > "$PNV/.aidev/works/20200101-old/metrics.yml"
+    rv verify 20200101-old >/dev/null 2>&1
+    assert_eq "$?" "0" "[$impl] schema<5 の work に成果物実在を要求しない（遡って違反にしない）"
+
+    # (2) 親 verify が子の欠落を拾う
+    rv new pv >/dev/null; PVW=$(ls "$PNV/.aidev/works" | grep -- '-pv$' | head -n1)
+    for f in requirement spec plan; do : > "$PNV/.aidev/works/$PVW/$f.md"; done
+    for ph in requirement spec plan; do rv approve "$ph" >/dev/null; done
+    rv new 01-c --parent "$PVW" >/dev/null
+    rv use "$PVW/01-c" >/dev/null
+    for f in plan tasks; do : > "$PNV/.aidev/works/$PVW/01-c/$f.md"; done
+    for ph in plan coding test; do rv approve "$ph" >/dev/null; done
+    rv approve review >/dev/null 2>&1   # review.md を作らずに承認＝子だけ壊れた状態
+    PV_OUT=$(rv verify "$PVW" 2>&1); PV_RC=$?
+    PV_OUT=$(printf '%s' "$PV_OUT" | tr -d '\r')
+    assert_eq "$PV_RC" "4" "[$impl] 親の verify が子の記録欠落を拾う（着地は親1本の PR）"
+    assert_contains "$PV_OUT" "review.md欠落" "[$impl] 子の欠落を名指しする"
+
+    # (3) light の next が spec を指さない
+    rv new lt --light >/dev/null; LTW=$(ls "$PNV/.aidev/works" | grep -- '-lt$' | head -n1)
+    : > "$PNV/.aidev/works/$LTW/requirement.md"
+    rv use "$LTW" >/dev/null; rv approve requirement >/dev/null
+    LT_OUT=$(rv status --format tsv 2>&1 | tr -d '\r' | grep -- "-lt	")
+    assert_contains "$LT_OUT" "	coding	" "[$impl] light の next は spec を飛ばして coding を指す"
+    rm -rf "$PNV"
+  done
+  unset -f rv 2>/dev/null || true
+
   # --- 分割 work の親のカーソルと統合 test のパリティ ---
   # 背景: (1) 子を作るたび `.aidev/current` を無条件に上書きしていたため、親 plan で子を
   # まとめて起こすと activeSubtask=先頭 / current=最後 になり、「冗長コピー」の定義
@@ -1626,9 +1684,9 @@ YML
   else
     skip 10 "git 不在のため worktree パリティを省略"
   fi
-  block_end parity "88" "parity"
+  block_end parity "104" "parity"
 else
-  skip 88 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
+  skip 104 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
 fi
 
 echo

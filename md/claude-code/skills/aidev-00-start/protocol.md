@@ -367,9 +367,10 @@ skill の命名軸は **「役割／レイヤ」**とする。**「人間が呼�
 各 works フォルダ内に 1 つ置く。
 
 ```yaml
-schema: 4                   # state スキーマ版（aidev new が刻む）。verify は導入版以上の不変条件のみ強制。未記載=legacy として免除
+schema: 5                   # state スキーマ版（aidev new が刻む）。verify は導入版以上の不変条件のみ強制。未記載=legacy として免除
                             # schema 3=subtask 層（subtasks/activeSubtask/parent）導入。schema<=2 work は subtask 不変条件を免除（後方互換）
                             # schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema<=3 work は harnessRev 検査を免除
+                            # schema 5=承認済み工程の成果物実在検査を導入。schema<=4 work は免除
 slug: <作業slug>            # 例: user-login
 ticket: <ID または 省略>     # 任意。外部チケット/issue の ID（ツール非依存。例 "#18" / "PROJ-123"）。種類は .aidev/config.yml の tracker
                             # 後方互換: 旧 `issue: <番号>`（GitHub前提）も受理する。新規は ticket を使う。

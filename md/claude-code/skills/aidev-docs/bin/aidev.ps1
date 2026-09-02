@@ -33,7 +33,7 @@ $ErrorActionPreference = 'Stop'
 # （git show-ref 等は ref 不在で 1 を返すのが正常系のため）。古い pwsh では通常変数になるだけで無害。
 $PSNativeCommandUseErrorActionPreference = $false
 
-$script:CURRENT_SCHEMA = 4   # schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema<=2 は legacy 免除
+$script:CURRENT_SCHEMA = 5   # schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema<=2 は legacy 免除
 $script:STRICT = $false      # verify --strict（記録漏れを致命にする）。doctor 経由では常に false
 $script:PHASES = @('requirement','research','spec','design','plan','coding','test','review','walkthrough','deliver','retro')
 $script:Utf8 = New-Object System.Text.UTF8Encoding($false)  # BOM なし
@@ -652,7 +652,7 @@ function Cmd-Guard($rest) {
         needFile 'tasks.md'
       }
     }
-    'review'      { needFile 'spec.md' }
+    'review'      { needFile 'spec.md'; needApproved 'test' }
     'walkthrough' { needApproved 'review' }
     'deliver'     { needApproved 'review' }
     'retro'       { needApproved 'deliver' }
@@ -710,6 +710,24 @@ function VerifyWork($work) {
     if ($sn -ge 2) {
       if (-not (IsFile (Join-Path $work 'metrics.yml'))) { $vf += "metrics.yml欠落" }
       if (ApprovedHas $work 'review') { if (-not (IsFile (Join-Path $work 'review.md'))) { $vf += "review.md欠落(review承認済)" } }
+      # 承認済み工程の成果物が実在するか（protocol.md「7.」）。これが無いと、成果物を1つも
+      # 作らずに全工程 approve した work が「deliver 済み・verify OK」になる。
+      # schema 5 以降だけ（version-aware。導入前の work を遡って違反扱いしない）
+      if ($sn -ge 5) {
+        $issub = YGet $st 'parent'
+        $hassub = @(YList $st 'subtasks')
+        foreach ($pf in @(@('requirement','requirement.md'), @('spec','spec.md'), @('plan','plan.md'))) {
+          if (-not (ApprovedHas $work $pf[0])) { continue }
+          if (IsFile (Join-Path $work $pf[1])) { continue }
+          # subtask は親の requirement/spec/design を継承する
+          if ($issub -and (IsFile (Join-Path (Join-Path (Join-Path $script:AIDEV 'works') $issub) $pf[1]))) { continue }
+          $vf += "$($pf[1])欠落($($pf[0])承認済)"
+        }
+        # 親（subtasks を持つ）は tasks.md を持たない（各 subtask の plan が作る）
+        if ((ApprovedHas $work 'plan') -and $hassub.Count -eq 0 -and -not (IsFile (Join-Path $work 'tasks.md'))) {
+          $vf += "tasks.md欠落(plan承認済)"
+        }
+      }
       if (ApprovedHas $work 'deliver') {
         $mf = Join-Path $work 'metrics.yml'; $ok=$false
         if (IsFile $mf) { foreach ($l in [System.IO.File]::ReadAllLines($mf)) { if ($l -match 'phase:\s*deliver' -and $l -match 'event:\s*approved') { $ok=$true; break } } }
@@ -856,8 +874,16 @@ function Cmd-Verify($rest) {
     else { $slug = $rest[$i] }
   }
   ResolveWork $slug
-  Write-Output "verify: $($script:SLUG)"
-  $rc = VerifyWork $script:WORK
+  $vroot = $script:WORK; $vrslug = $script:SLUG
+  Write-Output "verify: $vrslug"
+  $rc = VerifyWork $vroot
+  # 分割 work の親を verify するときは子も見る（着地するのは親1本の PR）
+  foreach ($sd in @(Get-ChildItem -LiteralPath $vroot -Directory -ErrorAction SilentlyContinue | Sort-Object Name)) {
+    if (-not (IsFile (Join-Path $sd.FullName 'state.yml'))) { continue }
+    Write-Output "verify: $vrslug/$($sd.Name)"
+    $src = VerifyWork $sd.FullName
+    if ($rc -eq 0) { $rc = $src }
+  }
   $script:STRICT = $false
   exit $rc
 }
@@ -1051,7 +1077,13 @@ function Cmd-Status($rest) {
       $appr = @(YList $st 'approved')
       $wdone = if ($appr -ccontains 'deliver') { 'yes' } else { 'no' }
       $next='-'
-      if ($wdone -ceq 'no') { foreach ($p in $script:STD_PIPELINE) { if ($appr -cnotcontains $p) { $next=$p; break } } }
+      if ($wdone -ceq 'no') {
+        # profile: light は spec/plan を畳む（承認されないのが正常）。素通しすると next が
+        # 永久に spec を指し、light では起動しない工程を案内し続けることになる
+        $pipe = $script:STD_PIPELINE
+        if ((YGet $st 'profile') -ceq 'light') { $pipe = @('requirement','coding','test','review','deliver') }
+        foreach ($p in $pipe) { if ($appr -cnotcontains $p) { $next=$p; break } }
+      }
       # subtask を持つ親は next を subtask 進捗に差し替える（未完=sub N/M、全完了=統合工程の次）
       $sp = SubtaskProgress $d.FullName
       if ($sp -and $wdone -ceq 'no') {
@@ -1161,7 +1193,15 @@ function Cmd-Metrics($rest) {
   $worksDir = Join-Path $script:AIDEV 'works'
   $dirs=@()
   if ($allf) {
-    if (IsDir $worksDir) { $dirs = @(Get-ChildItem -LiteralPath $worksDir -Directory | Sort-Object Name | ForEach-Object { $_.FullName }) }
+    # ネスト1段（subtask）まで拾う。top-level だけだと子の手戻り・差し戻しが集計から消える
+    if (IsDir $worksDir) {
+      foreach ($d in @(Get-ChildItem -LiteralPath $worksDir -Directory | Sort-Object Name)) {
+        $dirs += $d.FullName
+        foreach ($sd in @(Get-ChildItem -LiteralPath $d.FullName -Directory -ErrorAction SilentlyContinue | Sort-Object Name)) {
+          if (IsFile (Join-Path $sd.FullName 'state.yml')) { $dirs += $sd.FullName }
+        }
+      }
+    }
   } elseif ($mslug) {
     $p = Join-Path $worksDir $mslug
     if (-not (IsDir $p)) { Die "work が存在しません: $mslug" }
@@ -1177,7 +1217,10 @@ function Cmd-Metrics($rest) {
 
   $rows=@()
   foreach ($wd in $dirs) {
+    # subtask は <親>/<子>（basename だけだと親の違う同名 subtask が同一に見える）
     $name = Split-Path $wd -Leaf
+    $wdParent = Split-Path $wd -Parent
+    if ((Split-Path $wdParent -Leaf) -cne 'works') { $name = "$(Split-Path $wdParent -Leaf)/$name" }
     $mf = Join-Path $wd 'metrics.yml'
     $first=-1; $firstts='-'; $deliveredFlag=$false; $deliveredE=-1; $sback=0
     $scount=@{}; $laststart=@{}; $laststartTs=@{}; $appat=@{}; $appatTs=@{}

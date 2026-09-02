@@ -85,6 +85,12 @@ Git Bash（Git for Windows 同梱）があるなら POSIX 版の `aidev` がそ�
 - schema ≥ 2 の不変条件: `metrics.yml` の存在 ／ review 承認済なら `review.md` 存在 ／ deliver 承認済なら
   metrics に deliver の approved イベントが存在。
 - schema ≥ 4 の検査: `harnessRev` の存在（**WARN**）／ **またがり work**（`harnessRev` ≠ `harnessRevDelivered`。**`note:`**）。
+- schema ≥ 5 の検査（**FAIL**）: **承認済み工程の成果物が実在するか**（`requirement.md` / `spec.md` /
+  `plan.md` / `tasks.md`）。これが無いと**成果物を1つも作らずに全工程 approve した work が
+  「deliver 済み・verify OK」になる**。subtask は親の `requirement/spec/design` を継承し、
+  分割 work の親は `tasks.md` を持たない（各 subtask の plan が作る）。
+- **分割 work の親を verify すると子も検査する**（着地するのは親1本の PR なので、
+  子だけ記録が欠けていても素通りしてしまう）。数え方は `doctor` と揃えてある。
   またがりが WARN でないのは、**事後に取り消せない事実**で人が直せることが無いから。ハーネスを
   1回コミットしただけで in-flight の全 work が鳴き続けるので、「いま直せる」WARN（記録漏れ・light 逸脱）
   と同列に置くとそちらが埋もれる。
