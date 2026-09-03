@@ -16,11 +16,11 @@
 | `ineffective` | 効果が無かった | 撤去、または CLI / フック層へ寄せる（下記） |
 | `superseded` | 別条項に置き換わった | 撤去 |
 
-**本文の在処は常に1箇所**。移送したら `docs/aidev/` 側は本文を捨てて tombstone にする。
+**本文の在処は常に1箇所**。移送したら条項側は本文を捨てて tombstone にする。
 
 ### 条項ファイルのスキーマ
 
-`docs/aidev/<id>.md`（場所は `.aidev/config.yml` の `conventionsDir` で変更可。既定 `docs/aidev`）。
+`.aidev/conventions/<id>.md`（場所は `.aidev/config.yml` の `conventionsDir` で変更可。既定 `.aidev/conventions`）。
 
 ```yaml
 ---
@@ -94,7 +94,7 @@ forced: true                    # 母集団が揃う前に --force で confirm/r
 
   ```markdown
   <!-- aidev:conventions -->
-  - <いつ参照するか> → docs/aidev/<id>.md
+  - <いつ参照するか> → .aidev/conventions/<id>.md
   <!-- /aidev:conventions -->
   ```
 
@@ -110,11 +110,11 @@ forced: true                    # 母集団が揃う前に --force で confirm/r
   **効果検証で「効かなかった」と誤判定される**——条項の内容の問題ではなく届いていないだけなのに。
   検査だけ置くと直す手がないので、WARN は**足すべき行をそのまま示す**。
   `aidev convention status` の `index` 列でも一覧できる。
-- **移送したら索引の張り替えも検査される**（`docs/aidev/<id>.md` を指したままなら WARN）。
+- **移送したら索引の張り替えも検査される**（`.aidev/conventions/<id>.md` を指したままなら WARN）。
 - 索引ファイルは `.aidev/config.yml` の `conventionsIndex` で指定できる
   （未設定なら AGENTS.md → CLAUDE.md の順で探す。PJ 固有ファイル名を CLI に埋めないため）。
 - aidev を使わない PJ は**索引ブロックごと削除すれば無害に切り離せる**。
-- **矛盾したときは PJ の AGENTS.md 本体が上位**。`docs/aidev/` は追補であって上書きではない
+- **矛盾したときは PJ の AGENTS.md 本体が上位**。条項は追補であって上書きではない
   （ハーネスの提案が PJ の明示的な意思を覆すのは越権）。
 
 
@@ -126,7 +126,7 @@ PJ の既存ドキュメントに**既に書いてある**規約を条項とし�
 
 ```yaml
 # .aidev/config.yml
-conventionsDir: docs/aidev     # 条項の置き場（既定。変更可）
+conventionsDir: .aidev/conventions  # 条項の置き場（既定。変更可）
 conventionsIndex: AGENTS.md    # 索引ブロックを置くファイル（未設定なら AGENTS.md → CLAUDE.md を探す）
 docsRoots: [docs/, AGENTS.md]  # 条項を起こす前に既存規約を探す場所（PJ が申告）
 ```
@@ -226,7 +226,7 @@ aidev convention retire  <id> --status ineffective --note "散文層の限界。
    - 移送先の**ファイルの実在を CLI が検査**する（アンカーまでは見ない）。
      dangling な `promoted_to` は「本文がどこにも無い」という、二重管理より悪い状態を作る。
    - 条項ファイルは**本文を捨てて tombstone 化**され `archive/` へ退避される。
-3. **索引ブロックのリンク先を張り替える**（`docs/aidev/<id>.md` → 移送先）。
+3. **索引ブロックのリンク先を張り替える**（`.aidev/conventions/<id>.md` → 移送先）。
    どのファイルかは `promote` の出力が名指しする（`conventionsIndex` に従う）。
    忘れると `aidev doctor` が「索引が移送前を指したまま」と WARN する。
 
@@ -270,7 +270,7 @@ doctor が「confirmed だが未移送」を WARN
 `archive/` の tombstone は**重複排除のため**に残す。跡形なく消すと同じ提案が retro から再び上がる。
 `aidev convention new` は archive に同じ id があれば**重複として弾く**。
 
-## `docs/aidev/` の肥大化は異常の信号
+## 条項ディレクトリの肥大化は異常の信号
 
 移送パスがあるので、定常状態では **`pending` の条項しか残らない**。確定したものも否定されたものも
 出ていく。膨らんできたら「検証が回っていない」か「移送が滞っている」ということなので、

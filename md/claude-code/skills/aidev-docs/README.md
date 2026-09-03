@@ -94,7 +94,7 @@ planner の方針は `.aidev/charter.md` で縛る。
 
 ループが「回っている」だけでなく「効いている」ことを機械で確かめるための仕組み（`protocol.md`「12.」）。
 
-- **PJ 規約の条項**は `docs/aidev/<id>.md` に置き、AGENTS.md には索引ブロック（`<!-- aidev:conventions -->`）
+- **PJ 規約の条項**は `.aidev/conventions/<id>.md` に置き、AGENTS.md には索引ブロック（`<!-- aidev:conventions -->`）
   だけを置く。起票は仮説と baseline が必須（`aidev convention new`）。review は指摘に `[conv:<id>]` を付ける。
 - **母集団**は導入時刻以降に着手し deliver 済みの work（`aidev convention status`。`--members` で一覧）。
   揃う前の `confirm` / `retire --status ineffective` は CLI が拒否する（`--force` は `forced: true` が残る）。
@@ -182,7 +182,7 @@ light は**上流3工程（requirement / spec / plan）を1ゲートに畳む**�
   backlog/             遅延キュー（任意）。<domain>.md（standing）/ split-<親>.md（split）/ <題>.md（topic）/ archive/（退避と <name>-done.md）
   insights/            横断分析レポート（<日付>-insights.md）と却下記録（rejected.md）
   harness/             ハーネス改修の仮説登録（<id>.md / archive/）
-docs/aidev/            PJ 規約の条項（検証中の待避所。場所は conventionsDir で変更可）/ archive/
+  conventions/         PJ 規約の条項（検証中の待避所。場所は conventionsDir で変更可）/ archive/
 AGENTS.md              PJ 所有。<!-- aidev:conventions --> ブロックに条項の索引だけを置く
 ```
 
@@ -195,7 +195,7 @@ AGENTS.md              PJ 所有。<!-- aidev:conventions --> ブロックに条
 3. `.gitignore` に `.aidev/current` を追加（`.aidev/works/` 配下の成果物はコミット推奨）。
 4. PJ の AGENTS.md に規約・レビュー観点を書く。PJ固有 skill があればそのまま活かされる。
 5. 条項（PJ 規約の効果検証）を使うなら、AGENTS.md に索引ブロック（`<!-- aidev:conventions -->` … `<!-- /aidev:conventions -->`）
-   を 1 回置く。`docs/aidev/` は `aidev convention new` が作る。置き場を変えるなら `config.yml` の `conventionsDir` /
+   を 1 回置く。`.aidev/conventions/` は `aidev convention new` が作る。置き場を変えるなら `config.yml` の `conventionsDir` /
    `conventionsIndex`、既存 docs との重複確認先は `docsRoots`。
 6. git が無い（または `aidev-*` が未コミットの）環境では `harnessRev` が `unknown` になり、ハーネス改修の
    効果検証から外れる。`worktree` 以外は動く。導入直後の最初の `aidev new` は skills をコミットしてから。
