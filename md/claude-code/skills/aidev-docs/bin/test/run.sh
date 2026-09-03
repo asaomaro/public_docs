@@ -188,8 +188,13 @@ assert_contains "$DQ" "summary: works=4" "doctor --quiet: 件数は全件のま�
 assert_contains "$DQ" "--quiet: OK は省略" "doctor --quiet: 省略していることを見出しで示す"
 rm -rf "$TMP/.aidev/works/$CLEANW"
 MTP=$(run_sh metrics 20260101-alpha --phases --format tsv)
-assert_contains "$MTP" "20260101-alpha	coding	2026-01-01T01:05:00Z	2026-01-01T02:00:00Z	3300" "alpha --phases: coding は直近start基準で elapsed=3300"
-assert_contains "$MTP" "20260101-alpha	requirement	2026-01-01T00:00:00Z	2026-01-01T00:10:00Z	600" "alpha --phases: requirement elapsed=600"
+# coding は 01:00 と 01:05 の 2 ラウンド。直近の対だけで測ると 3300 秒に見えるが、
+# 実際にかかったのは 1 ラウンド目（01:00→01:05 の 300 秒。sent_back も approved も無いので
+# 次の start で閉じる）＋ 2 ラウンド目（01:05→02:00 の 3300 秒）。差し戻しのあった工程が
+# **最短に見える**のを塞ぐ（実走で review 654 秒が 216 秒と出た）
+assert_contains "$MTP" "20260101-alpha	coding	2026-01-01T01:00:00Z	2026-01-01T02:00:00Z	3300	2" \
+  "alpha --phases: start は初回・elapsed は合算・rounds でやり直し回数が見える"
+assert_contains "$MTP" "20260101-alpha	requirement	2026-01-01T00:00:00Z	2026-01-01T00:10:00Z	600	1" "alpha --phases: requirement elapsed=600 / rounds=1"
 
 echo "== 読み取り専用（status/metrics は state/metrics を書き換えない） =="
 # `.aidev/current` も含める。status/metrics が「今どの work か」を書き換えるのは
@@ -319,8 +324,23 @@ if command -v git >/dev/null 2>&1; then
   L_TSV=$(run_repo worktree list --format tsv)
   # パスは git の表記に従う（Windows では MSYS の /c/... ではなく C:/... が返る）ため末尾で照合する
   assert_contains "$L_TSV" "repo-wt/probe	feature/probe" "list: probe を current 有無で抽出(branch=feature/probe)"
+  # main tree も判定キー（.aidev/current の有無）を満たしうるので、種別を列に出す。
+  # 出さないと「並行 worktree の一覧」として 1 件多く読める（rm は main を拒否するのに list には出る）
+  assert_contains "$L_TSV" "	worktree" "list: 並行 worktree は kind=worktree"
   L_TBL=$(run_repo worktree list)
   assert_contains "$L_TBL" "WORKTREES" "list: table ヘッダ"
+  assert_contains "$L_TBL" "kind" "list: table にも kind 列"
+
+  # backlog 出自の刻印を worktree 経路でも通す（落とすと verify の消し込み強制が静かに効かない）
+  mkdir -p "$REPO/.aidev/backlog"
+  printf -- '---\nkind: topic\n---\n\n- [ ] やること\n' > "$REPO/.aidev/backlog/wb.md"
+  ( cd "$REPO" && git add -A >/dev/null 2>&1 && git -c user.email=t@e -c user.name=t commit -q -m "backlog" >/dev/null 2>&1 )
+  run_repo worktree add wbtest --mode autonomous --backlog wb.md --light >/dev/null 2>&1
+  WBW=$(ls "$TMP/repo-wt/wbtest/.aidev/works" 2>/dev/null | head -n1)
+  assert_contains "$(cat "$TMP/repo-wt/wbtest/.aidev/works/$WBW/state.yml" 2>/dev/null)" "backlog: wb.md" \
+    "worktree add: --backlog を内部の new に渡す（消し込み強制が並行経路でも効く）"
+  assert_contains "$(cat "$TMP/repo-wt/wbtest/.aidev/works/$WBW/state.yml" 2>/dev/null)" "profile: light" \
+    "worktree add: --light も内部の new に渡す"
 
   # 異常系
   run_repo worktree bogus >/dev/null 2>&1; assert_eq "$?" "1" "未知 sub は exit 1"
@@ -376,9 +396,9 @@ if command -v git >/dev/null 2>&1; then
   case "$CFG_OUT" in *"共有するもの"*) ng "add: sharedFiles 設定時は汎用文言を出さない" ;; *) ok "add: sharedFiles 設定時は汎用文言を出さない" ;; esac
   run_repo worktree rm cfgprobe --force --delete-branch >/dev/null 2>&1
   rm -f "$REPO/.aidev/config.yml"
-  block_end worktree "33" "worktree"
+  block_end worktree "37" "worktree"
 else
-  skip 33 "git 不在のため worktree テストを省略"
+  skip 37 "git 不在のため worktree テストを省略"
 fi
 
 echo "== subtask 層（new --parent / guard 継承 / 兄弟 dependsOn / doctor 横断） =="
@@ -1561,12 +1581,18 @@ if [ -n "$PS_HOST" ]; then
   assert_eq "$RA_SH" "$RA_PS" "パリティ: approve deliver の再承認が冪等（初回着地は別ブロックで検査）"
   # 母集団メンバー一覧のパリティ（subtask の review.md も親に合算する）
   mkdir -p "$PRD/.aidev/works/$PAW/01-s"
-  printf 'x [conv:rc] y [conv:rc]\n' > "$PRD/.aidev/works/$PAW/review.md"
-  printf '[conv:rc]\n' > "$PRD/.aidev/works/$PAW/01-s/review.md"
+  # 指摘行（`- [` 始まり）だけを数える。本文中の言及を数えると、「この条項の指摘は 0 件だった」と
+  # 書いた行が 1 件として計上される（実走で実際に起きた）。`!` 付きは違反として別に数える
+  { printf -- '- [must][conv:rc!] 違反1\n'
+    printf -- '- [nit][conv:rc] 関係するが違反ではない指摘\n'
+    printf -- '本文: 条項 [conv:rc] の指摘は 0 件だった（この行は数えない）\n'; } > "$PRD/.aidev/works/$PAW/review.md"
+  printf -- '- [should][conv:rc!] 子の違反\n' > "$PRD/.aidev/works/$PAW/01-s/review.md"
   MB_SH=$( ( cd "$PRD" && "$AIDEV_SH" convention status --members rc --format tsv ) 2>&1 )
   MB_PS=$( ( cd "$PRD" && run_ps1 "$AIDEV_PS1" convention status --members rc --format tsv ) 2>&1 | tr -d '\r' )
   assert_eq "$MB_SH" "$MB_PS" "パリティ: convention status --members（母集団の work とタグ件数）"
-  assert_contains "$MB_SH" "members-summary: id=rc pop=1 conv_tags=3" "members: subtask の review.md のタグも親に合算する"
+  assert_contains "$MB_SH" "members-summary: id=rc pop=1 conv_tags=3 violations=2" \
+    "members: 指摘行のタグだけ数え、違反(!)を別に出す（subtask も親に合算）"
+  assert_contains "$MB_SH" "note: scope 未宣言" "members: scope が無ければ判定前に知らせる"
   rm -rf "$PRD"
   # --- 引数の解釈のパリティ ---
   # PowerShell の switch は既定で**大文字小文字を区別しない**ので、放っておくと Windows でだけ
@@ -2056,9 +2082,9 @@ YML
   else
     skip 10 "git 不在のため worktree パリティを省略"
   fi
-  block_end parity "153" "parity"
+  block_end parity "154" "parity"
 else
-  skip 153 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
+  skip 154 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
 fi
 
 echo

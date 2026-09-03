@@ -201,7 +201,10 @@ backlog は**遅延キュー**で、完了した行を閉じるのは deliver �
      - 差し戻しで前工程に戻る場合は、無効化される後工程の承認を **`aidev unapprove <工程>`** で
        取り消す（`approved` から外し、`current` をそこへ戻す）。**手で編集しない**——
        state.yml の更新を CLI に集約するのは「2.」の原則で、ここだけ例外にすると
-       state を見ても経緯が分からなくなる。**取り消しても記録は消えない**（`sent_back` として
+       state を見ても経緯が分からなくなる。取り消しは**後ろの工程から順に**行い、最後に戻り先の工程で
+       `aidev event <戻り先> start` を記録する（`unapprove` は `current` を取り消した工程に置くので、
+       戻り先が更に手前ならそこを踏み直すまで `current` は途中の値になる）。
+       **取り消しても記録は消えない**（`sent_back` として
        刻まれる。手戻りは実際に起きた事実なので、消すと「8.」の指標が過小になる）。
    - **承認して次工程へ進む**：記録後、次工程の skill を実行する。
    - **承認してここで中断**：記録後、停止する（レジューム可能な状態で待つ）。
@@ -277,7 +280,9 @@ backlog は**遅延キュー**で、完了した行を閉じるのは deliver �
       確立したパターンの調査を必須とする（`aidev-15-research`「UI の規範」）
   - design：spec 終了時に次のいずれかを検知したら `承認して design(任意) を挟む`（推奨）を加える。
     **この4条件が正典**（`aidev-20-spec` / `aidev-25-design` はここを参照する）。
-    - 複数コンポーネント／モジュールにまたがる
+    - **モジュール間の境界を動かす**（責務の移動・新しい依存の向き・共有部品の抽出）——
+      単に複数ファイルを触るだけでは当たらない。小さな PJ では 2 ファイルの変更が常態なので、
+      「またがる」を触ったファイル数で読むと任意工程が事実上必須になる
     - アーキテクチャ判断（新規の構造・パターン・責務分割の選択）が必要
     - インターフェース／データモデルが複雑（型・スキーマ・状態遷移の設計に踏み込む）
     - plan で直接分解するには設計が粗い
@@ -335,7 +340,7 @@ parent: <親 work の dated 名> # 子が親 work を逆参照（例 20260622-fe
 | 25 | design | aidev-25-design | 任意 | `design.md` | spec.md |
 | 30 | plan | aidev-30-plan | 標準 | `plan.md`, `tasks.md` | spec.md（design があればそれも） |
 | 40 | coding | aidev-40-coding | 標準 | コード, tasks 更新 | plan.md, tasks.md |
-| 50 | test | aidev-50-test | 標準 | テスト結果 | コード |
+| 50 | test | aidev-50-test | 標準 | `test-result.md`（合否・件数・失敗内容・スキップした検証） | コード |
 | 60 | review | aidev-60-review | 標準 | レビュー指摘（→ coding へ差し戻し可） | diff |
 | 65 | walkthrough | aidev-65-walkthrough | 任意 | `walkthrough.md`（人間レビュー補助） | review 通過 |
 | 70 | deliver | aidev-70-deliver | 標準（最終） | コミット / PR | review 通過 |
@@ -373,7 +378,8 @@ retro / insights の定量分析（手戻り回数・差し戻し回数・リー
 
 ### タイムスタンプ（＝実施日時）
 
-- 時刻は実行時に取得する：`date -u +%FT%T%Z`（例 `2026-06-20T10:30:00Z`、UTC・ISO 8601）。
+- 時刻は実行時に取得する：`date -u +%Y-%m-%dT%H:%M:%SZ`（例 `2026-06-20T10:30:00Z`、UTC・ISO 8601）。
+  `%Z` は環境により `UTC` と展開されるので使わない（CLI も同じ形式で刻む）。
 - この `ts` が各工程の**実施日時**を兼ねる（日付・時刻の両方を含む）。
 - **複数工程を続けて実行する場合**も、各工程の start/approved は**実際にその工程を行った時刻**で記録する。
   まとめて同一 ts にすると工程別の所要時間が失われるため、工程ごとに `date` を取り直す。
@@ -390,6 +396,9 @@ events:
   - { ts: 2026-06-20T11:40:00Z, phase: spec,        event: approved }
 ```
 
+> `skipped` は**省略した検証の件数**（`aidev-50-test`「3.」）。green でも `skipped > 0` は全数検証ではないので、
+> `passed` に混ぜずに別のキーで残す。0 なら省略してよい。
+
 ### 導出できる指標（retro / insights で算出）
 
 `metrics.yml` のイベント列から導出する（経過時間・手戻り回数・差し戻し回数・リードタイム・
@@ -405,7 +414,7 @@ events:
 ```yaml
   - { ts: ..., phase: plan,    event: approved, metrics: { tasks_planned: 4, tasks_anchored: 3 } }
   - { ts: ..., phase: coding,  event: approved, metrics: { tasks_done: 4, unplanned_lookups: 1 } }
-  - { ts: ..., phase: test,    event: approved, metrics: { passed: 12, failed: 0 } }
+  - { ts: ..., phase: test,    event: approved, metrics: { passed: 12, failed: 0, skipped: 1 } }
   - { ts: ..., phase: review,  event: approved, metrics: { must: 0, should: 1, nit: 2 } }
   - { ts: ..., phase: deliver, event: approved, metrics: { files_changed: 7, insertions: 169, deletions: 31 } }
 ```
@@ -428,7 +437,7 @@ events:
   「11.」参照。昇格率＝light の入口判定が機能しているかの指標になる）
 - **deliver**: `files_changed` / `insertions` / `deletions`（着地した**実装**の変更規模）。
   `git diff --stat` から機械取得し、工程成果物（`.aidev/` 配下）は除外する
-  （例: `git diff --stat HEAD -- . ':!.aidev'`。事後記録モードは既着地コミットの範囲で計測）。
+  （例: `git add -A && git diff --cached --stat HEAD -- . ':!.aidev'`。事後記録モードは既着地コミットの範囲で計測）。
 - **CLI 形式**: `k=v` を `aidev approve` に渡すと `metrics:` になる。例:
   `aidev approve plan tasks_planned=4 tasks_anchored=3` /
   `aidev approve coding tasks_done=4 unplanned_lookups=1 task_checks=2 task_check_findings=1` /
@@ -464,8 +473,12 @@ review 工程はラウンドごとに追記する（差し戻し後の再レビ�
 
 ### 条項参照タグ（`[conv:…]`）
 
-各指摘に根拠となる**条項の id** を付ける（無ければ `[conv:-]`）。候補は `aidev convention status` の一覧
-——分類の語彙を新規に発明しない。タグから「規約の穴（`conv:-`）」と「条項の効果（id 別件数 vs `baseline`）」が
+各指摘に根拠となる**条項の id** を付ける（無ければ `[conv:-]`）。**条項に反している指摘は `[conv:<id>!]`**
+（`!` 付き）と書き、関係するが違反ではないもの（条項があるから気づけた改善・既存挙動への言及）は `!` を付けない。
+効果検証で仮説と突き合わせるのは `!` 付きだけで、タグ全体は「条項が読まれているか」の傍証に使う
+（`protocol-conventions.md`「タグ件数は効果の指標ではない」）。候補は `aidev convention status` の一覧
+——分類の語彙を新規に発明しない。**集計は行頭 `- [` の指摘行だけを数える**（本文中の言及を数えると
+「指摘 0 件だった」と書いた行が 1 件になる）。タグから「規約の穴（`conv:-`）」と「条項の効果（違反件数 vs `baseline`）」が
 機械的に読める。点検ログ節（`protocol-check.md`）と PR レビュー節にも同じ規約で付ける。詳細は `protocol-conventions.md`。
 
 ## 9. 図示（mermaid）規約
