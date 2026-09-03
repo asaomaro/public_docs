@@ -50,6 +50,12 @@ per-work の `retro` が「その作業1件」を振り返るのに対し、こ�
     （タグの規約は同じ）が、`must` 件数の推移を見るときは混ぜない。
   - 点検の効き具合は `task_checks` / `task_check_findings`（coding の付加メトリクス）と `must` の推移を
     突き合わせて読む——**findings が出ているのに `must` が減らないなら、点検の観点か発火条件がずれている**。
+- **`aidev coverage <slug>`（deliver 済み work に対して）**：受け入れ基準の被覆と `tasks.md` の整合。
+  **着地した work に `cover` の gap が残っていたら、その AC は「完了条件に書かれたが誰も落とさなかった」もの**。
+  work をまたいで同じ性質の AC（非機能・移行・互換性など）が落ち続けていれば、それは要件の書き方か
+  分解の観点の問題で、**条項（`.aidev/conventions/`）の材料**になる。件数は `coverage-gaps:` 行で取れる。
+- `.aidev/works/**/test-result.md`：合否と**失敗の証跡**（生出力）。差し戻したラウンドの実際の失敗が
+  残るので、「何が繰り返し落ちているか」を review.md より具体的に読める。
 - `.aidev/works/**/decisions.md`：繰り返される設計逸脱（テキスト）。
 - `.aidev/works/**/retro.md`：過去の per-work 改善提案（再発・未対応の把握。テキスト）。
 - **`aidev convention status`**：PJ規約の条項の状態・母集団件数(`pop`)・判定可否(`ready`)。

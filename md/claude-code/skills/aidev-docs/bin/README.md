@@ -43,6 +43,7 @@ Git Bash（Git for Windows 同梱）があるなら POSIX 版の `aidev` がそ�
 | `guard <phase>` | 工程開始時の**前提チェック**（前提成果物の有無・前提工程の承認・`dependsOn` 充足）。未充足なら非ゼロ終了。 |
 | `verify [slug] [--strict]` | 現在(または指定)work の**不変条件**を version-aware に検査。違反で非ゼロ終了。**deliver の commit 前ゲート**に使う。deliver 承認済で `backlog:` 刻印がある work は、**その backlog ファイルの `- [x]` 行かその継続行に自分の slug が現れること**も検査する（消し込み忘れの検知。下の「backlog の消し込み検査」。`protocol.md`「2.9」）。`profile: light` の work では**条件逸脱**も見る——任意工程の実施と `files_changed` の上限超過（`.aidev/config.yml` の `lightMaxFiles`、既定 3）。**WARN 止まりで exit code は変えない**（昇格漏れは事後検知。硬ゲートは既存判定に任せる）。<br>**`--strict`**: **記録漏れ（`event` の start 欠落）だけ**を致命（exit 5）にする。機械ゲート（Claude Code の `Stop` フック等）専用の入口。既定を FAIL に変えると start が欠けた過去の work が deliver できなくなるため、入口を分けた。**light の逸脱は strict でも致命にしない**——記録漏れは「今しか直せない」（metrics は追記のみで当時の timestamp は復元不能）が、light の昇格は人間の判断だから。 |
 | `escalate [slug]` | `profile` を **`light` → `full` に片方向で昇格**（`protocol.md`「11.」）。`full` からは戻せない。`state.yml` の手編集を避け、昇格を単一の検証済み経路に集約するためのコマンド。`decisions.md` への経緯記録と `escalated_from_light=1` の付与は skill 側の仕事。 |
+| `coverage [slug] [--format table\|tsv] [--strict]` | **読み取り専用**。受け入れ基準（`AC`）の**被覆率**と `tasks.md` の**整合**を検査する。出所は spec-kit の `/analyze` が出す `Coverage % (requirements with >=1 task)`。対応付けの正典は **`tasks.md` の `AC:` 継続行**（`対象:` `依存:` と同じ形）で、AC の本文は `requirement.md` にしか置かない（ID で参照するだけなので二重管理にならない）。出す gap は 2 種類——**struct**（未定義の `AC` を参照／`依存` が未定義のタスクを指す／`依存` が循環）と **cover**（`AC:` 行の書き忘れ／タスクに落ちていない `AC`）。`--strict` は gap があれば **exit 4** で、**plan の承認前ゲート**に使う（`aidev-30-plan` の手順6）。`tasks.md` がまだ無い段階は**正常な空**として exit 0（`convention status` と同じ扱い。読み取り専用コマンドがエラー経路を作らない）。review では**再実行して spec と実装の乖離を見る**（spec-kit の `/converge` に相当。追記でなく毎回同じ入力から同じ表を出す）。 |
 | `doctor [--quiet]` | 全 work を横断検査しドリフトを報告（legacy は免除）。`--quiet` は「OK だけ」の work を行ごと省く（100 works で 9 割が OK 行になり、直すべき WARN が埋もれる）。検査の順は works → backlog → 条項 → ハーネス改修の記録（`.aidev/harness/`。未判定・退避漏れ）。条項の検査は下記に加えて本文未記入・退役済み条項の索引 dangling も WARN する。retro/insights の冒頭で事後検知に使う。続けて **backlog ファイル自体**も横断検査する（全消化した `split`・`topic` の退避漏れ／`kind` frontmatter の欠落と誤記／`status` が数えない書式の項目／`archive/` に残った未消化）。**WARN 止まりで exit code は works の fail だけで決める**（ファイルの一生には持ち主の work がおらず `verify` で硬ゲートにできないため。`protocol.md`「2.9」）。続けて **条項ファイル**（`.aidev/conventions/`）も検査する（`status` の欠落・誤記／**母集団が揃ったのに未判定**／**`confirmed` の移送漏れ**＝二重管理予備軍／終状態の退避漏れ／**索引漏れ**＝索引ファイル（既定 `AGENTS.md`。`conventionsIndex` で変更可）の `aidev:conventions` ブロックに無い＝自動読込されず読まれないまま「効かなかった」と誤判定される／移送後の**張り替え漏れ**）。索引の WARN は**足すべき行をそのまま示す**（検査だけあって直す手が無い形にしない）。こちらも同じ理由で WARN 止まり。 |
 | `status [--subtasks] [--active] [--format table\|tsv]` | **読み取り専用**。`--active` は deliver 済み work を隠す。`inflight` は **worktree を横断**して数える（現在の tree だけ見ると、並行作業という当の場面で二重選択の防止が効かない）。全 work を横断（work/ticket/mode/current/next/done/deps）＋ backlog（`*.md`・`archive/` 除く）の未着手件数（todo/needs）と **`inflight`（そのファイルの項目を掴んだまま未 deliver の work 数）**を機械抽出。backlog 行が `[x]` になるのは deliver なので、着手中の項目は `todo` からは区別できない——`inflight` はそこを埋め、**別セッションが同じ項目を二重に選ぶのを防ぐ**（`protocol.md`「2.9」）。`aidev-00-start` の状況把握に使う。既定は人間可読表、`--format tsv` は機械パース向け（先頭列 `work`/`backlog`/**`subtask`** でレコード種別を判別）。**`--subtasks`** を付けると分割 work の子（`subtask / <親>/<子> / current / done` の4列。work 行の8列とは列数が違う）も出す——`.aidev/current` は未追跡でセッションをまたぐと消えるので、**復帰時にどの子へ戻るかはこれで確認する**。 |
 | `metrics [slug] [--all] [--phases] [--format table\|tsv]` | **読み取り専用**。`metrics.yml` のイベントログから protocol §8 の派生指標を集計。`--phases` は工程ごとに `start`（初回）/`approved`（最後）/`elapsed_sec`（**全ラウンドの合計**）/`rounds`（start の回数）。既定 per-work（first_start/delivered/lead_sec/reworks/sent_backs/**harnessRev/straddle**——版で層別し、またがり work を外すための列。deliver 済みのまたがりは verify では鳴らさず、ここで見る）、`--phases` で工程別（phase/start/approved/elapsed_sec）。`--all` で全 work。`aidev-util-insights` の集計に使う。ts は `Z`/`UTC`/無しを許容。 |
@@ -105,7 +106,7 @@ CI ではこれを失敗として扱う（`.github/workflows/aidev-cli.yml`）�
 不変条件だけ**を強制する。`schema` 未記載の旧 work は **legacy として免除**（「過去分は捏造しない」方針。
 `protocol.md`「8.」）。これにより新ガードを足しても**過去 work を遡及的に違反扱いしない**。
 
-- 現行 `CURRENT_SCHEMA = 5`。
+- 現行 `CURRENT_SCHEMA = 6`。
 - schema 3: subtask 層（`subtasks`/`activeSubtask`/`parent`）を導入。schema ≤ 2 の work は subtask 不変条件を免除。
 - schema ≥ 2 の不変条件: `metrics.yml` の存在 ／ review 承認済なら `review.md` 存在 ／ deliver 承認済なら
   metrics に deliver の approved イベントが存在 ／ deliver 承認済で `backlog:` 刻印があれば消し込み（下記）。
@@ -122,6 +123,12 @@ CI ではこれを失敗として扱う（`.github/workflows/aidev-cli.yml`）�
   `verify` は deliver 承認の**前**に走るので `harnessRevDelivered` をまだ持っていない。着地時の刻印を
   待つと**この検査は通常の順序では一度も発火しない**ため、まだ無いときは**現在の版**と比べる。
   効果検証の母集団を正しく切るための刻印なので、旧 work は遡って違反扱いしない（`protocol.md`「12.」）。
+- schema ≥ 6 の検査: **`test-result.md` の実在**（test 承認済なら **FAIL**）／**`tasks.md` の参照の壊れ**
+  （未定義の `AC` 参照・未定義のタスクを指す `依存`・`依存` の循環。**FAIL**）／**AC 被覆の穴**
+  （タスクに落ちていない `AC`・`AC:` 行の書き忘れ。**WARN**。詳細は `aidev coverage`）／
+  **失敗の生証跡**（test で `sent_back` があるのに `test-result.md` に ``` のブロックが無ければ **WARN**）。
+  被覆の穴が WARN なのは**人の判断が要る**から（意図して落とした AC もありうる）で、参照の壊れは
+  機械的に誤りだから FAIL。硬いゲートは plan の承認前に打つ `aidev coverage --strict`（exit 4）が担う。
 - 新しい不変条件を足すときは `CURRENT_SCHEMA` を上げ、検査をそのバージョン以上に限定する。
 
 ## deliver ゲートの使い方（`land` を別コマンドにしない理由）

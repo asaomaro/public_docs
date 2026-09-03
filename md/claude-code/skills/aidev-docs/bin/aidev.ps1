@@ -36,7 +36,7 @@ $ErrorActionPreference = 'Stop'
 # （git show-ref 等は ref 不在で 1 を返すのが正常系のため）。古い pwsh では通常変数になるだけで無害。
 $PSNativeCommandUseErrorActionPreference = $false
 
-$script:CURRENT_SCHEMA = 5   # schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema<=2 は legacy 免除
+$script:CURRENT_SCHEMA = 6   # schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema<=2 は legacy 免除
 $script:STRICT = $false      # verify --strict（記録漏れを致命にする）。doctor 経由では常に false
 $script:PHASES = @('requirement','research','spec','design','plan','coding','test','review','walkthrough','deliver','retro')
 $script:Utf8 = New-Object System.Text.UTF8Encoding($false)  # BOM なし
@@ -740,6 +740,203 @@ function NeedsStart($work, $phase) {
 # verify の状態行の出口。通常は [Console]::Out へ直接（戻り値=int だけにし、$rc=VerifyWork が出力を
 # 取り込む PS の罠を回避）。doctor --quiet のときだけ $script:VBuf に溜めて呼び出し側が出す
 $script:VCapture = $false; $script:VBuf = @()
+# --- AC カバレッジ / tasks.md の整合（sh 版 cov_* と同一の判定・同一の出力） ----------
+# 出所: spec-kit の `/analyze` の Coverage %。対応付けの正典は tasks.md の `AC:` 行。
+# 本文（AC の文言）は requirement.md にしか置かない（ID で参照するだけ＝二重管理にならない）。
+
+# requirement.md / spec.md の在処（subtask は親から継承。VerifyWork / need_file と同じ規則）
+function CovSrc($work, $name) {
+  $p = Join-Path $work $name
+  if (IsFile $p) { return $p }
+  $parent = YGet (Join-Path $work 'state.yml') 'parent'
+  if ($parent) {
+    $pp = Join-Path (Join-Path (Join-Path $script:AIDEV 'works') $parent) $name
+    if (IsFile $pp) { return $pp }
+  }
+  return ''
+}
+# requirement.md のチェックボックス行の先頭トークン（`AC1:` も `AC-I1 開く…` も同じ形）。
+# ユーザーストーリーの「（受け入れ: AC1, AC2）」は `- [ ]` 行ではないので拾わない。
+function CovReqAcs($path) {
+  $r = @()
+  if (-not (IsFile $path)) { return $r }
+  foreach ($l in [System.IO.File]::ReadAllLines($path)) {
+    if ($l -match '^\s*- \[[ xX]\]\s*(AC[A-Za-z0-9_-]*)') { $r += $Matches[1] }
+  }
+  return $r
+}
+# spec.md「受け入れ基準との対応」の AC 行（`- AC1: …`）
+function CovSpecAcs($path) {
+  $r = @()
+  if (-not (IsFile $path)) { return $r }
+  foreach ($l in [System.IO.File]::ReadAllLines($path)) {
+    if ($l -match '^\s*- (AC[A-Za-z0-9_-]*)[：:]') { $r += $Matches[1] }
+  }
+  return $r
+}
+function CovUniq($a) {
+  $seen=@{}; $r=@()
+  foreach ($x in $a) { if (-not $seen.ContainsKey($x)) { $seen[$x]=1; $r += $x } }
+  return $r
+}
+function CovNorm($s) {
+  $s = $s -replace '^：','' -replace '^:',''
+  $s = $s -replace '、',' ' -replace ',',' '
+  $s = $s -replace '[ \t]+',' '
+  return $s.Trim(' ')
+}
+# tasks.md を1タスク1行の @{id;acs;deps} に畳む。
+# 値が '-' は「その行そのものが無い」、'なし' は明示（書き忘れと区別する）。
+function CovTaskRows($path) {
+  $rows = @()
+  if (-not (IsFile $path)) { return $rows }
+  $cur=''; $acs=''; $dps=''
+  foreach ($l in [System.IO.File]::ReadAllLines($path)) {
+    if ($l -match '^\s*- \[[ xX]\]\s*(T[0-9]+)') {
+      if ($cur) { $rows += ,@{ id=$cur; acs=$(if($acs){$acs}else{'-'}); deps=$(if($dps){$dps}else{'-'}) } }
+      $cur=$Matches[1]; $acs=''; $dps=''
+      continue
+    }
+    if ($cur -and $l -match '^\s*AC[：:]') {
+      $s = CovNorm ($l -replace '^\s*AC','')
+      if ($acs) { $acs = "$acs $s" } else { $acs = $s }
+      continue
+    }
+    if ($cur -and $l -match '^\s*依存[：:]') {
+      $s = CovNorm ($l -replace '^\s*依存','')
+      if ($dps) { $dps = "$dps $s" } else { $dps = $s }
+      continue
+    }
+  }
+  if ($cur) { $rows += ,@{ id=$cur; acs=$(if($acs){$acs}else{'-'}); deps=$(if($dps){$dps}else{'-'}) } }
+  return $rows
+}
+function CovIsNone($v) { return @('なし','none','None','NONE','-','') -ccontains $v }
+
+# 依存の循環（Kahn 法で剥がし切れなかったタスク）。カンマ区切り1行、無ければ ''
+function CovCycles($rows) {
+  $ids=@(); $exists=@{}; $dep=@{}
+  foreach ($r in $rows) { $ids += $r.id; $exists[$r.id]=1; $dep[$r.id]=$r.deps }
+  $indeg=@{}; $rev=@{}
+  foreach ($id in $ids) {
+    $c=0
+    foreach ($d in ($dep[$id] -split ' ')) {
+      if ($d -ne '' -and $d -cne $id -and $exists.ContainsKey($d)) { $c++; if (-not $rev.ContainsKey($d)) { $rev[$d]=@() }; $rev[$d] += $id }
+    }
+    $indeg[$id]=$c
+  }
+  $done=@{}; $removed=0; $changed=$true
+  while ($changed) {
+    $changed=$false
+    foreach ($id in $ids) {
+      if (-not $done.ContainsKey($id) -and $indeg[$id] -eq 0) {
+        $done[$id]=1; $removed++; $changed=$true
+        if ($rev.ContainsKey($id)) { foreach ($r in $rev[$id]) { $indeg[$r]-- } }
+      }
+    }
+  }
+  if ($removed -lt $ids.Count) {
+    return (($ids | Where-Object { -not $done.ContainsKey($_) }) -join ',')
+  }
+  return ''
+}
+
+function CovGap($kind, $msg) {
+  $script:COV_GAPLINES += "  gap: $msg"
+  $script:COV_GAPS++
+  if ($kind -ceq 'struct') { $script:COV_GAPS_S++ } else { $script:COV_GAPS_C++ }
+}
+
+# 検査本体。結果は $script:COV_* に残す。$true=tasks.md を見られた / $false=tasks.md 無し
+function CovAnalyze($work) {
+  $script:COV_AC=0; $script:COV_SPEC=0; $script:COV_TASK=0; $script:COV_ROWS=@()
+  $script:COV_GAPS=0; $script:COV_GAPS_S=0; $script:COV_GAPS_C=0; $script:COV_GAPLINES=@()
+  $script:COV_TASKS=0; $script:COV_TASKS_NOAC=0
+  $tf = Join-Path $work 'tasks.md'
+  if (-not (IsFile $tf)) { return $false }
+  $acs  = @(CovUniq (CovReqAcs (CovSrc $work 'requirement.md')))
+  $sacs = @(CovUniq (CovSpecAcs (CovSrc $work 'spec.md')))
+  $rows = @(CovTaskRows $tf)
+  $defined=@{}; foreach ($a in $acs) { $defined[$a]=1 }
+  $tids=@{};    foreach ($r in $rows) { $tids[$r.id]=1 }
+  $pairs=@{}    # AC -> タスク ID の並び（タスク出現順）
+
+  foreach ($r in $rows) {
+    $script:COV_TASKS++
+    if ($r.acs -ceq '-') {
+      $script:COV_TASKS_NOAC++
+      CovGap 'cover' "$($r.id) に AC 行が無い（対応する AC が無いなら ``AC: なし`` と明示する）"
+    } elseif (-not (CovIsNone $r.acs)) {
+      foreach ($a in ($r.acs -split ' ')) {
+        if (CovIsNone $a) { continue }
+        if ($defined.ContainsKey($a)) {
+          if (-not $pairs.ContainsKey($a)) { $pairs[$a]=@() }
+          $pairs[$a] += $r.id
+        } else { CovGap 'struct' "$($r.id) が未定義の AC を参照: $a" }
+      }
+    }
+    if ($r.deps -cne '-' -and -not (CovIsNone $r.deps)) {
+      foreach ($d in ($r.deps -split ' ')) {
+        if (CovIsNone $d) { continue }
+        if (-not $tids.ContainsKey($d)) { CovGap 'struct' "$($r.id) の 依存 が未定義のタスクを指す: $d" }
+      }
+    }
+  }
+  $cyc = CovCycles $rows
+  if ($cyc) { CovGap 'struct' "依存が循環している: $cyc" }
+
+  foreach ($a in $acs) {
+    $script:COV_AC++
+    if ($sacs -ccontains $a) { $sp='yes'; $script:COV_SPEC++ } else { $sp='no' }
+    if ($pairs.ContainsKey($a)) { $ts = ($pairs[$a] -join ','); $script:COV_TASK++ }
+    else { $ts = '-'; CovGap 'cover' "$a に対応するタスクが無い" }
+    $script:COV_ROWS += "$a`t$sp`t$ts"
+  }
+  return $true
+}
+
+function CovPct($n, $d) { if ($d -le 0) { return 100 }; return [int][math]::Floor($n * 100 / $d) }
+
+function Cmd-Coverage($rest) {
+  $fmt='table'; $strict=$false; $slug=''
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch -CaseSensitive ($rest[$i]) {
+      '--format' { $i++; $fmt=(ArgAt $rest $i '--format') }
+      '--strict' { $strict = $true }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        elseif ($slug) { Die "slug は1つだけ" } else { $slug = $rest[$i] }
+      }
+    }
+  }
+  if ($fmt -cne 'table' -and $fmt -cne 'tsv') { Die "--format は table|tsv" }
+  ResolveWork $slug
+  # 読み取り専用コマンドなので、対象がまだ無い状態は正常な空として 0 で返す
+  if (-not (CovAnalyze $script:WORK)) {
+    Write-Output "coverage: $($script:SLUG)"
+    Write-Output "note: tasks.md がまだありません（plan 工程で作られます）"
+    exit 0
+  }
+  Write-Output "coverage: $($script:SLUG)"
+  if ($fmt -ceq 'tsv') { foreach ($l in $script:COV_ROWS) { Write-Output $l } }
+  else { foreach ($l in (Fmt-Table (@("ac`tspec`ttasks") + $script:COV_ROWS))) { Write-Output $l } }
+  foreach ($l in $script:COV_GAPLINES) { Write-Output $l }
+  $sp = CovPct $script:COV_SPEC $script:COV_AC
+  $tp = CovPct $script:COV_TASK $script:COV_AC
+  Write-Output ("coverage-summary: ac=$($script:COV_AC) spec=$($script:COV_SPEC)/$($script:COV_AC)($sp%)" +
+                " tasks=$($script:COV_TASK)/$($script:COV_AC)($tp%) task_rows=$($script:COV_TASKS)" +
+                " no_ac=$($script:COV_TASKS_NOAC) gaps=$($script:COV_GAPS)")
+  Write-Output "coverage-gaps: struct=$($script:COV_GAPS_S) cover=$($script:COV_GAPS_C)"
+  if ($script:COV_AC -eq 0) {
+    Write-Output "note: requirement.md に AC が1件もありません（``- [ ] AC1: …`` の形で書きます）"
+  }
+  if ($strict -and $script:COV_GAPS -gt 0) {
+    Write-Output "FAIL(strict) 未解消の gap が $($script:COV_GAPS) 件あります"
+    exit 4
+  }
+  exit 0
+}
+
 function VLine($s) { if ($script:VCapture) { $script:VBuf += $s } else { [Console]::Out.WriteLine($s) } }
 
 # [x] 行とその継続行（次の項目・見出し・空行まで）に slug があるか（sh の bl_done_has と同一）
@@ -787,6 +984,26 @@ function VerifyWork($work) {
         # 親（subtasks を持つ）は tasks.md を持たない（各 subtask の plan が作る）
         if ((ApprovedHas $work 'plan') -and $hassub.Count -eq 0 -and -not (IsFile (Join-Path $work 'tasks.md'))) {
           $vf += "tasks.md欠落(plan承認済)"
+        }
+      }
+      # schema 6: test の成果物と、AC カバレッジ / tasks.md の整合（sh 版と同一）
+      if ($sn -ge 6) {
+        $trf = Join-Path $work 'test-result.md'
+        if ((ApprovedHas $work 'test') -and -not (IsFile $trf)) { $vf += "test-result.md欠落(test承認済)" }
+        # 失敗の生証跡（cc-sdd の RED_PHASE_OUTPUT 相当）。差し戻し＝失敗を観測したのに
+        # その出力が残っていなければ、何が落ちていたかを誰も再現できない。有無だけ見る（WARN）
+        if (IsFile $trf) {
+          $mf6 = Join-Path $work 'metrics.yml'; $sb6=$false
+          if (IsFile $mf6) { foreach ($l in [System.IO.File]::ReadAllLines($mf6)) { if ($l -match 'phase:\s*test,' -and $l -match 'event:\s*sent_back') { $sb6=$true; break } } }
+          $fence=$false
+          foreach ($l in [System.IO.File]::ReadAllLines($trf)) { if ($l.StartsWith('```')) { $fence=$true; break } }
+          if ($sb6 -and -not $fence) {
+            VLine('  WARN test で差し戻しがあったのに test-result.md に失敗の生出力が無い（``` のブロックで残すこと）')
+          }
+        }
+        if (CovAnalyze $work) {
+          if ($script:COV_GAPS_S -gt 0) { $vf += "tasks.mdの参照が壊れている($($script:COV_GAPS_S)件)" }
+          if ($script:COV_GAPS_C -gt 0) { VLine("  WARN AC 被覆に穴があります（$($script:COV_GAPS_C) 件）。詳細は aidev coverage") }
         }
       }
       if (ApprovedHas $work 'deliver') {
@@ -2613,6 +2830,7 @@ switch -CaseSensitive ($cmd) {
   'unapprove' { Cmd-Unapprove $rest }
   'guard'   { Cmd-Guard $rest }
   'verify'  { Cmd-Verify $rest }
+  'coverage' { Cmd-Coverage $rest }
   'escalate' { Cmd-Escalate $rest }
   'doctor'  { Cmd-Doctor $rest }
   'harness' { Cmd-Harness $rest }
