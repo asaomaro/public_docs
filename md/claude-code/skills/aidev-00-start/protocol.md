@@ -201,7 +201,10 @@ backlog は**遅延キュー**で、完了した行を閉じるのは deliver �
      - 差し戻しで前工程に戻る場合は、無効化される後工程の承認を **`aidev unapprove <工程>`** で
        取り消す（`approved` から外し、`current` をそこへ戻す）。**手で編集しない**——
        state.yml の更新を CLI に集約するのは「2.」の原則で、ここだけ例外にすると
-       state を見ても経緯が分からなくなる。**取り消しても記録は消えない**（`sent_back` として
+       state を見ても経緯が分からなくなる。取り消しは**後ろの工程から順に**行い、最後に戻り先の工程で
+       `aidev event <戻り先> start` を記録する（`unapprove` は `current` を取り消した工程に置くので、
+       戻り先が更に手前ならそこを踏み直すまで `current` は途中の値になる）。
+       **取り消しても記録は消えない**（`sent_back` として
        刻まれる。手戻りは実際に起きた事実なので、消すと「8.」の指標が過小になる）。
    - **承認して次工程へ進む**：記録後、次工程の skill を実行する。
    - **承認してここで中断**：記録後、停止する（レジューム可能な状態で待つ）。
@@ -393,6 +396,9 @@ events:
   - { ts: 2026-06-20T11:40:00Z, phase: spec,        event: approved }
 ```
 
+> `skipped` は**省略した検証の件数**（`aidev-50-test`「3.」）。green でも `skipped > 0` は全数検証ではないので、
+> `passed` に混ぜずに別のキーで残す。0 なら省略してよい。
+
 ### 導出できる指標（retro / insights で算出）
 
 `metrics.yml` のイベント列から導出する（経過時間・手戻り回数・差し戻し回数・リードタイム・
@@ -408,7 +414,7 @@ events:
 ```yaml
   - { ts: ..., phase: plan,    event: approved, metrics: { tasks_planned: 4, tasks_anchored: 3 } }
   - { ts: ..., phase: coding,  event: approved, metrics: { tasks_done: 4, unplanned_lookups: 1 } }
-  - { ts: ..., phase: test,    event: approved, metrics: { passed: 12, failed: 0 } }
+  - { ts: ..., phase: test,    event: approved, metrics: { passed: 12, failed: 0, skipped: 1 } }
   - { ts: ..., phase: review,  event: approved, metrics: { must: 0, should: 1, nit: 2 } }
   - { ts: ..., phase: deliver, event: approved, metrics: { files_changed: 7, insertions: 169, deletions: 31 } }
 ```

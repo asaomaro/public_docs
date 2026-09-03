@@ -37,7 +37,9 @@ review を通過した変更を、コミット・PR 作成によって実際に�
      - 実装の主要変更が既にデフォルトブランチに入っているか
        （例: `git log --oneline <default>..HEAD` が空、かつ対象ファイルの変更がデフォルトブランチに存在）。
      - チケットが既にクローズ/完了か（github: `gh issue view <N> --json state -q .state`、
-       他トラッカーは `.aidev/config.yml` の `tracker` に応じる）。
+       他トラッカーは `.aidev/config.yml` の `tracker` に応じる。`tracker: none` なら**この検査は省く**）。
+     - remote が無い／デフォルトブランチがローカルにしか無い場合は、比較先をローカルの既定ブランチにする
+       （`git diff --stat <default> -- .`）。取れない検査は**省いた事実を記録**し、推測で埋めない。
      - コミットメッセージに `Closes #<N>` 等の close 参照が既に含まれているか。
    - **既着地と判明した場合 = 事後記録モード**:
      - 新規コミット／PR は作らない（重複・空 PR を避ける）。**既に着地済みである旨をユーザーに明示**する。
@@ -65,6 +67,8 @@ review を通過した変更を、コミット・PR 作成によって実際に�
    - **機械的強制**: `backlog:` を持つ work は、**その backlog ファイルの `- [x]` 行かその継続行に自分の slug が
      現れないと `aidev verify` が FAIL する**（手順 5 の着地前ゲートで弾かれる。`(needs: <slug>)` の未着手行では
      通らない。継続行は次の項目・見出し・**空行**までなので、根拠を空行で離して書かない）。刻印の無い work は従来どおり。
+   - **`standing` の backlog は退避されない**（また積まれるキューなので正常）。`[x]` 行が溜まってきたら
+     `aidev backlog compact <file>` で消化済み行を `archive/<name>-done.md` へ移す（`verify` はそこも見る）。
    - **消し込んだ結果そのファイルが全消化になったら `aidev backlog archive` を実行する**
      （`split`/`topic` のみ退避される。`standing` は対象外なので、そのまま実行して構わない）。
      移動は `mv` だけなので、**同じコミットに含める**こと（`git add -A .aidev/backlog`）。

@@ -22,7 +22,8 @@ AI 開発ワークフローの **walkthrough（レビューガイド生成）工
 review 終了時に **protocol.md「4.5」の walkthrough の3条件**のいずれかに該当したら発火対象とする（条件はそこが正典）。
 
 - **interactive**: 検知時、遷移ゲートに `承認して walkthrough(任意) を挟む`（推奨）を理由付きで加える。却下されれば deliver へ直行。
-- **autonomous**: **既定で実施**する（`protocol-autonomous.md`。検知の有無によらず生成する。`profile: light` では実施しない）。
+- **autonomous**: 推奨ではなく**自律的に採否を決める**。条件は interactive と同じ（`protocol.md`「4.5」の3条件が正典）——
+  当たったら実施、当たらなければ実施しない。`profile: light` では実施しない。
 
 ## 前提
 

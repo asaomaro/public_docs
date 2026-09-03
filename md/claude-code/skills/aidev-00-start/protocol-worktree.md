@@ -17,7 +17,10 @@ git worktree＋`feature/<slug>` ブランチを作って隔離着手できる。
   その work がコミット済みでブランチに乗っている必要がある（未コミットの work フォルダは worktree に伝播しない）。
 - **PJ 規約は並行作業でも変わらず適用される**: 共有ファイルへの波及や、検証を委譲せず主エージェントが行う
   義務といった PJ 固有の規約は AGENTS.md が正で、worktree 上でも同じに効く。
-  - **共有ファイルは `.aidev/config.yml` の `sharedFiles` に挙げておく**と、`worktree add` の完了時に
+  - **backlog の消し込みも成果物と同じくブランチに乗る**。`.aidev/backlog/*.md` は追跡対象なので、
+  worktree で `[x]` にしてもマージするまで main tree の `aidev status` は未着手のままに見える。
+  `inflight` 列は worktree を横断して数えるので、着手中であることはそちらで分かる。
+- **共有ファイルは `.aidev/config.yml` の `sharedFiles` に挙げておく**と、`worktree add` の完了時に
     CLI がその名前を挙げて警告する（未設定なら汎用文言）。例: `sharedFiles: [package.json, src/registry.ts]`。
   - CLI が名指しできるのは**そこに書かれた事実だけ**。「この work は委譲せず主エージェントが検証すべきか」
     のような判断は散文（AGENTS.md）の担当で、CLI には持たせない（`DESIGN.md`「2.6」の線引き）。
