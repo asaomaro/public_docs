@@ -30,6 +30,7 @@ introduced: 2026-08-30T09:12:00Z # 導入時刻（UTC）。母集団の起点。
 source: .aidev/insights/2026-08-28-insights.md   # この条項を生んだ信号（任意）
 hypothesis: 命名に関する must/should 指摘が減る    # 必須。書けない条項は作らせない
 baseline: 直近10 works で boolean 命名の指摘 7件（must 2 / should 5）  # 必須。「前」の記録
+scope: <この条項の対象>          # 例「新しいサブコマンドを足す work」。母集団のうちどれを判定に使うかの宣言
 verify_after: 5                 # 判定に要する母集団の最低件数（既定 5）。defer で積み増せる
 deferred: 2026-09-10T00:00:00Z  # defer 時（任意）
 defer_note: <先送りの理由>        # defer 時（必須）
@@ -73,6 +74,11 @@ forced: true                    # 母集団が揃う前に --force で confirm/r
     だからこそ境目の判断を `baseline` に書き残す。
 - **`--source` を付ける**。どの信号から起こしたかが残らないと、insights が「未対応の改善」を
   追うときに突合できない。
+- **`--scope` を書く**（省略すると CLI が warn する）。`pop` は「`introduced` 以降に着手し deliver 済み」の
+  **全 top-level work** で、条項の対象かどうかを機械は知らない。実際に、条項自身を適用した work（自己言及）と
+  対象外の work が母集団に入り、`ready=yes` が仮説の対象 1 件だけで立ったことがある。
+  scope は機械のフィルタではなく**判定者が母集団から外すための宣言**で、`--members` が併記する。
+  判定では **scope の外の work と、この条項を適用するために起こした work は数えない**。
 - **`--verify-after`** は判定に要する母集団の最低件数（既定 5）。条項が関係する work は一部だけなので、
   ハーネス改修より判定に必要な件数は**増える**方向で見積もる。
   母集団に数えるのは **`introduced` 以降に着手し、かつ deliver 済み**の work だけ
@@ -144,7 +150,7 @@ docsRoots: [docs/, AGENTS.md]  # 条項を起こす前に既存規約を探す�
    doctor は**既に見に行った人にしか届かない**ので、1 の一報と併せて機能する。
 3. `aidev convention status` の **`ready=yes`**
 
-判定は **`baseline` と、導入後のタグ件数の比較**で行う（`protocol.md`「12.」）。材料の中では
+判定は **`baseline` と、導入後の「違反」件数の比較**で行う（`protocol.md`「12.」）。材料の中では
 `review.md` の**「PR レビュー（人間）」節**（`aidev-70-deliver`）を優先する（唯一の人間由来の信号）。
 `baseline` に「前を作れない」と書かれている条項は**比較が成立しない**ので、
 件数ではなく個別の根拠を示して判定する（示せないなら `pending` のまま置く——
@@ -155,11 +161,31 @@ docsRoots: [docs/, AGENTS.md]  # 条項を起こす前に既存規約を探す�
 「後」＝導入後の件数は `review.md` のタグから数える:
 
 ```sh
-# 導入後の件数を数える（「前」は frontmatter の baseline。id では前後比較できない）
+# 導入後の件数を数える。**行頭 `- [` の指摘行だけ**を対象にする——本文中の言及まで数えると、
+# 「この条項の指摘は 0 件だった」と書いた行が 1 件として計上される（実際に起きた）。
 # -r で再帰するのは、subtask が works/<親>/<NN>-<子>/ にあり、
 # `works/*/review.md` の1段グロブからは落ちるため（分子だけ落ちると「効いた」側に倒れる）
-grep -rho --include=review.md '\[conv:[^]]*\]' .aidev/works | sort | uniq -c | sort -rn
+grep -rh --include=review.md '^[[:space:]]*- \[' .aidev/works \
+  | grep -o '\[conv:[^]]*\]' | sort | uniq -c | sort -rn
+# 母集団ごとの内訳は CLI が出す（タグ数と違反数を分けて数える）
+aidev convention status --members <id>
 ```
+
+### タグ件数は効果の指標ではない（違反だけが仮説を falsify する）
+
+`[conv:<id>]` は「この指摘はこの条項に関係する」という印であって、違反の記録ではない。
+**条項が効くほど、レビューはその観点に気づいてタグを付ける**ので、タグ件数は導入後に増える方向へ動く。
+`baseline` は条項が無かった時期に散文を読んで数えた値なので、そもそも**別の計器で測った値**である。
+タグ件数の増減をそのまま効果と読むと、**機能した条項を `ineffective` として退役させる**。
+
+- **違反にはマークを付ける**: 条項に反している指摘は **`[conv:<id>!]`**（`!` 付き）と書く。
+  関係するが違反ではないもの（条項があるから気づけた改善提案・既存挙動への言及・条項自体への疑問）は
+  `!` を付けない。`aidev convention status --members <id>` が `conv_tags` と `violations` を分けて出す。
+- **仮説と突き合わせるのは `violations` だけ**。`conv_tags` は「条項が読まれているか」の傍証に使う
+  （0 が続くなら索引に載っていないか、対象の work が来ていない）。
+- **件数の増加だけを根拠に `ineffective` を打ってはいけない**。退役の根拠になるのは
+  **scope 内の work で、条項に従っていれば防げたはずの違反が減っていないこと**を個別に示すことだけ。
+  示せないなら `defer` して母集団を積み増す。
 
 - **母集団は `introduced` 以降に着手し、かつ deliver 済みの work だけ**
   （`aidev convention status` の `pop` が数える）。
@@ -228,12 +254,12 @@ doctor が「confirmed だが未移送」を WARN
 
 | コマンド | 役割 |
 |---|---|
-| `aidev convention new <id> --hypothesis <text> --baseline <text> [--source <p>] [--verify-after <n>]` | 起こす（`--hypothesis` と `--baseline` は必須） |
+| `aidev convention new <id> --hypothesis <text> --baseline <text> [--scope <t>] [--source <p>] [--verify-after <n>]` | 起こす（`--hypothesis` と `--baseline` は必須。`--scope` 未指定は warn） |
 | `aidev convention confirm <id> --result <text> [--force]` | 効果ありと判定（`--result` 必須。母集団が `verify_after` 未満なら拒否。`--force` は `forced: true` を刻む） |
 | `aidev convention defer <id> --verify-after <n> --note <t>` | 判定を先送り（必要件数を積み増す。`n` は現在の母集団より大きいこと。理由必須） |
 | `aidev convention promote <id> --to <path#anchor>` | tombstone 化して退避（移送先の実在を検査） |
 | `aidev convention retire <id> --status ineffective\|superseded --note <t> [--force]` | 退役して退避（`--note` 必須。`ineffective` は母集団が要る。`superseded` は置き換えなので免除） |
-| `aidev convention status [--format table\|tsv] [--members <id>]` | 状態・母集団・判定可否の一覧。`--members` は母集団の work ごとに着手・deliver・`[conv:<id>]` 件数（分母と分子を同じ集合で見る） |
+| `aidev convention status [--format table\|tsv] [--members <id>]` | 状態・母集団・判定可否の一覧。`--members` は母集団の work ごとに着手・deliver・`conv_tags`・`violations`（分母と分子を同じ集合で見る）。条項がゼロでも exit 0 |
 
 **ファイル自身の一生は `aidev doctor` が見る**（条項ファイルには持ち主の work がいないので `verify` の
 硬ゲートにできない）。検知するのは `status` の欠落・誤記／判定可能なのに未判定／confirmed の移送漏れ／

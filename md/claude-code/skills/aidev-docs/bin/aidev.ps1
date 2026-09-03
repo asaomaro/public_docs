@@ -828,6 +828,11 @@ function VerifyWork($work) {
   # profile: light の逸脱検査（WARN）
   LightWarnings $work
 
+  # autonomous は重要判断を decisions.md に残す規約（sh 版と同一）
+  if ((YGet $st 'mode') -ceq 'autonomous' -and (ApprovedHas $work 'deliver') -and -not (IsFile (Join-Path $work 'decisions.md'))) {
+    VLine("  WARN autonomous なのに decisions.md が無い: 人間が承認していない判断の証跡が残らない")
+  }
+
   # またがり work の検知（WARN）。schema 4 以降のみ＝旧 work を遡って違反扱いしない。
   $vsc = YGet (Join-Path $work 'state.yml') 'schema'
   if ($vsc -notmatch '^\d+$') { $vsc = '0' }
@@ -1198,8 +1203,23 @@ function Cmd-Status($rest) {
   # in-flight 収集（sh 版と同一）: backlog 刻印を持ち、まだ deliver していない work。
   # backlog 行が [x] になるのは deliver なので、その間 backlog 側は掴まれた項目を区別できない。
   $inflight = @{}
-  $iworks = Join-Path $script:AIDEV 'works'
-  if (IsDir $iworks) {
+  # worktree を横断して数える（sh 版と同一）。現在の tree だけ見ると、並行 worktree で進行中の
+  # 項目が 0 と出て、二重選択を防ぐための列が並行作業のときだけ効かない
+  $iroots = @((Join-Path $script:AIDEV 'works'))
+  if (Get-Command git -ErrorAction SilentlyContinue) {
+    try {
+      foreach ($line in @(WtPorcelain)) {
+        $wp = ($line -split "`t")[0]
+        $wr = Join-Path (Join-Path $wp '.aidev') 'works'
+        if (-not (IsDir $wr)) { continue }
+        if ($iroots -ccontains $wr) { continue }
+        if ($wr -ceq (Join-Path $script:AIDEV 'works')) { continue }
+        $iroots += $wr
+      }
+    } catch { }
+  }
+  foreach ($iworks in $iroots) {
+    if (-not (IsDir $iworks)) { continue }
     foreach ($d in (Get-ChildItem -LiteralPath $iworks -Directory | Sort-Object Name)) {
       $ist = Join-Path $d.FullName 'state.yml'
       if (-not (IsFile $ist)) { continue }
@@ -1309,6 +1329,8 @@ function Cmd-Metrics($rest) {
     $mf = Join-Path $wd 'metrics.yml'
     $first=-1; $firstts='-'; $deliveredFlag=$false; $deliveredE=-1; $sback=0
     $scount=@{}; $laststart=@{}; $laststartTs=@{}; $appat=@{}; $appatTs=@{}
+    # ラウンドごとの開始と合計（sh 版の openat/elsum/firststart_ts と同一）
+    $openat=@{}; $elsum=@{}; $firstStartTs=@{}
     if (IsFile $mf) {
       foreach ($line in [System.IO.File]::ReadAllLines($mf)) {
         if ($line -notmatch 'event:') { continue }
@@ -1323,21 +1345,37 @@ function Cmd-Metrics($rest) {
           if ($e -ge 0) {
             if ($first -lt 0 -or $e -lt $first) { $first=$e; $firstts=$ts }
             if (-not $laststart.ContainsKey($ph) -or $e -gt $laststart[$ph]) { $laststart[$ph]=$e; $laststartTs[$ph]=$ts }
+            $openat[$ph]=$e
           }
+          if (-not $firstStartTs.ContainsKey($ph)) { $firstStartTs[$ph]=$ts }
         } elseif ($ev -ceq 'approved') {
-          if ($e -ge 0) { $appat[$ph]=$e; $appatTs[$ph]=$ts }
+          if ($e -ge 0) {
+            $appat[$ph]=$e; $appatTs[$ph]=$ts
+            if ($openat.ContainsKey($ph)) {
+              if ($elsum.ContainsKey($ph)) { $elsum[$ph] += $e-$openat[$ph] } else { $elsum[$ph] = $e-$openat[$ph] }
+              $openat.Remove($ph)
+            }
+          }
           if ($ph -ceq 'deliver') { $deliveredFlag=$true; if ($e -ge 0) { $deliveredE=$e } }
-        } elseif ($ev -ceq 'sent_back') { $sback++ }
+        } elseif ($ev -ceq 'sent_back') {
+          $sback++
+          # 差し戻しもラウンドの終わり（sh 版と同一）
+          if ($e -ge 0 -and $openat.ContainsKey($ph)) {
+            if ($elsum.ContainsKey($ph)) { $elsum[$ph] += $e-$openat[$ph] } else { $elsum[$ph] = $e-$openat[$ph] }
+            $openat.Remove($ph)
+          }
+        }
       }
     }
     if ($phasesf) {
       foreach ($p in $script:PHASES) {
         if ($laststart.ContainsKey($p) -or $appat.ContainsKey($p)) {
-          $st = if ($laststartTs.ContainsKey($p)) { $laststartTs[$p] } else { '-' }
-          $ap = if ($appatTs.ContainsKey($p))     { $appatTs[$p] }     else { '-' }
+          $st = if ($firstStartTs.ContainsKey($p)) { $firstStartTs[$p] } else { '-' }
+          $ap = if ($appatTs.ContainsKey($p))      { $appatTs[$p] }      else { '-' }
           $el = '-'
-          if ($laststart.ContainsKey($p) -and $appat.ContainsKey($p)) { $el = $appat[$p]-$laststart[$p] }
-          $rows += ($name + "`t" + $p + "`t" + $st + "`t" + $ap + "`t" + $el)
+          if ($elsum.ContainsKey($p)) { $el = $elsum[$p] }
+          $rd = if ($scount.ContainsKey($p)) { $scount[$p] } else { 0 }
+          $rows += ($name + "`t" + $p + "`t" + $st + "`t" + $ap + "`t" + $el + "`t" + $rd)
         }
       }
     } else {
@@ -1357,7 +1395,7 @@ function Cmd-Metrics($rest) {
     }
   }
 
-  if ($phasesf) { $hdr = "work`tphase`tstart`tapproved`telapsed_sec" }
+  if ($phasesf) { $hdr = "work`tphase`tstart`tapproved`telapsed_sec`trounds" }
   else          { $hdr = "work`tfirst_start`tdelivered`tlead_sec`treworks`tsent_backs`tharnessRev`tstraddle" }
 
   if ($fmt -ceq 'tsv') { foreach ($r in $rows) { Write-Output $r } }
@@ -1451,6 +1489,7 @@ function Hv-New($rest) {
       '--hypothesis'   { $i++; $hyp=(ArgAt $rest $i '--hypothesis') }
       '--baseline'     { $i++; $base=(ArgAt $rest $i '--baseline') }
       '--source'       { $i++; $src=(ArgAt $rest $i '--source') }
+      '--scope'        { $i++; $scope=(ArgAt $rest $i '--scope') }
       '--verify-after' { $i++; $va=(ArgAt $rest $i '--verify-after') }
       default {
         if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
@@ -1474,6 +1513,7 @@ function Hv-New($rest) {
   $rev = HarnessRev
   $sb = "---`nharness: $id`nstatus: pending`nintroduced: $(Now)`nintroduced_rev: $rev`n"
   if ($src) { $sb += "source: $src`n" }
+  if ($scope) { $sb += "scope: $scope`n" }
   $sb += "hypothesis: $hyp`nbaseline: $base`nverify_after: $va`n---`n`n"
   $sb += "# $id`n`n## 改修内容`n`n<!-- aidev-* のどこをどう変えたか。改修 PR/コミットへの参照 -->`n`n"
   $sb += "## 判定メモ`n`n<!-- confirm/retire 時の内訳の補足（frontmatter の result/note が正） -->`n"
@@ -1548,7 +1588,13 @@ function Hv-Status($rest) {
   }
   if ($fmt -cne 'table' -and $fmt -cne 'tsv') { Die "--format は table|tsv" }
   $d = HvDir
-  if (-not (IsDir $d)) { Die "ハーネス改修の記録がありません: $d（aidev harness new で登録する）" }
+  # 記録ゼロは正常な状態（sh 版と同一）
+  if (-not (IsDir $d)) {
+    if ($fmt -ceq 'table') { foreach ($l in (Fmt-Table @("id`tstatus`tintroduced`tintroduced_rev`tpop`tneed`tready"))) { Write-Output $l } }
+    Write-Output "harness-summary: pending=0 ready=0"
+    Write-Output "note: ハーネス改修の記録がまだありません（.aidev/harness 未作成）。aidev harness new で登録する"
+    return
+  }
   HvPopPrime
   $files = @()
   $files += (Get-ChildItem -LiteralPath $d -File -Filter *.md -ErrorAction SilentlyContinue | Sort-Object Name)
@@ -1686,7 +1732,7 @@ function Wt-SharedWarn {
 }
 
 function Wt-Add($rest) {
-  $slug=''; $branch=''; $base='HEAD'; $wpath=''; $mode='interactive'; $ticket=''; $depends=''
+  $slug=''; $branch=''; $base='HEAD'; $wpath=''; $mode='interactive'; $ticket=''; $depends=''; $backlog=''; $profile=''
   for ($i=0; $i -lt $rest.Count; $i++) {
     switch -CaseSensitive ($rest[$i]) {
       '--branch'  { $i++; $branch=(ArgAt $rest $i '--branch') }
@@ -1695,13 +1741,17 @@ function Wt-Add($rest) {
       '--mode'    { $i++; $mode=(ArgAt $rest $i '--mode') }
       '--ticket'  { $i++; $ticket=(ArgAt $rest $i '--ticket') }
       '--depends' { $i++; $depends=(ArgAt $rest $i '--depends') }
+      # 内部の new に渡す。落とすと verify の消し込み強制が静かに効かなくなる（sh 版と同一）
+      '--backlog' { $i++; $backlog=(Split-Path -Leaf (ArgAt $rest $i '--backlog')) }
+      '--profile' { $i++; $profile=(ArgAt $rest $i '--profile') }
+      '--light'   { $profile='light' }
       default {
         if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
         if ($slug) { Die "slug は1つだけ" } else { $slug=$rest[$i] }
       }
     }
   }
-  if (-not $slug) { Die "使用法: aidev worktree add <slug> [--branch ..] [--base ..] [--path ..] [--mode ..] [--ticket ..] [--depends ..]" }
+  if (-not $slug) { Die "使用法: aidev worktree add <slug> [--branch ..] [--base ..] [--path ..] [--mode ..] [--profile ..|--light] [--ticket ..] [--depends ..] [--backlog <file>]" }
   GitPresent
   if (-not $branch) { $branch = "feature/$slug" }
   if (-not $wpath)  { $wpath = DefaultWtPath $slug }
@@ -1749,6 +1799,8 @@ function Wt-Add($rest) {
     $argv = @('new', $slug, '--mode', $mode)
     if ($ticket)  { $argv += @('--ticket', $ticket) }
     if ($depends) { $argv += @('--depends', $depends) }
+    if ($backlog) { $argv += @('--backlog', $backlog) }
+    if ($profile) { $argv += @('--profile', $profile) }
     # ロールバックは **Pop-Location の後**に回す。try の中で呼ぶと finally の Pop-Location と
     # 二重になり、しかも worktree の中に居るまま `git worktree remove` を打つことになる
     Push-Location $wpath
@@ -1781,7 +1833,11 @@ function Wt-List($rest) {
   GitPresent
 
   $rows=@()
-  foreach ($line in (WtPorcelain)) {
+  $wtAll = @(WtPorcelain)
+  # porcelain 先頭＝main worktree（wt_rm と同じ判定）。main も .aidev/current を持つので、
+  # 種別を出さないと並行 worktree の一覧として 1 件多く読める
+  $mainTree = if ($wtAll.Count -gt 0) { ($wtAll[0] -split "`t")[0] } else { '' }
+  foreach ($line in $wtAll) {
     $cols = $line -split "`t"; $path = $cols[0]; $branch = $cols[1]
     # 判定キー: worktree ローカル .aidev/current の有無（branch 名ではない）
     $cur = Join-Path (Join-Path $path '.aidev') 'current'
@@ -1792,7 +1848,8 @@ function Wt-List($rest) {
     $phase = '-'
     $st = Join-Path (Join-Path (Join-Path (Join-Path $path '.aidev') 'works') $work) 'state.yml'
     if ($work -cne '-' -and (IsFile $st)) { $phase = YGet $st 'current'; if (-not $phase) { $phase='-' } }
-    $rows += ($path + "`t" + $branch + "`t" + $work + "`t" + $phase)
+    $kind = if ($path -ceq $mainTree) { 'main' } else { 'worktree' }
+    $rows += ($path + "`t" + $branch + "`t" + $work + "`t" + $phase + "`t" + $kind)
   }
 
   if ($fmt -ceq 'tsv') {
@@ -1800,7 +1857,7 @@ function Wt-List($rest) {
     return
   }
   Write-Output ("WORKTREES (" + $rows.Count + ")")
-  if ($rows.Count -gt 0) { foreach ($l in (Fmt-Table (@("path`tbranch`twork`tphase") + $rows))) { Write-Output $l } }
+  if ($rows.Count -gt 0) { foreach ($l in (Fmt-Table (@("path`tbranch`twork`tphase`tkind") + $rows))) { Write-Output $l } }
 }
 
 function Wt-Rm($rest) {
@@ -2091,7 +2148,7 @@ function Cv-ArchiveFile($path) {
 }
 
 function Cv-New($rest) {
-  $id=''; $hyp=''; $src=''; $va=''; $base=''
+  $id=''; $hyp=''; $src=''; $va=''; $base=''; $scope=''
   for ($i=0; $i -lt $rest.Count; $i++) {
     switch -CaseSensitive ($rest[$i]) {
       '--hypothesis'   { $i++; $hyp=(ArgAt $rest $i '--hypothesis') }
@@ -2104,7 +2161,7 @@ function Cv-New($rest) {
       }
     }
   }
-  if (-not $id) { Die "使用法: aidev convention new <id> --hypothesis <text> --baseline <text> [--source <path>] [--verify-after <n>]" }
+  if (-not $id) { Die "使用法: aidev convention new <id> --hypothesis <text> --baseline <text> [--scope <text>] [--source <path>] [--verify-after <n>]" }
   if ($id.EndsWith('.md')) { $id = $id.Substring(0, $id.Length-3) }
   $id = Split-Path -Leaf $id
   # 仮説を必須にするのがこの層の入口ゲート。「どの指標がどう動けば成功か」を書けない条項は
@@ -2135,6 +2192,8 @@ function Cv-New($rest) {
   $sb += "<!-- どのレビュー指摘/分析から起こしたか（source を人間向けに補足）。 -->`n"
   WriteText $f $sb
   Write-Output "created: $f (status pending, verify_after $va)"
+  # scope が無いと母集団に対象外の work と条項自身の適用 work が混ざる（sh 版と同一）
+  if (-not $scope) { Write-Output "warn: --scope が未指定です（どんな work がこの条項の対象か）。母集団に対象外の work が混ざったまま判定することになります" }
   # 索引に載せないと自動読込されない＝読まれない。doctor も見るが、まずここで促す
   $rel = "$(CvDirRel)/$id.md"
   $idxl = CvIndexLabel
@@ -2297,6 +2356,26 @@ function Cv-Promote($rest) {
 
 # 母集団のメンバー一覧（sh の cv_members と同じ）。pop の件数だけでは分子（タグ）を分母と同じ集合に絞れない。
 # タグは subtask の review.md も含めて数える（subtask は親に属する。母集団は top-level だけ）
+# review.md のタグ集計。指摘行（`- [` 始まり）だけを対象にする（sh の cv_count_tags と同一）。
+# mode 'any' は `[conv:<id>]` と `[conv:<id>!]` の両方、'viol' は `!` 付き（＝違反）だけ
+function CvCountTags($workDir, $id, $mode) {
+  $plain = "[conv:$id]"; $viol = "[conv:$id!]"
+  $n = 0
+  foreach ($rv in @(Get-ChildItem -LiteralPath $workDir -Recurse -File -Filter review.md -ErrorAction SilentlyContinue)) {
+    foreach ($l in [System.IO.File]::ReadAllLines($rv.FullName)) {
+      if ($l -notmatch '^\s*- \[') { continue }
+      $ix = 0
+      while (($ix = $l.IndexOf($viol, $ix, [StringComparison]::Ordinal)) -ge 0) { $n++; $ix += $viol.Length }
+      if ($mode -cne 'viol') {
+        # `[conv:id!]` を `[conv:id]` として二重に数えない
+        $ix = 0
+        while (($ix = $l.IndexOf($plain, $ix, [StringComparison]::Ordinal)) -ge 0) { $n++; $ix += $plain.Length }
+      }
+    }
+  }
+  return $n
+}
+
 function Cv-Members($id, $fmt) {
   $f = CvFind $id
   if (-not $f) { Die "条項がありません: $id" }
@@ -2306,7 +2385,7 @@ function Cv-Members($id, $fmt) {
   $b = CvTsKey $in
   if (-not $b) { Die "introduced が不正です: $in" }
   $worksRoot = Join-Path $script:AIDEV 'works'
-  $rows=@(); $n=0; $tsum=0
+  $rows=@(); $n=0; $tsum=0; $vsum=0
   if (IsDir $worksRoot) {
     foreach ($d in (Get-ChildItem -LiteralPath $worksRoot -Directory | Sort-Object Name)) {
       $pf = Join-Path $d.FullName 'metrics.yml'
@@ -2322,24 +2401,26 @@ function Cv-Members($id, $fmt) {
       foreach ($l in $lines) {
         if ($l.Contains('phase: deliver, event: approved') -and $l -match '^[^{]*\{\s*ts:\s*([0-9][0-9:TZ.-]*)') { $dts = $Matches[1] }
       }
-      $tg = 0
-      $needle = "[conv:$sid]"
-      foreach ($rv in @(Get-ChildItem -LiteralPath $d.FullName -Recurse -File -Filter review.md -ErrorAction SilentlyContinue)) {
-        $txt = [System.IO.File]::ReadAllText($rv.FullName)
-        $ix = 0
-        while (($ix = $txt.IndexOf($needle, $ix, [StringComparison]::Ordinal)) -ge 0) { $tg++; $ix += $needle.Length }
-      }
-      $n++; $tsum += $tg
-      $rows += "$($d.Name)`t$pts`t$dts`t$tg"
+      $tg = CvCountTags $d.FullName $sid 'any'
+      $vi = CvCountTags $d.FullName $sid 'viol'
+      $n++; $tsum += $tg; $vsum += $vi
+      $rows += "$($d.Name)`t$pts`t$dts`t$tg`t$vi"
     }
   }
   if ($fmt -ceq 'tsv') {
     foreach ($r in $rows) { Write-Output "member`t$r" }
   } else {
-    $all = @("work`tstarted`tdelivered`tconv_tags") + $rows
+    $all = @("work`tstarted`tdelivered`tconv_tags`tviolations") + $rows
     foreach ($l in (Fmt-Table $all)) { Write-Output $l }
   }
-  Write-Output "members-summary: id=$sid pop=$n conv_tags=$tsum"
+  Write-Output "members-summary: id=$sid pop=$n conv_tags=$tsum violations=$vsum"
+  $sc = CvGet $f 'scope'
+  if ($sc) {
+    Write-Output "scope: $sc"
+    Write-Output "note: 母集団は introduced 以降の全 work。scope の外の work と条項自身を適用した work は判定から外すこと"
+  } else {
+    Write-Output "note: scope 未宣言。どの work が仮説の対象かを条項に書くこと（aidev convention new --scope）"
+  }
 }
 
 function Cv-Status($rest) {
@@ -2356,7 +2437,13 @@ function Cv-Status($rest) {
   }
   if ($fmt -cne 'table' -and $fmt -cne 'tsv') { Die "--format は table|tsv" }
   $d = CvDir
-  if (-not (IsDir $d)) { Die "条項ディレクトリがありません: $d（aidev convention new で起こす）" }
+  # 条項ゼロは正常な状態（sh 版と同一の理由）
+  if (-not (IsDir $d)) {
+    if ($fmt -ceq 'table') { foreach ($l in (Fmt-Table @("id`tstatus`tintroduced`tpop`tneed`tready`tindex`tpromoted_to"))) { Write-Output $l } }
+    Write-Output "convention-summary: pending=0 ready=0 confirmed(未移送)=0 索引漏れ=0"
+    Write-Output "note: 条項がまだありません（$(CvDirRel) は未作成）。aidev convention new で起こす"
+    return
+  }
   if ($members) { Cv-Members $members $fmt; return }
   $files = @()
   $files += (Get-ChildItem -LiteralPath $d -File -Filter *.md -ErrorAction SilentlyContinue | Sort-Object Name)

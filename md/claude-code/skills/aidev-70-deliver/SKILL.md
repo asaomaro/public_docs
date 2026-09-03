@@ -89,7 +89,7 @@ review を通過した変更を、コミット・PR 作成によって実際に�
      台帳の同期（手順 3.5）→ 変更規模の計測 → aidev approve deliver → aidev verify → コミット → push/PR
      ```
    - **変更規模の計測**（protocol.md「8.」）: `aidev approve deliver` の直前に、着地する**実装**の規模を
-     `git diff --stat HEAD -- . ':!.aidev'` で計測する。**工程成果物（`.aidev/` 配下）は規模に含めない**
+     `git add -A && git diff --cached --stat HEAD -- . ':!.aidev'` で計測する（**先にステージする**——`git diff` は未追跡ファイルを見ないので、新しく足したファイルが規模から丸ごと落ちる）。**工程成果物（`.aidev/` 配下）は規模に含めない**
      （含めると実装の規模が水増しされ、work 間の比較が壊れる）。
      承認は `aidev approve deliver files_changed=<n> insertions=<n> deletions=<n>`。
      - 事後記録モード（手順 1.5）では、既着地コミットの範囲で計測する

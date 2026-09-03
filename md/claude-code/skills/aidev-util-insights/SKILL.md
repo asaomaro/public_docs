@@ -83,13 +83,17 @@ per-work の `retro` が「その作業1件」を振り返るのに対し、こ�
 
    **(a) PJ規約の条項**（`protocol.md`「12.」／詳細は `protocol-conventions.md`）:
    - `aidev convention status` で `ready=yes`（母集団が揃って未判定）の条項を洗い出す。
+     `ready=yes` は「件数が揃った」だけで「判定できる」ではない——`--members` で内訳を見て、
+     scope 内の work が実際に何件あるかを確かめてから判定する。
      `aidev doctor` の「母集団が揃った(N/M)のに未判定」WARN、および `approve deliver` の到達通知も
      同じものを指す。母集団は **`introduced` 以降に着手し deliver 済み**の work だけ。
    - **`index` 列が `no` の条項は判定しない**。索引に載っていない＝自動読込されず**読まれていない**ので、
      指摘が減っていなくてもそれは条項の効果ではない。先に索引へ足し、母集団を取り直す
      （ここで `ineffective` を打つと、届いていないだけの条項を誤って退役させる）。
-   - **数え方と判定手順は `protocol-conventions.md`「効果を判定する」に従う**（`baseline` と導入後の
-     タグ件数の比較／数える範囲／`baseline` に「前を作れない」とある条項の扱い）。
+   - **数え方と判定手順は `protocol-conventions.md`「効果を判定する」に従う**。要点は 3 つ:
+     仮説と突き合わせるのは **`violations`（`[conv:<id>!]`）だけ**でタグ総数ではない、
+     **scope の外の work と条項自身を適用した work は母集団から外す**、
+     **件数が増えたことだけを根拠に `ineffective` を打たない**（示せないなら `defer`）。
    - **陰性は「条項が誤り」を意味しない**（protocol.md「12.」）。理由は `retire --status ineffective --note` に残す。
    - **人間の信号を優先する**: `review.md` の「PR レビュー（人間）」節（`aidev-70-deliver`）の指摘は、AI が書いた
      ラウンド指摘より判定の根拠として重い（他の材料は全段 AI 出力なので、これが唯一の外部信号）。
@@ -134,7 +138,9 @@ per-work の `retro` が「その作業1件」を振り返るのに対し、こ�
 5. 観察を **systemic な改善提案**に変換し、3カテゴリに仕分ける。
    - **製品 / コード**：横断する技術的負債 → 新 issue 候補。
    - **PJ プロセス / 規約**：反復するレビュー指摘・観点抜け → **`docs/aidev/` の条項**として起こす
-     （`aidev convention new` → **`## 規約` の本文を書く**。**AGENTS.md 本体には書かない**。protocol.md「12.」）。
+     （**起票するのは propose**。insights はそのまま実行できる `aidev convention new …` の行を
+     提案として書くところまでで、CLI は打たない。`--scope` と `--baseline` の値もここで用意する。
+     **AGENTS.md 本体には書かない**。protocol.md「12.」）。
      `confirmed` 済み条項の**移送タスク**もここに入れる（未移送は二重管理予備軍）。
    - **ハーネス自体**：工程・ゲート・protocol の構造的不備 → `aidev-*` への変更提案（提案のみ）。
 6. 下記テンプレートで `.aidev/insights/<日付>-insights.md` を生成し、サマリを提示する。

@@ -777,6 +777,13 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail / 5 stri
   # profile: light の逸脱検査（WARN）
   light_warnings
 
+  # autonomous は「重要判断を decisions.md に残す」ことになっている（protocol-autonomous.md）。
+  # 散文でしか守られておらず、実走では 1 本が decisions.md 無しで着地して doctor も素通りした。
+  # 人間が承認していない判断の唯一の証跡なので、欠落を見えるようにする（WARN 止まり）
+  if [ "$(yget "$st" mode)" = autonomous ] && approved_has deliver && [ ! -f "$WORK/decisions.md" ]; then
+    printf '  WARN autonomous なのに decisions.md が無い: 人間が承認していない判断の証跡が残らない\n'
+  fi
+
   # またがり work の検知（WARN）。schema 4 以降のみ＝旧 work を遡って違反扱いしない。
   # 着手時と着地時でハーネス版が違う work は、改修の効果を半分しか受けていない。
   # 気付かずに母集団へ入れると効果検証が鈍るので、ここで見えるようにしておく。
@@ -1214,8 +1221,29 @@ cmd_status() {
   # backlog 側は**掴まれている項目と素の未着手を区別できない**。新規セッションがそこで同じ項目を
   # 二重に選ぶのが 2026-08-01 の事故の再発経路なので、件数を status に出して着手前に見せる。
   inflight=""
-  if [ -d "$AIDEV/works" ]; then
-    for d in "$AIDEV/works"/*/; do
+  # **worktree を横断して数える**。work は自分のブランチ上にしか無いので、ここを現在の tree だけに
+  # すると、並行 worktree で進行中の項目が 0 と出る——二重選択を防ぐための列が、
+  # 並行作業という当の場面でだけ効かない（実走で確認）。git が無ければ現在の tree だけ見る。
+  _iroots="$AIDEV/works"
+  if command -v git >/dev/null 2>&1; then
+    _iwt=$(wt_porcelain 2>/dev/null || true)
+    if [ -n "$_iwt" ]; then
+      _oi=$IFS; IFS='
+'
+      for _il in $_iwt; do
+        _ip=${_il%%	*}
+        [ -d "$_ip/.aidev/works" ] || continue
+        case " $_iroots " in *" $_ip/.aidev/works "*) continue ;; esac
+        # 同じ .aidev を指す tree（main tree 自身）を二重に数えない
+        [ "$_ip/.aidev/works" = "$AIDEV/works" ] && continue
+        _iroots="$_iroots $_ip/.aidev/works"
+      done
+      IFS=$_oi
+    fi
+  fi
+  for _ir in $_iroots; do
+    [ -d "$_ir" ] || continue
+    for d in "$_ir"/*/; do
       [ -d "$d" ] || continue
       _ist="${d}state.yml"; [ -f "$_ist" ] || continue
       _ibl=$(yget "$_ist" backlog); [ -n "$_ibl" ] || continue
@@ -1223,7 +1251,7 @@ cmd_status() {
       inflight="$inflight$_ibl
 "
     done
-  fi
+  done
 
   # ---- backlog 収集（archive/ はサブディレクトリのため *.md グロブで自動除外） ----
   bf=0; bn=0; brows=""
@@ -1304,21 +1332,31 @@ BEGIN{ first=-1; delivered_e=-1; delivered_flag=0; sback=0 }
   if(ev=="start"){
     scount[ph]++
     if(e>=0){ if(first<0||e<first){first=e; firstts=ts}
-              if(!(ph in laststart)||e>laststart[ph]){laststart[ph]=e; laststart_ts[ph]=ts} }
+              if(!(ph in laststart)||e>laststart[ph]){laststart[ph]=e; laststart_ts[ph]=ts}
+              # ラウンドごとの開始を覚える。直近の対だけで elapsed を出すと、差し戻しのあった
+              # 工程が**最短に見える**（実測で review 654 秒が 216 秒と出た）
+              openat[ph]=e }
+    if(!(ph in firststart_ts)) firststart_ts[ph]=ts
   } else if(ev=="approved"){
-    if(e>=0){ appat[ph]=e; appat_ts[ph]=ts }
+    if(e>=0){ appat[ph]=e; appat_ts[ph]=ts
+              if(ph in openat){ elsum[ph]+=e-openat[ph]; delete openat[ph] } }
     if(ph=="deliver"){ delivered_flag=1; if(e>=0) delivered_e=e }
-  } else if(ev=="sent_back"){ sback++ }
+  } else if(ev=="sent_back"){ sback++
+    # 差し戻しも「そのラウンドの終わり」。ここで閉じないと、やり直しぶんが合算から落ちる
+    if(e>=0 && (ph in openat)){ elsum[ph]+=e-openat[ph]; delete openat[ph] } }
 }
 END{
   if(phases=="yes"){
     n=split(PH,arr," ")
     for(i=1;i<=n;i++){ p=arr[i]
       if((p in laststart)||(p in appat)){
-        st=(p in laststart_ts)?laststart_ts[p]:"-"
+        # start は**最初のラウンド**、approved は最後、elapsed は全ラウンドの合計、
+        # rounds は start の回数（1 より大きければ差し戻しがあった工程）
+        st=(p in firststart_ts)?firststart_ts[p]:"-"
         ap=(p in appat_ts)?appat_ts[p]:"-"
-        el="-"; if((p in laststart)&&(p in appat)) el=appat[p]-laststart[p]
-        printf "%s\t%s\t%s\t%s\t%s\n", name, p, st, ap, el
+        el="-"; if(p in elsum) el=elsum[p]
+        rd=(p in scount)?scount[p]:0
+        printf "%s\t%s\t%s\t%s\t%s\t%s\n", name, p, st, ap, el, rd
       }
     }
   } else {
@@ -1389,7 +1427,7 @@ cmd_metrics() {
 "
   done
 
-  if [ "$phasesf" = yes ]; then hdr='work	phase	start	approved	elapsed_sec'
+  if [ "$phasesf" = yes ]; then hdr='work	phase	start	approved	elapsed_sec	rounds'
   else hdr='work	first_start	delivered	lead_sec	reworks	sent_backs	harnessRev	straddle'; fi
 
   if [ "$fmt" = tsv ]; then
@@ -1444,7 +1482,7 @@ wt_shared_warn() {
 }
 
 wt_add() {
-  slug=""; branch=""; base="HEAD"; wpath=""; mode=interactive; ticket=""; depends=""
+  slug=""; branch=""; base="HEAD"; wpath=""; mode=interactive; ticket=""; depends=""; backlog=""; profile=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --branch)  need_arg "$1" $#; branch=$2; shift 2 ;;
@@ -1453,11 +1491,16 @@ wt_add() {
       --mode)    need_arg "$1" $#; mode=$2; shift 2 ;;
       --ticket)  need_arg "$1" $#; ticket=$2; shift 2 ;;
       --depends) need_arg "$1" $#; depends=$2; shift 2 ;;
+      # 内部の new にそのまま渡す。落とすと backlog 出自の刻印が付かず、
+      # **verify の消し込み強制が静かに効かなくなる**（並行経路だけ enforcement が外れる）
+      --backlog) need_arg "$1" $#; backlog=$(basename -- "$2"); shift 2 ;;
+      --profile) need_arg "$1" $#; profile=$2; shift 2 ;;
+      --light)   profile=light; shift ;;
       -*) die "未知のオプション: $1" ;;
       *) [ -z "$slug" ] && slug=$1 || die "slug は1つだけ"; shift ;;
     esac
   done
-  [ -n "$slug" ] || die "使用法: aidev worktree add <slug> [--branch ..] [--base ..] [--path ..] [--mode ..] [--ticket ..] [--depends ..]"
+  [ -n "$slug" ] || die "使用法: aidev worktree add <slug> [--branch ..] [--base ..] [--path ..] [--mode ..] [--profile ..|--light] [--ticket ..] [--depends ..] [--backlog <file>]"
   git_present
   [ -n "$branch" ] || branch="feature/$slug"
   [ -n "$wpath" ] || wpath=$(default_wt_path "$slug")
@@ -1498,6 +1541,8 @@ wt_add() {
     set -- new "$slug" --mode "$mode"
     [ -n "$ticket" ]  && set -- "$@" --ticket "$ticket"
     [ -n "$depends" ] && set -- "$@" --depends "$depends"
+    [ -n "$backlog" ] && set -- "$@" --backlog "$backlog"
+    [ -n "$profile" ] && set -- "$@" --profile "$profile"
     # 先に CLI の実在を見る。無いまま委譲すると「コマンドが無い」というシェルのエラーが出て、
     # 本当の原因（skills が worktree に持ち込まれていない＝未追跡・未コミット）が読めない。
     # ps1 側にも同じ事前検査がある（メッセージを揃える）
@@ -1527,6 +1572,7 @@ wt_list() {
   git_present
 
   rows=""; wtinfo=$(wt_porcelain)
+  MAIN_TREE=$(printf '%s\n' "$wtinfo" | head -n1 | cut -f1)  # porcelain 先頭＝main worktree（wt_rm と同じ判定）
   oldifs=$IFS; IFS='
 '
   for line in $wtinfo; do
@@ -1538,22 +1584,26 @@ wt_list() {
     if [ "$work" != - ] && [ -f "$path/.aidev/works/$work/state.yml" ]; then
       phase=$(yget "$path/.aidev/works/$work/state.yml" current); [ -z "$phase" ] && phase=-
     fi
-    rows="$rows$path	$branch	$work	$phase
+    # main tree もこの条件を満たす（.aidev/current を持つ）。並行 worktree の一覧として読むと
+    # 1 件多く見えるので、種別を列に出す（rm は main を拒否するのに list には出ていた）
+    kind=worktree
+    [ "$path" = "$MAIN_TREE" ] && kind=main
+    rows="$rows$path	$branch	$work	$phase	$kind
 "
   done
   IFS=$oldifs
 
   if [ "$fmt" = tsv ]; then
-    printf '%s' "$rows" | while IFS='	' read -r a b c d; do
+    printf '%s' "$rows" | while IFS='	' read -r a b c d e; do
       [ -z "$a" ] && continue
-      printf 'worktree\t%s\t%s\t%s\t%s\n' "$a" "$b" "$c" "$d"
+      printf 'worktree\t%s\t%s\t%s\t%s\t%s\n' "$a" "$b" "$c" "$d" "$e"
     done
     return 0
   fi
   n=$(printf '%s' "$rows" | grep -c . || true)
   printf 'WORKTREES (%s)\n' "$n"
   if [ "$n" -gt 0 ]; then
-    { printf 'path\tbranch\twork\tphase\n'; printf '%s' "$rows"; } | fmt_table
+    { printf 'path\tbranch\twork\tphase\tkind\n'; printf '%s' "$rows"; } | fmt_table
   fi
 }
 
@@ -1850,18 +1900,19 @@ cmd_convention() {
 }
 
 cv_new() {
-  id=""; hyp=""; src=""; va=""; base=""
+  id=""; hyp=""; src=""; va=""; base=""; scope=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --hypothesis)   need_arg "$1" $#; hyp=${2:-}; shift 2 ;;
       --baseline)     need_arg "$1" $#; base=${2:-}; shift 2 ;;
       --source)       need_arg "$1" $#; src=${2:-}; shift 2 ;;
+      --scope)        need_arg "$1" $#; scope=${2:-}; shift 2 ;;
       --verify-after) need_arg "$1" $#; va=${2:-}; shift 2 ;;
       -*) die "未知のオプション: $1" ;;
       *) if [ -z "$id" ]; then id=$1; else die "id は1つだけ"; fi; shift ;;
     esac
   done
-  [ -n "$id" ] || die "使用法: aidev convention new <id> --hypothesis <text> --baseline <text> [--source <path>] [--verify-after <n>]"
+  [ -n "$id" ] || die "使用法: aidev convention new <id> --hypothesis <text> --baseline <text> [--scope <text>] [--source <path>] [--verify-after <n>]"
   id=$(basename "$id" .md)
   # 仮説を必須にするのが**この層の入口ゲート**。「どの指標がどう動けば成功か」を書けない条項は
   # 後から検証できず、事後の物語作りにしかならない。書けないなら条項にすべきでない
@@ -1888,6 +1939,7 @@ cv_new() {
     printf 'status: pending\n'
     printf 'introduced: %s\n' "$(now)"
     if [ -n "$src" ]; then printf 'source: %s\n' "$src"; fi
+    if [ -n "$scope" ]; then printf 'scope: %s\n' "$scope"; fi
     printf 'hypothesis: %s\n' "$hyp"
     printf 'baseline: %s\n' "$base"
     printf 'verify_after: %s\n' "$va"
@@ -1900,6 +1952,9 @@ cv_new() {
     printf '%s\n' '<!-- どのレビュー指摘/分析から起こしたか（source を人間向けに補足）。 -->'
   } > "$f"
   printf 'created: %s (status pending, verify_after %s)\n' "$f" "$va"
+  # scope が無いと、母集団に「条項の対象外の work」と「条項自身を適用した work」が混ざる。
+  # 機械で絞れないので、せめて宣言させて判定側が外せるようにする（実走で pop 3 のうち対象 1 だった）
+  [ -n "$scope" ] || printf 'warn: --scope が未指定です（どんな work がこの条項の対象か）。母集団に対象外の work が混ざったまま判定することになります\n'
   # 索引に載せないと自動読込されない＝読まれない。doctor も見るが、まずここで促す
   _rel="$(cv_dir_rel)/$id.md"
   _idxl=$(cv_index_label)
@@ -2079,13 +2134,25 @@ cv_archive_file() { # path
 # state.yml/metrics.yml を自分で読んで復元するしかなく、review.md のタグ集計（分子）を
 # 母集団（分母）と同じ集合に絞れなかった。ここで work 名・着手・deliver・タグ件数を同じ集合で出す。
 # タグは subtask の review.md も含めて数える（subtask は親に属する。母集団は top-level だけ）
+# review.md のタグ集計。**指摘行（`- [` 始まり）だけ**を対象にする。
+# mode=any は `[conv:<id>]` と `[conv:<id>!]` の両方、viol は `!` 付き（＝違反）だけ。
+# subtask の review.md も含める（subtask は親に属する）
+cv_count_tags() { # work_dir id any|viol
+  case "$3" in
+    viol) _pat="\[conv:$2!\]" ;;
+    *)    _pat="\[conv:$2!\]\|\[conv:$2\]" ;;
+  esac
+  find "$1" -name review.md -exec grep -h '^[[:space:]]*- \[' {} + 2>/dev/null \
+    | grep -o "$_pat" | wc -l | tr -d ' '
+}
+
 cv_members() { # id fmt
   f=$(cv_find "$1") || die "条項がありません: $1"
   _id=$(cv_id "$1")
   _in=$(cv_get "$f" introduced)
   [ -n "$_in" ] || die "introduced が無い条項です: $_id"
   _b=$(cv_ts_key "$_in") || die "introduced が不正です: $_in"
-  rows=""; n=0; tsum=0
+  rows=""; n=0; tsum=0; vsum=0
   if [ -d "$AIDEV/works" ]; then
     for _pd in "$AIDEV/works"/*/; do
       [ -d "$_pd" ] || continue
@@ -2099,21 +2166,33 @@ cv_members() { # id fmt
       # ts を持つ deliver approved 行のうち最後のもの（ps1 と同じ選び方。手編集で ts の無い行があっても揃う）
       _dts=$(sed -n '/phase: deliver, event: approved/s/^[^{]*{[[:space:]]*ts:[[:space:]]*\([0-9][0-9:TZ.-]*\).*/\1/p' "$_pf" | tail -n1)
       [ -n "$_dts" ] || _dts="-"
-      _tg=$(find "$_pd" -name review.md -exec grep -o -F "[conv:$_id]" {} + 2>/dev/null | wc -l | tr -d ' ')
-      n=$((n+1)); tsum=$((tsum+_tg))
-      rows="${rows}$(basename "$_pd")	${_pts}	${_dts}	${_tg}
+      # 数えるのは**指摘行（`- [` 始まり）のタグだけ**。本文中の言及まで数えると、
+      # 「この条項の指摘は 0 件だった」と書いた行が 1 件として計上される（実測で起きた）
+      _tg=$(cv_count_tags "$_pd" "$_id" any)
+      # 違反（`[conv:<id>!]`）だけを別に数える。タグは「この条項に関係する指摘」に付くので、
+      # 条項が効くほどタグは増える。仮説（違反が減る）を falsify できるのは違反だけ
+      _vi=$(cv_count_tags "$_pd" "$_id" viol)
+      n=$((n+1)); tsum=$((tsum+_tg)); vsum=$((vsum+_vi))
+      rows="${rows}$(basename "$_pd")	${_pts}	${_dts}	${_tg}	${_vi}
 "
     done
   fi
   if [ "$2" = tsv ]; then
-    printf '%s' "$rows" | while IFS='	' read -r a b c e; do
+    printf '%s' "$rows" | while IFS='	' read -r a b c e g; do
       [ -n "$a" ] || continue
-      printf 'member	%s	%s	%s	%s\n' "$a" "$b" "$c" "$e"
+      printf 'member	%s	%s	%s	%s	%s\n' "$a" "$b" "$c" "$e" "$g"
     done
   else
-    { printf 'work	started	delivered	conv_tags\n'; printf '%s' "$rows"; } | fmt_table
+    { printf 'work	started	delivered	conv_tags	violations\n'; printf '%s' "$rows"; } | fmt_table
   fi
-  printf 'members-summary: id=%s pop=%s conv_tags=%s\n' "$_id" "$n" "$tsum"
+  printf 'members-summary: id=%s pop=%s conv_tags=%s violations=%s\n' "$_id" "$n" "$tsum" "$vsum"
+  _sc=$(cv_get "$f" scope)
+  if [ -n "$_sc" ]; then
+    printf 'scope: %s\n' "$_sc"
+    printf 'note: 母集団は introduced 以降の全 work。scope の外の work と条項自身を適用した work は判定から外すこと\n'
+  else
+    printf 'note: scope 未宣言。どの work が仮説の対象かを条項に書くこと（aidev convention new --scope）\n'
+  fi
 }
 
 cv_do_status() {
@@ -2128,7 +2207,14 @@ cv_do_status() {
   done
   case "$fmt" in table|tsv) ;; *) die "--format は table|tsv" ;; esac
   d=$(cv_dir)
-  [ -d "$d" ] || die "条項ディレクトリがありません: $d（aidev convention new で起こす）"
+  # 条項ゼロは**正常な状態**（PJ の出発点）。読み取り専用コマンドをここで落とすと、
+  # review/retro/insights/propose が「毎回エラー経路を踏む」ことになる（実走で 4 工程が踏んだ）
+  if [ ! -d "$d" ]; then
+    if [ "$fmt" = table ]; then printf 'id	status	introduced	pop	need	ready	index	promoted_to\n' | fmt_table; fi
+    printf 'convention-summary: pending=0 ready=0 confirmed(未移送)=0 索引漏れ=0\n'
+    printf 'note: 条項がまだありません（%s は未作成）。aidev convention new で起こす\n' "$(cv_dir_rel)"
+    return 0
+  fi
   if [ -n "$members" ]; then cv_members "$members" "$fmt"; return 0; fi
   # 行は status と同じく「タブ区切り文字列を積んで最後に fmt_table へ流す」形にする
   # （command substitution は末尾改行を落とすので、行の組み立てに $( ) を使わない）
@@ -2500,7 +2586,13 @@ hv_status() {
   done
   case "$fmt" in table|tsv) ;; *) die "--format は table|tsv" ;; esac
   d=$(hv_dir)
-  [ -d "$d" ] || die "ハーネス改修の記録がありません: $d（aidev harness new で登録する）"
+  # 記録ゼロは正常な状態（cv_do_status と同じ理由）
+  if [ ! -d "$d" ]; then
+    if [ "$fmt" = table ]; then printf 'id	status	introduced	introduced_rev	pop	need	ready\n' | fmt_table; fi
+    printf 'harness-summary: pending=0 ready=0\n'
+    printf 'note: ハーネス改修の記録がまだありません（.aidev/harness 未作成）。aidev harness new で登録する\n'
+    return 0
+  fi
   hv_pop_prime
   rows=""; npend=0; nready=0
   for f in "$d"/*.md "$d/archive"/*.md; do

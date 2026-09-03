@@ -61,6 +61,8 @@ CLI が使えない環境のフォールバック: `cat .aidev/current` / `ls .a
 
 `AskUserQuestion` ツールで次の選択肢を提示する（`Other` による自由入力も可）。
 非対応エージェントでは同じ選択肢をテキストで提示する。
+**人間がいない起動では確認できない**ので、起動時の指示が指す作業（backlog 項目・チケット・タスク文）を
+そのまま対象とし、選択肢の提示は省く。何を対象にしたかは requirement に書く。
 
 - **続きから**：既存の作業を選択 → `aidev use <slug>`（`.aidev/current` を更新。存在しない slug は弾かれる）
   → その工程の skill を案内。CLI 無し環境では `.aidev/current` を手で書く。
@@ -82,6 +84,8 @@ CLI が使えない環境のフォールバック: `cat .aidev/current` / `ls .a
   - **この選択肢をハーネスから推奨しない**。並列の要否判断はユーザーの責任で、既定は単一
     ワーキングツリーの直列（`protocol.md`「1.5」）。作業が溜まっていることを理由に AI 側から
     並列化を勧めない。
+  - **backlog 由来ならここでも `--backlog <file>` を渡す**（`aidev worktree add <slug> --backlog <file>`。
+    内部の `new` にそのまま渡る）。落とすと deliver の消し込みを `verify` が検査しなくなる。
   - 選ばれたら **`protocol-worktree.md` を読んでから**実行する（current の worktree ローカル性・
     既存 work を継続する場合のコミット前提・共有ファイルに触るときの注意）。
 
@@ -100,6 +104,10 @@ CLI が使えない環境のフォールバック: `cat .aidev/current` / `ls .a
 
    - **判定はユーザーに確認する**（`AskUserQuestion`）。「小さい変更」の見立ては外れやすく、
      特に共有モジュールの 1 行変更は影響範囲を読み違えやすい。
+   - **人間がいない起動（無人・バッチ・スケジュール実行）では確認できない**。その場合は
+     **full を選び**（迷ったら full の既定に従う）、判定の根拠を作成後に `decisions.md` へ記録する。
+     この判定は `aidev new` より前なので `--mode autonomous` の自動承認が及ばない——
+     **勝手に light を選ばない**のが無人時の安全側。
    - 影響範囲が読めないときは plan モードを使ってよい（`protocol-autonomous.md`。`aidev new` は書き込みなので
      **解除してから**実行する）。
    - 迷ったら **full を選ぶ**。light は後から full へ昇格できる（`aidev escalate`）が、逆はできない。
