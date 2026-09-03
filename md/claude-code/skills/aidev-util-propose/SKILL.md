@@ -33,7 +33,7 @@ AI 開発ワークフローの **planner（課題提案 / L_planner・A 層）**
      適用は人間だが、置き場が無いと insights のレポートに埋もれて毎周再掲される。
      backlog に積んでおけば「未対応の改善」から外れ、人間が着手する順番を決められる。
    - **`confirmed` だが未移送** → 「条項 <id> の本文を PJ ドキュメントへ移送し promote する」
-       （放置すると `docs/aidev/` と PJ ドキュメントの二重管理になる。最優先で拾う）
+       （放置すると `.aidev/conventions/` と PJ ドキュメントの二重管理になる。最優先で拾う）
      - **母集団が揃ったのに未判定** → 「insights で条項 <id> の効果を判定する」
    - **insights の「判定案」節**（条項／ハーネス改修の `confirm` / `retire` の CLI 行）→ **そのまま backlog の
      判定タスクにする**（`- [ ] 条項 <id> を判定: aidev convention confirm <id> --result "…"`）。

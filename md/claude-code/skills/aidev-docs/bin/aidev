@@ -27,7 +27,7 @@
 #   aidev backlog archive [<file>...] [--force]  # 消化しきった backlog を archive/ へ退避（mv のみ・git は触らない）
 #   aidev backlog compact [<file>...]          # [x] 行（と継続行）を archive/<name>-done.md へ移す（無指定は standing 全部）。verify はそこも見る
 #   aidev convention new <id> --hypothesis <text> --baseline <text> [--source <path>] [--verify-after <n>]
-#     PJ規約の条項を docs/aidev/ に起こす。--hypothesis と --baseline が必須＝検証できない条項を作らせない入口ゲート
+#     PJ規約の条項を .aidev/conventions/ に起こす。--hypothesis と --baseline が必須＝検証できない条項を作らせない入口ゲート
 #     （baseline: 導入前にこの観点の指摘が何件あったか。id 別の件数は 0->N と増えるだけで前後比較にならないため）
 #   aidev convention confirm <id> --result <text> [--force]  # 効果あり -> 移送待ち。母集団が揃う前は --force（forced: true が残る）
 #   aidev convention retire  <id> --status ineffective|superseded --note <text> [--force]  # 効果なし/置換で退役（ineffective は母集団が要る）
@@ -183,16 +183,21 @@ harness_rev() {
   printf '%s' "$r"
 }
 
-# --- 条項（docs/aidev の PJ規約）---------------------------------------------------
+# --- 条項（.aidev/conventions の PJ規約）---------------------------------------------------
 # ハーネスが生成した規約は **PJ 所有の AGENTS.md / CLAUDE.md に書き込まない**（protocol.md「12.」）。
-# docs/aidev/ は終着点ではなく**検証中の待避所**で、条項は必ずここから出ていく:
+# 条項ディレクトリは終着点ではなく**検証中の待避所**で、条項は必ずここから出ていく:
 #   効果あり -> PJ ドキュメントへ移送(promote) / 効果なし・置換 -> 退役(retire)
 # 本文の在処を常に1箇所に保つことで二重管理を構造的に防ぐ（移送後は tombstone＝リンクのみ）。
 CV_TERMINAL="promoted ineffective superseded"
 
+# 条項の置き場。既定は `.aidev/conventions`（`conventionsDir` で変更可）。
+# 条項は PJ 規約なので PJ 固有だが、`.aidev/` 自体が PJ 固有の実行時状態（works/backlog/insights/
+# harness/charter）であって配布物ではない——配布されるのは `.claude/skills/aidev-*` だけ。
+# 逆に `docs/` は PJ が所有する領域なので、そこにハーネスの構造（archive/ 付きのディレクトリ）を
+# 作る方が越権になる。移送は「ハーネスの待避所 → PJ ドキュメント」で、領域をまたぐ形が正しい。
 cv_dir() {
   d=$(yget "$AIDEV/config.yml" conventionsDir)
-  [ -n "$d" ] || d="docs/aidev"
+  [ -n "$d" ] || d=".aidev/conventions"
   case "$d" in /*) printf '%s' "$d" ;; *) printf '%s/%s' "$ROOT" "$d" ;; esac
 }
 
@@ -1834,7 +1839,7 @@ bl_do_archive() {
 }
 
 # --- 索引（AGENTS.md の aidev:conventions ブロック）------------------------------
-# AGENTS.md / CLAUDE.md は**自動読込**されるが `docs/aidev/` はされない。索引に載っていない条項は
+# AGENTS.md / CLAUDE.md は**自動読込**されるが条項ディレクトリはされない。索引に載っていない条項は
 # **読まれないまま**works が流れ、効果検証で「効かなかった」と誤判定される——条項の内容の問題ではなく
 # 単に届いていないだけなのに。CLI が「索引に足せ」と言うだけで誰も見ていないと、この誤判定が
 # 静かに積み上がる。そこで doctor が索引を突き合わせる。
@@ -2325,7 +2330,7 @@ doctor_conventions() {
         fi ;;
       confirmed)
         if [ "$arch" = no ]; then
-          # 効果が確認された条項が docs/aidev に居座ると、PJ ドキュメントと二重管理になる
+          # 効果が確認された条項が条項ディレクトリに居座ると、PJ ドキュメントと二重管理になる
           w="$w    WARN confirmed だが未移送: PJ ドキュメントへ移して promote すること
 "
         fi ;;
@@ -2400,7 +2405,7 @@ $w"
 }
 
 # --- ハーネス改修の仮説登録（.aidev/harness/<id>.md） -----------------------------
-# 条項（docs/aidev）には入口（仮説・baseline 必須）と出口（母集団ゲート）があるのに、ハーネス自身の
+# 条項には入口（仮説・baseline 必須）と出口（母集団ゲート）があるのに、ハーネス自身の
 # 改修には仮説を受ける口が無く、DESIGN が最も警戒する「事後の物語作り」がそのまま起きていた。
 # 同じ型の記録を PJ の .aidev/harness/ に置く（この PJ で回した work を母集団にする）。
 # 母集団 = introduced 以降に着手し、deliver 済みで、**またがっていない**（harnessRev == harnessRevDelivered）

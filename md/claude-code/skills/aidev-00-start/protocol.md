@@ -508,9 +508,9 @@ review 工程はラウンドごとに追記する（差し戻し後の再レビ�
 **light**（振る舞いを変えない小規模＝上流 3 工程を requirement の 1 ゲートに畳む。coding 以降は full と同一）／
 **full**。light の条件・4 文書の必須節・昇格（`aidev escalate`。片方向）は `protocol-light.md`。
 
-## 12. PJ規約の条項（docs/aidev）と効果検証
+## 12. PJ規約の条項（`.aidev/conventions`）と効果検証
 
-ハーネスが生成した PJ 規約は **PJ 所有の AGENTS.md には書かず** `docs/aidev/<id>.md` に置き、
+ハーネスが生成した PJ 規約は **PJ 所有の AGENTS.md には書かず** `.aidev/conventions/<id>.md` に置き、
 AGENTS.md には**読む条件つきの索引**（`<!-- aidev:conventions -->` ブロック）だけを置く。条項は
 `pending → confirmed → promoted`（PJ ドキュメントへ移送。本文の在処は常に1箇所）または
 `ineffective / superseded` で出ていく。起票は `hypothesis` と `baseline` が必須。review は指摘に

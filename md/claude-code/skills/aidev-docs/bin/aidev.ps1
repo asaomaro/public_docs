@@ -21,7 +21,7 @@
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 convention <new|confirm|retire|defer|promote|status> ...
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 harness <new|confirm|retire|status> ...
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 backlog <new|archive|compact> ...
-#     PJ規約の条項を docs/aidev/ で起こし・判定し・PJ ドキュメントへ移送する（protocol.md「12.」）
+#     PJ規約の条項を .aidev/conventions/ で起こし・判定し・PJ ドキュメントへ移送する（protocol.md「12.」）
 #     new は --hypothesis と --baseline が必須（検証できない条項を作らせない入口ゲート）
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree add <slug> [--branch n] [--base ref] [--path dir] [--mode m] [--ticket id] [--depends list]
 
@@ -224,13 +224,14 @@ function HarnessRev() {
   } catch { return 'unknown' }
 }
 
-# --- 条項（docs/aidev の PJ規約）---------------------------------------------------
+# --- 条項（.aidev/conventions の PJ規約）---------------------------------------------------
 # ハーネスが生成した規約は PJ 所有の AGENTS.md / CLAUDE.md に書き込まない（protocol.md「12.」）。
-# docs/aidev/ は終着点ではなく**検証中の待避所**で、条項は必ずここから出ていく
+# 条項ディレクトリは終着点ではなく**検証中の待避所**で、条項は必ずここから出ていく
 #（効果あり -> PJ ドキュメントへ移送 / 効果なし・置換 -> 退役）。本文の在処を常に1箇所に保つ。
+# 条項の置き場。既定は .aidev/conventions（理由は sh 版のコメント）
 function CvDir() {
   $d = YGet (Join-Path $script:AIDEV 'config.yml') 'conventionsDir'
-  if (-not $d) { $d = 'docs/aidev' }
+  if (-not $d) { $d = '.aidev/conventions' }
   if ([System.IO.Path]::IsPathRooted($d)) { return $d }
   return (Join-Path $script:ROOT $d)
 }
@@ -387,7 +388,7 @@ function CvReadyNotice() {
 }
 
 # --- 索引（AGENTS.md の aidev:conventions ブロック）------------------------------
-# AGENTS.md / CLAUDE.md は自動読込されるが docs/aidev/ はされない。索引に載っていない条項は
+# AGENTS.md / CLAUDE.md は自動読込されるが条項ディレクトリはされない。索引に載っていない条項は
 # 読まれないまま works が流れ、効果検証で「効かなかった」と誤判定される（条項の内容の問題ではなく
 # 単に届いていないだけなのに）。doctor が索引を突き合わせる。
 $script:CV_IDX_OPEN = '<!-- aidev:conventions -->'
@@ -2536,7 +2537,7 @@ function Doctor-Conventions() {
         }
       }
     } elseif ($st -ceq 'confirmed') {
-      # 効果が確認された条項が docs/aidev に居座ると PJ ドキュメントと二重管理になる
+      # 効果が確認された条項が条項ディレクトリに居座ると PJ ドキュメントと二重管理になる
       if (-not $isArc) { $w += "    WARN confirmed だが未移送: PJ ドキュメントへ移して promote すること" }
     } elseif ($st -ceq 'promoted') {
       if (-not (CvGet $path 'promoted_to')) { $w += "    WARN promoted だが promoted_to が無い: 本文の行き先が辿れない" }
