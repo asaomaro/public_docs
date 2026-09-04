@@ -144,9 +144,8 @@ backlog は**遅延キュー**で、完了した行を閉じるのは deliver �
 （**backlog 行は deliver で `[x]`**。モデルは `DESIGN.md`「2.5」）。
 
 - **記録**: `aidev new <slug> --backlog <file>` で出自を刻む（「6.」）。**どちらの入口でも省略しない**。
-- **強制**: `backlog:` を持つ work は、その backlog ファイルの **`- [x]` 行かその継続行**に自分の slug が
-  現れないと **`aidev verify` が FAIL する**（deliver の着地前ゲートで弾かれる。未着手行の `(needs: <slug>)` は
-  消し込みと認めない）。
+- **強制**: `backlog:` を持つ work は deliver で消し込まないと **`aidev verify` が FAIL する**
+  （書き方と例外は `protocol-backlog.md`）。
 - **backlog を扱うときは `protocol-backlog.md` を読む**——項目を選ぶとき（`inflight` の確認）と、
   deliver で消し込むとき。消し込みの書き方は `aidev-70-deliver`「3.5」。
 
@@ -290,9 +289,8 @@ backlog は**遅延キュー**で、完了した行を閉じるのは deliver �
   - walkthrough：review 終了時に次のいずれかを検知したら `承認して walkthrough(任意) を挟む`（推奨）を加える。
     **この3条件が正典**（`aidev-60-review` / `aidev-65-walkthrough` はここを参照する）。
     - 差分が大きい（変更ファイル数・行数が多く全体像を掴みにくい）
-    - 複数モジュールを横断する——**design の条件1と同じ但し書きが要る**。単に複数ファイルを
-      触るだけでは当たらない（小さな PJ では 2 ファイルの変更が常態で、触ったファイル数で読むと
-      任意工程が事実上必須になる）。見るのは**責務や依存の向きが跨いでいるか**
+    - 複数モジュールを横断する——**design の条件1と同じ但し書き**（触ったファイル数では読まない。
+      見るのは責務や依存の向きが跨いでいるか）
     - 処理フローが複雑（非自明な制御フロー・状態遷移・トリッキーな実装）
   - 検知は推奨に留め、強制しない。ユーザーが却下すれば次の標準工程へ進める。
   - **autonomous モード**では、推奨ではなく**自律的に採否を決定**する（検知したら実施。「10.」参照）。
@@ -567,6 +565,10 @@ AGENTS.md には**読む条件つきの索引**（`<!-- aidev:conventions -->` �
 `ineffective / superseded` で出ていく。起票は `hypothesis` と `baseline` が必須。review は指摘に
 `[conv:<id>]` を付ける（「8.」）。**矛盾したときは PJ の AGENTS.md 本体が上位**。
 起票・判定・移送・索引・スキーマ・CLI は `protocol-conventions.md`。
+
+**効果を数える母集団は「review のラウンド指摘 ＋ タスク点検ログ」の両方**（`review.md` 全体）。
+`must` の件数だけで数えると、点検が効くほど条項が効いていないように見える
+（理由は `protocol-conventions.md`）。
 
 ### ハーネス自身の効果検証（harnessRev）
 

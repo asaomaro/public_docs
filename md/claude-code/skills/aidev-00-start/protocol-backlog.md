@@ -23,6 +23,11 @@ backlog は**遅延キュー**で、作業が完了したらその行を閉じ�
 - **ファイル自身の一生は `aidev doctor` が見る**（`verify` は work にぶら下がる検査なので、退避・
   `kind` frontmatter・項目の書式というファイル側の話は持ち主の work がいない）。検知するのは
   退避漏れ／`kind` の欠落・誤記／`status` が数えない書式／`archive/` に残った未消化。**WARN 止まり**。
+- **掴んだ行は `--backlog-item` で刻む**（`aidev new` / `aidev worktree add`）。`backlog:` は
+  ファイル名までしか持たないので、並行 N 本が同じファイルの別項目を掴んでいても `inflight` は
+  件数しか言えない。刻めば `aidev status` の `HELD` に行単位で出て、**同じ項目を 2 本が作業中なら
+  警告**する。`deliver` 済み・未マージの行も `HELD` に残る——`inflight` から外れ `todo` に戻るので、
+  台帳だけ見ると未着手に見える区間がある（**次に選ぶ前は `HELD` を見る**）。
 - **積む・退避するも CLI にある**（`aidev backlog new --kind …` / `archive` / `compact`。判定は doctor と同一関数）。
   `standing` は退避されず `[x]` 行が増える一方なので、`aidev backlog compact` で消化済み行を
   `archive/<name>-done.md` へ移す（`verify` はそこも見る）。

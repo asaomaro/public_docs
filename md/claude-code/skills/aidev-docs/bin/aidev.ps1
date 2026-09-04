@@ -5,7 +5,7 @@
 # 役割と正典は `aidev` 冒頭コメント／protocol.md「4.1」を参照。
 #
 # 使い方:
-#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 new <slug> [--mode interactive|autonomous] [--profile full|light] [--light] [--ticket ID] [--depends a,b,#N] [--parent <親work>] [--backlog <file>]
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 new <slug> [--mode interactive|autonomous] [--profile full|light] [--light] [--ticket ID] [--depends a,b,#N] [--parent <親work>] [--backlog <file>] [--backlog-item <text>]
 #     --parent 指定時は親 work 配下に subtask（<NN>-<subslug>・date prefix なし・current=plan）を作る
 #     --profile/--light は「どこまで工程を回すか」（protocol.md「11.」）。mode（誰が承認するか）と直交
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 escalate [slug]   # profile を light -> full に昇格（片方向）
@@ -30,7 +30,7 @@
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 backlog <new|archive|compact> ...
 #     PJ規約の条項を .aidev/conventions/ で起こし・判定し・PJ ドキュメントへ移送する（protocol.md「12.」）
 #     new は --hypothesis と --baseline が必須（検証できない条項を作らせない入口ゲート）
-#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree add <slug> [--branch n] [--base ref] [--path dir] [--mode m] [--profile p|--light] [--ticket id] [--depends list] [--backlog <file>]
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree add <slug> [--branch n] [--base ref] [--path dir] [--mode m] [--profile p|--light] [--ticket id] [--depends list] [--backlog <file>] [--backlog-item <text>]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree list [--format table|tsv]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree files [--planned] [--all] [--format table|tsv]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree rm <slug|path> [--force] [--delete-branch]
@@ -387,9 +387,10 @@ function CvReadyNotice() {
     if ([int]$va -le 0) { continue }
     $pop = CvPop $intro
     # 跨いだ瞬間だけ鳴らす（-ge だと以後の全 deliver で全条項ぶん鳴り続ける。sh 版と同じ）
-    if ([int]$pop -eq [int]$va) {
+    # 未判定のあいだは鳴らし続ける（sh 版 cv_ready_notice の注記に理由）
+    if ([int]$pop -ge [int]$va) {
       $id = [System.IO.Path]::GetFileNameWithoutExtension($fi.Name)
-      Write-Output "note: 条項 $id の母集団が揃いました($pop/$va)。insights で効果を判定してください"
+      Write-Output "note: 条項 $id の母集団が揃っています($pop/$va)。insights で効果を判定してください（判定するまで毎回出ます）"
     }
   }
 }
@@ -460,13 +461,14 @@ function Cmd-New($rest) {
       # 素で Split-Path に渡すと 'Cannot bind argument...' の生の .NET 例外が出て、
       # 同じ入力で片方は work を作り片方は落ちる
       '--backlog' { $i++; $_bv=(ArgAt $rest $i '--backlog'); if ($_bv) { $backlog=Split-Path -Leaf $_bv } }
+      '--backlog-item' { $i++; $backlogitem=(ArgAt $rest $i '--backlog-item') }
       default {
         if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
         if ($slug) { Die "slug は1つだけ" } else { $slug=$rest[$i] }
       }
     }
   }
-  if (-not $slug) { Die "使用法: aidev new <slug> [--mode ..] [--profile ..|--light] [--ticket ..] [--depends ..] [--parent <親work>] [--backlog <file>]" }
+  if (-not $slug) { Die "使用法: aidev new <slug> [--mode ..] [--profile ..|--light] [--ticket ..] [--depends ..] [--parent <親work>] [--backlog <file>] [--backlog-item <text>]" }
   # backlog 出自は「消し込み忘れ」を verify で捕まえるための刻印。存在しないファイルを
   # 指したまま進むと deliver 直前まで気づけないので、この場で弾く（sh 版と同一）
   if ($backlog -and -not (IsFile (Join-Path (Join-Path $script:AIDEV 'backlog') $backlog))) {
@@ -549,6 +551,8 @@ function Cmd-New($rest) {
   $sb += "current: requirement`napproved: []`nmode: $mode`nprofile: $profile`nhumanGates: []`nmaxSendBacks: 3`ndependsOn: $depsYaml`n"
   $sb += "harnessRev: $(HarnessRev)`n"
   if ($backlog) { $sb += "backlog: $backlog`n" }
+  # どの行を掴んだか（sh 版 cmd_new の注記に理由）
+  if ($backlogitem) { $sb += "backlogItem: $backlogitem`n" }
   WriteText (Join-Path $work 'state.yml') $sb
   WriteText (Join-Path $work 'metrics.yml') "events:`n"
   WriteText (Join-Path $script:AIDEV 'current') "$name`n"
@@ -1933,6 +1937,7 @@ function Cmd-Status($rest) {
   # in-flight 収集（sh 版と同一）: backlog 刻印を持ち、まだ deliver していない work。
   # backlog 行が [x] になるのは deliver なので、その間 backlog 側は掴まれた項目を区別できない。
   $inflight = @{}
+  $script:HELD_ROWS = @()
   # worktree を横断して数える（sh 版と同一）。現在の tree だけ見ると、並行 worktree で進行中の
   # 項目が 0 と出て、二重選択を防ぐための列が並行作業のときだけ効かない
   $iroots = @((Join-Path $script:AIDEV 'works'))
@@ -1955,8 +1960,13 @@ function Cmd-Status($rest) {
       if (-not (IsFile $ist)) { continue }
       $ibl = YGet $ist 'backlog'
       if ([string]::IsNullOrEmpty($ibl)) { continue }
-      if ((YList $ist 'approved') -ccontains 'deliver') { continue }
-      if ($inflight.ContainsKey($ibl)) { $inflight[$ibl]++ } else { $inflight[$ibl] = 1 }
+      $iitem = YGet $ist 'backlogItem'
+      $idone = if ((YList $ist 'approved') -ccontains 'deliver') { '着地済' } else { '作業中' }
+      if ($idone -ceq '作業中') {
+        if ($inflight.ContainsKey($ibl)) { $inflight[$ibl]++ } else { $inflight[$ibl] = 1 }
+      }
+      # 行単位の保持状況（deliver 済みも載せる。sh 版の注記に理由）
+      if ($iitem) { $script:HELD_ROWS += ($iitem + "`t" + $d.Name + "`t" + $idone) }
     }
   }
 
@@ -1998,6 +2008,21 @@ function Cmd-Status($rest) {
   Write-Output ""
   Write-Output "BACKLOG (未着手 $bn 件)"
   if ($bf -gt 0) { foreach ($l in (Fmt-Table (@("file`ttodo`tneeds`tinflight") + $brows))) { Write-Output $l } }
+  # 行単位の保持状況（sh 版 cmd_status の注記に理由）
+  if ($script:HELD_ROWS.Count -gt 0) {
+    Write-Output "HELD (掴まれている項目)"
+    # 表にしない（sh 版の注記に理由）
+    $hr = [string[]]@($script:HELD_ROWS); [Array]::Sort($hr, [System.StringComparer]::Ordinal)
+    foreach ($l in $hr) { $c = $l -split "`t"; Write-Output "  - [$($c[2])] $($c[0])（$($c[1])）" }
+    $act = @($hr | Where-Object { $_ -like "*`t作業中" } | ForEach-Object { ($_ -split "`t")[0] })
+    $dup = @($act | Group-Object | Where-Object { $_.Count -gt 1 } | ForEach-Object { $_.Name })
+    [Array]::Sort([string[]]$dup, [System.StringComparer]::Ordinal)
+    foreach ($di in $dup) { Write-Output "⚠ 同じ項目を 2 本以上が作業中です（二重着手）: $di" }
+    if ($hr | Where-Object { $_ -like "*`t着地済" }) {
+      Write-Output "note: state=着地済 は deliver 済み・**未マージ**。[x] は main tree に来ていないので"
+      Write-Output "      台帳だけ見ると未着手に見える。次に選ぶときはこの表で除くこと"
+    }
+  }
 }
 
 # --- metrics（読み取り専用・metrics.yml から派生指標を集計） ----------------------
@@ -2252,9 +2277,9 @@ function HvReadyNotice() {
     if ($va -notmatch '^\d+$') { continue }
     if ([int]$va -le 0) { continue }
     $pop = HvPop $intro
-    if ([int]$pop -eq [int]$va) {
+    if ([int]$pop -ge [int]$va) {
       $id = [System.IO.Path]::GetFileNameWithoutExtension($fi.Name)
-      Write-Output "note: ハーネス改修 $id の母集団が揃いました($pop/$va)。insights で効果を判定してください"
+      Write-Output "note: ハーネス改修 $id の母集団が揃っています($pop/$va)。insights で効果を判定してください（判定するまで毎回出ます）"
     }
   }
 }
@@ -2605,6 +2630,7 @@ function Wt-Add($rest) {
       '--depends' { $i++; $depends=(ArgAt $rest $i '--depends') }
       # 内部の new に渡す。落とすと verify の消し込み強制が静かに効かなくなる（sh 版と同一）
       '--backlog' { $i++; $backlog=(Split-Path -Leaf (ArgAt $rest $i '--backlog')) }
+      '--backlog-item' { $i++; $backlogitem=(ArgAt $rest $i '--backlog-item') }
       '--profile' { $i++; $profile=(ArgAt $rest $i '--profile') }
       '--light'   { $profile='light' }
       default {
@@ -2662,6 +2688,7 @@ function Wt-Add($rest) {
     if ($ticket)  { $argv += @('--ticket', $ticket) }
     if ($depends) { $argv += @('--depends', $depends) }
     if ($backlog) { $argv += @('--backlog', $backlog) }
+    if ($backlogitem) { $argv += @('--backlog-item', $backlogitem) }
     if ($profile) { $argv += @('--profile', $profile) }
     # ロールバックは **Pop-Location の後**に回す。try の中で呼ぶと finally の Pop-Location と
     # 二重になり、しかも worktree の中に居るまま `git worktree remove` を打つことになる

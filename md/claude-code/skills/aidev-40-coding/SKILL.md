@@ -69,10 +69,12 @@ plan / tasks に沿ってコードを書く。`tasks.md` の未チェック項�
    - 指摘はその場で直す。同一タスクの「点検 → 修正」は `.aidev/config.yml` の `maxTaskCheckRounds`
      （既定 2）まで。**超えても直らないなら、粘らずに原因究明へ倒す**——`aidev debug start` で
      **まっさらなコンテキスト**に原因だけを調べさせる（`protocol-debug.md`）。
-     これまでの修正の試行履歴は渡さない（渡すと同じ穴を掘り続ける）。
+     これまでの修正の試行履歴は渡さない。
    - 直した指摘の**内容**は `review.md` の「タスク点検ログ」節に1件1行で追記する
      （書式は protocol.md「8.」。無ければ生成する）。**点検した数と直した数を工程終了時まで数えておく**。
-   - `profile: light` では行わない。委譲機構が無ければ同一セッションで観点を切り替えて読み直す。
+   - `profile: light` では行わない——**`mode` より `profile` が優先**（`protocol.md`「3.3」の
+     「`profile: light` では使わない」は無条件）。`light × autonomous` でも点検はせず `task_checks=0`。
+     委譲機構が無ければ同一セッションで観点を切り替えて読み直す。
 6. タスク完了ごとに `tasks.md` の該当項目にチェックを付ける（**点検を委譲しても、チェックを書くのは主エージェント**）。
    - **タスクを足したら `AC:` も書く**（`aidev-30-plan` と同じ書式）。coding 中に増えたタスクだけ `AC:` が
      欠けると、review で打つ `aidev coverage` の gap が増え、乖離の在処が分からなくなる。
@@ -83,11 +85,8 @@ plan / tasks に沿ってコードを書く。`tasks.md` の未チェック項�
    task_check_mode=<delegated|same_session>`
    （protocol.md「3.」「8.」）。探索し直しが 0 なら `unplanned_lookups=0`、点検を1件も行わなかったなら
    `task_checks=0` を明示的に記録する（省略すると「測っていない」と区別できない）。
-   `task_check_mode` は**どう点検したか**——`delegated`（別コンテキストへ委譲）か
-   `same_session`（委譲機構が無く同一セッションで読み直した。`protocol-check.md` のフォールバック）。
-   **点検が効く理由はコンテキスト分離**なので、これを残さないと「別コンテキストが見て 0 件」と
-   「本人が読み直して 0 件」が同じ数字として足し上がり、効果を横断で測れない
-   （`task_checks=0` なら不要。`task_checks>0` で欠けると `verify --strict` が FAIL）。
+   `task_check_mode` は**どう点検したか**——`delegated` か `same_session`（理由は `protocol-check.md`）。
+   `task_checks=0` なら不要。`task_checks>0` で欠けると `verify --strict` が FAIL。
 
 ## 留意点
 

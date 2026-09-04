@@ -8,7 +8,7 @@
 #
 # 使い方:
 #   aidev new <slug> [--mode interactive|autonomous] [--profile full|light] [--light] [--ticket ID]
-#                    [--depends a,b,#N] [--parent <親work>] [--backlog <file>]
+#                    [--depends a,b,#N] [--parent <親work>] [--backlog <file>] [--backlog-item <text>]
 #     --parent 指定時は親 work 配下に subtask（<NN>-<subslug>・date prefix なし・current=plan）を作る
 #     --backlog は backlog 項目から起こした work に出自を刻む（deliver での消し込みを verify が強制する）
 #     --profile/--light は「どこまで工程を回すか」（protocol.md「11.」）。mode（誰が承認するか）と直交
@@ -52,7 +52,7 @@
 #   aidev harness confirm <id> --result <text> [--force] / retire <id> --status ineffective|superseded --note <text> [--force]
 #   aidev harness status [--format table|tsv]   # 改修ごとの母集団（導入後に着手し、またがらずに deliver した work）と判定可否
 #   aidev worktree add <slug> [--branch n] [--base ref] [--path dir] [--mode m] [--profile p|--light]
-#                            [--ticket id] [--depends list] [--backlog <file>]
+#                            [--ticket id] [--depends list] [--backlog <file>] [--backlog-item <text>]
 #                                              # work 専用の git worktree+ブランチを作る（ユーザー責任の並行 on-ramp）
 #     new へ委譲する引数は new と同じ意味（--backlog を落とすと deliver の消し込み強制が静かに外れる）
 #   aidev worktree list [--format table|tsv]   # aidev 管理 worktree を一覧（読み取り専用）
@@ -339,10 +339,13 @@ cv_ready_notice() {
     case "$va" in ''|*[!0-9]*) continue ;; esac
     [ "$va" -gt 0 ] || continue
     pop=$(cv_pop "$intro")
-    # 跨いだ瞬間だけ鳴らす（-ge だと以後の全 deliver で全条項ぶん鳴り続ける）。
-    # doctor の WARN と status の ready=yes は従来どおり残る
-    if [ "$pop" -eq "$va" ]; then
-      printf 'note: 条項 %s の母集団が揃いました(%s/%s)。insights で効果を判定してください\n' \
+    # **未判定のあいだは鳴らし続ける**（`-ge`）。等号だけにしていたのは「全 deliver で
+    # 全条項ぶん鳴り続ける」のを避けるためだったが、この関数は既に `status: pending` の
+    # 条項しか見ていないので、鳴り続けるのは**まだ誰も判定していない条項**だけ。
+    # 判定すれば止まる＝**直せる催促**であり、鳴らさない理由が無い。
+    # 実走では、跨いだ後に着地した work に信号が一度も届かなかった（pop 5→6 で無音）。
+    if [ "$pop" -ge "$va" ]; then
+      printf 'note: 条項 %s の母集団が揃っています(%s/%s)。insights で効果を判定してください（判定するまで毎回出ます）\n' \
         "$(basename "$f" .md)" "$pop" "$va"
     fi
   done
@@ -350,7 +353,7 @@ cv_ready_notice() {
 
 # --- コマンド: new ------------------------------------------------------------
 cmd_new() {
-  slug=""; mode=""; profile=""; ticket=""; depends=""; parent=""; backlog=""
+  slug=""; mode=""; profile=""; ticket=""; depends=""; parent=""; backlog=""; backlogitem=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --mode) need_arg "$1" $#; mode=$2; shift 2 ;;
@@ -362,11 +365,12 @@ cmd_new() {
       # `--` を付けないと、値が `-` で始まるとき basename 自身の使い方エラーが
       # `aidev:` 前置なしで漏れる（need_arg を入れた動機と同じ穴）
       --backlog) need_arg "$1" $#; backlog=$(basename -- "$2"); shift 2 ;;
+      --backlog-item) need_arg "$1" $#; backlogitem=$2; shift 2 ;;
       -*) die "未知のオプション: $1" ;;
       *) [ -z "$slug" ] && slug=$1 || die "slug は1つだけ"; shift ;;
     esac
   done
-  [ -n "$slug" ] || die "使用法: aidev new <slug> [--mode ..] [--profile ..|--light] [--ticket ..] [--depends ..] [--parent <親work>] [--backlog <file>]"
+  [ -n "$slug" ] || die "使用法: aidev new <slug> [--mode ..] [--profile ..|--light] [--ticket ..] [--depends ..] [--parent <親work>] [--backlog <file>] [--backlog-item <text>]"
   # backlog 出自は「消し込み忘れ」を verify で捕まえるための刻印。存在しないファイルを
   # 指したまま進むと deliver 直前まで気づけないので、この場で弾く
   if [ -n "$backlog" ] && [ ! -f "$AIDEV/backlog/$backlog" ]; then
@@ -485,6 +489,11 @@ cmd_new() {
     printf 'harnessRev: %s\n' "$(harness_rev)"
     # `[ … ] && printf` にしない（set -eu 下で group の戻り値が 1 になる形を避ける。下の注記と同じ理由）
     if [ -n "$backlog" ]; then printf 'backlog: %s\n' "$backlog"; fi
+    # **どの行を掴んだか**。`backlog:` はファイル名までしか持たないので、
+    # 並行 N 本が同じファイルの別項目を掴んでいると `inflight` は「3」としか言えず、
+    # **どの行が空いているか**を機械が答えられない（実走で 4 体目が完了済みの項目を
+    # 選びうる状態になった）。行の文言を刻んで、行単位で見えるようにする
+    if [ -n "$backlogitem" ]; then printf 'backlogItem: %s\n' "$backlogitem"; fi
   } > "$WORK/state.yml"
 
   printf 'events:\n' > "$WORK/metrics.yml"
@@ -2139,14 +2148,24 @@ cmd_status() {
       IFS=$_oi
     fi
   fi
+  HELD_ROWS=""
   for _ir in $_iroots; do
     [ -d "$_ir" ] || continue
     for d in "$_ir"/*/; do
       [ -d "$d" ] || continue
       _ist="${d}state.yml"; [ -f "$_ist" ] || continue
       _ibl=$(yget "$_ist" backlog); [ -n "$_ibl" ] || continue
-      case " $(ylist "$_ist" approved) " in *" deliver "*) continue ;; esac
-      inflight="$inflight$_ibl
+      _iitem=$(yget "$_ist" backlogItem)
+      _islug=$(basename "${d%/}")
+      case " $(ylist "$_ist" approved) " in
+        *" deliver "*) _idone=着地済 ;;
+        *)             _idone=作業中; inflight="$inflight$_ibl
+" ;;
+      esac
+      # 行単位の保持状況。**deliver 済みも載せる**——deliver は PR 作成で終わりで、
+      # マージするまで `[x]` は main tree に来ない。そこが `inflight` の死角だった
+      # （`todo` に戻り `inflight` からは外れるので、台帳だけ見ると未着手に見える）
+      [ -n "$_iitem" ] && HELD_ROWS="$HELD_ROWS$_iitem	$_islug	$_idone
 "
     done
   done
@@ -2201,6 +2220,27 @@ cmd_status() {
   printf 'BACKLOG (未着手 %s 件)\n' "$bn"
   if [ "$bf" -gt 0 ]; then
     { printf 'file\ttodo\tneeds\tinflight\n'; printf '%s' "$brows"; } | fmt_table
+  fi
+  # 行単位の保持状況。`inflight` はファイル単位の件数しか言えないので、
+  # **どの行が空いているか**はここを見る（`--backlog-item` を渡した work だけ載る）
+  if [ -n "${HELD_ROWS:-}" ]; then
+    # 表にしない。項目は自由文（多バイト・長さまちまち）で、桁揃えは sh と ps1 で
+    # 幅の数え方が違い出力が割れる。1 行 1 件の素の並びにする
+    printf 'HELD (掴まれている項目)\n'
+    printf '%s' "$HELD_ROWS" | LC_ALL=C sort | while IFS='	' read -r _hi _hw _hs; do
+      [ -n "$_hi" ] && printf '  - [%s] %s（%s）\n' "$_hs" "$_hi" "$_hw"
+    done
+    # 同じ項目を 2 本以上が**作業中**で掴んでいたら二重着手（並行の事故）
+    _dup=$(printf '%s' "$HELD_ROWS" | grep '	作業中$' | cut -f1 | LC_ALL=C sort | uniq -d) || true
+    if [ -n "$_dup" ]; then
+      printf '%s\n' "$_dup" | while read -r _di; do
+        [ -n "$_di" ] && printf '⚠ 同じ項目を 2 本以上が作業中です（二重着手）: %s\n' "$_di"
+      done
+    fi
+    if printf '%s' "$HELD_ROWS" | grep -q '	着地済$'; then
+      printf 'note: state=着地済 は deliver 済み・**未マージ**。[x] は main tree に来ていないので\n'
+      printf '      台帳だけ見ると未着手に見える。次に選ぶときはこの表で除くこと\n'
+    fi
   fi
 }
 
@@ -2496,7 +2536,7 @@ wt_shared_warn() {
 }
 
 wt_add() {
-  slug=""; branch=""; base="HEAD"; wpath=""; mode=interactive; ticket=""; depends=""; backlog=""; profile=""
+  slug=""; branch=""; base="HEAD"; wpath=""; mode=interactive; ticket=""; depends=""; backlog=""; profile=""; backlogitem=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --branch)  need_arg "$1" $#; branch=$2; shift 2 ;;
@@ -2508,13 +2548,14 @@ wt_add() {
       # 内部の new にそのまま渡す。落とすと backlog 出自の刻印が付かず、
       # **verify の消し込み強制が静かに効かなくなる**（並行経路だけ enforcement が外れる）
       --backlog) need_arg "$1" $#; backlog=$(basename -- "$2"); shift 2 ;;
+      --backlog-item) need_arg "$1" $#; backlogitem=$2; shift 2 ;;
       --profile) need_arg "$1" $#; profile=$2; shift 2 ;;
       --light)   profile=light; shift ;;
       -*) die "未知のオプション: $1" ;;
       *) [ -z "$slug" ] && slug=$1 || die "slug は1つだけ"; shift ;;
     esac
   done
-  [ -n "$slug" ] || die "使用法: aidev worktree add <slug> [--branch ..] [--base ..] [--path ..] [--mode ..] [--profile ..|--light] [--ticket ..] [--depends ..] [--backlog <file>]"
+  [ -n "$slug" ] || die "使用法: aidev worktree add <slug> [--branch ..] [--base ..] [--path ..] [--mode ..] [--profile ..|--light] [--ticket ..] [--depends ..] [--backlog <file>] [--backlog-item <text>]"
   git_present
   [ -n "$branch" ] || branch="feature/$slug"
   [ -n "$wpath" ] || wpath=$(default_wt_path "$slug")
@@ -2556,6 +2597,7 @@ wt_add() {
     [ -n "$ticket" ]  && set -- "$@" --ticket "$ticket"
     [ -n "$depends" ] && set -- "$@" --depends "$depends"
     [ -n "$backlog" ] && set -- "$@" --backlog "$backlog"
+    [ -n "$backlogitem" ] && set -- "$@" --backlog-item "$backlogitem"
     [ -n "$profile" ] && set -- "$@" --profile "$profile"
     # 先に CLI の実在を見る。無いまま委譲すると「コマンドが無い」というシェルのエラーが出て、
     # 本当の原因（skills が worktree に持ち込まれていない＝未追跡・未コミット）が読めない。
@@ -3658,8 +3700,10 @@ hv_ready_notice() {
     case "$va" in ''|*[!0-9]*) continue ;; esac
     [ "$va" -gt 0 ] || continue
     pop=$(hv_pop "$intro")
-    if [ "$pop" -eq "$va" ]; then
-      printf 'note: ハーネス改修 %s の母集団が揃いました(%s/%s)。insights で効果を判定してください\n' \
+    # 条項側（cv_ready_notice）と同じ理由で `-ge`。見ているのは pending だけなので、
+    # 鳴り続けるのは未判定のものだけ＝判定すれば止まる催促
+    if [ "$pop" -ge "$va" ]; then
+      printf 'note: ハーネス改修 %s の母集団が揃っています(%s/%s)。insights で効果を判定してください（判定するまで毎回出ます）\n' \
         "$(basename "$f" .md)" "$pop" "$va"
     fi
   done

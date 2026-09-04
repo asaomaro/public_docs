@@ -1242,7 +1242,7 @@ done
 assert_contains "$(run_rd convention status --format tsv)" "	0	1	no	" "母集団: deliver 前の work は数えない（review 記録がまだ無い）"
 run_rd event deliver start >/dev/null
 RD_A=$(run_rd approve deliver files_changed=1 insertions=1 deletions=0 2>&1)
-assert_contains "$RD_A" "条項 conv1 の母集団が揃いました(1/1)" "approve deliver: 母集団が揃った瞬間に知らせる"
+assert_contains "$RD_A" "条項 conv1 の母集団が揃っています(1/1)" "approve deliver: 母集団が揃ったら知らせる（判定するまで鳴る）"
 assert_contains "$(run_rd convention status --format tsv)" "	1	1	yes	" "母集団: deliver 済みになって初めて数える"
 # 跨いだ**瞬間だけ**。-ge だと以後の全 deliver で全条項ぶん鳴り続ける（100 works×30 条項で 1 回 31 行）
 run_rd new rd2 >/dev/null; RDW2=$(ls "$RDR/.aidev/works" | grep -- '-rd2$')
@@ -1341,7 +1341,7 @@ for f in requirement spec plan tasks review test-result; do : > "$HVR/.aidev/wor
 for p in requirement spec plan coding test review; do run_hv event "$p" start >/dev/null; run_hv approve "$p" >/dev/null; done
 run_hv event deliver start >/dev/null
 HA=$(run_hv approve deliver files_changed=1 2>&1)
-assert_contains "$HA" "ハーネス改修 h1 の母集団が揃いました(1/1)" "approve deliver: ハーネス改修の母集団到達も知らせる"
+assert_contains "$HA" "ハーネス改修 h1 の母集団が揃っています(1/1)" "approve deliver: ハーネス改修の母集団到達も知らせる"
 assert_eq "$(run_hv harness status --format tsv | awk -F'\t' '$2=="h1"{print $6"/"$8}')" "1/yes" "harness status: またがらずに deliver した work を数える"
 # またがった work は数えない（着手時の刻印を別版に書き換えてから deliver）
 run_hv new h1s >/dev/null; H1S=$(cat "$HVR/.aidev/current")
@@ -2037,6 +2037,39 @@ run_au smoke >/dev/null 2>&1; assert_eq "$?" "4" "smoke: 1 本でも落ちれば
 assert_contains "$(cat "$AU_D/metrics.yml")" "failed_index: 2" \
   "smoke: 何本目で落ちたかを刻む（原因を1つに絞る）"
 rm -f "$AUD/.aidev/config.yml"
+
+# (7) backlog の行単位の保持（inflight はファイル単位の件数しか言えない）
+BLR=$(mktemp -d); mkdir -p "$BLR/.aidev/backlog"
+run_bl() { ( cd "$BLR" && "$AIDEV_SH" "$@" ); }
+printf -- '- [ ] 項目A\n- [ ] 項目B\n' > "$BLR/.aidev/backlog/b.md"
+run_bl new w1 --backlog b.md --backlog-item "項目A" >/dev/null
+run_bl new w2 --backlog b.md --backlog-item "項目B" >/dev/null
+BL_S=$(run_bl status)
+assert_contains "$BL_S" "[作業中] 項目A" "status: 掴んでいる行を HELD に出す（どの行が空いているか答えられる）"
+run_bl approve deliver --slug w2 >/dev/null
+BL_S=$(run_bl status)
+assert_contains "$BL_S" "[着地済] 項目B" \
+  "status: deliver 済み・未マージの行も HELD に残す（inflight から外れ todo に戻る死角）"
+assert_eq "$(printf '%s' "$BL_S" | grep -c '⚠ 同じ項目')" "0" "status: 重複が無ければ二重着手の警告は出さない"
+run_bl new w3 --backlog b.md --backlog-item "項目A" >/dev/null
+assert_contains "$(run_bl status)" "⚠ 同じ項目を 2 本以上が作業中です（二重着手）: 項目A" \
+  "status: 同じ行を 2 本が作業中なら警告する（CLI が二重着手を言えるようにする）"
+rm -rf "$BLR"
+
+# (8) 条項の母集団通知は**判定するまで**鳴る（跨いだ瞬間だけだと、後から着地した work に届かない）
+CVR=$(mktemp -d); mkdir -p "$CVR/.aidev/works" "$CVR/docs/aidev"
+run_cv() { ( cd "$CVR" && "$AIDEV_SH" "$@" ); }
+printf 'conventionsDir: docs/aidev\n' > "$CVR/.aidev/config.yml"
+run_cv convention new c1 --hypothesis h --baseline b --verify-after 1 >/dev/null 2>&1
+for w in a b; do
+  run_cv new "$w" >/dev/null
+  CVW=$(cat "$CVR/.aidev/current")
+  for f in requirement spec plan review test-result; do : > "$CVR/.aidev/works/$CVW/$f.md"; done
+  CV_OUT=$(run_cv approve deliver 2>&1)
+done
+assert_contains "$CV_OUT" "母集団が揃っています" \
+  "approve deliver: 閾値を跨いだ**後**の着地にも催促が届く（未判定のあいだ鳴る）"
+rm -rf "$CVR"
 
 # (4) doctor: 0 件でも節見出しを出す（「検査が無い」と「検査して 0 件」は別の情報）
 assert_contains "$(run_au doctor 2>&1)" "harness-summary: files=0" \

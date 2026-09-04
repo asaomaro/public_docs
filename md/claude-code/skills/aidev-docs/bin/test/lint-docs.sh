@@ -188,8 +188,8 @@ rm -f "$SELF/.l5" "$SELF/.l5dup" "$SELF/.l5allow"
 echo "== L6: 実行時に読む量の予算 =="
 # 全 work が払うコスト。**増やすなら意図的に**（この数を書き換えるコミットで理由を述べる）。
 # 減るぶんには落とさない（削減は歓迎）
-BUDGET_PROTOCOL=602
-BUDGET_TOTAL=3375
+BUDGET_PROTOCOL=608
+BUDGET_TOTAL=3395
 _p=$(wc -l < "$SKILLS/aidev-00-start/protocol.md")
 _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 [ "$_p" -le "$BUDGET_PROTOCOL" ] && ok "L6 protocol.md が予算内（$_p / $BUDGET_PROTOCOL 行）" \
