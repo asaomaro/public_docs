@@ -171,3 +171,5 @@ review を通過した変更を、コミット・PR 作成によって実際に�
 - 変更がコミットされ、PJ 運用に沿って PR 等で着地している。
 - `state.yml` の `approved` に `deliver` が記録されている。
 - **`metrics.yml` に `deliver` の `start` と `approved` が揃っている**（`aidev verify` が WARN を出さない）。
+- **起動確認（`aidev smoke`）が pass している**（`smokeCommand` を設定している PJ では
+  `aidev verify` が FAIL で止める）。**テストが緑なだけを着地の根拠にしない**。

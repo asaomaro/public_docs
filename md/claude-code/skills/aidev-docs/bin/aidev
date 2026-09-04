@@ -23,6 +23,9 @@
 #   aidev coverage [slug] [--format table|tsv] [--strict]
 #     受け入れ基準(AC)の被覆率と tasks.md の整合（AC 行の欠落・未定義参照・依存の循環）を検査する。
 #     対応付けの正典は tasks.md の `AC:` 行。--strict は gap があれば exit 4（plan の承認前ゲート）
+#   aidev smoke [slug]
+#     .aidev/config.yml の smokeCommand を実行し、結果を metrics に刻む（起動確認 GO/NO-GO）。
+#     「テストが通ること」だけでは着地の根拠にしない。未設定は exit 2（黙って緑にしない）
 #   aidev doctor [--quiet]                     # 全 work を横断検査（legacy は免除）＋ backlog/条項/ハーネス改修の検査（WARN）。--quiet は OK の work を出さない
 #   aidev use [<slug>]                         # 継続する作業を切り替える（引数なしで現在値を表示）
 #   aidev backlog new <name> --kind standing|split|topic [--parent <p>] [--priority <n>]
@@ -63,7 +66,7 @@ need_arg() { # opt残り引数数
   [ "$2" -ge 2 ] || die "$1 には値が必要です"
 }
 
-CURRENT_SCHEMA=6   # 現行スキーマ版。new がこの値を刻む。schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema<=2 は legacy として subtask 不変条件を免除。
+CURRENT_SCHEMA=7   # 現行スキーマ版。new がこの値を刻む。schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema 7=起動確認(smoke)の記録検査を導入。schema<=2 は legacy として subtask 不変条件を免除。
 
 PHASES="requirement research spec design plan coding test review walkthrough deliver retro"
 
@@ -1065,6 +1068,80 @@ cmd_coverage() {
   return 0
 }
 
+# --- コマンド: smoke（起動確認 GO/NO-GO） --------------------------------------
+# 出所: cc-sdd の `kiro-verify-completion`。`FEATURE_GO` の条件に
+# 「runtime smoke boot result showing the built artifact reaches its first usable state」を置き、
+# **"A passing test suite alone is not enough for FEATURE_GO."** と明記している。
+#
+# aidev には「ビルドした成果物が起動して最初の使える状態まで行くか」を見る場所が無かった。
+# 単体テストが全部緑でも、配線が壊れていてアプリが立ち上がらないことは普通に起きる。
+# 実際、テストPJの実走では担当エージェントがこれを**受け入れ基準として自分で書いた**——
+# つまり**人が AC に書いたときだけ偶然発火する**状態だった。
+#
+# **なぜ CLI が実行するのか**: 結果を `--result pass` のように自己申告させると、
+# 「手書きの値は忘れられる・都合よく書かれる」という、この harness が繰り返し退けてきた形になる
+# （`harnessRev` を `new` に、被覆を `approve` に一本化したのと同じ理由）。exit code は CLI が取る。
+# 実行するコマンドは `.aidev/config.yml` の `smokeCommand`（コミット済み＝レビュー対象）に限る。
+# **`yget` を使わない**。`yget` は値の前後の `"` を一律で剥がすので、
+# `smokeCommand: echo "booted"` のようなシェルコマンドは**末尾のクォートだけ落ちて壊れる**。
+# ここで剥がすのは「値の全体が1組の `"..."` で囲まれているとき」だけ。
+smoke_cmd() {
+  _v=$(sed -n 's/^smokeCommand:[[:space:]]*//p' "$AIDEV/config.yml" 2>/dev/null \
+        | head -n1 | sed 's/[[:space:]]*$//')
+  case "$_v" in
+    '"'*'"') _v=${_v#\"}; _v=${_v%\"} ;;
+  esac
+  printf '%s' "$_v"
+}
+
+# metrics.yml に残っている最後の smoke 結果（pass|fail|skip。無ければ空）
+smoke_last() { # metrics_file
+  [ -f "$1" ] || return 0
+  grep 'event:[[:space:]]*smoke' "$1" 2>/dev/null | tail -n1 \
+    | sed -n 's/.*result:[[:space:]]*\([a-z][a-z]*\).*/\1/p'
+}
+
+cmd_smoke() {
+  sslug=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -*) die "未知のオプション: $1" ;;
+      *) [ -z "$sslug" ] && sslug=$1 || die "slug は1つだけ"; shift ;;
+    esac
+  done
+  resolve_work "$sslug"
+  _sc=$(smoke_cmd)
+  printf 'smoke: %s\n' "$SLUG"
+
+  if [ -z "$_sc" ]; then
+    # **黙って緑にしない**。検証していないことは「合格」ではない
+    # （cc-sdd が `MANUAL_VERIFY_REQUIRED` を pass と分けているのと同じ）。
+    printf 'FAIL smokeCommand が .aidev/config.yml にありません（起動確認を誰も見ていない状態です）\n' >&2
+    printf 'next: 「成果物が最初の使える状態まで到達する」ことを確かめる**終了するコマンド**を書く\n' >&2
+    printf '      （常駐するサーバなら health check を叩いて終わる形にする。起動しっぱなしにしない）\n' >&2
+    printf '      起動確認の対象が無い PJ（純粋なライブラリ等）は smokeCommand: none と**明示**する\n' >&2
+    return 2
+  fi
+  if [ "$_sc" = none ]; then
+    append_event test smoke result=skip
+    printf 'skip: smokeCommand: none（この PJ は起動確認の対象外と宣言されています）\n'
+    return 0
+  fi
+
+  printf '$ %s\n' "$_sc"
+  # 出力は**捕まえずに素通しする**。test 工程が `test-result.md` に貼るのは生の出力で、
+  # ここで要約や整形を挟むと「そのまま貼った」が成立しなくなる
+  set +e
+  ( cd "$ROOT" && sh -c "$_sc" )
+  _src=$?
+  set -e
+  if [ "$_src" -eq 0 ]; then _srr=pass; else _srr=fail; fi
+  append_event test smoke "result=$_srr" "exit_code=$_src"
+  printf 'smoke: %s (exit %s)\n' "$_srr" "$_src"
+  [ "$_srr" = pass ] || return 4
+  return 0
+}
+
 # --- コマンド: verify（version-aware） -----------------------------------------
 verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail / 5 strict時の記録漏れ
   st="$WORK/state.yml"
@@ -1126,6 +1203,20 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail / 5 stri
           if [ "$COV_GAPS_C" -gt 0 ] && cov_cover_enforced; then
             printf '  WARN AC 被覆に穴があります（%s 件）。詳細は aidev coverage\n' "$COV_GAPS_C"
           fi
+        fi
+      fi
+      # schema 7: 起動確認（smoke）の記録。**テストが緑なだけでは着地の根拠にしない**
+      # （cc-sdd: "A passing test suite alone is not enough for FEATURE_GO."）。
+      # 検査するのは `smokeCommand` を**設定している PJ** だけ——設定していない PJ に
+      # 毎 work 鳴かせると「直せない WARN」になる。未設定は doctor が PJ 単位で1行知らせる。
+      if [ "$schema" -ge 7 ] 2>/dev/null && approved_has deliver; then
+        _vsc=$(smoke_cmd)
+        if [ -n "$_vsc" ] && [ "$_vsc" != none ]; then
+          case "$(smoke_last "$WORK/metrics.yml")" in
+            pass|skip) ;;
+            fail) VF="$VF 起動確認が失敗のまま(aidev smoke が fail)" ;;
+            *)    VF="$VF 起動確認の記録が無い(smokeCommand 設定済。aidev smoke を通すこと)" ;;
+          esac
         fi
       fi
       if approved_has deliver; then
@@ -1503,6 +1594,7 @@ cmd_doctor() {
   doctor_backlog
   doctor_conventions
   doctor_harness
+  doctor_smoke
   # exit code は 4（不変条件違反）に揃える。1 は「使用法・環境エラー」に割り当てられているので、
   # exit code で分岐する機械ゲートが「ドリフト検知」を「環境が壊れている」と誤読する
   [ "$fail" -eq 0 ] || return 4
@@ -3106,6 +3198,25 @@ $w"
   if [ -n "$hout" ]; then printf '%s' "$hout"; fi
   printf 'harness-summary: files=%s archived=%s warn=%s\n' "$hfiles" "$harch" "$hwarn"
 }
+# 起動確認の設定を PJ 単位で1行だけ検査する。
+# **work ごとに鳴らさない**——未設定は work の問題ではなく PJ の設定漏れなので、
+# 100 works ある PJ で 100 行出すと直せる WARN がノイズに埋もれる（straddle で学んだ形）。
+doctor_smoke() {
+  _dsc=$(smoke_cmd)
+  printf 'smoke: 起動確認の設定\n'
+  if [ -z "$_dsc" ]; then
+    printf '    WARN smokeCommand が .aidev/config.yml にありません: **テストが緑でも成果物が起動するかは誰も見ていません**\n'
+    printf '         「最初の使える状態まで到達する」ことを確かめる終了するコマンドを設定するか、\n'
+    printf '         対象が無い PJ なら smokeCommand: none と明示すること\n'
+    printf 'smoke-summary: configured=no\n'
+  elif [ "$_dsc" = none ]; then
+    printf 'smoke-summary: configured=none（起動確認の対象外と宣言済み）\n'
+  else
+    printf 'smoke-summary: configured=yes\n'
+  fi
+  return 0
+}
+
 cmd_harness() {
   [ $# -ge 1 ] || die "使用法: aidev harness <new|confirm|retire|status> ..."
   sub=$1; shift
@@ -3144,6 +3255,7 @@ case "$cmd" in
   guard)   cmd_guard "$@" ;;
   verify)  cmd_verify "$@" ;;
   coverage) cmd_coverage "$@" ;;
+  smoke)   cmd_smoke "$@" ;;
   escalate) cmd_escalate "$@" ;;
   doctor)  cmd_doctor "$@" ;;
   status)  cmd_status "$@" ;;

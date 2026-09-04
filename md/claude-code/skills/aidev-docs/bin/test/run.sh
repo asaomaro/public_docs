@@ -1720,6 +1720,64 @@ assert_absent "$(cat "$MTD2/metrics.yml")" "ac_total: 1," "approve: 明示指定
 assert_eq "$(run_mt metrics "$MTW2" --format tsv | awk -F'\t' '{print $8}')" "-" "metrics: 刻印が1点なら ac_drift は - （測れないことを 0 と書かない）"
 rm -rf "$MTR"
 
+
+echo "== smoke（起動確認 GO/NO-GO）=="
+# 出所: cc-sdd の kiro-verify-completion「テストが通ることだけでは FEATURE_GO の根拠にならない」。
+# aidev には「成果物が起動して最初の使える状態まで行くか」を見る場所が無かった。
+SMK=$(mktemp -d); mkdir -p "$SMK/.aidev/backlog"
+run_sm() { ( cd "$SMK" && "$AIDEV_SH" "$@" ); }
+run_sm new boot >/dev/null; SMW=$(cat "$SMK/.aidev/current"); SMD="$SMK/.aidev/works/$SMW"
+
+# 未設定は「合格」ではない（黙って緑にしない）
+SMO=$(run_sm smoke 2>&1); SMR=$?
+assert_eq "$SMR" "2" "smoke: smokeCommand 未設定は exit 2（検証していないことを合格にしない）"
+assert_contains "$SMO" "smokeCommand: none と**明示**する" "smoke: 対象外の宣言方法を案内する"
+assert_absent "$(cat "$SMD/metrics.yml" 2>/dev/null || true)" "smoke" "smoke: 未設定では何も刻まない"
+
+# none は「対象外と宣言済み」として skip を刻む
+printf 'smokeCommand: none\n' > "$SMK/.aidev/config.yml"
+SMO=$(run_sm smoke 2>&1); SMR=$?
+assert_eq "$SMR" "0" "smoke: smokeCommand: none は exit 0"
+assert_contains "$(cat "$SMD/metrics.yml")" "event: smoke, metrics: { result: skip }" "smoke: none は skip を刻む"
+
+# 実行して exit code を CLI が取る（自己申告させない）
+printf 'smokeCommand: echo "booted: demo v0.1"\n' > "$SMK/.aidev/config.yml"
+SMO=$(run_sm smoke 2>&1); SMR=$?
+assert_eq "$SMR" "0" "smoke: コマンドが成功すれば exit 0"
+assert_contains "$SMO" "booted: demo v0.1" "smoke: 出力を素通しする（要約しない）"
+assert_contains "$(cat "$SMD/metrics.yml")" "result: pass, exit_code: 0" "smoke: pass と exit code を刻む"
+# **yget の一律クォート除去に通すと末尾だけ剥がれて壊れる**（実際に壊れた形の回帰）
+assert_absent "$SMO" "Unterminated" "smoke: 値の中のクォートを壊さない"
+
+printf 'smokeCommand: exit 3\n' > "$SMK/.aidev/config.yml"
+SMO=$(run_sm smoke 2>&1); SMR=$?
+assert_eq "$SMR" "4" "smoke: コマンドが失敗すれば exit 4"
+assert_contains "$(cat "$SMD/metrics.yml")" "result: fail, exit_code: 3" "smoke: fail と実際の exit code を刻む"
+
+# verify: smokeCommand を設定している PJ でだけ deliver 前に効かせる
+for f in requirement spec plan tasks review test-result; do : > "$SMD/$f.md"; done
+printf -- '- [ ] AC1: 起動する\n' > "$SMD/requirement.md"
+printf -- '- [ ] T1: 起動経路\n      AC: AC1\n      依存: なし\n' > "$SMD/tasks.md"
+for p in requirement spec plan coding test review deliver; do run_sm approve "$p" >/dev/null; done
+SMV=$(run_sm verify 2>&1); SMR=$?
+assert_eq "$SMR" "4" "verify: smoke が失敗のままなら deliver 済でも FAIL"
+assert_contains "$SMV" "起動確認が失敗のまま" "verify: 失敗のままであることを名指しする"
+printf 'smokeCommand: true\n' > "$SMK/.aidev/config.yml"; run_sm smoke >/dev/null 2>&1
+SMV=$(run_sm verify 2>&1); SMR=$?
+assert_eq "$SMR" "0" "verify: smoke が通れば FAIL は消える"
+# 未設定の PJ には**毎 work 鳴らさない**（直せない WARN を作らない）
+rm -f "$SMK/.aidev/config.yml"
+SMV=$(run_sm verify 2>&1); SMR=$?
+assert_eq "$SMR" "0" "verify: smokeCommand 未設定の PJ では work ごとに鳴らさない"
+assert_absent "$SMV" "起動確認" "verify: 未設定は work の問題ではないので verify では触れない"
+# 代わりに doctor が PJ 単位で1行だけ知らせる
+SMDC=$(run_sm doctor --quiet 2>&1)
+assert_contains "$SMDC" "smoke-summary: configured=no" "doctor: 未設定を PJ 単位で1行だけ知らせる"
+assert_eq "$(printf '%s\n' "$SMDC" | grep -c '起動するかは誰も見ていません')" "1" "doctor: work 数によらず1行（100 works で 100 行にしない）"
+printf 'smokeCommand: none\n' > "$SMK/.aidev/config.yml"
+assert_contains "$(run_sm doctor --quiet 2>&1)" "configured=none" "doctor: 対象外の宣言済みなら警告しない"
+rm -rf "$SMK"
+
 echo "== sh ⇔ ps1 パリティ =="
 if [ -n "$PS_HOST" ]; then
   block_begin parity
@@ -1774,6 +1832,48 @@ EOF
   PC_PS=$(printf '%s' "$PC_PS_RAW" | tr -d '\r')
   assert_eq "$PC_SH" "$PC_PS" "パリティ: coverage --strict（出力）"
   assert_eq "$PC_SH_RC" "$PC_PS_RC" "パリティ: coverage --strict（exit code は 4）"
+  # smoke のパリティ（未設定・none・成功・失敗・doctor の PJ 単位 1 行）
+  PSM=$(mktemp -d); mkdir -p "$PSM/.aidev/backlog"
+  ( cd "$PSM" && "$AIDEV_SH" new pboot >/dev/null )
+  for scase in unset none pass fail; do
+    case "$scase" in
+      unset) rm -f "$PSM/.aidev/config.yml" ;;
+      none)  printf 'smokeCommand: none\n' > "$PSM/.aidev/config.yml" ;;
+      pass)  printf 'smokeCommand: echo "booted: v0.1"\n' > "$PSM/.aidev/config.yml" ;;
+      fail)  printf 'smokeCommand: exit 3\n' > "$PSM/.aidev/config.yml" ;;
+    esac
+    SM_SH=$( ( cd "$PSM" && "$AIDEV_SH" smoke ) 2>&1 ); SM_SH_RC=$?
+    SM_PS_RAW=$( ( cd "$PSM" && run_ps1 "$AIDEV_PS1" smoke ) 2>&1 ); SM_PS_RC=$?
+    SM_PS=$(printf '%s' "$SM_PS_RAW" | tr -d '\r')
+    assert_eq "$SM_SH" "$SM_PS" "パリティ: smoke $scase（出力）"
+    assert_eq "$SM_SH_RC" "$SM_PS_RC" "パリティ: smoke $scase（exit code）"
+  done
+  # doctor の smoke 節（未設定 / none / 設定済み）
+  for scase in unset none set; do
+    case "$scase" in
+      unset) rm -f "$PSM/.aidev/config.yml" ;;
+      none)  printf 'smokeCommand: none\n' > "$PSM/.aidev/config.yml" ;;
+      set)   printf 'smokeCommand: true\n' > "$PSM/.aidev/config.yml" ;;
+    esac
+    SD_SH=$( ( cd "$PSM" && "$AIDEV_SH" doctor ) 2>&1 | sed -n '/^smoke:/,$p' )
+    SD_PS=$( ( cd "$PSM" && run_ps1 "$AIDEV_PS1" doctor ) 2>&1 | tr -d '\r' | sed -n '/^smoke:/,$p' )
+    assert_eq "$SD_SH" "$SD_PS" "パリティ: doctor の smoke 節 $scase"
+  done
+  # verify の schema 7（smoke fail のまま deliver）
+  PSMW=$(cat "$PSM/.aidev/current"); PSMD="$PSM/.aidev/works/$PSMW"
+  for f in requirement spec plan tasks review test-result; do : > "$PSMD/$f.md"; done
+  printf -- '- [ ] AC1: 起動する\n' > "$PSMD/requirement.md"
+  printf -- '- [ ] T1: 起動経路\n      AC: AC1\n      依存: なし\n' > "$PSMD/tasks.md"
+  printf 'smokeCommand: exit 1\n' > "$PSM/.aidev/config.yml"
+  ( cd "$PSM" && "$AIDEV_SH" smoke >/dev/null 2>&1 ) || true
+  for p in requirement spec plan coding test review deliver; do ( cd "$PSM" && "$AIDEV_SH" approve "$p" >/dev/null ); done
+  SV_SH=$( ( cd "$PSM" && "$AIDEV_SH" verify ) 2>&1 ); SV_SH_RC=$?
+  SV_PS_RAW=$( ( cd "$PSM" && run_ps1 "$AIDEV_PS1" verify ) 2>&1 ); SV_PS_RC=$?
+  SV_PS=$(printf '%s' "$SV_PS_RAW" | tr -d '\r')
+  assert_eq "$SV_SH" "$SV_PS" "パリティ: verify の schema 7（起動確認の記録）出力"
+  assert_eq "$SV_SH_RC" "$SV_PS_RC" "パリティ: verify の schema 7（exit code）"
+  rm -rf "$PSM"
+
   # 被覆の刻印のパリティ（刻む工程・キーの並び・値、および metrics の ac/ac_drift）。
   # ここが割れると、同じ work を OS 違いで回しただけで insights の分母が変わる。
   PMS=$(mktemp -d); PMS2=$(mktemp -d)
@@ -2471,9 +2571,9 @@ YML
   else
     skip 10 "git 不在のため worktree パリティを省略"
   fi
-  block_end parity "184" "parity"
+  block_end parity "197" "parity"
 else
-  skip 184 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
+  skip 197 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
 fi
 
 echo

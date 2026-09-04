@@ -36,7 +36,7 @@ $ErrorActionPreference = 'Stop'
 # （git show-ref 等は ref 不在で 1 を返すのが正常系のため）。古い pwsh では通常変数になるだけで無害。
 $PSNativeCommandUseErrorActionPreference = $false
 
-$script:CURRENT_SCHEMA = 6   # schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema<=2 は legacy 免除
+$script:CURRENT_SCHEMA = 7   # schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema 7=起動確認(smoke)の記録検査を導入。schema<=2 は legacy 免除
 $script:STRICT = $false      # verify --strict（記録漏れを致命にする）。doctor 経由では常に false
 $script:PHASES = @('requirement','research','spec','design','plan','coding','test','review','walkthrough','deliver','retro')
 $script:Utf8 = New-Object System.Text.UTF8Encoding($false)  # BOM なし
@@ -1022,6 +1022,83 @@ function Cmd-Coverage($rest) {
   exit 0
 }
 
+# --- smoke（起動確認 GO/NO-GO。sh 版 cmd_smoke と同一の判定・同一の出力）------------
+# 出所: cc-sdd の `kiro-verify-completion`（"A passing test suite alone is not enough for FEATURE_GO."）。
+# 結果を自己申告させず CLI が exit code を取る（harnessRev / 被覆の刻印と同じ理由）。
+#
+# **YGet を使わない**。YGet は値の前後の `"` を一律で剥がすので、
+# `smokeCommand: echo "booted"` は末尾のクォートだけ落ちて壊れる。
+# 剥がすのは「値の全体が1組の `"..."` で囲まれているとき」だけ（sh 版と同一）。
+function SmokeCmdRaw($key) {
+  $cfg = Join-Path $script:AIDEV 'config.yml'
+  if (-not (IsFile $cfg)) { return '' }
+  foreach ($l in [System.IO.File]::ReadAllLines($cfg)) {
+    if ($l -match ("^" + [regex]::Escape($key) + ":[ \t]*(.*)$")) {
+      $v = $Matches[1] -replace '[ \t]+$',''
+      if ($v.Length -ge 2 -and $v.StartsWith('"') -and $v.EndsWith('"')) { $v = $v.Substring(1, $v.Length-2) }
+      return $v
+    }
+  }
+  return ''
+}
+# Windows では `smokeCommandWindows` があればそれを使う（同じ1行が両 OS で動くとは限らない）。
+function SmokeCmd() {
+  if (IsWindowsHost) {
+    $w = SmokeCmdRaw 'smokeCommandWindows'
+    if ($w) { return $w }
+  }
+  return (SmokeCmdRaw 'smokeCommand')
+}
+# metrics.yml に残っている最後の smoke 結果（pass|fail|skip。無ければ ''）
+function SmokeLast($metricsFile) {
+  if (-not (IsFile $metricsFile)) { return '' }
+  $r = ''
+  foreach ($l in [System.IO.File]::ReadAllLines($metricsFile)) {
+    if ($l -match 'event:\s*smoke' -and $l -match 'result:\s*([a-z]+)') { $r = $Matches[1] }
+  }
+  return $r
+}
+
+function Cmd-Smoke($rest) {
+  $sslug=''
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+    elseif ($sslug) { Die "slug は1つだけ" } else { $sslug = $rest[$i] }
+  }
+  ResolveWork $sslug
+  $sc = SmokeCmd
+  Write-Output "smoke: $($script:SLUG)"
+
+  if (-not $sc) {
+    # 黙って緑にしない。検証していないことは「合格」ではない
+    [Console]::Error.WriteLine("FAIL smokeCommand が .aidev/config.yml にありません（起動確認を誰も見ていない状態です）")
+    [Console]::Error.WriteLine("next: 「成果物が最初の使える状態まで到達する」ことを確かめる**終了するコマンド**を書く")
+    [Console]::Error.WriteLine("      （常駐するサーバなら health check を叩いて終わる形にする。起動しっぱなしにしない）")
+    [Console]::Error.WriteLine("      起動確認の対象が無い PJ（純粋なライブラリ等）は smokeCommand: none と**明示**する")
+    exit 2
+  }
+  if ($sc -ceq 'none') {
+    AppendEvent $script:WORK 'test' 'smoke' @('result=skip')
+    Write-Output "skip: smokeCommand: none（この PJ は起動確認の対象外と宣言されています）"
+    exit 0
+  }
+
+  Write-Output "`$ $sc"
+  # 出力は捕まえずに素通しする（test 工程が test-result.md に貼るのは生の出力）
+  $prev = $PWD
+  try {
+    Set-Location -LiteralPath $script:ROOT
+    if (IsWindowsHost) { & cmd.exe /c $sc } else { & sh -c $sc }
+    $src = $LASTEXITCODE
+  } finally { Set-Location -LiteralPath $prev }
+  if ($null -eq $src) { $src = 1 }
+  $srr = if ($src -eq 0) { 'pass' } else { 'fail' }
+  AppendEvent $script:WORK 'test' 'smoke' @("result=$srr", "exit_code=$src")
+  Write-Output "smoke: $srr (exit $src)"
+  if ($srr -cne 'pass') { exit 4 }
+  exit 0
+}
+
 function VLine($s) { if ($script:VCapture) { $script:VBuf += $s } else { [Console]::Out.WriteLine($s) } }
 
 # [x] 行とその継続行（次の項目・見出し・空行まで）に slug があるか（sh の bl_done_has と同一）
@@ -1091,6 +1168,19 @@ function VerifyWork($work) {
         if ((-not $issub) -and (CovAnalyze $work)) {
           if ($script:COV_GAPS_S -gt 0) { $vf += "tasks.mdの参照が壊れている($($script:COV_GAPS_S)件)" }
           if ($script:COV_GAPS_C -gt 0 -and (CovCoverEnforced)) { VLine("  WARN AC 被覆に穴があります（$($script:COV_GAPS_C) 件）。詳細は aidev coverage") }
+        }
+      }
+      # schema 7: 起動確認（smoke）の記録。テストが緑なだけでは着地の根拠にしない。
+      # 検査するのは smokeCommand を設定している PJ だけ（未設定は doctor が PJ 単位で1行）
+      if ($sn -ge 7 -and (ApprovedHas $work 'deliver')) {
+        $vsc = SmokeCmd
+        if ($vsc -and $vsc -cne 'none') {
+          switch (SmokeLast (Join-Path $work 'metrics.yml')) {
+            'pass' { }
+            'skip' { }
+            'fail' { $vf += "起動確認が失敗のまま(aidev smoke が fail)" }
+            default { $vf += "起動確認の記録が無い(smokeCommand 設定済。aidev smoke を通すこと)" }
+          }
         }
       }
       if (ApprovedHas $work 'deliver') {
@@ -1402,6 +1492,7 @@ function Cmd-Doctor($rest) {
   Doctor-Backlog
   Doctor-Conventions
   Doctor-Harness
+  Doctor-Smoke
   # 4（不変条件違反）に揃える。1 は使用法・環境エラー用（sh 版と同一）
   if ($fail -eq 0) { exit 0 } else { exit 4 }
 }
@@ -2915,6 +3006,22 @@ function Doctor-Conventions() {
   Write-Output "convention-summary: files=$cfiles archived=$carch warn=$cwarn"
 }
 
+# 起動確認の設定を PJ 単位で1行だけ検査する（work ごとに鳴らさない。sh 版 doctor_smoke と同一）
+function Doctor-Smoke() {
+  $dsc = SmokeCmd
+  Write-Output "smoke: 起動確認の設定"
+  if (-not $dsc) {
+    Write-Output "    WARN smokeCommand が .aidev/config.yml にありません: **テストが緑でも成果物が起動するかは誰も見ていません**"
+    Write-Output "         「最初の使える状態まで到達する」ことを確かめる終了するコマンドを設定するか、"
+    Write-Output "         対象が無い PJ なら smokeCommand: none と明示すること"
+    Write-Output "smoke-summary: configured=no"
+  } elseif ($dsc -ceq 'none') {
+    Write-Output "smoke-summary: configured=none（起動確認の対象外と宣言済み）"
+  } else {
+    Write-Output "smoke-summary: configured=yes"
+  }
+}
+
 function Cmd-Worktree($rest) {
   if ($rest.Count -lt 1) { Die "使用法: aidev worktree <add|list|rm> ..." }
   $sub=$rest[0]; $sr=@(); if ($rest.Count -gt 1) { $sr=$rest[1..($rest.Count-1)] }
@@ -2944,6 +3051,7 @@ switch -CaseSensitive ($cmd) {
   'guard'   { Cmd-Guard $rest }
   'verify'  { Cmd-Verify $rest }
   'coverage' { Cmd-Coverage $rest }
+  'smoke'   { Cmd-Smoke $rest }
   'escalate' { Cmd-Escalate $rest }
   'doctor'  { Cmd-Doctor $rest }
   'harness' { Cmd-Harness $rest }

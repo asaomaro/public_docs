@@ -299,7 +299,7 @@ backlog は**遅延キュー**で、完了した行を閉じるのは deliver �
 各 works フォルダ内に 1 つ置く。
 
 ```yaml
-schema: 6                   # state スキーマ版（aidev new が刻む）。verify は導入版以上の不変条件のみ強制。
+schema: 7                   # state スキーマ版（aidev new が刻む）。verify は導入版以上の不変条件のみ強制。
                             # 未記載=legacy 免除。版ごとの導入内容は bin/README.md「schema の履歴」
 slug: <作業slug>            # 例: user-login
 ticket: <ID または 省略>     # 任意。外部チケット/issue の ID（ツール非依存。例 "#18" / "PROJ-123"）。種類は .aidev/config.yml の tracker
@@ -340,7 +340,7 @@ parent: <親 work の dated 名> # 子が親 work を逆参照（例 20260622-fe
 | 25 | design | aidev-25-design | 任意 | `design.md` | spec.md |
 | 30 | plan | aidev-30-plan | 標準 | `plan.md`, `tasks.md` | spec.md（design があればそれも） |
 | 40 | coding | aidev-40-coding | 標準 | コード, tasks 更新 | plan.md, tasks.md |
-| 50 | test | aidev-50-test | 標準 | `test-result.md`（合否・件数・失敗内容・スキップした検証） | コード |
+| 50 | test | aidev-50-test | 標準 | `test-result.md`（合否・件数・失敗内容・**起動確認**・スキップした検証） | コード |
 | 60 | review | aidev-60-review | 標準 | レビュー指摘（→ coding へ差し戻し可） | diff |
 | 65 | walkthrough | aidev-65-walkthrough | 任意 | `walkthrough.md`（人間レビュー補助） | review 通過 |
 | 70 | deliver | aidev-70-deliver | 標準（最終） | コミット / PR | review 通過 |
@@ -356,6 +356,16 @@ parent: <親 work の dated 名> # 子が親 work を逆参照（例 20260622-fe
   恒久的に残る。着地するのが親1本の PR である以上、被覆の単位も親1本に揃える。
   plan 未実施の subtask が残っている間、cover の穴は致命にしない（最初の subtask の plan が、
   兄弟の担当ぶんまで背負って通らなくなるため）。
+- **起動確認（smoke）は test 工程で通す**（`aidev smoke`）。**「テストが全部通ったこと」は
+  着地の根拠として足りない**——単体テストが緑でも配線が壊れて成果物が起動しないことは普通に起きる。
+  見るのは「ビルドした成果物が**最初の使える状態**まで到達するか」。コマンドは
+  `.aidev/config.yml` の `smokeCommand`（**終了するコマンド**を書く。常駐させない）。
+  対象が無い PJ は `smokeCommand: none` と**明示**する——**検証していないことは「合格」ではない**ので、
+  未設定のまま素通りさせない。`smokeCommand` を設定した PJ では、smoke の記録が無い／失敗のままの
+  work を `aidev verify` が deliver 前に FAIL で止める。
+- **主張は証拠の範囲を超えない**。`skipped > 0` を「全数検証」と書かない、一部だけ確かめて
+  「全体が動く」と書かない、テストの緑を「起動する」の根拠にしない。検証できなかった範囲は
+  **未検証の穴として残す**（「8.」の「過去分は捏造しない」と同じ態度の、範囲についての版）。
 - **`profile: light` の場合**（「11.」）: 上流 3 工程（requirement / spec / plan）を **1 ゲートに畳む**。
   成果物は 4 つとも作る（薄く書く）が、承認は `requirement` として 1 回だけ記録する。
   以降 coding → test → review → deliver は full と**完全に同一**。任意工程は使わない。
