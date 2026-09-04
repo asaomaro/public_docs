@@ -768,6 +768,12 @@ COV_T_RE='T[0-9][A-Za-z0-9_-]*'
 # 「無い」を表す綴り（`AC:` `依存:` 共通）。ここに無い綴りは値として扱われる。
 COV_NONE='なし none None NONE -'
 
+# **空白は ASCII だけを空白として扱う**（`[ \t]`。`[[:space:]]` を使わない）。
+# POSIX の空白クラスは**ロケール依存**で、UTF-8 ロケールの gawk は全角スペース(U+3000)を
+# 空白とみなし、バイト志向の mawk はみなさない。ps1 の `\s`（.NET・Unicode）とも食い違う。
+# 全角スペースで字下げした tasks.md が「実装 × ロケール」の組でだけ通る、という形になるので、
+# **範囲の狭い側（ASCII）に全実装を揃える**（CI の gawk で発覚）。
+#
 # 入力行の正規化: BOM と行末 CR を落とす。
 # **CR を落とさないと OS で判定が割れる**——ps1 の `ReadAllLines` は CRLF も BOM も自動で外すため、
 # Windows でチェックアウトした tasks.md が Linux では `AC1\r` を未定義参照として FAIL、
@@ -793,7 +799,7 @@ cov_lines() { # file
 # 正規表現リテラルとしてプログラム中に書けば、この差は出ない。
 cov_req_acs() { # file
   cov_lines "$1" | awk -v idre="$COV_AC_RE" '
-    match($0, /^[[:space:]]*- \[[ xX]\][[:space:]]*/) == 1 {
+    match($0, /^[ \t]*- \[[ xX]\][ \t]*/) == 1 {
       s = substr($0, RLENGTH + 1)
       if (match(s, "^" idre) != 1) next
       print substr(s, 1, RLENGTH)
@@ -801,7 +807,7 @@ cov_req_acs() { # file
 }
 cov_spec_acs() { # file
   cov_lines "$1" | awk -v idre="$COV_AC_RE" '
-    match($0, /^[[:space:]]*- /) == 1 {
+    match($0, /^[ \t]*- /) == 1 {
       s = substr($0, RLENGTH + 1)
       if (match(s, "^" idre) != 1) next
       print substr(s, 1, RLENGTH)
@@ -829,7 +835,7 @@ cov_task_rows() { # tasks.md
       printf "%s\t%s\t%s\n", cur, (hasac ? acs : "-"), (hasdp ? dps : "-")
     }
     { s = $0 }
-    match(s, "^[[:space:]]*- \\[[ xX]\\][[:space:]]*") == 1 {
+    match(s, "^[ \t]*- \\[[ xX]\\][ \t]*") == 1 {
       t = substr(s, RLENGTH + 1)
       if (match(t, "^" tre) == 1) {
         flush()
@@ -837,11 +843,11 @@ cov_task_rows() { # tasks.md
         next
       }
     }
-    cur != "" && /^[[:space:]]*AC(:|：)/ {
+    cur != "" && /^[ \t]*AC(:|：)/ {
       v = norm(substr(s, index(s, "AC") + 2))
       acs = (acs == "" ? v : acs " " v); hasac = 1; next
     }
-    cur != "" && /^[[:space:]]*依存(:|：)/ {
+    cur != "" && /^[ \t]*依存(:|：)/ {
       v = norm(substr(s, index(s, "依存") + length("依存")))
       dps = (dps == "" ? v : dps " " v); hasdp = 1; next
     }

@@ -1967,7 +1967,11 @@ printf 'schema: 8\nslug: w\ncurrent: plan\napproved: []\n' > "$AWKD/.aidev/works
 printf 'w\n' > "$AWKD/.aidev/current"
 printf -- '- [ ] AC1: ひとつ\n- [ ] AC-I1 開く / 閉じる: どう\n- [ ] ACL の設定\n' > "$AWKD/.aidev/works/w/requirement.md"
 printf -- '- AC1: x\n' > "$AWKD/.aidev/works/w/spec.md"
-printf -- '- [ ] T1: t\n      AC: AC1、AC-I1\n      依存: なし\n' > "$AWKD/.aidev/works/w/tasks.md"
+# 全角スペース(U+3000)の字下げを混ぜる。POSIX の空白クラスは**ロケール依存**で、
+# UTF-8 ロケールの gawk はこれを空白とみなし、バイト志向の mawk はみなさない
+# （`[[:space:]]` のままだと、この行が実装 × ロケールの組でだけタスクになる）。
+printf -- '- [ ] T1: t\n      AC: AC1、AC-I1\n      依存: なし\n\343\200\200- [ ] T2: 全角字下げ\n      AC: AC1\n      依存: なし\n' \
+  > "$AWKD/.aidev/works/w/tasks.md"
 
 AWK_IMPLS=""
 for _a in awk gawk mawk busybox; do
@@ -1982,13 +1986,18 @@ for _a in $AWK_IMPLS; do
   _bin=$(mktemp -d)
   if [ "$_a" = busybox ]; then printf '#!/bin/sh\nexec busybox awk "$@"\n' > "$_bin/awk"; chmod +x "$_bin/awk"
   else ln -sf "$(command -v "$_a")" "$_bin/awk"; fi
-  _out=$( ( cd "$AWKD" && PATH="$_bin:$PATH" "$AIDEV_SH" coverage --strict ) 2>&1 ); _rc=$?
+  # **ロケールも振る**。POSIX の空白・文字クラスはロケール依存なので、
+  # 同じ awk でも LANG が違うと判定が変わりうる（C と UTF-8 の両方で同じであること）
+  _out=$( ( cd "$AWKD" && PATH="$_bin:$PATH" LC_ALL=C "$AIDEV_SH" coverage --strict ) 2>&1 ); _rc=$?
+  _outu=$( ( cd "$AWKD" && PATH="$_bin:$PATH" LC_ALL=C.UTF-8 "$AIDEV_SH" coverage --strict ) 2>&1 )
+  assert_eq "$_outu" "$_out" "awk($_a): ロケール（C / C.UTF-8）で判定が変わらない"
   rm -rf "$_bin"
   AWK_N=$((AWK_N+1))
   if [ -z "$AWK_REF" ]; then
     AWK_REF="$_out"; AWK_REF_RC=$_rc; AWK_REF_NAME=$_a
     assert_contains "$_out" "ac=2" "awk($_a): 受け入れ基準を 2 件拾う（ACL は AC ではない）"
     assert_absent "$_out" "warning" "awk($_a): 警告を出さない（stderr が出力に混ざる）"
+    assert_contains "$_out" "task_rows=1" "awk($_a): 全角スペース字下げをタスク行と認めない（ASCII の空白だけ）"
   else
     assert_eq "$_out" "$AWK_REF" "awk($_a): $AWK_REF_NAME と同じ判定（-v のエスケープ差で割れない）"
     assert_eq "$_rc" "$AWK_REF_RC" "awk($_a): $AWK_REF_NAME と同じ exit code"
