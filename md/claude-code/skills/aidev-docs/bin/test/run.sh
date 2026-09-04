@@ -2008,6 +2008,15 @@ if [ "$AWK_N" -lt 2 ]; then
 fi
 rm -rf "$AWKD"
 
+
+echo "== 文書と CLI 表面の整合（lint-docs.sh）=="
+# ハーネス自身の文書を機械で検査する層。このセッションで踏んだ欠陥の分類のうち、
+# 「片方だけ直して食い違う」「CLI 表面の更新漏れ」「文書の冗長化」「予算の無い増加」を受け持つ。
+# 出力はそのまま流し、合否だけをここで数える（詳細は lint 側が ok:/NG: で出す）
+LINTOUT=$("$SELF/lint-docs.sh" 2>&1); LINTRC=$?
+printf '%s\n' "$LINTOUT" | sed 's/^/  | /'
+assert_eq "$LINTRC" "0" "lint-docs: 文書と CLI 表面が整合している"
+
 echo "== sh ⇔ ps1 パリティ =="
 if [ -n "$PS_HOST" ]; then
   block_begin parity

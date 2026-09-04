@@ -49,7 +49,7 @@
 
 ## 1.5 並行作業（worktree・ユーザー責任の任意機能）
 
-複数の作業を**並行**で進めたいとき、ユーザーは `aidev worktree`（CLI。`bin/README.md` 参照）で work 専用の
+並行作業は `aidev worktree`（CLI。`bin/README.md` 参照）で work 専用の
 git worktree＋`feature/<slug>` ブランチを作って隔離着手できる。**並列の要否はユーザーが明示
 `aidev worktree add` で判断する**（ハーネスは並列化を自動判断しない。既定は単一ワーキングツリーの直列）。
 
@@ -131,10 +131,9 @@ git worktree＋`feature/<slug>` ブランチを作って隔離着手できる。
 
 ## 2.8 サブタスク分割（subtask 層・schema 3）
 
-**高結合で 1 PR には割れないが大規模な work** を、1 PR を保ったまま内部で漸進的に実装・レビューする仕組み。
+大規模だが 1 PR に割れない work を、PR を保ったまま内部で漸進的に回す仕組み（過剰分割は禁止）。
 **割るかは plan で判定する**（3層決定木は `aidev-docs/DESIGN.md`「5.」）。
 
-- **小〜中規模 work では使わない**。spec＋plan で 1 PR に収まるなら subtask 化しない（過剰分割の禁止）。
 - **subtask を扱うときは `protocol-subtask.md` を読む**——plan の split 判定時、および `state.yml` に
   `parent` がある work の plan / coding / test / review。フォルダ規約・工程レイヤリング・カーソル前進・
   兄弟依存・差し戻し先・CLI の機械的強制はそこにある。
@@ -142,7 +141,7 @@ git worktree＋`feature/<slug>` ブランチを作って隔離着手できる。
 ## 2.9 台帳の同期（backlog 出自の消し込み）
 
 backlog は**遅延キュー**で、完了した行を閉じるのは deliver の責務
-（`DESIGN.md`「2.5」: 流れは backlog → works（consume）。**backlog 行は deliver で `[x]`**）。
+（**backlog 行は deliver で `[x]`**。モデルは `DESIGN.md`「2.5」）。
 
 - **記録**: `aidev new <slug> --backlog <file>` で出自を刻む（「6.」）。**どちらの入口でも省略しない**。
 - **強制**: `backlog:` を持つ work は、その backlog ファイルの **`- [x]` 行かその継続行**に自分の slug が

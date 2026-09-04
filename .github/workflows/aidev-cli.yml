@@ -5,6 +5,14 @@
 #   パリティテストが skip される。skip はそのまま**未検証の穴**で、実際この穴の裏に
 #   ps1 の実バグ2件とテスト自身のバグ2件が「緑のまま」隠れていた。
 #   だから CI では **skip=0 を満たせる環境**で走らせ、skip が出たら落とす。
+#   同じ理由で **awk の実装差**も CI でしか出ない（開発機は mawk、ubuntu は gawk）。
+#   `-v` のエスケープと POSIX 文字クラスのロケール依存で、実際に 57 件と 2 件の fail を出した。
+#
+# 走らせる環境:
+# 文書も対象に含める理由:
+#   `test/lint-docs.sh` が**文書と CLI 表面の整合**（参照の健全性・重複文・読み込み量の予算）を
+#   検査する。bin/** だけをトリガにすると、文書だけを変えた PR で lint が走らず、
+#   「片方だけ直して食い違う」——このセッションで3回起きた形——が素通りする。
 #
 # 走らせる環境:
 #   ubuntu  … pwsh 7 が入っている（PowerShell 7 系のパリティ）
@@ -15,11 +23,11 @@ name: aidev CLI
 on:
   push:
     paths:
-      - 'md/claude-code/skills/aidev-docs/bin/**'
+      - 'md/claude-code/skills/aidev-**'
       - '.github/workflows/aidev-cli.yml'
   pull_request:
     paths:
-      - 'md/claude-code/skills/aidev-docs/bin/**'
+      - 'md/claude-code/skills/aidev-**'
       - '.github/workflows/aidev-cli.yml'
   workflow_dispatch:
 
