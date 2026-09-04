@@ -2933,6 +2933,42 @@ YML
     WL_PS=$( ( cd "$PREPO" && run_ps1 "$AIDEV_PS1" worktree list --format tsv ) | tr -d '\r' )
     assert_eq "$WL_SH" "$WL_PS" "パリティ: worktree list --format tsv"
 
+    # worktree files: 重なりの検知と sh⇔ps1 の一致（並びは LC_ALL=C / Ordinal で固定してある）
+    printf 'x\n' > "$PREPO/README.md"; printf 'y\n' > "$PREPO/shared.txt"
+    ( cd "$PREPO" && git add -A && git commit -qm f2 >/dev/null 2>&1 )
+    ( cd "$PREPO" && "$AIDEV_SH" worktree add wa >/dev/null 2>&1 )
+    ( cd "$PREPO" && "$AIDEV_SH" worktree add wb >/dev/null 2>&1 )
+    for w in wa wb; do
+      printf 'touched by %s\n' "$w" >> "$TMP/prepo-wt/$w/shared.txt"
+      ( cd "$TMP/prepo-wt/$w" && git add -A && git commit -qm "$w" >/dev/null 2>&1 )
+    done
+    WF_SH=$( ( cd "$PREPO" && "$AIDEV_SH" worktree files --format tsv ) )
+    WF_PS=$( ( cd "$PREPO" && run_ps1 "$AIDEV_PS1" worktree files --format tsv ) | tr -d '\r' )
+    assert_eq "$WF_SH" "$WF_PS" "パリティ: worktree files --format tsv"
+    assert_contains "$WF_SH" "file	shared.txt	2	no	wa, wb" \
+      "worktree files: 2 本が触っているファイルを名前と本数で出す（sharedFiles 未宣言も分かる）"
+    assert_eq "$(printf '%s' "$WF_SH" | grep -c 'file	README.md')" "0" \
+      "worktree files: 1 本しか触っていないファイルは既定では出さない（重なりが埋もれる）"
+    assert_contains "$( ( cd "$PREPO" && "$AIDEV_SH" worktree files ) )" "sharedFiles に無いファイルが 1 件" \
+      "worktree files: 未宣言の重なりを数えて知らせる"
+
+    # deliver 済みの work は「もう書かない」ので重なりの相手にならない
+    ( cd "$TMP/prepo-wt/wb" && "$AIDEV_SH" approve deliver >/dev/null 2>&1 )
+    assert_eq "$( ( cd "$PREPO" && "$AIDEV_SH" worktree files --format tsv ) | grep -c 'shared.txt')" "0" \
+      "worktree files: deliver 済みを外すと重なりが解消する（撤去していない過去の worktree で埋まらない）"
+    assert_contains "$( ( cd "$PREPO" && "$AIDEV_SH" worktree files --all --format tsv ) )" "shared.txt" \
+      "worktree files: --all なら deliver 済みも含めて全件出す"
+
+    # doctor: sharedFiles の宣言が実態から遅れていないか
+    printf 'sharedFiles: [nonexistent.txt]\n' > "$PREPO/.aidev/config.yml"
+    DS_SH=$( ( cd "$PREPO" && "$AIDEV_SH" doctor --quiet ) 2>&1 )
+    DS_PS=$( ( cd "$PREPO" && run_ps1 "$AIDEV_PS1" doctor --quiet ) 2>&1 | tr -d '\r' )
+    assert_eq "$DS_SH" "$DS_PS" "パリティ: doctor の sharedFiles 検査"
+    assert_contains "$DS_SH" "宣言されているが実在しません: nonexistent.txt" \
+      "doctor: sharedFiles の誤記・残骸を名指しする（宣言だけ古びるのを機械が言う）"
+    assert_contains "$DS_SH" "sharedFiles-summary: declared=1 実在しない=1" \
+      "doctor: sharedFiles の件数を要約に出す"
+
     # (2) ps1 の add（既存work一致＝current 設定のみ）。current が full dated 名であること
     #     ＝ review 検出の must「PowerShell 単一要素配列アンラップ($mw[0]が先頭1文字)」の回帰ガード
     PW_OUT=$( ( cd "$PREPO" && run_ps1 "$AIDEV_PS1" worktree add existing ) | tr -d '\r' )
@@ -2959,11 +2995,11 @@ YML
     ( cd "$PREPO" && run_ps1 "$AIDEV_PS1" worktree rm "$PB" --force --delete-branch >/dev/null 2>&1 )
     assert_eq "$?" "0" "パリティ: ps1 rm は list が出したパス表記をそのまま扱える"
     assert_eq "$([ -d "$TMP/prepo-wt/fresh" ] && echo yes || echo no)" "no" "パリティ: ps1 rm(path) で worktree 撤去済み"
-    block_end wtparity "10" "wtparity"
+    block_end wtparity "19" "wtparity"
   else
     skip 10 "git 不在のため worktree パリティを省略"
   fi
-  block_end parity "228" "parity"
+  block_end parity "237" "parity"
 else
   skip 228 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
 fi

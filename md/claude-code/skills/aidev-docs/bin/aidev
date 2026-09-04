@@ -56,6 +56,9 @@
 #                                              # work 専用の git worktree+ブランチを作る（ユーザー責任の並行 on-ramp）
 #     new へ委譲する引数は new と同じ意味（--backlog を落とすと deliver の消し込み強制が静かに外れる）
 #   aidev worktree list [--format table|tsv]   # aidev 管理 worktree を一覧（読み取り専用）
+#   aidev worktree files [--all] [--format table|tsv]
+#                                              # どのファイルを何本の worktree が触っているか（既定は
+#                                              # 未着地 work の重なりだけ）。sharedFiles の宣言漏れも出す
 #   aidev worktree rm <slug|path> [--force] [--delete-branch]     # worktree を安全に撤去（未コミットは既定で拒否）
 #   aidev help
 #
@@ -1922,6 +1925,7 @@ cmd_doctor() {
   doctor_conventions
   doctor_harness
   doctor_smoke
+  doctor_shared
   # exit code は 4（不変条件違反）に揃える。1 は「使用法・環境エラー」に割り当てられているので、
   # exit code で分岐する機械ゲートが「ドリフト検知」を「環境が壊れている」と誤読する
   [ "$fail" -eq 0 ] || return 4
@@ -2330,6 +2334,19 @@ wt_porcelain() {
 # 共有ファイル警告。PJ 固有のファイル名は CLI に埋めず .aidev/config.yml の sharedFiles から生成する
 # （基盤は PJ 非依存＝DESIGN「1.」「2.」。機械が言えるのは config にある事実だけで、検証義務のような
 #  PJ 規約は散文＝AGENTS.md / protocol-worktree.md の担当。DESIGN「2.6」の線引きと同じ）。
+# 既定ブランチ名を返す。読めなければ**空**を返す（推測しない。harness_rev の 'unknown' と同じ態度）。
+git_default_branch() { # [repo_dir]
+  _gd=${1:-$ROOT}
+  _gb=$(git -C "$_gd" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null) || _gb=""
+  _gb=${_gb#origin/}
+  if [ -z "$_gb" ]; then
+    for _c in main master; do
+      if git -C "$_gd" show-ref --verify --quiet "refs/heads/$_c"; then _gb=$_c; break; fi
+    done
+  fi
+  printf '%s' "$_gb"
+}
+
 wt_shared_warn() {
   _sh=$(ylist "$AIDEV/config.yml" sharedFiles | sed 's/^ *//; s/ *$//; s/  */, /g')
   if [ -n "$_sh" ]; then
@@ -2424,15 +2441,7 @@ wt_add() {
   fi
   printf '  branch: %s / base: %s\n' "$branch" "$_bshown"
   if [ "$base" = HEAD ] && [ -n "${_bhead:-}" ]; then
-    _bdef=$(git -C "$ROOT" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null) || _bdef=""
-    _bdef=${_bdef#origin/}
-    if [ -z "$_bdef" ]; then
-      # `cmd && { ...; }` を loop body の**最後**に置くと set -e が呼び出し側で発火する
-      # （このリポジトリで実測済み）。if で受ける
-      for _c in main master; do
-        if git -C "$ROOT" show-ref --verify --quiet "refs/heads/$_c"; then _bdef=$_c; break; fi
-      done
-    fi
+    _bdef=$(git_default_branch)
     if [ -n "$_bdef" ] && [ "$_bdef" != "$_bhead" ]; then
       printf '  ⚠ base が既定ブランチ(%s)ではなく %s です。未マージの変更の上に積まれます\n' "$_bdef" "$_bhead"
       printf '    （deliver「1.5」の既着地検知が %s..HEAD の無関係なコミットで濁る）\n' "$_bdef"
@@ -2488,6 +2497,108 @@ wt_list() {
   printf 'WORKTREES (%s)\n' "$n"
   if [ "$n" -gt 0 ]; then
     { printf 'path\tbranch\twork\tphase\tkind\n'; printf '%s' "$rows"; } | fmt_table
+  fi
+}
+
+# その worktree が**他と違えている**ファイル名を1行1件で返す。
+# 基点は「main tree の HEAD との merge-base」。既定ブランチにしないのは、worktree が
+# 未マージのブランチから切られていると**共通の祖先ぶんまで全員の変更に見える**ため
+# （実測: 3 本とも feature 枝から切ったので、共有しているだけの skills 一式が
+# 全員の「変更」として並び、本当の重なりが埋もれた）。main tree との merge-base なら
+# 共有ぶんが相殺され、残るのはその worktree が足したものだけになる。
+wt_changed_files() { # path main_head
+  _wcp=$1; _wcm=$2
+  _wcbase=""
+  [ -n "$_wcm" ] && { _wcbase=$(git -C "$_wcp" merge-base "$_wcm" HEAD 2>/dev/null) || _wcbase=""; }
+  [ -n "$_wcbase" ] || _wcbase=HEAD   # 読めなければ未コミットぶんだけ（基点を捏造しない）
+  {
+    git -C "$_wcp" diff --name-only "$_wcbase" 2>/dev/null
+    git -C "$_wcp" ls-files --others --exclude-standard 2>/dev/null
+  } | sed 's/\r$//' | grep -v '^$' | sort -u
+}
+
+# どのファイルを何本の worktree が触っているかを出す。
+# 実走で「触らない storage.py が警告され、全員が触る cli.py は警告されない」という反転が
+# 起きた（sharedFiles は人間が書く静的な宣言なので、実態から遅れる）。ここは**実態**を出す。
+# 既定は**重なっているものだけ**——大きい PJ で全変更ファイルを出すと重なりが埋もれる。
+wt_files() {
+  fmt=table; showall=no
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --format) need_arg "$1" $#; fmt=${2:-}; shift 2 ;;
+      --all) showall=yes; shift ;;
+      -*) die "未知のオプション: $1" ;;
+      *) die "files は位置引数を取りません: $1" ;;
+    esac
+  done
+  case "$fmt" in table|tsv) ;; *) die "--format は table|tsv" ;; esac
+  git_present
+
+  _wfdecl=" $(ylist "$AIDEV/config.yml" sharedFiles | tr '\n' ' ') "
+  _wfpairs=""; _wfn=0; _wfinfo=$(wt_porcelain)
+  _wfmain=$(printf '%s\n' "$_wfinfo" | head -n1 | cut -f1)
+  _wfmhead=$(git -C "$_wfmain" rev-parse HEAD 2>/dev/null) || _wfmhead=""
+  oldifs=$IFS; IFS='
+'
+  for line in $_wfinfo; do
+    path=${line%%	*}
+    [ -f "$path/.aidev/current" ] || continue
+    # deliver 済みの work は**もう書かない**ので、重なりの相手にならない。
+    # 数えると、撤去していない過去の worktree が出力を埋める（実測 9 本中 5 本がそれ）
+    _wfw=$(head -n1 "$path/.aidev/current" | tr -d '\r\n')
+    if [ -n "$_wfw" ] && [ -f "$path/.aidev/works/$_wfw/state.yml" ]; then
+      case " $(ylist "$path/.aidev/works/$_wfw/state.yml" approved) " in
+        *" deliver "*) [ "$showall" = yes ] || continue ;;
+      esac
+    fi
+    _wfn=$((_wfn+1))
+    _wfname=$(basename "$path")
+    for f in $(wt_changed_files "$path" "$_wfmhead"); do
+      # 自分の work のディレクトリは構造上ぶつからない（slug が違う）。数えると重なりが埋もれる
+      case "$f" in .aidev/works/*) continue ;; esac
+      _wfpairs="$_wfpairs$f	$_wfname
+"
+    done
+  done
+  IFS=$oldifs
+
+  # ファイルごとに worktree 名を畳む
+  rows=$(printf '%s' "$_wfpairs" | LC_ALL=C sort | awk -F'\t' -v all="$showall" -v decl="$_wfdecl" '
+    function flush(   d) {
+      if (f == "") return
+      if (all == "no" && n < 2) return
+      d = (index(decl, " " f " ") > 0) ? "yes" : "no"
+      print f "\t" n "\t" d "\t" names
+    }
+    { if ($1 != f) { flush(); f = $1; n = 0; names = "" }
+      n++; names = (names == "") ? $2 : names ", " $2 }
+    END { flush() }')
+
+  _wfover=$(printf '%s' "$rows" | awk -F'\t' '$2 >= 2' | grep -c . || true)
+  _wfundecl=$(printf '%s' "$rows" | awk -F'\t' '$2 >= 2 && $3 == "no"' | grep -c . || true)
+
+  if [ "$fmt" = tsv ]; then
+    # `rows` は command substitution で作っているので**末尾改行が落ちている**
+    # （wt_list の注記と同じ罠）。`printf '%s'` のままだと read が最後の1行を捨て、
+    # 行が1件のときは全部消える。ここは改行を足して流す
+    printf '%s\n' "$rows" | while IFS='	' read -r a b c d; do
+      [ -z "$a" ] && continue
+      printf 'file\t%s\t%s\t%s\t%s\n' "$a" "$b" "$c" "$d"
+    done
+    printf 'files-summary\t%s\t%s\t%s\n' "$_wfn" "$_wfover" "$_wfundecl"
+    return 0
+  fi
+  printf 'worktree files: %s 本の worktree の変更ファイル' "$_wfn"
+  [ "$showall" = no ] && printf '（未着地の work・2本以上が触っているものだけ。全件は --all）'
+  printf '\n'
+  if [ -n "$rows" ]; then
+    { printf 'file	worktrees	sharedFiles	where
+'; printf '%s\n' "$rows"; } | fmt_table
+  fi
+  printf 'files-summary: worktrees=%s overlap=%s undeclared=%s\n' "$_wfn" "$_wfover" "$_wfundecl"
+  if [ "$_wfundecl" -gt 0 ] 2>/dev/null; then
+    printf '⚠ 重なっているのに sharedFiles に無いファイルが %s 件。config.yml に足すと\n' "$_wfundecl"
+    printf '  worktree add がその名前で警告できる（並行可否の判断はユーザー）。\n'
   fi
 }
 
@@ -3567,6 +3678,73 @@ $w"
 # 起動確認の設定を PJ 単位で1行だけ検査する。
 # **work ごとに鳴らさない**——未設定は work の問題ではなく PJ の設定漏れなので、
 # 100 works ある PJ で 100 行出すと直せる WARN がノイズに埋もれる（straddle で学んだ形）。
+# sharedFiles の妥当性を PJ 単位で検査する。
+# 実走で「触らない storage.py が名指しされ、全 work が触る cli.py は名指しされない」という
+# **反転**が起きた。CLI が名指しできるのは config に書かれた事実だけ（設計どおり）だが、
+# その事実が実態から遅れていることを**誰も見ていなかった**——書くのは人間、でも
+# 古びていることは機械が言える。判定は履歴（直近 N コミットのうち何本がそのファイルに触ったか）。
+# 直すのは人間なので WARN 止まり。
+doctor_shared() {
+  printf 'sharedFiles: 並行作業で名指しする共有ファイルの検査\n'
+  _dsdecl=$(ylist "$AIDEV/config.yml" sharedFiles)
+  _dsn=0; _dsstale=0; _dsmiss=0
+  # (a) 宣言してあるのに実在しない＝誤記か、消えたファイルの残骸。これは無条件に言える
+  for f in $_dsdecl; do
+    [ -n "$f" ] || continue
+    _dsn=$((_dsn+1))
+    if [ ! -e "$ROOT/$f" ]; then
+      printf '    WARN 宣言されているが実在しません: %s（誤記か、消えたファイルの残骸）\n' "$f"
+      _dsstale=$((_dsstale+1))
+    fi
+  done
+  # (b) 実態のほうが先に進んでいる＝多くのコミットが触っているのに宣言が無い。
+  #     git が無い / 履歴が浅い環境では**黙る**（推測で名前を挙げない）
+  _dsw=$(yget "$AIDEV/config.yml" sharedFilesWindow)
+  case "$_dsw" in ''|*[!0-9]*) _dsw=20 ;; esac
+  if command -v git >/dev/null 2>&1 && [ "$_dsw" -gt 0 ] 2>/dev/null; then
+    # 見るのは HEAD の履歴。既定ブランチにすると、マージ前の feature 枝で回している間は
+    # 実態（そこで何度も触っているファイル）が一度も見えない（実測: cli.py が main には 5/20 しか出ない）
+    _dsdef=HEAD
+    _dsc=$(git -C "$ROOT" rev-list --count "$_dsdef" 2>/dev/null) || _dsc=0
+    case "$_dsc" in ''|*[!0-9]*) _dsc=0 ;; esac
+    [ "$_dsc" -lt "$_dsw" ] && _dsw=$_dsc
+    if [ "$_dsw" -ge 4 ] 2>/dev/null; then
+      # 「4 本に 1 本以上が触っている」を常連の目安にする。半数にすると
+      # 登録テーブルやロックファイルしか当たらず、実際に衝突する共有モジュールを取り落とす
+      _dsthr=$(( (_dsw + 3) / 4 ))
+      [ "$_dsthr" -ge 2 ] || _dsthr=2
+      _dshot=$(git -C "$ROOT" log -n "$_dsw" --name-only --pretty=format:%x00 "$_dsdef" 2>/dev/null \
+        | awk -v RS='\0' '
+            { delete seen
+              for (i = 1; i <= NF; i++) if (!($i in seen)) { seen[$i] = 1; c[$i]++ } }
+            END { for (f in c) print c[f] "\t" f }' \
+        | LC_ALL=C sort -k1,1nr -k2,2)
+      # 件数の降順 → 名前の**バイト**昇順。`sort -rn` だけだと同数の並びが awk のハッシュ順に
+      # 依存し、`LC_ALL` を固定しないとロケールの照合順で .NET の Ordinal と食い違う（両方実測）
+      _dsdecls=" $(printf '%s' "$_dsdecl" | tr '\n' ' ') "
+      _dsold=$IFS; IFS='
+'
+      for row in $_dshot; do
+        _dscnt=${row%%	*}; _dsf=${row#*	}
+        [ "$_dscnt" -ge "$_dsthr" ] 2>/dev/null || continue
+        # 上位だけ出す。全部並べると「直せない WARN の壁」になり、直せる 1 件が埋もれる
+        [ "$_dsmiss" -ge 5 ] && continue
+        # .aidev/ はハーネスの帳簿で、work ごとに必ず動く。ここで挙げても PJ の判断材料にならない
+        case "$_dsf" in .aidev/*) continue ;; esac
+        case "$_dsdecls" in *" $_dsf "*) continue ;; esac
+        printf '    WARN %s/%s コミットが触っているのに sharedFiles に無い: %s\n' \
+          "$_dscnt" "$_dsw" "$_dsf"
+        _dsmiss=$((_dsmiss+1))
+      done
+      IFS=$_dsold
+    fi
+  fi
+  if [ "$_dsn" -eq 0 ] && [ "$_dsmiss" -eq 0 ]; then
+    printf 'note: sharedFiles 未設定。並行作業の警告が汎用文言になります（config.yml で名指しできる）\n'
+  fi
+  printf 'sharedFiles-summary: declared=%s 実在しない=%s 未宣言の常連=%s\n' "$_dsn" "$_dsstale" "$_dsmiss"
+}
+
 doctor_smoke() {
   _dsc=$(smoke_cmd)
   printf 'smoke: 起動確認の設定\n'
@@ -3596,13 +3774,14 @@ cmd_harness() {
 }
 
 cmd_worktree() {
-  [ $# -ge 1 ] || die "使用法: aidev worktree <add|list|rm> ..."
+  [ $# -ge 1 ] || die "使用法: aidev worktree <add|list|files|rm> ..."
   sub=$1; shift
   case "$sub" in
     add)  wt_add "$@" ;;
     list) wt_list "$@" ;;
+    files) wt_files "$@" ;;
     rm)   wt_rm "$@" ;;
-    *) die "未知の worktree サブコマンド: $sub（add|list|rm）" ;;
+    *) die "未知の worktree サブコマンド: $sub（add|list|files|rm）" ;;
   esac
 }
 

@@ -32,6 +32,7 @@
 #     new は --hypothesis と --baseline が必須（検証できない条項を作らせない入口ゲート）
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree add <slug> [--branch n] [--base ref] [--path dir] [--mode m] [--profile p|--light] [--ticket id] [--depends list] [--backlog <file>]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree list [--format table|tsv]
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree files [--all] [--format table|tsv]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree rm <slug|path> [--force] [--delete-branch]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 help
 #
@@ -1774,6 +1775,7 @@ function Cmd-Doctor($rest) {
   Doctor-Conventions
   Doctor-Harness
   Doctor-Smoke
+  Doctor-Shared
   # 4（不変条件違反）に揃える。1 は使用法・環境エラー用（sh 版と同一）
   if ($fail -eq 0) { exit 0 } else { exit 4 }
 }
@@ -2443,6 +2445,21 @@ function WtPorcelain() {
 # 共有ファイル警告。PJ 固有のファイル名は CLI に埋めず .aidev/config.yml の sharedFiles から生成する
 # （基盤は PJ 非依存＝DESIGN「1.」「2.」。機械が言えるのは config にある事実だけで、検証義務のような
 #  PJ 規約は散文＝AGENTS.md / protocol-worktree.md の担当。DESIGN「2.6」の線引きと同じ）。
+# 既定ブランチ名。読めなければ空を返す（推測しない。sh 版 git_default_branch と同一）
+function GitDefaultBranch($repoDir) {
+  if (-not $repoDir) { $repoDir = $script:ROOT }
+  $b = (& git -C $repoDir symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>$null)
+  if ($LASTEXITCODE -ne 0) { $b = '' }
+  $b = "$b".Trim() -replace '^origin/', ''
+  if (-not $b) {
+    foreach ($c in @('main','master')) {
+      & git -C $repoDir show-ref --verify --quiet "refs/heads/$c" 2>$null
+      if ($LASTEXITCODE -eq 0) { $b = $c; break }
+    }
+  }
+  return $b
+}
+
 function Wt-SharedWarn {
   $sh = @(YList (Join-Path $script:AIDEV 'config.yml') 'sharedFiles')
   if ($sh.Count -gt 0) {
@@ -2545,15 +2562,7 @@ function Wt-Add($rest) {
   }
   Write-Output "  branch: $branch / base: $bshown"
   if ($bhead) {
-    $bdef = (& git -C $script:ROOT symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>$null)
-    if ($LASTEXITCODE -ne 0) { $bdef = '' }
-    $bdef = "$bdef".Trim() -replace '^origin/', ''
-    if (-not $bdef) {
-      foreach ($c in @('main','master')) {
-        & git -C $script:ROOT show-ref --verify --quiet "refs/heads/$c" 2>$null
-        if ($LASTEXITCODE -eq 0) { $bdef = $c; break }
-      }
-    }
+    $bdef = GitDefaultBranch $script:ROOT
     if ($bdef -and $bdef -cne $bhead) {
       Write-Output "  ⚠ base が既定ブランチ($bdef)ではなく $bhead です。未マージの変更の上に積まれます"
       Write-Output "    （deliver「1.5」の既着地検知が $bdef..HEAD の無関係なコミットで濁る）"
@@ -2604,6 +2613,96 @@ function Wt-List($rest) {
   }
   Write-Output ("WORKTREES (" + $rows.Count + ")")
   if ($rows.Count -gt 0) { foreach ($l in (Fmt-Table (@("path`tbranch`twork`tphase`tkind") + $rows))) { Write-Output $l } }
+}
+
+# その worktree が他と違えているファイル名（sh 版 wt_changed_files と同一。理由もそちらに）
+function Wt-ChangedFiles($path, $mainHead) {
+  $base = ''
+  if ($mainHead) {
+    $base = (& git -C $path merge-base $mainHead HEAD 2>$null)
+    if ($LASTEXITCODE -ne 0) { $base = '' } else { $base = "$base".Trim() }
+  }
+  if (-not $base) { $base = 'HEAD' }
+  $out = @()
+  $d = (& git -C $path diff --name-only $base 2>$null); if ($LASTEXITCODE -eq 0 -and $d) { $out += $d }
+  $u = (& git -C $path ls-files --others --exclude-standard 2>$null); if ($LASTEXITCODE -eq 0 -and $u) { $out += $u }
+  return ($out | ForEach-Object { "$_".TrimEnd("`r") } | Where-Object { $_ } | Sort-Object -Unique)
+}
+
+# どのファイルを何本の worktree が触っているか（sh 版 wt_files と同一）
+function Wt-Files($rest) {
+  $fmt='table'; $showall=$false
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch -CaseSensitive ($rest[$i]) {
+      '--format' { $i++; $fmt=(ArgAt $rest $i '--format') }
+      '--all'    { $showall=$true }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        else { Die "files は位置引数を取りません: $($rest[$i])" }
+      }
+    }
+  }
+  if ($fmt -cne 'table' -and $fmt -cne 'tsv') { Die "--format は table|tsv" }
+  GitPresent
+
+  $decl = @(YList (Join-Path $script:AIDEV 'config.yml') 'sharedFiles')
+  $wtAll = @(WtPorcelain)
+  $mainTree = if ($wtAll.Count -gt 0) { ($wtAll[0] -split "`t")[0] } else { '' }
+  $mainHead = ''
+  if ($mainTree) {
+    $mainHead = (& git -C $mainTree rev-parse HEAD 2>$null)
+    if ($LASTEXITCODE -ne 0) { $mainHead = '' } else { $mainHead = "$mainHead".Trim() }
+  }
+  $map = @{}; $n = 0
+  foreach ($line in $wtAll) {
+    $path = ($line -split "`t")[0]
+    $cur = Join-Path (Join-Path $path '.aidev') 'current'
+    if (-not (IsFile $cur)) { continue }
+    if (-not $showall) {
+      # deliver 済みの work はもう書かないので重なりの相手にならない（sh 版の注記に理由）
+      $cl = [System.IO.File]::ReadAllLines($cur)
+      $w = if ($cl.Count -ge 1) { $cl[0].Trim() } else { '' }
+      if ($w) {
+        $stp = Join-Path (Join-Path (Join-Path (Join-Path $path '.aidev') 'works') $w) 'state.yml'
+        if (IsFile $stp) {
+          if ((@(YList $stp 'approved')) -ccontains 'deliver') { continue }
+        }
+      }
+    }
+    $n++
+    $wname = Split-Path -Leaf $path
+    foreach ($f in (Wt-ChangedFiles $path $mainHead)) {
+      if ($f -like '.aidev/works/*') { continue }
+      if (-not $map.ContainsKey($f)) { $map[$f] = @() }
+      $map[$f] += $wname
+    }
+  }
+  $rows=@(); $over=0; $undecl=0
+  # 並びは**バイト順**に固定する（.NET の既定はカルチャ照合で、sh の LC_ALL=C sort と
+  # `README.md` / `notes/cli.py` の前後が入れ替わる。実測）
+  $keys = [string[]]@($map.Keys)
+  [Array]::Sort($keys, [System.StringComparer]::Ordinal)
+  foreach ($f in $keys) {
+    $names = @($map[$f]); $c = $names.Count
+    if (-not $showall -and $c -lt 2) { continue }
+    $d = if ($decl -ccontains $f) { 'yes' } else { 'no' }
+    if ($c -ge 2) { $over++; if ($d -ceq 'no') { $undecl++ } }
+    $rows += ($f + "`t" + $c + "`t" + $d + "`t" + ($names -join ', '))
+  }
+  if ($fmt -ceq 'tsv') {
+    foreach ($r in $rows) { Write-Output ("file`t" + $r) }
+    Write-Output ("files-summary`t" + $n + "`t" + $over + "`t" + $undecl)
+    return
+  }
+  $hdr = "worktree files: $n 本の worktree の変更ファイル"
+  if (-not $showall) { $hdr += '（未着地の work・2本以上が触っているものだけ。全件は --all）' }
+  Write-Output $hdr
+  if ($rows.Count -gt 0) { foreach ($l in (Fmt-Table (@("file`tworktrees`tsharedFiles`twhere") + $rows))) { Write-Output $l } }
+  Write-Output "files-summary: worktrees=$n overlap=$over undeclared=$undecl"
+  if ($undecl -gt 0) {
+    Write-Output "⚠ 重なっているのに sharedFiles に無いファイルが $undecl 件。config.yml に足すと"
+    Write-Output "  worktree add がその名前で警告できる（並行可否の判断はユーザー）。"
+  }
 }
 
 function Wt-Rm($rest) {
@@ -3333,6 +3432,58 @@ function Doctor-Conventions() {
 }
 
 # 起動確認の設定を PJ 単位で1行だけ検査する（work ごとに鳴らさない。sh 版 doctor_smoke と同一）
+# sharedFiles の妥当性（sh 版 doctor_shared と同一。理由もそちらに）
+function Doctor-Shared() {
+  Write-Output "sharedFiles: 並行作業で名指しする共有ファイルの検査"
+  $decl = @(YList (Join-Path $script:AIDEV 'config.yml') 'sharedFiles')
+  $n=0; $stale=0; $miss=0
+  foreach ($f in $decl) {
+    if (-not $f) { continue }
+    $n++
+    if (-not (Test-Path -LiteralPath (Join-Path $script:ROOT $f))) {
+      Write-Output "    WARN 宣言されているが実在しません: $f（誤記か、消えたファイルの残骸）"
+      $stale++
+    }
+  }
+  $w = YGet (Join-Path $script:AIDEV 'config.yml') 'sharedFilesWindow'
+  if ($w -notmatch '^\d+$') { $w = 20 } else { $w = [int]$w }
+  if ((Get-Command git -ErrorAction SilentlyContinue) -and $w -gt 0) {
+    $c = (& git -C $script:ROOT rev-list --count HEAD 2>$null)
+    if ($LASTEXITCODE -ne 0 -or $c -notmatch '^\d+$') { $c = 0 } else { $c = [int]$c }
+    if ($c -lt $w) { $w = $c }
+    if ($w -ge 4) {
+      $thr = [int][math]::Floor(($w + 3) / 4); if ($thr -lt 2) { $thr = 2 }
+      $log = (& git -C $script:ROOT log -n $w --name-only --pretty=format:'@@C@@' HEAD 2>$null)
+      if ($LASTEXITCODE -eq 0 -and $log) {
+        $cnt = @{}; $seen = @{}
+        foreach ($l in $log) {
+          $l = "$l".TrimEnd("`r")
+          if ($l -ceq '@@C@@') { $seen = @{}; continue }
+          if (-not $l) { continue }
+          if ($seen.ContainsKey($l)) { continue }
+          $seen[$l] = $true
+          if ($cnt.ContainsKey($l)) { $cnt[$l]++ } else { $cnt[$l] = 1 }
+        }
+        $ck = [string[]]@($cnt.Keys)
+        [Array]::Sort($ck, [System.StringComparer]::Ordinal)   # 同数の並びを sh と揃える
+        $ck = @($ck | Sort-Object -Stable @{Expression={$cnt[$_]};Descending=$true})
+        foreach ($f in $ck) {
+          if ($cnt[$f] -lt $thr) { continue }
+          if ($miss -ge 5) { continue }
+          if ($f -like '.aidev/*') { continue }
+          if ($decl -ccontains $f) { continue }
+          Write-Output "    WARN $($cnt[$f])/$w コミットが触っているのに sharedFiles に無い: $f"
+          $miss++
+        }
+      }
+    }
+  }
+  if ($n -eq 0 -and $miss -eq 0) {
+    Write-Output "note: sharedFiles 未設定。並行作業の警告が汎用文言になります（config.yml で名指しできる）"
+  }
+  Write-Output "sharedFiles-summary: declared=$n 実在しない=$stale 未宣言の常連=$miss"
+}
+
 function Doctor-Smoke() {
   $dsc = SmokeCmd
   Write-Output "smoke: 起動確認の設定"
@@ -3349,13 +3500,14 @@ function Doctor-Smoke() {
 }
 
 function Cmd-Worktree($rest) {
-  if ($rest.Count -lt 1) { Die "使用法: aidev worktree <add|list|rm> ..." }
+  if ($rest.Count -lt 1) { Die "使用法: aidev worktree <add|list|files|rm> ..." }
   $sub=$rest[0]; $sr=@(); if ($rest.Count -gt 1) { $sr=$rest[1..($rest.Count-1)] }
   switch -CaseSensitive ($sub) {
     'add'  { Wt-Add $sr }
     'list' { Wt-List $sr }
+    'files' { Wt-Files $sr }
     'rm'   { Wt-Rm $sr }
-    default { Die "未知の worktree サブコマンド: $sub（add|list|rm）" }
+    default { Die "未知の worktree サブコマンド: $sub（add|list|files|rm）" }
   }
 }
 
