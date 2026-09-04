@@ -1857,6 +1857,104 @@ assert_eq "$DBR2" "0" "verify: 原因究明の記録漏れは WARN 止まり（�
 assert_contains "$DBV" "test の差し戻しが 3 回（上限 3）だが原因究明の記録が無い" "verify: 上限到達＋未実施を知らせる"
 rm -rf "$DBR"
 
+
+echo "== 監査で見つかった経路（刻印の選び方・家族単位・上限値の端・version-aware）=="
+AUD=$(mktemp -d); mkdir -p "$AUD/.aidev/backlog"
+run_au() { ( cd "$AUD" && "$AIDEV_SH" "$@" ); }
+# **command substitution で呼ばない**（サブシェルになり AU_W/AU_D が呼び側に届かない。
+# cov_analyze で踏んだのと同じ形）。結果は AU_W（dated 名）と AU_D（work dir）に入る
+mk_work() { # slug
+  run_au new "$1" >/dev/null
+  AU_W=$(cat "$AUD/.aidev/current"); AU_D="$AUD/.aidev/works/$AU_W"
+  for f in spec plan review test-result; do : > "$AU_D/$f.md"; done
+  printf -- '- [ ] AC1: a\n- [ ] AC2: b\n' > "$AU_D/requirement.md"
+  printf -- '- [ ] T1: x\n      AC: AC1, AC2\n      依存: なし\n' > "$AU_D/tasks.md"
+}
+
+# 明示キーの判定は**引数ごとの先頭一致**（連結文字列への部分一致だと値の中の ac_total= で分岐が変わる）
+mk_work m1a; AUD1=$AU_D
+run_au approve plan "note=see ac_total=5" >/dev/null
+assert_contains "$(cat "$AUD1/metrics.yml")" "note: see ac_total=5, ac_total: 2" "approve: 値の中の ac_total= を明示指定と誤認しない"
+mk_work m1b; AUD2=$AU_D; AU_M1B=$AU_W
+run_au approve plan ac_total=9 >/dev/null
+assert_contains "$(cat "$AUD2/metrics.yml")" "metrics: { ac_total: 9 }" "approve: 先頭が ac_total= なら機械値で上書きしない"
+
+# ac_covered を持たない刻印は乖離の計算から捨てる（0 とみなすと乖離を捏造する）
+run_au approve review >/dev/null
+assert_eq "$(run_au metrics "$AU_M1B" --format tsv | awk -F'\t' '{print $8}')" "-" \
+  "metrics: ac_total だけ手で渡した刻印は ac_drift に使わない（乖離を捏造しない）"
+
+# 同じ工程を2回 approve しても「2点ある」ことにしない（測れないことを 0 と書かない）
+mk_work m5; AUD3=$AU_D; AU_M5=$AU_W
+run_au approve plan >/dev/null; run_au approve plan >/dev/null
+assert_eq "$(run_au metrics "$AU_M5" --format tsv 2>/dev/null | awk -F'\t' '{print $8}')" "-" \
+  "metrics: 同じ工程の二重 approve を 2 点と数えない（plan と review で選ぶ）"
+run_au approve review >/dev/null
+assert_eq "$(run_au metrics "$AU_M5" --format tsv | awk -F'\t' '{print $8}')" "0" "metrics: plan と review がそろえば測れる"
+
+# 分割 work: 子では刻まない（家族単位の値を子ごとに刻むと分母が多重計上される）
+mk_work split; AUDP=$AU_D
+SPP=$(cat "$AUD/.aidev/current")
+run_au new 01-a --parent "$SPP" >/dev/null
+printf -- '- [ ] T1: x\n      AC: AC1, AC2\n      依存: なし\n' > "$AUDP/01-a/tasks.md"
+run_au approve plan >/dev/null
+assert_absent "$(cat "$AUDP/01-a/metrics.yml")" "ac_total" "approve: subtask では被覆を刻まない"
+
+# 起動確認は家族単位。子で打っても親に刻まれ、親の verify が通る
+printf 'smokeCommand: true\n' > "$AUD/.aidev/config.yml"
+AUSO=$(run_au smoke 2>&1)
+assert_contains "$AUSO" "記録は親" "smoke: 子で打ったら親に刻むことを告げる"
+assert_contains "$(cat "$AUDP/metrics.yml")" "event: smoke" "smoke: 記録は家族の根に入る"
+assert_absent "$(cat "$AUDP/01-a/metrics.yml")" "event: smoke" "smoke: 子には刻まない"
+run_au use "$SPP" >/dev/null
+for p in requirement spec plan coding test review deliver; do run_au approve "$p" >/dev/null; done
+AUV=$(run_au verify "$SPP" 2>&1); AUR=$?
+assert_eq "$AUR" "0" "verify: 子で通した smoke が親の deliver ゲートに届く"
+assert_absent "$AUV" "起動確認の記録が無い" "verify: 家族の記録を見るので誤 FAIL しない"
+
+# smoke に時間上限（常駐コマンドで自律実行が止まらないように）
+if command -v timeout >/dev/null 2>&1; then
+  printf 'smokeCommand: sleep 30\nsmokeTimeoutSec: 1\n' > "$AUD/.aidev/config.yml"
+  AUSO=$(run_au smoke 2>&1); AUR=$?
+  assert_eq "$AUR" "4" "smoke: 上限で打ち切って fail にする"
+  assert_contains "$AUSO" "秒で打ち切りました" "smoke: 打ち切ったことを言う"
+  assert_contains "$(cat "$AUDP/metrics.yml")" "exit_code: 124" "smoke: 打ち切りの exit code を刻む"
+else
+  skip 3 "timeout(coreutils) 不在のため smoke の時間上限を省略"
+fi
+rm -f "$AUD/.aidev/config.yml"
+
+# 上限値の端: maxDebugRounds: 0 は 1 に切り上げる（0 だと start も report も通らず詰む）
+mk_work edge; AUDD=$AU_D; AU_EDGE=$AU_W
+printf 'maxDebugRounds: 0\n' > "$AUD/.aidev/config.yml"
+AUSO=$(run_au debug start --phase coding 2>&1); AUR=$?
+assert_eq "$AUR" "0" "debug start: maxDebugRounds: 0 でも詰まない（下限 1）"
+assert_contains "$AUSO" "round 1/1" "debug start: 下限 1 として扱う"
+rm -f "$AUD/.aidev/config.yml"
+
+# maxSendBacks: 0 の PJ で verify が全工程に鳴らない（debug status の due と同じ条件で絞る）
+printf 'maxSendBacks: 0\n' >> "$AUDD/state.yml"
+for p in requirement spec plan coding test review deliver; do run_au approve "$p" >/dev/null; done
+AUV=$(run_au verify "$AU_EDGE" 2>&1)
+assert_eq "$(printf '%s\n' "$AUV" | grep -c '原因究明の記録が無い')" "0" \
+  "verify: 差し戻し 0 回の工程には原因究明を求めない（maxSendBacks: 0 で全工程が鳴らない）"
+
+# version-aware: schema 7/8 の検査を旧 work に遡らせない
+printf 'smokeCommand: true\n' > "$AUD/.aidev/config.yml"
+for sc in 6 7; do
+  mkdir -p "$AUD/.aidev/works/2020010$sc-old"
+  printf 'schema: %s\nslug: old%s\ncurrent: deliver\napproved: [requirement, spec, plan, coding, test, review, deliver]\nharnessRev: aaa1111\n' "$sc" "$sc" \
+    > "$AUD/.aidev/works/2020010$sc-old/state.yml"
+  printf 'events:\n  - { ts: 2020-01-0%s\T00:00:00Z, phase: deliver, event: approved }\n' "$sc" \
+    > "$AUD/.aidev/works/2020010$sc-old/metrics.yml"
+  for f in requirement spec plan tasks review test-result; do : > "$AUD/.aidev/works/2020010$sc-old/$f.md"; done
+done
+run_au verify 20200106-old >/dev/null 2>&1
+assert_eq "$?" "0" "verify: schema 6 の work に起動確認を要求しない（遡って違反にしない）"
+run_au verify 20200107-old >/dev/null 2>&1
+assert_eq "$?" "4" "verify: schema 7 からは起動確認の記録を要求する"
+rm -rf "$AUD"
+
 echo "== sh ⇔ ps1 パリティ =="
 if [ -n "$PS_HOST" ]; then
   block_begin parity
@@ -1911,6 +2009,58 @@ EOF
   PC_PS=$(printf '%s' "$PC_PS_RAW" | tr -d '\r')
   assert_eq "$PC_SH" "$PC_PS" "パリティ: coverage --strict（出力）"
   assert_eq "$PC_SH_RC" "$PC_PS_RC" "パリティ: coverage --strict（exit code は 4）"
+  # 監査で割れていた経路のパリティ（明示キーの判定・家族単位の smoke・上限値の端・help）
+  PAU=$(mktemp -d); PAU2=$(mktemp -d)
+  for pimpl in sh ps1; do
+    if [ "$pimpl" = sh ]; then PA=$PAU; else PA=$PAU2; fi
+    mkdir -p "$PA/.aidev/backlog"
+    par() { if [ "$pimpl" = sh ]; then ( cd "$PA" && "$AIDEV_SH" "$@" >/dev/null 2>&1 ); \
+            else ( cd "$PA" && run_ps1 "$AIDEV_PS1" "$@" >/dev/null 2>&1 ); fi; }
+    par new fam
+    PAW=$(tr -d '\r' < "$PA/.aidev/current"); PAD="$PA/.aidev/works/$PAW"
+    for f in spec plan review test-result; do : > "$PAD/$f.md"; done
+    printf -- '- [ ] AC1: a\n- [ ] AC2: b\n' > "$PAD/requirement.md"
+    printf -- '- [ ] T1: x\n      AC: AC1, AC2\n      依存: なし\n' > "$PAD/tasks.md"
+    par new 01-a --parent "$PAW"
+    printf -- '- [ ] T1: y\n      AC: AC1, AC2\n      依存: なし\n' > "$PAD/01-a/tasks.md"
+    printf 'smokeCommand: true\n' > "$PA/.aidev/config.yml"
+    par use "$PAW/01-a"; par approve plan            # 子: 刻まない / smoke は親へ
+    par smoke
+    par use "$PAW"
+    par approve plan "note=see ac_total=5"           # 値の中の ac_total= は明示指定ではない
+    par approve plan ac_total=9                      # 先頭一致なら尊重
+    par approve review
+    for p in requirement spec coding test deliver; do par approve "$p"; done
+  done
+  PAM_SH=$(sed 's/ts: [^,]*, //' "$PAU/.aidev/works"/*/metrics.yml)
+  PAM_PS=$(tr -d '\r' < "$(ls -d "$PAU2/.aidev/works"/*/metrics.yml)" | sed 's/ts: [^,]*, //')
+  assert_eq "$PAM_SH" "$PAM_PS" "パリティ: 明示キーの判定と家族単位の smoke（親の metrics）"
+  PAS_SH=$(sed 's/ts: [^,]*, //' "$PAU/.aidev/works"/*/01-a/metrics.yml)
+  PAS_PS=$(tr -d '\r' < "$(ls -d "$PAU2/.aidev/works"/*/01-a/metrics.yml)" | sed 's/ts: [^,]*, //')
+  assert_eq "$PAS_SH" "$PAS_PS" "パリティ: subtask の metrics（被覆も smoke も刻まれない）"
+  for pargs in "metrics --all --format tsv" "verify" "smoke"; do
+    # shellcheck disable=SC2086
+    PA_SH=$( ( cd "$PAU"  && "$AIDEV_SH" $pargs ) 2>&1 | sed 's/2[0-9-]*T[0-9:]*Z//g' ); PA_SH_RC=$?
+    # shellcheck disable=SC2086
+    PA_PS_RAW=$( ( cd "$PAU2" && run_ps1 "$AIDEV_PS1" $pargs ) 2>&1 ); PA_PS_RC=$?
+    PA_PS=$(printf '%s' "$PA_PS_RAW" | tr -d '\r' | sed 's/2[0-9-]*T[0-9:]*Z//g')
+    assert_eq "$PA_SH" "$PA_PS" "パリティ: $pargs（家族単位の修正後）"
+    assert_eq "$PA_SH_RC" "$PA_PS_RC" "パリティ: $pargs（exit code）"
+  done
+  # 上限値の端（maxDebugRounds: 0 -> 1）
+  printf 'maxDebugRounds: 0\n' > "$PAU/.aidev/config.yml"; printf 'maxDebugRounds: 0\n' > "$PAU2/.aidev/config.yml"
+  PE_SH=$( ( cd "$PAU"  && "$AIDEV_SH" debug start --phase coding ) 2>&1 ); PE_SH_RC=$?
+  PE_PS_RAW=$( ( cd "$PAU2" && run_ps1 "$AIDEV_PS1" debug start --phase coding ) 2>&1 ); PE_PS_RC=$?
+  PE_PS=$(printf '%s' "$PE_PS_RAW" | tr -d '\r')
+  assert_eq "$PE_SH" "$PE_PS" "パリティ: maxDebugRounds: 0 の切り上げ"
+  assert_eq "$PE_SH_RC" "$PE_PS_RC" "パリティ: maxDebugRounds: 0（exit code）"
+  # ps1 の help に新コマンドが載っていること（sh は冒頭コメントを流すので元から載る）
+  PH_PS=$( ( cd "$PAU2" && run_ps1 "$AIDEV_PS1" help ) 2>&1 | tr -d '\r' )
+  for pcmd in coverage smoke debug "worktree rm"; do
+    assert_contains "$PH_PS" "$pcmd" "ps1 help: $pcmd が載っている"
+  done
+  rm -rf "$PAU" "$PAU2"
+
   # debug のパリティ（記録の中身・上限の効き方・decisions.md の生成物）
   PDB=$(mktemp -d); PDB2=$(mktemp -d)
   for pimpl in sh ps1; do
@@ -2701,9 +2851,9 @@ YML
   else
     skip 10 "git 不在のため worktree パリティを省略"
   fi
-  block_end parity "214" "parity"
+  block_end parity "228" "parity"
 else
-  skip 214 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
+  skip 228 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
 fi
 
 echo

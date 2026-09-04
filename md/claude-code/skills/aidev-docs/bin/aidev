@@ -558,14 +558,17 @@ cmd_approve() {
   # tasks.md がまだ無い工程（full の requirement・分割 work の親 plan）は刻まない。
   case "$ph" in
     plan|requirement|review)
-      case " $* " in
-        *" ac_total="*) ;;   # 明示指定があれば尊重する（機械値で上書きしない）
-        *)
-          if cov_analyze; then
-            set -- "$@" "ac_total=$COV_AC" "ac_covered=$COV_TASK" \
-                        "tasks_no_ac=$COV_TASKS_NOAC" "tasks_ac_none=$COV_TASKS_ACNONE"
-          fi ;;
-      esac ;;
+      # 明示指定があれば尊重する（機械値で上書きしない）。判定は**引数ごとの先頭一致**——
+      # 全引数を連結した文字列に部分一致を掛けると、`note=see ac_total=5` のような値でも
+      # 分岐が変わり、ps1 側（先頭一致）と食い違う
+      _achas=no
+      for _akv in "$@"; do case "$_akv" in ac_total=*) _achas=yes ;; esac; done
+      # 分割 work の subtask では刻まない。被覆は**家族単位**（親＋全 subtask）の値なので、
+      # 子ごとに刻むと `metrics --all` を足し上げたとき分母が subtask 数だけ多重計上される
+      if [ "$_achas" = no ] && [ -z "$(yget "$WORK/state.yml" parent)" ] && cov_analyze; then
+        set -- "$@" "ac_total=$COV_AC" "ac_covered=$COV_TASK" \
+                    "tasks_no_ac=$COV_TASKS_NOAC" "tasks_ac_none=$COV_TASKS_ACNONE"
+      fi ;;
   esac
   append_event "$ph" approved "$@"
   printf 'approved: %s @ %s\n' "$ph" "$SLUG"
@@ -1112,6 +1115,9 @@ DBG_CONFIDENCE='high medium low'
 dbg_max() {
   _m=$(yget "$AIDEV/config.yml" maxDebugRounds)
   case "$_m" in ''|*[!0-9]*) _m=2 ;; esac
+  # **下限は 1**。0 を許すと `debug start` が必ず止め、案内された出口の `debug report` は
+  # 「start が無い」と弾くので、どちらにも進めなくなる
+  [ "$_m" -ge 1 ] 2>/dev/null || _m=1
   printf '%s' "$_m"
 }
 # 同一工程の sent_back 回数
@@ -1220,7 +1226,8 @@ dbg_report() {
   _dn=$(grep -c '^## デバッグ D' "$_df" 2>/dev/null) || _dn=0
   case "$_dn" in ''|*[!0-9]*) _dn=0 ;; esac
   _dn=$((_dn+1))
-  [ -f "$_df" ] || printf '# 判断の記録: %s\n' "$SLUG" > "$_df"
+  if [ ! -f "$_df" ]; then printf '# 判断の記録: %s\n' "$SLUG" > "$_df"
+  elif [ -n "$(tail -c 1 "$_df" 2>/dev/null)" ]; then printf '\n' >> "$_df"; fi
   {
     printf '\n## デバッグ D%s: %s / %s（%s round %s・%s）\n' "$_dn" "$dcat" "$dact" "$dph" "$_dr" "$(now)"
     printf -- '- 根本原因: %s\n' "$drc"
@@ -1313,6 +1320,22 @@ smoke_cmd() {
   printf '%s' "$_v"
 }
 
+# 起動確認は **work 全体（親＋全 subtask）の性質**なので、記録も家族の根に一本化する。
+# 子の metrics に刻むと、着地する親の verify から見えず「記録が無い」と誤 FAIL する
+# （被覆を `cov_root()` で家族単位にしたのと同じ理由。片方だけ work 単位だと非対称になる）。
+smoke_root() { # -> 家族の根の work ディレクトリ
+  _sp=$(yget "$WORK/state.yml" parent)
+  if [ -n "$_sp" ] && [ -d "$AIDEV/works/$_sp" ]; then printf '%s' "$AIDEV/works/$_sp"
+  else printf '%s' "$WORK"; fi
+}
+# smoke に許す最長秒数（`timeout` があるときだけ効く）
+smoke_timeout() {
+  _t=$(yget "$AIDEV/config.yml" smokeTimeoutSec)
+  case "$_t" in ''|*[!0-9]*) _t=300 ;; esac
+  [ "$_t" -ge 1 ] 2>/dev/null || _t=300
+  printf '%s' "$_t"
+}
+
 # metrics.yml に残っている最後の smoke 結果（pass|fail|skip。無ければ空）
 smoke_last() { # metrics_file
   [ -f "$1" ] || return 0
@@ -1339,23 +1362,46 @@ cmd_smoke() {
     printf 'next: 「成果物が最初の使える状態まで到達する」ことを確かめる**終了するコマンド**を書く\n' >&2
     printf '      （常駐するサーバなら health check を叩いて終わる形にする。起動しっぱなしにしない）\n' >&2
     printf '      起動確認の対象が無い PJ（純粋なライブラリ等）は smokeCommand: none と**明示**する\n' >&2
+    printf '書式: 値は**行をそのまま**読む（YAML のエスケープもブロックスカラー `|` も解釈しない）。\n' >&2
+    printf '      クォートで囲まないのが基本（全体を "…" で囲んだときだけ1組だけ外す）\n' >&2
     return 2
   fi
+  # 記録先は家族の根（下記 smoke_root の注記）。WORK を一時的に差し替えて append_event に渡す
+  _sw=$WORK; _ssl=$SLUG
+  WORK=$(smoke_root)
+  if [ "$WORK" != "$_sw" ]; then
+    SLUG=$(basename "$WORK")
+    printf 'note: 起動確認は work 全体の性質なので、記録は親 %s に刻みます\n' "$SLUG"
+  fi
+
   if [ "$_sc" = none ]; then
     append_event test smoke result=skip
+    WORK=$_sw; SLUG=$_ssl
     printf 'skip: smokeCommand: none（この PJ は起動確認の対象外と宣言されています）\n'
     return 0
   fi
 
   printf '$ %s\n' "$_sc"
   # 出力は**捕まえずに素通しする**。test 工程が `test-result.md` に貼るのは生の出力で、
-  # ここで要約や整形を挟むと「そのまま貼った」が成立しなくなる
+  # ここで要約や整形を挟むと「そのまま貼った」が成立しなくなる。
+  # **時間上限を掛ける**——常駐コマンドを書かれると自律実行がそこで永久に止まる。
+  # 「終了するコマンドを書け」を散文だけに任せない（この harness が繰り返し採ってきた線）。
+  # `timeout` が無い環境では掛けられないので、**その事実を出力に残す**（黙って無制限にしない）。
+  _sto=$(smoke_timeout)
   set +e
-  ( cd "$ROOT" && sh -c "$_sc" )
+  if command -v timeout >/dev/null 2>&1; then
+    ( cd "$ROOT" && timeout "$_sto" sh -c "$_sc" )
+  else
+    ( cd "$ROOT" && sh -c "$_sc" )
+  fi
   _src=$?
   set -e
   if [ "$_src" -eq 0 ]; then _srr=pass; else _srr=fail; fi
+  if [ "$_src" -eq 124 ]; then
+    printf 'note: %s 秒で打ち切りました（smokeTimeoutSec）。**終了するコマンド**を書くこと\n' "$_sto"
+  fi
   append_event test smoke "result=$_srr" "exit_code=$_src"
+  WORK=$_sw; SLUG=$_ssl
   printf 'smoke: %s (exit %s)\n' "$_srr" "$_src"
   [ "$_srr" = pass ] || return 4
   return 0
@@ -1431,7 +1477,7 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail / 5 stri
       if [ "$schema" -ge 7 ] 2>/dev/null && approved_has deliver; then
         _vsc=$(smoke_cmd)
         if [ -n "$_vsc" ] && [ "$_vsc" != none ]; then
-          case "$(smoke_last "$WORK/metrics.yml")" in
+          case "$(smoke_last "$(smoke_root)/metrics.yml")" in
             pass|skip) ;;
             fail) VF="$VF 起動確認が失敗のまま(aidev smoke が fail)" ;;
             *)    VF="$VF 起動確認の記録が無い(smokeCommand 設定済。aidev smoke を通すこと)" ;;
@@ -1445,6 +1491,9 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail / 5 stri
         _vmsb=$(dbg_max_send_backs)
         for _vp in $PHASES; do
           _vsb=$(dbg_sent_backs "$WORK/metrics.yml" "$_vp")
+          # 差し戻しが1回も無い工程は対象外（`maxSendBacks: 0` の PJ で全工程が鳴るのを防ぐ。
+          # `debug status` の due 列も同じ条件で絞っている）
+          [ "$_vsb" -ge 1 ] 2>/dev/null || continue
           [ "$_vsb" -ge "$_vmsb" ] 2>/dev/null || continue
           [ "$(dbg_rounds "$WORK/metrics.yml" "$_vp")" -eq 0 ] || continue
           printf '  WARN %s の差し戻しが %s 回（上限 %s）だが原因究明の記録が無い: aidev debug start\n' \
@@ -2093,6 +2142,9 @@ END{
 }'
 
 # metrics.yml の approved イベントから、被覆の刻印を出現順に "総数 被覆数 AC行欠落数" で出す。
+# 出力: "<phase> <gap> <ac_total>" を出現順に。gap = (総数-被覆数) + AC行欠落数（+ AC が0件なら1）。
+# **`ac_covered` を持たない刻印は捨てる**——`approve plan ac_total=5` のように一部だけ手で
+# 渡された行を 0 とみなすと、被覆数 0 として gap を捏造する（乖離が無いのに 5 と出る）。
 mt_cov_stamps() { # metrics_file
   [ -f "$1" ] || return 0
   awk '
@@ -2103,10 +2155,15 @@ mt_cov_stamps() { # metrics_file
       return -1
     }
     /event:[[:space:]]*approved/ {
-      t = num($0, "ac_total"); if (t < 0) next
-      c = num($0, "ac_covered"); if (c < 0) c = 0
+      t = num($0, "ac_total");   if (t < 0) next
+      c = num($0, "ac_covered"); if (c < 0) next
       n = num($0, "tasks_no_ac"); if (n < 0) n = 0
-      printf "%d %d %d\n", t, c, n
+      p = ""
+      if (match($0, /phase:[[:space:]]*[a-z]+/)) {
+        p = substr($0, RSTART, RLENGTH); sub(/phase:[[:space:]]*/, "", p)
+      }
+      # AC が 1 件も無いのは「被覆 100%」ではなく測れていない（cov_analyze も cover gap を立てる）
+      printf "%s %d %d\n", p, (t - c) + n + (t == 0 ? 1 : 0), t
     }
   ' "$1"
 }
@@ -2161,20 +2218,18 @@ cmd_metrics() {
       # 受け入れ基準の規模（分母）と、plan から review までの被覆の乖離。
       # 分母がこれまで実装側（files_changed）と分解側（tasks_planned）しか無く、
       # **要求の大きさ**で正規化できなかった（「AC 1件あたりの手戻り」が出せない）。
+      # **2点は工程で選ぶ**（件数で選ぶと、同じ工程を2回 approve しただけの work が
+      # 「2点ある＝乖離が測れる」に化け、測れないことを 0 と書いてしまう）。
+      # 基準点＝plan（light では requirement）の**最初**、終点＝review の**最後**。
       _cs=$(mt_cov_stamps "$mf" | sed '/^$/d')
-      _cn=$(printf '%s' "$_cs" | grep -c . || true)
-      _f=$(printf '%s\n' "$_cs" | head -n1)
-      _l=$(printf '%s\n' "$_cs" | tail -n1)
-      if [ -z "$_l" ]; then _ac=-; _adr=-
+      _f=$(printf '%s\n' "$_cs" | awk '$1=="plan"||$1=="requirement"{print;exit}')
+      _l=$(printf '%s\n' "$_cs" | awk '$1=="review"{r=$0} END{if(r!="")print r}')
+      _any=$(printf '%s\n' "$_cs" | tail -n1)
+      if [ -z "$_any" ]; then _ac=-; else _ac=$(printf '%s' "$_any" | cut -d' ' -f3); fi
+      if [ -n "$_l" ]; then _ac=$(printf '%s' "$_l" | cut -d' ' -f3); fi
+      if [ -z "$_f" ] || [ -z "$_l" ]; then _adr=-   # 2点そろわない＝乖離は測れない
       else
-        _ac=$(printf '%s' "$_l" | cut -d' ' -f1)
-        # **件数で判定する**（値の一致で判定すると、2点あって乖離ゼロの work が
-        # 「1点しか無い＝測れない」と表示され、ps1 と食い違う）
-        if [ "$_cn" -lt 2 ]; then _adr=-   # 刻印が1点しか無い＝乖離は測れない
-        else
-          _adr=$(( ($(printf '%s' "$_l" | cut -d' ' -f1) - $(printf '%s' "$_l" | cut -d' ' -f2) + $(printf '%s' "$_l" | cut -d' ' -f3)) \
-                 - ($(printf '%s' "$_f" | cut -d' ' -f1) - $(printf '%s' "$_f" | cut -d' ' -f2) + $(printf '%s' "$_f" | cut -d' ' -f3)) ))
-        fi
+        _adr=$(( $(printf '%s' "$_l" | cut -d' ' -f2) - $(printf '%s' "$_f" | cut -d' ' -f2) ))
       fi
       out="$out	$_ac	$_adr"
       _hr=$(yget "$wd/state.yml" harnessRev); [ -n "$_hr" ] || _hr=-

@@ -18,13 +18,18 @@
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 doctor [--quiet]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 status [--format table|tsv] [--active]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 metrics [slug] [--all] [--phases] [--format table|tsv]
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 coverage [slug] [--format table|tsv] [--strict]
+#     受け入れ基準(AC)の被覆率と tasks.md の整合を検査する。--strict は gap があれば exit 4
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 smoke [slug]
+#     config.yml の smokeCommand を実行して結果を metrics に刻む（起動確認 GO/NO-GO）。未設定は exit 2
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 debug <start|report|status> ...
+#     詰まったときの原因究明を有限化する（report は --root-cause/--category/--next-action が必須）
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 convention <new|confirm|retire|defer|promote|status> ...
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 harness <new|confirm|retire|status> ...
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 backlog <new|archive|compact> ...
 #     PJ規約の条項を .aidev/conventions/ で起こし・判定し・PJ ドキュメントへ移送する（protocol.md「12.」）
 #     new は --hypothesis と --baseline が必須（検証できない条項を作らせない入口ゲート）
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree add <slug> [--branch n] [--base ref] [--path dir] [--mode m] [--ticket id] [--depends list]
-
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree list [--format table|tsv]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree rm <slug|path> [--force] [--delete-branch]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 help
@@ -597,7 +602,10 @@ function Cmd-Approve($rest) {
   if (@('plan','requirement','review') -ccontains $ph) {
     $hasAc = $false
     foreach ($kv in $kvs) { if ($kv -like 'ac_total=*') { $hasAc = $true } }
-    if (-not $hasAc) {
+    # 分割 work の subtask では刻まない。被覆は家族単位の値なので、子ごとに刻むと
+    # metrics --all を足し上げたとき分母が subtask 数だけ多重計上される（sh 版と同一）
+    $isSub = YGet $st 'parent'
+    if ((-not $hasAc) -and (-not $isSub)) {
       if (CovAnalyze $script:WORK) {
         $kvs = @($kvs) + @("ac_total=$($script:COV_AC)", "ac_covered=$($script:COV_TASK)",
                            "tasks_no_ac=$($script:COV_TASKS_NOAC)", "tasks_ac_none=$($script:COV_TASKS_ACNONE)")
@@ -1041,7 +1049,9 @@ $script:DBG_CONFIDENCE = @('high','medium','low')
 
 function DbgMax() {
   $m = YGet (Join-Path $script:AIDEV 'config.yml') 'maxDebugRounds'
-  $n = 0; if ([int]::TryParse($m, [ref]$n) -and $n -ge 0) { return $n }
+  # 下限は 1（0 を許すと start が必ず止め、案内された出口の report は start 必須で弾く）
+  $n = 0
+  if ([int]::TryParse($m, [ref]$n)) { if ($n -ge 1) { return $n }; if ($n -ge 0) { return 1 } }
   return 2
 }
 function DbgMaxSendBacks($work) {
@@ -1147,7 +1157,12 @@ function Dbg-Report($rest) {
   # 本文は decisions.md、列挙値は metrics（フロー形式の1行に自由文を入れると壊れる）
   $df = Join-Path $script:WORK 'decisions.md'
   $dn = 0
-  if (IsFile $df) { foreach ($l in [System.IO.File]::ReadAllLines($df)) { if ($l -match '^## デバッグ D') { $dn++ } } }
+  if (IsFile $df) {
+    foreach ($l in [System.IO.File]::ReadAllLines($df)) { if ($l -match '^## デバッグ D') { $dn++ } }
+    # 末尾に改行が無いと見出しが前の行にくっつく（sh 版と同一）
+    $cur = [System.IO.File]::ReadAllText($df)
+    if ($cur.Length -gt 0 -and -not $cur.EndsWith("`n")) { AppendText $df "`n" }
+  }
   else { WriteText $df "# 判断の記録: $($script:SLUG)`n" }
   $dn = $dn + 1
   $blk = "`n## デバッグ D$dn`: $dcat / $dact（$dph round $dr・$(Now)）`n"
@@ -1244,6 +1259,22 @@ function SmokeCmd() {
   }
   return (SmokeCmdRaw 'smokeCommand')
 }
+# 起動確認は work 全体（親＋全 subtask）の性質なので、記録も家族の根に一本化する
+# （子に刻むと、着地する親の verify から見えず「記録が無い」と誤 FAIL する。sh 版と同一）
+function SmokeRoot($work) {
+  $parent = YGet (Join-Path $work 'state.yml') 'parent'
+  if ($parent) {
+    $p = Join-Path (Join-Path $script:AIDEV 'works') $parent
+    if (IsDir $p) { return $p }
+  }
+  return $work
+}
+function SmokeTimeout() {
+  $t = YGet (Join-Path $script:AIDEV 'config.yml') 'smokeTimeoutSec'
+  $n = 0; if ([int]::TryParse($t, [ref]$n) -and $n -ge 1) { return $n }
+  return 300
+}
+
 # metrics.yml に残っている最後の smoke 結果（pass|fail|skip。無ければ ''）
 function SmokeLast($metricsFile) {
   if (-not (IsFile $metricsFile)) { return '' }
@@ -1270,25 +1301,47 @@ function Cmd-Smoke($rest) {
     [Console]::Error.WriteLine("next: 「成果物が最初の使える状態まで到達する」ことを確かめる**終了するコマンド**を書く")
     [Console]::Error.WriteLine("      （常駐するサーバなら health check を叩いて終わる形にする。起動しっぱなしにしない）")
     [Console]::Error.WriteLine("      起動確認の対象が無い PJ（純粋なライブラリ等）は smokeCommand: none と**明示**する")
+    # 単一引用符の文字列にする（`` や " をエスケープせずそのまま出せる。sh 側と1文字も違わせない）
+    [Console]::Error.WriteLine('書式: 値は**行をそのまま**読む（YAML のエスケープもブロックスカラー `|` も解釈しない）。')
+    [Console]::Error.WriteLine('      クォートで囲まないのが基本（全体を "…" で囲んだときだけ1組だけ外す）')
     exit 2
   }
+  # 記録先は家族の根（SmokeRoot の注記）
+  $sw = SmokeRoot $script:WORK
+  if ($sw -cne $script:WORK) {
+    Write-Output "note: 起動確認は work 全体の性質なので、記録は親 $(Split-Path -Leaf $sw) に刻みます"
+  }
+
   if ($sc -ceq 'none') {
-    AppendEvent $script:WORK 'test' 'smoke' @('result=skip')
+    AppendEvent $sw 'test' 'smoke' @('result=skip')
     Write-Output "skip: smokeCommand: none（この PJ は起動確認の対象外と宣言されています）"
     exit 0
   }
 
   Write-Output "`$ $sc"
-  # 出力は捕まえずに素通しする（test 工程が test-result.md に貼るのは生の出力）
+  # 出力は捕まえずに素通しする（test 工程が test-result.md に貼るのは生の出力）。
+  # **時間上限**: 常駐コマンドを書かれると自律実行がそこで永久に止まる。`timeout` があるときだけ
+  # 掛かる（Windows の `timeout` は別物なので使わない）——掛けられない環境ではその事実を出力に残す。
+  $sto = SmokeTimeout
+  $src = $null
   $prev = $PWD
   try {
     Set-Location -LiteralPath $script:ROOT
-    if (IsWindowsHost) { & cmd.exe /c $sc } else { & sh -c $sc }
-    $src = $LASTEXITCODE
+    # native コマンドが**投げる**経路（sh/cmd.exe が見つからない等）では代入に到達しないので、
+    # $LASTEXITCODE の null ガードだけでは効かない。catch で拾って fail として刻む
+    try {
+      if (IsWindowsHost) { & cmd.exe /c $sc }
+      elseif (Get-Command timeout -ErrorAction SilentlyContinue) { & timeout $sto sh -c $sc }
+      else { & sh -c $sc }
+      $src = $LASTEXITCODE
+    } catch { $src = 127 }
   } finally { Set-Location -LiteralPath $prev }
   if ($null -eq $src) { $src = 1 }
   $srr = if ($src -eq 0) { 'pass' } else { 'fail' }
-  AppendEvent $script:WORK 'test' 'smoke' @("result=$srr", "exit_code=$src")
+  if ($src -eq 124) {
+    Write-Output "note: $sto 秒で打ち切りました（smokeTimeoutSec）。**終了するコマンド**を書くこと"
+  }
+  AppendEvent $sw 'test' 'smoke' @("result=$srr", "exit_code=$src")
   Write-Output "smoke: $srr (exit $src)"
   if ($srr -cne 'pass') { exit 4 }
   exit 0
@@ -1370,7 +1423,7 @@ function VerifyWork($work) {
       if ($sn -ge 7 -and (ApprovedHas $work 'deliver')) {
         $vsc = SmokeCmd
         if ($vsc -and $vsc -cne 'none') {
-          switch (SmokeLast (Join-Path $work 'metrics.yml')) {
+          switch (SmokeLast (Join-Path (SmokeRoot $work) 'metrics.yml')) {
             'pass' { }
             'skip' { }
             'fail' { $vf += "起動確認が失敗のまま(aidev smoke が fail)" }
@@ -1386,6 +1439,8 @@ function VerifyWork($work) {
         $vmsb = DbgMaxSendBacks $work
         foreach ($vp in $script:PHASES) {
           $vsb = DbgSentBacks $vmf $vp
+          # 差し戻しが1回も無い工程は対象外（maxSendBacks: 0 で全工程が鳴るのを防ぐ）
+          if ($vsb -lt 1) { continue }
           if ($vsb -lt $vmsb) { continue }
           if ((DbgRounds $vmf $vp) -ne 0) { continue }
           VLine("  WARN $vp の差し戻しが $vsb 回（上限 $vmsb）だが原因究明の記録が無い: aidev debug start")
@@ -1888,6 +1943,9 @@ function Mt-Epoch($ts) {
 }
 
 # metrics.yml の approved イベントから、被覆の刻印を出現順に @(総数,被覆数,AC行欠落数) で返す。
+# 返す各要素は @(phase, gap, ac_total)。gap = (総数-被覆数) + AC行欠落数（+ AC が0件なら1）。
+# **ac_covered を持たない刻印は捨てる**——手で ac_total だけ渡された行を 0 とみなすと
+# 被覆数 0 として gap を捏造する（sh 版 mt_cov_stamps と同一）。
 function MtCovStamps($metricsFile) {
   $r = @()
   if (-not (IsFile $metricsFile)) { return $r }
@@ -1896,10 +1954,16 @@ function MtCovStamps($metricsFile) {
     $mt = [regex]::Match($l, 'ac_total:\s*([0-9]+)')
     if (-not $mt.Success) { continue }
     $mc = [regex]::Match($l, 'ac_covered:\s*([0-9]+)')
+    if (-not $mc.Success) { continue }
     $mn = [regex]::Match($l, 'tasks_no_ac:\s*([0-9]+)')
-    $c = if ($mc.Success) { [int]$mc.Groups[1].Value } else { 0 }
+    $mp = [regex]::Match($l, 'phase:\s*([a-z]+)')
+    $t = [int]$mt.Groups[1].Value
+    $c = [int]$mc.Groups[1].Value
     $n = if ($mn.Success) { [int]$mn.Groups[1].Value } else { 0 }
-    $r += ,@([int]$mt.Groups[1].Value, $c, $n)
+    $p = if ($mp.Success) { $mp.Groups[1].Value } else { '' }
+    $gap = ($t - $c) + $n
+    if ($t -eq 0) { $gap = $gap + 1 }
+    $r += ,@($p, $gap, $t)
   }
   return $r
 }
@@ -2016,14 +2080,18 @@ function Cmd-Metrics($rest) {
       $sd = '-'
       if ($hd -and $hr -cne '-' -and $hr -cne 'unknown' -and $hd -cne 'unknown') { $sd = if ($hr -ceq $hd) { 'no' } else { 'yes' } }
       # 受け入れ基準の規模（分母）と、plan から review までの被覆の乖離（sh 版と同一）
+      # 2点は工程で選ぶ（件数で選ぶと、同じ工程を2回 approve しただけの work が
+      # 「2点ある＝乖離が測れる」に化ける）。基準点=plan|requirement の最初、終点=review の最後
       $cs = @(MtCovStamps $mf)
-      if ($cs.Count -eq 0) { $acN='-'; $acD='-' }
-      else {
-        $fst = $cs[0]; $lst = $cs[$cs.Count-1]
-        $acN = $lst[0]
-        if ($cs.Count -lt 2) { $acD = '-' }
-        else { $acD = (($lst[0] - $lst[1] + $lst[2]) - ($fst[0] - $fst[1] + $fst[2])) }
+      $fst = $null; $lst = $null; $acN = '-'
+      foreach ($e in $cs) {
+        if (($null -eq $fst) -and (@('plan','requirement') -ccontains $e[0])) { $fst = $e }
+        if ($e[0] -ceq 'review') { $lst = $e }
       }
+      if ($cs.Count -gt 0) { $acN = $cs[$cs.Count-1][2] }
+      if ($null -ne $lst) { $acN = $lst[2] }
+      if (($null -eq $fst) -or ($null -eq $lst)) { $acD = '-' }
+      else { $acD = $lst[1] - $fst[1] }
       $rows += ($name + "`t" + $fs + "`t" + $dv + "`t" + $lead + "`t" + $rw + "`t" + $sback + "`t" + $acN + "`t" + $acD + "`t" + $hr + "`t" + $sd)
     }
   }
