@@ -56,7 +56,7 @@
 #                                              # work 専用の git worktree+ブランチを作る（ユーザー責任の並行 on-ramp）
 #     new へ委譲する引数は new と同じ意味（--backlog を落とすと deliver の消し込み強制が静かに外れる）
 #   aidev worktree list [--format table|tsv]   # aidev 管理 worktree を一覧（読み取り専用）
-#   aidev worktree files [--all] [--format table|tsv]
+#   aidev worktree files [--planned] [--all] [--format table|tsv]
 #                                              # どのファイルを何本の worktree が触っているか（既定は
 #                                              # 未着地 work の重なりだけ）。sharedFiles の宣言漏れも出す
 #   aidev worktree rm <slug|path> [--force] [--delete-branch]     # worktree を安全に撤去（未コミットは既定で拒否）
@@ -2347,6 +2347,46 @@ git_default_branch() { # [repo_dir]
   printf '%s' "$_gb"
 }
 
+# 直近 N コミットの 1/4 以上が触っているのに sharedFiles に無いファイル（上位 max 件）。
+# doctor と worktree add の両方が使う——**同じハーネスの中で、doctor は「この 3 つは共有だ」と
+# 言い、worktree add は「共有は storage.py です」と言う**状態を作らないため（実走で発生）。
+shared_hot_undeclared() { # max
+  _shmax=${1:-3}
+  command -v git >/dev/null 2>&1 || return 0
+  _shw=$(yget "$AIDEV/config.yml" sharedFilesWindow)
+  case "$_shw" in ''|*[!0-9]*) _shw=20 ;; esac
+  [ "$_shw" -gt 0 ] 2>/dev/null || return 0
+  _shc=$(git -C "$ROOT" rev-list --count HEAD 2>/dev/null) || _shc=0
+  case "$_shc" in ''|*[!0-9]*) _shc=0 ;; esac
+  [ "$_shc" -lt "$_shw" ] && _shw=$_shc
+  SHARED_HOT_WINDOW=$_shw
+  [ "$_shw" -ge 4 ] 2>/dev/null || return 0
+  _shthr=$(( (_shw + 3) / 4 )); [ "$_shthr" -ge 2 ] || _shthr=2
+  _shdecl=" $(ylist "$AIDEV/config.yml" sharedFiles | tr '\n' ' ') "
+  _shrel=""; case "$HARNESS/" in "$ROOT"/*) _shrel=${HARNESS#"$ROOT"/} ;; esac
+  _shn=0
+  _shrows=$(git -C "$ROOT" log -n "$_shw" --name-only --pretty=format:%x00 HEAD 2>/dev/null \
+    | awk -v RS='\0' '
+        { delete seen
+          for (i = 1; i <= NF; i++) if (!($i in seen)) { seen[$i] = 1; c[$i]++ } }
+        END { for (f in c) print c[f] "\t" f }' \
+    | LC_ALL=C sort -k1,1nr -k2,2)
+  _shold=$IFS; IFS='
+'
+  for row in $_shrows; do
+    _shcnt=${row%%	*}; _shf=${row#*	}
+    [ "$_shcnt" -ge "$_shthr" ] 2>/dev/null || continue
+    [ "$_shn" -ge "$_shmax" ] && continue
+    case "$_shf" in .aidev/*) continue ;; esac
+    [ -n "$_shrel" ] && case "$_shf" in "$_shrel"/*) continue ;; esac
+    case "$_shdecl" in *" $_shf "*) continue ;; esac
+    printf '%s\t%s\n' "$_shcnt" "$_shf"
+    _shn=$((_shn+1))
+  done
+  IFS=$_shold
+  return 0
+}
+
 wt_shared_warn() {
   _sh=$(ylist "$AIDEV/config.yml" sharedFiles | sed 's/^ *//; s/ *$//; s/  */, /g')
   if [ -n "$_sh" ]; then
@@ -2355,6 +2395,15 @@ wt_shared_warn() {
   else
     printf '⚠ この work が他 worktree と共有するもの（ビルド設定・登録テーブル・共有モジュール等）に触るなら、\n'
     printf '  波及・マージ衝突が起きうる（PJ 規約は AGENTS.md。config.yml の sharedFiles で名指しできる）。並行可否はユーザー判断。\n'
+  fi
+  # 宣言は静的なので実態から遅れる。**同じ CLI が知っている事実**を黙って持っていないこと
+  _shot=$(shared_hot_undeclared 3)
+  if [ -n "$_shot" ]; then
+    printf '  なお sharedFiles に無いが直近 %s コミットの常連（＝重なりやすい）:\n' "${SHARED_HOT_WINDOW:-20}"
+    printf '%s\n' "$_shot" | while IFS='	' read -r _c _f; do
+      [ -n "$_f" ] && printf '    %s（%s コミット）\n' "$_f" "$_c"
+    done
+    printf '  いま何が重なっているかは aidev worktree files（宣言の検査は aidev doctor）。\n'
   fi
 }
 
@@ -2517,16 +2566,76 @@ wt_changed_files() { # path main_head
   } | sed 's/\r$//' | grep -v '^$' | sort -u
 }
 
+# その work が **これから触ると宣言している** ファイル（tasks.md の `対象:` アンカー）。
+# 実差分は「もう書いた後」しか見えないので、3 本が同時に上流工程にいる立ち上がり期は
+# 構造的に空になる——`protocol-worktree.md` が「衝突を避ける余地がまだあるうち」と価値を
+# 置いた時間帯がまさにそこだった（実走で overlap=0 → deliver 前に 5 と出た）。
+# 宣言は plan の時点で揃うので、こちらは**その時間帯に効く**。
+wt_planned_files() { # path work
+  _wpf="$1/.aidev/works/$2/tasks.md"
+  [ -f "$_wpf" ] || return 0
+  awk '
+    /^[ \t]*対象:/ { inblk = 1 }
+    inblk {
+      if ($0 ~ /^[ \t]*(依存|AC):/ || $0 ~ /^[ \t]*- \[/) { inblk = 0; next }
+      n = split($0, parts, "`")
+      for (i = 2; i <= n; i += 2) if (parts[i] != "") print parts[i]
+    }
+  ' "$_wpf" | sed 's/:[0-9][0-9-]*$//' \
+    | grep -E '^[A-Za-z0-9_][A-Za-z0-9_./-]*\.[A-Za-z0-9]+$' | sort -u
+}
+
 # どのファイルを何本の worktree が触っているかを出す。
 # 実走で「触らない storage.py が警告され、全員が触る cli.py は警告されない」という反転が
 # 起きた（sharedFiles は人間が書く静的な宣言なので、実態から遅れる）。ここは**実態**を出す。
 # 既定は**重なっているものだけ**——大きい PJ で全変更ファイルを出すと重なりが埋もれる。
+# 「ファイル<TAB>worktree名」の対を集める。WT_PAIRS / WT_N に入れる（サブシェルにしない）。
+# doctor の sharedFiles 検査もこれを使う——履歴の頻度だけだと、実際に衝突するのに
+# 常連度が閾値に届かないファイルを取り落とす（実測: tests/test_storage.py が 4/20 で漏れ、
+# 実マージでは衝突した）。**いま重なっている**という事実は履歴より強い証拠なので、
+# 静的宣言・履歴頻度に次ぐ第三の経路として繋ぐ。
+wt_collect_pairs() { # showall planned
+  _wcall=$1; _wcpl=$2
+  WT_PAIRS=""; WT_N=0
+  _wfinfo=$(wt_porcelain)
+  _wfmain=$(printf '%s\n' "$_wfinfo" | head -n1 | cut -f1)
+  _wfmhead=$(git -C "$_wfmain" rev-parse HEAD 2>/dev/null) || _wfmhead=""
+  _wfdef=$(git_default_branch)
+  oldifs=$IFS; IFS='
+'
+  for line in $_wfinfo; do
+    path=${line%%	*}
+    [ -f "$path/.aidev/current" ] || continue
+    _wfw=$(head -n1 "$path/.aidev/current" | tr -d '\r\n')
+    # 落とすのは「**既定ブランチにマージ済み**」の worktree だけ。
+    # deliver 済みで落とすのは誤り——deliver は PR 作成で終わり、**マージは人間の仕事**なので
+    # 未マージのまま deliver した枝はマージ衝突の相手として現役。実測で 3 本が deliver した
+    # 瞬間に既定ビューが空になり、「マージ順で相手を壊さないか」を見るという当の用途で
+    # 先に deliver した本ほど何も見えなくなった。既定ブランチが読めなければ**落とさない**
+    if [ "$_wcall" = no ] && [ -n "$_wfdef" ]; then
+      if git -C "$path" merge-base --is-ancestor HEAD "$_wfdef" 2>/dev/null; then continue; fi
+    fi
+    WT_N=$((WT_N+1))
+    _wfname=$(basename "$path")
+    if [ "$_wcpl" = yes ]; then _wfsrc=$(wt_planned_files "$path" "$_wfw")
+    else _wfsrc=$(wt_changed_files "$path" "$_wfmhead"); fi
+    for f in $_wfsrc; do
+      # 自分の work のディレクトリは構造上ぶつからない（slug が違う）。数えると重なりが埋もれる
+      case "$f" in .aidev/works/*) continue ;; esac
+      WT_PAIRS="$WT_PAIRS$f	$_wfname
+"
+    done
+  done
+  IFS=$oldifs
+}
+
 wt_files() {
-  fmt=table; showall=no
+  fmt=table; showall=no; planned=no
   while [ $# -gt 0 ]; do
     case "$1" in
       --format) need_arg "$1" $#; fmt=${2:-}; shift 2 ;;
       --all) showall=yes; shift ;;
+      --planned) planned=yes; shift ;;
       -*) die "未知のオプション: $1" ;;
       *) die "files は位置引数を取りません: $1" ;;
     esac
@@ -2535,32 +2644,8 @@ wt_files() {
   git_present
 
   _wfdecl=" $(ylist "$AIDEV/config.yml" sharedFiles | tr '\n' ' ') "
-  _wfpairs=""; _wfn=0; _wfinfo=$(wt_porcelain)
-  _wfmain=$(printf '%s\n' "$_wfinfo" | head -n1 | cut -f1)
-  _wfmhead=$(git -C "$_wfmain" rev-parse HEAD 2>/dev/null) || _wfmhead=""
-  oldifs=$IFS; IFS='
-'
-  for line in $_wfinfo; do
-    path=${line%%	*}
-    [ -f "$path/.aidev/current" ] || continue
-    # deliver 済みの work は**もう書かない**ので、重なりの相手にならない。
-    # 数えると、撤去していない過去の worktree が出力を埋める（実測 9 本中 5 本がそれ）
-    _wfw=$(head -n1 "$path/.aidev/current" | tr -d '\r\n')
-    if [ -n "$_wfw" ] && [ -f "$path/.aidev/works/$_wfw/state.yml" ]; then
-      case " $(ylist "$path/.aidev/works/$_wfw/state.yml" approved) " in
-        *" deliver "*) [ "$showall" = yes ] || continue ;;
-      esac
-    fi
-    _wfn=$((_wfn+1))
-    _wfname=$(basename "$path")
-    for f in $(wt_changed_files "$path" "$_wfmhead"); do
-      # 自分の work のディレクトリは構造上ぶつからない（slug が違う）。数えると重なりが埋もれる
-      case "$f" in .aidev/works/*) continue ;; esac
-      _wfpairs="$_wfpairs$f	$_wfname
-"
-    done
-  done
-  IFS=$oldifs
+  wt_collect_pairs "$showall" "$planned"
+  _wfpairs=$WT_PAIRS; _wfn=$WT_N
 
   # ファイルごとに worktree 名を畳む
   rows=$(printf '%s' "$_wfpairs" | LC_ALL=C sort | awk -F'\t' -v all="$showall" -v decl="$_wfdecl" '
@@ -2588,14 +2673,17 @@ wt_files() {
     printf 'files-summary\t%s\t%s\t%s\n' "$_wfn" "$_wfover" "$_wfundecl"
     return 0
   fi
-  printf 'worktree files: %s 本の worktree の変更ファイル' "$_wfn"
-  [ "$showall" = no ] && printf '（未着地の work・2本以上が触っているものだけ。全件は --all）'
+  if [ "$planned" = yes ]; then printf 'worktree files: %s 本の worktree が触ると宣言したファイル（tasks.md の 対象:）' "$_wfn"
+  else printf 'worktree files: %s 本の worktree の変更ファイル' "$_wfn"; fi
+  [ "$showall" = no ] && printf '（未マージの worktree・2本以上が重なるものだけ。全件は --all）'
   printf '\n'
   if [ -n "$rows" ]; then
     { printf 'file	worktrees	sharedFiles	where
 '; printf '%s\n' "$rows"; } | fmt_table
   fi
-  printf 'files-summary: worktrees=%s overlap=%s undeclared=%s\n' "$_wfn" "$_wfover" "$_wfundecl"
+  # 既定と --all で母数が違う（未マージだけ / 全部）。同じラベルにすると数が動いた理由が読めない
+  if [ "$showall" = yes ]; then _wflbl=worktrees_all; else _wflbl=worktrees_unmerged; fi
+  printf 'files-summary: %s=%s overlap=%s undeclared=%s\n' "$_wflbl" "$_wfn" "$_wfover" "$_wfundecl"
   if [ "$_wfundecl" -gt 0 ] 2>/dev/null; then
     printf '⚠ 重なっているのに sharedFiles に無いファイルが %s 件。config.yml に足すと\n' "$_wfundecl"
     printf '  worktree add がその名前で警告できる（並行可否の判断はユーザー）。\n'
@@ -3688,6 +3776,10 @@ doctor_shared() {
   printf 'sharedFiles: 並行作業で名指しする共有ファイルの検査\n'
   _dsdecl=$(ylist "$AIDEV/config.yml" sharedFiles)
   _dsn=0; _dsstale=0; _dsmiss=0
+  _dsdecls=" $(printf '%s' "$_dsdecl" | tr '\n' ' ') "
+  _dsseen=""   # (b) で既に挙げた名前。(c) で二重に鳴らさない（同じ 1 件を 2 回直させない）
+  # ハーネス自身の置き場を ROOT からの相対で求める（配置を変えても効くように）
+  _dshrel=""; case "$HARNESS/" in "$ROOT"/*) _dshrel=${HARNESS#"$ROOT"/} ;; esac
   # (a) 宣言してあるのに実在しない＝誤記か、消えたファイルの残骸。これは無条件に言える
   for f in $_dsdecl; do
     [ -n "$f" ] || continue
@@ -3698,52 +3790,42 @@ doctor_shared() {
     fi
   done
   # (b) 実態のほうが先に進んでいる＝多くのコミットが触っているのに宣言が無い。
-  #     git が無い / 履歴が浅い環境では**黙る**（推測で名前を挙げない）
-  _dsw=$(yget "$AIDEV/config.yml" sharedFilesWindow)
-  case "$_dsw" in ''|*[!0-9]*) _dsw=20 ;; esac
-  # ハーネス自身の置き場を ROOT からの相対で求める（配置を変えても効くように）
-  _dshrel=""
-  case "$HARNESS/" in "$ROOT"/*) _dshrel=${HARNESS#"$ROOT"/} ;; esac
-  if command -v git >/dev/null 2>&1 && [ "$_dsw" -gt 0 ] 2>/dev/null; then
-    # 見るのは HEAD の履歴。既定ブランチにすると、マージ前の feature 枝で回している間は
-    # 実態（そこで何度も触っているファイル）が一度も見えない（実測: cli.py が main には 5/20 しか出ない）
-    _dsdef=HEAD
-    _dsc=$(git -C "$ROOT" rev-list --count "$_dsdef" 2>/dev/null) || _dsc=0
-    case "$_dsc" in ''|*[!0-9]*) _dsc=0 ;; esac
-    [ "$_dsc" -lt "$_dsw" ] && _dsw=$_dsc
-    if [ "$_dsw" -ge 4 ] 2>/dev/null; then
-      # 「4 本に 1 本以上が触っている」を常連の目安にする。半数にすると
-      # 登録テーブルやロックファイルしか当たらず、実際に衝突する共有モジュールを取り落とす
-      _dsthr=$(( (_dsw + 3) / 4 ))
-      [ "$_dsthr" -ge 2 ] || _dsthr=2
-      _dshot=$(git -C "$ROOT" log -n "$_dsw" --name-only --pretty=format:%x00 "$_dsdef" 2>/dev/null \
-        | awk -v RS='\0' '
-            { delete seen
-              for (i = 1; i <= NF; i++) if (!($i in seen)) { seen[$i] = 1; c[$i]++ } }
-            END { for (f in c) print c[f] "\t" f }' \
-        | LC_ALL=C sort -k1,1nr -k2,2)
-      # 件数の降順 → 名前の**バイト**昇順。`sort -rn` だけだと同数の並びが awk のハッシュ順に
-      # 依存し、`LC_ALL` を固定しないとロケールの照合順で .NET の Ordinal と食い違う（両方実測）
-      _dsdecls=" $(printf '%s' "$_dsdecl" | tr '\n' ' ') "
-      _dsold=$IFS; IFS='
+  #     判定は worktree add の警告と**同じ関数**（同じハーネスが別々の答えを言わないため）
+  _dshot=$(shared_hot_undeclared 5)
+  if [ -n "$_dshot" ]; then
+    _dsold=$IFS; IFS='
 '
-      for row in $_dshot; do
+    for row in $_dshot; do
+      _dscnt=${row%%	*}; _dsf=${row#*	}
+      printf '    WARN %s/%s コミットが触っているのに sharedFiles に無い: %s\n' \
+        "$_dscnt" "${SHARED_HOT_WINDOW:-20}" "$_dsf"
+      _dsseen="$_dsseen $_dsf"
+      _dsmiss=$((_dsmiss+1))
+    done
+    IFS=$_dsold
+  fi
+  # (c) いま未マージの worktree が 2 本以上触っているのに未宣言。履歴の頻度より強い証拠
+  #     （実測: tests/test_storage.py は 4/20 で (b) に届かないが、実マージでは衝突した）
+  if command -v git >/dev/null 2>&1; then
+    wt_collect_pairs no no 2>/dev/null || true
+    if [ -n "${WT_PAIRS:-}" ]; then
+      _dsnow=$(printf '%s' "$WT_PAIRS" | LC_ALL=C sort | awk -F'\t' '
+        function flush() { if (f != "" && n >= 2) print n "\t" f }
+        { if ($1 != f) { flush(); f = $1; n = 0 } n++ }
+        END { flush() }' | LC_ALL=C sort -k1,1nr -k2,2)
+      _dsold2=$IFS; IFS='
+'
+      for row in $_dsnow; do
         _dscnt=${row%%	*}; _dsf=${row#*	}
-        [ "$_dscnt" -ge "$_dsthr" ] 2>/dev/null || continue
-        # 上位だけ出す。全部並べると「直せない WARN の壁」になり、直せる 1 件が埋もれる
-        [ "$_dsmiss" -ge 5 ] && continue
-        # .aidev/ はハーネスの帳簿で work ごとに必ず動く。ハーネス本体（skills）も、
-        # 更新のたびに全ファイルが動く。どちらも **PJ のコードではない**ので、
-        # 「並行作業でぶつかる共有ファイル」として挙げても判断材料にならない——
-        # 実測では skills の 5 ファイルが上位を占め、本命の notes/cli.py を押し出した
         case "$_dsf" in .aidev/*) continue ;; esac
         [ -n "$_dshrel" ] && case "$_dsf" in "$_dshrel"/*) continue ;; esac
         case "$_dsdecls" in *" $_dsf "*) continue ;; esac
-        printf '    WARN %s/%s コミットが触っているのに sharedFiles に無い: %s\n' \
-          "$_dscnt" "$_dsw" "$_dsf"
+        case " $_dsseen " in *" $_dsf "*) continue ;; esac
+        printf '    WARN いま %s 本の未マージ worktree が触っているのに sharedFiles に無い: %s\n' \
+          "$_dscnt" "$_dsf"
         _dsmiss=$((_dsmiss+1))
       done
-      IFS=$_dsold
+      IFS=$_dsold2
     fi
   fi
   if [ "$_dsn" -eq 0 ] && [ "$_dsmiss" -eq 0 ]; then

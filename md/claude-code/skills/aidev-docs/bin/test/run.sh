@@ -2952,12 +2952,30 @@ YML
     assert_contains "$( ( cd "$PREPO" && "$AIDEV_SH" worktree files ) )" "sharedFiles に無いファイルが 1 件" \
       "worktree files: 未宣言の重なりを数えて知らせる"
 
-    # deliver 済みの work は「もう書かない」ので重なりの相手にならない
+    # deliver しただけでは重なりの相手から外れない。deliver は PR 作成で終わりで、
+    # **マージは人間の仕事**——未マージのまま deliver した枝はマージ衝突の相手として現役
     ( cd "$TMP/prepo-wt/wb" && "$AIDEV_SH" approve deliver >/dev/null 2>&1 )
-    assert_eq "$( ( cd "$PREPO" && "$AIDEV_SH" worktree files --format tsv ) | grep -c 'shared.txt')" "0" \
-      "worktree files: deliver 済みを外すと重なりが解消する（撤去していない過去の worktree で埋まらない）"
+    assert_contains "$( ( cd "$PREPO" && "$AIDEV_SH" worktree files --format tsv ) )" "shared.txt" \
+      "worktree files: deliver 済みでも未マージなら重なりの相手のまま（マージ順の判断に要る）"
+    # 既定ブランチに入った時点で初めて外れる（実際その差分はもう base 側にあるので重ならない）
+    ( cd "$PREPO" && git merge -q --no-edit feature/wb >/dev/null 2>&1 )
+    assert_eq "$( ( cd "$PREPO" && "$AIDEV_SH" worktree files --format tsv ) | grep -c 'wb')" "0" \
+      "worktree files: 既定ブランチにマージ済みの worktree は外れる"
     assert_contains "$( ( cd "$PREPO" && "$AIDEV_SH" worktree files --all --format tsv ) )" "shared.txt" \
-      "worktree files: --all なら deliver 済みも含めて全件出す"
+      "worktree files: --all ならマージ済みも含めて全件出す"
+
+    # --planned: tasks.md の 対象: アンカーから「これから触る」重なりを出す。
+    # 実差分モードは 3 本が同時に上流工程にいる立ち上がり期に構造的に空になる（実走で観測）
+    for w in wa wb; do
+      WD="$TMP/prepo-wt/$w"; WW=$(cat "$WD/.aidev/current")
+      printf -- '- [ ] T1: x\n      対象: `planned/shared.py:12` `planned/only-%s.py`\n      依存: なし\n' \
+        "$w" > "$WD/.aidev/works/$WW/tasks.md"
+    done
+    WP=$( ( cd "$PREPO" && "$AIDEV_SH" worktree files --planned --all --format tsv ) )
+    assert_contains "$WP" "file	planned/shared.py	2	no	wa, wb" \
+      "worktree files --planned: tasks.md の 対象: から予定の重なりを出す（書く前に見える）"
+    assert_eq "$(printf '%s' "$WP" | grep -c 'planned/only-wa.py	1')" "1" \
+      "worktree files --planned: 1 本だけの宣言は重なりに数えない"
 
     # doctor: sharedFiles の宣言が実態から遅れていないか
     printf 'sharedFiles: [nonexistent.txt]\n' > "$PREPO/.aidev/config.yml"
@@ -3001,11 +3019,11 @@ YML
     ( cd "$PREPO" && run_ps1 "$AIDEV_PS1" worktree rm "$PB" --force --delete-branch >/dev/null 2>&1 )
     assert_eq "$?" "0" "パリティ: ps1 rm は list が出したパス表記をそのまま扱える"
     assert_eq "$([ -d "$TMP/prepo-wt/fresh" ] && echo yes || echo no)" "no" "パリティ: ps1 rm(path) で worktree 撤去済み"
-    block_end wtparity "21" "wtparity"
+    block_end wtparity "24" "wtparity"
   else
     skip 10 "git 不在のため worktree パリティを省略"
   fi
-  block_end parity "239" "parity"
+  block_end parity "242" "parity"
 else
   skip 228 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
 fi

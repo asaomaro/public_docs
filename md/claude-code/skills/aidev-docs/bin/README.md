@@ -64,7 +64,7 @@ Git Bash（Git for Windows 同梱）があるなら POSIX 版の `aidev` がそ�
 | `backlog archive [<file>...] [--force]` | 消化しきった backlog（`split`/`topic` で全項目 `[x]`）を `archive/` へ退避。無指定なら条件を満たすものだけ。**判定は `doctor` の WARN と同じ関数**を通る。`mv` のみで **git は触らない**（`verify && commit` 方針）。 |
 | `worktree add <slug> [--branch n] [--base ref] [--path dir] [--mode m] [--profile p\|--light] [--ticket id] [--depends list] [--backlog file]` | **ユーザー責任の並行作業 on-ramp**。work 専用の git worktree（既定 `<repo>-wt/<slug>`）と `feature/<slug>` ブランチ（既定 base=HEAD）を作る。worktree 内に該当 slug の work が無ければ `new` を委譲し（add 内で new）、有れば current 設定のみ。**main tree の `.aidev/current` は書き換えない（INV-1）**。完了時に共有ファイル警告を出す——名指しする対象は `.aidev/config.yml` の `sharedFiles`（例 `sharedFiles: [package.json, src/registry.ts]`）から取り、未設定なら汎用文言にフォールバックする（PJ 固有名を CLI に埋めない）。 |
 | `worktree list [--format table\|tsv]` | **読み取り専用**。aidev 管理 worktree（判定キー = worktree ローカル `.aidev/current` の有無）を path/branch/work/phase/**kind** で一覧（`kind=main` は main tree。`rm` の対象外なので区別できるようにしてある）。`--format tsv` の先頭列は `worktree`。 |
-| `worktree files [--all] [--format table\|tsv]` | **どのファイルを何本の worktree が触っているか**を実態から出す。`sharedFiles` は人間が書く静的な宣言なので実態から遅れる——実走で「触らない `storage.py` が名指しされ、全 work が触る `cli.py` は名指しされない」という反転が起きた。既定は**未着地 work の、2 本以上が重なっているものだけ**（deliver 済みはもう書かないので重なりの相手にならない。全件は `--all`）。比較の基点は **main tree の HEAD との merge-base**——既定ブランチにすると、未マージ枝から切った worktree では共有ぶんまで全員の変更に見える（実測で 23 行中 17 行がそれだった）。`--format tsv` の先頭列は `file`。 |
+| `worktree files [--planned] [--all] [--format table\|tsv]` | **どのファイルを何本の worktree が触っているか**を実態から出す。`sharedFiles` は人間が書く静的な宣言なので実態から遅れる——実走で「触らない `storage.py` が名指しされ、全 work が触る `cli.py` は名指しされない」という反転が起きた。既定は**未マージの worktree の、2 本以上が重なっているものだけ**（全件は `--all`）。外すのは**既定ブランチにマージ済み**の worktree だけ——deliver 済みで外すのは誤りで、deliver は PR 作成で終わり**マージは人間の仕事**なので、未マージのまま deliver した枝は衝突の相手として現役（実走で 3 本が deliver した瞬間に表が空になり、「マージ順で相手を壊さないか」を見るという当の用途で先に deliver した本ほど何も見えなくなった）。`--planned` は実差分ではなく **`tasks.md` の `対象:` アンカー**を突き合わせる——実差分は「もう書いた後」しか見えず、並行 3 本が同時に上流工程にいる立ち上がり期は構造的に空になる（実測 0 件 → deliver 前 5 件）。宣言は plan 時点で揃うので、**書く前**の重なりはこちらで見る。比較の基点は **main tree の HEAD との merge-base**——既定ブランチにすると、未マージ枝から切った worktree では共有ぶんまで全員の変更に見える（実測で 23 行中 17 行がそれだった）。`--format tsv` の先頭列は `file`。 |
 | `worktree rm <slug\|path> [--force] [--delete-branch]` | worktree を撤去。未コミット差分があれば**既定で拒否**（`--force` で強制）。ブランチ削除は `--delete-branch` 指定時のみ。main の current は不変。 |
 
 > worktree は **`.aidev/current` が gitignore 対象＝worktree ローカル**である性質に乗る（worktree 間で current は非共有）。
@@ -231,7 +231,7 @@ CLI が読むキー。どれも任意で、無ければ既定で動く（PJ 固�
 | `smokeCommandWindows` | `smoke`（ps1・Windows のみ） | Windows で別のコマンドが要るときの上書き（未設定なら `smokeCommand`）。**単独で設定しない**——POSIX 側からは未設定に見える |
 | `smokeTimeoutSec` | `smoke` | 起動確認に許す最長秒数（既定 300）。`timeout`(coreutils) がある環境でのみ効く |
 | `sharedFiles` | `worktree add` | 並行作業で衝突しやすい共有ファイル名（完了時に名前を挙げて警告） |
-| `sharedFilesWindow` | `doctor` | `sharedFiles` の宣言漏れを見るときに遡るコミット数（既定 20・HEAD の履歴）。その 1/4 以上のコミットが触っているファイルが未宣言なら WARN（上位 5 件まで）。`0` で検査を止める |
+| `sharedFilesWindow` | `doctor` / `worktree add` | `sharedFiles` の宣言漏れを見るときに遡るコミット数（既定 20・HEAD の履歴）。その 1/4 以上のコミットが触っているファイルが未宣言なら WARN。`doctor` は上位 5 件、`worktree add` の警告は上位 3 件を名指しする（**同じ関数**で判定する——同じハーネスが片方で「この 3 つは共有だ」と言い、もう片方で「共有は storage.py です」と言う状態を作らないため）。`0` で検査を止める |
 | `tracker` | （CLI は読まない） | 外部チケットの種類。判定は工程 skill が行う（`protocol.md`「2.7」） |
 
 ## 設計メモ
