@@ -203,16 +203,22 @@ AGENTS.md              PJ 所有。<!-- aidev:conventions --> ブロックに条
 
 1. `.claude/skills/aidev-*`（`aidev-docs/bin/` のランタイムガード CLI を含む）をコピー。CLI は skills 同梱なので
    別途コピーは不要。`aidev-docs/bin/aidev` に実行権限を付ける（`chmod +x`）。
-2. リポジトリ直下に `.aidev/` を用意する（CLI は `.aidev/` を上方探索して状態を読み書きする。最初の作業前に
-   存在させる。`config.yml` を置くか空ディレクトリでよい）。
-3. `.gitignore` に `.aidev/current` を追加（`.aidev/works/` 配下の成果物はコミット推奨）。
-4. PJ の AGENTS.md に規約・レビュー観点を書く。PJ固有 skill があればそのまま活かされる。
-5. 条項（PJ 規約の効果検証）を使うなら、AGENTS.md に索引ブロック（`<!-- aidev:conventions -->` … `<!-- /aidev:conventions -->`）
+2. **skills を先にコミットする**（`harnessRev` はコミット済みの `aidev-*` から取るため。
+   未コミットだと `unknown` になり、ハーネス改修の効果検証から外れる）。
+3. `mkdir -p .aidev/works` する（CLI は `.aidev/` を上方探索して状態を読み書きする）。
+   `.aidev/config.yml` に最低限 **`smokeCommand`（または `smokeCommands`）** を書く——
+   起動確認は test の硬いゲートで、未設定だと `aidev smoke` が exit 2 で止まる。
+   対象が無い PJ（純粋なライブラリ等）は `smokeCommand: none` と明示する。
+   キーの一覧と書式は `bin/README.md` の設定表。
+4. `aidev doctor` を打つ。**これが導入の自己診断**で、未設定の `smokeCommand` や
+   `sharedFiles` をその場で知らせる（work が 0 件でも走る）。
+5. `.gitignore` に `.aidev/current` を追加（`.aidev/works/` 配下の成果物はコミット推奨）。
+6. PJ の AGENTS.md に規約・レビュー観点を書く。PJ固有 skill があればそのまま活かされる。
+7. 条項（PJ 規約の効果検証）を使うなら、AGENTS.md に索引ブロック（`<!-- aidev:conventions -->` … `<!-- /aidev:conventions -->`）
    を 1 回置く。`.aidev/conventions/` は `aidev convention new` が作る。置き場を変えるなら `config.yml` の `conventionsDir` /
    `conventionsIndex`、既存 docs との重複確認先は `docsRoots`。
-6. git が無い（または `aidev-*` が未コミットの）環境では `harnessRev` が `unknown` になり、ハーネス改修の
-   効果検証から外れる。`worktree` 以外は動く。導入直後の最初の `aidev new` は skills をコミットしてから。
-   Windows は `pwsh`（または Windows PowerShell 5.1）か Git Bash（`aidev-docs/bin/README.md`）。
+8. git が無い環境では `harnessRev` が `unknown` になり、ハーネス改修の効果検証から外れる
+   （`worktree` 以外は動く）。Windows は `pwsh`（または Windows PowerShell 5.1）か Git Bash（`aidev-docs/bin/README.md`）。
 
 基盤はドメイン非依存。PJ固有の知識・実作業は AGENTS.md と PJ skill 側が担う。
 

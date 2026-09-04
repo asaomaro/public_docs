@@ -115,8 +115,15 @@ function FindRoot() {
   return $null
 }
 
+# help は .aidev を要らない（sh 版の注記に理由）
 $script:ROOT = FindRoot
-if (-not $script:ROOT) { Die ".aidev が見つかりません（リポジトリ内で実行してください）" }
+$_firstArg = if ($args.Count -gt 0) { "$($args[0])" } else { '' }
+if (-not $script:ROOT) {
+  if ('help','--help','-h','' -cnotcontains $_firstArg) {
+    Die ".aidev が見つかりません（リポジトリ内で実行してください）"
+  }
+  $script:ROOT = (Get-Location).Path
+}
 $script:AIDEV = Join-Path $script:ROOT '.aidev'
 
 function ResolveWork($slug) {
@@ -618,6 +625,17 @@ function Cmd-Approve($rest) {
       }
     }
   }
+  # 同じラウンドの刻み直しは訂正（sh 版 cmd_approve の注記に理由）
+  $amend = $false
+  $mfA = Join-Path $script:WORK 'metrics.yml'
+  if ((ApprovedHas $script:WORK $ph) -and (IsFile $mfA)) {
+    $lastEv = ''
+    foreach ($l in [System.IO.File]::ReadAllLines($mfA)) {
+      if ($l -match "phase:\s*$ph," -and $l -match 'event:\s*(start|approved)') { $lastEv = $l }
+    }
+    if ($lastEv -match 'event:\s*approved') { $amend = $true }
+  }
+  if ($amend) { $kvs = @($kvs) + @('amend=yes') }
   AppendEvent $script:WORK $ph 'approved' $kvs
   Write-Output "approved: $ph @ $($script:SLUG)"
 
@@ -1647,7 +1665,8 @@ function EventPairWarnings($metricsFile) {
     $p = $m.Groups[1].Value
     if (-not $seen.Contains($p)) { [void]$seen.Add($p) }
     if ($l -match 'event:\s*start')    { $starts[$p]    = [int]$starts[$p] + 1 }
-    if ($l -match 'event:\s*approved') { $approved[$p]  = [int]$approved[$p] + 1 }
+    # `amend: yes` は同じラウンドの訂正なのでラウンドとして数えない（sh 版と同一）
+    if ($l -match 'event:\s*approved' -and $l -notmatch 'amend:\s*yes') { $approved[$p] = [int]$approved[$p] + 1 }
   }
   # 出力順は PHASES 順（未知の phase は初出順で後ろに）。ハッシュの列挙順に任せると
   # awk と PowerShell で並びが変わり「出力を一致させる」契約が破れる。
@@ -1806,7 +1825,14 @@ function Cmd-Doctor($rest) {
     else { Die "doctor は位置引数を取りません: $a" }
   }
   $worksDir = Join-Path $script:AIDEV 'works'
-  if (-not (IsDir $worksDir)) { Die "works がありません" }
+  # works が無いのは導入直後の正常な状態（sh 版 cmd_doctor の注記に理由）
+  if (-not (IsDir $worksDir)) {
+    Write-Output "doctor: 全 work 横断検査"
+    Write-Output "summary: works=0 fail=0 legacy(免除)=0"
+    Write-Output "note: work がまだありません（.aidev/works 未作成）。aidev new で最初の work を起こす"
+    Doctor-Backlog; Doctor-Conventions; Doctor-Harness; Doctor-Smoke; Doctor-Shared; Doctor-Branch
+    exit 0
+  }
   $total=0; $script:DFail=0; $legacy=0
   $qn = if ($script:DQuiet) { '（--quiet: OK は省略）' } else { '' }
   Write-Output "doctor: 全 work 横断検査$qn"
@@ -1831,6 +1857,7 @@ function Cmd-Doctor($rest) {
   Doctor-Harness
   Doctor-Smoke
   Doctor-Shared
+  Doctor-Branch
   # 4（不変条件違反）に揃える。1 は使用法・環境エラー用（sh 版と同一）
   if ($fail -eq 0) { exit 0 } else { exit 4 }
 }
@@ -2566,7 +2593,8 @@ function SharedHotUndeclared($max) {
   if ($LASTEXITCODE -ne 0 -or $c -notmatch '^\d+$') { $c = 0 } else { $c = [int]$c }
   if ($c -lt $w) { $w = $c }
   $script:SHARED_HOT_WINDOW = $w
-  if ($w -lt 4) { return @() }
+  # 履歴が浅いうちは黙る（sh 版の注記に理由）
+  if ($w -lt 10) { return @() }
   $thr = [int][math]::Floor(($w + 3) / 4); if ($thr -lt 2) { $thr = 2 }
   $decl = @(YList $cfg 'sharedFiles')
   $hrel = ''
@@ -2594,6 +2622,10 @@ function SharedHotUndeclared($max) {
     if ($f -like '.aidev/*') { continue }
     if ($hrel -and $f.StartsWith("$hrel/", [StringComparison]::Ordinal)) { continue }
     if ($decl -ccontains $f) { continue }
+    # いま無視されているファイル・既に無いファイルは勧めない（sh 版の注記に理由）
+    & git -C $script:ROOT check-ignore -q -- $f 2>$null
+    if ($LASTEXITCODE -eq 0) { continue }
+    if (-not (Test-Path -LiteralPath (Join-Path $script:ROOT $f))) { continue }
     $out += ("" + $cnt[$f] + "`t" + $f)
     $n++
   }
@@ -2779,11 +2811,20 @@ function Wt-List($rest) {
 }
 
 # その worktree が他と違えているファイル名（sh 版 wt_changed_files と同一。理由もそちらに）
-function Wt-ChangedFiles($path, $mainHead) {
-  $base = ''
-  if ($mainHead) {
-    $base = (& git -C $path merge-base $mainHead HEAD 2>$null)
-    if ($LASTEXITCODE -ne 0) { $base = '' } else { $base = "$base".Trim() }
+function Wt-ChangedFiles($path, $allHeads) {
+  # 基点は「他の tree との merge-base のうち最も新しいもの」（sh 版 wt_changed_files の注記に理由）
+  $base = ''; $best = -1
+  $own = (& git -C $path rev-parse HEAD 2>$null)
+  if ($LASTEXITCODE -ne 0) { $own = '' } else { $own = "$own".Trim() }
+  foreach ($o in @($allHeads)) {
+    if (-not $o -or $o -ceq $own) { continue }
+    $mb = (& git -C $path merge-base $o HEAD 2>$null)
+    if ($LASTEXITCODE -ne 0) { continue }
+    $mb = "$mb".Trim(); if (-not $mb) { continue }
+    $d = (& git -C $path rev-list --count "$mb..HEAD" 2>$null)
+    if ($LASTEXITCODE -ne 0 -or $d -notmatch '^\d+$') { continue }
+    $d = [int]$d
+    if ($best -lt 0 -or $d -lt $best) { $best = $d; $base = $mb }
   }
   if (-not $base) { $base = 'HEAD' }
   $out = @()
@@ -2810,6 +2851,9 @@ function Wt-PlannedFiles($path, $work) {
       if ($t -match '^[A-Za-z0-9_][A-Za-z0-9_./-]*\.[A-Za-z0-9]+$') { $out += $t }
     }
   }
+  # backlog は誰も 対象: に書かないが必ず触る（sh 版 wt_planned_files の注記に理由）
+  $wbl = YGet (Join-Path (Join-Path (Join-Path (Join-Path $path '.aidev') 'works') $work) 'state.yml') 'backlog'
+  if ($wbl) { $out += ".aidev/backlog/$wbl" }
   return ($out | Sort-Object -Unique)
 }
 
@@ -2818,12 +2862,15 @@ function Wt-CollectPairs($showall, $planned) {
   $map = @{}; $n = 0
   $wtAll = @(WtPorcelain)
   $mainTree = if ($wtAll.Count -gt 0) { ($wtAll[0] -split "`t")[0] } else { '' }
-  $mainHead = ''
-  if ($mainTree) {
-    $mainHead = (& git -C $mainTree rev-parse HEAD 2>$null)
-    if ($LASTEXITCODE -ne 0) { $mainHead = '' } else { $mainHead = "$mainHead".Trim() }
-  }
   $def = GitDefaultBranch $script:ROOT
+  # 比較対象の全 tree の HEAD を集める。基点は tree ごとに Wt-ChangedFiles が決める
+  $heads = @()
+  foreach ($line in $wtAll) {
+    $p2 = ($line -split "`t")[0]
+    if (-not (IsFile (Join-Path (Join-Path $p2 '.aidev') 'current'))) { continue }
+    $h = (& git -C $p2 rev-parse HEAD 2>$null)
+    if ($LASTEXITCODE -eq 0 -and $h) { $heads += "$h".Trim() }
+  }
   foreach ($line in $wtAll) {
     $path = ($line -split "`t")[0]
     $cur = Join-Path (Join-Path $path '.aidev') 'current'
@@ -2837,7 +2884,7 @@ function Wt-CollectPairs($showall, $planned) {
     }
     $n++
     $wname = Split-Path -Leaf $path
-    $src = if ($planned) { @(Wt-PlannedFiles $path $w) } else { @(Wt-ChangedFiles $path $mainHead) }
+    $src = if ($planned) { @(Wt-PlannedFiles $path $w) } else { @(Wt-ChangedFiles $path $heads) }
     foreach ($f in $src) {
       if ($f -like '.aidev/works/*') { continue }
       if (-not $map.ContainsKey($f)) { $map[$f] = @() }
@@ -2879,7 +2926,8 @@ function Wt-Files($rest) {
     $c = $names.Count
     if (-not $showall -and $c -lt 2) { continue }
     $d = if ($decl -ccontains $f) { 'yes' } else { 'no' }
-    if ($c -ge 2) { $over++; if ($d -ceq 'no') { $undecl++ } }
+    # .aidev/* は必ず衝突するが宣言対象ではない（sh 版の注記に理由）
+    if ($c -ge 2) { $over++; if ($d -ceq 'no' -and -not ($f -like '.aidev/*')) { $undecl++ } }
     $rows += ($f + "`t" + $c + "`t" + $d + "`t" + ($names -join ', '))
   }
   if ($fmt -ceq 'tsv') {
@@ -2887,7 +2935,7 @@ function Wt-Files($rest) {
     Write-Output ("files-summary`t" + $n + "`t" + $over + "`t" + $undecl)   # 母数の意味は table 側のラベル参照
     return
   }
-  $hdr = if ($planned) { "worktree files: $n 本の worktree が触ると宣言したファイル（tasks.md の 対象:）" }
+  $hdr = if ($planned) { "worktree files: $n 本の worktree が触ると宣言したファイル（tasks.md の 対象:。着地済み・未マージの宣言も含む）" }
          else { "worktree files: $n 本の worktree の変更ファイル" }
   if (-not $showall) { $hdr += '（未マージの worktree・2本以上が重なるものだけ。全件は --all）' }
   Write-Output $hdr
@@ -3629,6 +3677,22 @@ function Doctor-Conventions() {
 
 # 起動確認の設定を PJ 単位で1行だけ検査する（work ごとに鳴らさない。sh 版 doctor_smoke と同一）
 # sharedFiles の妥当性（sh 版 doctor_shared と同一。理由もそちらに）
+# main worktree が既定ブランチに載っていないか（sh 版 doctor_branch の注記に理由）
+function Doctor-Branch() {
+  if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return }
+  $cur = (& git -C $script:ROOT symbolic-ref --quiet --short HEAD 2>$null)
+  if ($LASTEXITCODE -ne 0) { return }
+  $cur = "$cur".Trim(); if (-not $cur) { return }
+  $def = GitDefaultBranch $script:ROOT
+  if (-not $def) { return }
+  if ($cur -cne $def) {
+    Write-Output "branch: main worktree の位置"
+    Write-Output "    WARN 既定ブランチ($def)ではなく $cur に載っています: 新しい work はこの上に積まれ、"
+    Write-Output "         deliver「1.5」の既着地検知が濁ります（work は state.yml の baseCommit と比べること）"
+    Write-Output "branch-summary: current=$cur default=$def"
+  }
+}
+
 function Doctor-Shared() {
   Write-Output "sharedFiles: 並行作業で名指しする共有ファイルの検査"
   $decl = @(YList (Join-Path $script:AIDEV 'config.yml') 'sharedFiles')

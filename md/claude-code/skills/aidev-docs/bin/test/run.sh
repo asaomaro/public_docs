@@ -2038,6 +2038,27 @@ assert_contains "$(cat "$AU_D/metrics.yml")" "failed_index: 2" \
   "smoke: 何本目で落ちたかを刻む（原因を1つに絞る）"
 rm -f "$AUD/.aidev/config.yml"
 
+# (9) 刻み直しは「訂正」であって新しいラウンドではない（WARN の指示が別の FAIL を生まない）
+mk_work amd
+run_au event coding start >/dev/null
+run_au approve coding task_checks=3 >/dev/null
+run_au approve coding task_checks=3 task_check_mode=same_session >/dev/null
+AU_AM=$(cat "$AU_D/metrics.yml")
+assert_contains "$AU_AM" "task_check_mode: same_session, amend: yes" \
+  "approve: 同一ラウンドの刻み直しは amend として追記する（記録は消さない）"
+assert_eq "$(run_au verify >/dev/null 2>&1; echo $?)" "0" \
+  "verify: 訂正を「approve の重複」と誤検知しない（WARN の指示が別の WARN を生まない）"
+assert_eq "$(run_au verify 2>&1 | grep -c 'approve の重複')" "0" "verify: 重複 WARN が出ない"
+assert_eq "$(run_au metrics "$AU_W" --format tsv 2>/dev/null | awk -F'\t' '{print $6}')" "0" \
+  "metrics: 訂正は差し戻しにも数えない"
+# 差し戻しを挟んだ再承認は**新しいラウンド**（amend にしない）
+run_au event coding start >/dev/null
+run_au approve coding task_checks=1 task_check_mode=delegated >/dev/null
+assert_eq "$(grep -c 'phase: coding, event: approved' "$AU_D/metrics.yml")" "3" \
+  "approve: start を挟んだ再承認は訂正ではない（3 件目が積まれる）"
+assert_eq "$(run_au verify 2>&1 | grep -c 'approve の重複')" "0" \
+  "verify: start 2 / approved 2（訂正を除く）は対が揃っている"
+
 # (7) backlog の行単位の保持（inflight はファイル単位の件数しか言えない）
 BLR=$(mktemp -d); mkdir -p "$BLR/.aidev/backlog"
 run_bl() { ( cd "$BLR" && "$AIDEV_SH" "$@" ); }

@@ -95,7 +95,16 @@ find_root() {
   return 1
 }
 
-ROOT=$(find_root) || die ".aidev が見つかりません（リポジトリ内で実行してください）"
+# `help` は `.aidev` を要らない。導入直後（.aidev をまだ作っていない時点）に
+# 「入ったか確かめる」ために最初に打つのがこれで、そこでエラーにすると
+# 「壊れている？」と思わせる。読み取りだけのコマンドに前提を課さない。
+# usage() はこのファイルの末尾で定義されるので、ここでは**解決を飛ばすだけ**にして
+# 実際の表示は dispatch に任せる
+ROOT=""
+case "${1:-}" in
+  help|--help|-h|'') ;;
+  *) ROOT=$(find_root) || die ".aidev が見つかりません（リポジトリ内で実行してください）" ;;
+esac
 AIDEV="$ROOT/.aidev"
 
 resolve_work() { # [slug]
@@ -580,6 +589,17 @@ cmd_approve() {
         esac ;;
     esac
   done
+  # **同じラウンドの刻み直しは「訂正」であって新しいラウンドではない**。
+  # 直近の approved のあとに start が無ければ訂正とみなし、`amend=yes` を付けて追記する。
+  # 付けないと `verify` の対検査が「start 1 に approved 2」と鳴り、WARN が指示した
+  # 直し方（approve を打ち直す）を実行すると別の FAIL に落ちる——出口の無い catch-22 になる。
+  # **記録は消さない**（追記のみ）ので、訂正の履歴もそのまま残る。
+  _amend=no
+  if approved_has "$ph" && [ -f "$WORK/metrics.yml" ]; then
+    _lastev=$(grep -n "phase:[[:space:]]*$ph," "$WORK/metrics.yml" 2>/dev/null \
+      | grep -E 'event:[[:space:]]*(start|approved)' | tail -n1)
+    case "$_lastev" in *"event: approved"*) _amend=yes ;; esac
+  fi
   case "$ph" in
     plan|requirement|review)
       # 明示指定があれば尊重する（機械値で上書きしない）。判定は**引数ごとの先頭一致**——
@@ -594,7 +614,8 @@ cmd_approve() {
                     "tasks_no_ac=$COV_TASKS_NOAC" "tasks_ac_none=$COV_TASKS_ACNONE"
       fi ;;
   esac
-  append_event "$ph" approved "$@"
+  if [ "$_amend" = yes ]; then append_event "$ph" approved "$@" amend=yes
+  else append_event "$ph" approved "$@"; fi
   printf 'approved: %s @ %s\n' "$ph" "$SLUG"
 
   # deliver 時のハーネス版も刻む。new 時と食い違う work は**改修をまたいで走った**ので、
@@ -1760,7 +1781,9 @@ event_pair_warnings() { # metrics_file
       p = substr($0, RSTART, RLENGTH); sub(/phase:[[:space:]]*/, "", p)
       if (!(p in seen)) { seen[p] = ++nseen; order[nseen] = p }
       if ($0 ~ /event:[[:space:]]*start/)    starts[p]++
-      if ($0 ~ /event:[[:space:]]*approved/) approved[p]++
+      # `amend: yes` は**同じラウンドの刻み直し**（訂正）なので、ラウンドとして数えない。
+      # 数えると「approve を打ち直せ」という WARN の指示が別の WARN を生む
+      if ($0 ~ /event:[[:space:]]*approved/ && $0 !~ /amend:[ \t]*yes/) approved[p]++
     }
     function emit(p) {
       if (starts[p] == 0)
@@ -1988,7 +2011,18 @@ cmd_doctor() {
       *) die "doctor は位置引数を取りません: $1" ;;
     esac
   done
-  [ -d "$AIDEV/works" ] || die "works がありません"
+  # works が無いのは**導入直後の正常な状態**。ここで die すると、
+  # backlog / 条項 / ハーネス改修 / 起動確認 / sharedFiles という **PJ 単位の検査が
+  # 1 つも走らない**（bin/README「検査順」は works の有無と無関係のはずだった）。
+  # 「導入が正しくできたか」を doctor で確かめられないのが実際に困った点なので、
+  # works が無い場合は works 節だけ空で出して先へ進む
+  if [ ! -d "$AIDEV/works" ]; then
+    printf 'doctor: 全 work 横断検査\n'
+    printf 'summary: works=0 fail=0 legacy(免除)=0\n'
+    printf 'note: work がまだありません（.aidev/works 未作成）。aidev new で最初の work を起こす\n'
+    doctor_backlog; doctor_conventions; doctor_harness; doctor_smoke; doctor_shared; doctor_branch
+    exit 0
+  fi
   total=0; fail=0; legacy=0
   printf 'doctor: 全 work 横断検査%s\n' "$([ "$DQUIET" = yes ] && printf '（--quiet: OK は省略）' || true)"
   for d in "$AIDEV/works"/*/; do
@@ -2015,6 +2049,7 @@ cmd_doctor() {
   doctor_harness
   doctor_smoke
   doctor_shared
+  doctor_branch
   # exit code は 4（不変条件違反）に揃える。1 は「使用法・環境エラー」に割り当てられているので、
   # exit code で分岐する機械ゲートが「ドリフト検知」を「環境が壊れている」と誤読する
   [ "$fail" -eq 0 ] || return 4
@@ -2488,7 +2523,10 @@ shared_hot_undeclared() { # max
   case "$_shc" in ''|*[!0-9]*) _shc=0 ;; esac
   [ "$_shc" -lt "$_shw" ] && _shw=$_shc
   SHARED_HOT_WINDOW=$_shw
-  [ "$_shw" -ge 4 ] 2>/dev/null || return 0
+  # 履歴が浅いうちは黙る。4 コミットだと閾値が 2 に切り上がり、「2 本が触った」だけで
+  # 常連になる——**導入直後ほど誤検知が多い**（実測で 5 件中 3 件が生成物だった）。
+  # この検査は「宣言が実態から遅れる」を見るものなので、遅れようがない時期には要らない
+  [ "$_shw" -ge 10 ] 2>/dev/null || return 0
   _shthr=$(( (_shw + 3) / 4 )); [ "$_shthr" -ge 2 ] || _shthr=2
   _shdecl=" $(ylist "$AIDEV/config.yml" sharedFiles | tr '\n' ' ') "
   _shrel=""; case "$HARNESS/" in "$ROOT"/*) _shrel=${HARNESS#"$ROOT"/} ;; esac
@@ -2508,6 +2546,11 @@ shared_hot_undeclared() { # max
     case "$_shf" in .aidev/*) continue ;; esac
     [ -n "$_shrel" ] && case "$_shf" in "$_shrel"/*) continue ;; esac
     case "$_shdecl" in *" $_shf "*) continue ;; esac
+    # いま無視されているファイル（ビルド生成物など）は勧めない。過去に誤ってコミットして
+    # 履歴に残っていると常連として挙がる（実測: __pycache__/*.pyc が 3 件出た）
+    if git -C "$ROOT" check-ignore -q -- "$_shf" 2>/dev/null; then continue; fi
+    # 既に無いファイルも勧めない（消えたものを宣言させても仕方がない）
+    [ -e "$ROOT/$_shf" ] || continue
     printf '%s\t%s\n' "$_shcnt" "$_shf"
     _shn=$((_shn+1))
   done
@@ -2702,11 +2745,30 @@ wt_list() {
 # （実測: 3 本とも feature 枝から切ったので、共有しているだけの skills 一式が
 # 全員の「変更」として並び、本当の重なりが埋もれた）。main tree との merge-base なら
 # 共有ぶんが相殺され、残るのはその worktree が足したものだけになる。
-wt_changed_files() { # path main_head
+wt_changed_files() { # path all_heads
   _wcp=$1; _wcm=$2
-  _wcbase=""
-  [ -n "$_wcm" ] && { _wcbase=$(git -C "$_wcp" merge-base "$_wcm" HEAD 2>/dev/null) || _wcbase=""; }
-  [ -n "$_wcbase" ] || _wcbase=HEAD   # 読めなければ未コミットぶんだけ（基点を捏造しない）
+  # 基点は「**他の tree との merge-base のうち最も新しいもの**」。
+  # - main tree の HEAD 固定にすると、main tree 自身が常に差分ゼロになり
+  #   **その未マージの作業が一本も見えない**。
+  # - 既定ブランチにすると、同じ枝から切った worktree が共有ぶんまで各自の変更として並ぶ。
+  # - 全体の共通祖先（octopus）にすると、**撤去し忘れた古い worktree が 1 本あるだけで
+  #   基点が過去へ引きずられ**、共有ぶんが再び全員の変更として並ぶ（実測で回帰した）。
+  # 「最も新しい merge-base」なら、共有ぶんは相殺されつつ、その tree だけが持つ分は残る。
+  _wcbase=""; _wcbest=-1
+  _wch=$(git -C "$_wcp" rev-parse HEAD 2>/dev/null) || _wch=""
+  # 呼び出し元（wt_collect_pairs）は IFS を改行にしているので、空白区切りの一覧が
+  # そのままでは分割されない。ここで既定に戻して回す（戻し忘れると上位のループが壊れる）
+  _wcifs=$IFS; IFS=' '
+  for _wco in $_wcm; do
+    [ "$_wco" = "$_wch" ] && continue
+    _wcmb=$(git -C "$_wcp" merge-base "$_wco" HEAD 2>/dev/null) || continue
+    [ -n "$_wcmb" ] || continue
+    _wcd=$(git -C "$_wcp" rev-list --count "$_wcmb..HEAD" 2>/dev/null) || continue
+    case "$_wcd" in ''|*[!0-9]*) continue ;; esac
+    if [ "$_wcbest" -lt 0 ] || [ "$_wcd" -lt "$_wcbest" ]; then _wcbest=$_wcd; _wcbase=$_wcmb; fi
+  done
+  IFS=$_wcifs
+  [ -n "$_wcbase" ] || _wcbase=HEAD   # 比較相手がいなければ未コミットぶんだけ（捏造しない）
   {
     git -C "$_wcp" diff --name-only "$_wcbase" 2>/dev/null
     git -C "$_wcp" ls-files --others --exclude-standard 2>/dev/null
@@ -2730,6 +2792,13 @@ wt_planned_files() { # path work
     }
   ' "$_wpf" | sed 's/:[0-9][0-9-]*$//' \
     | grep -E '^[A-Za-z0-9_][A-Za-z0-9_./-]*\.[A-Za-z0-9]+$' | sort -u
+  # backlog の消し込みは deliver の責務なので誰も `対象:` に書かないが、`backlog:` を持つ
+  # work は**必ず**そのファイルを触る（`verify` が消し込みを強制するため）。
+  # 予告できるのに予告しないと、「必ず衝突する」と分かっている唯一のファイルだけが
+  # 予告の外に残る（実走でそうなった）。宣言ではなく**既知の事実**なので機械が足す
+  _wpbl=$(yget "$1/.aidev/works/$2/state.yml" backlog 2>/dev/null) || _wpbl=""
+  [ -n "$_wpbl" ] && printf '.aidev/backlog/%s\n' "$_wpbl"
+  return 0
 }
 
 # どのファイルを何本の worktree が触っているかを出す。
@@ -2746,8 +2815,19 @@ wt_collect_pairs() { # showall planned
   WT_PAIRS=""; WT_N=0
   _wfinfo=$(wt_porcelain)
   _wfmain=$(printf '%s\n' "$_wfinfo" | head -n1 | cut -f1)
-  _wfmhead=$(git -C "$_wfmain" rev-parse HEAD 2>/dev/null) || _wfmhead=""
   _wfdef=$(git_default_branch)
+  # 比較対象の全 tree の HEAD を集めておく。基点は tree ごとに下で決める
+  _wfheads=""
+  _oi2=$IFS; IFS='
+'
+  for _wl in $_wfinfo; do
+    _wp=${_wl%%	*}
+    [ -f "$_wp/.aidev/current" ] || continue
+    _wh=$(git -C "$_wp" rev-parse HEAD 2>/dev/null) || continue
+    _wfheads="$_wfheads $_wh"
+  done
+  IFS=$_oi2
+
   oldifs=$IFS; IFS='
 '
   for line in $_wfinfo; do
@@ -2765,7 +2845,7 @@ wt_collect_pairs() { # showall planned
     WT_N=$((WT_N+1))
     _wfname=$(basename "$path")
     if [ "$_wcpl" = yes ]; then _wfsrc=$(wt_planned_files "$path" "$_wfw")
-    else _wfsrc=$(wt_changed_files "$path" "$_wfmhead"); fi
+    else _wfsrc=$(wt_changed_files "$path" "$_wfheads"); fi
     for f in $_wfsrc; do
       # 自分の work のディレクトリは構造上ぶつからない（slug が違う）。数えると重なりが埋もれる
       case "$f" in .aidev/works/*) continue ;; esac
@@ -2807,7 +2887,11 @@ wt_files() {
     END { flush() }')
 
   _wfover=$(printf '%s' "$rows" | awk -F'\t' '$2 >= 2' | grep -c . || true)
-  _wfundecl=$(printf '%s' "$rows" | awk -F'\t' '$2 >= 2 && $3 == "no"' | grep -c . || true)
+  # `.aidev/*` は**必ず衝突するが sharedFiles に足すものではない**——足すと毎回の
+  # worktree add で鳴る恒常ノイズになるうえ、`protocol-worktree.md` は
+  # 「避けられないのでマージ時に手で解決する前提」と定めている。行は出すが勧めない
+  # （doctor 側も同じ除外をしている。同じハーネスが別の答えを言わないため）
+  _wfundecl=$(printf '%s' "$rows" | awk -F'\t' '$2 >= 2 && $3 == "no" && $1 !~ /^\.aidev\//' | grep -c . || true)
 
   if [ "$fmt" = tsv ]; then
     # `rows` は command substitution で作っているので**末尾改行が落ちている**
@@ -2820,7 +2904,7 @@ wt_files() {
     printf 'files-summary\t%s\t%s\t%s\n' "$_wfn" "$_wfover" "$_wfundecl"
     return 0
   fi
-  if [ "$planned" = yes ]; then printf 'worktree files: %s 本の worktree が触ると宣言したファイル（tasks.md の 対象:）' "$_wfn"
+  if [ "$planned" = yes ]; then printf 'worktree files: %s 本の worktree が触ると宣言したファイル（tasks.md の 対象:。着地済み・未マージの宣言も含む）' "$_wfn"
   else printf 'worktree files: %s 本の worktree の変更ファイル' "$_wfn"; fi
   [ "$showall" = no ] && printf '（未マージの worktree・2本以上が重なるものだけ。全件は --all）'
   printf '\n'
@@ -3921,6 +4005,24 @@ $w"
 # その事実が実態から遅れていることを**誰も見ていなかった**——書くのは人間、でも
 # 古びていることは機械が言える。判定は履歴（直近 N コミットのうち何本がそのファイルに触ったか）。
 # 直すのは人間なので WARN 止まり。
+# main worktree が既定ブランチに載っていないことを PJ 単位で 1 行だけ知らせる。
+# `worktree add` は新しい枝を切るときにしか警告しないので、**既に載っている状態**は誰も言わない。
+# この状態だと deliver「1.5」の既着地検知と `worktree files` の基点がどちらも素直でなくなる。
+doctor_branch() {
+  command -v git >/dev/null 2>&1 || return 0
+  _dbcur=$(git -C "$ROOT" symbolic-ref --quiet --short HEAD 2>/dev/null) || _dbcur=""
+  [ -n "$_dbcur" ] || return 0
+  _dbdef=$(git_default_branch)
+  [ -n "$_dbdef" ] || return 0
+  if [ "$_dbcur" != "$_dbdef" ]; then
+    printf 'branch: main worktree の位置\n'
+    printf '    WARN 既定ブランチ(%s)ではなく %s に載っています: 新しい work はこの上に積まれ、\n' "$_dbdef" "$_dbcur"
+    printf '         deliver「1.5」の既着地検知が濁ります（work は state.yml の baseCommit と比べること）\n'
+    printf 'branch-summary: current=%s default=%s\n' "$_dbcur" "$_dbdef"
+  fi
+  return 0
+}
+
 doctor_shared() {
   printf 'sharedFiles: 並行作業で名指しする共有ファイルの検査\n'
   _dsdecl=$(ylist "$AIDEV/config.yml" sharedFiles)
