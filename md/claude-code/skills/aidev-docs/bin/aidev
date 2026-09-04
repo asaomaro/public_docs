@@ -709,43 +709,56 @@ needs_start() { # phase
 # aidev には「受け入れ基準(AC)が1件もタスクに落ちていない」を機械的に見る手段が無く、
 # plan の完了の目安「spec の全範囲が tasks に漏れなく落ちている」は目視に委ねられていた。
 # 同じ理由で、`aidev-30-plan` が散文で要求している「存在しないタスク ID を指していない・
-# 循環していない」も誰も検査していない（散文=ソフト層のまま）。ここでハード層に上げる。
+# 循環していない」も誰も検査していなかった（散文=ソフト層のまま）。ここでハード層に上げる。
 #
 # 対応付けの正典は tasks.md の `AC:` 行（`対象:` `依存:` と同じ継続行の形）。
 # 本文（AC の文言）は requirement.md にしか置かない——ID で参照するだけなので二重管理にならない。
 
-# requirement.md / spec.md の在処（subtask は親から継承する。need_file / verify と同じ規則）
-cov_src() { # basename -> path（無ければ空）
-  if [ -f "$WORK/$1" ]; then printf '%s' "$WORK/$1"; return 0; fi
-  _cp=$(yget "$WORK/state.yml" parent)
-  if [ -n "$_cp" ] && [ -f "$AIDEV/works/$_cp/$1" ]; then printf '%s' "$AIDEV/works/$_cp/$1"; fi
+# ID の文法（sh/ps1 で同一。ここが唯一の定義）。
+#   AC: `AC` の直後は**数字か `-`**（`AC1` `AC12` `AC-I1`）。`ACL` `ACCESS` のように
+#       英字が続くものは AC ではない——これを許すと「見出しでも本文でもない普通の
+#       チェックリスト行」が受け入れ基準として数えられ、消せない gap になる。
+#   T : `T` の直後は数字。以降は英数と `-` `_` を許す（`T1` `T10` `T1-1`）。
+#       `T[0-9]+` で切ると `T1-1` が `T1` に潰れ、**正しく書かれた依存が壊れた参照になる**。
+COV_AC_RE='AC([0-9][A-Za-z0-9_]*|-[A-Za-z0-9][A-Za-z0-9_-]*)'
+COV_T_RE='T[0-9][A-Za-z0-9_-]*'
+# 「無い」を表す綴り（`AC:` `依存:` 共通）。ここに無い綴りは値として扱われる。
+COV_NONE='なし none None NONE -'
+
+# 入力行の正規化: BOM と行末 CR を落とす。
+# **CR を落とさないと OS で判定が割れる**——ps1 の `ReadAllLines` は CRLF も BOM も自動で外すため、
+# Windows でチェックアウトした tasks.md が Linux では `AC1\r` を未定義参照として FAIL、
+# Windows では OK になる（deliver 前ゲートが OS で反転する）。この CLI の既存パーサ
+# （`yget` の行末除去、`bl_done_has`）は元から CR 耐性があり、ここだけ規約から外れていた。
+cov_lines() { # file
+  [ -f "$1" ] || return 0
+  awk -v bom="$(printf '\357\273\277')" '
+    NR == 1 { sub("^" bom, "") }
+    { sub(/\r$/, ""); print }
+  ' "$1"
 }
 
-# requirement.md の受け入れ基準 ID を1行1件で出す。
-# 拾うのは**チェックボックス行の先頭トークン**だけ（`AC1:` も `AC-I1 開く…` も同じ形）。
-# ユーザーストーリーの「（受け入れ: AC1, AC2）」は `- [ ]` 行ではないので拾わない＝
-# 参照側を基準の定義と取り違えない。
-cov_req_acs() { # file
-  [ -f "$1" ] || return 0
-  sed -n 's/^[[:space:]]*- \[[ xX]\][[:space:]]*\(AC[A-Za-z0-9_-]*\).*/\1/p' "$1"
+# 行頭パターン `pre` に続く AC の ID を1行1件で出す（stdin）。
+# requirement 側（`- [ ] AC1: …`）と spec 側（`- AC1: …`）で**同じ文法**を使う。
+# 片方だけ「ID の直後にコロンが要る」にすると、`- [ ] AC-I1 開く / 閉じる:` という
+# テンプレートどおりの相互作用 AC が spec 側で永久に拾えなくなる。
+cov_pick_ac() { # 行頭パターン
+  awk -v pre="$1" -v idre="$COV_AC_RE" '
+    { s = $0
+      if (match(s, pre) != 1) next
+      s = substr(s, RLENGTH + 1)
+      if (match(s, "^" idre) != 1) next
+      print substr(s, 1, RLENGTH)
+    }'
 }
-# spec.md「受け入れ基準との対応」の AC 行（`- AC1: …`）
-cov_spec_acs() { # file
-  [ -f "$1" ] || return 0
-  sed -n 's/^[[:space:]]*- \(AC[A-Za-z0-9_-]*\)[：:].*/\1/p' "$1"
-}
+cov_req_acs()  { cov_lines "$1" | cov_pick_ac '^[[:space:]]*- \[[ xX]\][[:space:]]*'; }
+cov_spec_acs() { cov_lines "$1" | cov_pick_ac '^[[:space:]]*- '; }
 
-# tasks.md を1行1タスクの TSV に畳む: "TID<TAB>AC参照<TAB>依存"
-# 値の無い欄は `-`（AC:/依存: 行そのものが無い）、明示的な「なし」はそのまま残す
-#（`- ` と `なし` を区別しないと「書き忘れ」と「依存が無い」が同じに見える）。
+# tasks.md を1タスク1行の TSV に畳む: "TID<TAB>AC参照<TAB>依存"
+# 欄の値は3状態ある。`-`=その行が無い / 空=行はあるが値が空 / それ以外=値。
+# 「書き忘れ」と「空で書いた」を潰すと、指摘の文言が実態と食い違う。
 cov_task_rows() { # tasks.md
-  [ -f "$1" ] || return 0
-  awk '
-    function flush(  a, d) {
-      if (cur == "") return
-      a = (acs == "" ? "-" : acs); d = (dps == "" ? "-" : dps)
-      printf "%s\t%s\t%s\n", cur, a, d
-    }
+  cov_lines "$1" | awk -v tre="$COV_T_RE" '
     # 多バイト文字を**角括弧式に入れない**。awk/sed の角括弧式はバイト単位なので、
     # `[,、]` は「、」の構成バイト(E3 80 81)を1バイトずつ候補にしてしまい、
     # 同じ先頭バイトを持つ「なし」(E3 81 AA …) を空白に割ってしまう（実際に壊れた）。
@@ -757,29 +770,40 @@ cov_task_rows() { # tasks.md
       sub(/^ /, "", s); sub(/ $/, "", s)
       return s
     }
-    /^[[:space:]]*- \[[ xX]\][[:space:]]*T[0-9]+/ {
-      flush()
-      s = $0; sub(/^[[:space:]]*- \[[ xX]\][[:space:]]*/, "", s)
-      match(s, /^T[0-9]+/); cur = substr(s, 1, RLENGTH); acs = ""; dps = ""
-      next
+    function flush() {
+      if (cur == "") return
+      printf "%s\t%s\t%s\n", cur, (hasac ? acs : "-"), (hasdp ? dps : "-")
+    }
+    { s = $0 }
+    match(s, "^[[:space:]]*- \\[[ xX]\\][[:space:]]*") == 1 {
+      t = substr(s, RLENGTH + 1)
+      if (match(t, "^" tre) == 1) {
+        flush()
+        cur = substr(t, 1, RLENGTH); acs = ""; dps = ""; hasac = 0; hasdp = 0
+        next
+      }
     }
     cur != "" && /^[[:space:]]*AC(:|：)/ {
-      s = $0; sub(/^[[:space:]]*AC/, "", s); s = norm(s)
-      acs = (acs == "" ? s : acs " " s); next
+      v = norm(substr(s, index(s, "AC") + 2))
+      acs = (acs == "" ? v : acs " " v); hasac = 1; next
     }
     cur != "" && /^[[:space:]]*依存(:|：)/ {
-      s = $0; sub(/^[[:space:]]*依存/, "", s); s = norm(s)
-      dps = (dps == "" ? s : dps " " s); next
+      v = norm(substr(s, index(s, "依存") + length("依存")))
+      dps = (dps == "" ? v : dps " " v); hasdp = 1; next
     }
     END { flush() }
-  ' "$1"
+  '
 }
 
-# 「AC が無い」を表す値か（書式ゆれを1箇所に閉じ込める）
-cov_is_none() { case "$1" in なし|none|None|NONE|-|"") return 0 ;; *) return 1 ;; esac; }
+# 「無い」を表す値か（書式ゆれを1箇所に閉じ込める）
+cov_is_none() {
+  case " $COV_NONE " in *" $1 "*) return 0 ;; esac
+  [ -z "$1" ] && return 0
+  return 1
+}
 
 # 依存の循環を検出する（Kahn 法で剥がし切れなかったタスクを出す）。
-# 入力は cov_task_rows の TSV。出力は循環に含まれるタスク ID をカンマ区切りで1行（無ければ無出力）。
+# 入力は TSV。出力は循環に含まれるタスク ID をカンマ区切りで1行（無ければ無出力）。
 cov_cycles() {
   awk -F'\t' '
     { id = $1; ids[++n] = id; exists[id] = 1; dep[id] = $3 }
@@ -809,8 +833,8 @@ cov_cycles() {
     }'
 }
 
-# 不整合を1件積む。**標準出力に直接書かない**——呼び側が `$(...)` で受けると
-# サブシェルになり、同じ関数が設定する COV_* の集計が呼び側に届かなくなる。
+# 不整合を1件積む。**標準出力に直接書かない**——呼び側が `$(...)` で受けるとサブシェルになり、
+# 同じ関数が設定する COV_* の集計が呼び側に届かなくなる。
 # 第1引数は種別: struct=書式・参照の壊れ（機械的に誤り）/ cover=被覆の穴（人の判断が要る）。
 # verify はこの2つを違う強さで扱う（struct=FAIL / cover=WARN）ので、数え分けておく。
 cov_gap() { _k=$1; shift
@@ -819,24 +843,71 @@ cov_gap() { _k=$1; shift
   case "$_k" in struct) COV_GAPS_S=$((COV_GAPS_S+1)) ;; *) COV_GAPS_C=$((COV_GAPS_C+1)) ;; esac
 }
 
-# 検査本体。WORK/SLUG 解決済みが前提。**現在のシェルで呼ぶこと**（結果は COV_* に入る）。
-# 戻り値: 0=tasks.md まで見られた / 1=tasks.md が無く検査対象外
-cov_analyze() {
-  COV_AC=0; COV_SPEC=0; COV_TASK=0; COV_ROWS=""; COV_GAPS=0; COV_GAPS_S=0; COV_GAPS_C=0; COV_GAPLINES=""
-  COV_TASKS=0; COV_TASKS_NOAC=0
-  _cvt="$WORK/tasks.md"
-  [ -f "$_cvt" ] || return 1
-  _cvr=$(cov_src requirement.md)
-  _cvs=$(cov_src spec.md)
-  _acs=$(cov_req_acs "$_cvr" | awk '!seen[$0]++')
-  _sacs=" $(cov_spec_acs "$_cvs" | awk '!seen[$0]++' | tr '\n' ' ') "
-  _rows=$(cov_task_rows "$_cvt")
+# 被覆は **work 全体（親＋全 subtask）** で見る。
+# subtask は親の requirement.md を継承するので、自分の slice だけを見ると
+# 兄弟が担当する AC が必ず「タスクが無い」になり、**誰にも直せない gap** が恒久的に残る
+# （`DESIGN.md`「12.」の「直せない事実を毎回混ぜると、直せる WARN が埋もれる」に反する）。
+# 着地するのは親1本の PR なので、被覆の単位も親1本に揃えるのが正しい。
+cov_root() { # -> 家族の根の work ディレクトリ
+  _cp=$(yget "$WORK/state.yml" parent)
+  if [ -n "$_cp" ] && [ -d "$AIDEV/works/$_cp" ]; then printf '%s' "$AIDEV/works/$_cp"
+  else printf '%s' "$WORK"; fi
+}
 
-  # タスク側の走査（AC 行の欠落・未定義 AC 参照・未定義依存）
-  _defined=" $(printf '%s\n' "$_acs" | tr '\n' ' ')"
-  _tids=" $(printf '%s\n' "$_rows" | cut -f1 | tr '\n' ' ')"
-  _pairs=""   # "AC<TAB>TID" の集合
+# 検査本体。WORK/SLUG 解決済みが前提。**現在のシェルで呼ぶこと**（結果は COV_* に入る）。
+# 戻り値: 0=tasks.md を見られた / 1=どこにも tasks.md が無く検査対象外
+cov_analyze() {
+  COV_AC=0; COV_SPEC=0; COV_TASK=0; COV_ROWS=""; COV_GAPS=0; COV_GAPS_S=0; COV_GAPS_C=0
+  COV_GAPLINES=""; COV_TASKS=0; COV_TASKS_NOAC=0; COV_PENDING=no
+  _cvr0=$(cov_root)
+
+  # 走査するタスク表を集める（"prefix<TAB>path"）。親自身 → 各 subtask の順。
+  _cvfiles=""
+  [ -f "$_cvr0/tasks.md" ] && _cvfiles="	$_cvr0/tasks.md
+"
+  for _sd in "$_cvr0"/*/; do
+    [ -d "$_sd" ] || continue
+    [ -f "${_sd}state.yml" ] || continue
+    _sn=$(basename "${_sd%/}")
+    if [ -f "${_sd}tasks.md" ]; then _cvfiles="${_cvfiles}${_sn}/	${_sd}tasks.md
+"
+    else COV_PENDING=yes; fi   # plan 未実施の subtask がある＝被覆はまだ完成しない
+  done
+  [ -n "$_cvfiles" ] || return 1
+
+  # `AC: *` のような値が cwd のファイル名に展開されるのを防ぐ（gap 件数が cwd 依存になる）
+  case $- in *f*) _cvglob=off ;; *) _cvglob=on ;; esac
+  set -f
+
+  _acs=$(cov_req_acs "$_cvr0/requirement.md" | awk '!seen[$0]++')
+  _sacs=" $(cov_spec_acs "$_cvr0/spec.md" | awk '!seen[$0]++' | tr '\n' ' ') "
+
+  # 行を集める（子の ID には subslug を前置し、兄弟間の T1 衝突を避ける）
+  _rows=""
   _oldifs=$IFS
+  IFS='
+'
+  for _fl in $_cvfiles; do
+    [ -n "$_fl" ] || continue
+    _pfx=${_fl%%	*}; _fp=${_fl#*	}
+    _rows="${_rows}$(cov_task_rows "$_fp" | awk -F'\t' -v p="$_pfx" -v none="$COV_NONE" '
+      BEGIN { nn = split(none, nl, " "); for (i = 1; i <= nn; i++) isnone[nl[i]] = 1 }
+      { dd = $3
+        if (dd != "-" && dd != "") {
+          m = split(dd, d, " "); dd = ""
+          for (i = 1; i <= m; i++) if (d[i] != "")
+            dd = dd (dd == "" ? "" : " ") ((d[i] in isnone) ? d[i] : p d[i])
+        }
+        printf "%s%s\t%s\t%s\n", p, $1, $2, dd }')
+"
+  done
+  IFS=$_oldifs
+
+  # タスク側の走査（AC 行の欠落・未定義 AC 参照・未定義依存・自己依存・ID 重複）
+  _defined=" $(printf '%s\n' "$_acs" | tr '\n' ' ') "
+  _tids=" $(printf '%s\n' "$_rows" | cut -f1 | tr '\n' ' ') "
+  _seen=" "
+  _pairs=""   # "AC<TAB>TID" の集合
   IFS='
 '
   for _r in $_rows; do
@@ -845,13 +916,22 @@ cov_analyze() {
     _tac=$(printf '%s' "$_r" | cut -f2)
     _tdp=$(printf '%s' "$_r" | cut -f3)
     COV_TASKS=$((COV_TASKS+1))
+    case "$_seen" in
+      *" $_tid "*) cov_gap struct "タスク ID が重複している: $_tid" ;;
+      *) _seen="$_seen$_tid " ;;
+    esac
     if [ "$_tac" = "-" ]; then
       COV_TASKS_NOAC=$((COV_TASKS_NOAC+1))
       cov_gap cover "$_tid に AC 行が無い（対応する AC が無いなら \`AC: なし\` と明示する）"
+    elif [ -z "$_tac" ]; then
+      COV_TASKS_NOAC=$((COV_TASKS_NOAC+1))
+      cov_gap cover "$_tid の AC 行が空（対応する AC が無いなら \`AC: なし\` と明示する）"
     elif ! cov_is_none "$_tac"; then
       IFS=' '
+      _acseen=" "
       for _a in $_tac; do
         cov_is_none "$_a" && continue
+        case "$_acseen" in *" $_a "*) continue ;; *) _acseen="$_acseen$_a " ;; esac
         case "$_defined" in
           *" $_a "*) _pairs="$_pairs$_a	$_tid
 " ;;
@@ -865,6 +945,10 @@ cov_analyze() {
       IFS=' '
       for _d in $_tdp; do
         cov_is_none "$_d" && continue
+        if [ "$_d" = "$_tid" ]; then
+          cov_gap struct "$_tid が自分自身に依存している"
+          continue
+        fi
         case "$_tids" in
           *" $_d "*) ;;
           *) cov_gap struct "$_tid の 依存 が未定義のタスクを指す: $_d" ;;
@@ -878,7 +962,7 @@ cov_analyze() {
 
   _cyc=$(printf '%s\n' "$_rows" | cov_cycles)
   if [ -n "$_cyc" ]; then
-    cov_gap struct "依存が循環している: $_cyc"
+    cov_gap struct "依存の循環に含まれるタスク: $_cyc"
   fi
 
   # AC 側の走査（spec 対応・タスク対応）
@@ -894,13 +978,25 @@ cov_analyze() {
     COV_ROWS="${COV_ROWS}${_a}	${_sp}	${_ts}
 "
   done
+  # 受け入れ基準が1件も無いのは「被覆 100%」ではなく**測れていない**。ここを素通りさせると、
+  # ID を書かなかった work（と light の1ゲート）で、唯一の機械的な歯止めが空振りする。
+  if [ "$COV_AC" -eq 0 ]; then
+    cov_gap cover "requirement.md に受け入れ基準が1件もありません（\`- [ ] AC1: …\` の形で書きます）"
+  fi
+
+  if [ "$_cvglob" = on ]; then set +f; fi
   return 0
 }
 
 cov_pct() { # 分子 分母
-  [ "$2" -gt 0 ] 2>/dev/null || { printf '100'; return; }
+  [ "$2" -gt 0 ] 2>/dev/null || { printf '0'; return; }
   printf '%s' $(( $1 * 100 / $2 ))
 }
+
+# --strict / verify が cover を致命扱いしてよいか。
+# plan 未実施の subtask が残っている間は「まだ埋まっていない」だけなので、致命にしない
+# （最初の subtask の plan が、兄弟の担当ぶんまで背負って通らなくなる）。
+cov_cover_enforced() { [ "$COV_PENDING" = no ]; }
 
 cmd_coverage() {
   fmt=table; STRICTC=no; cslug=""
@@ -933,12 +1029,16 @@ cmd_coverage() {
     "$COV_TASK" "$COV_AC" "$(cov_pct "$COV_TASK" "$COV_AC")" \
     "$COV_TASKS" "$COV_TASKS_NOAC" "$COV_GAPS"
   printf 'coverage-gaps: struct=%s cover=%s\n' "$COV_GAPS_S" "$COV_GAPS_C"
-  if [ "$COV_AC" -eq 0 ]; then
-    printf 'note: requirement.md に AC が1件もありません（`- [ ] AC1: …` の形で書きます）\n'
+  if ! cov_cover_enforced; then
+    printf 'note: plan 未実施の subtask があります。cover の gap は全 subtask の plan が済むまで致命にしません\n'
   fi
-  if [ "$STRICTC" = yes ] && [ "$COV_GAPS" -gt 0 ]; then
-    printf 'FAIL(strict) 未解消の gap が %s 件あります\n' "$COV_GAPS"
-    return 4
+  if [ "$STRICTC" = yes ]; then
+    _cvfail=$COV_GAPS_S
+    if cov_cover_enforced; then _cvfail=$((_cvfail + COV_GAPS_C)); fi
+    if [ "$_cvfail" -gt 0 ]; then
+      printf 'FAIL(strict) 未解消の gap が %s 件あります\n' "$_cvfail"
+      return 4
+    fi
   fi
   return 0
 }
@@ -995,11 +1095,13 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail / 5 stri
            && ! grep -q '^```' "$WORK/test-result.md"; then
           printf '  WARN test で差し戻しがあったのに test-result.md に失敗の生出力が無い（``` のブロックで残すこと）\n'
         fi
-        if cov_analyze; then
+        # 被覆は work 全体（親＋全 subtask）で見るので、**家族の根でだけ**報告する。
+        # subtask ごとに回すと同じ gap が子の数だけ重複して出る
+        if [ -z "$_issub" ] && cov_analyze; then
           if [ "$COV_GAPS_S" -gt 0 ]; then
             VF="$VF tasks.mdの参照が壊れている(${COV_GAPS_S}件)"
           fi
-          if [ "$COV_GAPS_C" -gt 0 ]; then
+          if [ "$COV_GAPS_C" -gt 0 ] && cov_cover_enforced; then
             printf '  WARN AC 被覆に穴があります（%s 件）。詳細は aidev coverage\n' "$COV_GAPS_C"
           fi
         fi

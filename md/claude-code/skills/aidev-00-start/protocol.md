@@ -299,7 +299,7 @@ backlog は**遅延キュー**で、完了した行を閉じるのは deliver �
 各 works フォルダ内に 1 つ置く。
 
 ```yaml
-schema: 5                   # state スキーマ版（aidev new が刻む）。verify は導入版以上の不変条件のみ強制。
+schema: 6                   # state スキーマ版（aidev new が刻む）。verify は導入版以上の不変条件のみ強制。
                             # 未記載=legacy 免除。版ごとの導入内容は bin/README.md「schema の履歴」
 slug: <作業slug>            # 例: user-login
 ticket: <ID または 省略>     # 任意。外部チケット/issue の ID（ツール非依存。例 "#18" / "PROJ-123"）。種類は .aidev/config.yml の tracker
@@ -346,11 +346,16 @@ parent: <親 work の dated 名> # 子が親 work を逆参照（例 20260622-fe
 | 70 | deliver | aidev-70-deliver | 標準（最終） | コミット / PR | review 通過 |
 | 95 | retro | aidev-95-retro | 任意 | `retro.md`（改善提案） | 作業完了（deliver 済み） |
 
-- **`tasks.md` の各タスクは `対象` / `依存` / `AC` の3欄を持つ**（書式は `aidev-30-plan`）。
+- **`tasks.md` の各タスクは `対象` / `依存` / `AC` の3欄を持つ**（書式と ID 文法は `aidev-30-plan`）。
   `AC` は `requirement.md` の受け入れ基準 ID への**参照**（本文は書き写さない）。この3欄が構造化されて
   いるから、`aidev coverage` が**被覆率**（タスクに落ちていない `AC`）と**整合**（未定義の参照・依存の循環）を
   機械的に出せる。**plan の承認前に `aidev coverage --strict` を通す**（cover の穴を承認で飛ばさない）。
   review では同じコマンドを実装後にもう一度打ち、plan 時との差分を spec と実装の乖離として読む。
+  **被覆は work 全体（親＋全 subtask）で見る**——subtask は親の `requirement.md` を継承するので、
+  自分の slice だけを見ると兄弟が担当する `AC` が必ず「タスクが無い」になり、誰にも直せない gap が
+  恒久的に残る。着地するのが親1本の PR である以上、被覆の単位も親1本に揃える。
+  plan 未実施の subtask が残っている間、cover の穴は致命にしない（最初の subtask の plan が、
+  兄弟の担当ぶんまで背負って通らなくなるため）。
 - **`profile: light` の場合**（「11.」）: 上流 3 工程（requirement / spec / plan）を **1 ゲートに畳む**。
   成果物は 4 つとも作る（薄く書く）が、承認は `requirement` として 1 回だけ記録する。
   以降 coding → test → review → deliver は full と**完全に同一**。任意工程は使わない。

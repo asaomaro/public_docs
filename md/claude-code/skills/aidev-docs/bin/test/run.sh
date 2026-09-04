@@ -1505,7 +1505,7 @@ assert_contains "$CVOUT" "AC-I1" "coverage: 相互作用の AC（AC-I1）も基�
 assert_contains "$CVOUT" "tasks=3/4(75%)" "coverage: 被覆率を出す（AC3 だけタスク無し）"
 assert_contains "$CVOUT" "spec=2/4(50%)" "coverage: spec の対応漏れも数える"
 assert_contains "$CVOUT" "T2 の 依存 が未定義のタスクを指す: T9" "coverage: 未定義のタスク依存を検出"
-assert_contains "$CVOUT" "依存が循環している: T3,T4" "coverage: 依存の循環を検出"
+assert_contains "$CVOUT" "依存の循環に含まれるタスク: T3,T4" "coverage: 依存の循環を検出"
 assert_contains "$CVOUT" "T4 が未定義の AC を参照: AC7" "coverage: 未定義の AC 参照を検出"
 assert_contains "$CVOUT" "T3 に AC 行が無い" "coverage: AC 行の書き忘れを検出"
 assert_contains "$CVOUT" "AC3 に対応するタスクが無い" "coverage: 被覆されない AC を名指しする"
@@ -1575,6 +1575,104 @@ CVV=$(run_cv verify 2>&1)
 assert_absent "$CVV" "失敗の生出力が無い" "verify: 生出力のブロックがあれば WARN は消える"
 rm -rf "$CVR"
 
+
+# --- 監査で見つかった経路（どれも「片方の OS でだけ通る」か「消せない gap」を作っていた）---
+echo "== coverage: 入力の揺れと ID 文法（OS 差・誤検出の回帰）=="
+CVX=$(mktemp -d); mkdir -p "$CVX/.aidev/backlog"
+run_cx() { ( cd "$CVX" && "$AIDEV_SH" "$@" ); }
+run_cx new cov-edge >/dev/null
+CXW=$(cat "$CVX/.aidev/current"); CXD="$CVX/.aidev/works/$CXW"
+
+# CRLF: Windows チェックアウトの tasks.md で判定が割れると、deliver 前ゲートが OS で反転する
+printf -- '- [ ] AC1: a\r\n- [ ] AC2: b\r\n' > "$CXD/requirement.md"
+printf -- '- [ ] T1: x\r\n      AC: AC1\r\n      依存: なし\r\n- [ ] T2: y\r\n      AC: AC2\r\n      依存: T1\r\n' > "$CXD/tasks.md"
+CXO=$(run_cx coverage --strict 2>&1); CXR=$?
+assert_eq "$CXR" "0" "coverage: CRLF の tasks.md でも gap を作らない（OS で判定が割れない）"
+assert_contains "$CXO" "tasks=2/2(100%)" "coverage: CRLF でも被覆を正しく数える"
+
+# BOM: ps1 の ReadAllLines は BOM を外すので、sh 側も外さないと先頭行だけ取りこぼす
+printf '\357\273\277- [ ] AC1: a\n' > "$CXD/requirement.md"
+printf '\357\273\277- [ ] T1: x\n      AC: AC1\n      依存: なし\n' > "$CXD/tasks.md"
+CXO=$(run_cx coverage --strict 2>&1); CXR=$?
+assert_eq "$CXR" "0" "coverage: BOM 付きでも先頭行を取りこぼさない"
+assert_contains "$CXO" "ac=1" "coverage: BOM 付き requirement.md の AC を数える"
+
+# ID 文法: `AC` で始まるだけの普通のチェックリスト行を受け入れ基準にしない
+printf -- '- [ ] AC1: a\n- [ ] ACL の設定を直す\n- [ ] ACCESS ログを見る\n' > "$CXD/requirement.md"
+printf -- '- [ ] T1: x\n      AC: AC1\n      依存: なし\n' > "$CXD/tasks.md"
+CXO=$(run_cx coverage --strict 2>&1); CXR=$?
+assert_eq "$CXR" "0" "coverage: ACL / ACCESS を AC と誤認しない（消せない gap を作らない）"
+assert_absent "$CXO" "ACL" "coverage: ACL は表に出ない"
+
+# タスク ID: `T1-1` を `T1` に潰すと、正しく書かれた依存が「壊れた参照」になる
+printf -- '- [ ] AC1: a\n- [ ] AC2: b\n' > "$CXD/requirement.md"
+printf -- '- [ ] T1-1: 枝1\n      AC: AC1\n      依存: なし\n- [ ] T1-2: 枝2\n      AC: AC2\n      依存: T1-1\n' > "$CXD/tasks.md"
+CXO=$(run_cx coverage --strict 2>&1); CXR=$?
+assert_eq "$CXR" "0" "coverage: T1-1 / T1-2 を別 ID として扱う（依存が壊れない）"
+assert_contains "$CXO" "T1-1" "coverage: タスク ID を切り詰めない"
+
+# 重複 ID・自己依存: 「整合を見る」コマンドが最も基本的な違反を見ていなかった
+printf -- '- [ ] T1: a\n      AC: AC1\n      依存: T1\n- [ ] T1: dup\n      AC: AC2\n      依存: なし\n' > "$CXD/tasks.md"
+CXO=$(run_cx coverage --strict 2>&1); CXR=$?
+assert_eq "$CXR" "4" "coverage: 重複 ID / 自己依存は struct gap"
+assert_contains "$CXO" "タスク ID が重複している: T1" "coverage: 重複 ID を名指しする"
+assert_contains "$CXO" "T1 が自分自身に依存している" "coverage: 自己依存を検出（A→A は循環検出から漏れる）"
+
+# 空の `AC:` 行は「書き忘れ」と文言を分ける
+printf -- '- [ ] T1: a\n      AC: \n      依存: なし\n- [ ] T2: b\n      AC: AC1, AC1\n      依存: なし\n' > "$CXD/tasks.md"
+CXO=$(run_cx coverage 2>&1)
+assert_contains "$CXO" "T1 の AC 行が空" "coverage: 空の AC 行は「行が無い」と区別して報告する"
+CXT=$(run_cx coverage --format tsv 2>&1)
+assert_contains "$CXT" "$(printf 'AC1\tno\tT2')" "coverage: 同じ AC を2回書いても列は重複しない"
+
+# AC が 0 件は「被覆 100%」ではなく測れていない（ゲートが最も要る場面で空振りしていた）
+rm -f "$CXD/requirement.md"
+printf -- '- [ ] T1: a\n      AC: なし\n      依存: なし\n' > "$CXD/tasks.md"
+CXO=$(run_cx coverage --strict 2>&1); CXR=$?
+assert_eq "$CXR" "4" "coverage --strict: AC が1件も無い work は素通りさせない"
+assert_contains "$CXO" "受け入れ基準が1件もありません" "coverage: AC ゼロを gap として名指しする"
+
+# `AC: *` を unquoted で展開すると gap 件数が cwd の中身に依存する
+printf -- '- [ ] AC1: a\n' > "$CXD/requirement.md"
+printf -- '- [ ] T1: g\n      AC: *\n      依存: なし\n' > "$CXD/tasks.md"
+CXO=$(run_cx coverage 2>&1)
+assert_contains "$CXO" "T1 が未定義の AC を参照: *" "coverage: グロブ文字をファイル名に展開しない"
+assert_eq "$(printf '%s\n' "$CXO" | grep -c '未定義の AC を参照')" "1" "coverage: 展開で gap が増殖しない"
+rm -rf "$CVX"
+
+echo "== coverage: 分割 work は家族単位で見る（消せない gap を作らない）=="
+# subtask は親の requirement.md を継承するので、自分の slice だけを見ると
+# 兄弟が担当する AC が必ず「タスクが無い」になり、誰にも直せない gap が恒久的に残る。
+CVS=$(mktemp -d); mkdir -p "$CVS/.aidev/backlog"
+run_cs() { ( cd "$CVS" && "$AIDEV_SH" "$@" ); }
+run_cs new big >/dev/null; CSP=$(cat "$CVS/.aidev/current")
+printf -- '- [ ] AC1: a\n- [ ] AC2: b\n- [ ] AC3: c\n' > "$CVS/.aidev/works/$CSP/requirement.md"
+printf -- '- AC1: x\n- AC2: y\n- AC3: z\n' > "$CVS/.aidev/works/$CSP/spec.md"
+run_cs new 01-front --parent "$CSP" >/dev/null
+run_cs new 02-back  --parent "$CSP" >/dev/null
+printf -- '- [ ] T1: front\n      AC: AC1\n      依存: なし\n' > "$CVS/.aidev/works/$CSP/01-front/tasks.md"
+
+CSO=$(run_cs coverage --strict "$CSP/01-front" 2>&1); CSR=$?
+assert_eq "$CSR" "0" "coverage --strict: 兄弟が未 plan の間は cover を致命にしない（最初の子が通れなくなる）"
+assert_contains "$CSO" "plan 未実施の subtask があります" "coverage: 致命にしない理由を note で出す"
+assert_contains "$CSO" "01-front/T1" "coverage: 子のタスク ID には subslug を前置する（兄弟間の T1 衝突を避ける）"
+CSO2=$(run_cs coverage "$CSP" 2>&1)
+assert_eq "$(printf '%s\n' "$CSO2" | sed -n '/^ac/,$p' | tail -n +2)" \
+          "$(printf '%s\n' "$CSO"  | sed -n '/^ac/,$p' | tail -n +2)" \
+          "coverage: 親から見ても子から見ても同じ被覆になる"
+
+printf -- '- [ ] T1: back\n      AC: AC2, AC3\n      依存: なし\n' > "$CVS/.aidev/works/$CSP/02-back/tasks.md"
+CSO=$(run_cs coverage --strict "$CSP" 2>&1); CSR=$?
+assert_eq "$CSR" "0" "coverage --strict: 全 subtask が plan 済みなら被覆が揃う"
+assert_contains "$CSO" "tasks=3/3(100%)" "coverage: 家族全体で 3 AC すべてが被覆される"
+assert_absent "$CSO" "plan 未実施" "coverage: 全員 plan 済みなら note を出さない"
+# verify は家族の根でだけ報告する（子ごとに同じ WARN を重複させない）
+rm -f "$CVS/.aidev/works/$CSP/02-back/tasks.md"
+for f in requirement spec plan review test-result; do : > "$CVS/.aidev/works/$CSP/$f.md"; done
+CSV=$(run_cs verify "$CSP" 2>&1)
+assert_eq "$(printf '%s\n' "$CSV" | grep -c 'AC 被覆')" "0" "verify: 未 plan の subtask がある間は被覆 WARN を出さない"
+rm -rf "$CVS"
+
 echo "== sh ⇔ ps1 パリティ =="
 if [ -n "$PS_HOST" ]; then
   block_begin parity
@@ -1629,6 +1727,58 @@ EOF
   PC_PS=$(printf '%s' "$PC_PS_RAW" | tr -d '\r')
   assert_eq "$PC_SH" "$PC_PS" "パリティ: coverage --strict（出力）"
   assert_eq "$PC_SH_RC" "$PC_PS_RC" "パリティ: coverage --strict（exit code は 4）"
+  # 入力の揺れのパリティ。**ここが割れると同じ work が片方の OS でだけ deliver できる**。
+  # sh は awk/sed のバイト単位の角括弧式、ps1 は .NET の Unicode 正規表現＋BOM/CRLF 自動除去、
+  # という素の挙動差がそのまま判定差になるので、素の挙動に任せず両方を明示的に揃えてある。
+  PCE=$(mktemp -d); mkdir -p "$PCE/.aidev/backlog"
+  ( cd "$PCE" && "$AIDEV_SH" new pedge >/dev/null )
+  PCED="$PCE/.aidev/works/$(cat "$PCE/.aidev/current")"
+  # 1=CRLF / 2=BOM / 3=全角スペース字下げ / 4=NBSP / 5=グロブ文字 / 6=ID 文法の境界
+  for pcase in 1 2 3 4 5 6; do
+    case "$pcase" in
+      1) printf -- '- [ ] AC1: a\r\n- [ ] AC2: b\r\n' > "$PCED/requirement.md"
+         printf -- '- [ ] T1: x\r\n      AC: AC1\r\n      依存: なし\r\n- [ ] T2: y\r\n      AC: AC2\r\n      依存: T1\r\n' > "$PCED/tasks.md" ;;
+      2) printf '\357\273\277- [ ] AC1: a\n' > "$PCED/requirement.md"
+         printf '\357\273\277- [ ] T1: x\n      AC: AC1\n      依存: なし\n' > "$PCED/tasks.md" ;;
+      3) printf -- '- [ ] AC1: a\n- [ ] AC2: b\n' > "$PCED/requirement.md"
+         printf -- '- [ ] T1: ひとつめ\n\343\200\200\343\200\200AC: AC1\n      依存: なし\n\343\200\200- [ ] T2: 全角字下げ\n      AC: AC2\n      依存: T1\n' > "$PCED/tasks.md" ;;
+      4) printf -- '- [ ] AC1: a\n\302\240- [ ] AC2: NBSP\n' > "$PCED/requirement.md"
+         printf -- '- [ ] T1: x\n      AC: AC1\n      依存: なし\n' > "$PCED/tasks.md" ;;
+      5) printf -- '- [ ] AC1: a\n' > "$PCED/requirement.md"
+         printf -- '- [ ] T1: g\n      AC: *\n      依存: なし\n' > "$PCED/tasks.md" ;;
+      6) printf -- '- [ ] AC1: a\n- [ ] AC-I1 開く / 閉じる: どう\n- [ ] ACL の設定\n' > "$PCED/requirement.md"
+         printf -- '- AC-I1 開く / 閉じる: こう\n' > "$PCED/spec.md"
+         printf -- '- [ ] T1-1: 枝\n      AC: AC1、AC-I1\n      依存: T1-1\n- [ ] T1-1: dup\n      AC: \n      依存: なし\n' > "$PCED/tasks.md" ;;
+    esac
+    PE_SH=$( ( cd "$PCE" && "$AIDEV_SH" coverage --strict ) 2>&1 ); PE_SH_RC=$?
+    PE_PS_RAW=$( ( cd "$PCE" && run_ps1 "$AIDEV_PS1" coverage --strict ) 2>&1 ); PE_PS_RC=$?
+    PE_PS=$(printf '%s' "$PE_PS_RAW" | tr -d '\r')
+    assert_eq "$PE_SH" "$PE_PS" "パリティ: coverage 入力の揺れ case $pcase（出力）"
+    assert_eq "$PE_SH_RC" "$PE_PS_RC" "パリティ: coverage 入力の揺れ case $pcase（exit code）"
+  done
+  rm -rf "$PCE"
+
+  # 分割 work（家族単位の被覆・未 plan の subtask がある間の扱い）
+  PCS=$(mktemp -d); mkdir -p "$PCS/.aidev/backlog"
+  ( cd "$PCS" && "$AIDEV_SH" new big >/dev/null ); PCSP=$(cat "$PCS/.aidev/current")
+  printf -- '- [ ] AC1: a\n- [ ] AC2: b\n' > "$PCS/.aidev/works/$PCSP/requirement.md"
+  ( cd "$PCS" && "$AIDEV_SH" new 01-a --parent "$PCSP" >/dev/null )
+  ( cd "$PCS" && "$AIDEV_SH" new 02-b --parent "$PCSP" >/dev/null )
+  printf -- '- [ ] T1: a\n      AC: AC1\n      依存: なし\n' > "$PCS/.aidev/works/$PCSP/01-a/tasks.md"
+  for psub in "$PCSP" "$PCSP/01-a"; do
+    PS_SH=$( ( cd "$PCS" && "$AIDEV_SH" coverage --strict "$psub" ) 2>&1 ); PS_SH_RC=$?
+    PS_PS_RAW=$( ( cd "$PCS" && run_ps1 "$AIDEV_PS1" coverage --strict "$psub" ) 2>&1 ); PS_PS_RC=$?
+    PS_PS=$(printf '%s' "$PS_PS_RAW" | tr -d '\r')
+    assert_eq "$PS_SH" "$PS_PS" "パリティ: coverage 分割 work $psub（出力）"
+    assert_eq "$PS_SH_RC" "$PS_PS_RC" "パリティ: coverage 分割 work $psub（exit code）"
+  done
+  PSV_SH=$( ( cd "$PCS" && "$AIDEV_SH" verify "$PCSP" ) 2>&1 ); PSV_SH_RC=$?
+  PSV_PS_RAW=$( ( cd "$PCS" && run_ps1 "$AIDEV_PS1" verify "$PCSP" ) 2>&1 ); PSV_PS_RC=$?
+  PSV_PS=$(printf '%s' "$PSV_PS_RAW" | tr -d '\r')
+  assert_eq "$PSV_SH" "$PSV_PS" "パリティ: verify の分割 work（被覆を根でだけ報告する）"
+  assert_eq "$PSV_SH_RC" "$PSV_PS_RC" "パリティ: verify の分割 work（exit code）"
+  rm -rf "$PCS"
+
   # verify 側の連動（struct=FAIL / cover=WARN / test-result.md）もそろって動くこと
   for f in plan review; do : > "$PCD/$f.md"; done
   for ph in requirement spec plan coding test; do ( cd "$PCOV" && "$AIDEV_SH" approve "$ph" >/dev/null ); done
@@ -2249,9 +2399,9 @@ YML
   else
     skip 10 "git 不在のため worktree パリティを省略"
   fi
-  block_end parity "164" "parity"
+  block_end parity "182" "parity"
 else
-  skip 164 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
+  skip 182 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
 fi
 
 echo
