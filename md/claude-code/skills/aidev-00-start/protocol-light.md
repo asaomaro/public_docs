@@ -37,7 +37,7 @@
 | `requirement.md` | 背景 / 課題、**目的 / ゴール**、完了条件（受け入れ基準） | ユーザーストーリー、スコープ、機能要件、非機能要件 / 制約、未確定事項 |
 | `spec.md` | 設計方針、対象範囲 | I/F・データ構造、振る舞いの詳細、ドメイン固有、エラー処理 |
 | `plan.md` | 作業順序と依存関係、テスト方針 | リスク / 留意点 |
-| `tasks.md` | すべて（`対象` アンカー・`依存` 含む） | — |
+| `tasks.md` | すべて（`対象` アンカー・`依存`・`AC` 含む） | — |
 
 **記録は `requirement` 1 件**にする（`aidev event requirement start` → `aidev approve requirement`）。
 `spec` / `plan` で記録すると guard の前提（`requirement.md` / `spec.md`）を満たせず NG になるため

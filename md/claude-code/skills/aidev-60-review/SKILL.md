@@ -40,7 +40,11 @@ AI 開発ワークフローの **review（レビュー）工程**を実行する
      指定しないと work と無関係な差分（未コミットの別変更など）を見に行くことがある。
    - 出力は**テキストを写し取る前提**で `review.md` に落とす（構造化出力ツールの存在を前提にしない）。
    - **要件適合**: requirement の完了条件（`AC` の各 ID）・spec の意図を満たしているか。
-     spec の「受け入れ基準との対応」と ID で突き合わせ、**対応が抜けている `AC` が無いか**を見る。
+     **まず `aidev coverage` を打つ**（plan 時と同じコマンドを、実装後の `tasks.md` に対してもう一度回す）。
+     `ac` 列と `tasks` 列を突き合わせ、**この工程で見るのはコマンドが機械的に出せない側**——
+     被覆されている `AC` が「タスクは在るが実装が基準を満たしていない」ものになっていないか、
+     coding 中に `tasks.md` へ足したタスクが `AC:` を持たないまま増えていないか。
+     **plan の時と数字が変わっていたら、その差分が spec と実装の乖離**（`git diff` で `tasks.md` を見る）。
    - **価値適合**: requirement の `目的 / ゴール`（達成したい状態）とユーザーストーリーの
      「なぜなら（価値）」に照らして、**その変更が本当にその状態をもたらすか**。
      受け入れ基準を満たしていても価値に繋がっていない実装はここで拾う。
@@ -62,6 +66,8 @@ AI 開発ワークフローの **review（レビュー）工程**を実行する
    - **must/should の指摘あり** → `aidev event review sent_back` を記録のうえ coding 工程への
      差し戻しを提案する（protocol.md「4. 番号と順序」に基づく正当な遷移）。
      coding を**再開する際は `aidev event coding start` を記録する**（さもないと手戻り回数を取りこぼす。protocol.md「3.」「8.」）。
+     - **`maxSendBacks`（既定 3）に達したら `aidev debug start`**——まっさらなコンテキストに
+       原因究明だけを委譲する（`protocol-debug.md`）。同じコンテキストで回し続けない。
      - **統合 review の差し戻し先（protocol.md「2.8」＋ `protocol-subtask.md`）**: 結合起因の指摘は**原因となった subtask の coding** へ
        戻す。`aidev use <親>/<NN>-<subslug>`（親の `activeSubtask` も同期される）→
        **`aidev unapprove review`**（完了を取り消す。記録は `sent_back` として残る）→ `aidev event coding start`。これで
@@ -74,6 +80,8 @@ AI 開発ワークフローの **review（レビュー）工程**を実行する
        3条件に該当すれば、遷移ゲートに `承認して walkthrough(任意) を挟む`（推奨）を加え理由を添える
        （次工程: 推奨時 `walkthrough`、それ以外 `deliver`）。
 5. 承認は `aidev approve review must=<件数> should=<件数> nit=<件数>`（protocol.md「3.」「8.」）。
+   **被覆メトリクスは CLI が自動で刻む**ので手で渡さない。plan 時の刻印と対になり、
+   `aidev metrics` の `ac_drift`（plan 以降に増えた gap ＝ spec と実装の乖離）になる。
 
 ## light の昇格トリガ
 
@@ -88,3 +96,5 @@ light のまま続けてよい。
 
 - must/should の指摘が解消されている。
 - 変更が requirement・spec・規約に整合している。
+- **`aidev coverage` が plan 承認時と同じ被覆を示している**（gap が増えていない。増えていれば、
+  coding 中に spec と実装が乖離した箇所がそこにある）。

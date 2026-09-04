@@ -18,13 +18,18 @@
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 doctor [--quiet]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 status [--format table|tsv] [--active]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 metrics [slug] [--all] [--phases] [--format table|tsv]
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 coverage [slug] [--format table|tsv] [--strict]
+#     受け入れ基準(AC)の被覆率と tasks.md の整合を検査する。--strict は gap があれば exit 4
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 smoke [slug]
+#     config.yml の smokeCommand を実行して結果を metrics に刻む（起動確認 GO/NO-GO）。未設定は exit 2
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 debug <start|report|status> ...
+#     詰まったときの原因究明を有限化する（report は --root-cause/--category/--next-action が必須）
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 convention <new|confirm|retire|defer|promote|status> ...
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 harness <new|confirm|retire|status> ...
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 backlog <new|archive|compact> ...
 #     PJ規約の条項を .aidev/conventions/ で起こし・判定し・PJ ドキュメントへ移送する（protocol.md「12.」）
 #     new は --hypothesis と --baseline が必須（検証できない条項を作らせない入口ゲート）
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree add <slug> [--branch n] [--base ref] [--path dir] [--mode m] [--ticket id] [--depends list]
-
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree list [--format table|tsv]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree rm <slug|path> [--force] [--delete-branch]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 help
@@ -36,7 +41,7 @@ $ErrorActionPreference = 'Stop'
 # （git show-ref 等は ref 不在で 1 を返すのが正常系のため）。古い pwsh では通常変数になるだけで無害。
 $PSNativeCommandUseErrorActionPreference = $false
 
-$script:CURRENT_SCHEMA = 5   # schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema<=2 は legacy 免除
+$script:CURRENT_SCHEMA = 8   # schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema 7=起動確認(smoke)の記録検査を導入。schema 8=デバッグ（詰まりの原因究明）の記録検査を導入。schema<=2 は legacy 免除
 $script:STRICT = $false      # verify --strict（記録漏れを致命にする）。doctor 経由では常に false
 $script:PHASES = @('requirement','research','spec','design','plan','coding','test','review','walkthrough','deliver','retro')
 $script:Utf8 = New-Object System.Text.UTF8Encoding($false)  # BOM なし
@@ -561,6 +566,16 @@ function Cmd-Event($rest) {
   ResolveWork ''
   AppendEvent $script:WORK $ph $ev $kvs
   Write-Output "recorded: $($script:SLUG)/$ph/$ev"
+  # 差し戻しの上限到達をその瞬間に知らせる（sh 版 cmd_event と同一）
+  if ($ev -ceq 'sent_back') {
+    $mfe = Join-Path $script:WORK 'metrics.yml'
+    $esb = DbgSentBacks $mfe $ph
+    $emax = DbgMaxSendBacks $script:WORK
+    if ($esb -ge $emax -and (DbgRounds $mfe $ph) -eq 0) {
+      Write-Output "note: $ph の差し戻しが $esb 回（上限 $emax）。**同じコンテキストで回し続けない** —— "
+      Write-Output "      aidev debug start --phase $ph で、新しいコンテキストへ原因究明を委譲すること"
+    }
+  }
 }
 
 # --- approve -----------------------------------------------------------------
@@ -581,6 +596,22 @@ function Cmd-Approve($rest) {
     ReplaceLine $st 'approved' "approved: $newl"
   }
   ReplaceLine $st 'current' "current: $ph"
+
+  # 被覆の刻印（plan / requirement / review）。手書きの key=value に任せない——
+  # harnessRev や schema を new に一本化したのと同じ理由（sh 版 cmd_approve と同一）。
+  if (@('plan','requirement','review') -ccontains $ph) {
+    $hasAc = $false
+    foreach ($kv in $kvs) { if ($kv -like 'ac_total=*') { $hasAc = $true } }
+    # 分割 work の subtask では刻まない。被覆は家族単位の値なので、子ごとに刻むと
+    # metrics --all を足し上げたとき分母が subtask 数だけ多重計上される（sh 版と同一）
+    $isSub = YGet $st 'parent'
+    if ((-not $hasAc) -and (-not $isSub)) {
+      if (CovAnalyze $script:WORK) {
+        $kvs = @($kvs) + @("ac_total=$($script:COV_AC)", "ac_covered=$($script:COV_TASK)",
+                           "tasks_no_ac=$($script:COV_TASKS_NOAC)", "tasks_ac_none=$($script:COV_TASKS_ACNONE)")
+      }
+    }
+  }
   AppendEvent $script:WORK $ph 'approved' $kvs
   Write-Output "approved: $ph @ $($script:SLUG)"
 
@@ -740,6 +771,582 @@ function NeedsStart($work, $phase) {
 # verify の状態行の出口。通常は [Console]::Out へ直接（戻り値=int だけにし、$rc=VerifyWork が出力を
 # 取り込む PS の罠を回避）。doctor --quiet のときだけ $script:VBuf に溜めて呼び出し側が出す
 $script:VCapture = $false; $script:VBuf = @()
+# --- AC カバレッジ / tasks.md の整合（sh 版 cov_* と同一の判定・同一の出力） ----------
+# 出所: spec-kit の `/analyze` の Coverage %。対応付けの正典は tasks.md の `AC:` 行。
+# 本文（AC の文言）は requirement.md にしか置かない（ID で参照するだけ＝二重管理にならない）。
+#
+# **空白は ASCII だけを空白として扱う**（`[ \t]`。`\s` を使わない）。.NET の `\s` は
+# 全角スペース(U+3000)や NBSP を含むが、sh 側の `[[:space:]]` は C ロケールで ASCII のみ。
+# ここが揃っていないと、全角スペースで字下げした tasks.md が Windows でだけ通る。
+$script:COV_AC_RE = 'AC([0-9][A-Za-z0-9_]*|-[A-Za-z0-9][A-Za-z0-9_-]*)'
+$script:COV_T_RE  = 'T[0-9][A-Za-z0-9_-]*'
+$script:COV_NONE  = @('なし','none','None','NONE','-')
+
+function CovLines($path) {
+  if (-not (IsFile $path)) { return @() }
+  # ReadAllLines は BOM も CRLF も自動で外す（sh 側は cov_lines で同じ正規化を行う）
+  return [System.IO.File]::ReadAllLines($path)
+}
+# 行頭パターン `pre` に続く AC の ID を返す。requirement 側（`- [ ] AC1: …`）と
+# spec 側（`- AC1: …`）で**同じ文法**を使う（片方だけコロンを要求すると、
+# テンプレートどおりの `- [ ] AC-I1 開く / 閉じる:` が spec 側で永久に拾えない）。
+function CovPickAc($path, $pre) {
+  $r = @()
+  foreach ($l in (CovLines $path)) {
+    $m = [regex]::Match($l, $pre)
+    if (-not $m.Success -or $m.Index -ne 0) { continue }
+    $s = $l.Substring($m.Length)
+    $m2 = [regex]::Match($s, '^' + $script:COV_AC_RE)
+    if (-not $m2.Success) { continue }
+    $r += $m2.Value
+  }
+  return $r
+}
+function CovReqAcs($path)  { return (CovPickAc $path '^[ \t]*- \[[ xX]\][ \t]*') }
+function CovSpecAcs($path) { return (CovPickAc $path '^[ \t]*- ') }
+
+function CovUniq($a) {
+  $seen=@{}; $r=@()
+  foreach ($x in $a) { if (-not $seen.ContainsKey($x)) { $seen[$x]=1; $r += $x } }
+  return $r
+}
+function CovNorm($s) {
+  $s = $s -replace '^：','' -replace '^:',''
+  $s = $s -replace '、',' ' -replace ',',' '
+  $s = $s -replace '[ \t]+',' '
+  return $s.Trim(' ')
+}
+# tasks.md を1タスク1行の @{id;acs;deps} に畳む。
+# 欄の値は3状態: '-'=その行が無い / ''=行はあるが値が空 / それ以外=値。
+function CovTaskRows($path) {
+  $rows = @()
+  $cur=''; $acs=''; $dps=''; $hasac=$false; $hasdp=$false
+  foreach ($l in (CovLines $path)) {
+    $m = [regex]::Match($l, '^[ \t]*- \[[ xX]\][ \t]*')
+    if ($m.Success -and $m.Index -eq 0) {
+      $t = $l.Substring($m.Length)
+      $m2 = [regex]::Match($t, '^' + $script:COV_T_RE)
+      if ($m2.Success) {
+        if ($cur) { $rows += ,@{ id=$cur; acs=$(if($hasac){$acs}else{'-'}); deps=$(if($hasdp){$dps}else{'-'}) } }
+        $cur=$m2.Value; $acs=''; $dps=''; $hasac=$false; $hasdp=$false
+        continue
+      }
+    }
+    if ($cur -and $l -match '^[ \t]*AC[：:]') {
+      $v = CovNorm ($l.Substring($l.IndexOf('AC') + 2))
+      if ($acs) { $acs = "$acs $v" } else { $acs = $v }
+      $hasac = $true; continue
+    }
+    if ($cur -and $l -match '^[ \t]*依存[：:]') {
+      $v = CovNorm ($l.Substring($l.IndexOf('依存') + 2))
+      if ($dps) { $dps = "$dps $v" } else { $dps = $v }
+      $hasdp = $true; continue
+    }
+  }
+  if ($cur) { $rows += ,@{ id=$cur; acs=$(if($hasac){$acs}else{'-'}); deps=$(if($hasdp){$dps}else{'-'}) } }
+  return $rows
+}
+function CovIsNone($v) { if ($script:COV_NONE -ccontains $v) { return $true }; return ([string]::IsNullOrEmpty($v)) }
+
+# 依存の循環（Kahn 法で剥がし切れなかったタスク）。カンマ区切り1行、無ければ ''
+function CovCycles($rows) {
+  $ids=@(); $exists=@{}; $dep=@{}
+  foreach ($r in $rows) { $ids += $r.id; $exists[$r.id]=1; $dep[$r.id]=$r.deps }
+  $indeg=@{}; $rev=@{}
+  foreach ($id in $ids) {
+    $c=0
+    foreach ($d in ($dep[$id] -split ' ')) {
+      if ($d -ne '' -and $d -cne $id -and $exists.ContainsKey($d)) { $c++; if (-not $rev.ContainsKey($d)) { $rev[$d]=@() }; $rev[$d] += $id }
+    }
+    $indeg[$id]=$c
+  }
+  $done=@{}; $removed=0; $changed=$true
+  while ($changed) {
+    $changed=$false
+    foreach ($id in $ids) {
+      if (-not $done.ContainsKey($id) -and $indeg[$id] -eq 0) {
+        $done[$id]=1; $removed++; $changed=$true
+        if ($rev.ContainsKey($id)) { foreach ($r in $rev[$id]) { $indeg[$r]-- } }
+      }
+    }
+  }
+  if ($removed -lt $ids.Count) {
+    return (($ids | Where-Object { -not $done.ContainsKey($_) }) -join ',')
+  }
+  return ''
+}
+
+function CovGap($kind, $msg) {
+  $script:COV_GAPLINES += "  gap: $msg"
+  $script:COV_GAPS++
+  if ($kind -ceq 'struct') { $script:COV_GAPS_S++ } else { $script:COV_GAPS_C++ }
+}
+
+# 被覆は work 全体（親＋全 subtask）で見る。subtask は親の requirement.md を継承するので、
+# 自分の slice だけを見ると兄弟が担当する AC が必ず「タスクが無い」になり、
+# 誰にも直せない gap が恒久的に残る。着地するのは親1本の PR なので単位も親1本に揃える。
+function CovRoot($work) {
+  $parent = YGet (Join-Path $work 'state.yml') 'parent'
+  if ($parent) {
+    $p = Join-Path (Join-Path $script:AIDEV 'works') $parent
+    if (IsDir $p) { return $p }
+  }
+  return $work
+}
+
+# 検査本体。結果は $script:COV_* に残す。$true=tasks.md を見られた / $false=どこにも無い
+function CovAnalyze($work) {
+  $script:COV_AC=0; $script:COV_SPEC=0; $script:COV_TASK=0; $script:COV_ROWS=@()
+  $script:COV_GAPS=0; $script:COV_GAPS_S=0; $script:COV_GAPS_C=0; $script:COV_GAPLINES=@()
+  $script:COV_TASKS=0; $script:COV_TASKS_NOAC=0; $script:COV_TASKS_ACNONE=0; $script:COV_PENDING=$false
+  $root = CovRoot $work
+
+  # 走査するタスク表を集める（親自身 → 各 subtask の名前順。sh のグロブ順と揃える）
+  $files=@()
+  if (IsFile (Join-Path $root 'tasks.md')) { $files += ,@{ pfx=''; path=(Join-Path $root 'tasks.md') } }
+  foreach ($sd in @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue | Sort-Object Name)) {
+    if (-not (IsFile (Join-Path $sd.FullName 'state.yml'))) { continue }
+    $tf = Join-Path $sd.FullName 'tasks.md'
+    if (IsFile $tf) { $files += ,@{ pfx="$($sd.Name)/"; path=$tf } }
+    else { $script:COV_PENDING = $true }   # plan 未実施の subtask がある
+  }
+  if ($files.Count -eq 0) { return $false }
+
+  $acs  = @(CovUniq (CovReqAcs (Join-Path $root 'requirement.md')))
+  $sacs = @(CovUniq (CovSpecAcs (Join-Path $root 'spec.md')))
+
+  # 行を集める（子の ID には subslug を前置し、兄弟間の T1 衝突を避ける）
+  $rows=@()
+  foreach ($f in $files) {
+    foreach ($r in @(CovTaskRows $f.path)) {
+      $dd = $r.deps
+      if ($dd -cne '-' -and $dd -cne '') {
+        $out=''
+        foreach ($d in ($dd -split ' ')) {
+          if ($d -eq '') { continue }
+          $v = if ($script:COV_NONE -ccontains $d) { $d } else { "$($f.pfx)$d" }
+          $out = if ($out -eq '') { $v } else { "$out $v" }
+        }
+        $dd = $out
+      }
+      $rows += ,@{ id="$($f.pfx)$($r.id)"; acs=$r.acs; deps=$dd }
+    }
+  }
+
+  $defined=@{}; foreach ($a in $acs) { $defined[$a]=1 }
+  $tids=@{};    foreach ($r in $rows) { $tids[$r.id]=1 }
+  $seen=@{}
+  $pairs=@{}    # AC -> タスク ID の並び（タスク出現順）
+
+  foreach ($r in $rows) {
+    $script:COV_TASKS++
+    if ($seen.ContainsKey($r.id)) { CovGap 'struct' "タスク ID が重複している: $($r.id)" }
+    else { $seen[$r.id]=1 }
+    if ($r.acs -ceq '-') {
+      $script:COV_TASKS_NOAC++
+      CovGap 'cover' "$($r.id) に AC 行が無い（対応する AC が無いなら ``AC: なし`` と明示する）"
+    } elseif ($r.acs -ceq '') {
+      $script:COV_TASKS_NOAC++
+      CovGap 'cover' "$($r.id) の AC 行が空（対応する AC が無いなら ``AC: なし`` と明示する）"
+    } elseif (CovIsNone $r.acs) {
+      # 明示的に「対応する AC が無い」と書かれたタスク。書き忘れ（上）とは別に数える——
+      # 受け入れ基準に紐づかない作業の割合は、スコープクリープか要件の書き漏れの目印になる。
+      $script:COV_TASKS_ACNONE++
+    } else {
+      $acseen=@{}
+      foreach ($a in ($r.acs -split ' ')) {
+        if (CovIsNone $a) { continue }
+        if ($acseen.ContainsKey($a)) { continue }
+        $acseen[$a]=1
+        if ($defined.ContainsKey($a)) {
+          if (-not $pairs.ContainsKey($a)) { $pairs[$a]=@() }
+          $pairs[$a] += $r.id
+        } else { CovGap 'struct' "$($r.id) が未定義の AC を参照: $a" }
+      }
+    }
+    if ($r.deps -cne '-' -and -not (CovIsNone $r.deps)) {
+      foreach ($d in ($r.deps -split ' ')) {
+        if (CovIsNone $d) { continue }
+        if ($d -ceq $r.id) { CovGap 'struct' "$($r.id) が自分自身に依存している"; continue }
+        if (-not $tids.ContainsKey($d)) { CovGap 'struct' "$($r.id) の 依存 が未定義のタスクを指す: $d" }
+      }
+    }
+  }
+  $cyc = CovCycles $rows
+  if ($cyc) { CovGap 'struct' "依存の循環に含まれるタスク: $cyc" }
+
+  foreach ($a in $acs) {
+    $script:COV_AC++
+    if ($sacs -ccontains $a) { $sp='yes'; $script:COV_SPEC++ } else { $sp='no' }
+    if ($pairs.ContainsKey($a)) { $ts = ($pairs[$a] -join ','); $script:COV_TASK++ }
+    else { $ts = '-'; CovGap 'cover' "$a に対応するタスクが無い" }
+    $script:COV_ROWS += "$a`t$sp`t$ts"
+  }
+  # 受け入れ基準が1件も無いのは「被覆 100%」ではなく測れていない。素通りさせると、
+  # ID を書かなかった work（と light の1ゲート）で唯一の機械的な歯止めが空振りする。
+  if ($script:COV_AC -eq 0) {
+    CovGap 'cover' "requirement.md に受け入れ基準が1件もありません（``- [ ] AC1: …`` の形で書きます）"
+  }
+  return $true
+}
+
+function CovPct($n, $d) { if ($d -le 0) { return 0 }; return [int][math]::Floor($n * 100 / $d) }
+
+# --strict / verify が cover を致命扱いしてよいか。plan 未実施の subtask が残っている間は
+# 「まだ埋まっていない」だけなので致命にしない（最初の subtask の plan が通らなくなる）。
+function CovCoverEnforced() { return (-not $script:COV_PENDING) }
+
+function Cmd-Coverage($rest) {
+  $fmt='table'; $strict=$false; $slug=''
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch -CaseSensitive ($rest[$i]) {
+      '--format' { $i++; $fmt=(ArgAt $rest $i '--format') }
+      '--strict' { $strict = $true }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        elseif ($slug) { Die "slug は1つだけ" } else { $slug = $rest[$i] }
+      }
+    }
+  }
+  if ($fmt -cne 'table' -and $fmt -cne 'tsv') { Die "--format は table|tsv" }
+  ResolveWork $slug
+  # 読み取り専用コマンドなので、対象がまだ無い状態は正常な空として 0 で返す
+  if (-not (CovAnalyze $script:WORK)) {
+    Write-Output "coverage: $($script:SLUG)"
+    Write-Output "note: tasks.md がまだありません（plan 工程で作られます）"
+    exit 0
+  }
+  Write-Output "coverage: $($script:SLUG)"
+  if ($fmt -ceq 'tsv') { foreach ($l in $script:COV_ROWS) { Write-Output $l } }
+  else { foreach ($l in (Fmt-Table (@("ac`tspec`ttasks") + $script:COV_ROWS))) { Write-Output $l } }
+  foreach ($l in $script:COV_GAPLINES) { Write-Output $l }
+  $sp = CovPct $script:COV_SPEC $script:COV_AC
+  $tp = CovPct $script:COV_TASK $script:COV_AC
+  Write-Output ("coverage-summary: ac=$($script:COV_AC) spec=$($script:COV_SPEC)/$($script:COV_AC)($sp%)" +
+                " tasks=$($script:COV_TASK)/$($script:COV_AC)($tp%) task_rows=$($script:COV_TASKS)" +
+                " no_ac=$($script:COV_TASKS_NOAC) ac_none=$($script:COV_TASKS_ACNONE) gaps=$($script:COV_GAPS)")
+  Write-Output "coverage-gaps: struct=$($script:COV_GAPS_S) cover=$($script:COV_GAPS_C)"
+  if (-not (CovCoverEnforced)) {
+    Write-Output "note: plan 未実施の subtask があります。cover の gap は全 subtask の plan が済むまで致命にしません"
+  }
+  if ($strict) {
+    $fail = $script:COV_GAPS_S
+    if (CovCoverEnforced) { $fail += $script:COV_GAPS_C }
+    if ($fail -gt 0) {
+      Write-Output "FAIL(strict) 未解消の gap が $fail 件あります"
+      exit 4
+    }
+  }
+  exit 0
+}
+
+# --- debug（詰まったときの原因究明を有限化する。sh 版 dbg_* / cmd_debug と同一）----------
+# 出所: cc-sdd の kiro-impl の debug subagent。要点は **fresh context**——
+# 失敗した試行の履歴を渡さない（渡すと同じ穴を掘り続ける）。手順は protocol-debug.md。
+$script:DBG_CATEGORIES = @('dependency','environment','config','logic','spec_conflict','test_defect','external')
+$script:DBG_ACTIONS    = @('retry','block','stop_for_human')
+$script:DBG_CONFIDENCE = @('high','medium','low')
+
+function DbgMax() {
+  $m = YGet (Join-Path $script:AIDEV 'config.yml') 'maxDebugRounds'
+  # 下限は 1（0 を許すと start が必ず止め、案内された出口の report は start 必須で弾く）
+  $n = 0
+  if ([int]::TryParse($m, [ref]$n)) { if ($n -ge 1) { return $n }; if ($n -ge 0) { return 1 } }
+  return 2
+}
+function DbgMaxSendBacks($work) {
+  $v = YGet (Join-Path $work 'state.yml') 'maxSendBacks'
+  $n = 0; if ([int]::TryParse($v, [ref]$n) -and $n -ge 0) { return $n }
+  return 3
+}
+function DbgSentBacks($metricsFile, $phase) {
+  if (-not (IsFile $metricsFile)) { return 0 }
+  $c = 0
+  foreach ($l in [System.IO.File]::ReadAllLines($metricsFile)) {
+    if ($l -match "phase:\s*$phase," -and $l -match 'event:\s*sent_back') { $c++ }
+  }
+  return $c
+}
+function DbgRounds($metricsFile, $phase) {
+  if (-not (IsFile $metricsFile)) { return 0 }
+  $c = 0
+  foreach ($l in [System.IO.File]::ReadAllLines($metricsFile)) {
+    if ($l -match "phase:\s*$phase," -and $l -match 'event:\s*debug' -and $l -match 'stage:\s*start') { $c++ }
+  }
+  return $c
+}
+function DbgLastAction($metricsFile) {
+  if (-not (IsFile $metricsFile)) { return '' }
+  $r = ''
+  foreach ($l in [System.IO.File]::ReadAllLines($metricsFile)) {
+    if ($l -match 'event:\s*debug' -and $l -match 'stage:\s*report' -and $l -match 'next_action:\s*([a-z_]+)') { $r = $Matches[1] }
+  }
+  return $r
+}
+
+function Dbg-Start($rest) {
+  $dslug=''; $dph=''
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch -CaseSensitive ($rest[$i]) {
+      '--phase' { $i++; $dph=(ArgAt $rest $i '--phase') }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        elseif ($dslug) { Die "slug は1つだけ" } else { $dslug=$rest[$i] }
+      }
+    }
+  }
+  ResolveWork $dslug
+  if (-not $dph) { $dph = YGet (Join-Path $script:WORK 'state.yml') 'current' }
+  if (-not (IsPhase $dph)) { Die "未知の phase: $dph（--phase で指定するか state.yml の current を直す）" }
+  $dm = DbgMax
+  $dr = DbgRounds (Join-Path $script:WORK 'metrics.yml') $dph
+  if ($dr -ge $dm) {
+    Write-Output "debug: $($script:SLUG)/$dph"
+    [Console]::Error.WriteLine("FAIL デバッグは $dm ラウンドまでです（実施済み $dr）。これ以上粘らない")
+    [Console]::Error.WriteLine("next: aidev debug report --next-action block（このタスクを止めて次へ）か")
+    [Console]::Error.WriteLine("      --next-action stop_for_human（人の判断が要る）で締めること")
+    exit 4
+  }
+  $dr = $dr + 1
+  AppendEvent $script:WORK $dph 'debug' @('stage=start', "round=$dr")
+  $dw = ".aidev/works/$($script:SLUG)"
+  Write-Output "debug: $($script:SLUG)/$dph round $dr/$dm"
+  Write-Output "note: **新しいコンテキスト**に原因究明だけを委譲する（protocol-debug.md）"
+  Write-Output "渡すもの:"
+  Write-Output "  - 失敗の生出力（$dw/test-result.md の「失敗の証跡」）"
+  Write-Output "  - いまの差分（git diff。コミット前の変更）"
+  Write-Output "  - 対象タスクの行（$dw/tasks.md）と、その AC の本文（requirement.md）"
+  Write-Output "  - review の直近ラウンドの指摘（$dw/review.md）"
+  Write-Output "**渡さないもの: これまでの修正の試行履歴**（渡すと同じ穴を掘り続ける。これがこの手順の要）"
+  Write-Output "next: aidev debug report --root-cause <t> --category <c> --next-action <a>"
+  exit 0
+}
+
+function Dbg-Report($rest) {
+  $dslug=''; $dph=''; $drc=''; $dcat=''; $dact=''; $dconf=''; $dfix=''; $dver=''
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch -CaseSensitive ($rest[$i]) {
+      '--phase'        { $i++; $dph=(ArgAt $rest $i '--phase') }
+      '--root-cause'   { $i++; $drc=(ArgAt $rest $i '--root-cause') }
+      '--category'     { $i++; $dcat=(ArgAt $rest $i '--category') }
+      '--next-action'  { $i++; $dact=(ArgAt $rest $i '--next-action') }
+      '--confidence'   { $i++; $dconf=(ArgAt $rest $i '--confidence') }
+      '--fix-plan'     { $i++; $dfix=(ArgAt $rest $i '--fix-plan') }
+      '--verification' { $i++; $dver=(ArgAt $rest $i '--verification') }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        elseif ($dslug) { Die "slug は1つだけ" } else { $dslug=$rest[$i] }
+      }
+    }
+  }
+  ResolveWork $dslug
+  if (-not $dph) { $dph = YGet (Join-Path $script:WORK 'state.yml') 'current' }
+  if (-not (IsPhase $dph)) { Die "未知の phase: $dph" }
+  $cats = [string]::Join(' ', $script:DBG_CATEGORIES)
+  $acts = [string]::Join(' ', $script:DBG_ACTIONS)
+  $cons = [string]::Join(' ', $script:DBG_CONFIDENCE)
+  if (-not $drc)  { Die "--root-cause は必須です（何が根本原因だったか。1〜2文）" }
+  if (-not $dcat) { Die "--category は必須です（$cats）" }
+  if (-not $dact) { Die "--next-action は必須です（$acts）" }
+  if ($script:DBG_CATEGORIES -cnotcontains $dcat) { Die "未知の --category: $dcat（$cats）" }
+  if ($script:DBG_ACTIONS    -cnotcontains $dact) { Die "未知の --next-action: $dact（$acts）" }
+  if ($dconf -and ($script:DBG_CONFIDENCE -cnotcontains $dconf)) { Die "未知の --confidence: $dconf（$cons）" }
+  $dr = DbgRounds (Join-Path $script:WORK 'metrics.yml') $dph
+  if ($dr -lt 1) { Die "この工程で aidev debug start が記録されていません（先に start を打つこと）" }
+
+  # 本文は decisions.md、列挙値は metrics（フロー形式の1行に自由文を入れると壊れる）
+  $df = Join-Path $script:WORK 'decisions.md'
+  $dn = 0
+  if (IsFile $df) {
+    foreach ($l in [System.IO.File]::ReadAllLines($df)) { if ($l -match '^## デバッグ D') { $dn++ } }
+    # 末尾に改行が無いと見出しが前の行にくっつく（sh 版と同一）
+    $cur = [System.IO.File]::ReadAllText($df)
+    if ($cur.Length -gt 0 -and -not $cur.EndsWith("`n")) { AppendText $df "`n" }
+  }
+  else { WriteText $df "# 判断の記録: $($script:SLUG)`n" }
+  $dn = $dn + 1
+  $blk = "`n## デバッグ D$dn`: $dcat / $dact（$dph round $dr・$(Now)）`n"
+  $blk += "- 根本原因: $drc`n"
+  if ($dfix)  { $blk += "- 修正方針: $dfix`n" }
+  if ($dver)  { $blk += "- 確認方法: $dver`n" }
+  if ($dconf) { $blk += "- 確度: $dconf`n" }
+  $blk += "- 次の行動: $dact`n"
+  AppendText $df $blk
+
+  $kvs = @('stage=report', "round=$dr", "category=$dcat", "next_action=$dact")
+  if ($dconf) { $kvs = @($kvs) + @("confidence=$dconf") }
+  AppendEvent $script:WORK $dph 'debug' $kvs
+
+  Write-Output "debug: $($script:SLUG)/$dph round $dr -> $dact ($dcat)"
+  Write-Output "recorded: .aidev/works/$($script:SLUG)/decisions.md の「デバッグ D$dn」"
+  switch -CaseSensitive ($dact) {
+    'retry' {
+      Write-Output "next: **新しい実装コンテキスト**に修正方針を渡してやり直す（同じコンテキストに戻さない）。"
+      Write-Output "      再開時は aidev event $dph start を忘れないこと"
+    }
+    'block' { Write-Output "next: このタスクは止めて次へ進む。判断は review 工程に委ねる" }
+    'stop_for_human' { Write-Output "next: **ここで停止して人に返す**（autonomous でも待つ。リポジトリの外の判断が要る場合の出口）" }
+  }
+  exit 0
+}
+
+function Dbg-Status($rest) {
+  $dslug=''; $fmt='table'
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch -CaseSensitive ($rest[$i]) {
+      '--format' { $i++; $fmt=(ArgAt $rest $i '--format') }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        elseif ($dslug) { Die "slug は1つだけ" } else { $dslug=$rest[$i] }
+      }
+    }
+  }
+  if ($fmt -cne 'table' -and $fmt -cne 'tsv') { Die "--format は table|tsv" }
+  ResolveWork $dslug
+  $mf = Join-Path $script:WORK 'metrics.yml'
+  $dm = DbgMax; $dsb = DbgMaxSendBacks $script:WORK
+  $rows=@()
+  foreach ($p in $script:PHASES) {
+    $sb = DbgSentBacks $mf $p
+    $rd = DbgRounds $mf $p
+    if ($sb -eq 0 -and $rd -eq 0) { continue }
+    $due = if ($sb -ge $dsb -and $rd -eq 0) { 'yes' } else { 'no' }
+    $rows += "$p`t$sb`t$rd`t$due"
+  }
+  Write-Output "debug: $($script:SLUG)"
+  if ($fmt -ceq 'tsv') { foreach ($r in $rows) { Write-Output $r } }
+  else { foreach ($l in (Fmt-Table (@("phase`tsent_backs`tdebug_rounds`tdue") + $rows))) { Write-Output $l } }
+  $dla = DbgLastAction $mf; if (-not $dla) { $dla = '-' }
+  Write-Output "debug-summary: maxSendBacks=$dsb maxDebugRounds=$dm last_action=$dla"
+  exit 0
+}
+
+function Cmd-Debug($rest) {
+  if ($rest.Count -lt 1) { Dbg-Status @() ; return }
+  $sub=$rest[0]; $sr=@(); if ($rest.Count -gt 1) { $sr=$rest[1..($rest.Count-1)] }
+  switch -CaseSensitive ($sub) {
+    'start'  { Dbg-Start  $sr }
+    'report' { Dbg-Report $sr }
+    'status' { Dbg-Status $sr }
+    default { Die "未知の debug サブコマンド: $sub（start|report|status）" }
+  }
+}
+
+# --- smoke（起動確認 GO/NO-GO。sh 版 cmd_smoke と同一の判定・同一の出力）------------
+# 出所: cc-sdd の `kiro-verify-completion`（"A passing test suite alone is not enough for FEATURE_GO."）。
+# 結果を自己申告させず CLI が exit code を取る（harnessRev / 被覆の刻印と同じ理由）。
+#
+# **YGet を使わない**。YGet は値の前後の `"` を一律で剥がすので、
+# `smokeCommand: echo "booted"` は末尾のクォートだけ落ちて壊れる。
+# 剥がすのは「値の全体が1組の `"..."` で囲まれているとき」だけ（sh 版と同一）。
+function SmokeCmdRaw($key) {
+  $cfg = Join-Path $script:AIDEV 'config.yml'
+  if (-not (IsFile $cfg)) { return '' }
+  foreach ($l in [System.IO.File]::ReadAllLines($cfg)) {
+    if ($l -match ("^" + [regex]::Escape($key) + ":[ \t]*(.*)$")) {
+      $v = $Matches[1] -replace '[ \t]+$',''
+      if ($v.Length -ge 2 -and $v.StartsWith('"') -and $v.EndsWith('"')) { $v = $v.Substring(1, $v.Length-2) }
+      return $v
+    }
+  }
+  return ''
+}
+# Windows では `smokeCommandWindows` があればそれを使う（同じ1行が両 OS で動くとは限らない）。
+function SmokeCmd() {
+  if (IsWindowsHost) {
+    $w = SmokeCmdRaw 'smokeCommandWindows'
+    if ($w) { return $w }
+  }
+  return (SmokeCmdRaw 'smokeCommand')
+}
+# 起動確認は work 全体（親＋全 subtask）の性質なので、記録も家族の根に一本化する
+# （子に刻むと、着地する親の verify から見えず「記録が無い」と誤 FAIL する。sh 版と同一）
+function SmokeRoot($work) {
+  $parent = YGet (Join-Path $work 'state.yml') 'parent'
+  if ($parent) {
+    $p = Join-Path (Join-Path $script:AIDEV 'works') $parent
+    if (IsDir $p) { return $p }
+  }
+  return $work
+}
+function SmokeTimeout() {
+  $t = YGet (Join-Path $script:AIDEV 'config.yml') 'smokeTimeoutSec'
+  $n = 0; if ([int]::TryParse($t, [ref]$n) -and $n -ge 1) { return $n }
+  return 300
+}
+
+# metrics.yml に残っている最後の smoke 結果（pass|fail|skip。無ければ ''）
+function SmokeLast($metricsFile) {
+  if (-not (IsFile $metricsFile)) { return '' }
+  $r = ''
+  foreach ($l in [System.IO.File]::ReadAllLines($metricsFile)) {
+    if ($l -match 'event:\s*smoke' -and $l -match 'result:\s*([a-z]+)') { $r = $Matches[1] }
+  }
+  return $r
+}
+
+function Cmd-Smoke($rest) {
+  $sslug=''
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+    elseif ($sslug) { Die "slug は1つだけ" } else { $sslug = $rest[$i] }
+  }
+  ResolveWork $sslug
+  $sc = SmokeCmd
+  Write-Output "smoke: $($script:SLUG)"
+
+  if (-not $sc) {
+    # 黙って緑にしない。検証していないことは「合格」ではない
+    [Console]::Error.WriteLine("FAIL smokeCommand が .aidev/config.yml にありません（起動確認を誰も見ていない状態です）")
+    [Console]::Error.WriteLine("next: 「成果物が最初の使える状態まで到達する」ことを確かめる**終了するコマンド**を書く")
+    [Console]::Error.WriteLine("      （常駐するサーバなら health check を叩いて終わる形にする。起動しっぱなしにしない）")
+    [Console]::Error.WriteLine("      起動確認の対象が無い PJ（純粋なライブラリ等）は smokeCommand: none と**明示**する")
+    # 単一引用符の文字列にする（`` や " をエスケープせずそのまま出せる。sh 側と1文字も違わせない）
+    [Console]::Error.WriteLine('書式: 値は**行をそのまま**読む（YAML のエスケープもブロックスカラー `|` も解釈しない）。')
+    [Console]::Error.WriteLine('      クォートで囲まないのが基本（全体を "…" で囲んだときだけ1組だけ外す）')
+    exit 2
+  }
+  # 記録先は家族の根（SmokeRoot の注記）
+  $sw = SmokeRoot $script:WORK
+  if ($sw -cne $script:WORK) {
+    Write-Output "note: 起動確認は work 全体の性質なので、記録は親 $(Split-Path -Leaf $sw) に刻みます"
+  }
+
+  if ($sc -ceq 'none') {
+    AppendEvent $sw 'test' 'smoke' @('result=skip')
+    Write-Output "skip: smokeCommand: none（この PJ は起動確認の対象外と宣言されています）"
+    exit 0
+  }
+
+  Write-Output "`$ $sc"
+  # 出力は捕まえずに素通しする（test 工程が test-result.md に貼るのは生の出力）。
+  # **時間上限**: 常駐コマンドを書かれると自律実行がそこで永久に止まる。`timeout` があるときだけ
+  # 掛かる（Windows の `timeout` は別物なので使わない）——掛けられない環境ではその事実を出力に残す。
+  $sto = SmokeTimeout
+  $src = $null
+  $prev = $PWD
+  try {
+    Set-Location -LiteralPath $script:ROOT
+    # native コマンドが**投げる**経路（sh/cmd.exe が見つからない等）では代入に到達しないので、
+    # $LASTEXITCODE の null ガードだけでは効かない。catch で拾って fail として刻む
+    try {
+      if (IsWindowsHost) { & cmd.exe /c $sc }
+      elseif (Get-Command timeout -ErrorAction SilentlyContinue) { & timeout $sto sh -c $sc }
+      else { & sh -c $sc }
+      $src = $LASTEXITCODE
+    } catch { $src = 127 }
+  } finally { Set-Location -LiteralPath $prev }
+  if ($null -eq $src) { $src = 1 }
+  $srr = if ($src -eq 0) { 'pass' } else { 'fail' }
+  if ($src -eq 124) {
+    Write-Output "note: $sto 秒で打ち切りました（smokeTimeoutSec）。**終了するコマンド**を書くこと"
+  }
+  AppendEvent $sw 'test' 'smoke' @("result=$srr", "exit_code=$src")
+  Write-Output "smoke: $srr (exit $src)"
+  if ($srr -cne 'pass') { exit 4 }
+  exit 0
+}
+
 function VLine($s) { if ($script:VCapture) { $script:VBuf += $s } else { [Console]::Out.WriteLine($s) } }
 
 # [x] 行とその継続行（次の項目・見出し・空行まで）に slug があるか（sh の bl_done_has と同一）
@@ -787,6 +1394,59 @@ function VerifyWork($work) {
         # 親（subtasks を持つ）は tasks.md を持たない（各 subtask の plan が作る）
         if ((ApprovedHas $work 'plan') -and $hassub.Count -eq 0 -and -not (IsFile (Join-Path $work 'tasks.md'))) {
           $vf += "tasks.md欠落(plan承認済)"
+        }
+      }
+      # schema 6: test の成果物と、AC カバレッジ / tasks.md の整合（sh 版と同一）
+      if ($sn -ge 6) {
+        $trf = Join-Path $work 'test-result.md'
+        if ((ApprovedHas $work 'test') -and -not (IsFile $trf)) { $vf += "test-result.md欠落(test承認済)" }
+        # 失敗の生証跡（cc-sdd の RED_PHASE_OUTPUT 相当）。差し戻し＝失敗を観測したのに
+        # その出力が残っていなければ、何が落ちていたかを誰も再現できない。有無だけ見る（WARN）
+        if (IsFile $trf) {
+          $mf6 = Join-Path $work 'metrics.yml'; $sb6=$false
+          if (IsFile $mf6) { foreach ($l in [System.IO.File]::ReadAllLines($mf6)) { if ($l -match 'phase:\s*test,' -and $l -match 'event:\s*sent_back') { $sb6=$true; break } } }
+          $fence=$false
+          foreach ($l in [System.IO.File]::ReadAllLines($trf)) { if ($l.StartsWith('```')) { $fence=$true; break } }
+          if ($sb6 -and -not $fence) {
+            VLine('  WARN test で差し戻しがあったのに test-result.md に失敗の生出力が無い（``` のブロックで残すこと）')
+          }
+        }
+        # 被覆は work 全体（親＋全 subtask）で見るので、家族の根でだけ報告する
+        # （subtask ごとに回すと同じ gap が子の数だけ重複して出る）
+        if ((-not $issub) -and (CovAnalyze $work)) {
+          if ($script:COV_GAPS_S -gt 0) { $vf += "tasks.mdの参照が壊れている($($script:COV_GAPS_S)件)" }
+          if ($script:COV_GAPS_C -gt 0 -and (CovCoverEnforced)) { VLine("  WARN AC 被覆に穴があります（$($script:COV_GAPS_C) 件）。詳細は aidev coverage") }
+        }
+      }
+      # schema 7: 起動確認（smoke）の記録。テストが緑なだけでは着地の根拠にしない。
+      # 検査するのは smokeCommand を設定している PJ だけ（未設定は doctor が PJ 単位で1行）
+      if ($sn -ge 7 -and (ApprovedHas $work 'deliver')) {
+        $vsc = SmokeCmd
+        if ($vsc -and $vsc -cne 'none') {
+          switch (SmokeLast (Join-Path (SmokeRoot $work) 'metrics.yml')) {
+            'pass' { }
+            'skip' { }
+            'fail' { $vf += "起動確認が失敗のまま(aidev smoke が fail)" }
+            default { $vf += "起動確認の記録が無い(smokeCommand 設定済。aidev smoke を通すこと)" }
+          }
+        }
+      }
+      # schema 8: 詰まりの扱い（sh 版と同一）。
+      # (a) 差し戻しが上限に達しているのに原因究明を挟んでいない（WARN）
+      # (b) デバッグが stop_for_human で終わっているのに着地している（FAIL）
+      if ($sn -ge 8) {
+        $vmf = Join-Path $work 'metrics.yml'
+        $vmsb = DbgMaxSendBacks $work
+        foreach ($vp in $script:PHASES) {
+          $vsb = DbgSentBacks $vmf $vp
+          # 差し戻しが1回も無い工程は対象外（maxSendBacks: 0 で全工程が鳴るのを防ぐ）
+          if ($vsb -lt 1) { continue }
+          if ($vsb -lt $vmsb) { continue }
+          if ((DbgRounds $vmf $vp) -ne 0) { continue }
+          VLine("  WARN $vp の差し戻しが $vsb 回（上限 $vmsb）だが原因究明の記録が無い: aidev debug start")
+        }
+        if ((ApprovedHas $work 'deliver') -and (DbgLastAction $vmf) -ceq 'stop_for_human') {
+          $vf += "デバッグが stop_for_human のまま着地している（人の判断を待つ出口を素通りした）"
         }
       }
       if (ApprovedHas $work 'deliver') {
@@ -1098,6 +1758,7 @@ function Cmd-Doctor($rest) {
   Doctor-Backlog
   Doctor-Conventions
   Doctor-Harness
+  Doctor-Smoke
   # 4（不変条件違反）に揃える。1 は使用法・環境エラー用（sh 版と同一）
   if ($fail -eq 0) { exit 0 } else { exit 4 }
 }
@@ -1281,6 +1942,32 @@ function Mt-Epoch($ts) {
   } catch { return -1 }
 }
 
+# metrics.yml の approved イベントから、被覆の刻印を出現順に @(総数,被覆数,AC行欠落数) で返す。
+# 返す各要素は @(phase, gap, ac_total)。gap = (総数-被覆数) + AC行欠落数（+ AC が0件なら1）。
+# **ac_covered を持たない刻印は捨てる**——手で ac_total だけ渡された行を 0 とみなすと
+# 被覆数 0 として gap を捏造する（sh 版 mt_cov_stamps と同一）。
+function MtCovStamps($metricsFile) {
+  $r = @()
+  if (-not (IsFile $metricsFile)) { return $r }
+  foreach ($l in [System.IO.File]::ReadAllLines($metricsFile)) {
+    if ($l -notmatch 'event:\s*approved') { continue }
+    $mt = [regex]::Match($l, 'ac_total:\s*([0-9]+)')
+    if (-not $mt.Success) { continue }
+    $mc = [regex]::Match($l, 'ac_covered:\s*([0-9]+)')
+    if (-not $mc.Success) { continue }
+    $mn = [regex]::Match($l, 'tasks_no_ac:\s*([0-9]+)')
+    $mp = [regex]::Match($l, 'phase:\s*([a-z]+)')
+    $t = [int]$mt.Groups[1].Value
+    $c = [int]$mc.Groups[1].Value
+    $n = if ($mn.Success) { [int]$mn.Groups[1].Value } else { 0 }
+    $p = if ($mp.Success) { $mp.Groups[1].Value } else { '' }
+    $gap = ($t - $c) + $n
+    if ($t -eq 0) { $gap = $gap + 1 }
+    $r += ,@($p, $gap, $t)
+  }
+  return $r
+}
+
 function Cmd-Metrics($rest) {
   $fmt='table'; $allf=$false; $phasesf=$false; $mslug=''
   for ($i=0; $i -lt $rest.Count; $i++) {
@@ -1392,12 +2079,25 @@ function Cmd-Metrics($rest) {
       $hd = YGet $sty 'harnessRevDelivered'
       $sd = '-'
       if ($hd -and $hr -cne '-' -and $hr -cne 'unknown' -and $hd -cne 'unknown') { $sd = if ($hr -ceq $hd) { 'no' } else { 'yes' } }
-      $rows += ($name + "`t" + $fs + "`t" + $dv + "`t" + $lead + "`t" + $rw + "`t" + $sback + "`t" + $hr + "`t" + $sd)
+      # 受け入れ基準の規模（分母）と、plan から review までの被覆の乖離（sh 版と同一）
+      # 2点は工程で選ぶ（件数で選ぶと、同じ工程を2回 approve しただけの work が
+      # 「2点ある＝乖離が測れる」に化ける）。基準点=plan|requirement の最初、終点=review の最後
+      $cs = @(MtCovStamps $mf)
+      $fst = $null; $lst = $null; $acN = '-'
+      foreach ($e in $cs) {
+        if (($null -eq $fst) -and (@('plan','requirement') -ccontains $e[0])) { $fst = $e }
+        if ($e[0] -ceq 'review') { $lst = $e }
+      }
+      if ($cs.Count -gt 0) { $acN = $cs[$cs.Count-1][2] }
+      if ($null -ne $lst) { $acN = $lst[2] }
+      if (($null -eq $fst) -or ($null -eq $lst)) { $acD = '-' }
+      else { $acD = $lst[1] - $fst[1] }
+      $rows += ($name + "`t" + $fs + "`t" + $dv + "`t" + $lead + "`t" + $rw + "`t" + $sback + "`t" + $acN + "`t" + $acD + "`t" + $hr + "`t" + $sd)
     }
   }
 
   if ($phasesf) { $hdr = "work`tphase`tstart`tapproved`telapsed_sec`trounds" }
-  else          { $hdr = "work`tfirst_start`tdelivered`tlead_sec`treworks`tsent_backs`tharnessRev`tstraddle" }
+  else          { $hdr = "work`tfirst_start`tdelivered`tlead_sec`treworks`tsent_backs`tac`tac_drift`tharnessRev`tstraddle" }
 
   if ($fmt -ceq 'tsv') { foreach ($r in $rows) { Write-Output $r } }
   else { foreach ($l in (Fmt-Table (@($hdr) + $rows))) { Write-Output $l } }
@@ -2585,6 +3285,22 @@ function Doctor-Conventions() {
   Write-Output "convention-summary: files=$cfiles archived=$carch warn=$cwarn"
 }
 
+# 起動確認の設定を PJ 単位で1行だけ検査する（work ごとに鳴らさない。sh 版 doctor_smoke と同一）
+function Doctor-Smoke() {
+  $dsc = SmokeCmd
+  Write-Output "smoke: 起動確認の設定"
+  if (-not $dsc) {
+    Write-Output "    WARN smokeCommand が .aidev/config.yml にありません: **テストが緑でも成果物が起動するかは誰も見ていません**"
+    Write-Output "         「最初の使える状態まで到達する」ことを確かめる終了するコマンドを設定するか、"
+    Write-Output "         対象が無い PJ なら smokeCommand: none と明示すること"
+    Write-Output "smoke-summary: configured=no"
+  } elseif ($dsc -ceq 'none') {
+    Write-Output "smoke-summary: configured=none（起動確認の対象外と宣言済み）"
+  } else {
+    Write-Output "smoke-summary: configured=yes"
+  }
+}
+
 function Cmd-Worktree($rest) {
   if ($rest.Count -lt 1) { Die "使用法: aidev worktree <add|list|rm> ..." }
   $sub=$rest[0]; $sr=@(); if ($rest.Count -gt 1) { $sr=$rest[1..($rest.Count-1)] }
@@ -2613,6 +3329,9 @@ switch -CaseSensitive ($cmd) {
   'unapprove' { Cmd-Unapprove $rest }
   'guard'   { Cmd-Guard $rest }
   'verify'  { Cmd-Verify $rest }
+  'coverage' { Cmd-Coverage $rest }
+  'smoke'   { Cmd-Smoke $rest }
+  'debug'   { Cmd-Debug $rest }
   'escalate' { Cmd-Escalate $rest }
   'doctor'  { Cmd-Doctor $rest }
   'harness' { Cmd-Harness $rest }

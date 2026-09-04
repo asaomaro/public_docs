@@ -38,14 +38,17 @@ Git Bash（Git for Windows 同梱）があるなら POSIX 版の `aidev` がそ�
 |---|---|
 | `new <slug> [--mode interactive\|autonomous] [--profile full\|light] [--light] [--ticket ID] [--depends a,b,#N] [--parent <親work>] [--backlog <file>]` | work 作成。`state.yml`/`metrics.yml` を**スキーマ付きで原子的に初期化**し `.aidev/current` を設定。`schema` を刻む。`--backlog` は backlog 項目から起こした出自（`.aidev/backlog/` 内のファイル名）を刻み、**deliver での消し込みを `verify` が強制**する（存在しないファイルは着手前に弾く）。`--profile`/`--light` は「どこまで工程を回すか」（`protocol.md`「11.」）で **`--mode` と直交**。既定 `full`。subtask は親の `profile` を継承する。**`harnessRev`（ハーネスの版＝aidev-* の内容の tree hash。コミット SHA ではないので squash で割れない）も自動で刻む**——ハーネス改修の効果検証で母集団を特定するための刻印で、手書きに任せると忘れられ、忘れられた work は母集団から静かに漏れる（`schema:` を `new` 一本化したのと同じ理由）。取れない環境は `unknown`。`protocol.md`「12.」 |
 | `event <phase> <start\|sent_back> [k=v ...]` | `metrics.yml` に **UTC 時刻を自分で打って**イベント追記。`metrics.yml` 不在なら自動生成。`events: []` も block 形式へ変換。 |
-| `approve <phase> [k=v ...]` | `state.yml` の `approved` 追記（冪等）＋ `current` 更新 ＋ approved イベント追記を一括・検証付きで。`deliver` のときは **`harnessRevDelivered`** も刻み（`harnessRev` と違えば**またがり work**＝効果検証の母集団から除外）、**母集団が揃った条項をその場で通知**する——条項の母集団が増える瞬間は deliver の1点で、`doctor` の WARN は既に見に行った人にしか届かないため。`protocol.md`「12.」 |
+| `approve <phase> [k=v ...]` | `state.yml` の `approved` 追記（冪等）＋ `current` 更新 ＋ approved イベント追記を一括・検証付きで。**`plan` / `requirement` / `review` のときは被覆メトリクス（`ac_total` / `ac_covered` / `tasks_no_ac` / `tasks_ac_none`）を `requirement.md` と `tasks.md` から算出して自動で刻む**（手書きの `key=value` に任せない。`harnessRev` や `schema` を `new` に一本化したのと同じ理由で、手書きの値は忘れられる。`ac_total=` を明示指定したときだけその値を尊重する。tasks.md がまだ無い工程では刻まない）。`deliver` のときは **`harnessRevDelivered`** も刻み（`harnessRev` と違えば**またがり work**＝効果検証の母集団から除外）、**母集団が揃った条項をその場で通知**する——条項の母集団が増える瞬間は deliver の1点で、`doctor` の WARN は既に見に行った人にしか届かないため。`protocol.md`「12.」 |
 | `unapprove <phase> [--slug <work>]` | 差し戻しで無効化される後工程の**承認を取り消す**。`approved` から当該工程を外し、`current` をそこへ戻す。**記録は消さない**——取り消し自体を `sent_back` イベントとして刻む（手戻りは実際に起きた事実なので、消すと `reworks`/`sent_backs` が過小になる）。子の `review` を取り消したときは**親の `activeSubtask` もその子へ戻す**（`aidev-60-review` の統合差し戻し手順）。元は「`approved` から手で除く（CLI に削除は設けていない）」だったが、それは `state.yml` の更新を CLI に集約する原則と矛盾し、しかも手順だけあって手段が無かった。 |
 | `guard <phase>` | 工程開始時の**前提チェック**（前提成果物の有無・前提工程の承認・`dependsOn` 充足）。未充足なら非ゼロ終了。 |
 | `verify [slug] [--strict]` | 現在(または指定)work の**不変条件**を version-aware に検査。違反で非ゼロ終了。**deliver の commit 前ゲート**に使う。deliver 承認済で `backlog:` 刻印がある work は、**その backlog ファイルの `- [x]` 行かその継続行に自分の slug が現れること**も検査する（消し込み忘れの検知。下の「backlog の消し込み検査」。`protocol.md`「2.9」）。`profile: light` の work では**条件逸脱**も見る——任意工程の実施と `files_changed` の上限超過（`.aidev/config.yml` の `lightMaxFiles`、既定 3）。**WARN 止まりで exit code は変えない**（昇格漏れは事後検知。硬ゲートは既存判定に任せる）。<br>**`--strict`**: **記録漏れ（`event` の start 欠落）だけ**を致命（exit 5）にする。機械ゲート（Claude Code の `Stop` フック等）専用の入口。既定を FAIL に変えると start が欠けた過去の work が deliver できなくなるため、入口を分けた。**light の逸脱は strict でも致命にしない**——記録漏れは「今しか直せない」（metrics は追記のみで当時の timestamp は復元不能）が、light の昇格は人間の判断だから。 |
 | `escalate [slug]` | `profile` を **`light` → `full` に片方向で昇格**（`protocol.md`「11.」）。`full` からは戻せない。`state.yml` の手編集を避け、昇格を単一の検証済み経路に集約するためのコマンド。`decisions.md` への経緯記録と `escalated_from_light=1` の付与は skill 側の仕事。 |
-| `doctor [--quiet]` | 全 work を横断検査しドリフトを報告（legacy は免除）。`--quiet` は「OK だけ」の work を行ごと省く（100 works で 9 割が OK 行になり、直すべき WARN が埋もれる）。検査の順は works → backlog → 条項 → ハーネス改修の記録（`.aidev/harness/`。未判定・退避漏れ）。条項の検査は下記に加えて本文未記入・退役済み条項の索引 dangling も WARN する。retro/insights の冒頭で事後検知に使う。続けて **backlog ファイル自体**も横断検査する（全消化した `split`・`topic` の退避漏れ／`kind` frontmatter の欠落と誤記／`status` が数えない書式の項目／`archive/` に残った未消化）。**WARN 止まりで exit code は works の fail だけで決める**（ファイルの一生には持ち主の work がおらず `verify` で硬ゲートにできないため。`protocol.md`「2.9」）。続けて **条項ファイル**（`.aidev/conventions/`）も検査する（`status` の欠落・誤記／**母集団が揃ったのに未判定**／**`confirmed` の移送漏れ**＝二重管理予備軍／終状態の退避漏れ／**索引漏れ**＝索引ファイル（既定 `AGENTS.md`。`conventionsIndex` で変更可）の `aidev:conventions` ブロックに無い＝自動読込されず読まれないまま「効かなかった」と誤判定される／移送後の**張り替え漏れ**）。索引の WARN は**足すべき行をそのまま示す**（検査だけあって直す手が無い形にしない）。こちらも同じ理由で WARN 止まり。 |
+| `coverage [slug] [--format table\|tsv] [--strict]` | **読み取り専用**。受け入れ基準（`AC`）の**被覆率**と `tasks.md` の**整合**を検査する。出所は spec-kit の `/analyze` が出す `Coverage % (requirements with >=1 task)`。対応付けの正典は **`tasks.md` の `AC:` 継続行**（`対象:` `依存:` と同じ形）で、AC の本文は `requirement.md` にしか置かない（ID で参照するだけなので二重管理にならない）。出す gap は 2 種類——**struct**（未定義の `AC` を参照／`依存` が未定義のタスクを指す／`依存` が循環）と **cover**（`AC:` 行の書き忘れ／タスクに落ちていない `AC`）。`--strict` は gap があれば **exit 4** で、**plan の承認前ゲート**に使う（`aidev-30-plan` の手順6）。**被覆メトリクスを刻むのは家族の根の work だけ**（subtask では刻まない）——家族単位の値を子ごとに刻むと `metrics --all` の足し上げで分母が subtask 数だけ多重計上される。<br>**ID の文法**: `AC<数字>` / `AC-<英数>`（`AC` の直後に英字が続く `ACL` `ACCESS` は基準ではない）、タスクは `T<数字>`（`T1-1` も別 ID）。**`no_ac` 列は「`AC:` 行を書き忘れた／空にしたタスクの数」**（明示的な `AC: なし` は数えない）。**入力は BOM と行末 CR を落としてから読む**（落とさないと Windows チェックアウトの `tasks.md` で判定が OS ごとに割れる）。空白は **ASCII のみ**を空白として扱う（sh の `[[:space:]]` と ps1 の `[ \t]` を揃えてある）。<br>**被覆は work 全体（親＋全 subtask）で見る**——subtask は親の `requirement.md` を継承するので、自分の slice だけを見ると兄弟が担当する `AC` が必ず「タスクが無い」になり、**誰にも直せない gap** が恒久的に残る。親から打っても子から打っても同じ表が出る。plan 未実施の subtask が残っている間は cover の gap を致命にしない（最初の subtask の plan が、兄弟の担当ぶんまで背負って通らなくなる）。`verify` も**家族の根でだけ**報告する（子ごとに同じ WARN を重複させない）。`tasks.md` がまだ無い段階は**正常な空**として exit 0（`convention status` と同じ扱い。読み取り専用コマンドがエラー経路を作らない）。review では**再実行して spec と実装の乖離を見る**（spec-kit の `/converge` に相当。追記でなく毎回同じ入力から同じ表を出す）。 |
+| `debug <start\|report\|status> ...` | **詰まったときの原因究明を有限化する**。出所は cc-sdd の `kiro-impl` の debug subagent——発火は「レビュアーが2ラウンド連続で REJECTED」等で、要点は *"runs in a **fresh context** — it receives only the error information, not the failed implementation history. This avoids the context pollution that causes infinite retry loops."* aidev は上限（`maxSendBacks`）を `state.yml` に書くだけで**どこも検査していなかった**（散文の第一層のまま）。<br>`start [--phase p]` は**委譲の前**に打つ。ラウンド上限（`.aidev/config.yml` の `maxDebugRounds`、既定 2）を検査し、超えていれば exit 4 で止める。渡すもの／**渡さないもの（試行履歴）**を出力する。<br>`report --root-cause <t> --category <c> --next-action <retry\|block\|stop_for_human>` は結果を受ける。**必須フィールドを CLI が強制する**（`convention new` の `--hypothesis`/`--baseline` と同じ入口ゲート——散文の講評だけ返して終わると、何が原因だったのか後から誰にも読めない）。**本文（根本原因・修正方針・確認方法）は `decisions.md`、列挙値は `metrics.yml`** に分ける（metrics はフロー形式の1行なので自由文を入れると壊れる）。<br>`status [--format table\|tsv]` は工程ごとの差し戻し数・デバッグ回数・要否。<br>`aidev event <工程> sent_back` が上限到達をその場で知らせる（気付くのが retro では遅い）。手順・分類・渡すもの/渡さないものは `protocol-debug.md`。 |
+| `smoke [slug]` | **起動確認 GO/NO-GO**。`.aidev/config.yml` の `smokeCommand` を実行し、結果を `metrics.yml` に `event: smoke`（`result` / `exit_code`）として刻む。出所は cc-sdd の `kiro-verify-completion`——`FEATURE_GO` の条件に「**ビルドした成果物が最初の使える状態に到達した実行結果**」を置き、*"A passing test suite alone is not enough for FEATURE_GO."* と明記している。**CLI が実行して exit code を取る**のは、`--result pass` のような自己申告にすると「手書きの値は都合よく書かれる」形になるから（`harnessRev` を `new` に、被覆を `approve` に一本化したのと同じ理由）。出力は**捕まえずに素通し**する（test 工程が `test-result.md` に貼るのは生の出力）。<br>**exit 0**=pass / **exit 4**=fail / **exit 2**=`smokeCommand` 未設定（**検証していないことを合格にしない**。設定するか `smokeCommand: none` と明示する）。`none` は `result: skip` を刻んで exit 0。<br>実行するシェルは POSIX 側が `sh -c`、Windows 側が `cmd.exe /c`（ps1 が Windows 以外で走るときは `sh -c` で sh 版と一致する）。Windows だけ別のコマンドが要るなら `smokeCommandWindows` を設定する——**単独で設定しない**（POSIX 側では未設定扱いになり、同じ PJ が OS で `configured=yes`/`no` に割れる）。<br>**時間上限**: `smokeTimeoutSec`（既定 300）。常駐コマンドを書かれると自律実行がそこで永久に止まるので、`timeout`(coreutils) がある環境では打ち切って `exit_code: 124` を刻む。**`timeout` が無い環境（Windows を含む）では掛けられない**ので、その事実を出力に残す（黙って無制限にしない）。<br>**記録先は家族の根**（親＋全 subtask で1つ）。子で打っても親の `metrics.yml` に刻む——起動確認は work 全体の性質で、着地するのは親1本の PR だから（被覆を `cov_root()` で家族単位にしたのと同じ理由。片方だけ work 単位だと、子で通した smoke が親の deliver ゲートから見えず誤 FAIL する）。刻む `phase` は工程を問わず `test` 固定。<br>**素通し設計の但し書き**: 子シェル自身が出すエラー文（`sh: 1: …` と `/usr/bin/sh: 1: …`）は起動の仕方の違いで文言が変わりうる。出力一致の契約は**この CLI が出す行**についてのもの。**値は行をそのまま読む**（YAML のエスケープは解釈しない）。全体を `"` で囲んだときだけ1組外すので、**基本はクォートで囲まない**。 |
+| `doctor [--quiet]` | 全 work を横断検査しドリフトを報告（legacy は免除）。`--quiet` は「OK だけ」の work を行ごと省く（100 works で 9 割が OK 行になり、直すべき WARN が埋もれる）。検査の順は works → backlog → 条項 → ハーネス改修の記録（`.aidev/harness/`。未判定・退避漏れ）→ 起動確認の設定（`smokeCommand` の有無を **PJ 単位で1行**）。条項の検査は下記に加えて本文未記入・退役済み条項の索引 dangling も WARN する。retro/insights の冒頭で事後検知に使う。続けて **backlog ファイル自体**も横断検査する（全消化した `split`・`topic` の退避漏れ／`kind` frontmatter の欠落と誤記／`status` が数えない書式の項目／`archive/` に残った未消化）。**WARN 止まりで exit code は works の fail だけで決める**（ファイルの一生には持ち主の work がおらず `verify` で硬ゲートにできないため。`protocol.md`「2.9」）。続けて **条項ファイル**（`.aidev/conventions/`）も検査する（`status` の欠落・誤記／**母集団が揃ったのに未判定**／**`confirmed` の移送漏れ**＝二重管理予備軍／終状態の退避漏れ／**索引漏れ**＝索引ファイル（既定 `AGENTS.md`。`conventionsIndex` で変更可）の `aidev:conventions` ブロックに無い＝自動読込されず読まれないまま「効かなかった」と誤判定される／移送後の**張り替え漏れ**）。索引の WARN は**足すべき行をそのまま示す**（検査だけあって直す手が無い形にしない）。こちらも同じ理由で WARN 止まり。 |
 | `status [--subtasks] [--active] [--format table\|tsv]` | **読み取り専用**。`--active` は deliver 済み work を隠す。`inflight` は **worktree を横断**して数える（現在の tree だけ見ると、並行作業という当の場面で二重選択の防止が効かない）。全 work を横断（work/ticket/mode/current/next/done/deps）＋ backlog（`*.md`・`archive/` 除く）の未着手件数（todo/needs）と **`inflight`（そのファイルの項目を掴んだまま未 deliver の work 数）**を機械抽出。backlog 行が `[x]` になるのは deliver なので、着手中の項目は `todo` からは区別できない——`inflight` はそこを埋め、**別セッションが同じ項目を二重に選ぶのを防ぐ**（`protocol.md`「2.9」）。`aidev-00-start` の状況把握に使う。既定は人間可読表、`--format tsv` は機械パース向け（先頭列 `work`/`backlog`/**`subtask`** でレコード種別を判別）。**`--subtasks`** を付けると分割 work の子（`subtask / <親>/<子> / current / done` の4列。work 行の8列とは列数が違う）も出す——`.aidev/current` は未追跡でセッションをまたぐと消えるので、**復帰時にどの子へ戻るかはこれで確認する**。 |
-| `metrics [slug] [--all] [--phases] [--format table\|tsv]` | **読み取り専用**。`metrics.yml` のイベントログから protocol §8 の派生指標を集計。`--phases` は工程ごとに `start`（初回）/`approved`（最後）/`elapsed_sec`（**全ラウンドの合計**）/`rounds`（start の回数）。既定 per-work（first_start/delivered/lead_sec/reworks/sent_backs/**harnessRev/straddle**——版で層別し、またがり work を外すための列。deliver 済みのまたがりは verify では鳴らさず、ここで見る）、`--phases` で工程別（phase/start/approved/elapsed_sec）。`--all` で全 work。`aidev-util-insights` の集計に使う。ts は `Z`/`UTC`/無しを許容。 |
+| `metrics [slug] [--all] [--phases] [--format table\|tsv]` | **読み取り専用**。`metrics.yml` のイベントログから protocol §8 の派生指標を集計。`--phases` は工程ごとに `start`（初回）/`approved`（最後）/`elapsed_sec`（**全ラウンドの合計**）/`rounds`（start の回数）。既定 per-work（first_start/delivered/lead_sec/reworks/sent_backs/**ac/ac_drift**——`ac` は受け入れ基準の総数＝**要求側の規模の分母**（実装側 `files_changed`・分解側 `tasks_planned` に無かった軸）、`ac_drift` は **plan 以降に増えた gap** ＝ spec と実装の乖離。**2点は工程で選ぶ**——基準点は `plan`（light では `requirement`）の**最初**、終点は `review` の**最後**。件数で選ぶと、同じ工程を2回 approve しただけの work が「2点ある＝測れる」に化ける。どちらかが欠ければ `-`＝**測れない**（`0` と読み替えない）。手で `ac_total=` だけ渡した刻印は `ac_covered` が無いので**計算から捨てる**（0 とみなすと乖離を捏造する。明示するなら4キーまとめて渡すこと）。被覆率そのものは plan の承認前ゲートで 100% に張り付くので **KPI にしない**——読むのは差分の方／**harnessRev/straddle**——版で層別し、またがり work を外すための列。deliver 済みのまたがりは verify では鳴らさず、ここで見る）、`--phases` で工程別（phase/start/approved/elapsed_sec）。`--all` で全 work。`aidev-util-insights` の集計に使う。ts は `Z`/`UTC`/無しを許容。 |
 | `use [<slug>]` | 継続する作業を切り替える（`.aidev/current` を書く）。引数なしなら現在値を表示。存在しない slug は弾く。**`new` と `approve` 以外に current を書く手段が無かった**ため、「続きから」は手書きに頼っていた。 |
 | `backlog new <name> --kind standing\|split\|topic [--parent <p>] [--priority <n>]` | frontmatter 付きで backlog ファイルを起こす。**`--kind` を必須**にして欠落を構造的に防ぐ（`split` は `--parent` 必須）。 |
 | `convention new <id> --hypothesis <text> --baseline <text> [--scope <t>] [--source <p>] [--verify-after <n>]` | PJ規約の条項を `.aidev/conventions/` に起こす（`--verify-after` 既定 5）（場所は `.aidev/config.yml` の `conventionsDir`。既定 `.aidev/conventions`）。**`--hypothesis` と `--baseline` を必須**にして「検証できない条項」を構造的に防ぐ。`--baseline` は**導入前にその観点の指摘が何件あったか**——**条項 id は起票のその瞬間に生まれる**ので、導入前の review.md にその id は現れず、**id 別の前後比較は原理的にできない**（必ず `0 → N` と増える）。「前」を作れるのは起票時に観点で数えて刻む道だけ。数えられないならその事実を値に書く（捏造も空欄も不可）。`--hypothesis` は——「どの指標がどう動けば成功か」を先に書かないと、後から見た指標は常に何かしら動いているので都合のいい説明がつき、検証ではなく事後の物語作りになる。archive に同 id があれば**重複として弾く**（移送済み規約の再提案）。起票時に**索引へ足すべき行**と、`.aidev/config.yml` の `docsRoots`（既存 docs との重複を確認する場所。未設定なら「確認していない旨を明記せよ」）を出力する。`protocol.md`「12.」 |
@@ -105,7 +108,7 @@ CI ではこれを失敗として扱う（`.github/workflows/aidev-cli.yml`）�
 不変条件だけ**を強制する。`schema` 未記載の旧 work は **legacy として免除**（「過去分は捏造しない」方針。
 `protocol.md`「8.」）。これにより新ガードを足しても**過去 work を遡及的に違反扱いしない**。
 
-- 現行 `CURRENT_SCHEMA = 5`。
+- 現行 `CURRENT_SCHEMA = 8`。
 - schema 3: subtask 層（`subtasks`/`activeSubtask`/`parent`）を導入。schema ≤ 2 の work は subtask 不変条件を免除。
 - schema ≥ 2 の不変条件: `metrics.yml` の存在 ／ review 承認済なら `review.md` 存在 ／ deliver 承認済なら
   metrics に deliver の approved イベントが存在 ／ deliver 承認済で `backlog:` 刻印があれば消し込み（下記）。
@@ -122,7 +125,50 @@ CI ではこれを失敗として扱う（`.github/workflows/aidev-cli.yml`）�
   `verify` は deliver 承認の**前**に走るので `harnessRevDelivered` をまだ持っていない。着地時の刻印を
   待つと**この検査は通常の順序では一度も発火しない**ため、まだ無いときは**現在の版**と比べる。
   効果検証の母集団を正しく切るための刻印なので、旧 work は遡って違反扱いしない（`protocol.md`「12.」）。
+- schema ≥ 6 の検査: **`test-result.md` の実在**（test 承認済なら **FAIL**）／**`tasks.md` の参照の壊れ**
+  （未定義の `AC` 参照・未定義のタスクを指す `依存`・`依存` の循環。**FAIL**）／**AC 被覆の穴**
+  （タスクに落ちていない `AC`・`AC:` 行の書き忘れ。**WARN**。詳細は `aidev coverage`）／
+  **失敗の生証跡**（test で `sent_back` があるのに `test-result.md` に ``` のブロックが無ければ **WARN**）。
+  被覆の穴が WARN なのは**人の判断が要る**から（意図して落とした AC もありうる）で、参照の壊れは
+  機械的に誤りだから FAIL。硬いゲートは plan の承認前に打つ `aidev coverage --strict`（exit 4）が担う。
+  被覆は**家族単位**（親＋全 subtask）で見るので、`verify` も**家族の根でだけ**報告する。
+- schema ≥ 7 の検査（**FAIL**）: **起動確認（smoke）の記録**——deliver 承認済で、`smokeCommand` を
+  **設定している PJ** なら、`metrics.yml` に `result: pass`（または `skip`）の smoke イベントが要る。
+  記録が無い／`fail` のままなら FAIL。**未設定の PJ では鳴らさない**——それは work の問題ではなく
+  PJ の設定漏れで、100 works ある PJ に 100 行出すと直せる WARN がノイズに埋もれる
+  （straddle で学んだ形）。未設定は `doctor` が **PJ 単位で1行**知らせる。
+- schema ≥ 8 の検査: **詰まりの扱い**。(a) 同一工程の差し戻しが `maxSendBacks` に達しているのに
+  原因究明（`aidev debug`）の記録が無い → **WARN**（挟むかは人の判断なので致命にしない）。
+  (b) デバッグが `next_action: stop_for_human` で終わっているのに deliver 承認済 → **FAIL**
+  （人の判断を待つ出口を素通りしている。`autonomous` でもここは待つ）。
 - 新しい不変条件を足すときは `CURRENT_SCHEMA` を上げ、検査をそのバージョン以上に限定する。
+
+## 移植性の落とし穴（実際に踏んだもの）
+
+- **`awk -v` の値にもエスケープ処理がかかり、その扱いが実装で割れる**。mawk は `\[` をそのまま
+  残し、gawk は `[` に潰して警告を出す。潰れると `- \[[ xX]\]` が `- [[ xX]]`（角括弧式）に化けて
+  チェックボックス行に当たらなくなり、**受け入れ基準が1件も取れなくなる**。
+  開発機（mawk）では緑、CI（gawk）で 57 件 fail、という形で一度出した。
+  **正規表現は `-v` で渡さず、プログラム中のリテラルとして書く**。
+  `test/run.sh` は使える awk 実装を全部列挙し、**ロケール（C / C.UTF-8）も振って**、
+  同じ入力で同じ判定になるかを突き合わせる。
+- **POSIX の文字クラスはロケール依存**。UTF-8 ロケールの gawk は `[[:space:]]` に
+  全角スペース(U+3000)を含め、バイト志向の mawk は含めない。.NET の `\s` も含める。
+  全角スペースで字下げした `tasks.md` が「実装 × ロケール」の組でだけタスク行になる、という形で出た。
+  **範囲の狭い側（ASCII の `[ \t]`）に全実装を揃える**。
+- **`grep -c` は一致 0 件でも `0` を出して exit 1 する**。`|| printf '0'` を足すと "0" が2回出て
+  値が2行になる。フォールバックは代入側で受ける（`_n=$(grep -c …) || _n=0`）。
+- **多バイト文字を角括弧式に入れない**。awk/sed の角括弧式はバイト単位なので、`[,、]` は
+  「、」の構成バイトを1つずつ候補にし、同じ先頭バイトを持つ「なし」を空白に割る。
+- **BOM と行末 CR は自分で落とす**。PowerShell の `ReadAllLines` は両方自動で外すので、
+  落とさないと Windows チェックアウトの同じファイルで判定が OS ごとに割れる。
+- **`smoke` の実行シェルは OS で変わる**（POSIX=`sh -c` / Windows=`cmd.exe /c`）ので、
+  **同じ1行が両者で同じ意味になるとは限らない**。`echo "x"` は sh がクォートを外し、
+  cmd.exe は外さない。`true` は cmd.exe の組み込みに無い。
+  出力一致の契約は **CLI が出す行**についてのもので、素通しする子プロセスの出力は含まない
+  （パリティテストではシェル非依存のコマンドだけを使う）。
+- **`set -e` は AND-OR リストが関数やループ本体の最後の文のときだけ効く**。
+  `[ … ] && cmd` を関数の末尾に置くと、その関数の呼び出しがそのまま失敗として扱われる。
 
 ## deliver ゲートの使い方（`land` を別コマンドにしない理由）
 
@@ -152,6 +198,10 @@ CLI が読むキー。どれも任意で、無ければ既定で動く（PJ 固�
 | `conventionsDir` | `convention *` / `doctor` / `approve deliver`（到達通知） | 条項の置き場（既定 `.aidev/conventions`） |
 | `conventionsIndex` | `convention *` / `doctor` | 索引ブロックを置くファイル（未設定なら AGENTS.md → CLAUDE.md の順で探す） |
 | `docsRoots` | `convention new` | 既存 docs との重複確認先（未設定なら「確認していない」と案内する） |
+| `maxDebugRounds` | `debug start` | 1工程あたりのデバッグ回数の上限（既定 2）。超えたら `block` か `stop_for_human` で締める |
+| `smokeCommand` | `smoke` / `verify`（schema 7） / `doctor` | 起動確認のコマンド（**終了するもの**を書く。常駐させない）。対象が無い PJ は `none` と明示する。未設定は `smoke` が exit 2 |
+| `smokeCommandWindows` | `smoke`（ps1・Windows のみ） | Windows で別のコマンドが要るときの上書き（未設定なら `smokeCommand`）。**単独で設定しない**——POSIX 側からは未設定に見える |
+| `smokeTimeoutSec` | `smoke` | 起動確認に許す最長秒数（既定 300）。`timeout`(coreutils) がある環境でのみ効く |
 | `sharedFiles` | `worktree add` | 並行作業で衝突しやすい共有ファイル名（完了時に名前を挙げて警告） |
 | `tracker` | （CLI は読まない） | 外部チケットの種類。判定は工程 skill が行う（`protocol.md`「2.7」） |
 

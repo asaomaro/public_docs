@@ -37,7 +37,7 @@ PJ非依存の開発ワークフローを、skill 群で制御・進捗管理す
 | 25 | design | 任意 | 構造設計（design.md） |
 | 30 | plan | 標準 | 作業分解（plan.md / tasks.md） |
 | 40 | coding | 標準 | 実装、tasks 更新 |
-| 50 | test | 標準 | 受け入れ基準の検証 |
+| 50 | test | 標準 | 受け入れ基準の検証と**起動確認**（test-result.md。失敗は生出力ごと残す） |
 | 60 | review | 標準 | 差分点検（指摘あれば coding へ差し戻し） |
 | 65 | walkthrough | 任意 | 人間レビュー補助の解説（walkthrough.md・mermaid） |
 | 70 | deliver | 標準（最終） | コミット / PR で着地 |
@@ -45,6 +45,12 @@ PJ非依存の開発ワークフローを、skill 群で制御・進捗管理す
 
 標準フロー：`requirement → spec → plan → coding → test → review → deliver`。
 番号末尾 **0=標準 / 5=任意**。番号は推奨順であり強制ではない（差し戻し可）。
+
+**受け入れ基準（`AC`）は requirement で立て、tasks.md の `AC:` 行が ID で参照する。**
+`aidev coverage` がその対応を機械的に突き合わせ、**タスクに落ちていない `AC`** と
+**`tasks.md` の壊れた参照**（未定義の ID・依存の循環）を出す。plan は承認前に
+`aidev coverage --strict` を通し、review は同じコマンドをもう一度打って plan 時との差分を
+「spec と実装の乖離」として読む。
 
 ### 命名カテゴリ（役割で割る）
 
@@ -170,14 +176,14 @@ light は**上流3工程（requirement / spec / plan）を1ゲートに畳む**�
   aidev-docs/          このREADMEとDESIGN（参照専用・skillではない）＋ bin/
     bin/               ランタイムガード CLI（aidev=POSIX sh / aidev.ps1=PowerShell・README.md / test/ 同梱）
 .aidev/                PJ固有の実行時状態（skill ではない）
-  config.yml           PJ単位の設定（tracker / lightMaxFiles / conventionsDir / conventionsIndex / docsRoots / sharedFiles。コミット対象）
+  config.yml           PJ単位の設定（tracker / lightMaxFiles / smokeCommand / maxDebugRounds / conventionsDir / conventionsIndex / docsRoots / sharedFiles。コミット対象）
   charter.md           propose（planner）の方針（任意）
   current              現在の作業フォルダ名（.gitignore 対象）
   works/<YYYYMMDD-slug>/  作業単位ごとの成果物（命名: 日付(UTC)-slug）
     state.yml          進捗（schema / slug / current / approved / dependsOn / ticket / mode / humanGates / maxSendBacks /
                        profile / backlog / harnessRev / harnessRevDelivered。分割 work は parent / subtasks / activeSubtask）
     metrics.yml        工程の実施日時・時間・件数などのイベントログ
-    requirement.md / spec.md / plan.md / tasks.md / decisions.md / review.md など
+    requirement.md / spec.md / plan.md / tasks.md / decisions.md / review.md / test-result.md など
     <NN>-<subslug>/    分割 work（subtask。plan/coding/test/review のみ）
   backlog/             遅延キュー（任意）。<domain>.md（standing）/ split-<親>.md（split）/ <題>.md（topic）/ archive/（退避と <name>-done.md）
   insights/            横断分析レポート（<日付>-insights.md）と却下記録（rejected.md）

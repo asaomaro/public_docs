@@ -537,7 +537,7 @@ BLW=$(cat "$BLR/.aidev/current")
 assert_contains "$(cat "$BLR/.aidev/works/$BLW/state.yml")" "backlog: demo.md" "new --backlog: state.yml に出自を刻む"
 
 # deliver まで通す（review.md は schema>=2、工程成果物は schema>=5 の不変条件）
-for f in requirement spec plan tasks review; do : > "$BLR/.aidev/works/$BLW/$f.md"; done
+for f in requirement spec plan tasks review test-result; do : > "$BLR/.aidev/works/$BLW/$f.md"; done
 for p in requirement spec plan coding test review deliver; do run_bl approve "$p" >/dev/null; done
 
 BLV=$(run_bl verify 2>&1); BLC=$?
@@ -578,7 +578,7 @@ assert_eq "$?" "0" "verify: archive/ へ退避後も消し込みを追える"
 run_bl new plain --mode autonomous >/dev/null
 PLW=$(cat "$BLR/.aidev/current")
 assert_absent "$(cat "$BLR/.aidev/works/$PLW/state.yml")" "backlog:" "new: --backlog 無しでは backlog 行を書かない"
-for f in requirement spec plan tasks review; do : > "$BLR/.aidev/works/$PLW/$f.md"; done
+for f in requirement spec plan tasks review test-result; do : > "$BLR/.aidev/works/$PLW/$f.md"; done
 for p in requirement spec plan coding test review deliver; do run_bl approve "$p" >/dev/null; done
 run_bl verify >/dev/null 2>&1
 assert_eq "$?" "0" "verify: backlog 出自の無い work は従来どおり PASS"
@@ -1246,7 +1246,7 @@ assert_contains "$RD_A" "条項 conv1 の母集団が揃いました(1/1)" "appr
 assert_contains "$(run_rd convention status --format tsv)" "	1	1	yes	" "母集団: deliver 済みになって初めて数える"
 # 跨いだ**瞬間だけ**。-ge だと以後の全 deliver で全条項ぶん鳴り続ける（100 works×30 条項で 1 回 31 行）
 run_rd new rd2 >/dev/null; RDW2=$(ls "$RDR/.aidev/works" | grep -- '-rd2$')
-for f in requirement spec plan tasks review; do : > "$RDR/.aidev/works/$RDW2/$f.md"; done
+for f in requirement spec plan tasks review test-result; do : > "$RDR/.aidev/works/$RDW2/$f.md"; done
 for p in requirement spec plan coding test review; do run_rd event "$p" start >/dev/null; run_rd approve "$p" >/dev/null; done
 run_rd event deliver start >/dev/null
 RD_B=$(run_rd approve deliver files_changed=1 insertions=1 deletions=0 2>&1)
@@ -1337,7 +1337,7 @@ assert_contains "$(run_hv harness status --format tsv)" "harness	h1	pending	" "h
 assert_eq "$(run_hv harness status --format tsv | awk -F'\t' '$2=="h1"{print $6"/"$8}')" "0/no" "harness status: 導入前・またがり work は母集団に入らない"
 # 導入後に着手し、またがらずに deliver した work が母集団に入り、揃った瞬間に知らせる
 run_hv new h1w >/dev/null; H1W=$(cat "$HVR/.aidev/current")
-for f in requirement spec plan tasks review; do : > "$HVR/.aidev/works/$H1W/$f.md"; done
+for f in requirement spec plan tasks review test-result; do : > "$HVR/.aidev/works/$H1W/$f.md"; done
 for p in requirement spec plan coding test review; do run_hv event "$p" start >/dev/null; run_hv approve "$p" >/dev/null; done
 run_hv event deliver start >/dev/null
 HA=$(run_hv approve deliver files_changed=1 2>&1)
@@ -1345,7 +1345,7 @@ assert_contains "$HA" "ハーネス改修 h1 の母集団が揃いました(1/1)
 assert_eq "$(run_hv harness status --format tsv | awk -F'\t' '$2=="h1"{print $6"/"$8}')" "1/yes" "harness status: またがらずに deliver した work を数える"
 # またがった work は数えない（着手時の刻印を別版に書き換えてから deliver）
 run_hv new h1s >/dev/null; H1S=$(cat "$HVR/.aidev/current")
-for f in requirement spec plan tasks review; do : > "$HVR/.aidev/works/$H1S/$f.md"; done
+for f in requirement spec plan tasks review test-result; do : > "$HVR/.aidev/works/$H1S/$f.md"; done
 awk '{ if ($0 ~ /^harnessRev:/) print "harnessRev: deadbee"; else print }' "$HVR/.aidev/works/$H1S/state.yml" > "$HVR/.aidev/works/$H1S/state.yml.t" && mv "$HVR/.aidev/works/$H1S/state.yml.t" "$HVR/.aidev/works/$H1S/state.yml"
 for p in requirement spec plan coding test review deliver; do run_hv approve "$p" >/dev/null; done
 assert_eq "$(run_hv harness status --format tsv | awk -F'\t' '$2=="h1"{print $6}')" "1" "harness status: またがり work は母集団に数えない"
@@ -1457,6 +1457,557 @@ else
   skip 7 "harnessRev の粒度（git 不在）"
 fi
 
+echo "== coverage（AC 被覆 / tasks.md の整合）=="
+# 背景: plan の完了の目安「spec の全範囲が tasks に漏れなく落ちている」と
+# 「存在しないタスク ID を指していない・循環していない」は長く散文だけで、誰も検査していなかった。
+# spec-kit の /analyze が出す Coverage % に相当する層をハードに上げたのがこのコマンド。
+CVR=$(mktemp -d); mkdir -p "$CVR/.aidev/backlog"
+run_cv() { ( cd "$CVR" && "$AIDEV_SH" "$@" ); }
+run_cv new cov-demo >/dev/null
+CVW=$(cat "$CVR/.aidev/current"); CVD="$CVR/.aidev/works/$CVW"
+
+# tasks.md が無い段階は「正常な空」で 0（読み取り専用コマンドがエラー経路を作らない）
+CVOUT=$(run_cv coverage 2>&1); CVRC=$?
+assert_eq "$CVRC" "0" "coverage: tasks.md が無くても exit 0（正常な空）"
+assert_contains "$CVOUT" "tasks.md がまだありません" "coverage: 未作成は note で知らせる"
+
+cat > "$CVD/requirement.md" <<'EOF'
+## 完了条件 (受け入れ基準)
+- [ ] AC1: ひとつ
+- [ ] AC2: ふたつ
+- [ ] AC3: みっつ
+
+## 相互作用の受け入れ基準
+- [ ] AC-I1 開く / 閉じる: どう開くか
+EOF
+cat > "$CVD/spec.md" <<'EOF'
+## 受け入れ基準との対応
+- AC1: こう満たす
+- AC2: ああ満たす
+EOF
+cat > "$CVD/tasks.md" <<'EOF'
+- [ ] T1: ひとつめ
+      対象: `a.py`
+      依存: なし
+      AC: AC1, AC-I1
+- [x] T2: ふたつめ
+      依存: T1, T9
+      AC: AC2
+- [ ] T3: みっつめ
+      依存: T4
+- [ ] T4: よっつめ
+      依存: T3
+      AC: AC7
+EOF
+CVOUT=$(run_cv coverage 2>&1); CVRC=$?
+assert_eq "$CVRC" "0" "coverage: 既定は読み取り専用として exit 0"
+assert_contains "$CVOUT" "AC-I1" "coverage: 相互作用の AC（AC-I1）も基準として拾う"
+assert_contains "$CVOUT" "tasks=3/4(75%)" "coverage: 被覆率を出す（AC3 だけタスク無し）"
+assert_contains "$CVOUT" "spec=2/4(50%)" "coverage: spec の対応漏れも数える"
+assert_contains "$CVOUT" "T2 の 依存 が未定義のタスクを指す: T9" "coverage: 未定義のタスク依存を検出"
+assert_contains "$CVOUT" "依存の循環に含まれるタスク: T3,T4" "coverage: 依存の循環を検出"
+assert_contains "$CVOUT" "T4 が未定義の AC を参照: AC7" "coverage: 未定義の AC 参照を検出"
+assert_contains "$CVOUT" "T3 に AC 行が無い" "coverage: AC 行の書き忘れを検出"
+assert_contains "$CVOUT" "AC3 に対応するタスクが無い" "coverage: 被覆されない AC を名指しする"
+assert_contains "$CVOUT" "coverage-gaps: struct=3 cover=2" "coverage: gap を struct/cover に数え分ける"
+
+# 「なし」は書き忘れと区別する（全角読点区切りも受ける）
+cat > "$CVD/tasks.md" <<'EOF'
+- [ ] T1: ひとつめ
+      依存: なし
+      AC: AC1、AC-I1
+- [x] T2: ふたつめ
+      依存: T1
+      AC: AC2, AC3
+- [ ] T3: 準備だけ
+      依存: なし
+      AC: なし
+EOF
+cat > "$CVD/spec.md" <<'EOF'
+- AC1: a
+- AC2: b
+- AC3: c
+- AC-I1: d
+EOF
+CVOUT=$(run_cv coverage --strict 2>&1); CVRC=$?
+assert_eq "$CVRC" "0" "coverage --strict: gap が無ければ 0"
+assert_contains "$CVOUT" "tasks=4/4(100%)" "coverage: 全 AC が被覆されたら 100%"
+assert_contains "$CVOUT" "no_ac=0" 'coverage: AC: なし は書き忘れに数えない' 
+assert_absent "$CVOUT" "gap:" "coverage: 整合していれば gap を出さない"
+# 全角の「なし」がバイト単位の角括弧式で割られていないこと（`[,、]` の事故の回帰）
+assert_absent "$CVOUT" "依存 が未定義" "coverage: 全角『なし』を壊さない（多バイト角括弧式の回帰）"
+
+# --strict は gap があれば exit 4（plan の承認前ゲート）
+printf -- '- [ ] T4: 余り\n      依存: なし\n      AC: AC9\n' >> "$CVD/tasks.md"
+CVOUT=$(run_cv coverage --strict 2>&1); CVRC=$?
+assert_eq "$CVRC" "4" "coverage --strict: gap があれば exit 4"
+assert_contains "$CVOUT" "FAIL(strict)" "coverage --strict: FAIL 行を出す"
+
+# tsv は見出し無しの行だけ
+CVTSV=$(run_cv coverage --format tsv 2>&1)
+assert_contains "$CVTSV" "$(printf 'AC1\tyes\tT1')" "coverage --format tsv: 行を TSV で出す"
+assert_absent "$CVTSV" "$(printf 'ac\tspec\ttasks')" "coverage --format tsv: 見出し行は出さない"
+
+# verify との連動: struct は FAIL、cover は WARN
+for f in requirement spec plan tasks review test-result; do [ -f "$CVD/$f.md" ] || : > "$CVD/$f.md"; done
+run_cv approve requirement >/dev/null; run_cv approve spec >/dev/null; run_cv approve plan >/dev/null
+CVV=$(run_cv verify 2>&1); CVVRC=$?
+assert_eq "$CVVRC" "4" "verify: tasks.md の参照が壊れていたら FAIL"
+assert_contains "$CVV" "tasks.mdの参照が壊れている(1件)" "verify: 壊れた参照の件数を出す"
+# 参照を直すと FAIL が消え、被覆の穴だけが WARN で残る
+sed -i.bak 's/AC: AC9/AC: なし/' "$CVD/tasks.md" && rm -f "$CVD/tasks.md.bak"
+printf -- '- [ ] AC4: 未着手\n' >> "$CVD/requirement.md"
+CVV=$(run_cv verify 2>&1); CVVRC=$?
+assert_eq "$CVVRC" "0" "verify: 参照が直れば被覆の穴だけでは FAIL しない"
+assert_contains "$CVV" "WARN AC 被覆に穴があります（1 件）" "verify: 被覆の穴は WARN で知らせる"
+
+# test-result.md の実在検査（schema 6）と失敗の生証跡
+rm -f "$CVD/test-result.md"
+run_cv approve coding >/dev/null; run_cv approve test >/dev/null
+CVV=$(run_cv verify 2>&1)
+assert_contains "$CVV" "test-result.md欠落(test承認済)" "verify: test 承認済みなら test-result.md を要求する"
+printf 'ぜんぶ通った\n' > "$CVD/test-result.md"
+run_cv event test sent_back >/dev/null
+CVV=$(run_cv verify 2>&1)
+assert_contains "$CVV" "失敗の生出力が無い" "verify: 差し戻しがあったのに失敗の生出力が無ければ WARN"
+printf '```\nFAILED test_x\n```\n' >> "$CVD/test-result.md"
+CVV=$(run_cv verify 2>&1)
+assert_absent "$CVV" "失敗の生出力が無い" "verify: 生出力のブロックがあれば WARN は消える"
+rm -rf "$CVR"
+
+
+# --- 監査で見つかった経路（どれも「片方の OS でだけ通る」か「消せない gap」を作っていた）---
+echo "== coverage: 入力の揺れと ID 文法（OS 差・誤検出の回帰）=="
+CVX=$(mktemp -d); mkdir -p "$CVX/.aidev/backlog"
+run_cx() { ( cd "$CVX" && "$AIDEV_SH" "$@" ); }
+run_cx new cov-edge >/dev/null
+CXW=$(cat "$CVX/.aidev/current"); CXD="$CVX/.aidev/works/$CXW"
+
+# CRLF: Windows チェックアウトの tasks.md で判定が割れると、deliver 前ゲートが OS で反転する
+printf -- '- [ ] AC1: a\r\n- [ ] AC2: b\r\n' > "$CXD/requirement.md"
+printf -- '- [ ] T1: x\r\n      AC: AC1\r\n      依存: なし\r\n- [ ] T2: y\r\n      AC: AC2\r\n      依存: T1\r\n' > "$CXD/tasks.md"
+CXO=$(run_cx coverage --strict 2>&1); CXR=$?
+assert_eq "$CXR" "0" "coverage: CRLF の tasks.md でも gap を作らない（OS で判定が割れない）"
+assert_contains "$CXO" "tasks=2/2(100%)" "coverage: CRLF でも被覆を正しく数える"
+
+# BOM: ps1 の ReadAllLines は BOM を外すので、sh 側も外さないと先頭行だけ取りこぼす
+printf '\357\273\277- [ ] AC1: a\n' > "$CXD/requirement.md"
+printf '\357\273\277- [ ] T1: x\n      AC: AC1\n      依存: なし\n' > "$CXD/tasks.md"
+CXO=$(run_cx coverage --strict 2>&1); CXR=$?
+assert_eq "$CXR" "0" "coverage: BOM 付きでも先頭行を取りこぼさない"
+assert_contains "$CXO" "ac=1" "coverage: BOM 付き requirement.md の AC を数える"
+
+# ID 文法: `AC` で始まるだけの普通のチェックリスト行を受け入れ基準にしない
+printf -- '- [ ] AC1: a\n- [ ] ACL の設定を直す\n- [ ] ACCESS ログを見る\n' > "$CXD/requirement.md"
+printf -- '- [ ] T1: x\n      AC: AC1\n      依存: なし\n' > "$CXD/tasks.md"
+CXO=$(run_cx coverage --strict 2>&1); CXR=$?
+assert_eq "$CXR" "0" "coverage: ACL / ACCESS を AC と誤認しない（消せない gap を作らない）"
+assert_absent "$CXO" "ACL" "coverage: ACL は表に出ない"
+
+# タスク ID: `T1-1` を `T1` に潰すと、正しく書かれた依存が「壊れた参照」になる
+printf -- '- [ ] AC1: a\n- [ ] AC2: b\n' > "$CXD/requirement.md"
+printf -- '- [ ] T1-1: 枝1\n      AC: AC1\n      依存: なし\n- [ ] T1-2: 枝2\n      AC: AC2\n      依存: T1-1\n' > "$CXD/tasks.md"
+CXO=$(run_cx coverage --strict 2>&1); CXR=$?
+assert_eq "$CXR" "0" "coverage: T1-1 / T1-2 を別 ID として扱う（依存が壊れない）"
+assert_contains "$CXO" "T1-1" "coverage: タスク ID を切り詰めない"
+
+# 重複 ID・自己依存: 「整合を見る」コマンドが最も基本的な違反を見ていなかった
+printf -- '- [ ] T1: a\n      AC: AC1\n      依存: T1\n- [ ] T1: dup\n      AC: AC2\n      依存: なし\n' > "$CXD/tasks.md"
+CXO=$(run_cx coverage --strict 2>&1); CXR=$?
+assert_eq "$CXR" "4" "coverage: 重複 ID / 自己依存は struct gap"
+assert_contains "$CXO" "タスク ID が重複している: T1" "coverage: 重複 ID を名指しする"
+assert_contains "$CXO" "T1 が自分自身に依存している" "coverage: 自己依存を検出（A→A は循環検出から漏れる）"
+
+# 空の `AC:` 行は「書き忘れ」と文言を分ける
+printf -- '- [ ] T1: a\n      AC: \n      依存: なし\n- [ ] T2: b\n      AC: AC1, AC1\n      依存: なし\n' > "$CXD/tasks.md"
+CXO=$(run_cx coverage 2>&1)
+assert_contains "$CXO" "T1 の AC 行が空" "coverage: 空の AC 行は「行が無い」と区別して報告する"
+CXT=$(run_cx coverage --format tsv 2>&1)
+assert_contains "$CXT" "$(printf 'AC1\tno\tT2')" "coverage: 同じ AC を2回書いても列は重複しない"
+
+# AC が 0 件は「被覆 100%」ではなく測れていない（ゲートが最も要る場面で空振りしていた）
+rm -f "$CXD/requirement.md"
+printf -- '- [ ] T1: a\n      AC: なし\n      依存: なし\n' > "$CXD/tasks.md"
+CXO=$(run_cx coverage --strict 2>&1); CXR=$?
+assert_eq "$CXR" "4" "coverage --strict: AC が1件も無い work は素通りさせない"
+assert_contains "$CXO" "受け入れ基準が1件もありません" "coverage: AC ゼロを gap として名指しする"
+
+# `AC: *` を unquoted で展開すると gap 件数が cwd の中身に依存する
+printf -- '- [ ] AC1: a\n' > "$CXD/requirement.md"
+printf -- '- [ ] T1: g\n      AC: *\n      依存: なし\n' > "$CXD/tasks.md"
+CXO=$(run_cx coverage 2>&1)
+assert_contains "$CXO" "T1 が未定義の AC を参照: *" "coverage: グロブ文字をファイル名に展開しない"
+assert_eq "$(printf '%s\n' "$CXO" | grep -c '未定義の AC を参照')" "1" "coverage: 展開で gap が増殖しない"
+rm -rf "$CVX"
+
+echo "== coverage: 分割 work は家族単位で見る（消せない gap を作らない）=="
+# subtask は親の requirement.md を継承するので、自分の slice だけを見ると
+# 兄弟が担当する AC が必ず「タスクが無い」になり、誰にも直せない gap が恒久的に残る。
+CVS=$(mktemp -d); mkdir -p "$CVS/.aidev/backlog"
+run_cs() { ( cd "$CVS" && "$AIDEV_SH" "$@" ); }
+run_cs new big >/dev/null; CSP=$(cat "$CVS/.aidev/current")
+printf -- '- [ ] AC1: a\n- [ ] AC2: b\n- [ ] AC3: c\n' > "$CVS/.aidev/works/$CSP/requirement.md"
+printf -- '- AC1: x\n- AC2: y\n- AC3: z\n' > "$CVS/.aidev/works/$CSP/spec.md"
+run_cs new 01-front --parent "$CSP" >/dev/null
+run_cs new 02-back  --parent "$CSP" >/dev/null
+printf -- '- [ ] T1: front\n      AC: AC1\n      依存: なし\n' > "$CVS/.aidev/works/$CSP/01-front/tasks.md"
+
+CSO=$(run_cs coverage --strict "$CSP/01-front" 2>&1); CSR=$?
+assert_eq "$CSR" "0" "coverage --strict: 兄弟が未 plan の間は cover を致命にしない（最初の子が通れなくなる）"
+assert_contains "$CSO" "plan 未実施の subtask があります" "coverage: 致命にしない理由を note で出す"
+assert_contains "$CSO" "01-front/T1" "coverage: 子のタスク ID には subslug を前置する（兄弟間の T1 衝突を避ける）"
+CSO2=$(run_cs coverage "$CSP" 2>&1)
+assert_eq "$(printf '%s\n' "$CSO2" | sed -n '/^ac/,$p' | tail -n +2)" \
+          "$(printf '%s\n' "$CSO"  | sed -n '/^ac/,$p' | tail -n +2)" \
+          "coverage: 親から見ても子から見ても同じ被覆になる"
+
+printf -- '- [ ] T1: back\n      AC: AC2, AC3\n      依存: なし\n' > "$CVS/.aidev/works/$CSP/02-back/tasks.md"
+CSO=$(run_cs coverage --strict "$CSP" 2>&1); CSR=$?
+assert_eq "$CSR" "0" "coverage --strict: 全 subtask が plan 済みなら被覆が揃う"
+assert_contains "$CSO" "tasks=3/3(100%)" "coverage: 家族全体で 3 AC すべてが被覆される"
+assert_absent "$CSO" "plan 未実施" "coverage: 全員 plan 済みなら note を出さない"
+# verify は家族の根でだけ報告する（子ごとに同じ WARN を重複させない）
+rm -f "$CVS/.aidev/works/$CSP/02-back/tasks.md"
+for f in requirement spec plan review test-result; do : > "$CVS/.aidev/works/$CSP/$f.md"; done
+CSV=$(run_cs verify "$CSP" 2>&1)
+assert_eq "$(printf '%s\n' "$CSV" | grep -c 'AC 被覆')" "0" "verify: 未 plan の subtask がある間は被覆 WARN を出さない"
+rm -rf "$CVS"
+
+
+echo "== 被覆の刻印（approve が自動で刻む）と ac / ac_drift =="
+# 背景: 分母がこれまで実装側(files_changed)と分解側(tasks_planned)しか無く、**要求の大きさ**で
+# 正規化できなかった。刻印を手書きに任せない理由は harnessRev / schema と同じ（忘れられる）。
+MTR=$(mktemp -d); mkdir -p "$MTR/.aidev/backlog"
+run_mt() { ( cd "$MTR" && "$AIDEV_SH" "$@" ); }
+run_mt new mstamp >/dev/null; MTW=$(cat "$MTR/.aidev/current"); MTD="$MTR/.aidev/works/$MTW"
+
+# tasks.md がまだ無い工程は刻まない（full の requirement をここで潰さない）
+run_mt approve requirement >/dev/null
+assert_absent "$(cat "$MTD/metrics.yml")" "ac_total" "approve: tasks.md が無ければ被覆を刻まない"
+
+printf -- '- [ ] AC1: a\n- [ ] AC2: b\n- [ ] AC3: c\n' > "$MTD/requirement.md"
+printf -- '- AC1: x\n- AC2: y\n' > "$MTD/spec.md"
+printf -- '- [ ] T1: a\n      AC: AC1\n      依存: なし\n- [ ] T2: b\n      AC: AC2, AC3\n      依存: なし\n- [ ] T3: 下準備\n      AC: なし\n      依存: なし\n' > "$MTD/tasks.md"
+assert_contains "$(run_mt coverage)" "ac_none=1" "coverage: 明示的な AC: なし を書き忘れと分けて数える"
+
+run_mt approve spec >/dev/null
+run_mt approve plan tasks_planned=3 tasks_anchored=3 >/dev/null
+MTM=$(cat "$MTD/metrics.yml")
+assert_contains "$MTM" "tasks_planned: 3, tasks_anchored: 3, ac_total: 3" "approve plan: 手書きのキーの後ろに機械値を足す"
+assert_contains "$MTM" "ac_covered: 3, tasks_no_ac: 0, tasks_ac_none: 1" "approve plan: 被覆・書き忘れ・AC 無しを刻む"
+
+# coding でタスクを足して AC を書き忘れる＝ plan 以降に生まれた乖離
+printf -- '- [ ] T4: 追加でやった作業\n      依存: なし\n' >> "$MTD/tasks.md"
+run_mt approve coding tasks_done=4 >/dev/null
+assert_absent "$(sed -n 's/.*phase: coding.*/&/p' "$MTD/metrics.yml")" "ac_total" "approve coding: 被覆は刻まない（刻むのは plan/requirement/review の3工程）"
+run_mt approve test passed=9 failed=0 >/dev/null
+run_mt approve review must=0 should=0 nit=0 >/dev/null
+assert_contains "$(cat "$MTD/metrics.yml")" "nit: 0, ac_total: 3, ac_covered: 3, tasks_no_ac: 1" "approve review: 実装後の被覆を刻む"
+
+MTOUT=$(run_mt metrics)
+assert_contains "$MTOUT" "ac  ac_drift" "metrics: ac / ac_drift 列を出す"
+assert_eq "$(run_mt metrics --format tsv | awk -F'\t' '{print $7, $8}')" "3 1" "metrics: 要求の規模(3)と plan 以降に増えた gap(1)"
+
+# 明示指定は機械値で上書きしない
+run_mt new mstamp2 >/dev/null; MTW2=$(cat "$MTR/.aidev/current"); MTD2="$MTR/.aidev/works/$MTW2"
+printf -- '- [ ] AC1: a\n' > "$MTD2/requirement.md"
+printf -- '- [ ] T1: a\n      AC: AC1\n      依存: なし\n' > "$MTD2/tasks.md"
+run_mt approve requirement ac_total=99 >/dev/null
+assert_contains "$(cat "$MTD2/metrics.yml")" "ac_total: 99" "approve: 明示指定があれば機械値で上書きしない"
+assert_absent "$(cat "$MTD2/metrics.yml")" "ac_total: 1," "approve: 明示指定と機械値を二重に刻まない"
+
+# 刻印が1点しかない work では乖離を測れない（0 と表示して「乖離なし」と誤読させない）
+assert_eq "$(run_mt metrics "$MTW2" --format tsv | awk -F'\t' '{print $8}')" "-" "metrics: 刻印が1点なら ac_drift は - （測れないことを 0 と書かない）"
+rm -rf "$MTR"
+
+
+echo "== smoke（起動確認 GO/NO-GO）=="
+# 出所: cc-sdd の kiro-verify-completion「テストが通ることだけでは FEATURE_GO の根拠にならない」。
+# aidev には「成果物が起動して最初の使える状態まで行くか」を見る場所が無かった。
+SMK=$(mktemp -d); mkdir -p "$SMK/.aidev/backlog"
+run_sm() { ( cd "$SMK" && "$AIDEV_SH" "$@" ); }
+run_sm new boot >/dev/null; SMW=$(cat "$SMK/.aidev/current"); SMD="$SMK/.aidev/works/$SMW"
+
+# 未設定は「合格」ではない（黙って緑にしない）
+SMO=$(run_sm smoke 2>&1); SMR=$?
+assert_eq "$SMR" "2" "smoke: smokeCommand 未設定は exit 2（検証していないことを合格にしない）"
+assert_contains "$SMO" "smokeCommand: none と**明示**する" "smoke: 対象外の宣言方法を案内する"
+assert_absent "$(cat "$SMD/metrics.yml" 2>/dev/null || true)" "smoke" "smoke: 未設定では何も刻まない"
+
+# none は「対象外と宣言済み」として skip を刻む
+printf 'smokeCommand: none\n' > "$SMK/.aidev/config.yml"
+SMO=$(run_sm smoke 2>&1); SMR=$?
+assert_eq "$SMR" "0" "smoke: smokeCommand: none は exit 0"
+assert_contains "$(cat "$SMD/metrics.yml")" "event: smoke, metrics: { result: skip }" "smoke: none は skip を刻む"
+
+# 実行して exit code を CLI が取る（自己申告させない）
+printf 'smokeCommand: echo "booted: demo v0.1"\n' > "$SMK/.aidev/config.yml"
+SMO=$(run_sm smoke 2>&1); SMR=$?
+assert_eq "$SMR" "0" "smoke: コマンドが成功すれば exit 0"
+assert_contains "$SMO" "booted: demo v0.1" "smoke: 出力を素通しする（要約しない）"
+assert_contains "$(cat "$SMD/metrics.yml")" "result: pass, exit_code: 0" "smoke: pass と exit code を刻む"
+# **yget の一律クォート除去に通すと末尾だけ剥がれて壊れる**（実際に壊れた形の回帰）
+assert_absent "$SMO" "Unterminated" "smoke: 値の中のクォートを壊さない"
+
+printf 'smokeCommand: exit 3\n' > "$SMK/.aidev/config.yml"
+SMO=$(run_sm smoke 2>&1); SMR=$?
+assert_eq "$SMR" "4" "smoke: コマンドが失敗すれば exit 4"
+assert_contains "$(cat "$SMD/metrics.yml")" "result: fail, exit_code: 3" "smoke: fail と実際の exit code を刻む"
+
+# verify: smokeCommand を設定している PJ でだけ deliver 前に効かせる
+for f in requirement spec plan tasks review test-result; do : > "$SMD/$f.md"; done
+printf -- '- [ ] AC1: 起動する\n' > "$SMD/requirement.md"
+printf -- '- [ ] T1: 起動経路\n      AC: AC1\n      依存: なし\n' > "$SMD/tasks.md"
+for p in requirement spec plan coding test review deliver; do run_sm approve "$p" >/dev/null; done
+SMV=$(run_sm verify 2>&1); SMR=$?
+assert_eq "$SMR" "4" "verify: smoke が失敗のままなら deliver 済でも FAIL"
+assert_contains "$SMV" "起動確認が失敗のまま" "verify: 失敗のままであることを名指しする"
+printf 'smokeCommand: true\n' > "$SMK/.aidev/config.yml"; run_sm smoke >/dev/null 2>&1
+SMV=$(run_sm verify 2>&1); SMR=$?
+assert_eq "$SMR" "0" "verify: smoke が通れば FAIL は消える"
+# 未設定の PJ には**毎 work 鳴らさない**（直せない WARN を作らない）
+rm -f "$SMK/.aidev/config.yml"
+SMV=$(run_sm verify 2>&1); SMR=$?
+assert_eq "$SMR" "0" "verify: smokeCommand 未設定の PJ では work ごとに鳴らさない"
+assert_absent "$SMV" "起動確認" "verify: 未設定は work の問題ではないので verify では触れない"
+# 代わりに doctor が PJ 単位で1行だけ知らせる
+SMDC=$(run_sm doctor --quiet 2>&1)
+assert_contains "$SMDC" "smoke-summary: configured=no" "doctor: 未設定を PJ 単位で1行だけ知らせる"
+assert_eq "$(printf '%s\n' "$SMDC" | grep -c '起動するかは誰も見ていません')" "1" "doctor: work 数によらず1行（100 works で 100 行にしない）"
+printf 'smokeCommand: none\n' > "$SMK/.aidev/config.yml"
+assert_contains "$(run_sm doctor --quiet 2>&1)" "configured=none" "doctor: 対象外の宣言済みなら警告しない"
+rm -rf "$SMK"
+
+
+echo "== debug（詰まったときの原因究明を有限化する）=="
+# 出所: cc-sdd の debug subagent（fresh context・有限ラウンド）。
+# aidev は上限（maxSendBacks）を state.yml に書くだけで**どこも検査していなかった**。
+DBR=$(mktemp -d); mkdir -p "$DBR/.aidev/backlog"
+run_db() { ( cd "$DBR" && "$AIDEV_SH" "$@" ); }
+run_db new stuck >/dev/null; DBW=$(cat "$DBR/.aidev/current"); DBD="$DBR/.aidev/works/$DBW"
+for f in spec plan review test-result; do : > "$DBD/$f.md"; done
+printf -- '- [ ] AC1: a\n' > "$DBD/requirement.md"
+printf -- '- [ ] T1: x\n      AC: AC1\n      依存: なし\n' > "$DBD/tasks.md"
+for p in requirement spec plan; do run_db approve "$p" >/dev/null; done
+
+# 上限に達するまでは黙っている。達した瞬間に知らせる（気付くのが retro では遅い）
+DBO=$(run_db event coding sent_back 2>&1)
+assert_absent "$DBO" "aidev debug start" "event sent_back: 上限前は促さない"
+run_db event coding sent_back >/dev/null
+DBO=$(run_db event coding sent_back 2>&1)
+assert_contains "$DBO" "aidev debug start --phase coding" "event sent_back: 上限(3)到達をその場で促す"
+assert_contains "$DBO" "同じコンテキストで回し続けない" "event sent_back: 何が問題かを言う"
+
+DBO=$(run_db debug status --format tsv 2>&1)
+assert_contains "$DBO" "$(printf 'coding\t3\t0\tyes')" "debug status: 差し戻し3・デバッグ未実施・要=yes"
+assert_contains "$DBO" "maxSendBacks=3 maxDebugRounds=2 last_action=-" "debug status: 上限と直近の行動"
+assert_contains "$(run_db debug 2>&1)" "phase   sent_backs  debug_rounds  due" "debug: 引数なしは status（表）"
+
+# start は「渡さないもの」を明示する（この手順の要）
+DBO=$(run_db debug start --phase coding 2>&1); DBR2=$?
+assert_eq "$DBR2" "0" "debug start: 1 ラウンド目は通る"
+assert_contains "$DBO" "round 1/2" "debug start: ラウンドを数える"
+assert_contains "$DBO" "**渡さないもの: これまでの修正の試行履歴**" "debug start: fresh context の要を明示する"
+
+# report は必須フィールドを CLI が強制する（convention new の入口ゲートと同じ）
+run_db debug report --phase coding --root-cause x --category logic >/dev/null 2>&1
+assert_eq "$?" "1" "debug report: --next-action 無しは弾く"
+run_db debug report --phase coding --root-cause x --category bogus --next-action retry >/dev/null 2>&1
+assert_eq "$?" "1" "debug report: 未知の --category は弾く"
+run_db debug report --phase coding --root-cause x --category logic --next-action bogus >/dev/null 2>&1
+assert_eq "$?" "1" "debug report: 未知の --next-action は弾く"
+
+DBO=$(run_db debug report --phase coding --root-cause "save() が例外を握りつぶしていた" \
+        --category logic --next-action retry --confidence high --fix-plan "os.replace の前に再送出" 2>&1)
+assert_contains "$DBO" "round 1 -> retry (logic)" "debug report: 記録して次の行動を出す"
+assert_contains "$DBO" "同じコンテキストに戻さない" "debug report: retry の意味を言う"
+# **本文は decisions.md、列挙値は metrics**（フロー形式の1行に自由文を入れると壊れる）
+DBDEC=$(cat "$DBD/decisions.md")
+assert_contains "$DBDEC" "## デバッグ D1: logic / retry" "debug report: decisions.md に本文を残す"
+assert_contains "$DBDEC" "- 根本原因: save() が例外を握りつぶしていた" "debug report: 根本原因は文章として残す"
+assert_contains "$(cat "$DBD/metrics.yml")" "stage: report, round: 1, category: logic, next_action: retry, confidence: high" \
+  "debug report: metrics には列挙値だけを刻む"
+
+# start 無しの report は弾く（順序を守らせる）
+run_db debug report --phase test --root-cause x --category logic --next-action retry >/dev/null 2>&1
+assert_eq "$?" "1" "debug report: start の無い工程では弾く"
+
+# ラウンド上限で止める（無限に粘らせない）
+run_db debug start --phase coding >/dev/null
+run_db debug report --phase coding --root-cause "外部 API の仕様が違う" --category external --next-action stop_for_human >/dev/null
+DBO=$(run_db debug start --phase coding 2>&1); DBR2=$?
+assert_eq "$DBR2" "4" "debug start: 上限(2)を超えたら止める"
+assert_contains "$DBO" "これ以上粘らない" "debug start: 上限の理由を言う"
+
+# verify: 上限に達したのに何もせず着地した work を捕まえる
+for p in coding test review deliver; do run_db approve "$p" >/dev/null; done
+DBV=$(run_db verify 2>&1); DBR2=$?
+assert_eq "$DBR2" "4" "verify: stop_for_human のまま着地したら FAIL"
+assert_contains "$DBV" "人の判断を待つ出口を素通りした" "verify: 何が問題かを名指しする"
+
+# 別 work: 差し戻し上限に達したが debug の記録が無い -> WARN（FAIL にはしない）
+run_db new stuck2 >/dev/null; DBW2=$(cat "$DBR/.aidev/current"); DBD2="$DBR/.aidev/works/$DBW2"
+for f in spec plan review test-result; do : > "$DBD2/$f.md"; done
+printf -- '- [ ] AC1: a\n' > "$DBD2/requirement.md"
+printf -- '- [ ] T1: x\n      AC: AC1\n      依存: なし\n' > "$DBD2/tasks.md"
+for i in 1 2 3; do run_db event test sent_back >/dev/null; done
+for p in requirement spec plan coding test review deliver; do run_db approve "$p" >/dev/null; done
+DBV=$(run_db verify 2>&1); DBR2=$?
+assert_eq "$DBR2" "0" "verify: 原因究明の記録漏れは WARN 止まり（人の判断が要る）"
+assert_contains "$DBV" "test の差し戻しが 3 回（上限 3）だが原因究明の記録が無い" "verify: 上限到達＋未実施を知らせる"
+rm -rf "$DBR"
+
+
+echo "== 監査で見つかった経路（刻印の選び方・家族単位・上限値の端・version-aware）=="
+AUD=$(mktemp -d); mkdir -p "$AUD/.aidev/backlog"
+run_au() { ( cd "$AUD" && "$AIDEV_SH" "$@" ); }
+# **command substitution で呼ばない**（サブシェルになり AU_W/AU_D が呼び側に届かない。
+# cov_analyze で踏んだのと同じ形）。結果は AU_W（dated 名）と AU_D（work dir）に入る
+mk_work() { # slug
+  run_au new "$1" >/dev/null
+  AU_W=$(cat "$AUD/.aidev/current"); AU_D="$AUD/.aidev/works/$AU_W"
+  for f in spec plan review test-result; do : > "$AU_D/$f.md"; done
+  printf -- '- [ ] AC1: a\n- [ ] AC2: b\n' > "$AU_D/requirement.md"
+  printf -- '- [ ] T1: x\n      AC: AC1, AC2\n      依存: なし\n' > "$AU_D/tasks.md"
+}
+
+# 明示キーの判定は**引数ごとの先頭一致**（連結文字列への部分一致だと値の中の ac_total= で分岐が変わる）
+mk_work m1a; AUD1=$AU_D
+run_au approve plan "note=see ac_total=5" >/dev/null
+assert_contains "$(cat "$AUD1/metrics.yml")" "note: see ac_total=5, ac_total: 2" "approve: 値の中の ac_total= を明示指定と誤認しない"
+mk_work m1b; AUD2=$AU_D; AU_M1B=$AU_W
+run_au approve plan ac_total=9 >/dev/null
+assert_contains "$(cat "$AUD2/metrics.yml")" "metrics: { ac_total: 9 }" "approve: 先頭が ac_total= なら機械値で上書きしない"
+
+# ac_covered を持たない刻印は乖離の計算から捨てる（0 とみなすと乖離を捏造する）
+run_au approve review >/dev/null
+assert_eq "$(run_au metrics "$AU_M1B" --format tsv | awk -F'\t' '{print $8}')" "-" \
+  "metrics: ac_total だけ手で渡した刻印は ac_drift に使わない（乖離を捏造しない）"
+
+# 同じ工程を2回 approve しても「2点ある」ことにしない（測れないことを 0 と書かない）
+mk_work m5; AUD3=$AU_D; AU_M5=$AU_W
+run_au approve plan >/dev/null; run_au approve plan >/dev/null
+assert_eq "$(run_au metrics "$AU_M5" --format tsv 2>/dev/null | awk -F'\t' '{print $8}')" "-" \
+  "metrics: 同じ工程の二重 approve を 2 点と数えない（plan と review で選ぶ）"
+run_au approve review >/dev/null
+assert_eq "$(run_au metrics "$AU_M5" --format tsv | awk -F'\t' '{print $8}')" "0" "metrics: plan と review がそろえば測れる"
+
+# 分割 work: 子では刻まない（家族単位の値を子ごとに刻むと分母が多重計上される）
+mk_work split; AUDP=$AU_D
+SPP=$(cat "$AUD/.aidev/current")
+run_au new 01-a --parent "$SPP" >/dev/null
+printf -- '- [ ] T1: x\n      AC: AC1, AC2\n      依存: なし\n' > "$AUDP/01-a/tasks.md"
+run_au approve plan >/dev/null
+assert_absent "$(cat "$AUDP/01-a/metrics.yml")" "ac_total" "approve: subtask では被覆を刻まない"
+
+# 起動確認は家族単位。子で打っても親に刻まれ、親の verify が通る
+printf 'smokeCommand: true\n' > "$AUD/.aidev/config.yml"
+AUSO=$(run_au smoke 2>&1)
+assert_contains "$AUSO" "記録は親" "smoke: 子で打ったら親に刻むことを告げる"
+assert_contains "$(cat "$AUDP/metrics.yml")" "event: smoke" "smoke: 記録は家族の根に入る"
+assert_absent "$(cat "$AUDP/01-a/metrics.yml")" "event: smoke" "smoke: 子には刻まない"
+run_au use "$SPP" >/dev/null
+for p in requirement spec plan coding test review deliver; do run_au approve "$p" >/dev/null; done
+AUV=$(run_au verify "$SPP" 2>&1); AUR=$?
+assert_eq "$AUR" "0" "verify: 子で通した smoke が親の deliver ゲートに届く"
+assert_absent "$AUV" "起動確認の記録が無い" "verify: 家族の記録を見るので誤 FAIL しない"
+
+# smoke に時間上限（常駐コマンドで自律実行が止まらないように）
+if command -v timeout >/dev/null 2>&1; then
+  printf 'smokeCommand: sleep 30\nsmokeTimeoutSec: 1\n' > "$AUD/.aidev/config.yml"
+  AUSO=$(run_au smoke 2>&1); AUR=$?
+  assert_eq "$AUR" "4" "smoke: 上限で打ち切って fail にする"
+  assert_contains "$AUSO" "秒で打ち切りました" "smoke: 打ち切ったことを言う"
+  assert_contains "$(cat "$AUDP/metrics.yml")" "exit_code: 124" "smoke: 打ち切りの exit code を刻む"
+else
+  skip 3 "timeout(coreutils) 不在のため smoke の時間上限を省略"
+fi
+rm -f "$AUD/.aidev/config.yml"
+
+# 上限値の端: maxDebugRounds: 0 は 1 に切り上げる（0 だと start も report も通らず詰む）
+mk_work edge; AUDD=$AU_D; AU_EDGE=$AU_W
+printf 'maxDebugRounds: 0\n' > "$AUD/.aidev/config.yml"
+AUSO=$(run_au debug start --phase coding 2>&1); AUR=$?
+assert_eq "$AUR" "0" "debug start: maxDebugRounds: 0 でも詰まない（下限 1）"
+assert_contains "$AUSO" "round 1/1" "debug start: 下限 1 として扱う"
+rm -f "$AUD/.aidev/config.yml"
+
+# maxSendBacks: 0 の PJ で verify が全工程に鳴らない（debug status の due と同じ条件で絞る）
+printf 'maxSendBacks: 0\n' >> "$AUDD/state.yml"
+for p in requirement spec plan coding test review deliver; do run_au approve "$p" >/dev/null; done
+AUV=$(run_au verify "$AU_EDGE" 2>&1)
+assert_eq "$(printf '%s\n' "$AUV" | grep -c '原因究明の記録が無い')" "0" \
+  "verify: 差し戻し 0 回の工程には原因究明を求めない（maxSendBacks: 0 で全工程が鳴らない）"
+
+# version-aware: schema 7/8 の検査を旧 work に遡らせない
+printf 'smokeCommand: true\n' > "$AUD/.aidev/config.yml"
+for sc in 6 7; do
+  mkdir -p "$AUD/.aidev/works/2020010$sc-old"
+  printf 'schema: %s\nslug: old%s\ncurrent: deliver\napproved: [requirement, spec, plan, coding, test, review, deliver]\nharnessRev: aaa1111\n' "$sc" "$sc" \
+    > "$AUD/.aidev/works/2020010$sc-old/state.yml"
+  printf 'events:\n  - { ts: 2020-01-0%s\T00:00:00Z, phase: deliver, event: approved }\n' "$sc" \
+    > "$AUD/.aidev/works/2020010$sc-old/metrics.yml"
+  for f in requirement spec plan tasks review test-result; do : > "$AUD/.aidev/works/2020010$sc-old/$f.md"; done
+done
+run_au verify 20200106-old >/dev/null 2>&1
+assert_eq "$?" "0" "verify: schema 6 の work に起動確認を要求しない（遡って違反にしない）"
+run_au verify 20200107-old >/dev/null 2>&1
+assert_eq "$?" "4" "verify: schema 7 からは起動確認の記録を要求する"
+rm -rf "$AUD"
+
+
+echo "== awk 実装の差（同じ入力で同じ判定になるか）=="
+# 背景: `awk -v` の**値**にもエスケープ処理がかかり、その扱いが実装で割れる。
+# mawk は `\[` をそのまま残し、gawk は `[` に潰して警告を出す。潰れると
+# `- \[[ xX]\]` が `- [[ xX]]`（角括弧式）に化けてチェックボックス行に当たらず、
+# **受け入れ基準が1件も取れなくなる**。開発機（mawk）では緑、CI（gawk）で 57 件 fail、
+# という形で一度出した。正規表現は**プログラム中のリテラル**として書くこと。
+AWKD=$(mktemp -d); mkdir -p "$AWKD/.aidev/works/w"
+printf 'schema: 8\nslug: w\ncurrent: plan\napproved: []\n' > "$AWKD/.aidev/works/w/state.yml"
+printf 'w\n' > "$AWKD/.aidev/current"
+printf -- '- [ ] AC1: ひとつ\n- [ ] AC-I1 開く / 閉じる: どう\n- [ ] ACL の設定\n' > "$AWKD/.aidev/works/w/requirement.md"
+printf -- '- AC1: x\n' > "$AWKD/.aidev/works/w/spec.md"
+# 全角スペース(U+3000)の字下げを混ぜる。POSIX の空白クラスは**ロケール依存**で、
+# UTF-8 ロケールの gawk はこれを空白とみなし、バイト志向の mawk はみなさない
+# （`[[:space:]]` のままだと、この行が実装 × ロケールの組でだけタスクになる）。
+printf -- '- [ ] T1: t\n      AC: AC1、AC-I1\n      依存: なし\n\343\200\200- [ ] T2: 全角字下げ\n      AC: AC1\n      依存: なし\n' \
+  > "$AWKD/.aidev/works/w/tasks.md"
+
+AWK_IMPLS=""
+for _a in awk gawk mawk busybox; do
+  command -v "$_a" >/dev/null 2>&1 || continue
+  if [ "$_a" = busybox ]; then busybox awk 'BEGIN{}' >/dev/null 2>&1 || continue; fi
+  AWK_IMPLS="$AWK_IMPLS $_a"
+done
+printf 'awk 実装: %s\n' "${AWK_IMPLS# }"
+
+AWK_REF=""; AWK_N=0
+for _a in $AWK_IMPLS; do
+  _bin=$(mktemp -d)
+  if [ "$_a" = busybox ]; then printf '#!/bin/sh\nexec busybox awk "$@"\n' > "$_bin/awk"; chmod +x "$_bin/awk"
+  else ln -sf "$(command -v "$_a")" "$_bin/awk"; fi
+  # **ロケールも振る**。POSIX の空白・文字クラスはロケール依存なので、
+  # 同じ awk でも LANG が違うと判定が変わりうる（C と UTF-8 の両方で同じであること）
+  _out=$( ( cd "$AWKD" && PATH="$_bin:$PATH" LC_ALL=C "$AIDEV_SH" coverage --strict ) 2>&1 ); _rc=$?
+  _outu=$( ( cd "$AWKD" && PATH="$_bin:$PATH" LC_ALL=C.UTF-8 "$AIDEV_SH" coverage --strict ) 2>&1 )
+  assert_eq "$_outu" "$_out" "awk($_a): ロケール（C / C.UTF-8）で判定が変わらない"
+  rm -rf "$_bin"
+  AWK_N=$((AWK_N+1))
+  if [ -z "$AWK_REF" ]; then
+    AWK_REF="$_out"; AWK_REF_RC=$_rc; AWK_REF_NAME=$_a
+    assert_contains "$_out" "ac=2" "awk($_a): 受け入れ基準を 2 件拾う（ACL は AC ではない）"
+    assert_absent "$_out" "warning" "awk($_a): 警告を出さない（stderr が出力に混ざる）"
+    assert_contains "$_out" "task_rows=1" "awk($_a): 全角スペース字下げをタスク行と認めない（ASCII の空白だけ）"
+  else
+    assert_eq "$_out" "$AWK_REF" "awk($_a): $AWK_REF_NAME と同じ判定（-v のエスケープ差で割れない）"
+    assert_eq "$_rc" "$AWK_REF_RC" "awk($_a): $AWK_REF_NAME と同じ exit code"
+  fi
+done
+if [ "$AWK_N" -lt 2 ]; then
+  skip 2 "awk 実装が1つしか無いため実装間の突き合わせを省略（CI の ubuntu は gawk / 開発機は mawk のことが多い）"
+fi
+rm -rf "$AWKD"
+
 echo "== sh ⇔ ps1 パリティ =="
 if [ -n "$PS_HOST" ]; then
   block_begin parity
@@ -1473,6 +2024,282 @@ if [ -n "$PS_HOST" ]; then
     assert_eq "$S_SH_RC" "$S_PS_RC" "パリティ: $sargs（exit code）"
   done
 
+
+  # coverage のパリティ（被覆率と gap の判定が OS で食い違うと、片方の環境でだけ穴が通る）
+  PCOV=$(mktemp -d); mkdir -p "$PCOV/.aidev/backlog"
+  ( cd "$PCOV" && "$AIDEV_SH" new pcov >/dev/null )
+  PCW=$(cat "$PCOV/.aidev/current"); PCD="$PCOV/.aidev/works/$PCW"
+  cat > "$PCD/requirement.md" <<'EOF'
+- [ ] AC1: ひとつ
+- [ ] AC2: ふたつ
+- [ ] AC-I1 開く / 閉じる: どう
+EOF
+  cat > "$PCD/spec.md" <<'EOF'
+- AC1: a
+EOF
+  cat > "$PCD/tasks.md" <<'EOF'
+- [ ] T1: ひとつめ
+      依存: なし
+      AC: AC1、AC-I1
+- [x] T2: ふたつめ
+      依存: T1, T9
+      AC: AC7
+- [ ] T3: みっつめ
+      依存: T4
+- [ ] T4: よっつめ
+      依存: T3
+      AC: なし
+EOF
+  for pf in table tsv; do
+    PC_SH=$( ( cd "$PCOV" && "$AIDEV_SH" coverage --format "$pf" ) 2>&1 ); PC_SH_RC=$?
+    PC_PS_RAW=$( ( cd "$PCOV" && run_ps1 "$AIDEV_PS1" coverage --format "$pf" ) 2>&1 ); PC_PS_RC=$?
+    PC_PS=$(printf '%s' "$PC_PS_RAW" | tr -d '\r')
+    assert_eq "$PC_SH" "$PC_PS" "パリティ: coverage --format $pf（出力）"
+    assert_eq "$PC_SH_RC" "$PC_PS_RC" "パリティ: coverage --format $pf（exit code）"
+  done
+  PC_SH=$( ( cd "$PCOV" && "$AIDEV_SH" coverage --strict ) 2>&1 ); PC_SH_RC=$?
+  PC_PS_RAW=$( ( cd "$PCOV" && run_ps1 "$AIDEV_PS1" coverage --strict ) 2>&1 ); PC_PS_RC=$?
+  PC_PS=$(printf '%s' "$PC_PS_RAW" | tr -d '\r')
+  assert_eq "$PC_SH" "$PC_PS" "パリティ: coverage --strict（出力）"
+  assert_eq "$PC_SH_RC" "$PC_PS_RC" "パリティ: coverage --strict（exit code は 4）"
+  # 監査で割れていた経路のパリティ（明示キーの判定・家族単位の smoke・上限値の端・help）
+  PAU=$(mktemp -d); PAU2=$(mktemp -d)
+  for pimpl in sh ps1; do
+    if [ "$pimpl" = sh ]; then PA=$PAU; else PA=$PAU2; fi
+    mkdir -p "$PA/.aidev/backlog"
+    par() { if [ "$pimpl" = sh ]; then ( cd "$PA" && "$AIDEV_SH" "$@" >/dev/null 2>&1 ); \
+            else ( cd "$PA" && run_ps1 "$AIDEV_PS1" "$@" >/dev/null 2>&1 ); fi; }
+    par new fam
+    PAW=$(tr -d '\r' < "$PA/.aidev/current"); PAD="$PA/.aidev/works/$PAW"
+    for f in spec plan review test-result; do : > "$PAD/$f.md"; done
+    printf -- '- [ ] AC1: a\n- [ ] AC2: b\n' > "$PAD/requirement.md"
+    printf -- '- [ ] T1: x\n      AC: AC1, AC2\n      依存: なし\n' > "$PAD/tasks.md"
+    par new 01-a --parent "$PAW"
+    printf -- '- [ ] T1: y\n      AC: AC1, AC2\n      依存: なし\n' > "$PAD/01-a/tasks.md"
+    # `true` は cmd.exe の組み込みに無く、PATH に true.exe があるかで結果が変わる。
+    # パリティで**実行される**コマンドは sh / cmd.exe のどちらでも同じ意味のものに限る
+    printf 'smokeCommand: exit 0\n' > "$PA/.aidev/config.yml"
+    par use "$PAW/01-a"; par approve plan            # 子: 刻まない / smoke は親へ
+    par smoke
+    par use "$PAW"
+    par approve plan "note=see ac_total=5"           # 値の中の ac_total= は明示指定ではない
+    par approve plan ac_total=9                      # 先頭一致なら尊重
+    par approve review
+    for p in requirement spec coding test deliver; do par approve "$p"; done
+  done
+  PAM_SH=$(sed 's/ts: [^,]*, //' "$PAU/.aidev/works"/*/metrics.yml)
+  PAM_PS=$(tr -d '\r' < "$(ls -d "$PAU2/.aidev/works"/*/metrics.yml)" | sed 's/ts: [^,]*, //')
+  assert_eq "$PAM_SH" "$PAM_PS" "パリティ: 明示キーの判定と家族単位の smoke（親の metrics）"
+  PAS_SH=$(sed 's/ts: [^,]*, //' "$PAU/.aidev/works"/*/01-a/metrics.yml)
+  PAS_PS=$(tr -d '\r' < "$(ls -d "$PAU2/.aidev/works"/*/01-a/metrics.yml)" | sed 's/ts: [^,]*, //')
+  assert_eq "$PAS_SH" "$PAS_PS" "パリティ: subtask の metrics（被覆も smoke も刻まれない）"
+  for pargs in "metrics --all --format tsv" "verify" "smoke"; do
+    # shellcheck disable=SC2086
+    PA_SH=$( ( cd "$PAU"  && "$AIDEV_SH" $pargs ) 2>&1 | sed 's/2[0-9-]*T[0-9:]*Z//g' ); PA_SH_RC=$?
+    # shellcheck disable=SC2086
+    PA_PS_RAW=$( ( cd "$PAU2" && run_ps1 "$AIDEV_PS1" $pargs ) 2>&1 ); PA_PS_RC=$?
+    PA_PS=$(printf '%s' "$PA_PS_RAW" | tr -d '\r' | sed 's/2[0-9-]*T[0-9:]*Z//g')
+    assert_eq "$PA_SH" "$PA_PS" "パリティ: $pargs（家族単位の修正後）"
+    assert_eq "$PA_SH_RC" "$PA_PS_RC" "パリティ: $pargs（exit code）"
+  done
+  # 上限値の端（maxDebugRounds: 0 -> 1）
+  printf 'maxDebugRounds: 0\n' > "$PAU/.aidev/config.yml"; printf 'maxDebugRounds: 0\n' > "$PAU2/.aidev/config.yml"
+  PE_SH=$( ( cd "$PAU"  && "$AIDEV_SH" debug start --phase coding ) 2>&1 ); PE_SH_RC=$?
+  PE_PS_RAW=$( ( cd "$PAU2" && run_ps1 "$AIDEV_PS1" debug start --phase coding ) 2>&1 ); PE_PS_RC=$?
+  PE_PS=$(printf '%s' "$PE_PS_RAW" | tr -d '\r')
+  assert_eq "$PE_SH" "$PE_PS" "パリティ: maxDebugRounds: 0 の切り上げ"
+  assert_eq "$PE_SH_RC" "$PE_PS_RC" "パリティ: maxDebugRounds: 0（exit code）"
+  # ps1 の help に新コマンドが載っていること（sh は冒頭コメントを流すので元から載る）
+  PH_PS=$( ( cd "$PAU2" && run_ps1 "$AIDEV_PS1" help ) 2>&1 | tr -d '\r' )
+  for pcmd in coverage smoke debug "worktree rm"; do
+    assert_contains "$PH_PS" "$pcmd" "ps1 help: $pcmd が載っている"
+  done
+  rm -rf "$PAU" "$PAU2"
+
+  # debug のパリティ（記録の中身・上限の効き方・decisions.md の生成物）
+  PDB=$(mktemp -d); PDB2=$(mktemp -d)
+  for pimpl in sh ps1; do
+    if [ "$pimpl" = sh ]; then PD=$PDB; else PD=$PDB2; fi
+    mkdir -p "$PD/.aidev/backlog"
+    pdr() { if [ "$pimpl" = sh ]; then ( cd "$PD" && "$AIDEV_SH" "$@" >/dev/null ); \
+            else ( cd "$PD" && run_ps1 "$AIDEV_PS1" "$@" >/dev/null ); fi; }
+    pdr new stuck
+    PDW=$(tr -d '\r' < "$PD/.aidev/current"); PDD="$PD/.aidev/works/$PDW"
+    for f in spec plan review test-result; do : > "$PDD/$f.md"; done
+    printf -- '- [ ] AC1: a\n' > "$PDD/requirement.md"
+    printf -- '- [ ] T1: x\n      AC: AC1\n      依存: なし\n' > "$PDD/tasks.md"
+    for p in requirement spec plan; do pdr approve "$p"; done
+    for i in 1 2 3; do pdr event coding sent_back; done
+    pdr debug start --phase coding
+    pdr debug report --phase coding --root-cause "save() が例外を握りつぶしていた" --category logic --next-action retry --confidence high --fix-plan "os.replace の前に再送出"
+    pdr debug start --phase coding
+    pdr debug report --phase coding --root-cause "外部 API の仕様が違う" --category external --next-action stop_for_human
+    for p in coding test review deliver; do pdr approve "$p"; done
+  done
+  PDM_SH=$(sed 's/ts: [^,]*, //' "$PDB/.aidev/works"/*/metrics.yml)
+  PDM_PS=$(tr -d '\r' < "$(ls -d "$PDB2/.aidev/works"/*/metrics.yml)" | sed 's/ts: [^,]*, //')
+  assert_eq "$PDM_SH" "$PDM_PS" "パリティ: debug が刻む metrics（stage/round/category/next_action）"
+  PDD_SH=$(sed 's/・[0-9TZ:-]*）/）/' "$PDB/.aidev/works"/*/decisions.md)
+  PDD_PS=$(tr -d '\r' < "$(ls -d "$PDB2/.aidev/works"/*/decisions.md)" | sed 's/・[0-9TZ:-]*）/）/')
+  assert_eq "$PDD_SH" "$PDD_PS" "パリティ: debug report が書く decisions.md"
+  for pargs in "debug status --format tsv" "debug" "debug start --phase coding" "verify"; do
+    # shellcheck disable=SC2086
+    PDO_SH=$( ( cd "$PDB"  && "$AIDEV_SH" $pargs ) 2>&1 ); PDO_SH_RC=$?
+    # shellcheck disable=SC2086
+    PDO_PS_RAW=$( ( cd "$PDB2" && run_ps1 "$AIDEV_PS1" $pargs ) 2>&1 ); PDO_PS_RC=$?
+    PDO_PS=$(printf '%s' "$PDO_PS_RAW" | tr -d '\r')
+    assert_eq "$PDO_SH" "$PDO_PS" "パリティ: $pargs（出力）"
+    assert_eq "$PDO_SH_RC" "$PDO_PS_RC" "パリティ: $pargs（exit code）"
+  done
+  # 入口ゲート（必須・列挙値）のパリティ
+  for pbad in "--root-cause x --category logic" "--root-cause x --category bogus --next-action retry" "--root-cause x --category logic --next-action bogus"; do
+    # shellcheck disable=SC2086
+    PB_SH=$( ( cd "$PDB"  && "$AIDEV_SH" debug report --phase coding $pbad ) 2>&1 ); PB_SH_RC=$?
+    # shellcheck disable=SC2086
+    PB_PS_RAW=$( ( cd "$PDB2" && run_ps1 "$AIDEV_PS1" debug report --phase coding $pbad ) 2>&1 ); PB_PS_RC=$?
+    PB_PS=$(printf '%s' "$PB_PS_RAW" | tr -d '\r')
+    assert_eq "$PB_SH" "$PB_PS" "パリティ: debug report の入口ゲート（$pbad）"
+    assert_eq "$PB_SH_RC" "$PB_PS_RC" "パリティ: debug report の入口ゲート exit（$pbad）"
+  done
+  # sent_back の上限通知
+  PN_SH=$( ( cd "$PDB"  && "$AIDEV_SH" event review sent_back ) 2>&1 )
+  PN_PS=$( ( cd "$PDB2" && run_ps1 "$AIDEV_PS1" event review sent_back ) 2>&1 | tr -d '\r' )
+  assert_eq "$PN_SH" "$PN_PS" "パリティ: event sent_back（上限前は促さない）"
+  rm -rf "$PDB" "$PDB2"
+
+  # smoke のパリティ（未設定・none・成功・失敗・doctor の PJ 単位 1 行）
+  PSM=$(mktemp -d); mkdir -p "$PSM/.aidev/backlog"
+  ( cd "$PSM" && "$AIDEV_SH" new pboot >/dev/null )
+  for scase in unset none pass fail; do
+    case "$scase" in
+      unset) rm -f "$PSM/.aidev/config.yml" ;;
+      none)  printf 'smokeCommand: none\n' > "$PSM/.aidev/config.yml" ;;
+      # **シェルに依存しないコマンドを使う**。smoke は実行シェルが OS で変わる設計
+      # （POSIX=`sh -c` / Windows=`cmd.exe /c`）なので、両者で意味が変わるコマンドを
+      # 置くと出力が一致しない——`echo "x"` は sh がクォートを外し、cmd.exe は外さない。
+      # 出力一致の契約は **CLI が出す行**についてのもの（bin/README の「素通し設計の但し書き」）。
+      pass)  printf 'smokeCommand: echo booted-v0.1\n' > "$PSM/.aidev/config.yml" ;;
+      fail)  printf 'smokeCommand: exit 3\n' > "$PSM/.aidev/config.yml" ;;
+    esac
+    SM_SH=$( ( cd "$PSM" && "$AIDEV_SH" smoke ) 2>&1 ); SM_SH_RC=$?
+    SM_PS_RAW=$( ( cd "$PSM" && run_ps1 "$AIDEV_PS1" smoke ) 2>&1 ); SM_PS_RC=$?
+    SM_PS=$(printf '%s' "$SM_PS_RAW" | tr -d '\r')
+    assert_eq "$SM_SH" "$SM_PS" "パリティ: smoke $scase（出力）"
+    assert_eq "$SM_SH_RC" "$SM_PS_RC" "パリティ: smoke $scase（exit code）"
+  done
+  # doctor の smoke 節（未設定 / none / 設定済み）
+  for scase in unset none set; do
+    case "$scase" in
+      unset) rm -f "$PSM/.aidev/config.yml" ;;
+      none)  printf 'smokeCommand: none\n' > "$PSM/.aidev/config.yml" ;;
+      set)   printf 'smokeCommand: exit 0\n' > "$PSM/.aidev/config.yml" ;;
+    esac
+    SD_SH=$( ( cd "$PSM" && "$AIDEV_SH" doctor ) 2>&1 | sed -n '/^smoke:/,$p' )
+    SD_PS=$( ( cd "$PSM" && run_ps1 "$AIDEV_PS1" doctor ) 2>&1 | tr -d '\r' | sed -n '/^smoke:/,$p' )
+    assert_eq "$SD_SH" "$SD_PS" "パリティ: doctor の smoke 節 $scase"
+  done
+  # verify の schema 7（smoke fail のまま deliver）
+  PSMW=$(cat "$PSM/.aidev/current"); PSMD="$PSM/.aidev/works/$PSMW"
+  for f in requirement spec plan tasks review test-result; do : > "$PSMD/$f.md"; done
+  printf -- '- [ ] AC1: 起動する\n' > "$PSMD/requirement.md"
+  printf -- '- [ ] T1: 起動経路\n      AC: AC1\n      依存: なし\n' > "$PSMD/tasks.md"
+  printf 'smokeCommand: exit 1\n' > "$PSM/.aidev/config.yml"
+  ( cd "$PSM" && "$AIDEV_SH" smoke >/dev/null 2>&1 ) || true
+  for p in requirement spec plan coding test review deliver; do ( cd "$PSM" && "$AIDEV_SH" approve "$p" >/dev/null ); done
+  SV_SH=$( ( cd "$PSM" && "$AIDEV_SH" verify ) 2>&1 ); SV_SH_RC=$?
+  SV_PS_RAW=$( ( cd "$PSM" && run_ps1 "$AIDEV_PS1" verify ) 2>&1 ); SV_PS_RC=$?
+  SV_PS=$(printf '%s' "$SV_PS_RAW" | tr -d '\r')
+  assert_eq "$SV_SH" "$SV_PS" "パリティ: verify の schema 7（起動確認の記録）出力"
+  assert_eq "$SV_SH_RC" "$SV_PS_RC" "パリティ: verify の schema 7（exit code）"
+  rm -rf "$PSM"
+
+  # 被覆の刻印のパリティ（刻む工程・キーの並び・値、および metrics の ac/ac_drift）。
+  # ここが割れると、同じ work を OS 違いで回しただけで insights の分母が変わる。
+  PMS=$(mktemp -d); PMS2=$(mktemp -d)
+  for pimpl in sh ps1; do
+    if [ "$pimpl" = sh ]; then PD=$PMS; else PD=$PMS2; fi
+    mkdir -p "$PD/.aidev/backlog"
+    pr() { if [ "$pimpl" = sh ]; then ( cd "$PD" && "$AIDEV_SH" "$@" >/dev/null ); \
+           else ( cd "$PD" && run_ps1 "$AIDEV_PS1" "$@" >/dev/null ); fi; }
+    pr new pm
+    PW=$(cat "$PD/.aidev/current" | tr -d '\r'); PDD="$PD/.aidev/works/$PW"
+    printf -- '- [ ] AC1: a\n- [ ] AC2: b\n- [ ] AC3: c\n' > "$PDD/requirement.md"
+    printf -- '- AC1: x\n- AC2: y\n' > "$PDD/spec.md"
+    printf -- '- [ ] T1: a\n      AC: AC1\n      依存: なし\n- [ ] T2: b\n      AC: AC2, AC3\n      依存: なし\n- [ ] T3: 下準備\n      AC: なし\n      依存: なし\n' > "$PDD/tasks.md"
+    pr approve requirement; pr approve spec; pr approve plan tasks_planned=3 tasks_anchored=3
+    printf -- '- [ ] T4: 追加\n      依存: なし\n' >> "$PDD/tasks.md"
+    pr approve coding tasks_done=4; pr approve test passed=9 failed=0; pr approve review must=0 should=0 nit=0
+  done
+  PM_SH=$(sed 's/ts: [^,]*, //' "$PMS/.aidev/works"/*/metrics.yml)
+  PM_PS=$(tr -d '\r' < "$(ls -d "$PMS2/.aidev/works"/*/metrics.yml)" | sed 's/ts: [^,]*, //')
+  assert_eq "$PM_SH" "$PM_PS" "パリティ: approve が刻む被覆メトリクス（キーの並びと値）"
+  PMM_SH=$( ( cd "$PMS"  && "$AIDEV_SH" metrics --format tsv ) 2>&1 | cut -f2- )
+  PMM_PS=$( ( cd "$PMS2" && run_ps1 "$AIDEV_PS1" metrics --format tsv ) 2>&1 | tr -d '\r' | cut -f2- )
+  assert_eq "$PMM_SH" "$PMM_PS" "パリティ: metrics の ac / ac_drift 列"
+  rm -rf "$PMS" "$PMS2"
+
+  # 入力の揺れのパリティ。**ここが割れると同じ work が片方の OS でだけ deliver できる**。
+  # sh は awk/sed のバイト単位の角括弧式、ps1 は .NET の Unicode 正規表現＋BOM/CRLF 自動除去、
+  # という素の挙動差がそのまま判定差になるので、素の挙動に任せず両方を明示的に揃えてある。
+  PCE=$(mktemp -d); mkdir -p "$PCE/.aidev/backlog"
+  ( cd "$PCE" && "$AIDEV_SH" new pedge >/dev/null )
+  PCED="$PCE/.aidev/works/$(cat "$PCE/.aidev/current")"
+  # 1=CRLF / 2=BOM / 3=全角スペース字下げ / 4=NBSP / 5=グロブ文字 / 6=ID 文法の境界
+  for pcase in 1 2 3 4 5 6; do
+    case "$pcase" in
+      1) printf -- '- [ ] AC1: a\r\n- [ ] AC2: b\r\n' > "$PCED/requirement.md"
+         printf -- '- [ ] T1: x\r\n      AC: AC1\r\n      依存: なし\r\n- [ ] T2: y\r\n      AC: AC2\r\n      依存: T1\r\n' > "$PCED/tasks.md" ;;
+      2) printf '\357\273\277- [ ] AC1: a\n' > "$PCED/requirement.md"
+         printf '\357\273\277- [ ] T1: x\n      AC: AC1\n      依存: なし\n' > "$PCED/tasks.md" ;;
+      3) printf -- '- [ ] AC1: a\n- [ ] AC2: b\n' > "$PCED/requirement.md"
+         printf -- '- [ ] T1: ひとつめ\n\343\200\200\343\200\200AC: AC1\n      依存: なし\n\343\200\200- [ ] T2: 全角字下げ\n      AC: AC2\n      依存: T1\n' > "$PCED/tasks.md" ;;
+      4) printf -- '- [ ] AC1: a\n\302\240- [ ] AC2: NBSP\n' > "$PCED/requirement.md"
+         printf -- '- [ ] T1: x\n      AC: AC1\n      依存: なし\n' > "$PCED/tasks.md" ;;
+      5) printf -- '- [ ] AC1: a\n' > "$PCED/requirement.md"
+         printf -- '- [ ] T1: g\n      AC: *\n      依存: なし\n' > "$PCED/tasks.md" ;;
+      6) printf -- '- [ ] AC1: a\n- [ ] AC-I1 開く / 閉じる: どう\n- [ ] ACL の設定\n' > "$PCED/requirement.md"
+         printf -- '- AC-I1 開く / 閉じる: こう\n' > "$PCED/spec.md"
+         printf -- '- [ ] T1-1: 枝\n      AC: AC1、AC-I1\n      依存: T1-1\n- [ ] T1-1: dup\n      AC: \n      依存: なし\n' > "$PCED/tasks.md" ;;
+    esac
+    PE_SH=$( ( cd "$PCE" && "$AIDEV_SH" coverage --strict ) 2>&1 ); PE_SH_RC=$?
+    PE_PS_RAW=$( ( cd "$PCE" && run_ps1 "$AIDEV_PS1" coverage --strict ) 2>&1 ); PE_PS_RC=$?
+    PE_PS=$(printf '%s' "$PE_PS_RAW" | tr -d '\r')
+    assert_eq "$PE_SH" "$PE_PS" "パリティ: coverage 入力の揺れ case $pcase（出力）"
+    assert_eq "$PE_SH_RC" "$PE_PS_RC" "パリティ: coverage 入力の揺れ case $pcase（exit code）"
+  done
+  rm -rf "$PCE"
+
+  # 分割 work（家族単位の被覆・未 plan の subtask がある間の扱い）
+  PCS=$(mktemp -d); mkdir -p "$PCS/.aidev/backlog"
+  ( cd "$PCS" && "$AIDEV_SH" new big >/dev/null ); PCSP=$(cat "$PCS/.aidev/current")
+  printf -- '- [ ] AC1: a\n- [ ] AC2: b\n' > "$PCS/.aidev/works/$PCSP/requirement.md"
+  ( cd "$PCS" && "$AIDEV_SH" new 01-a --parent "$PCSP" >/dev/null )
+  ( cd "$PCS" && "$AIDEV_SH" new 02-b --parent "$PCSP" >/dev/null )
+  printf -- '- [ ] T1: a\n      AC: AC1\n      依存: なし\n' > "$PCS/.aidev/works/$PCSP/01-a/tasks.md"
+  for psub in "$PCSP" "$PCSP/01-a"; do
+    PS_SH=$( ( cd "$PCS" && "$AIDEV_SH" coverage --strict "$psub" ) 2>&1 ); PS_SH_RC=$?
+    PS_PS_RAW=$( ( cd "$PCS" && run_ps1 "$AIDEV_PS1" coverage --strict "$psub" ) 2>&1 ); PS_PS_RC=$?
+    PS_PS=$(printf '%s' "$PS_PS_RAW" | tr -d '\r')
+    assert_eq "$PS_SH" "$PS_PS" "パリティ: coverage 分割 work $psub（出力）"
+    assert_eq "$PS_SH_RC" "$PS_PS_RC" "パリティ: coverage 分割 work $psub（exit code）"
+  done
+  PSV_SH=$( ( cd "$PCS" && "$AIDEV_SH" verify "$PCSP" ) 2>&1 ); PSV_SH_RC=$?
+  PSV_PS_RAW=$( ( cd "$PCS" && run_ps1 "$AIDEV_PS1" verify "$PCSP" ) 2>&1 ); PSV_PS_RC=$?
+  PSV_PS=$(printf '%s' "$PSV_PS_RAW" | tr -d '\r')
+  assert_eq "$PSV_SH" "$PSV_PS" "パリティ: verify の分割 work（被覆を根でだけ報告する）"
+  assert_eq "$PSV_SH_RC" "$PSV_PS_RC" "パリティ: verify の分割 work（exit code）"
+  rm -rf "$PCS"
+
+  # verify 側の連動（struct=FAIL / cover=WARN / test-result.md）もそろって動くこと
+  for f in plan review; do : > "$PCD/$f.md"; done
+  for ph in requirement spec plan coding test; do ( cd "$PCOV" && "$AIDEV_SH" approve "$ph" >/dev/null ); done
+  ( cd "$PCOV" && "$AIDEV_SH" event test sent_back >/dev/null )
+  PV_SH=$( ( cd "$PCOV" && "$AIDEV_SH" verify ) 2>&1 ); PV_SH_RC=$?
+  PV_PS_RAW=$( ( cd "$PCOV" && run_ps1 "$AIDEV_PS1" verify ) 2>&1 ); PV_PS_RC=$?
+  PV_PS=$(printf '%s' "$PV_PS_RAW" | tr -d '\r')
+  assert_eq "$PV_SH" "$PV_PS" "パリティ: verify の schema 6 検査（出力）"
+  assert_eq "$PV_SH_RC" "$PV_PS_RC" "パリティ: verify の schema 6 検査（exit code）"
+  rm -rf "$PCOV"
 
   # convention のパリティ（条項の一生が OS で食い違うと、片方の環境だけ二重管理が起きる）
   PCV=$(mktemp -d); mkdir -p "$PCV/.aidev/works" "$PCV/docs"
@@ -1784,7 +2611,8 @@ PYEOF
     assert_eq "$NF_RC" "4" "[$impl] 成果物を作らずに承認した work は verify が FAIL（着地前ゲートが効く）"
     assert_contains "$NF_OUT" "requirement.md欠落(requirement承認済)" "[$impl] 欠けている成果物を名指しする"
     assert_contains "$NF_OUT" "tasks.md欠落(plan承認済)" "[$impl] plan 承認済なら tasks.md も要る"
-    for f in requirement spec plan tasks; do : > "$PNV/.aidev/works/$NFW/$f.md"; done
+    assert_contains "$NF_OUT" "test-result.md欠落(test承認済)" "[$impl] test 承認済なら test-result.md も要る（schema 6）"
+    for f in requirement spec plan tasks test-result; do : > "$PNV/.aidev/works/$NFW/$f.md"; done
     rv verify "$NFW" >/dev/null 2>&1
     assert_eq "$?" "0" "[$impl] 成果物が揃えば PASS"
 
@@ -1862,7 +2690,7 @@ PYEOF
   PAP=$(mktemp -d); mkdir -p "$PAP/.aidev/works"
   ( cd "$PAP" && run_ps1 "$AIDEV_PS1" new pa >/dev/null )
   PAW=$(ls "$PAP/.aidev/works")
-  for f in requirement spec plan tasks review; do : > "$PAP/.aidev/works/$PAW/$f.md"; done
+  for f in requirement spec plan tasks review test-result; do : > "$PAP/.aidev/works/$PAW/$f.md"; done
   for ph in requirement spec plan coding test review; do
     ( cd "$PAP" && run_ps1 "$AIDEV_PS1" approve "$ph" >/dev/null )
   done
@@ -2082,9 +2910,9 @@ YML
   else
     skip 10 "git 不在のため worktree パリティを省略"
   fi
-  block_end parity "154" "parity"
+  block_end parity "228" "parity"
 else
-  skip 154 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
+  skip 228 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
 fi
 
 echo

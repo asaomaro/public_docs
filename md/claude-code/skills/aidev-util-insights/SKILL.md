@@ -36,7 +36,16 @@ per-work の `retro` が「その作業1件」を振り返るのに対し、こ�
 
 - **定量指標は `aidev metrics --all` で機械集計する**（`metrics.yml` を手読みしない）。
   - `.claude/skills/aidev-docs/bin/aidev metrics --all`：work 別の first_start / delivered / **lead_sec（リードタイム）** /
-    **reworks（手戻り）** / **sent_backs（差し戻し）**。
+    **reworks（手戻り）** / **sent_backs（差し戻し）** / **ac（受け入れ基準の総数＝要求側の規模の分母）** /
+    **ac_drift（plan 以降に増えた gap ＝ spec と実装の乖離）**。
+    - **`ac` は正規化の分母に使う**——`lead_sec` / `reworks` / `files_changed` を「`AC` 1件あたり」で見ると、
+      規模の違う work を並べられる（実装側 `files_changed`・分解側 `tasks_planned` しか無かった分母に、
+      **要求側**が加わった）。`AC` の粒度は書き手の癖に依存するので、比較は同じ PJ の中に閉じる。
+    - **`ac_drift > 0` の work を先に読む**。そこは「plan で決めた被覆のまま着地しなかった」work で、
+      乖離の中身は `aidev coverage <slug>` と `git log -p -- tasks.md` で特定できる。
+      `-` は刻印が1点しかなく**測れない**（0 と読み替えない）。
+    - **被覆率そのものを KPI にしない**（`protocol-analysis.md`）。plan の承認前ゲートで 100% が
+      強制されるため値は張り付き、動くのは迂回したときだけ。読むのは差分（`ac_drift`）の方。
   - `.claude/skills/aidev-docs/bin/aidev metrics --all --phases`：work×工程の start / approved / **elapsed_sec（工程時間）**。
   - `--format tsv` で機械パース可（列の集計・平均算出に使う）。Windows は `pwsh .claude/skills/aidev-docs/bin/aidev.ps1 metrics ...`（pwsh 無しなら `powershell -NoProfile -File ...`）。
   - **例外: 工程別の付加メトリクスは CLI の派生テーブルに出ない**（`aidev metrics` はイベント列からの
@@ -44,12 +53,21 @@ per-work の `retro` が「その作業1件」を振り返るのに対し、こ�
     `.aidev/works/**/metrics.yml` の `approved` 行から抽出する（1 イベント 1 行なので grep で足りる）。
     **`*/` の1段グロブでは subtask（`works/<親>/<NN>-<子>/`）が落ちる**ので `grep -r` を使う。
     protocol.md「8.」の「工程別の付加メトリクス」がキーの正典。
+    **例外の例外**: 被覆メトリクス（`ac_total` / `ac_covered` / `tasks_no_ac` / `tasks_ac_none`）は
+    `ac` / `ac_drift` として派生テーブルに出るので、grep する必要は無い。
+    `tasks_ac_none`（受け入れ基準に紐づかない作業の数）だけは表に出ないので、必要なら grep する。
 - `.aidev/works/**/review.md`：レビュー指摘の内容（再発パターン分析の主材料。**テキストは読む**）。
   - **「タスク点検ログ」節（coding 工程内の独立点検。protocol.md「3.3」(b)「8.」）はラウンド指摘と分けて数える**。
     点検で潰れた欠陥は工程に到達しなかったもので、母集団が違う。`[conv:…]` タグの集計は節をまたいでよい
     （タグの規約は同じ）が、`must` 件数の推移を見るときは混ぜない。
   - 点検の効き具合は `task_checks` / `task_check_findings`（coding の付加メトリクス）と `must` の推移を
     突き合わせて読む——**findings が出ているのに `must` が減らないなら、点検の観点か発火条件がずれている**。
+- **`aidev coverage <slug>`（deliver 済み work に対して）**：受け入れ基準の被覆と `tasks.md` の整合。
+  **着地した work に `cover` の gap が残っていたら、その AC は「完了条件に書かれたが誰も落とさなかった」もの**。
+  work をまたいで同じ性質の AC（非機能・移行・互換性など）が落ち続けていれば、それは要件の書き方か
+  分解の観点の問題で、**条項（`.aidev/conventions/`）の材料**になる。件数は `coverage-gaps:` 行で取れる。
+- `.aidev/works/**/test-result.md`：合否と**失敗の証跡**（生出力）。差し戻したラウンドの実際の失敗が
+  残るので、「何が繰り返し落ちているか」を review.md より具体的に読める。
 - `.aidev/works/**/decisions.md`：繰り返される設計逸脱（テキスト）。
 - `.aidev/works/**/retro.md`：過去の per-work 改善提案（再発・未対応の把握。テキスト）。
 - **`aidev convention status`**：PJ規約の条項の状態・母集団件数(`pop`)・判定可否(`ready`)。
