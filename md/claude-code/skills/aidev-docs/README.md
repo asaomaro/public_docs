@@ -146,6 +146,23 @@ deliver 前の `aidev verify`（不変条件）。いずれも exit≠0 なら�
   原因究明だけを委譲する（試行履歴は渡さない）。デバッグも有限で、尽きたら `stop_for_human` で人を待つ
   （`protocol-debug.md`）。
   ※夜間に回す実行手段（headless/スケジュール）は harness とは別レイヤで用意する。
+- `--human-gates spec,review` で `aidev new` / `aidev worktree add` から部分自律を宣言できる。
+
+## ループの上限（回数を有限にする）
+
+**上限は必ず有限にする**、が全体を通した規律。同じ場所を回り続けるより、方向を変えるか人を待つ方が安い。
+
+| 上限 | 何を止めるか | 到達したら |
+|---|---|---|
+| `maxSendBacks` | 同一工程の差し戻し（`aidev event <工程> sent_back` が数える） | `aidev debug start` へ倒す（まっさらなコンテキストで原因究明） |
+| `maxTaskCheckRounds` | 同一タスクの「点検 → 修正」（`aidev taskcheck start` が数える） | `decisions.md` に経緯を残して次のタスクへ。判断は 60 review に委ねる |
+| `maxDebugRounds` | 1工程あたりのデバッグ（`aidev debug start` が数える） | `block` か `stop_for_human` で締める |
+
+どれも **1ラウンド = 1 コマンド**の形で数えるので、CLI がその場で止められる（exit 4）。
+
+**`aidev limits` が現在値を一覧する**——値だけでなく**どこから来たか**（`config` / `state` / 既定）まで出す。
+変えるのは `aidev limits set <key> <n>`。手編集は要らない（見えない設定は忘れられる、というのが
+`maxTaskCheckRounds` が長く「書いてあるのに効かない」状態だった理由）。
 
 ## 実行プロファイル（full / light）
 
@@ -214,7 +231,7 @@ work 専用の git worktree と `feature/<slug>` ブランチを作り、main tr
     bin/               ランタイムガード CLI（aidev=POSIX sh / aidev.ps1=PowerShell・README.md / test/ 同梱）
 .aidev/                PJ固有の実行時状態（skill ではない）
   config.yml           PJ単位の設定（tracker / lightMaxFiles / smokeCommand（または smokeCommands）/ smokeCommandWindows / smokeTimeoutSec /
-                       smokeStaleAfter / maxDebugRounds / conventionsDir / conventionsIndex / docsRoots /
+                       smokeStaleAfter / maxDebugRounds / maxTaskCheckRounds / conventionsDir / conventionsIndex / docsRoots /
                        sharedFiles / sharedFilesWindow。全キーと書式は bin/README.md の設定表。コミット対象）
   charter.md           propose（planner）の方針（任意）
   current              現在の作業フォルダ名（.gitignore 対象）
