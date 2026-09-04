@@ -206,6 +206,7 @@ backlog は**遅延キュー**で、完了した行を閉じるのは deliver �
        戻り先が更に手前ならそこを踏み直すまで `current` は途中の値になる）。
        **取り消しても記録は消えない**（`sent_back` として
        刻まれる。手戻りは実際に起きた事実なので、消すと「8.」の指標が過小になる）。
+       ただし `by: unapprove` が併記され、**差し戻し回数と上限には数えない**（「8.」）。
    - **承認して次工程へ進む**：記録後、次工程の skill を実行する。
    - **承認してここで中断**：記録後、停止する（レジューム可能な状態で待つ）。
 4. **遷移**：
@@ -301,7 +302,7 @@ backlog は**遅延キュー**で、完了した行を閉じるのは deliver �
 各 works フォルダ内に 1 つ置く。
 
 ```yaml
-schema: 7                   # state スキーマ版（aidev new が刻む）。verify は導入版以上の不変条件のみ強制。
+schema: 9                   # state スキーマ版（aidev new が刻む）。verify は導入版以上の不変条件のみ強制。
                             # 未記載=legacy 免除。版ごとの導入内容は bin/README.md「schema の履歴」
 slug: <作業slug>            # 例: user-login
 ticket: <ID または 省略>     # 任意。外部チケット/issue の ID（ツール非依存。例 "#18" / "PROJ-123"）。種類は .aidev/config.yml の tracker

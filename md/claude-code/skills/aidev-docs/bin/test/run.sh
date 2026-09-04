@@ -1953,6 +1953,50 @@ run_au verify 20200106-old >/dev/null 2>&1
 assert_eq "$?" "0" "verify: schema 6 の work に起動確認を要求しない（遡って違反にしない）"
 run_au verify 20200107-old >/dev/null 2>&1
 assert_eq "$?" "4" "verify: schema 7 からは起動確認の記録を要求する"
+
+# --- 2026-09-04 の並行実走で見つかった経路 ---------------------------------------
+# いずれも「散文には書いてあるのに CLI が見ていなかった」もの。実走 3 本が独立に踏んだ。
+
+# (1) unapprove の sent_back は**差し戻しの結果**であって原因ではない。
+#     数に入れると、規約どおり unapprove した work だけ 3 倍になり、
+#     一度も失敗していない coding/test が maxSendBacks の予算を使い切る
+mk_work sbq; AU_SBQ=$AU_W
+run_au approve coding >/dev/null; run_au approve test >/dev/null
+run_au event review sent_back >/dev/null
+run_au unapprove test >/dev/null; run_au unapprove coding >/dev/null
+AU_SBM=$(cat "$AU_D/metrics.yml")
+assert_contains "$AU_SBM" "phase: test, event: sent_back, metrics: { by: unapprove }" \
+  "unapprove: 取り消しは by: unapprove 付きで刻む（記録は消さない）"
+assert_eq "$(run_au metrics "$AU_SBQ" --format tsv | awk -F'\t' '{print $6}')" "1" \
+  "metrics: sent_backs は unapprove 由来を数えない（規約を守った work だけ数が増えない）"
+assert_eq "$(run_au debug status --format tsv 2>/dev/null | awk -F'\t' '$1=="coding"{print "leaked"}')" "" \
+  "debug status: 一度も失敗していない coding が上流の取り消しで予算を消費しない（行ごと出ない）"
+
+# (2) schema 9: light は spec/plan を approve しないので、承認を条件にした
+#     成果物実在検査が **light では一度も走らなかった**（requirement.md だけで verify OK だった）
+AU_L=$AUD/.aidev
+run_au new lt1 --light >/dev/null
+AU_LW=$(cat "$AU_L/current"); AU_LD="$AU_L/works/$AU_LW"
+printf -- '- [ ] AC1: a\n' > "$AU_LD/requirement.md"
+run_au approve requirement >/dev/null
+AU_LV=$(run_au verify "$AU_LW" 2>&1); AU_LVR=$?
+assert_eq "$AU_LVR" "4" "verify: light で spec/plan/tasks が無ければ落ちる（4=不変条件違反）"
+assert_contains "$AU_LV" "spec.md欠落" "verify: light の欠落を名指しする"
+assert_contains "$AU_LV" "tasks.md欠落" "verify: light でも tasks.md を要求する（AC の被覆先）"
+for f in spec plan; do : > "$AU_LD/$f.md"; done
+printf -- '- [ ] T1: x\n      AC: AC1\n      依存: なし\n' > "$AU_LD/tasks.md"
+assert_eq "$(run_au verify "$AU_LW" >/dev/null 2>&1; echo $?)" "0" "verify: 4文書そろえば light も通る"
+
+# (3) light の「指紋」（spec/plan の start が無いこと）を機械が見ていなかった
+run_au event spec start --slug "$AU_LW" >/dev/null 2>&1 || run_au use "$AU_LW" >/dev/null 2>&1
+run_au use "$AU_LW" >/dev/null; run_au event spec start >/dev/null
+assert_contains "$(run_au verify "$AU_LW" 2>&1)" "profile=light だが spec を個別に起動" \
+  "verify: light の指紋から外れたら WARN（定義しておいて見ていない、を無くす）"
+
+# (4) doctor: 0 件でも節見出しを出す（「検査が無い」と「検査して 0 件」は別の情報）
+assert_contains "$(run_au doctor 2>&1)" "harness-summary: files=0" \
+  "doctor: ハーネス改修の記録が 0 件でも節を出す（条項側と同じ）"
+
 rm -rf "$AUD"
 
 

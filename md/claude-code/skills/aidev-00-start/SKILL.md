@@ -108,6 +108,9 @@ CLI が使えない環境のフォールバック: `cat .aidev/current` / `ls .a
      **full を選び**（迷ったら full の既定に従う）、判定の根拠を作成後に `decisions.md` へ記録する。
      この判定は `aidev new` より前なので `--mode autonomous` の自動承認が及ばない——
      **勝手に light を選ばない**のが無人時の安全側。
+     ただし**起動指示が明示的に `--light`（または `--profile light`）を指している**なら、
+     それは人間が事前に答えた判定なので light を採る。禁じているのは自分で小さいと
+     見立てることであって、`light × autonomous` は成立する組み合わせ（`protocol.md`「11.」）。
    - 影響範囲が読めないときは plan モードを使ってよい（`protocol-autonomous.md`。`aidev new` は書き込みなので
      **解除してから**実行する）。
    - 迷ったら **full を選ぶ**。light は後から full へ昇格できる（`aidev escalate`）が、逆はできない。

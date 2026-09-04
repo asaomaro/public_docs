@@ -108,7 +108,7 @@ CI ではこれを失敗として扱う（`.github/workflows/aidev-cli.yml`）�
 不変条件だけ**を強制する。`schema` 未記載の旧 work は **legacy として免除**（「過去分は捏造しない」方針。
 `protocol.md`「8.」）。これにより新ガードを足しても**過去 work を遡及的に違反扱いしない**。
 
-- 現行 `CURRENT_SCHEMA = 8`。
+- 現行 `CURRENT_SCHEMA = 9`。
 - schema 3: subtask 層（`subtasks`/`activeSubtask`/`parent`）を導入。schema ≤ 2 の work は subtask 不変条件を免除。
 - schema ≥ 2 の不変条件: `metrics.yml` の存在 ／ review 承認済なら `review.md` 存在 ／ deliver 承認済なら
   metrics に deliver の approved イベントが存在 ／ deliver 承認済で `backlog:` 刻印があれば消し込み（下記）。
@@ -141,6 +141,12 @@ CI ではこれを失敗として扱う（`.github/workflows/aidev-cli.yml`）�
   原因究明（`aidev debug`）の記録が無い → **WARN**（挟むかは人の判断なので致命にしない）。
   (b) デバッグが `next_action: stop_for_human` で終わっているのに deliver 承認済 → **FAIL**
   （人の判断を待つ出口を素通りしている。`autonomous` でもここは待つ）。
+- schema ≥ 9 の検査: **light の上流 4 文書の実在**。`profile: light` は `spec` / `plan` を
+  approve しない（`protocol-light.md`）ため、schema 5 の「承認済み工程の成果物実在検査」が
+  **light では構造的に一度も走らなかった**——`requirement.md` だけ書いた light work が
+  `verify OK` で着地できていた（2026-09-04 の実走で実測）。light の「4つとも作る・
+  スタブは作らない」は散文にしか無く、二層（散文＝ソフト / CLI＝ハード）の CLI 側が
+  丸ごと欠けていた。`requirement` の承認をもって 4 文書を要求する。
 - 新しい不変条件を足すときは `CURRENT_SCHEMA` を上げ、検査をそのバージョン以上に限定する。
 
 ## `test/lint-docs.sh`（文書と CLI 表面の整合）
@@ -156,6 +162,7 @@ CI ではこれを失敗として扱う（`.github/workflows/aidev-cli.yml`）�
 | **L3 参照の健全性** | 参照されている `protocol-*.md` と skill ディレクトリが実在するか。全付録が `protocol.md` の付録表から辿れるか |
 | **L4 schema の同期** | `CURRENT_SCHEMA` が sh と ps1 で一致し、この README の履歴に「その版で何を足したか」が載っているか |
 | **L5 実行時文書をまたぐ重複文** | 「本文の在処は常に1箇所」の機械化。60 文字以上の同一行が 2 ファイル以上に在れば報告する。**意図的な再掲は `test/lint-docs.allow` に理由つきで登録する**（skip 件数の申告と同じ——見えなくするのではなく、数えて見えるようにする） |
+| **L7 help のオプション** | 実装が `die` で出す「使用法:」のオプションが help ヘッダにも載っているか。L1 は**動詞**しか見ないので、動詞が在るまま**オプションだけ落ちる**ドリフトを素通りしていた（`worktree add` の `--backlog`、`convention new` の `--scope`）。ps1 の help は sh を写した要約なので、` ...` で終わる行は「正典（sh 冒頭）を見よ」の宣言として免除する |
 | **L6 読み込み量の予算** | `protocol.md` と実行時文書の合計行数。全 work が払うコストなので、**増やすならこの数を書き換えるコミットで理由を述べる**（減るぶんには落とさない） |
 
 **L5 に引っかかったら、まず正典を1つに決めて他を参照にする**。許可リストに足すのは

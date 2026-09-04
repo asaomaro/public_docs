@@ -98,6 +98,53 @@ grep -q "CURRENT_SCHEMA = $_ss" "$BREADME" && ok "L4 現行 schema が bin/READM
 grep -q "schema ≥ $_ss の検査\|schema $_ss=" "$BREADME" && ok "L4 schema $_ss で足した不変条件が README の履歴にある" \
   || ng "L4 schema $_ss の検査内容が bin/README の履歴に無い（版を上げたら何を足したか書く）"
 
+echo "== L7: help ヘッダのオプションが実装の使用法と揃っている =="
+# L1 は**動詞**の同期しか見ない。動詞が在るまま**オプションだけ落ちる**ドリフトは素通りし、
+# 実際 `worktree add` の help から `--backlog` / `--profile|--light` が落ちていた
+# （2026-09-04 の実走で発覚。`--backlog` を落とすと deliver の消し込み強制が静かに外れる）。
+# 正典は実装が die で出す「使用法:」文字列——利用者が失敗したとき実際に見る文面だから。
+# 突き合わせの粒度は**コマンドの第1語**（`worktree` / `harness` / `new` …）。help は
+# 1行に複数の下位コマンドを畳むことがあり（`harness confirm ... / retire ...`）、
+# 下位コマンド単位で対応づけると畳んだ行を取り落として誤検出する。
+l7() { # file usage_prefix header_prefix
+  _f=$1; _pre=$2; _hpre=$3
+  # 実装の「使用法: <pre> <語...> [--x]」から、第1語ごとのフラグ集合を作る
+  sed -n "s/.*使用法: $_pre \([a-z][a-z-]*\).*/\1/p" "$_f" | sort -u | while read -r _w; do
+    [ -n "$_w" ] || continue
+    _want=$(grep "使用法: $_pre $_w" "$_f" | grep -o -- '--[a-zA-Z][a-zA-Z-]*' | sort -u)
+    [ -n "$_want" ] || continue
+    # help ヘッダ側: 先頭のコメント塊のうち `<pre> <語>` を含む行と、その継続行
+    # BOM を落としてから見る。ps1 は BOM 付きなので 1 行目が `^#` に当たらず、
+    # 落とさないと **ヘッダ塊が空のまま素通り**する（ps1 側が 1 件も検査されない）
+    _have_raw=$(awk -v pre="$_hpre" -v w="$_w" -v bom="$(printf '\357\273\277')" '
+      NR == 1 { sub("^" bom, "") }
+      { sub(/\r$/, "") }
+      $0 !~ /^#/ { exit }
+      { line = $0; sub(/^#[ \t]*/, "", line) }
+      # 行が ` ...` で終わる＝「オプションは正典（sh 冒頭）を見よ」と明示的に畳んだ形。
+      # ps1 の help は sh を写した要約で、正典は sh 側（ps1 冒頭 5 行目にそう書いてある）。
+      # 畳んだ宣言まで不足と数えると、要約であることを許さない検査になる
+      index(line, pre " " w) == 1 { on = 1; if (line ~ / \.\.\.$/) print "@@ABBREV@@"; print; next }
+      index(line, pre " ") == 1 { on = 0; next }
+      on { print }
+    ' "$_f")
+    _have=$(printf '%s\n' "$_have_raw" | grep -o -- '--[a-zA-Z][a-zA-Z-]*' | sort -u)
+    case "$_have_raw" in *'@@ABBREV@@'*) continue ;; esac
+    printf '%s\n' "$_want" > "$SELF/.l7w"
+    printf '%s\n' "$_have" > "$SELF/.l7h"
+    _m=$(grep -vxF -f "$SELF/.l7h" "$SELF/.l7w" | tr '\n' ' ' | sed 's/[ ]*$//')
+    [ -n "$_m" ] && printf '%s %s: %s\n' "$_pre" "$_w" "$_m"
+  done
+}
+# ps1 の使用法文字列は sh と同じ「使用法: aidev ...」だが、help ヘッダは
+# 「pwsh .claude/skills/aidev-docs/bin/aidev.ps1 ...」と綴る。前置きを別に取る
+# （揃えたつもりで ps1 側が 1 件も突き合わされていない、という無言の素通りを避ける）
+_l7=$( { l7 "$SH" aidev aidev
+         l7 "$PS" aidev 'pwsh .claude/skills/aidev-docs/bin/aidev.ps1'; } )
+rm -f "$SELF/.l7w" "$SELF/.l7h"
+if [ -z "$_l7" ]; then ok "L7 help ヘッダに実装の使用法のオプションが揃っている"
+else ng "L7 help ヘッダに載っていないオプションがある（利用者は help しか見ない）"; printf '%s\n' "$_l7" | sed 's/^/    /' >&2; fi
+
 echo "== L5: 実行時文書をまたぐ重複文 =="
 # 「本文の在処は常に1箇所」の機械化。**意図的な再掲は下の許可リストに理由つきで登録する**
 # （skip 件数の申告と同じ考え方——見えなくするのではなく、数えて見えるようにする）
@@ -141,8 +188,8 @@ rm -f "$SELF/.l5" "$SELF/.l5dup" "$SELF/.l5allow"
 echo "== L6: 実行時に読む量の予算 =="
 # 全 work が払うコスト。**増やすなら意図的に**（この数を書き換えるコミットで理由を述べる）。
 # 減るぶんには落とさない（削減は歓迎）
-BUDGET_PROTOCOL=589
-BUDGET_TOTAL=3310
+BUDGET_PROTOCOL=590
+BUDGET_TOTAL=3330
 _p=$(wc -l < "$SKILLS/aidev-00-start/protocol.md")
 _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 [ "$_p" -le "$BUDGET_PROTOCOL" ] && ok "L6 protocol.md が予算内（$_p / $BUDGET_PROTOCOL 行）" \

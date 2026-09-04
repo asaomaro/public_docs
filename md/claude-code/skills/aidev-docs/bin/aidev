@@ -37,7 +37,7 @@
 #     frontmatter 付きで backlog ファイルを起こす（kind 欠落を構造的に防ぐ）
 #   aidev backlog archive [<file>...] [--force]  # 消化しきった backlog を archive/ へ退避（mv のみ・git は触らない）
 #   aidev backlog compact [<file>...]          # [x] 行（と継続行）を archive/<name>-done.md へ移す（無指定は standing 全部）。verify はそこも見る
-#   aidev convention new <id> --hypothesis <text> --baseline <text> [--source <path>] [--verify-after <n>]
+#   aidev convention new <id> --hypothesis <text> --baseline <text> [--scope <text>] [--source <path>] [--verify-after <n>]
 #     PJ規約の条項を .aidev/conventions/ に起こす。--hypothesis と --baseline が必須＝検証できない条項を作らせない入口ゲート
 #     （baseline: 導入前にこの観点の指摘が何件あったか。id 別の件数は 0->N と増えるだけで前後比較にならないため）
 #   aidev convention confirm <id> --result <text> [--force]  # 効果あり -> 移送待ち。母集団が揃う前は --force（forced: true が残る）
@@ -51,8 +51,10 @@
 #     ハーネス改修の仮説を .aidev/harness/ に登録する（introduced_rev に今の版を刻む）。条項と同じ入口・出口ゲート
 #   aidev harness confirm <id> --result <text> [--force] / retire <id> --status ineffective|superseded --note <text> [--force]
 #   aidev harness status [--format table|tsv]   # 改修ごとの母集団（導入後に着手し、またがらずに deliver した work）と判定可否
-#   aidev worktree add <slug> [--branch n] [--base ref] [--path dir] [--mode m] [--ticket id] [--depends list]
+#   aidev worktree add <slug> [--branch n] [--base ref] [--path dir] [--mode m] [--profile p|--light]
+#                            [--ticket id] [--depends list] [--backlog <file>]
 #                                              # work 専用の git worktree+ブランチを作る（ユーザー責任の並行 on-ramp）
+#     new へ委譲する引数は new と同じ意味（--backlog を落とすと deliver の消し込み強制が静かに外れる）
 #   aidev worktree list [--format table|tsv]   # aidev 管理 worktree を一覧（読み取り専用）
 #   aidev worktree rm <slug|path> [--force] [--delete-branch]     # worktree を安全に撤去（未コミットは既定で拒否）
 #   aidev help
@@ -71,7 +73,7 @@ need_arg() { # opt残り引数数
   [ "$2" -ge 2 ] || die "$1 には値が必要です"
 }
 
-CURRENT_SCHEMA=8   # 現行スキーマ版。new がこの値を刻む。schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema 7=起動確認(smoke)の記録検査を導入。schema 8=デバッグ（詰まりの原因究明）の記録検査を導入。schema<=2 は legacy として subtask 不変条件を免除。
+CURRENT_SCHEMA=9   # 現行スキーマ版。new がこの値を刻む。schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema 7=起動確認(smoke)の記録検査を導入。schema 8=デバッグ（詰まりの原因究明）の記録検査を導入。schema 9=light の上流4文書の実在検査を導入。schema<=2 は legacy として subtask 不変条件を免除。
 
 PHASES="requirement research spec design plan coding test review walkthrough deliver retro"
 
@@ -1140,9 +1142,11 @@ dbg_max() {
 # 同一工程の sent_back 回数
 # 注意: `grep -c` は**一致 0 件でも "0" を出して exit 1** する。`|| printf 0` を足すと
 # "0" が2回出て値が2行になる（実際にやった）。フォールバックは代入側で受ける
+# `by: unapprove` の行は数えない（差し戻しの結果であって原因ではない。cmd_unapprove の注記）。
 dbg_sent_backs() { # metrics_file phase
   [ -f "$1" ] || { printf '0'; return; }
-  _n=$(grep -c "phase:[[:space:]]*$2,.*event:[[:space:]]*sent_back" "$1" 2>/dev/null) || _n=0
+  _n=$(grep "phase:[[:space:]]*$2,.*event:[[:space:]]*sent_back" "$1" 2>/dev/null \
+        | grep -vc 'by:[[:space:]]*unapprove') || _n=0
   case "$_n" in ''|*[!0-9]*) _n=0 ;; esac
   printf '%s' "$_n"
 }
@@ -1449,15 +1453,23 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail / 5 stri
       _issub=$(yget "$st" parent)
       _hassub=$(ylist "$st" subtasks)
       if [ "$schema" -ge 5 ] 2>/dev/null; then
+      # schema 9: light は spec/plan を approve しない（protocol-light.md「上流 1 ゲートの規約」）
+      # ので、承認を条件にした下の実在検査が **light では構造的に一度も走らない**。
+      # 結果 requirement.md だけ書いた light work が verify OK で着地できていた（2026-09-04 実測）。
+      # light の「4つとも作る・スタブは作らない」は散文にしか無く、二層（散文=ソフト /
+      # CLI=ハード）の CLI 側が丸ごと欠けていた。requirement の承認をもって 4 文書を要求する。
+      _vlight=no
+      if [ "$schema" -ge 9 ] 2>/dev/null && [ "$(yget "$st" profile)" = light ] \
+         && approved_has requirement; then _vlight=yes; fi
       for _pf in requirement:requirement.md spec:spec.md plan:plan.md; do
         _ph=${_pf%%:*}; _pfile=${_pf#*:}
-        approved_has "$_ph" || continue
+        if ! approved_has "$_ph" && [ "$_vlight" = no ]; then continue; fi
         # subtask は親の requirement/spec/design を継承する（aidev:need_file と同じ規則）
         if [ -f "$WORK/$_pfile" ]; then continue; fi
         if [ -n "$_issub" ] && [ -f "$AIDEV/works/$_issub/$_pfile" ]; then continue; fi
         VF="$VF $_pfile欠落($_ph承認済)"
       done
-      if approved_has plan && [ -z "$_hassub" ] && [ ! -f "$WORK/tasks.md" ]; then
+      if { approved_has plan || [ "$_vlight" = yes ]; } && [ -z "$_hassub" ] && [ ! -f "$WORK/tasks.md" ]; then
         VF="$VF tasks.md欠落(plan承認済)"
       fi
       fi
@@ -1629,6 +1641,15 @@ light_warnings() { # WORK/SLUG は解決済み
     fi
   done
 
+  # 上流を畳んでいない＝light の指紋（protocol-light.md「metrics 上は spec / plan の start が
+  # 無いこと」）から外れている。定義しておいて機械が見ていないと、light を名乗ったまま
+  # full の往復をした work が「light は速い」の母数に入る
+  for p in spec plan; do
+    if grep -Eq "phase:[[:space:]]*$p,.*event:[[:space:]]*start" "$mf" 2>/dev/null; then
+      printf '  WARN profile=light だが %s を個別に起動（light は requirement 1ゲートに畳む）\n' "$p"
+    fi
+  done
+
   # 変更規模が上限超過（deliver の files_changed。上限は .aidev/config.yml の lightMaxFiles、既定 3）
   max=$(yget "$AIDEV/config.yml" lightMaxFiles)
   case "$max" in ''|*[!0-9]*) max=3 ;; esac
@@ -1749,8 +1770,13 @@ cmd_unapprove() {
   replace_line "$st" approved "approved: [$newl]"
   # カーソルは取り消した工程へ戻す（そこからやり直すのが差し戻しの意味）
   replace_line "$st" current "current: $uph"
-  # 取り消しは手戻りの事実。イベントとして刻む（消さない）
-  append_event "$uph" sent_back
+  # 取り消しは手戻りの事実。イベントとして刻む（消さない）。
+  # ただし `by: unapprove` を併記する——差し戻しの**原因**は指摘のあった 1 工程で、
+  # 後工程の取り消しはその**結果**だから。区別しないと (a) 一度も失敗していない
+  # coding/test が maxSendBacks の予算を消費し（review 3 往復で 3 工程が同時に上限到達）、
+  # (b) 規約どおり unapprove した work だけ sent_backs が 1 でなく 3 になり、
+  # work 間で比較できなくなる（2026-09-04 の実走で両方を実測）。
+  append_event "$uph" sent_back by=unapprove
   printf 'unapproved: %s @ %s\n' "$uph" "$SLUG"
   printf 'next: やり直す工程で aidev event <phase> start を記録すること（統合 review からの差し戻しは coding）\n'
 
@@ -2129,7 +2155,9 @@ BEGIN{ first=-1; delivered_e=-1; delivered_flag=0; sback=0 }
     if(e>=0){ appat[ph]=e; appat_ts[ph]=ts
               if(ph in openat){ elsum[ph]+=e-openat[ph]; delete openat[ph] } }
     if(ph=="deliver"){ delivered_flag=1; if(e>=0) delivered_e=e }
-  } else if(ev=="sent_back"){ sback++
+  } else if(ev=="sent_back"){
+    # `by: unapprove` は原因ではなく結果なので数えない（dbg_sent_backs と同じ規則）
+    if($0 !~ /by:[ \t]*unapprove/) sback++
     # 差し戻しも「そのラウンドの終わり」。ここで閉じないと、やり直しぶんが合算から落ちる
     if(e>=0 && (ph in openat)){ elsum[ph]+=e-openat[ph]; delete openat[ph] } }
 }
@@ -2385,7 +2413,31 @@ wt_add() {
   fi
 
   printf 'worktree 追加: %s\n' "$wpath"
-  printf '  branch: %s / base: %s\n' "$branch" "$base"
+  # 既定の base は HEAD。`base: HEAD` とだけ出すと、**HEAD が未マージの feature ブランチ**
+  # でもそれが見えない（2026-09-04 の並行実走で 3 本すべてが未マージ枝の上に積まれ、
+  # deliver「1.5」の既着地検知が無関係なコミットで濁った）。実体を併記し、既定ブランチ
+  # から外れているときだけ 1 行足す。既定ブランチが読めない環境では**推測しない**
+  _bshown=$base
+  if [ "$base" = HEAD ]; then
+    _bhead=$(git -C "$ROOT" symbolic-ref --quiet --short HEAD 2>/dev/null) || _bhead=""
+    [ -n "$_bhead" ] && _bshown="HEAD (= $_bhead)"
+  fi
+  printf '  branch: %s / base: %s\n' "$branch" "$_bshown"
+  if [ "$base" = HEAD ] && [ -n "${_bhead:-}" ]; then
+    _bdef=$(git -C "$ROOT" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null) || _bdef=""
+    _bdef=${_bdef#origin/}
+    if [ -z "$_bdef" ]; then
+      # `cmd && { ...; }` を loop body の**最後**に置くと set -e が呼び出し側で発火する
+      # （このリポジトリで実測済み）。if で受ける
+      for _c in main master; do
+        if git -C "$ROOT" show-ref --verify --quiet "refs/heads/$_c"; then _bdef=$_c; break; fi
+      done
+    fi
+    if [ -n "$_bdef" ] && [ "$_bdef" != "$_bhead" ]; then
+      printf '  ⚠ base が既定ブランチ(%s)ではなく %s です。未マージの変更の上に積まれます\n' "$_bdef" "$_bhead"
+      printf '    （deliver「1.5」の既着地検知が %s..HEAD の無関係なコミットで濁る）\n' "$_bdef"
+    fi
+  fi
   printf '  work:   %s\n' "$work_note"
   wt_shared_warn
   printf '次: cd %s して各工程 skill を実行。\n' "$wpath"
@@ -3459,7 +3511,14 @@ hv_status() {
 }
 doctor_harness() {
   d=$(hv_dir)
-  [ -d "$d" ] || return 0
+  # 0 件でも節見出しを出す（条項側と同じ）。無音で返すと、doctor だけを見ている人には
+  # **その検査が走ったのかどうかが分からない**——「検査が無い」と「検査して 0 件」は別の情報
+  if [ ! -d "$d" ]; then
+    printf 'harness: ハーネス改修の記録検査\n'
+    printf 'harness-summary: files=0 archived=0 warn=0\n'
+    printf 'note: ハーネス改修の記録がまだありません。aidev harness new で起こす\n'
+    return 0
+  fi
   hv_pop_prime
   hfiles=0; harch=0; hwarn=0; hout=""
   for f in "$d"/*.md "$d/archive"/*.md; do

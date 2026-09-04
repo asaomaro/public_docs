@@ -30,7 +30,7 @@
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 backlog <new|archive|compact> ...
 #     PJ規約の条項を .aidev/conventions/ で起こし・判定し・PJ ドキュメントへ移送する（protocol.md「12.」）
 #     new は --hypothesis と --baseline が必須（検証できない条項を作らせない入口ゲート）
-#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree add <slug> [--branch n] [--base ref] [--path dir] [--mode m] [--ticket id] [--depends list]
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree add <slug> [--branch n] [--base ref] [--path dir] [--mode m] [--profile p|--light] [--ticket id] [--depends list] [--backlog <file>]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree list [--format table|tsv]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree rm <slug|path> [--force] [--delete-branch]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 help
@@ -42,7 +42,7 @@ $ErrorActionPreference = 'Stop'
 # （git show-ref 等は ref 不在で 1 を返すのが正常系のため）。古い pwsh では通常変数になるだけで無害。
 $PSNativeCommandUseErrorActionPreference = $false
 
-$script:CURRENT_SCHEMA = 8   # schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema 7=起動確認(smoke)の記録検査を導入。schema 8=デバッグ（詰まりの原因究明）の記録検査を導入。schema<=2 は legacy 免除
+$script:CURRENT_SCHEMA = 9   # schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema 7=起動確認(smoke)の記録検査を導入。schema 8=デバッグ（詰まりの原因究明）の記録検査を導入。schema 9=light の上流4文書の実在検査を導入。schema<=2 は legacy 免除
 $script:STRICT = $false      # verify --strict（記録漏れを致命にする）。doctor 経由では常に false
 $script:PHASES = @('requirement','research','spec','design','plan','coding','test','review','walkthrough','deliver','retro')
 $script:Utf8 = New-Object System.Text.UTF8Encoding($false)  # BOM なし
@@ -1060,11 +1060,12 @@ function DbgMaxSendBacks($work) {
   $n = 0; if ([int]::TryParse($v, [ref]$n) -and $n -ge 0) { return $n }
   return 3
 }
+# `by: unapprove` の行は数えない（差し戻しの結果であって原因ではない。Cmd-Unapprove の注記）。
 function DbgSentBacks($metricsFile, $phase) {
   if (-not (IsFile $metricsFile)) { return 0 }
   $c = 0
   foreach ($l in [System.IO.File]::ReadAllLines($metricsFile)) {
-    if ($l -match "phase:\s*$phase," -and $l -match 'event:\s*sent_back') { $c++ }
+    if ($l -match "phase:\s*$phase," -and $l -match 'event:\s*sent_back' -and $l -notmatch 'by:\s*unapprove') { $c++ }
   }
   return $c
 }
@@ -1385,15 +1386,18 @@ function VerifyWork($work) {
       if ($sn -ge 5) {
         $issub = YGet $st 'parent'
         $hassub = @(YList $st 'subtasks')
+        # schema 9: light は spec/plan を approve しないので、承認を条件にしたこの検査が
+        # light では一度も走らなかった（sh 版 verify の注記に理由の全文）。
+        $vlight = ($sn -ge 9 -and (YGet $st 'profile') -ceq 'light' -and (ApprovedHas $work 'requirement'))
         foreach ($pf in @(@('requirement','requirement.md'), @('spec','spec.md'), @('plan','plan.md'))) {
-          if (-not (ApprovedHas $work $pf[0])) { continue }
+          if (-not (ApprovedHas $work $pf[0]) -and -not $vlight) { continue }
           if (IsFile (Join-Path $work $pf[1])) { continue }
           # subtask は親の requirement/spec/design を継承する
           if ($issub -and (IsFile (Join-Path (Join-Path (Join-Path $script:AIDEV 'works') $issub) $pf[1]))) { continue }
           $vf += "$($pf[1])欠落($($pf[0])承認済)"
         }
         # 親（subtasks を持つ）は tasks.md を持たない（各 subtask の plan が作る）
-        if ((ApprovedHas $work 'plan') -and $hassub.Count -eq 0 -and -not (IsFile (Join-Path $work 'tasks.md'))) {
+        if (((ApprovedHas $work 'plan') -or $vlight) -and $hassub.Count -eq 0 -and -not (IsFile (Join-Path $work 'tasks.md'))) {
           $vf += "tasks.md欠落(plan承認済)"
         }
       }
@@ -1544,6 +1548,16 @@ function LightWarnings($work) {
     foreach ($l in $lines) {
       if ($l -match ("phase:\s*" + $p + ",")) {
         VLine("  WARN profile=light だが任意工程 $p を実施（aidev escalate で full へ）")
+        break
+      }
+    }
+  }
+
+  # 上流を畳んでいない＝light の指紋から外れている（sh 版 light_warnings と同一）
+  foreach ($p in @('spec','plan')) {
+    foreach ($l in $lines) {
+      if ($l -match ("phase:\s*" + $p + ",") -and $l -match 'event:\s*start') {
+        VLine("  WARN profile=light だが $p を個別に起動（light は requirement 1ゲートに畳む）")
         break
       }
     }
@@ -2047,7 +2061,8 @@ function Cmd-Metrics($rest) {
           }
           if ($ph -ceq 'deliver') { $deliveredFlag=$true; if ($e -ge 0) { $deliveredE=$e } }
         } elseif ($ev -ceq 'sent_back') {
-          $sback++
+          # `by: unapprove` は原因ではなく結果なので数えない（DbgSentBacks と同じ規則）
+          if ($line -notmatch 'by:\s*unapprove') { $sback++ }
           # 差し戻しもラウンドの終わり（sh 版と同一）
           if ($e -ge 0 -and $openat.ContainsKey($ph)) {
             if ($elsum.ContainsKey($ph)) { $elsum[$ph] += $e-$openat[$ph] } else { $elsum[$ph] = $e-$openat[$ph] }
@@ -2327,7 +2342,13 @@ function Hv-Status($rest) {
 }
 function Doctor-Harness() {
   $d = HvDir
-  if (-not (IsDir $d)) { return }
+  # 0 件でも節見出しを出す（sh 版 doctor_harness の注記と同じ理由）
+  if (-not (IsDir $d)) {
+    Write-Output "harness: ハーネス改修の記録検査"
+    Write-Output "harness-summary: files=0 archived=0 warn=0"
+    Write-Output "note: ハーネス改修の記録がまだありません。aidev harness new で起こす"
+    return
+  }
   HvPopPrime
   $items=@()
   foreach ($f in (Get-ChildItem -LiteralPath $d -File -Filter *.md -ErrorAction SilentlyContinue | Sort-Object Name)) { $items += ,@($f.FullName, $f.Name, $false) }
@@ -2514,7 +2535,30 @@ function Wt-Add($rest) {
   }
 
   Write-Output "worktree 追加: $wpath"
-  Write-Output "  branch: $branch / base: $base"
+  # 既定 base=HEAD の実体を併記し、既定ブランチから外れていれば 1 行足す
+  # （sh 版 cmd_worktree_add の注記に理由の全文。既定ブランチが読めなければ推測しない）
+  $bshown = $base; $bhead = ''
+  if ($base -ceq 'HEAD') {
+    $bhead = (& git -C $script:ROOT symbolic-ref --quiet --short HEAD 2>$null)
+    if ($LASTEXITCODE -ne 0) { $bhead = '' }
+    if ($bhead) { $bhead = "$bhead".Trim(); $bshown = "HEAD (= $bhead)" }
+  }
+  Write-Output "  branch: $branch / base: $bshown"
+  if ($bhead) {
+    $bdef = (& git -C $script:ROOT symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>$null)
+    if ($LASTEXITCODE -ne 0) { $bdef = '' }
+    $bdef = "$bdef".Trim() -replace '^origin/', ''
+    if (-not $bdef) {
+      foreach ($c in @('main','master')) {
+        & git -C $script:ROOT show-ref --verify --quiet "refs/heads/$c" 2>$null
+        if ($LASTEXITCODE -eq 0) { $bdef = $c; break }
+      }
+    }
+    if ($bdef -and $bdef -cne $bhead) {
+      Write-Output "  ⚠ base が既定ブランチ($bdef)ではなく $bhead です。未マージの変更の上に積まれます"
+      Write-Output "    （deliver「1.5」の既着地検知が $bdef..HEAD の無関係なコミットで濁る）"
+    }
+  }
   Write-Output "  work:   $workNote"
   Wt-SharedWarn
   Write-Output "次: cd $wpath して各工程 skill を実行。"
@@ -2646,6 +2690,8 @@ function Cmd-Use($rest) {
 # 差し戻しで無効化される後工程の承認を取り消す。元は「approved から手で除く」だったが、
 # それは state.yml の更新を CLI に集約するという原則と矛盾する（sh 版のコメント参照）。
 # 記録は消さない——取り消し自体を sent_back イベントとして刻む（手戻りは実際に起きた事実）。
+# ただし `by: unapprove` を併記する。差し戻しの原因は指摘のあった 1 工程で、後工程の
+# 取り消しはその結果だから（sh 版 cmd_unapprove の注記に理由の全文）。
 function Cmd-Unapprove($rest) {
   $uslug=''; $uph=''
   for ($i=0; $i -lt $rest.Count; $i++) {
@@ -2666,7 +2712,7 @@ function Cmd-Unapprove($rest) {
   $keep = @(@(YList $st 'approved') | Where-Object { $_ -cne $uph })
   ReplaceLine $st 'approved' ('approved: [' + ([string]::Join(', ', $keep)) + ']')
   ReplaceLine $st 'current' "current: $uph"
-  AppendEvent $script:WORK $uph 'sent_back' @()
+  AppendEvent $script:WORK $uph 'sent_back' @('by=unapprove')
   Write-Output "unapproved: $uph @ $($script:SLUG)"
   Write-Output "next: やり直す工程で aidev event <phase> start を記録すること（統合 review からの差し戻しは coding）"
 
