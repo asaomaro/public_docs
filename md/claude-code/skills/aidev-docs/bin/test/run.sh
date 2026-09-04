@@ -2038,6 +2038,58 @@ assert_contains "$(cat "$AU_D/metrics.yml")" "failed_index: 2" \
   "smoke: 何本目で落ちたかを刻む（原因を1つに絞る）"
 rm -f "$AUD/.aidev/config.yml"
 
+# (12) taskcheck: 散文にしか無かった上限を CLI が止める
+mk_work tc
+run_au taskcheck start T1 --mode delegated >/dev/null
+run_au taskcheck report T1 --findings 2 >/dev/null
+run_au taskcheck start T1 --mode delegated >/dev/null
+run_au taskcheck start T1 --mode delegated >/dev/null 2>&1
+assert_eq "$?" "4" "taskcheck start: maxTaskCheckRounds に達したら exit 4（散文だけだった上限を CLI へ）"
+run_au taskcheck report T9 --findings 0 >/dev/null 2>&1
+assert_eq "$?" "1" "taskcheck report: start の無いタスクは弾く（結果だけ記録させない）"
+run_au taskcheck start T2 --mode bogus >/dev/null 2>&1
+assert_eq "$?" "1" "taskcheck start: --mode の enum を検査する"
+run_au taskcheck start T2 >/dev/null 2>&1
+assert_eq "$?" "1" "taskcheck start: --mode は必須（実施形態が残らないと効果を測れない）"
+run_au taskcheck start T2 --mode same_session >/dev/null
+run_au taskcheck report T2 --findings 0 >/dev/null
+assert_contains "$(run_au taskcheck status)" "taskcheck-summary: tasks=2 findings=2 mode=mixed" \
+  "taskcheck status: 形態が割れていれば mixed"
+# 件数は approve が自動で刻む（手書きさせない）
+run_au approve coding >/dev/null
+assert_contains "$(cat "$AU_D/metrics.yml")" "task_checks: 2, task_check_findings: 2, task_check_mode: mixed" \
+  "approve coding: 点検メトリクスを taskcheck の記録から自動で刻む"
+# 明示指定があればそちらを尊重する（従来の手渡しを壊さない）
+mk_work tc2
+run_au event coding start >/dev/null
+run_au approve coding task_checks=0 >/dev/null
+assert_contains "$(cat "$AU_D/metrics.yml")" "task_checks: 0" "approve coding: 明示指定は上書きしない"
+
+# (13) limits: 上限の一覧と設定口（手編集しかなかった）
+assert_contains "$(run_au limits)" "maxTaskCheckRounds" "limits: 上限を一覧できる"
+assert_contains "$(run_au limits --format tsv)" "limit	maxDebugRounds	2	default	pj	2" \
+  "limits: どこから来た値か（config/state/既定）まで出す"
+run_au limits set maxTaskCheckRounds 5 >/dev/null
+assert_contains "$(run_au limits --format tsv)" "limit	maxTaskCheckRounds	5	config	pj	2" \
+  "limits set: PJ スコープは config.yml に書く"
+run_au limits set maxSendBacks 7 >/dev/null
+assert_contains "$(run_au limits --format tsv)" "limit	maxSendBacks	7	state	work	3" \
+  "limits set: work スコープは state.yml に書く"
+run_au limits set maxTaskCheckRounds 0 >/dev/null 2>&1
+assert_eq "$?" "1" "limits set: 下限を検査する（0 だと start が必ず止まり出口が無い）"
+run_au limits set bogus 3 >/dev/null 2>&1
+assert_eq "$?" "1" "limits set: 未知のキーを弾く（効かない設定を書かせない）"
+# 設定した上限が実際に効く
+mk_work tc3
+run_au taskcheck start T1 --mode delegated >/dev/null
+run_au taskcheck start T1 --mode delegated >/dev/null
+run_au taskcheck start T1 --mode delegated >/dev/null
+run_au taskcheck start T1 --mode delegated >/dev/null
+run_au taskcheck start T1 --mode delegated >/dev/null
+run_au taskcheck start T1 --mode delegated >/dev/null 2>&1
+assert_eq "$?" "4" "limits set: 設定した maxTaskCheckRounds=5 が実際に効く"
+run_au limits set maxTaskCheckRounds 2 >/dev/null
+
 # (10) schema 7 のゲートは smokeCommands だけの PJ でも効く（単数キーしか見ていなかった）
 printf 'smokeCommands:\n  - exit 0\n' > "$AUD/.aidev/config.yml"
 mk_work sc7

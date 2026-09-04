@@ -66,8 +66,10 @@ plan / tasks に沿ってコードを書く。`tasks.md` の未チェック項�
    - **返却は固定形式（`CHECK:` / `FINDINGS:` の2行＋指摘行）でのみ受け取る**（`protocol-check.md`）。
      形式が崩れていたら**内容を解釈せず1回だけ再委譲**し、2回目も崩れたら点検しなかったものとして扱う
      （散文の講評から件数を汲み取ると、`task_check_findings` が読み手の解釈で変わる）。
-   - 指摘はその場で直す。同一タスクの「点検 → 修正」は `.aidev/config.yml` の `maxTaskCheckRounds`
-     （既定 2）まで。**超えても直らないなら、粘らずに原因究明へ倒す**——`aidev debug start` で
+   - **`aidev taskcheck start <task-id> --mode <delegated|same_session>` を打ってから委譲する**。
+     ラウンド上限（`maxTaskCheckRounds`。既定 2）を CLI が検査し、超えていれば exit 4 で止まる。
+     結果は `aidev taskcheck report <task-id> --findings <件数>` で記録する。
+   - 指摘はその場で直す。**上限で止まったら、粘らずに原因究明へ倒す**——`aidev debug start` で
      **まっさらなコンテキスト**に原因だけを調べさせる（`protocol-debug.md`）。
      これまでの修正の試行履歴は渡さない。
    - 直した指摘の**内容**は `review.md` の「タスク点検ログ」節に1件1行で追記する
@@ -80,13 +82,11 @@ plan / tasks に沿ってコードを書く。`tasks.md` の未チェック項�
      欠けると、review で打つ `aidev coverage` の gap が増え、乖離の在処が分からなくなる。
 7. 仕様から逸脱する判断をした場合は `decisions.md` に理由を残す（後続工程・レビューのため）。
 8. 区切り（全タスク完了、または一区切り）で、protocol.md「3. 工程終了プロトコル」に従って終了する（次工程: `test`）。
-   承認は `aidev approve coding tasks_done=<チェック済みタスク数> unplanned_lookups=<手順3で数えた回数>
-   task_checks=<手順5で点検したタスク数> task_check_findings=<点検で直した指摘の件数>
-   task_check_mode=<delegated|same_session>`
-   （protocol.md「3.」「8.」）。探索し直しが 0 なら `unplanned_lookups=0`、点検を1件も行わなかったなら
+   承認は `aidev approve coding tasks_done=<チェック済みタスク数> unplanned_lookups=<手順3で数えた回数>`
+   （protocol.md「3.」「8.」）。探索し直しが 0 なら `unplanned_lookups=0`。
+   **点検の 3 キー（`task_checks` / `task_check_findings` / `task_check_mode`）は手で渡さない**
+   ——`taskcheck` の記録から approve が自動で刻む。点検を 1 件も行わなかった work だけ、
    `task_checks=0` を明示的に記録する（省略すると「測っていない」と区別できない）。
-   `task_check_mode` は**どう点検したか**——`delegated` か `same_session`（理由は `protocol-check.md`）。
-   `task_checks=0` なら不要。`task_checks>0` で欠けると `verify --strict` が FAIL。
 
 ## 留意点
 

@@ -20,6 +20,8 @@
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 metrics [slug] [--all] [--phases] [--format table|tsv]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 coverage [slug] [--format table|tsv] [--strict]
 #     受け入れ基準(AC)の被覆率と tasks.md の整合を検査する。--strict は gap があれば exit 4
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 taskcheck <start|report|status> ...
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 limits [show|set <key> <n>] [--format table|tsv] [--slug <work>]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 smoke [slug]
 #     config.yml の smokeCommand を実行して結果を metrics に刻む（起動確認 GO/NO-GO）。未設定は exit 2
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 debug <start|report|status> ...
@@ -634,6 +636,27 @@ function Cmd-Approve($rest) {
       if (CovAnalyze $script:WORK) {
         $kvs = @($kvs) + @("ac_total=$($script:COV_AC)", "ac_covered=$($script:COV_TASK)",
                            "tasks_no_ac=$($script:COV_TASKS_NOAC)", "tasks_ac_none=$($script:COV_TASKS_ACNONE)")
+      }
+    }
+  }
+  # 実施形態は enum。タイポ（deligated 等）を通すと層別が静かに壊れる（sh 版と同一）
+  foreach ($kv in @($kvs)) {
+    if ($kv -like 'task_check_mode=*') {
+      $mv = $kv.Substring('task_check_mode='.Length)
+      if ('delegated','same_session','mixed' -cnotcontains $mv) {
+        Die "task_check_mode は delegated|same_session（taskcheck から自動で刻むときは、形態が割れていれば mixed）"
+      }
+    }
+  }
+  # coding の点検メトリクスは taskcheck の記録から自動で刻む（sh 版 cmd_approve の注記に理由）
+  if ($ph -ceq 'coding') {
+    $tchas = $false
+    foreach ($kv in @($kvs)) { if ($kv -like 'task_checks=*' -or $kv -like 'task_check_findings=*' -or $kv -like 'task_check_mode=*') { $tchas = $true } }
+    if (-not $tchas) {
+      $tot = TcTotals (Join-Path $script:WORK 'metrics.yml')
+      if ($tot.tasks -gt 0) {
+        $kvs = @($kvs) + @("task_checks=$($tot.tasks)", "task_check_findings=$($tot.findings)")
+        if ($tot.mode) { $kvs = @($kvs) + @("task_check_mode=$($tot.mode)") }
       }
     }
   }
@@ -1343,6 +1366,274 @@ function SmokeLast($metricsFile) {
     if ($l -match 'event:\s*smoke' -and $l -match 'result:\s*([a-z]+)') { $r = $Matches[1] }
   }
   return $r
+}
+
+# --- taskcheck（タスク単位の独立点検を有限化する。sh 版 cmd_taskcheck の注記に理由）------
+$script:TC_MODES = @('delegated','same_session')
+
+function TcMax() {
+  $v = YGet (Join-Path $script:AIDEV 'config.yml') 'maxTaskCheckRounds'
+  if ($v -notmatch '^\d+$') { return 2 }
+  $n = [int]$v; if ($n -lt 1) { return 1 }
+  return $n
+}
+function TcValidId($id) { return ($id -cmatch '^T[0-9][A-Za-z0-9_-]*$') }
+function TcRounds($metricsFile, $task) {
+  if (-not (IsFile $metricsFile)) { return 0 }
+  $c = 0
+  foreach ($l in [System.IO.File]::ReadAllLines($metricsFile)) {
+    if ($l -match 'event:\s*taskcheck' -and $l -match 'stage:\s*start' -and $l -match "task:\s*$([regex]::Escape($task))[,}]") { $c++ }
+  }
+  return $c
+}
+function TcTotals($metricsFile) {
+  $r = @{ tasks = 0; findings = 0; mode = '' }
+  if (-not (IsFile $metricsFile)) { return $r }
+  $tasks = @{}; $modes = @{}; $f = 0
+  foreach ($l in [System.IO.File]::ReadAllLines($metricsFile)) {
+    if ($l -notmatch 'event:\s*taskcheck') { continue }
+    if ($l -match 'stage:\s*start') {
+      $m = [regex]::Match($l, 'task:\s*([^,}]*)')
+      if ($m.Success) { $tasks[$m.Groups[1].Value.Trim()] = $true }
+      $mm = [regex]::Match($l, 'mode:\s*([a-z_]+)')
+      if ($mm.Success) { $modes[$mm.Groups[1].Value] = $true }
+    } elseif ($l -match 'stage:\s*report') {
+      $mf = [regex]::Match($l, 'findings:\s*(\d+)')
+      if ($mf.Success) { $f += [int]$mf.Groups[1].Value }
+    }
+  }
+  $r.tasks = $tasks.Keys.Count
+  $r.findings = $f
+  if ($modes.Keys.Count -eq 1) { $r.mode = @($modes.Keys)[0] }
+  elseif ($modes.Keys.Count -gt 1) { $r.mode = 'mixed' }
+  return $r
+}
+function Tc-Start($rest) {
+  $tid=''; $tslug=''; $tmode=''
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch -CaseSensitive ($rest[$i]) {
+      '--slug' { $i++; $tslug=(ArgAt $rest $i '--slug') }
+      '--mode' { $i++; $tmode=(ArgAt $rest $i '--mode') }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        elseif (-not $tid) { $tid=$rest[$i] } else { Die "タスク ID は1つだけ" }
+      }
+    }
+  }
+  if (-not $tid) { Die "使用法: aidev taskcheck start <task-id> [--mode delegated|same_session] [--slug <work>]" }
+  if (-not (TcValidId $tid)) { Die "タスク ID の書式が違います: $tid（tasks.md と同じ T<数字> 形式）" }
+  if (-not $tmode) { Die "--mode は必須（delegated=別コンテキストへ委譲 / same_session=同一セッションで読み直し）。点検が効く理由はコンテキスト分離なので、どちらで行ったかを残さないと効果を測れない" }
+  if ($script:TC_MODES -cnotcontains $tmode) { Die "--mode は delegated|same_session" }
+  ResolveWork $tslug
+  $mf = Join-Path $script:WORK 'metrics.yml'
+  $tmax = TcMax
+  $tr = TcRounds $mf $tid
+  Write-Output "taskcheck: $($script:SLUG) / $tid"
+  if ($tr -ge $tmax) {
+    [Console]::Error.WriteLine("FAIL 点検ラウンドが上限に達しています（$tr/$tmax。maxTaskCheckRounds）")
+    [Console]::Error.WriteLine("next: 深追いせず decisions.md に経緯を残して次のタスクへ進み、判断は 60 review に委ねる")
+    [Console]::Error.WriteLine("      それでも詰まっているなら aidev debug start で原因究明へ倒す（試行履歴は渡さない）")
+    exit 4
+  }
+  AppendEvent $script:WORK 'coding' 'taskcheck' @('stage=start', "task=$tid", "mode=$tmode")
+  Write-Output "round: $($tr + 1)/$tmax"
+  Write-Output "渡すもの: そのタスクの差分だけ"
+  Write-Output "観点: **正確性・規約適合の2つだけ**（要件適合・価値適合は work 全体の文脈が要るので 60 review）"
+  Write-Output "規約は3つとも見る: AGENTS.md 本体 / 索引に載っている条項 / PJ ドキュメント"
+  Write-Output "返却形式（これ以外は解釈しない）:"
+  Write-Output "  CHECK: <ok|findings>"
+  Write-Output "  FINDINGS: <件数>"
+  Write-Output '  - [<must|should|nit>] <指摘> — 根拠: <file:line または 節名> [conv:<id>]'
+  Write-Output "次: 結果を aidev taskcheck report $tid --findings <件数> で記録する"
+}
+function Tc-Report($rest) {
+  $tid=''; $tslug=''; $tf=''
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch -CaseSensitive ($rest[$i]) {
+      '--slug'     { $i++; $tslug=(ArgAt $rest $i '--slug') }
+      '--findings' { $i++; $tf=(ArgAt $rest $i '--findings') }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        elseif (-not $tid) { $tid=$rest[$i] } else { Die "タスク ID は1つだけ" }
+      }
+    }
+  }
+  if (-not $tid) { Die "使用法: aidev taskcheck report <task-id> --findings <n> [--slug <work>]" }
+  if (-not (TcValidId $tid)) { Die "タスク ID の書式が違います: $tid" }
+  if ($tf -notmatch '^\d+$') { Die "--findings は必須（0 以上の整数）。**崩れた返答から数字を拾わない**——件数が読めないなら点検しなかったものとして扱い、report を打たない" }
+  ResolveWork $tslug
+  $mf = Join-Path $script:WORK 'metrics.yml'
+  if ((TcRounds $mf $tid) -lt 1) { Die "そのタスクの taskcheck start がありません: $tid（start を打たずに結果だけ記録しない）" }
+  AppendEvent $script:WORK 'coding' 'taskcheck' @('stage=report', "task=$tid", "findings=$tf")
+  Write-Output "taskcheck: $($script:SLUG) / $tid（findings $tf）"
+  if ([int]$tf -gt 0) {
+    Write-Output "next: 指摘をその場で直し、内容を review.md の「タスク点検ログ」節に1件1行で追記する"
+    Write-Output "      直したあと再点検するなら aidev taskcheck start $tid（上限は maxTaskCheckRounds）"
+  }
+}
+function Tc-Status($rest) {
+  $fmt='table'; $tslug=''
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch -CaseSensitive ($rest[$i]) {
+      '--format' { $i++; $fmt=(ArgAt $rest $i '--format') }
+      '--slug'   { $i++; $tslug=(ArgAt $rest $i '--slug') }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        else { Die "status は位置引数を取りません: $($rest[$i])" }
+      }
+    }
+  }
+  if ($fmt -cne 'table' -and $fmt -cne 'tsv') { Die "--format は table|tsv" }
+  ResolveWork $tslug
+  $mf = Join-Path $script:WORK 'metrics.yml'
+  $tmax = TcMax
+  $tasks = @{}
+  if (IsFile $mf) {
+    foreach ($l in [System.IO.File]::ReadAllLines($mf)) {
+      if ($l -notmatch 'event:\s*taskcheck') { continue }
+      $m = [regex]::Match($l, 'task:\s*([^,}]*)')
+      if ($m.Success) { $tasks[$m.Groups[1].Value.Trim()] = $true }
+    }
+  }
+  $keys = [string[]]@($tasks.Keys); [Array]::Sort($keys, [System.StringComparer]::Ordinal)
+  $rows=@()
+  foreach ($t in $keys) {
+    $r = TcRounds $mf $t
+    $f = 0
+    foreach ($l in [System.IO.File]::ReadAllLines($mf)) {
+      if ($l -match 'event:\s*taskcheck' -and $l -match 'stage:\s*report' -and $l -match "task:\s*$([regex]::Escape($t))[,}]") {
+        $mf2 = [regex]::Match($l, 'findings:\s*(\d+)')
+        if ($mf2.Success) { $f += [int]$mf2.Groups[1].Value }
+      }
+    }
+    $atmax = if ($r -ge $tmax) { 'yes' } else { 'no' }
+    $rows += ($t + "`t" + $r + "`t" + $f + "`t" + $atmax)
+  }
+  $tot = TcTotals $mf
+  $mode = if ($tot.mode) { $tot.mode } else { '-' }
+  if ($fmt -ceq 'tsv') {
+    foreach ($r in $rows) { Write-Output ("taskcheck`t" + $r) }
+    Write-Output ("taskcheck-summary`t" + $tot.tasks + "`t" + $tot.findings + "`t" + $mode + "`t" + $tmax)
+    return
+  }
+  Write-Output "taskcheck: $($script:SLUG)"
+  if ($rows.Count -gt 0) { foreach ($l in (Fmt-Table (@("task`trounds`tfindings`tat_max") + $rows))) { Write-Output $l } }
+  Write-Output "taskcheck-summary: tasks=$($tot.tasks) findings=$($tot.findings) mode=$mode maxTaskCheckRounds=$tmax"
+}
+function Cmd-TaskCheck($rest) {
+  if ($rest.Count -lt 1) { Tc-Status @(); return }
+  $sub=$rest[0]; $sr=@(); if ($rest.Count -gt 1) { $sr=$rest[1..($rest.Count-1)] }
+  switch -CaseSensitive ($sub) {
+    'start'  { Tc-Start $sr }
+    'report' { Tc-Report $sr }
+    'status' { Tc-Status $sr }
+    default { Die "未知の taskcheck サブコマンド: $sub（start|report|status）" }
+  }
+}
+
+# --- limits（回数の上限を一覧・設定する。sh 版 cmd_limits の注記に理由）--------------
+# key;scope;min;default
+$script:LIMIT_KEYS = @(
+  'maxSendBacks;work;0;3',
+  'maxDebugRounds;pj;1;2',
+  'maxTaskCheckRounds;pj;1;2',
+  'lightMaxFiles;pj;1;3',
+  'smokeStaleAfter;pj;0;5',
+  'smokeTimeoutSec;pj;1;300',
+  'sharedFilesWindow;pj;0;20'
+)
+function LmSpec($key) {
+  foreach ($e in $script:LIMIT_KEYS) {
+    $c = $e -split ';'
+    if ($c[0] -ceq $key) { return @($c[1], $c[2], $c[3]) }
+  }
+  return $null
+}
+function Lm-Show($rest) {
+  $fmt='table'; $lslug=''
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch -CaseSensitive ($rest[$i]) {
+      '--format' { $i++; $fmt=(ArgAt $rest $i '--format') }
+      '--slug'   { $i++; $lslug=(ArgAt $rest $i '--slug') }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        else { Die "limits は位置引数を取りません: $($rest[$i])" }
+      }
+    }
+  }
+  if ($fmt -cne 'table' -and $fmt -cne 'tsv') { Die "--format は table|tsv" }
+  # work が無くても PJ 側は見せる（sh 版と同一）
+  $lst = ''
+  try { ResolveWork $lslug; $lst = Join-Path $script:WORK 'state.yml' } catch { $lst = '' }
+  $cfg = Join-Path $script:AIDEV 'config.yml'
+  $rows=@()
+  foreach ($e in $script:LIMIT_KEYS) {
+    $c = $e -split ';'
+    $k=$c[0]; $sc=$c[1]; $df=$c[3]
+    $src='default'; $val=''
+    if ($sc -ceq 'work') {
+      if ($lst -and (IsFile $lst)) { $val = YGet $lst $k }
+      if ($val) { $src='state' }
+    } else {
+      if (IsFile $cfg) { $val = YGet $cfg $k }
+      if ($val) { $src='config' }
+    }
+    if ($val -notmatch '^\d+$') { $val=$df; $src='default' }
+    $rows += ($k + "`t" + $val + "`t" + $src + "`t" + $sc + "`t" + $df)
+  }
+  if ($fmt -ceq 'tsv') {
+    foreach ($r in $rows) { Write-Output ("limit`t" + $r) }
+    return
+  }
+  Write-Output "LIMITS（回数の上限。scope=pj は .aidev/config.yml、work は state.yml）"
+  foreach ($l in (Fmt-Table (@("key`tvalue`tsource`tscope`tdefault") + $rows))) { Write-Output $l }
+  if (-not $lst) { Write-Output "note: work が未選択なので scope=work は既定値を表示しています" }
+  Write-Output "変更: aidev limits set <key> <n> [--slug <work>]"
+}
+function Lm-Set($rest) {
+  $k=''; $v=''; $lslug=''
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch -CaseSensitive ($rest[$i]) {
+      '--slug' { $i++; $lslug=(ArgAt $rest $i '--slug') }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        elseif (-not $k) { $k=$rest[$i] } elseif (-not $v) { $v=$rest[$i] }
+        else { Die "引数が多すぎます: $($rest[$i])" }
+      }
+    }
+  }
+  if (-not $k -or -not $v) { Die "使用法: aidev limits set <key> <n> [--slug <work>]（key は aidev limits で一覧）" }
+  $sp = LmSpec $k
+  if (-not $sp) {
+    $names = (($script:LIMIT_KEYS | ForEach-Object { ($_ -split ';')[0] }) -join ' ')
+    Die "未知の上限キー: $k（設定できるのは $names ）"
+  }
+  $sc=$sp[0]; $mn=[int]$sp[1]; $df=$sp[2]
+  if ($v -notmatch '^\d+$') { Die "値は 0 以上の整数: $v" }
+  if ([int]$v -lt $mn) { Die "$k の下限は $mn です（$v は指定できない）" }
+  if ($sc -ceq 'work') {
+    ResolveWork $lslug
+    SetOrAppend (Join-Path $script:WORK 'state.yml') $k "$k`: $v"
+    Write-Output "set: $k = $v（$($script:SLUG) の state.yml）"
+  } else {
+    $cfg = Join-Path $script:AIDEV 'config.yml'
+    if (-not (IsFile $cfg)) { WriteText $cfg '' }
+    SetOrAppend $cfg $k "$k`: $v"
+    Write-Output "set: $k = $v（.aidev/config.yml。PJ 全体に効く）"
+  }
+  if ($v -ceq $df) { Write-Output "note: 既定値と同じ値です（明示しておくこと自体は無害）" }
+}
+function Cmd-Limits($rest) {
+  if ($rest.Count -lt 1) { Lm-Show @(); return }
+  $sub=$rest[0]; $sr=@(); if ($rest.Count -gt 1) { $sr=$rest[1..($rest.Count-1)] }
+  switch -CaseSensitive ($sub) {
+    'set'  { Lm-Set $sr }
+    'show' { Lm-Show $sr }
+    default {
+      if ($sub.StartsWith('-')) { Lm-Show $rest }
+      else { Die "未知の limits サブコマンド: $sub（show|set）" }
+    }
+  }
 }
 
 function Cmd-Smoke($rest) {
@@ -3841,6 +4132,8 @@ switch -CaseSensitive ($cmd) {
   'coverage' { Cmd-Coverage $rest }
   'smoke'   { Cmd-Smoke $rest }
   'debug'   { Cmd-Debug $rest }
+  'limits'  { Cmd-Limits $rest }
+  'taskcheck' { Cmd-TaskCheck $rest }
   'escalate' { Cmd-Escalate $rest }
   'doctor'  { Cmd-Doctor $rest }
   'harness' { Cmd-Harness $rest }

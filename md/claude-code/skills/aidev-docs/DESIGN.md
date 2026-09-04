@@ -912,6 +912,21 @@ deliver した瞬間に表が空になり、「マージ順で相手を壊さな
 という線は変えず、その集合に `decisions.md` と `task_check_mode` を足した。どちらも既定の `verify` では
 WARN 止まりで、機械ゲート（`--strict`）でだけ止まる。
 
+**G を1件、実装で閉じた**: `maxTaskCheckRounds` は「`config.yml` のキー」と書きながら CLI が
+読まず、`0` を書いても `999` を書いても挙動が変わらなかった。読めなかった理由は
+「観測できない」ではなく**観測する口が無かった**こと——`maxSendBacks` は
+`event <工程> sent_back`、`maxDebugRounds` は `debug start` という **「1ラウンド = 1 コマンド」**
+の形があるから数えられる。タスク点検は `approve coding` 時の**合計**しか CLI に届かず、
+「タスク T の点検が何回目か」が残らなかった。`aidev taskcheck start/report/status` で同じ形を与え、
+副産物として `task_checks` / `task_check_findings` / `task_check_mode` を**手書きさせずに済む**
+ようにした（被覆・`harnessRev` と同じ扱い）。
+
+**設定口も同時に置いた**: 上限は `state.yml` と `config.yml` に散っていて、**どれも設定口が無く
+手編集しかなかった**——`escalate` / `unapprove` / `--human-gates` を作ったのと同じ矛盾。
+`aidev limits` が「いまいくつが効いているか」を**どこから来た値か込みで**出し、`limits set` が
+キーと下限を検査して書く。見えない設定は忘れられる、というのがここでの学び
+（`maxTaskCheckRounds` が長く放置されたのも、効いているかを確かめる手段が無かったため）。
+
 **なぜ実走が要るか（G）**: A〜F は静的に突き合わせられるが、G は**通り道を実際に歩かないと**見えない。
 プロファイルやモードの直交軸が増えるほど、「どの組み合わせでどの検査が発火しないか」は
 読んでも分からなくなる。2026-09-04 の並行実走（3 本）では、**3 本がそれぞれ別の G を踏んだ**

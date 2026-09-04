@@ -28,6 +28,12 @@
 #     report [slug] --root-cause <t> --category <c> --next-action <retry|block|stop_for_human>
 #            [--confidence high|medium|low] [--fix-plan <t>] [--verification <t>]
 #     status [slug] [--format table|tsv]         # 工程ごとの差し戻し数・デバッグ回数・要否
+#   aidev taskcheck <start|report|status> ...
+#     タスク単位の独立点検を有限化する。start が maxTaskCheckRounds を検査し、超えていれば exit 4
+#     start <task-id> --mode <delegated|same_session> [--slug s] / report <task-id> --findings <n> [--slug s]
+#     status [--format table|tsv] [--slug s]   # 件数は approve coding が自動で刻む（手書きしない）
+#   aidev limits [show|set <key> <n>] [--format table|tsv] [--slug <work>]
+#     回数の上限を一覧・設定する。どこから来た値か（config / state / 既定）まで出す
 #   aidev smoke [slug]
 #     .aidev/config.yml の smokeCommand を実行し、結果を metrics に刻む（起動確認 GO/NO-GO）。
 #     「テストが通ること」だけでは着地の根拠にしない。未設定は exit 2（黙って緑にしない）
@@ -598,8 +604,8 @@ cmd_approve() {
     case "$_akv" in
       task_check_mode=*)
         case "${_akv#task_check_mode=}" in
-          delegated|same_session) ;;
-          *) die "task_check_mode は delegated|same_session（委譲したか、同一セッションで読み直したか）" ;;
+          delegated|same_session|mixed) ;;
+          *) die "task_check_mode は delegated|same_session（taskcheck から自動で刻むときは、形態が割れていれば mixed）" ;;
         esac ;;
     esac
   done
@@ -613,6 +619,21 @@ cmd_approve() {
     _lastev=$(grep -n "phase:[[:space:]]*$ph," "$WORK/metrics.yml" 2>/dev/null \
       | grep -E 'event:[[:space:]]*(start|approved)' | tail -n1)
     case "$_lastev" in *"event: approved"*) _amend=yes ;; esac
+  fi
+  # `coding` の点検メトリクスは `taskcheck` の記録から**自動で刻む**（被覆・harnessRev と同じ理由
+  # ——手書きの値は忘れられる／都合よく書かれる）。明示指定があればそちらを尊重する。
+  # taskcheck を1回も打っていない work は刻まない（0 と書くと「点検していない」と
+  # 「点検して 0 件」が区別できなくなる。従来どおり手で `task_checks=0` を渡す）
+  if [ "$ph" = coding ]; then
+    _tchas=no
+    for _akv in "$@"; do case "$_akv" in task_checks=*|task_check_findings=*|task_check_mode=*) _tchas=yes ;; esac; done
+    if [ "$_tchas" = no ]; then
+      tc_totals "$WORK/metrics.yml"
+      if [ "$TC_TASKS" -gt 0 ] 2>/dev/null; then
+        set -- "$@" "task_checks=$TC_TASKS" "task_check_findings=$TC_FINDINGS"
+        [ -n "$TC_MODE" ] && set -- "$@" "task_check_mode=$TC_MODE"
+      fi
+    fi
   fi
   case "$ph" in
     plan|requirement|review)
@@ -1369,6 +1390,298 @@ cmd_debug() {
     report) shift; dbg_report "$@" ;;
     status) shift; dbg_status "$@" ;;
     *) die "未知の debug サブコマンド: $1（start|report|status）" ;;
+  esac
+}
+
+# --- コマンド: limits（回数の上限を一覧・設定する） --------------------------------
+# 上限は 3 箇所に散っていた——`state.yml`（work ごと）／`.aidev/config.yml`（PJ ごと）／
+# frontmatter（条項ごと）。**どれも設定口が無く手編集しかなかった**（`escalate` / `unapprove` /
+# `--human-gates` を作ったのと同じ矛盾で、「state の更新は単一の検証済み経路に集約する」に反する）。
+# しかも「いまいくつが効いているか」を一望する手段が無く、既定値は各所のコードにしか無かった。
+#
+# 一覧は**どこから来た値か**（config / state / 既定）まで出す。効いている値と、それを変える口を
+# 同じコマンドに置くのが要点——見えない設定は忘れられる。
+# 条項の `verify_after` はここに含めない（上限ではなく母集団の**下限**で、項目ごとに違うため
+# `convention new --verify-after` / `convention defer` が正しい口）。
+#
+# key:scope:min:default（scope=work は state.yml、pj は config.yml）
+LIMIT_KEYS='maxSendBacks:work:0:3
+maxDebugRounds:pj:1:2
+maxTaskCheckRounds:pj:1:2
+lightMaxFiles:pj:1:3
+smokeStaleAfter:pj:0:5
+smokeTimeoutSec:pj:1:300
+sharedFilesWindow:pj:0:20'
+
+lm_spec() { # key -> "scope min default"（未知なら空）
+  # **loop body の最後を `cmd && …` にしない**。最後の反復でキーが一致しないと body が 1 を返し、
+  # while → pipeline が 1 になる。`set -e` は**その場で subshell を落とす**ので、後ろに置いた
+  # `return 0` には到達しない（command substitution 越しに呼び出し側まで伝わる）。
+  # このリポジトリで繰り返し踏んでいる形——if で受ければ body は常に 0 を返す
+  printf '%s\n' "$LIMIT_KEYS" | while IFS=: read -r k sc mn df; do
+    if [ "$k" = "$1" ]; then printf '%s %s %s' "$sc" "$mn" "$df"; fi
+  done
+  return 0
+}
+
+lm_show() {
+  _fmt=table; _lslug=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --format) need_arg "$1" $#; _fmt=${2:-}; shift 2 ;;
+      --slug) need_arg "$1" $#; _lslug=$2; shift 2 ;;
+      -*) die "未知のオプション: $1" ;;
+      *) die "limits は位置引数を取りません: $1" ;;
+    esac
+  done
+  case "$_fmt" in table|tsv) ;; *) die "--format は table|tsv" ;; esac
+  # work が無くても PJ 側は見せる（導入直後に効いている値を確かめられるように）
+  _lst=""
+  if resolve_work "$_lslug" 2>/dev/null; then _lst="$WORK/state.yml"; fi
+  _rows=""
+  _oi=$IFS; IFS='
+'
+  for _spec in $LIMIT_KEYS; do
+    IFS=: read -r _k _sc _mn _df <<EOF2
+$_spec
+EOF2
+    IFS='
+'
+    _src=default; _val=""   # 表の列は ASCII に保つ（多バイトだと sh/ps1 で桁揃えが割れる）
+    if [ "$_sc" = work ]; then
+      [ -n "$_lst" ] && _val=$(yget "$_lst" "$_k")
+      [ -n "$_val" ] && _src=state
+    else
+      _val=$(yget "$AIDEV/config.yml" "$_k")
+      [ -n "$_val" ] && _src=config
+    fi
+    case "$_val" in ''|*[!0-9]*) _val=$_df; _src=default ;; esac
+    _rows="$_rows$_k	$_val	$_src	$_sc	$_df
+"
+  done
+  IFS=$_oi
+  if [ "$_fmt" = tsv ]; then
+    printf '%s' "$_rows" | while IFS='	' read -r a b c d e; do
+      [ -n "$a" ] && printf 'limit\t%s\t%s\t%s\t%s\t%s\n' "$a" "$b" "$c" "$d" "$e"
+    done
+    return 0
+  fi
+  printf 'LIMITS（回数の上限。scope=pj は .aidev/config.yml、work は state.yml）\n'
+  { printf 'key\tvalue\tsource\tscope\tdefault\n'; printf '%s' "$_rows"; } | fmt_table
+  [ -z "$_lst" ] && printf 'note: work が未選択なので scope=work は既定値を表示しています\n'
+  printf '変更: aidev limits set <key> <n> [--slug <work>]\n'
+  return 0
+}
+
+lm_set() {
+  _k=""; _v=""; _lslug=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --slug) need_arg "$1" $#; _lslug=$2; shift 2 ;;
+      -*) die "未知のオプション: $1" ;;
+      *) if [ -z "$_k" ]; then _k=$1; elif [ -z "$_v" ]; then _v=$1; else die "引数が多すぎます: $1"; fi; shift ;;
+    esac
+  done
+  [ -n "$_k" ] && [ -n "$_v" ] || die "使用法: aidev limits set <key> <n> [--slug <work>]（key は aidev limits で一覧）"
+  _sp=$(lm_spec "$_k")
+  [ -n "$_sp" ] || die "未知の上限キー: $_k（設定できるのは $(printf '%s\n' "$LIMIT_KEYS" | cut -d: -f1 | tr '\n' ' ')）"
+  set -- $_sp
+  _sc=$1; _mn=$2; _df=$3
+  case "$_v" in ''|*[!0-9]*) die "値は 0 以上の整数: $_v" ;; esac
+  [ "$_v" -ge "$_mn" ] 2>/dev/null || die "$_k の下限は $_mn です（$_v は指定できない）"
+  if [ "$_sc" = work ]; then
+    resolve_work "$_lslug"
+    set_or_append "$WORK/state.yml" "$_k" "$_k: $_v"
+    printf 'set: %s = %s（%s の state.yml）\n' "$_k" "$_v" "$SLUG"
+  else
+    [ -f "$AIDEV/config.yml" ] || : > "$AIDEV/config.yml"
+    set_or_append "$AIDEV/config.yml" "$_k" "$_k: $_v"
+    printf 'set: %s = %s（.aidev/config.yml。PJ 全体に効く）\n' "$_k" "$_v"
+  fi
+  [ "$_v" = "$_df" ] && printf 'note: 既定値と同じ値です（明示しておくこと自体は無害）\n'
+  return 0
+}
+
+cmd_limits() {
+  [ $# -ge 1 ] || { lm_show; return $?; }
+  case "$1" in
+    set)  shift; lm_set "$@" ;;
+    show) shift; lm_show "$@" ;;
+    -*)   lm_show "$@" ;;
+    *) die "未知の limits サブコマンド: $1（show|set）" ;;
+  esac
+}
+
+# --- コマンド: taskcheck（タスク単位の独立点検を有限化する） ----------------------
+# `maxTaskCheckRounds` は長らく**散文にしか無い上限**だった——`protocol-check.md` が
+# 「config.yml のキー」と書くのに CLI は読まず、`0` を書いても `999` を書いても挙動が変わらない。
+# `DESIGN`「3.5」の分類 G（散文にしか無い規約）そのもの。
+#
+# 読めなかった理由は「観測できない」ではなく**観測する口が無かった**こと。`maxSendBacks` は
+# `event <工程> sent_back`、`maxDebugRounds` は `debug start` という「1ラウンド = 1 コマンド」の
+# 形があるから数えられる。タスク点検は `approve coding` 時の**合計**しか CLI に届かず、
+# 「タスク T の点検が何回目か」が残らなかった。ここで同じ形を与える。
+#
+# 副産物として `task_checks` / `task_check_findings` / `task_check_mode` を**手書きさせずに済む**
+# （被覆・harnessRev・schema を自動化したのと同じ理由。手書きの値は忘れられる）。
+TC_MODES='delegated same_session'
+
+tc_max() {
+  _m=$(yget "$AIDEV/config.yml" maxTaskCheckRounds)
+  case "$_m" in ''|*[!0-9]*) _m=2 ;; esac
+  # 下限 1（`maxDebugRounds` と同じ理由。0 だと start が必ず止まり出口が無い）
+  [ "$_m" -ge 1 ] 2>/dev/null || _m=1
+  printf '%s' "$_m"
+}
+# タスク ID の書式（tasks.md の `T<数字>` に揃える。coverage の COV_T_RE と同じ文法）
+tc_valid_id() { # id
+  case "$1" in
+    T[0-9]*) printf '%s' "$1" | grep -Eq '^T[0-9][A-Za-z0-9_-]*$' ;;
+    *) return 1 ;;
+  esac
+}
+# そのタスクの点検ラウンド数（start の回数）
+tc_rounds() { # metrics_file task
+  [ -f "$1" ] || { printf '0'; return; }
+  _n=$(grep 'event:[[:space:]]*taskcheck' "$1" 2>/dev/null | grep 'stage:[[:space:]]*start' \
+        | grep -c "task:[[:space:]]*$2[,}]") || _n=0
+  case "$_n" in ''|*[!0-9]*) _n=0 ;; esac
+  printf '%s' "$_n"
+}
+# 点検したタスクの数（重複を除く）と findings 合計。TC_TASKS / TC_FINDINGS / TC_MODE に入れる
+tc_totals() { # metrics_file
+  TC_TASKS=0; TC_FINDINGS=0; TC_MODE=""
+  [ -f "$1" ] || return 0
+  TC_TASKS=$(grep 'event:[[:space:]]*taskcheck' "$1" 2>/dev/null | grep 'stage:[[:space:]]*start' \
+    | sed -n 's/.*task:[[:space:]]*\([^,}]*\).*/\1/p' | sed 's/[[:space:]]*$//' \
+    | LC_ALL=C sort -u | grep -c .) || TC_TASKS=0
+  case "$TC_TASKS" in ''|*[!0-9]*) TC_TASKS=0 ;; esac
+  TC_FINDINGS=$(grep 'event:[[:space:]]*taskcheck' "$1" 2>/dev/null | grep 'stage:[[:space:]]*report' \
+    | sed -n 's/.*findings:[[:space:]]*\([0-9][0-9]*\).*/\1/p' \
+    | awk '{t+=$1} END{print t+0}') || TC_FINDINGS=0
+  case "$TC_FINDINGS" in ''|*[!0-9]*) TC_FINDINGS=0 ;; esac
+  # 実施形態は start に刻む。全部同じならその値、混ざっていれば mixed
+  _tcm=$(grep 'event:[[:space:]]*taskcheck' "$1" 2>/dev/null | grep 'stage:[[:space:]]*start' \
+    | sed -n 's/.*mode:[[:space:]]*\([a-z_]*\).*/\1/p' | LC_ALL=C sort -u)
+  _tcn=$(printf '%s\n' "$_tcm" | grep -c .) || _tcn=0
+  if [ "$_tcn" -eq 1 ] 2>/dev/null; then TC_MODE=$_tcm
+  elif [ "$_tcn" -gt 1 ] 2>/dev/null; then TC_MODE=mixed; fi
+  return 0
+}
+
+tc_start() {
+  _tid=""; _tslug=""; _tmode=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --slug) need_arg "$1" $#; _tslug=$2; shift 2 ;;
+      --mode) need_arg "$1" $#; _tmode=$2; shift 2 ;;
+      -*) die "未知のオプション: $1" ;;
+      *) [ -z "$_tid" ] && _tid=$1 || die "タスク ID は1つだけ"; shift ;;
+    esac
+  done
+  [ -n "$_tid" ] || die "使用法: aidev taskcheck start <task-id> [--mode delegated|same_session] [--slug <work>]"
+  tc_valid_id "$_tid" || die "タスク ID の書式が違います: $_tid（tasks.md と同じ T<数字> 形式）"
+  [ -n "$_tmode" ] || die "--mode は必須（delegated=別コンテキストへ委譲 / same_session=同一セッションで読み直し）。点検が効く理由はコンテキスト分離なので、どちらで行ったかを残さないと効果を測れない"
+  case " $TC_MODES " in *" $_tmode "*) ;; *) die "--mode は delegated|same_session" ;; esac
+  resolve_work "$_tslug"
+  _tmax=$(tc_max)
+  _tr=$(tc_rounds "$WORK/metrics.yml" "$_tid")
+  printf 'taskcheck: %s / %s\n' "$SLUG" "$_tid"
+  if [ "$_tr" -ge "$_tmax" ] 2>/dev/null; then
+    printf 'FAIL 点検ラウンドが上限に達しています（%s/%s。maxTaskCheckRounds）\n' "$_tr" "$_tmax" >&2
+    printf 'next: 深追いせず decisions.md に経緯を残して次のタスクへ進み、判断は 60 review に委ねる\n' >&2
+    printf '      それでも詰まっているなら aidev debug start で原因究明へ倒す（試行履歴は渡さない）\n' >&2
+    return 4
+  fi
+  append_event coding taskcheck stage=start "task=$_tid" "mode=$_tmode"
+  printf 'round: %s/%s\n' "$((_tr + 1))" "$_tmax"
+  printf '渡すもの: そのタスクの差分だけ\n'
+  printf '観点: **正確性・規約適合の2つだけ**（要件適合・価値適合は work 全体の文脈が要るので 60 review）\n'
+  printf '規約は3つとも見る: AGENTS.md 本体 / 索引に載っている条項 / PJ ドキュメント\n'
+  printf '返却形式（これ以外は解釈しない）:\n'
+  printf '  CHECK: <ok|findings>\n'
+  printf '  FINDINGS: <件数>\n'
+  printf '  - [<must|should|nit>] <指摘> — 根拠: <file:line または 節名> [conv:<id>]\n'
+  printf '次: 結果を aidev taskcheck report %s --findings <件数> で記録する\n' "$_tid"
+  return 0
+}
+
+tc_report() {
+  _tid=""; _tslug=""; _tf=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --slug) need_arg "$1" $#; _tslug=$2; shift 2 ;;
+      --findings) need_arg "$1" $#; _tf=$2; shift 2 ;;
+      -*) die "未知のオプション: $1" ;;
+      *) [ -z "$_tid" ] && _tid=$1 || die "タスク ID は1つだけ"; shift ;;
+    esac
+  done
+  [ -n "$_tid" ] || die "使用法: aidev taskcheck report <task-id> --findings <n> [--slug <work>]"
+  tc_valid_id "$_tid" || die "タスク ID の書式が違います: $_tid"
+  case "$_tf" in
+    ''|*[!0-9]*) die "--findings は必須（0 以上の整数）。**崩れた返答から数字を拾わない**——件数が読めないなら点検しなかったものとして扱い、report を打たない" ;;
+  esac
+  resolve_work "$_tslug"
+  [ "$(tc_rounds "$WORK/metrics.yml" "$_tid")" -ge 1 ] 2>/dev/null \
+    || die "そのタスクの taskcheck start がありません: $_tid（start を打たずに結果だけ記録しない）"
+  append_event coding taskcheck stage=report "task=$_tid" "findings=$_tf"
+  printf 'taskcheck: %s / %s（findings %s）\n' "$SLUG" "$_tid" "$_tf"
+  if [ "$_tf" -gt 0 ] 2>/dev/null; then
+    printf 'next: 指摘をその場で直し、内容を review.md の「タスク点検ログ」節に1件1行で追記する\n'
+    printf '      直したあと再点検するなら aidev taskcheck start %s（上限は maxTaskCheckRounds）\n' "$_tid"
+  fi
+  return 0
+}
+
+tc_status() {
+  _fmt=table; _tslug=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --format) need_arg "$1" $#; _fmt=${2:-}; shift 2 ;;
+      --slug) need_arg "$1" $#; _tslug=$2; shift 2 ;;
+      -*) die "未知のオプション: $1" ;;
+      *) die "status は位置引数を取りません: $1" ;;
+    esac
+  done
+  case "$_fmt" in table|tsv) ;; *) die "--format は table|tsv" ;; esac
+  resolve_work "$_tslug"
+  _tmax=$(tc_max)
+  _rows=$(grep 'event:[[:space:]]*taskcheck' "$WORK/metrics.yml" 2>/dev/null \
+    | sed -n 's/.*task:[[:space:]]*\([^,}]*\).*/\1/p' | sed 's/[[:space:]]*$//' \
+    | LC_ALL=C sort -u | while read -r _t; do
+        [ -n "$_t" ] || continue
+        _r=$(tc_rounds "$WORK/metrics.yml" "$_t")
+        _f=$(grep 'event:[[:space:]]*taskcheck' "$WORK/metrics.yml" 2>/dev/null \
+              | grep 'stage:[[:space:]]*report' | grep "task:[[:space:]]*$_t[,}]" \
+              | sed -n 's/.*findings:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | awk '{t+=$1} END{print t+0}')
+        _atmax=no; [ "$_r" -ge "$_tmax" ] 2>/dev/null && _atmax=yes
+        printf '%s\t%s\t%s\t%s\n' "$_t" "$_r" "$_f" "$_atmax"
+      done)
+  if [ "$_fmt" = tsv ]; then
+    printf '%s\n' "$_rows" | while IFS='	' read -r a b c d; do
+      [ -n "$a" ] && printf 'taskcheck\t%s\t%s\t%s\t%s\n' "$a" "$b" "$c" "$d"
+    done
+    tc_totals "$WORK/metrics.yml"
+    printf 'taskcheck-summary\t%s\t%s\t%s\t%s\n' "$TC_TASKS" "$TC_FINDINGS" "${TC_MODE:--}" "$_tmax"
+    return 0
+  fi
+  printf 'taskcheck: %s\n' "$SLUG"
+  if [ -n "$_rows" ]; then
+    { printf 'task\trounds\tfindings\tat_max\n'; printf '%s\n' "$_rows"; } | fmt_table
+  fi
+  tc_totals "$WORK/metrics.yml"
+  printf 'taskcheck-summary: tasks=%s findings=%s mode=%s maxTaskCheckRounds=%s\n' \
+    "$TC_TASKS" "$TC_FINDINGS" "${TC_MODE:--}" "$_tmax"
+  return 0
+}
+
+cmd_taskcheck() {
+  [ $# -ge 1 ] || { tc_status; return $?; }
+  case "$1" in
+    start)  shift; tc_start "$@" ;;
+    report) shift; tc_report "$@" ;;
+    status) shift; tc_status "$@" ;;
+    *) die "未知の taskcheck サブコマンド: $1（start|report|status）" ;;
   esac
 }
 
@@ -4198,6 +4511,8 @@ case "$cmd" in
   coverage) cmd_coverage "$@" ;;
   smoke)   cmd_smoke "$@" ;;
   debug)   cmd_debug "$@" ;;
+  taskcheck) cmd_taskcheck "$@" ;;
+  limits)  cmd_limits "$@" ;;
   escalate) cmd_escalate "$@" ;;
   doctor)  cmd_doctor "$@" ;;
   status)  cmd_status "$@" ;;
