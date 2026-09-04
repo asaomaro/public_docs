@@ -31,7 +31,7 @@ requirement を「どう作るか」の実装仕様に落とす。設計判断�
 1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定。
    `aidev guard spec` で前提を検査する（exit≠0＝未充足。目視確認で代替しない）。
 2. `requirement.md` を読み、完了条件を満たす実装方針を検討する。
-   - 有力な案が複数あるなら plan モードを使ってよい（`full` × `interactive` のみ。解除してから書く。
+   - 有力な案が複数あるなら plan モードを使ってよい（使える条件は `protocol-autonomous.md`。解除してから書く。
      `protocol-autonomous.md`）。
 3. 設計判断を行う。PJ のドメイン固有の論点（PJ ルールに記載があれば、それに従う）は明示的に扱う。
    - 設計選択が多いなら深掘り質問（grilling）を opt-in で行う（PJ の質問深掘り skill があれば優先。

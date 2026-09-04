@@ -126,8 +126,9 @@ git worktree＋`feature/<slug>` ブランチを作って隔離着手できる。
   - **interactive**: 未充足の依存とその理由を警告し、`AskUserQuestion` で「依存を待つ＝中断 / 承知のうえ続行」を
     選ばせる。続行は妨げない（硬ゲートは承認のみ、の思想）。
   - **autonomous / batch**: その作業には着手せず「依存未充足のため保留」と報告する（batch は次の項目へ進む）。
-- 充足済み・依存なしなら通常どおり進む。`dependsOn` の記録は新規作業時（「aidev-00-start」手順4）か
-  `aidev-util-propose` の起票時に行う。
+- 充足済み・依存なしなら通常どおり進む。`dependsOn` を刻むのは **`aidev new --depends`**
+  （`aidev-00-start` 手順4 でも batch 経由でも同じ）。propose は work をまだ作らないので、
+  前提は backlog 行末の `(needs: …)` として残すだけ。
 
 ## 2.8 サブタスク分割（subtask 層・schema 3）
 
@@ -219,8 +220,7 @@ backlog は**遅延キュー**で、完了した行を閉じるのは deliver �
 
 ユーザーが成果物 md を自力で通読する代わりに、**主エージェントが成果物を順に提示し、1項目ずつ確認**しながら
 ゲートを進める対話モード。**既定では全工程の承認ゲートで選択肢として提示する**（interactive のみ。autonomous は
-自動承認のため不要）。ただし上流工程で「独立検証」（「3.3」(a)）を提示する場合は 4 つ目の枠をそちらに譲る
-（`Other` で要求できるため失われない。「3.」の条件付き差し替え）。
+自動承認のため不要）。4 つ目の枠の扱いは「3.」の差し替え規則に従う。
 
 - **walkthrough 工程（`aidev-65-walkthrough`）とは別物**。あちらは deliver 前のコードレビュー補助 md を生成する
   任意工程。こちらは**任意の工程の承認ゲートで選べる「提示モード」**で、成果物 md を生成・変更しない。
@@ -454,12 +454,12 @@ events:
   `unplanned_lookups`（**アンカー付きタスクなのに**探索し直した回数。`未特定` のタスクでの探索は
   最初から想定内なので数えない——分母 `tasks_anchored` と対応させる）/
   `task_checks`（独立点検（「3.3」(b)）を行ったタスク数）/
-  `task_check_findings`（点検で見つけて**その場で直した**指摘の件数）
-  - **点検を1件も行わなかったときも `task_checks=0` を明示する**（省略すると「測っていない」と区別できない）。
-  - 率の分母は `tasks_done` ではなく **`task_checks`**。点検しなかったタスクを分母に入れると、
-    発火条件（「3.3」(b)）が適切かどうかが見えなくなる。
-  - 読み方: `task_check_findings` が出ているのに review の `must` が減らないなら、**点検が効いていない**
-    （観点か発火条件がずれている）。両方が減っているなら効いている。
+  `task_check_findings`（点検で見つけた指摘の件数）/ `task_check_mode`（`delegated`／`same_session`／
+  タスクごとに割れていれば `mixed`）
+  - **この3キーは手で渡さない**。`aidev taskcheck` の記録から `approve` が自動で刻む
+    （被覆・`harnessRev` と同じ扱い）。**点検を1件も行わなかった work だけ** `task_checks=0` を
+    明示する（省略すると「測っていない」と区別できない）。
+  - 読み方（率の分母・`must` との突き合わせ）は `protocol-analysis.md`。
 - **test**: `passed` / `failed`（検証結果の件数）
 - **review**: `must` / `should` / `nit`（重大度別の指摘件数）
 - **任意工程（light からの昇格時）**: `escalated_from_light`（`1` を刻む。昇格が起きた工程の approved に付す。
@@ -469,7 +469,7 @@ events:
   （例: `git add -A && git diff --cached --stat HEAD -- . ':!.aidev'`。事後記録モードは既着地コミットの範囲で計測）。
 - **CLI 形式**: `k=v` を `aidev approve` に渡すと `metrics:` になる。例:
   `aidev approve plan tasks_planned=4 tasks_anchored=3` /
-  `aidev approve coding tasks_done=4 unplanned_lookups=1 task_checks=2 task_check_findings=1` /
+  `aidev approve coding tasks_done=4 unplanned_lookups=1` /
   `aidev approve test passed=12 failed=0` / `aidev approve review must=0 should=1 nit=2` /
   `aidev approve deliver files_changed=7 insertions=169 deletions=31`。
 
@@ -572,33 +572,13 @@ AGENTS.md には**読む条件つきの索引**（`<!-- aidev:conventions -->` �
 
 ### ハーネス自身の効果検証（harnessRev）
 
-条項（PJ規約）と同じ問いを**ハーネス自身**に向けたものが `state.yml` の `harnessRev`（「6.」）。
-`aidev new` が自動で刻み、`aidev approve deliver` が `harnessRevDelivered` を刻む。
+ハーネス改修が効いたかも、条項と同じ形で判定する。`aidev harness new` で仮説を `.aidev/harness/` に
+登録し（`--hypothesis` / `--baseline` は必須）、`aidev harness status` が母集団と判定可否を出す。
 
-- 刻印を手書きに任せると忘れられ、**忘れられた work は母集団から静かに漏れる**
-  （`schema:` を `new` に一本化したのと同じ理由）。
-- **またがり work**（着手時と着地時で版が違う）は、改修の効果を半分しか受けていない。
-  どちらかに帰属させると効果が薄まる方向にバイアスがかかるので、**母集団から除外**する
-  （deliver 前は `aidev verify` が `note:` で知らせ、deliver 済みは `aidev metrics --all` の `straddle` 列で
-  見る——doctor を回すたびに履歴 work ぶん鳴らし続けない。**WARN ではない**——またがりは事後に取り消せない事実で、
-  人が直せることが無い。ハーネスを1回コミットしただけで in-flight の全 work が鳴き続けるため、
-  「いま直せる」WARN と同列に置くとそちらが埋もれる）。
-- **`verify` は deliver 承認の「前」に走る**ので、`harnessRevDelivered` をまだ持っていない。
-  着地時の刻印を待つ検査にすると**通常の順序では一度も発火しない**ので、まだ無いときは
-  **現在の版**と比べる（このまま deliver すればそれが着地時の版になる）。
-- 版が見る範囲は **`aidev-*` の skill だけ**。`<skills>` 全体を見ると同居する無関係な skill の
-  変更でも版が上がり、その間の work が全部またがり扱いになる。またがり判定は**母集団からの除外**
-  なので、誤検知はそのまま**効果検証の母集団を痩せさせる**。
-- git が無い等で版が取れない環境では **`unknown` を刻む**（「8.」の「捏造して埋めない」と同じ態度）。
-
-### ハーネス改修の仮説登録（`aidev harness`）
-
-刻印だけでは「何を変えたら何がどう動くはずか」が残らず、条項側で塞いだ「事後の物語作り」がハーネス側で
-起きる。**ハーネス改修を入れたら `aidev harness new <id> --hypothesis … --baseline …` で `.aidev/harness/` に
-登録する**（`introduced` と `introduced_rev` が刻まれる）。母集団は導入後に着手し **またがらずに** deliver した
-work（`aidev harness status`）。判定は条項と同じ出口ゲート（`harness confirm --result` / `retire --note`。
-未達は拒否・`--force` は `forced: true`）。`doctor` が未判定を WARN し、`approve deliver` が到達を知らせる。
-`aidev metrics --all` の `harnessRev` / `straddle` 列で版ごとに層別する。
-
-判定案は `aidev-util-insights`（横断分析）が出す。
+- **版は `aidev new` が `harnessRev` に、`approve deliver` が `harnessRevDelivered` に自動で刻む**。
+  手書きに任せると忘れられ、忘れられた work は母集団から静かに漏れる。
+- **またがり work**（着手時と着地時で版が違う）は**母集団から外す**——改修の効果を半分しか
+  受けていないため。`aidev metrics` の `straddle` 列で層別できる。
+- 母集団は「導入後に着手し、またがらずに deliver した work」。判定は `aidev-util-insights`。
+- 版の実体と、なぜコミット SHA ではないのかは `aidev-docs/DESIGN.md`「12.」。
 

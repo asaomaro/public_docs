@@ -54,13 +54,14 @@ coding 工程で、**タスク1件を終えるたびにその差分だけを**�
   **`aidev taskcheck start <task-id> --mode <delegated|same_session>` が検査する**——超えていれば
   exit 4 で止まる（`maxSendBacks`・`maxDebugRounds` と同じく「1ラウンド = 1 コマンド」の形）。
   止まったら深追いせず `decisions.md` に経緯を残して次のタスクへ進み、判断は 60 review に委ねる。
+  いま効いている上限値は **`aidev limits`** で見る（変えるのは `aidev limits set`）。
 - **記録は `taskcheck` に集約する**。`start` の前に打ち、結果は `aidev taskcheck report <task-id>
   --findings <n>` で受ける。**件数を手で `approve coding` に渡さない**——`task_checks` /
   `task_check_findings` / `task_check_mode` は approve がこの記録から自動で刻む
   （手書きの値は忘れられる。被覆・`harnessRev` と同じ扱い）。
 - **記録**: 件数は coding の付加メトリクス（`task_checks` / `task_check_findings`。「8.」）、
   内容は `review.md` の「タスク点検ログ」節（「8.」）。**60 review のラウンド件数には混ぜない**
-  （理由は下記「タスク点検ログ節」）。件数は上のとおり `taskcheck` から自動で刻まれる。
+  （理由は下記「タスク点検ログ節」）。
 
 #### 返却形式（固定）と厳格な読み取り
 
