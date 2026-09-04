@@ -176,7 +176,7 @@ light は**上流3工程（requirement / spec / plan）を1ゲートに畳む**�
   aidev-docs/          このREADMEとDESIGN（参照専用・skillではない）＋ bin/
     bin/               ランタイムガード CLI（aidev=POSIX sh / aidev.ps1=PowerShell・README.md / test/ 同梱）
 .aidev/                PJ固有の実行時状態（skill ではない）
-  config.yml           PJ単位の設定（tracker / lightMaxFiles / smokeCommand / conventionsDir / conventionsIndex / docsRoots / sharedFiles。コミット対象）
+  config.yml           PJ単位の設定（tracker / lightMaxFiles / smokeCommand / maxDebugRounds / conventionsDir / conventionsIndex / docsRoots / sharedFiles。コミット対象）
   charter.md           propose（planner）の方針（任意）
   current              現在の作業フォルダ名（.gitignore 対象）
   works/<YYYYMMDD-slug>/  作業単位ごとの成果物（命名: 日付(UTC)-slug）

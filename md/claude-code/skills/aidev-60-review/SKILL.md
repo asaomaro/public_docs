@@ -66,6 +66,8 @@ AI 開発ワークフローの **review（レビュー）工程**を実行する
    - **must/should の指摘あり** → `aidev event review sent_back` を記録のうえ coding 工程への
      差し戻しを提案する（protocol.md「4. 番号と順序」に基づく正当な遷移）。
      coding を**再開する際は `aidev event coding start` を記録する**（さもないと手戻り回数を取りこぼす。protocol.md「3.」「8.」）。
+     - **`maxSendBacks`（既定 3）に達したら `aidev debug start`**——まっさらなコンテキストに
+       原因究明だけを委譲する（`protocol-debug.md`）。同じコンテキストで回し続けない。
      - **統合 review の差し戻し先（protocol.md「2.8」＋ `protocol-subtask.md`）**: 結合起因の指摘は**原因となった subtask の coding** へ
        戻す。`aidev use <親>/<NN>-<subslug>`（親の `activeSubtask` も同期される）→
        **`aidev unapprove review`**（完了を取り消す。記録は `sent_back` として残る）→ `aidev event coding start`。これで

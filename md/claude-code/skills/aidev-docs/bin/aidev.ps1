@@ -36,7 +36,7 @@ $ErrorActionPreference = 'Stop'
 # （git show-ref 等は ref 不在で 1 を返すのが正常系のため）。古い pwsh では通常変数になるだけで無害。
 $PSNativeCommandUseErrorActionPreference = $false
 
-$script:CURRENT_SCHEMA = 7   # schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema 7=起動確認(smoke)の記録検査を導入。schema<=2 は legacy 免除
+$script:CURRENT_SCHEMA = 8   # schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema 7=起動確認(smoke)の記録検査を導入。schema 8=デバッグ（詰まりの原因究明）の記録検査を導入。schema<=2 は legacy 免除
 $script:STRICT = $false      # verify --strict（記録漏れを致命にする）。doctor 経由では常に false
 $script:PHASES = @('requirement','research','spec','design','plan','coding','test','review','walkthrough','deliver','retro')
 $script:Utf8 = New-Object System.Text.UTF8Encoding($false)  # BOM なし
@@ -561,6 +561,16 @@ function Cmd-Event($rest) {
   ResolveWork ''
   AppendEvent $script:WORK $ph $ev $kvs
   Write-Output "recorded: $($script:SLUG)/$ph/$ev"
+  # 差し戻しの上限到達をその瞬間に知らせる（sh 版 cmd_event と同一）
+  if ($ev -ceq 'sent_back') {
+    $mfe = Join-Path $script:WORK 'metrics.yml'
+    $esb = DbgSentBacks $mfe $ph
+    $emax = DbgMaxSendBacks $script:WORK
+    if ($esb -ge $emax -and (DbgRounds $mfe $ph) -eq 0) {
+      Write-Output "note: $ph の差し戻しが $esb 回（上限 $emax）。**同じコンテキストで回し続けない** —— "
+      Write-Output "      aidev debug start --phase $ph で、新しいコンテキストへ原因究明を委譲すること"
+    }
+  }
 }
 
 # --- approve -----------------------------------------------------------------
@@ -1022,6 +1032,191 @@ function Cmd-Coverage($rest) {
   exit 0
 }
 
+# --- debug（詰まったときの原因究明を有限化する。sh 版 dbg_* / cmd_debug と同一）----------
+# 出所: cc-sdd の kiro-impl の debug subagent。要点は **fresh context**——
+# 失敗した試行の履歴を渡さない（渡すと同じ穴を掘り続ける）。手順は protocol-debug.md。
+$script:DBG_CATEGORIES = @('dependency','environment','config','logic','spec_conflict','test_defect','external')
+$script:DBG_ACTIONS    = @('retry','block','stop_for_human')
+$script:DBG_CONFIDENCE = @('high','medium','low')
+
+function DbgMax() {
+  $m = YGet (Join-Path $script:AIDEV 'config.yml') 'maxDebugRounds'
+  $n = 0; if ([int]::TryParse($m, [ref]$n) -and $n -ge 0) { return $n }
+  return 2
+}
+function DbgMaxSendBacks($work) {
+  $v = YGet (Join-Path $work 'state.yml') 'maxSendBacks'
+  $n = 0; if ([int]::TryParse($v, [ref]$n) -and $n -ge 0) { return $n }
+  return 3
+}
+function DbgSentBacks($metricsFile, $phase) {
+  if (-not (IsFile $metricsFile)) { return 0 }
+  $c = 0
+  foreach ($l in [System.IO.File]::ReadAllLines($metricsFile)) {
+    if ($l -match "phase:\s*$phase," -and $l -match 'event:\s*sent_back') { $c++ }
+  }
+  return $c
+}
+function DbgRounds($metricsFile, $phase) {
+  if (-not (IsFile $metricsFile)) { return 0 }
+  $c = 0
+  foreach ($l in [System.IO.File]::ReadAllLines($metricsFile)) {
+    if ($l -match "phase:\s*$phase," -and $l -match 'event:\s*debug' -and $l -match 'stage:\s*start') { $c++ }
+  }
+  return $c
+}
+function DbgLastAction($metricsFile) {
+  if (-not (IsFile $metricsFile)) { return '' }
+  $r = ''
+  foreach ($l in [System.IO.File]::ReadAllLines($metricsFile)) {
+    if ($l -match 'event:\s*debug' -and $l -match 'stage:\s*report' -and $l -match 'next_action:\s*([a-z_]+)') { $r = $Matches[1] }
+  }
+  return $r
+}
+
+function Dbg-Start($rest) {
+  $dslug=''; $dph=''
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch -CaseSensitive ($rest[$i]) {
+      '--phase' { $i++; $dph=(ArgAt $rest $i '--phase') }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        elseif ($dslug) { Die "slug は1つだけ" } else { $dslug=$rest[$i] }
+      }
+    }
+  }
+  ResolveWork $dslug
+  if (-not $dph) { $dph = YGet (Join-Path $script:WORK 'state.yml') 'current' }
+  if (-not (IsPhase $dph)) { Die "未知の phase: $dph（--phase で指定するか state.yml の current を直す）" }
+  $dm = DbgMax
+  $dr = DbgRounds (Join-Path $script:WORK 'metrics.yml') $dph
+  if ($dr -ge $dm) {
+    Write-Output "debug: $($script:SLUG)/$dph"
+    [Console]::Error.WriteLine("FAIL デバッグは $dm ラウンドまでです（実施済み $dr）。これ以上粘らない")
+    [Console]::Error.WriteLine("next: aidev debug report --next-action block（このタスクを止めて次へ）か")
+    [Console]::Error.WriteLine("      --next-action stop_for_human（人の判断が要る）で締めること")
+    exit 4
+  }
+  $dr = $dr + 1
+  AppendEvent $script:WORK $dph 'debug' @('stage=start', "round=$dr")
+  $dw = ".aidev/works/$($script:SLUG)"
+  Write-Output "debug: $($script:SLUG)/$dph round $dr/$dm"
+  Write-Output "note: **新しいコンテキスト**に原因究明だけを委譲する（protocol-debug.md）"
+  Write-Output "渡すもの:"
+  Write-Output "  - 失敗の生出力（$dw/test-result.md の「失敗の証跡」）"
+  Write-Output "  - いまの差分（git diff。コミット前の変更）"
+  Write-Output "  - 対象タスクの行（$dw/tasks.md）と、その AC の本文（requirement.md）"
+  Write-Output "  - review の直近ラウンドの指摘（$dw/review.md）"
+  Write-Output "**渡さないもの: これまでの修正の試行履歴**（渡すと同じ穴を掘り続ける。これがこの手順の要）"
+  Write-Output "next: aidev debug report --root-cause <t> --category <c> --next-action <a>"
+  exit 0
+}
+
+function Dbg-Report($rest) {
+  $dslug=''; $dph=''; $drc=''; $dcat=''; $dact=''; $dconf=''; $dfix=''; $dver=''
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch -CaseSensitive ($rest[$i]) {
+      '--phase'        { $i++; $dph=(ArgAt $rest $i '--phase') }
+      '--root-cause'   { $i++; $drc=(ArgAt $rest $i '--root-cause') }
+      '--category'     { $i++; $dcat=(ArgAt $rest $i '--category') }
+      '--next-action'  { $i++; $dact=(ArgAt $rest $i '--next-action') }
+      '--confidence'   { $i++; $dconf=(ArgAt $rest $i '--confidence') }
+      '--fix-plan'     { $i++; $dfix=(ArgAt $rest $i '--fix-plan') }
+      '--verification' { $i++; $dver=(ArgAt $rest $i '--verification') }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        elseif ($dslug) { Die "slug は1つだけ" } else { $dslug=$rest[$i] }
+      }
+    }
+  }
+  ResolveWork $dslug
+  if (-not $dph) { $dph = YGet (Join-Path $script:WORK 'state.yml') 'current' }
+  if (-not (IsPhase $dph)) { Die "未知の phase: $dph" }
+  $cats = [string]::Join(' ', $script:DBG_CATEGORIES)
+  $acts = [string]::Join(' ', $script:DBG_ACTIONS)
+  $cons = [string]::Join(' ', $script:DBG_CONFIDENCE)
+  if (-not $drc)  { Die "--root-cause は必須です（何が根本原因だったか。1〜2文）" }
+  if (-not $dcat) { Die "--category は必須です（$cats）" }
+  if (-not $dact) { Die "--next-action は必須です（$acts）" }
+  if ($script:DBG_CATEGORIES -cnotcontains $dcat) { Die "未知の --category: $dcat（$cats）" }
+  if ($script:DBG_ACTIONS    -cnotcontains $dact) { Die "未知の --next-action: $dact（$acts）" }
+  if ($dconf -and ($script:DBG_CONFIDENCE -cnotcontains $dconf)) { Die "未知の --confidence: $dconf（$cons）" }
+  $dr = DbgRounds (Join-Path $script:WORK 'metrics.yml') $dph
+  if ($dr -lt 1) { Die "この工程で aidev debug start が記録されていません（先に start を打つこと）" }
+
+  # 本文は decisions.md、列挙値は metrics（フロー形式の1行に自由文を入れると壊れる）
+  $df = Join-Path $script:WORK 'decisions.md'
+  $dn = 0
+  if (IsFile $df) { foreach ($l in [System.IO.File]::ReadAllLines($df)) { if ($l -match '^## デバッグ D') { $dn++ } } }
+  else { WriteText $df "# 判断の記録: $($script:SLUG)`n" }
+  $dn = $dn + 1
+  $blk = "`n## デバッグ D$dn`: $dcat / $dact（$dph round $dr・$(Now)）`n"
+  $blk += "- 根本原因: $drc`n"
+  if ($dfix)  { $blk += "- 修正方針: $dfix`n" }
+  if ($dver)  { $blk += "- 確認方法: $dver`n" }
+  if ($dconf) { $blk += "- 確度: $dconf`n" }
+  $blk += "- 次の行動: $dact`n"
+  AppendText $df $blk
+
+  $kvs = @('stage=report', "round=$dr", "category=$dcat", "next_action=$dact")
+  if ($dconf) { $kvs = @($kvs) + @("confidence=$dconf") }
+  AppendEvent $script:WORK $dph 'debug' $kvs
+
+  Write-Output "debug: $($script:SLUG)/$dph round $dr -> $dact ($dcat)"
+  Write-Output "recorded: .aidev/works/$($script:SLUG)/decisions.md の「デバッグ D$dn」"
+  switch -CaseSensitive ($dact) {
+    'retry' {
+      Write-Output "next: **新しい実装コンテキスト**に修正方針を渡してやり直す（同じコンテキストに戻さない）。"
+      Write-Output "      再開時は aidev event $dph start を忘れないこと"
+    }
+    'block' { Write-Output "next: このタスクは止めて次へ進む。判断は review 工程に委ねる" }
+    'stop_for_human' { Write-Output "next: **ここで停止して人に返す**（autonomous でも待つ。リポジトリの外の判断が要る場合の出口）" }
+  }
+  exit 0
+}
+
+function Dbg-Status($rest) {
+  $dslug=''; $fmt='table'
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch -CaseSensitive ($rest[$i]) {
+      '--format' { $i++; $fmt=(ArgAt $rest $i '--format') }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        elseif ($dslug) { Die "slug は1つだけ" } else { $dslug=$rest[$i] }
+      }
+    }
+  }
+  if ($fmt -cne 'table' -and $fmt -cne 'tsv') { Die "--format は table|tsv" }
+  ResolveWork $dslug
+  $mf = Join-Path $script:WORK 'metrics.yml'
+  $dm = DbgMax; $dsb = DbgMaxSendBacks $script:WORK
+  $rows=@()
+  foreach ($p in $script:PHASES) {
+    $sb = DbgSentBacks $mf $p
+    $rd = DbgRounds $mf $p
+    if ($sb -eq 0 -and $rd -eq 0) { continue }
+    $due = if ($sb -ge $dsb -and $rd -eq 0) { 'yes' } else { 'no' }
+    $rows += "$p`t$sb`t$rd`t$due"
+  }
+  Write-Output "debug: $($script:SLUG)"
+  if ($fmt -ceq 'tsv') { foreach ($r in $rows) { Write-Output $r } }
+  else { foreach ($l in (Fmt-Table (@("phase`tsent_backs`tdebug_rounds`tdue") + $rows))) { Write-Output $l } }
+  $dla = DbgLastAction $mf; if (-not $dla) { $dla = '-' }
+  Write-Output "debug-summary: maxSendBacks=$dsb maxDebugRounds=$dm last_action=$dla"
+  exit 0
+}
+
+function Cmd-Debug($rest) {
+  if ($rest.Count -lt 1) { Dbg-Status @() ; return }
+  $sub=$rest[0]; $sr=@(); if ($rest.Count -gt 1) { $sr=$rest[1..($rest.Count-1)] }
+  switch -CaseSensitive ($sub) {
+    'start'  { Dbg-Start  $sr }
+    'report' { Dbg-Report $sr }
+    'status' { Dbg-Status $sr }
+    default { Die "未知の debug サブコマンド: $sub（start|report|status）" }
+  }
+}
+
 # --- smoke（起動確認 GO/NO-GO。sh 版 cmd_smoke と同一の判定・同一の出力）------------
 # 出所: cc-sdd の `kiro-verify-completion`（"A passing test suite alone is not enough for FEATURE_GO."）。
 # 結果を自己申告させず CLI が exit code を取る（harnessRev / 被覆の刻印と同じ理由）。
@@ -1181,6 +1376,22 @@ function VerifyWork($work) {
             'fail' { $vf += "起動確認が失敗のまま(aidev smoke が fail)" }
             default { $vf += "起動確認の記録が無い(smokeCommand 設定済。aidev smoke を通すこと)" }
           }
+        }
+      }
+      # schema 8: 詰まりの扱い（sh 版と同一）。
+      # (a) 差し戻しが上限に達しているのに原因究明を挟んでいない（WARN）
+      # (b) デバッグが stop_for_human で終わっているのに着地している（FAIL）
+      if ($sn -ge 8) {
+        $vmf = Join-Path $work 'metrics.yml'
+        $vmsb = DbgMaxSendBacks $work
+        foreach ($vp in $script:PHASES) {
+          $vsb = DbgSentBacks $vmf $vp
+          if ($vsb -lt $vmsb) { continue }
+          if ((DbgRounds $vmf $vp) -ne 0) { continue }
+          VLine("  WARN $vp の差し戻しが $vsb 回（上限 $vmsb）だが原因究明の記録が無い: aidev debug start")
+        }
+        if ((ApprovedHas $work 'deliver') -and (DbgLastAction $vmf) -ceq 'stop_for_human') {
+          $vf += "デバッグが stop_for_human のまま着地している（人の判断を待つ出口を素通りした）"
         }
       }
       if (ApprovedHas $work 'deliver') {
@@ -3052,6 +3263,7 @@ switch -CaseSensitive ($cmd) {
   'verify'  { Cmd-Verify $rest }
   'coverage' { Cmd-Coverage $rest }
   'smoke'   { Cmd-Smoke $rest }
+  'debug'   { Cmd-Debug $rest }
   'escalate' { Cmd-Escalate $rest }
   'doctor'  { Cmd-Doctor $rest }
   'harness' { Cmd-Harness $rest }

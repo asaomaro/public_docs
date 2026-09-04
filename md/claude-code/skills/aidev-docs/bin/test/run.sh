@@ -1778,6 +1778,85 @@ printf 'smokeCommand: none\n' > "$SMK/.aidev/config.yml"
 assert_contains "$(run_sm doctor --quiet 2>&1)" "configured=none" "doctor: 対象外の宣言済みなら警告しない"
 rm -rf "$SMK"
 
+
+echo "== debug（詰まったときの原因究明を有限化する）=="
+# 出所: cc-sdd の debug subagent（fresh context・有限ラウンド）。
+# aidev は上限（maxSendBacks）を state.yml に書くだけで**どこも検査していなかった**。
+DBR=$(mktemp -d); mkdir -p "$DBR/.aidev/backlog"
+run_db() { ( cd "$DBR" && "$AIDEV_SH" "$@" ); }
+run_db new stuck >/dev/null; DBW=$(cat "$DBR/.aidev/current"); DBD="$DBR/.aidev/works/$DBW"
+for f in spec plan review test-result; do : > "$DBD/$f.md"; done
+printf -- '- [ ] AC1: a\n' > "$DBD/requirement.md"
+printf -- '- [ ] T1: x\n      AC: AC1\n      依存: なし\n' > "$DBD/tasks.md"
+for p in requirement spec plan; do run_db approve "$p" >/dev/null; done
+
+# 上限に達するまでは黙っている。達した瞬間に知らせる（気付くのが retro では遅い）
+DBO=$(run_db event coding sent_back 2>&1)
+assert_absent "$DBO" "aidev debug start" "event sent_back: 上限前は促さない"
+run_db event coding sent_back >/dev/null
+DBO=$(run_db event coding sent_back 2>&1)
+assert_contains "$DBO" "aidev debug start --phase coding" "event sent_back: 上限(3)到達をその場で促す"
+assert_contains "$DBO" "同じコンテキストで回し続けない" "event sent_back: 何が問題かを言う"
+
+DBO=$(run_db debug status --format tsv 2>&1)
+assert_contains "$DBO" "$(printf 'coding\t3\t0\tyes')" "debug status: 差し戻し3・デバッグ未実施・要=yes"
+assert_contains "$DBO" "maxSendBacks=3 maxDebugRounds=2 last_action=-" "debug status: 上限と直近の行動"
+assert_contains "$(run_db debug 2>&1)" "phase   sent_backs  debug_rounds  due" "debug: 引数なしは status（表）"
+
+# start は「渡さないもの」を明示する（この手順の要）
+DBO=$(run_db debug start --phase coding 2>&1); DBR2=$?
+assert_eq "$DBR2" "0" "debug start: 1 ラウンド目は通る"
+assert_contains "$DBO" "round 1/2" "debug start: ラウンドを数える"
+assert_contains "$DBO" "**渡さないもの: これまでの修正の試行履歴**" "debug start: fresh context の要を明示する"
+
+# report は必須フィールドを CLI が強制する（convention new の入口ゲートと同じ）
+run_db debug report --phase coding --root-cause x --category logic >/dev/null 2>&1
+assert_eq "$?" "1" "debug report: --next-action 無しは弾く"
+run_db debug report --phase coding --root-cause x --category bogus --next-action retry >/dev/null 2>&1
+assert_eq "$?" "1" "debug report: 未知の --category は弾く"
+run_db debug report --phase coding --root-cause x --category logic --next-action bogus >/dev/null 2>&1
+assert_eq "$?" "1" "debug report: 未知の --next-action は弾く"
+
+DBO=$(run_db debug report --phase coding --root-cause "save() が例外を握りつぶしていた" \
+        --category logic --next-action retry --confidence high --fix-plan "os.replace の前に再送出" 2>&1)
+assert_contains "$DBO" "round 1 -> retry (logic)" "debug report: 記録して次の行動を出す"
+assert_contains "$DBO" "同じコンテキストに戻さない" "debug report: retry の意味を言う"
+# **本文は decisions.md、列挙値は metrics**（フロー形式の1行に自由文を入れると壊れる）
+DBDEC=$(cat "$DBD/decisions.md")
+assert_contains "$DBDEC" "## デバッグ D1: logic / retry" "debug report: decisions.md に本文を残す"
+assert_contains "$DBDEC" "- 根本原因: save() が例外を握りつぶしていた" "debug report: 根本原因は文章として残す"
+assert_contains "$(cat "$DBD/metrics.yml")" "stage: report, round: 1, category: logic, next_action: retry, confidence: high" \
+  "debug report: metrics には列挙値だけを刻む"
+
+# start 無しの report は弾く（順序を守らせる）
+run_db debug report --phase test --root-cause x --category logic --next-action retry >/dev/null 2>&1
+assert_eq "$?" "1" "debug report: start の無い工程では弾く"
+
+# ラウンド上限で止める（無限に粘らせない）
+run_db debug start --phase coding >/dev/null
+run_db debug report --phase coding --root-cause "外部 API の仕様が違う" --category external --next-action stop_for_human >/dev/null
+DBO=$(run_db debug start --phase coding 2>&1); DBR2=$?
+assert_eq "$DBR2" "4" "debug start: 上限(2)を超えたら止める"
+assert_contains "$DBO" "これ以上粘らない" "debug start: 上限の理由を言う"
+
+# verify: 上限に達したのに何もせず着地した work を捕まえる
+for p in coding test review deliver; do run_db approve "$p" >/dev/null; done
+DBV=$(run_db verify 2>&1); DBR2=$?
+assert_eq "$DBR2" "4" "verify: stop_for_human のまま着地したら FAIL"
+assert_contains "$DBV" "人の判断を待つ出口を素通りした" "verify: 何が問題かを名指しする"
+
+# 別 work: 差し戻し上限に達したが debug の記録が無い -> WARN（FAIL にはしない）
+run_db new stuck2 >/dev/null; DBW2=$(cat "$DBR/.aidev/current"); DBD2="$DBR/.aidev/works/$DBW2"
+for f in spec plan review test-result; do : > "$DBD2/$f.md"; done
+printf -- '- [ ] AC1: a\n' > "$DBD2/requirement.md"
+printf -- '- [ ] T1: x\n      AC: AC1\n      依存: なし\n' > "$DBD2/tasks.md"
+for i in 1 2 3; do run_db event test sent_back >/dev/null; done
+for p in requirement spec plan coding test review deliver; do run_db approve "$p" >/dev/null; done
+DBV=$(run_db verify 2>&1); DBR2=$?
+assert_eq "$DBR2" "0" "verify: 原因究明の記録漏れは WARN 止まり（人の判断が要る）"
+assert_contains "$DBV" "test の差し戻しが 3 回（上限 3）だが原因究明の記録が無い" "verify: 上限到達＋未実施を知らせる"
+rm -rf "$DBR"
+
 echo "== sh ⇔ ps1 パリティ =="
 if [ -n "$PS_HOST" ]; then
   block_begin parity
@@ -1832,6 +1911,57 @@ EOF
   PC_PS=$(printf '%s' "$PC_PS_RAW" | tr -d '\r')
   assert_eq "$PC_SH" "$PC_PS" "パリティ: coverage --strict（出力）"
   assert_eq "$PC_SH_RC" "$PC_PS_RC" "パリティ: coverage --strict（exit code は 4）"
+  # debug のパリティ（記録の中身・上限の効き方・decisions.md の生成物）
+  PDB=$(mktemp -d); PDB2=$(mktemp -d)
+  for pimpl in sh ps1; do
+    if [ "$pimpl" = sh ]; then PD=$PDB; else PD=$PDB2; fi
+    mkdir -p "$PD/.aidev/backlog"
+    pdr() { if [ "$pimpl" = sh ]; then ( cd "$PD" && "$AIDEV_SH" "$@" >/dev/null ); \
+            else ( cd "$PD" && run_ps1 "$AIDEV_PS1" "$@" >/dev/null ); fi; }
+    pdr new stuck
+    PDW=$(tr -d '\r' < "$PD/.aidev/current"); PDD="$PD/.aidev/works/$PDW"
+    for f in spec plan review test-result; do : > "$PDD/$f.md"; done
+    printf -- '- [ ] AC1: a\n' > "$PDD/requirement.md"
+    printf -- '- [ ] T1: x\n      AC: AC1\n      依存: なし\n' > "$PDD/tasks.md"
+    for p in requirement spec plan; do pdr approve "$p"; done
+    for i in 1 2 3; do pdr event coding sent_back; done
+    pdr debug start --phase coding
+    pdr debug report --phase coding --root-cause "save() が例外を握りつぶしていた" --category logic --next-action retry --confidence high --fix-plan "os.replace の前に再送出"
+    pdr debug start --phase coding
+    pdr debug report --phase coding --root-cause "外部 API の仕様が違う" --category external --next-action stop_for_human
+    for p in coding test review deliver; do pdr approve "$p"; done
+  done
+  PDM_SH=$(sed 's/ts: [^,]*, //' "$PDB/.aidev/works"/*/metrics.yml)
+  PDM_PS=$(tr -d '\r' < "$(ls -d "$PDB2/.aidev/works"/*/metrics.yml)" | sed 's/ts: [^,]*, //')
+  assert_eq "$PDM_SH" "$PDM_PS" "パリティ: debug が刻む metrics（stage/round/category/next_action）"
+  PDD_SH=$(sed 's/・[0-9TZ:-]*）/）/' "$PDB/.aidev/works"/*/decisions.md)
+  PDD_PS=$(tr -d '\r' < "$(ls -d "$PDB2/.aidev/works"/*/decisions.md)" | sed 's/・[0-9TZ:-]*）/）/')
+  assert_eq "$PDD_SH" "$PDD_PS" "パリティ: debug report が書く decisions.md"
+  for pargs in "debug status --format tsv" "debug" "debug start --phase coding" "verify"; do
+    # shellcheck disable=SC2086
+    PDO_SH=$( ( cd "$PDB"  && "$AIDEV_SH" $pargs ) 2>&1 ); PDO_SH_RC=$?
+    # shellcheck disable=SC2086
+    PDO_PS_RAW=$( ( cd "$PDB2" && run_ps1 "$AIDEV_PS1" $pargs ) 2>&1 ); PDO_PS_RC=$?
+    PDO_PS=$(printf '%s' "$PDO_PS_RAW" | tr -d '\r')
+    assert_eq "$PDO_SH" "$PDO_PS" "パリティ: $pargs（出力）"
+    assert_eq "$PDO_SH_RC" "$PDO_PS_RC" "パリティ: $pargs（exit code）"
+  done
+  # 入口ゲート（必須・列挙値）のパリティ
+  for pbad in "--root-cause x --category logic" "--root-cause x --category bogus --next-action retry" "--root-cause x --category logic --next-action bogus"; do
+    # shellcheck disable=SC2086
+    PB_SH=$( ( cd "$PDB"  && "$AIDEV_SH" debug report --phase coding $pbad ) 2>&1 ); PB_SH_RC=$?
+    # shellcheck disable=SC2086
+    PB_PS_RAW=$( ( cd "$PDB2" && run_ps1 "$AIDEV_PS1" debug report --phase coding $pbad ) 2>&1 ); PB_PS_RC=$?
+    PB_PS=$(printf '%s' "$PB_PS_RAW" | tr -d '\r')
+    assert_eq "$PB_SH" "$PB_PS" "パリティ: debug report の入口ゲート（$pbad）"
+    assert_eq "$PB_SH_RC" "$PB_PS_RC" "パリティ: debug report の入口ゲート exit（$pbad）"
+  done
+  # sent_back の上限通知
+  PN_SH=$( ( cd "$PDB"  && "$AIDEV_SH" event review sent_back ) 2>&1 )
+  PN_PS=$( ( cd "$PDB2" && run_ps1 "$AIDEV_PS1" event review sent_back ) 2>&1 | tr -d '\r' )
+  assert_eq "$PN_SH" "$PN_PS" "パリティ: event sent_back（上限前は促さない）"
+  rm -rf "$PDB" "$PDB2"
+
   # smoke のパリティ（未設定・none・成功・失敗・doctor の PJ 単位 1 行）
   PSM=$(mktemp -d); mkdir -p "$PSM/.aidev/backlog"
   ( cd "$PSM" && "$AIDEV_SH" new pboot >/dev/null )
@@ -2571,9 +2701,9 @@ YML
   else
     skip 10 "git 不在のため worktree パリティを省略"
   fi
-  block_end parity "197" "parity"
+  block_end parity "214" "parity"
 else
-  skip 197 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
+  skip 214 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
 fi
 
 echo

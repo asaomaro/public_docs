@@ -23,6 +23,11 @@
 #   aidev coverage [slug] [--format table|tsv] [--strict]
 #     受け入れ基準(AC)の被覆率と tasks.md の整合（AC 行の欠落・未定義参照・依存の循環）を検査する。
 #     対応付けの正典は tasks.md の `AC:` 行。--strict は gap があれば exit 4（plan の承認前ゲート）
+#   aidev debug [start|report|status] ...        # 詰まったときの原因究明を有限化する
+#     start  [slug] [--phase p]                  # 新しいコンテキストへ委譲する前に打つ。ラウンド上限(既定2)を検査
+#     report [slug] --root-cause <t> --category <c> --next-action <retry|block|stop_for_human>
+#            [--confidence high|medium|low] [--fix-plan <t>] [--verification <t>]
+#     status [slug] [--format table|tsv]         # 工程ごとの差し戻し数・デバッグ回数・要否
 #   aidev smoke [slug]
 #     .aidev/config.yml の smokeCommand を実行し、結果を metrics に刻む（起動確認 GO/NO-GO）。
 #     「テストが通ること」だけでは着地の根拠にしない。未設定は exit 2（黙って緑にしない）
@@ -66,7 +71,7 @@ need_arg() { # opt残り引数数
   [ "$2" -ge 2 ] || die "$1 には値が必要です"
 }
 
-CURRENT_SCHEMA=7   # 現行スキーマ版。new がこの値を刻む。schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema 7=起動確認(smoke)の記録検査を導入。schema<=2 は legacy として subtask 不変条件を免除。
+CURRENT_SCHEMA=8   # 現行スキーマ版。new がこの値を刻む。schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema 7=起動確認(smoke)の記録検査を導入。schema 8=デバッグ（詰まりの原因究明）の記録検査を導入。schema<=2 は legacy として subtask 不変条件を免除。
 
 PHASES="requirement research spec design plan coding test review walkthrough deliver retro"
 
@@ -507,6 +512,20 @@ cmd_event() {
   resolve_work
   append_event "$ph" "$ev" "$@"
   printf 'recorded: %s/%s/%s\n' "$SLUG" "$ph" "$ev"
+  # 差し戻しの上限到達を**その瞬間に**知らせる。`maxSendBacks` は長らく state.yml に
+  # 書かれるだけで**どこも検査していなかった**（散文の第一層のまま）。上限は「止まれ」の合図で、
+  # 気付くのが retro や insights では遅い——同じ穴を掘り続けた後になる
+  if [ "$ev" = sent_back ]; then
+    _esb=$(dbg_sent_backs "$WORK/metrics.yml" "$ph")
+    _emax=$(dbg_max_send_backs)
+    if [ "$_esb" -ge "$_emax" ] 2>/dev/null; then
+      _edr=$(dbg_rounds "$WORK/metrics.yml" "$ph")
+      if [ "$_edr" -eq 0 ]; then
+        printf 'note: %s の差し戻しが %s 回（上限 %s）。**同じコンテキストで回し続けない** —— \n' "$ph" "$_esb" "$_emax"
+        printf '      aidev debug start --phase %s で、新しいコンテキストへ原因究明を委譲すること\n' "$ph"
+      fi
+    fi
+  fi
 }
 
 # --- コマンド: approve --------------------------------------------------------
@@ -1068,6 +1087,206 @@ cmd_coverage() {
   return 0
 }
 
+# --- コマンド: debug（詰まったときの原因究明を有限化する） ------------------------
+# 出所: cc-sdd の `kiro-impl` が持つ debug subagent。発火は「BLOCKED / NEEDS_CONTEXT 未解決 /
+# レビュアーが2ラウンド連続で REJECTED」で、要点は **fresh context** ——
+#   "The debug subagent runs in a fresh context — it receives only the error information,
+#    not the failed implementation history. This avoids the context pollution that causes
+#    infinite retry loops."
+# 失敗した試行の履歴を渡さない。渡すと同じ穴を掘り続ける。
+#
+# aidev はループの上限（`maxSendBacks`・`maxTaskCheckRounds`）は持っていたが、
+# **上限に達したときにやることが「decisions.md に残して次へ」だけ**で、
+# 「同じコンテキストが同じ失敗を繰り返している」状態を断ち切る手が無かった。
+# しかも `maxSendBacks` は `new` が書き込むだけで**どこも検査していなかった**（散文の第一層のまま）。
+#
+# CLI の役割は3つに絞る（委譲そのものは環境依存なので CLI にはできない）:
+#   1. 発火を見逃さない（`event sent_back` が上限到達をその場で知らせる）
+#   2. ラウンドを数えて**有限化**する（`maxDebugRounds`、既定 2）
+#   3. 返却を構造で受け、**上限に達したのに何もせず着地した work** を verify が捕まえる
+# 手順・渡すもの/渡さないものは `protocol-debug.md`（散文）。
+DBG_CATEGORIES='dependency environment config logic spec_conflict test_defect external'
+DBG_ACTIONS='retry block stop_for_human'
+DBG_CONFIDENCE='high medium low'
+
+dbg_max() {
+  _m=$(yget "$AIDEV/config.yml" maxDebugRounds)
+  case "$_m" in ''|*[!0-9]*) _m=2 ;; esac
+  printf '%s' "$_m"
+}
+# 同一工程の sent_back 回数
+# 注意: `grep -c` は**一致 0 件でも "0" を出して exit 1** する。`|| printf 0` を足すと
+# "0" が2回出て値が2行になる（実際にやった）。フォールバックは代入側で受ける
+dbg_sent_backs() { # metrics_file phase
+  [ -f "$1" ] || { printf '0'; return; }
+  _n=$(grep -c "phase:[[:space:]]*$2,.*event:[[:space:]]*sent_back" "$1" 2>/dev/null) || _n=0
+  case "$_n" in ''|*[!0-9]*) _n=0 ;; esac
+  printf '%s' "$_n"
+}
+# その work の maxSendBacks（state.yml。未記載は 3）
+dbg_max_send_backs() {
+  _s=$(yget "$WORK/state.yml" maxSendBacks)
+  case "$_s" in ''|*[!0-9]*) _s=3 ;; esac
+  printf '%s' "$_s"
+}
+# debug の開始ラウンド数（工程ごと）
+dbg_rounds() { # metrics_file phase
+  [ -f "$1" ] || { printf '0'; return; }
+  _n=$(grep "phase:[[:space:]]*$2," "$1" 2>/dev/null | grep 'event:[[:space:]]*debug' \
+        | grep -c 'stage:[[:space:]]*start') || _n=0
+  case "$_n" in ''|*[!0-9]*) _n=0 ;; esac
+  printf '%s' "$_n"
+}
+# 直近の debug 報告の next_action（無ければ空）
+dbg_last_action() { # metrics_file
+  [ -f "$1" ] || return 0
+  grep 'event:[[:space:]]*debug' "$1" 2>/dev/null | grep 'stage:[[:space:]]*report' | tail -n1 \
+    | sed -n 's/.*next_action:[[:space:]]*\([a-z_][a-z_]*\).*/\1/p'
+}
+in_list() { for _i in $2; do [ "$1" = "$_i" ] && return 0; done; return 1; }
+
+dbg_start() {
+  dslug=""; dph=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --phase) need_arg "$1" $#; dph=$2; shift 2 ;;
+      -*) die "未知のオプション: $1" ;;
+      *) [ -z "$dslug" ] && dslug=$1 || die "slug は1つだけ"; shift ;;
+    esac
+  done
+  resolve_work "$dslug"
+  [ -n "$dph" ] || dph=$(yget "$WORK/state.yml" current)
+  is_phase "$dph" || die "未知の phase: $dph（--phase で指定するか state.yml の current を直す）"
+  _dm=$(dbg_max)
+  _dr=$(dbg_rounds "$WORK/metrics.yml" "$dph")
+  if [ "$_dr" -ge "$_dm" ] 2>/dev/null; then
+    # **ここで止めるのが目的**。無限に粘らせないための上限で、
+    # 超えたら「原因究明を続ける」ではなく「詰まったことを記録して人に返す」へ倒す
+    printf 'debug: %s/%s\n' "$SLUG" "$dph"
+    printf 'FAIL デバッグは %s ラウンドまでです（実施済み %s）。これ以上粘らない\n' "$_dm" "$_dr" >&2
+    printf 'next: aidev debug report --next-action block（このタスクを止めて次へ）か\n' >&2
+    printf '      --next-action stop_for_human（人の判断が要る）で締めること\n' >&2
+    return 4
+  fi
+  _dr=$((_dr+1))
+  append_event "$dph" debug "stage=start" "round=$_dr"
+  printf 'debug: %s/%s round %s/%s\n' "$SLUG" "$dph" "$_dr" "$_dm"
+  printf 'note: **新しいコンテキスト**に原因究明だけを委譲する（protocol-debug.md）\n'
+  _dw=".aidev/works/$SLUG"
+  printf '渡すもの:\n'
+  printf '  - 失敗の生出力（%s/test-result.md の「失敗の証跡」）\n' "$_dw"
+  printf '  - いまの差分（git diff。コミット前の変更）\n'
+  printf '  - 対象タスクの行（%s/tasks.md）と、その AC の本文（requirement.md）\n' "$_dw"
+  printf '  - review の直近ラウンドの指摘（%s/review.md）\n' "$_dw"
+  printf '**渡さないもの: これまでの修正の試行履歴**（渡すと同じ穴を掘り続ける。これがこの手順の要）\n'
+  printf 'next: aidev debug report --root-cause <t> --category <c> --next-action <a>\n'
+  return 0
+}
+
+dbg_report() {
+  dslug=""; dph=""; drc=""; dcat=""; dact=""; dconf=""; dfix=""; dver=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --phase)       need_arg "$1" $#; dph=$2;   shift 2 ;;
+      --root-cause)  need_arg "$1" $#; drc=$2;   shift 2 ;;
+      --category)    need_arg "$1" $#; dcat=$2;  shift 2 ;;
+      --next-action) need_arg "$1" $#; dact=$2;  shift 2 ;;
+      --confidence)  need_arg "$1" $#; dconf=$2; shift 2 ;;
+      --fix-plan)    need_arg "$1" $#; dfix=$2;  shift 2 ;;
+      --verification) need_arg "$1" $#; dver=$2; shift 2 ;;
+      -*) die "未知のオプション: $1" ;;
+      *) [ -z "$dslug" ] && dslug=$1 || die "slug は1つだけ"; shift ;;
+    esac
+  done
+  resolve_work "$dslug"
+  [ -n "$dph" ] || dph=$(yget "$WORK/state.yml" current)
+  is_phase "$dph" || die "未知の phase: $dph"
+  # **必須フィールドを CLI が強制する**（`convention new` の --hypothesis/--baseline と同じ入口ゲート）。
+  # 散文の講評だけ返して終わると、何が原因だったのかが後から誰にも読めない
+  [ -n "$drc" ]  || die "--root-cause は必須です（何が根本原因だったか。1〜2文）"
+  [ -n "$dcat" ] || die "--category は必須です（$DBG_CATEGORIES）"
+  [ -n "$dact" ] || die "--next-action は必須です（$DBG_ACTIONS）"
+  in_list "$dcat" "$DBG_CATEGORIES" || die "未知の --category: $dcat（$DBG_CATEGORIES）"
+  in_list "$dact" "$DBG_ACTIONS"    || die "未知の --next-action: $dact（$DBG_ACTIONS）"
+  if [ -n "$dconf" ]; then
+    in_list "$dconf" "$DBG_CONFIDENCE" || die "未知の --confidence: $dconf（$DBG_CONFIDENCE）"
+  fi
+  _dr=$(dbg_rounds "$WORK/metrics.yml" "$dph")
+  [ "$_dr" -ge 1 ] 2>/dev/null || die "この工程で aidev debug start が記録されていません（先に start を打つこと）"
+
+  # **本文は decisions.md、列挙値は metrics** に分ける。metrics はフロー形式の1行なので
+  # 自由文（カンマを含む）を入れると壊れる。文章は文章の置き場へ送る
+  _df="$WORK/decisions.md"
+  _dn=$(grep -c '^## デバッグ D' "$_df" 2>/dev/null) || _dn=0
+  case "$_dn" in ''|*[!0-9]*) _dn=0 ;; esac
+  _dn=$((_dn+1))
+  [ -f "$_df" ] || printf '# 判断の記録: %s\n' "$SLUG" > "$_df"
+  {
+    printf '\n## デバッグ D%s: %s / %s（%s round %s・%s）\n' "$_dn" "$dcat" "$dact" "$dph" "$_dr" "$(now)"
+    printf -- '- 根本原因: %s\n' "$drc"
+    [ -n "$dfix" ]  && printf -- '- 修正方針: %s\n' "$dfix"
+    [ -n "$dver" ]  && printf -- '- 確認方法: %s\n' "$dver"
+    [ -n "$dconf" ] && printf -- '- 確度: %s\n' "$dconf"
+    printf -- '- 次の行動: %s\n' "$dact"
+  } >> "$_df"
+
+  set -- "$dph" debug "stage=report" "round=$_dr" "category=$dcat" "next_action=$dact"
+  [ -n "$dconf" ] && set -- "$@" "confidence=$dconf"
+  append_event "$@"
+
+  printf 'debug: %s/%s round %s -> %s (%s)\n' "$SLUG" "$dph" "$_dr" "$dact" "$dcat"
+  printf 'recorded: .aidev/works/%s/decisions.md の「デバッグ D%s」\n' "$SLUG" "$_dn"
+  case "$dact" in
+    retry)
+      printf 'next: **新しい実装コンテキスト**に修正方針を渡してやり直す（同じコンテキストに戻さない）。\n'
+      printf '      再開時は aidev event %s start を忘れないこと\n' "$dph" ;;
+    block)
+      printf 'next: このタスクは止めて次へ進む。判断は review 工程に委ねる\n' ;;
+    stop_for_human)
+      printf 'next: **ここで停止して人に返す**（autonomous でも待つ。リポジトリの外の判断が要る場合の出口）\n' ;;
+  esac
+  return 0
+}
+
+dbg_status() {
+  dslug=""; fmt=table
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --format) need_arg "$1" $#; fmt=$2; shift 2 ;;
+      -*) die "未知のオプション: $1" ;;
+      *) [ -z "$dslug" ] && dslug=$1 || die "slug は1つだけ"; shift ;;
+    esac
+  done
+  case "$fmt" in table|tsv) ;; *) die "--format は table|tsv" ;; esac
+  resolve_work "$dslug"
+  _dm=$(dbg_max); _dsb=$(dbg_max_send_backs)
+  rows=""
+  for p in $PHASES; do
+    _sb=$(dbg_sent_backs "$WORK/metrics.yml" "$p")
+    _rd=$(dbg_rounds "$WORK/metrics.yml" "$p")
+    [ "$_sb" -eq 0 ] && [ "$_rd" -eq 0 ] && continue
+    if [ "$_sb" -ge "$_dsb" ] 2>/dev/null && [ "$_rd" -eq 0 ]; then _due=yes; else _due=no; fi
+    rows="${rows}${p}	${_sb}	${_rd}	${_due}
+"
+  done
+  printf 'debug: %s\n' "$SLUG"
+  if [ "$fmt" = tsv ]; then printf '%s' "$rows"
+  else { printf 'phase	sent_backs	debug_rounds	due\n'; printf '%s' "$rows"; } | fmt_table; fi
+  _dla=$(dbg_last_action "$WORK/metrics.yml"); [ -n "$_dla" ] || _dla=-
+  printf 'debug-summary: maxSendBacks=%s maxDebugRounds=%s last_action=%s\n' "$_dsb" "$_dm" "$_dla"
+  return 0
+}
+
+cmd_debug() {
+  [ $# -ge 1 ] || { dbg_status; return $?; }
+  case "$1" in
+    start)  shift; dbg_start "$@" ;;
+    report) shift; dbg_report "$@" ;;
+    status) shift; dbg_status "$@" ;;
+    *) die "未知の debug サブコマンド: $1（start|report|status）" ;;
+  esac
+}
+
 # --- コマンド: smoke（起動確認 GO/NO-GO） --------------------------------------
 # 出所: cc-sdd の `kiro-verify-completion`。`FEATURE_GO` の条件に
 # 「runtime smoke boot result showing the built artifact reaches its first usable state」を置き、
@@ -1217,6 +1436,22 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail / 5 stri
             fail) VF="$VF 起動確認が失敗のまま(aidev smoke が fail)" ;;
             *)    VF="$VF 起動確認の記録が無い(smokeCommand 設定済。aidev smoke を通すこと)" ;;
           esac
+        fi
+      fi
+      # schema 8: 詰まりの扱い。
+      # (a) 差し戻しが上限に達しているのに原因究明を挟んでいない = **同じコンテキストで回し続けた**（WARN）
+      # (b) デバッグが stop_for_human で終わっているのに着地している = **人の判断を待たずに通した**（FAIL）
+      if [ "$schema" -ge 8 ] 2>/dev/null; then
+        _vmsb=$(dbg_max_send_backs)
+        for _vp in $PHASES; do
+          _vsb=$(dbg_sent_backs "$WORK/metrics.yml" "$_vp")
+          [ "$_vsb" -ge "$_vmsb" ] 2>/dev/null || continue
+          [ "$(dbg_rounds "$WORK/metrics.yml" "$_vp")" -eq 0 ] || continue
+          printf '  WARN %s の差し戻しが %s 回（上限 %s）だが原因究明の記録が無い: aidev debug start\n' \
+            "$_vp" "$_vsb" "$_vmsb"
+        done
+        if approved_has deliver && [ "$(dbg_last_action "$WORK/metrics.yml")" = stop_for_human ]; then
+          VF="$VF デバッグが stop_for_human のまま着地している（人の判断を待つ出口を素通りした）"
         fi
       fi
       if approved_has deliver; then
@@ -3256,6 +3491,7 @@ case "$cmd" in
   verify)  cmd_verify "$@" ;;
   coverage) cmd_coverage "$@" ;;
   smoke)   cmd_smoke "$@" ;;
+  debug)   cmd_debug "$@" ;;
   escalate) cmd_escalate "$@" ;;
   doctor)  cmd_doctor "$@" ;;
   status)  cmd_status "$@" ;;

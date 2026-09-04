@@ -25,6 +25,7 @@
   | `protocol-analysis.md` | 「8.」 | retro / insights の定量分析 |
   | `protocol-conventions.md` | 「12.」 | PJ規約の条項を起こす / 効果を判定する / PJ ドキュメントへ移送する |
   | `protocol-check.md` | 「3.3」 | 上流4工程の承認ゲートで独立点検を選ぶ / spec・design の点検 / coding のタスク点検 |
+  | `protocol-debug.md` | 「10.」 | 同一工程の差し戻しが上限に達した / 点検を繰り返しても直らない（詰まりの原因究明） |
   | `protocol-autonomous.md` | 「10.」 | `mode: autonomous` の work / plan モードを使う（start・spec・design） |
   | `protocol-light.md` | 「11.」 | `profile: light` の work（4文書の必須節・昇格） |
 - 実行時状態: `.aidev/`（リポジトリ内に生成）
@@ -538,6 +539,16 @@ review 工程はラウンドごとに追記する（差し戻し後の再レビ�
 夜間自律で PR まで一気通貫——**PR で停止し auto-merge しない**、test を硬ゲートに、`maxSendBacks`（既定 3）を
 超えたら停止、`humanGates` で部分的に人間ゲートを残せる。plan モードは start・spec・design でのみ、
 解除してから書く。詳細は `protocol-autonomous.md`。
+
+**差し戻しの上限に達したら、回数を止めるだけでなく方向を変える**。同一工程の差し戻しが
+`maxSendBacks` に達したら（`aidev event <工程> sent_back` がその場で促す）、
+**まっさらなコンテキストへ原因究明だけを委譲する**（`aidev debug start` → `aidev debug report`）。
+渡すのは失敗の生出力・差分・タスクと `AC`・直近のレビュー指摘だけで、
+**これまでの修正の試行履歴は渡さない**——渡すと新しいコンテキストも同じ穴を掘り続ける。
+上限は回数を止めるだけで方向は変えないので、上限だけでは抜けられない。
+デバッグ自体も有限（`maxDebugRounds`。既定 2）で、超えたら `block` か `stop_for_human` で締める。
+`stop_for_human` は **`autonomous` でも人を待つ唯一の出口**で、そのまま着地すると `aidev verify` が
+FAIL で止める。手順・分類・渡すもの/渡さないものは `protocol-debug.md`。
 
 ## 11. 実行プロファイル（full / light）
 

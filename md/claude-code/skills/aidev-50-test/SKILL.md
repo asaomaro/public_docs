@@ -101,6 +101,10 @@ smoke: pass (exit 0)
    - **失敗あり** → 失敗内容を指摘としてまとめ、`aidev event test sent_back` を記録のうえ
      coding 工程への差し戻しを提案する（protocol.md「4. 番号と順序」に基づく正当な遷移）。
      coding を**再開する際は `aidev event coding start` を記録する**（さもないと手戻り回数を取りこぼす。protocol.md「3.」「8.」）。
+     - **同じ工程を `maxSendBacks`（既定 3）回差し戻したら、そこで方向を変える**。`aidev event` が
+       `aidev debug start` を促すので、**まっさらなコンテキスト**に原因究明だけを委譲する
+       （`protocol-debug.md`）。上限は回数を止めるだけで方向は変えない——同じコンテキストで
+       回し続けると同じ穴を掘り続ける。
 5. 承認は `aidev approve test passed=<合格数> failed=<失敗数>`（protocol.md「3.」「8.」）。
 
 ## light の昇格トリガ

@@ -604,6 +604,41 @@ aidev の test 工程は受け入れ基準の検証と skip 件数の申告は�
 テストの緑を「起動する」の根拠にしない。これは「8.」の**過去分は捏造しない**（時間についての版）と
 同じ態度を、**範囲**について言ったもの。
 
+## 2.4.2 詰まりの原因究明（`aidev debug`）——上限は方向を変えない
+
+出所は cc-sdd の `kiro-impl` が持つ debug subagent。発火は「BLOCKED / NEEDS_CONTEXT 未解決 /
+レビュアーが2ラウンド連続で REJECTED」で、設計の核心は **fresh context**——
+*"it receives only the error information, not the failed implementation history.
+This avoids the context pollution that causes infinite retry loops."*
+
+aidev はループの上限を2つ持っていた（`maxSendBacks` 既定 3・`maxTaskCheckRounds` 既定 2）。
+しかし**上限に達したときにやることが「`decisions.md` に残して次へ」「判断を review に委ねる」だけ**で、
+「同じコンテキストが同じ失敗を繰り返している」状態そのものを断ち切る手が無かった。
+**上限は回数を止めるだけで、方向を変えない。** しかも `maxSendBacks` は `aidev new` が
+`state.yml` に書き込むだけで、**CLI はどこでも検査していなかった**（散文の第一層のまま）。
+
+- **CLI の役割は3つに絞った**。委譲そのもの（サブエージェントの起動）は環境依存なので CLI にはできない。
+  (1) 発火を見逃さない——`aidev event <工程> sent_back` が上限到達を**その瞬間に**知らせる
+  （retro や insights で気付くのでは遅い。同じ穴を掘り終えた後になる）。
+  (2) ラウンドを数えて**有限化**する（`maxDebugRounds`、既定 2）。
+  (3) **上限に達したのに何もせず着地した work** を `verify` が捕まえる。
+- **必須フィールドを CLI が強制する**（`--root-cause` / `--category` / `--next-action`）。
+  `convention new` の `--hypothesis`/`--baseline` と同じ入口ゲートで、
+  散文の講評だけ返して終わると**何が原因だったのか後から誰にも読めない**。
+- **本文は `decisions.md`、列挙値は `metrics.yml`**。`metrics.yml` はフロー形式の1行なので、
+  カンマを含む自由文を入れると壊れる。文章は文章の置き場へ送り、機械が数えるものだけを metrics に置く。
+- **`stop_for_human` は `autonomous` でも人を待つ唯一の出口**。そのまま deliver すると `verify` が
+  FAIL で止める——「人の判断が要る」と自分で判定しておいて着地するのは、判定を無かったことにする動き。
+- **上限到達＋未実施は WARN、`stop_for_human` のまま着地は FAIL**。前者は「挟むかどうかが人の判断」、
+  後者は「自分で人待ちだと言った」——**判断の余地があるかどうか**で強さを分けている。
+- **`retry` は新しい実装コンテキストへ渡す**（同じコンテキストに戻さない）。ここを緩めると
+  fresh context にした意味が消える。
+
+**分類（`--category`）は cc-sdd の8種をそのまま持ち込まず、7種に組み替えた**。本家の分類は
+`NATIVE_ABI` / `MODULE_FORMAT` のように JS/Electron 寄りで、aidev は言語非依存だから。
+残したのは分類の**目的**——「リポジトリ内の編集で直るか」を判定すること。
+`spec_conflict`（上流へ戻す）と `external`（人の判断が要る）を `retry` にしないのがその判定にあたる。
+
 ## 2.5 タスク管理モデル（works = 実行の正 / backlog = 遅延キュー）
 
 タスクの「管理」がどこに乗るかを、レイヤで分けて捉える（設計の世界観の記録）。
@@ -793,6 +828,12 @@ works/ ノイズや「なめる state.yml が無い」問題は status フィル
   → `依存:` 行だけを正典にした。図（mermaid）も説明であって正典ではない。
 - **ウェーブや並行状態を `state.yml` に持つ**：`tasks.md` のチェックが進捗の単一の真実なので、
   同じことを state 側にも持つと**復元の起点が2つ**になる（中断・再開に耐えなくなる）。→ 都度導出する。
+- **`aidev debug` に「サブエージェントを起動する」機能を持たせる**：委譲の機構はエージェント環境ごとに
+  違う（`Agent` ツールがある/無い）。CLI が抱えると移植性が落ち、`allowed-tools` への `Agent` 追加を
+  「Claude Code での実現手段」に留めた「3.」の判断とも矛盾する。→ CLI は**発火の検知・有限化・記録の検査**
+  だけを持ち、委譲の手順は `protocol-debug.md`（散文）に置く。
+- **デバッグの根本原因を `metrics.yml` に文章で刻む**：フロー形式の1行にカンマを含む自由文を入れると
+  壊れる。→ 本文は `decisions.md`、列挙値（category / next_action / confidence）だけ metrics。
 - **起動確認の結果をエージェントの自己申告で受ける（`aidev smoke --result pass`）**：呼ぶかどうかも
   どう報告するかもエージェント次第になり、**測っていないことと合格が同じ形**になる。
   → CLI が `smokeCommand` を実行して exit code を取る。この CLI が PJ のコマンドを走らせるのはここだけ。
