@@ -25,7 +25,7 @@
   | `protocol-analysis.md` | 「8.」 | retro / insights の定量分析 |
   | `protocol-conventions.md` | 「12.」 | PJ規約の条項を起こす / 効果を判定する / PJ ドキュメントへ移送する |
   | `protocol-check.md` | 「3.3」 | 上流4工程の承認ゲートで独立点検を選ぶ / spec・design の点検 / coding のタスク点検 |
-  | `protocol-debug.md` | 「10.」 | 同一工程の差し戻しが上限に達した / 点検を繰り返しても直らない（詰まりの原因究明） |
+  | `protocol-debug.md` | 「10.」末尾 | 同一工程の差し戻しが上限に達した / 点検を繰り返しても直らない（詰まりの原因究明） |
   | `protocol-autonomous.md` | 「10.」 | `mode: autonomous` の work / plan モードを使う（start・spec・design） |
   | `protocol-light.md` | 「11.」 | `profile: light` の work（4文書の必須節・昇格） |
 - 実行時状態: `.aidev/`（リポジトリ内に生成）
@@ -354,19 +354,13 @@ parent: <親 work の dated 名> # 子が親 work を逆参照（例 20260622-fe
   いるから、`aidev coverage` が**被覆率**（タスクに落ちていない `AC`）と**整合**（未定義の参照・依存の循環）を
   機械的に出せる。**plan の承認前に `aidev coverage --strict` を通す**（cover の穴を承認で飛ばさない）。
   review では同じコマンドを実装後にもう一度打ち、plan 時との差分を spec と実装の乖離として読む。
-  **被覆は work 全体（親＋全 subtask）で見る**——subtask は親の `requirement.md` を継承するので、
-  自分の slice だけを見ると兄弟が担当する `AC` が必ず「タスクが無い」になり、誰にも直せない gap が
-  恒久的に残る。着地するのが親1本の PR である以上、被覆の単位も親1本に揃える。
-  plan 未実施の subtask が残っている間、cover の穴は致命にしない（最初の subtask の plan が、
-  兄弟の担当ぶんまで背負って通らなくなるため）。
-- **起動確認（smoke）は test 工程で通す**（`aidev smoke`）。**「テストが全部通ったこと」は
-  着地の根拠として足りない**——単体テストが緑でも配線が壊れて成果物が起動しないことは普通に起きる。
-  見るのは「ビルドした成果物が**最初の使える状態**まで到達するか」。コマンドは
-  `.aidev/config.yml` の `smokeCommand`（**終了するコマンド**を書く。常駐させない）。
-  対象が無い PJ は `smokeCommand: none` と**明示**する——**検証していないことは「合格」ではない**ので、
-  未設定のまま素通りさせない。**記録は家族の根に一本化する**（分割 work では子で打っても親に刻む。
-  着地するのは親1本の PR なので、被覆と同じ単位に揃える）。`smokeCommand` を設定した PJ では、smoke の記録が無い／失敗のままの
-  work を `aidev verify` が deliver 前に FAIL で止める。
+  **被覆の単位は work 全体（親＋全 subtask）**——分割 work での扱いは `protocol-subtask.md`。
+- **起動確認（smoke）を test 工程で通す**（`aidev smoke`。手順は `aidev-50-test`「3.2」）。
+  **「テストが全部通ったこと」は着地の根拠として足りない**——見るのは「ビルドした成果物が
+  **最初の使える状態**まで到達するか」。コマンドは `.aidev/config.yml` の `smokeCommand`。
+  **記録は家族の根に一本化する**（分割 work では子で打っても親に刻む。着地するのは親1本の PR なので
+  被覆と同じ単位に揃える）。設定済みの PJ では、記録が無い／失敗のままの work を
+  `aidev verify` が deliver 前に FAIL で止める。
 - **主張は証拠の範囲を超えない**。`skipped > 0` を「全数検証」と書かない、一部だけ確かめて
   「全体が動く」と書かない、テストの緑を「起動する」の根拠にしない。検証できなかった範囲は
   **未検証の穴として残す**（「8.」の「過去分は捏造しない」と同じ態度の、範囲についての版）。
@@ -449,23 +443,15 @@ events:
   `ac_total`（受け入れ基準の総数）/ `ac_covered`（タスクが1件以上ある `AC` の数）/
   `tasks_no_ac`（`AC:` 行を書き忘れた・空にしたタスク数）/
   `tasks_ac_none`（`AC: なし` と明示したタスク数＝**受け入れ基準に紐づかない作業**）
-  - **刻むのは `aidev approve`** で、値は `requirement.md` と `tasks.md` から機械的に出す。
-    手書きの `key=value` に任せない——`harnessRev` や `schema` を `new` に一本化したのと同じ理由で、
-    手書きの値は忘れられ、忘れられた work は静かに母集団から漏れる。
-    明示的に `ac_total=` を渡した場合だけ、その値を尊重する（機械値で上書きしない）。
+  - **刻むのは `aidev approve`**（値は `requirement.md` と `tasks.md` から機械的に出す）。
+    手書きの `key=value` に任せない理由は「12.」の `harnessRev` と同じ。
+    明示的に `ac_total=` を渡した場合だけその値を尊重する（機械値で上書きしない）。
   - **刻むのは家族の根の work だけ**（subtask では刻まない）。被覆は家族単位（親＋全 subtask）の
     値なので、子ごとに刻むと `metrics --all` の足し上げで分母が subtask 数だけ多重計上される。
   - **手で渡すなら4キーまとめて**。`ac_total=` だけ渡すと `ac_covered` が無く、乖離の計算から
     捨てられる（0 とみなして gap を捏造しない側に倒してある）。
-  - **刻む工程を3つに絞る**のは、「plan（light では requirement）で決めた被覆」と
-    「review 時点の被覆」の**2点**があれば乖離が読めるから。tasks.md がまだ無い工程
-    （full の requirement・分割 work の親 plan）では刻まない。
-  - **`ac_total` は「要求の大きさ」の分母**。これまで分母は実装側（`files_changed`）と
-    分解側（`tasks_planned`）しか無く、「`AC` 1件あたりの手戻り・リードタイム」が出せなかった。
-  - **被覆率そのものを目標値にしない**。plan の承認前ゲート（`aidev coverage --strict`）で
-    100% が強制されるので値は常に張り付き、**動くのはゲートを迂回したときだけ**。
-    率を目標にすると「率を守るために `AC` を書かない」＝分母を減らす方向に力がかかる
-    （条項の効果測定で学んだ「検出器と発生率を分離する」と同じ罠。「12.」）。読むのは**差分**の方。
+  - **tasks.md がまだ無い工程では刻まない**（full の requirement・分割 work の親 plan）。
+  - **読み方（分母としての使い道・率を目標にしない理由）は `protocol-analysis.md`**。
 - **coding**: `tasks_done`（チェック済みタスク数）/
   `unplanned_lookups`（**アンカー付きタスクなのに**探索し直した回数。`未特定` のタスクでの探索は
   最初から想定内なので数えない——分母 `tasks_anchored` と対応させる）/
@@ -550,9 +536,7 @@ review 工程はラウンドごとに追記する（差し戻し後の再レビ�
 **差し戻しの上限に達したら、回数を止めるだけでなく方向を変える**。同一工程の差し戻しが
 `maxSendBacks` に達したら（`aidev event <工程> sent_back` がその場で促す）、
 **まっさらなコンテキストへ原因究明だけを委譲する**（`aidev debug start` → `aidev debug report`）。
-渡すのは失敗の生出力・差分・タスクと `AC`・直近のレビュー指摘だけで、
 **これまでの修正の試行履歴は渡さない**——渡すと新しいコンテキストも同じ穴を掘り続ける。
-上限は回数を止めるだけで方向は変えないので、上限だけでは抜けられない。
 デバッグ自体も有限（`maxDebugRounds`。既定 2）で、超えたら `block` か `stop_for_human` で締める。
 `stop_for_human` は **`autonomous` でも人を待つ唯一の出口**で、そのまま着地すると `aidev verify` が
 FAIL で止める。手順・分類・渡すもの/渡さないものは `protocol-debug.md`。

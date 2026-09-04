@@ -103,8 +103,7 @@ smoke: pass (exit 0)
      coding を**再開する際は `aidev event coding start` を記録する**（さもないと手戻り回数を取りこぼす。protocol.md「3.」「8.」）。
      - **同じ工程を `maxSendBacks`（既定 3）回差し戻したら、そこで方向を変える**。`aidev event` が
        `aidev debug start` を促すので、**まっさらなコンテキスト**に原因究明だけを委譲する
-       （`protocol-debug.md`）。上限は回数を止めるだけで方向は変えない——同じコンテキストで
-       回し続けると同じ穴を掘り続ける。
+       （`protocol-debug.md`）。
 5. 承認は `aidev approve test passed=<合格数> failed=<失敗数>`（protocol.md「3.」「8.」）。
 
 ## light の昇格トリガ
@@ -117,6 +116,5 @@ light の前提が崩れた合図**。coding へ差し戻す前に `aidev escala
 - spec の全受け入れ基準に対する検証結果が揃っている（`aidev coverage` の `ac` 列と付き合わせる）。
 - `test-result.md` がある。差し戻したラウンドがあるなら「失敗の証跡」に**生の出力**が残っている。
 - **`aidev smoke` が pass（または `none` で対象外と宣言済み）**。テストが緑なだけで合格にしていない。
-- **主張が証拠の範囲を超えていない**。`skipped > 0` を「全数検証」と書かない、
-  一部だけ確かめて「全体が動く」と書かない（検証できなかった範囲は「未検証の穴」に残す）。
+- **主張が証拠の範囲を超えていない**（protocol.md「7.」）。検証できなかった範囲は「未検証の穴」に残す。
 - 未解決の失敗が残っていない（残る場合は coding へ戻す）。
