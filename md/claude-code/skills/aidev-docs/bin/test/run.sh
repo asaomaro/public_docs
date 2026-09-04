@@ -2076,7 +2076,9 @@ EOF
     printf -- '- [ ] T1: x\n      AC: AC1, AC2\n      依存: なし\n' > "$PAD/tasks.md"
     par new 01-a --parent "$PAW"
     printf -- '- [ ] T1: y\n      AC: AC1, AC2\n      依存: なし\n' > "$PAD/01-a/tasks.md"
-    printf 'smokeCommand: true\n' > "$PA/.aidev/config.yml"
+    # `true` は cmd.exe の組み込みに無く、PATH に true.exe があるかで結果が変わる。
+    # パリティで**実行される**コマンドは sh / cmd.exe のどちらでも同じ意味のものに限る
+    printf 'smokeCommand: exit 0\n' > "$PA/.aidev/config.yml"
     par use "$PAW/01-a"; par approve plan            # 子: 刻まない / smoke は親へ
     par smoke
     par use "$PAW"
@@ -2172,7 +2174,11 @@ EOF
     case "$scase" in
       unset) rm -f "$PSM/.aidev/config.yml" ;;
       none)  printf 'smokeCommand: none\n' > "$PSM/.aidev/config.yml" ;;
-      pass)  printf 'smokeCommand: echo "booted: v0.1"\n' > "$PSM/.aidev/config.yml" ;;
+      # **シェルに依存しないコマンドを使う**。smoke は実行シェルが OS で変わる設計
+      # （POSIX=`sh -c` / Windows=`cmd.exe /c`）なので、両者で意味が変わるコマンドを
+      # 置くと出力が一致しない——`echo "x"` は sh がクォートを外し、cmd.exe は外さない。
+      # 出力一致の契約は **CLI が出す行**についてのもの（bin/README の「素通し設計の但し書き」）。
+      pass)  printf 'smokeCommand: echo booted-v0.1\n' > "$PSM/.aidev/config.yml" ;;
       fail)  printf 'smokeCommand: exit 3\n' > "$PSM/.aidev/config.yml" ;;
     esac
     SM_SH=$( ( cd "$PSM" && "$AIDEV_SH" smoke ) 2>&1 ); SM_SH_RC=$?
@@ -2186,7 +2192,7 @@ EOF
     case "$scase" in
       unset) rm -f "$PSM/.aidev/config.yml" ;;
       none)  printf 'smokeCommand: none\n' > "$PSM/.aidev/config.yml" ;;
-      set)   printf 'smokeCommand: true\n' > "$PSM/.aidev/config.yml" ;;
+      set)   printf 'smokeCommand: exit 0\n' > "$PSM/.aidev/config.yml" ;;
     esac
     SD_SH=$( ( cd "$PSM" && "$AIDEV_SH" doctor ) 2>&1 | sed -n '/^smoke:/,$p' )
     SD_PS=$( ( cd "$PSM" && run_ps1 "$AIDEV_PS1" doctor ) 2>&1 | tr -d '\r' | sed -n '/^smoke:/,$p' )
