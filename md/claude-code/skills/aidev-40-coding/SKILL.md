@@ -79,9 +79,15 @@ plan / tasks に沿ってコードを書く。`tasks.md` の未チェック項�
 7. 仕様から逸脱する判断をした場合は `decisions.md` に理由を残す（後続工程・レビューのため）。
 8. 区切り（全タスク完了、または一区切り）で、protocol.md「3. 工程終了プロトコル」に従って終了する（次工程: `test`）。
    承認は `aidev approve coding tasks_done=<チェック済みタスク数> unplanned_lookups=<手順3で数えた回数>
-   task_checks=<手順5で点検したタスク数> task_check_findings=<点検で直した指摘の件数>`
+   task_checks=<手順5で点検したタスク数> task_check_findings=<点検で直した指摘の件数>
+   task_check_mode=<delegated|same_session>`
    （protocol.md「3.」「8.」）。探索し直しが 0 なら `unplanned_lookups=0`、点検を1件も行わなかったなら
    `task_checks=0` を明示的に記録する（省略すると「測っていない」と区別できない）。
+   `task_check_mode` は**どう点検したか**——`delegated`（別コンテキストへ委譲）か
+   `same_session`（委譲機構が無く同一セッションで読み直した。`protocol-check.md` のフォールバック）。
+   **点検が効く理由はコンテキスト分離**なので、これを残さないと「別コンテキストが見て 0 件」と
+   「本人が読み直して 0 件」が同じ数字として足し上がり、効果を横断で測れない
+   （`task_checks=0` なら不要。`task_checks>0` で欠けると `verify --strict` が FAIL）。
 
 ## 留意点
 
@@ -101,8 +107,7 @@ plan / tasks に沿ってコードを書く。`tasks.md` の未チェック項�
 
 ## decisions.md テンプレート
 
-設計から逸脱した判断や、後続工程・レビューに影響する決定を**追記式**で残す。
-1 決定 = 1 エントリ。ID は `D1`, `D2`… と連番。既存エントリは編集せず、新しい決定を追記する。
+規約は `protocol.md`「8.1」（何を・いつ・autonomous で必須なこと）。ここは書式だけ。
 
 ```markdown
 # 決定記録

@@ -36,6 +36,12 @@ review を通過した変更を、コミット・PR 作成によって実際に�
    - **チェック内容**:
      - 実装の主要変更が既にデフォルトブランチに入っているか
        （例: `git log --oneline <default>..HEAD` が空、かつ対象ファイルの変更がデフォルトブランチに存在）。
+       - **worktree 由来の work（`state.yml` に `baseCommit` がある）は `<default>` と比べない**。
+         base が未マージの枝なら無関係なコミットが必ず並び、「空か」という基準が成立しない
+         （実測で実装と無関係な 4 本が出た）。比べる先は **`baseCommit`**——その work が実際に
+         分岐した地点なので、`git log --oneline <baseCommit>..HEAD` は自分の変更だけになる。
+         既着地かどうかは、そのうえで**対象ファイル単位**で確かめる
+         （`git log <baseCommit> -- <対象>` に自分の変更が既にあるか）。
      - チケットが既にクローズ/完了か（github: `gh issue view <N> --json state -q .state`、
        他トラッカーは `.aidev/config.yml` の `tracker` に応じる。`tracker: none` なら**この検査は省く**）。
      - remote が無い／デフォルトブランチがローカルにしか無い場合は、比較先をローカルの既定ブランチにする

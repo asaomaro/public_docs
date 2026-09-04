@@ -43,7 +43,7 @@ $ErrorActionPreference = 'Stop'
 # （git show-ref 等は ref 不在で 1 を返すのが正常系のため）。古い pwsh では通常変数になるだけで無害。
 $PSNativeCommandUseErrorActionPreference = $false
 
-$script:CURRENT_SCHEMA = 9   # schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema 7=起動確認(smoke)の記録検査を導入。schema 8=デバッグ（詰まりの原因究明）の記録検査を導入。schema 9=light の上流4文書の実在検査を導入。schema<=2 は legacy 免除
+$script:CURRENT_SCHEMA = 10  # schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema 7=起動確認(smoke)の記録検査を導入。schema 8=デバッグ（詰まりの原因究明）の記録検査を導入。schema 9=light の上流4文書の実在検査を導入。schema 10=autonomous の decisions.md と task_check_mode を記録漏れ扱いに。schema<=2 は legacy 免除
 $script:STRICT = $false      # verify --strict（記録漏れを致命にする）。doctor 経由では常に false
 $script:PHASES = @('requirement','research','spec','design','plan','coding','test','review','walkthrough','deliver','retro')
 $script:Utf8 = New-Object System.Text.UTF8Encoding($false)  # BOM なし
@@ -1264,6 +1264,29 @@ function SmokeCmd() {
 }
 # 起動確認は work 全体（親＋全 subtask）の性質なので、記録も家族の根に一本化する
 # （子に刻むと、着地する親の verify から見えず「記録が無い」と誤 FAIL する。sh 版と同一）
+# 起動確認を複数行で積めるようにする（sh 版 smoke_cmds の注記に理由）
+function SmokeCmds() {
+  $cfg = Join-Path $script:AIDEV 'config.yml'
+  if (-not (IsFile $cfg)) { return @() }
+  $out = @(); $inblk = $false
+  foreach ($l in [System.IO.File]::ReadAllLines($cfg)) {
+    $l = "$l".TrimEnd("`r")
+    if ($l -match '^smokeCommands:[ \t]*$') { $inblk = $true; continue }
+    if (-not $inblk) { continue }
+    if ($l -match '^[ \t]+-[ \t]+(.*)$') { $v = $Matches[1].TrimEnd(); if ($v) { $out += $v }; continue }
+    if ($l -match '^[ \t]*$') { continue }
+    $inblk = $false
+  }
+  return $out
+}
+function SmokeList() {
+  $l = @(SmokeCmds)
+  if ($l.Count -gt 0) { return $l }
+  $one = SmokeCmd
+  if ($one) { return @($one) }
+  return @()
+}
+
 function SmokeRoot($work) {
   $parent = YGet (Join-Path $work 'state.yml') 'parent'
   if ($parent) {
@@ -1295,7 +1318,8 @@ function Cmd-Smoke($rest) {
     elseif ($sslug) { Die "slug は1つだけ" } else { $sslug = $rest[$i] }
   }
   ResolveWork $sslug
-  $sc = SmokeCmd
+  $scl = @(SmokeList)
+  $sc = if ($scl.Count -gt 0) { $scl[0] } else { SmokeCmd }
   Write-Output "smoke: $($script:SLUG)"
 
   if (-not $sc) {
@@ -1321,31 +1345,44 @@ function Cmd-Smoke($rest) {
     exit 0
   }
 
-  Write-Output "`$ $sc"
   # 出力は捕まえずに素通しする（test 工程が test-result.md に貼るのは生の出力）。
   # **時間上限**: 常駐コマンドを書かれると自律実行がそこで永久に止まる。`timeout` があるときだけ
   # 掛かる（Windows の `timeout` は別物なので使わない）——掛けられない環境ではその事実を出力に残す。
   $sto = SmokeTimeout
-  $src = $null
-  $prev = $PWD
-  try {
-    Set-Location -LiteralPath $script:ROOT
-    # native コマンドが**投げる**経路（sh/cmd.exe が見つからない等）では代入に到達しないので、
-    # $LASTEXITCODE の null ガードだけでは効かない。catch で拾って fail として刻む
+  $src = 0; $sidx = 0; $sfail = 0; $sn = 0
+  foreach ($s1 in $scl) {
+    $sn++
+    if ($sfail -ne 0) { continue }   # 1 本落ちたらそれ以降は走らせない（原因を1つに絞る）
+    $sidx = $sn
+    Write-Output "`$ $s1"
+    $src = $null
+    $prev = $PWD
     try {
-      if (IsWindowsHost) { & cmd.exe /c $sc }
-      elseif (Get-Command timeout -ErrorAction SilentlyContinue) { & timeout $sto sh -c $sc }
-      else { & sh -c $sc }
-      $src = $LASTEXITCODE
-    } catch { $src = 127 }
-  } finally { Set-Location -LiteralPath $prev }
-  if ($null -eq $src) { $src = 1 }
-  $srr = if ($src -eq 0) { 'pass' } else { 'fail' }
-  if ($src -eq 124) {
-    Write-Output "note: $sto 秒で打ち切りました（smokeTimeoutSec）。**終了するコマンド**を書くこと"
+      Set-Location -LiteralPath $script:ROOT
+      # native コマンドが**投げる**経路（sh/cmd.exe が見つからない等）では代入に到達しないので、
+      # $LASTEXITCODE の null ガードだけでは効かない。catch で拾って fail として刻む
+      try {
+        if (IsWindowsHost) { & cmd.exe /c $s1 }
+        elseif (Get-Command timeout -ErrorAction SilentlyContinue) { & timeout $sto sh -c $s1 }
+        else { & sh -c $s1 }
+        $src = $LASTEXITCODE
+      } catch { $src = 127 }
+    } finally { Set-Location -LiteralPath $prev }
+    if ($null -eq $src) { $src = 1 }
+    if ($src -ne 0) { $sfail = $sidx }
+    if ($src -eq 124) {
+      Write-Output "note: $sto 秒で打ち切りました（smokeTimeoutSec）。**終了するコマンド**を書くこと"
+    }
   }
-  AppendEvent $sw 'test' 'smoke' @("result=$srr", "exit_code=$src")
-  Write-Output "smoke: $srr (exit $src)"
+  $srr = if ($sfail -eq 0) { 'pass' } else { 'fail' }
+  # 何本走ったかを刻む（sh 版 cmd_smoke の注記に理由）
+  if ($sfail -eq 0) {
+    AppendEvent $sw 'test' 'smoke' @("result=$srr", "exit_code=$src", "commands=$sn")
+  } else {
+    AppendEvent $sw 'test' 'smoke' @("result=$srr", "exit_code=$src", "commands=$sn", "failed_index=$sfail")
+  }
+  if ($sn -gt 1) { Write-Output "smoke: $srr (exit $src, $sn 本)" }
+  else { Write-Output "smoke: $srr (exit $src)" }
   if ($srr -cne 'pass') { exit 4 }
   exit 0
 }
@@ -1496,8 +1533,21 @@ function VerifyWork($work) {
   LightWarnings $work
 
   # autonomous は重要判断を decisions.md に残す規約（sh 版と同一）
+  $vmiss = $false
   if ((YGet $st 'mode') -ceq 'autonomous' -and (ApprovedHas $work 'deliver') -and -not (IsFile (Join-Path $work 'decisions.md'))) {
     VLine("  WARN autonomous なのに decisions.md が無い: 人間が承認していない判断の証跡が残らない")
+    $vmiss = $true
+  }
+  # schema 10: タスク点検を**どう実施したか**（sh 版 verify_work の注記に理由）
+  $sn10 = YGet $st 'schema'; if ($sn10 -notmatch '^\d+$') { $sn10 = '0' }
+  if ([int]$sn10 -ge 10 -and (ApprovedHas $work 'coding')) {
+    $tc = MtLastMetric (Join-Path $work 'metrics.yml') 'coding' 'task_checks'
+    if ($tc -and $tc -cne '0') {
+      if (-not (MtLastMetric (Join-Path $work 'metrics.yml') 'coding' 'task_check_mode')) {
+        VLine("  WARN task_checks=$tc なのに task_check_mode が無い: 委譲したのか同一セッションで読み直したのかが残らない（approve coding に task_check_mode=delegated|same_session）")
+        $vmiss = $true
+      }
+    }
   }
 
   # またがり work の検知（WARN）。schema 4 以降のみ＝旧 work を遡って違反扱いしない。
@@ -1524,7 +1574,8 @@ function VerifyWork($work) {
 
   if ($vf.Count -gt 0) { VLine("  FAIL " + ($vf -join ' ')); return 4 }
   # --strict: 記録漏れだけを致命扱い（sh 版と同一。理由は sh 側のコメント参照）
-  if ($script:STRICT -and $epw.Count -gt 0) {
+  # 記録漏れは event の start だけではない（sh 版の注記に理由）。schema 10 以降のみ
+  if ($script:STRICT -and ($epw.Count -gt 0 -or ([int]$sn10 -ge 10 -and $vmiss))) {
     VLine("  FAIL(strict) 記録漏れ: 上記 WARN を解消してから終えること（timestamp は後から復元できません）")
     return 5
   }
@@ -1963,6 +2014,19 @@ function Mt-Epoch($ts) {
 # 返す各要素は @(phase, gap, ac_total)。gap = (総数-被覆数) + AC行欠落数（+ AC が0件なら1）。
 # **ac_covered を持たない刻印は捨てる**——手で ac_total だけ渡された行を 0 とみなすと
 # 被覆数 0 として gap を捏造する（sh 版 mt_cov_stamps と同一）。
+# その工程の最後の approved 刻印にある key の値（sh 版 mt_last_metric と同一）
+function MtLastMetric($metricsFile, $phase, $key) {
+  if (-not (IsFile $metricsFile)) { return '' }
+  $hit = ''
+  foreach ($l in [System.IO.File]::ReadAllLines($metricsFile)) {
+    if ($l -match "phase:\s*$phase," -and $l -match 'event:\s*approved') { $hit = $l }
+  }
+  if (-not $hit) { return '' }
+  $m = [regex]::Match($hit, "[{,]\s*$key\s*:\s*([^,}]*)")
+  if ($m.Success) { return $m.Groups[1].Value.Trim() }
+  return ''
+}
+
 function MtCovStamps($metricsFile) {
   $r = @()
   if (-not (IsFile $metricsFile)) { return $r }
@@ -2607,6 +2671,20 @@ function Wt-Add($rest) {
     finally { Pop-Location }
     if ($newFailed) { & $wtRollback "worktree 内の new に失敗" }
     $workNote = "新規 work を作成（add 内で new）"
+  }
+
+  # 枝を切った地点を state.yml に刻む（sh 版 wt_add の注記に理由）
+  $wtcur = Join-Path (Join-Path $wpath '.aidev') 'current'
+  if (IsFile $wtcur) {
+    $cl2 = [System.IO.File]::ReadAllLines($wtcur)
+    $wtw = if ($cl2.Count -ge 1) { $cl2[0].Trim() } else { '' }
+    $wtst = Join-Path (Join-Path (Join-Path (Join-Path $wpath '.aidev') 'works') $wtw) 'state.yml'
+    if ($wtw -and (IsFile $wtst)) {
+      $wtbc = (& git -C $wpath rev-parse HEAD 2>$null)
+      if ($LASTEXITCODE -ne 0) { $wtbc = '' } else { $wtbc = "$wtbc".Trim() }
+      SetOrAppend $wtst 'base' "base: $base"
+      if ($wtbc) { SetOrAppend $wtst 'baseCommit' "baseCommit: $wtbc" }
+    }
   }
 
   Write-Output "worktree 追加: $wpath"
@@ -3573,8 +3651,44 @@ function Doctor-Shared() {
   Write-Output "sharedFiles-summary: declared=$n 実在しない=$stale 未宣言の常連=$miss"
 }
 
+# 起動確認の宣言が成果物の成長に置いていかれていないか（sh 版 smoke_stale_warn の注記に理由）
+function SmokeStaleWarn() {
+  if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return }
+  $cfg = Join-Path $script:AIDEV 'config.yml'
+  $n = YGet $cfg 'smokeStaleAfter'
+  if ($n -notmatch '^\d+$') { $n = 5 } else { $n = [int]$n }
+  if ($n -le 0) { return }
+  $env:TZ = 'UTC'
+  $cut = (& git -C $script:ROOT log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ -S smokeCommand -- $cfg 2>$null)
+  if ($LASTEXITCODE -ne 0) { $cut = '' }
+  $cut = "$cut".Trim()
+  if (-not $cut) { return }
+  $cnt = 0
+  $wroot = Join-Path $script:AIDEV 'works'
+  if (-not (IsDir $wroot)) { return }
+  foreach ($d in (Get-ChildItem -LiteralPath $wroot -Directory -ErrorAction SilentlyContinue)) {
+    $mf = Join-Path $d.FullName 'metrics.yml'
+    if (-not (IsFile $mf)) { continue }
+    $ts = ''
+    foreach ($l in [System.IO.File]::ReadAllLines($mf)) {
+      if ($l -match 'phase:\s*deliver,' -and $l -match 'event:\s*approved') {
+        $m = [regex]::Match($l, 'ts:\s*([0-9T:Z-]+)')
+        if ($m.Success) { $ts = $m.Groups[1].Value }
+      }
+    }
+    if (-not $ts) { continue }
+    # ISO・UTC・同じ桁なので序数比較できる
+    if ([string]::CompareOrdinal($ts, $cut) -gt 0) { $cnt++ }
+  }
+  if ($cnt -ge $n) {
+    Write-Output "    WARN 起動確認の宣言を最後に変えてから $cnt 本が着地しています（しきい値 $n）: 足した表面が一度も起動されていない可能性"
+    Write-Output "         smokeCommands: の下に 1 行足せば増やせる（起動確認は成果物と一緒に育てる）"
+  }
+}
+
 function Doctor-Smoke() {
-  $dsc = SmokeCmd
+  $dscl = @(SmokeList)
+  $dsc = if ($dscl.Count -gt 0) { $dscl[0] } else { SmokeCmd }
   Write-Output "smoke: 起動確認の設定"
   if (-not $dsc) {
     Write-Output "    WARN smokeCommand が .aidev/config.yml にありません: **テストが緑でも成果物が起動するかは誰も見ていません**"
@@ -3584,7 +3698,8 @@ function Doctor-Smoke() {
   } elseif ($dsc -ceq 'none') {
     Write-Output "smoke-summary: configured=none（起動確認の対象外と宣言済み）"
   } else {
-    Write-Output "smoke-summary: configured=yes"
+    SmokeStaleWarn
+    Write-Output "smoke-summary: configured=yes commands=$($dscl.Count)"
   }
 }
 

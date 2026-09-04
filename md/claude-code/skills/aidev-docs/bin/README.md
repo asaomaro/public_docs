@@ -109,7 +109,7 @@ CI ではこれを失敗として扱う（`.github/workflows/aidev-cli.yml`）�
 不変条件だけ**を強制する。`schema` 未記載の旧 work は **legacy として免除**（「過去分は捏造しない」方針。
 `protocol.md`「8.」）。これにより新ガードを足しても**過去 work を遡及的に違反扱いしない**。
 
-- 現行 `CURRENT_SCHEMA = 9`。
+- 現行 `CURRENT_SCHEMA = 10`。
 - schema 3: subtask 層（`subtasks`/`activeSubtask`/`parent`）を導入。schema ≤ 2 の work は subtask 不変条件を免除。
 - schema ≥ 2 の不変条件: `metrics.yml` の存在 ／ review 承認済なら `review.md` 存在 ／ deliver 承認済なら
   metrics に deliver の approved イベントが存在 ／ deliver 承認済で `backlog:` 刻印があれば消し込み（下記）。
@@ -148,6 +148,14 @@ CI ではこれを失敗として扱う（`.github/workflows/aidev-cli.yml`）�
   `verify OK` で着地できていた（2026-09-04 の実走で実測）。light の「4つとも作る・
   スタブは作らない」は散文にしか無く、二層（散文＝ソフト / CLI＝ハード）の CLI 側が
   丸ごと欠けていた。`requirement` の承認をもって 4 文書を要求する。
+- schema ≥ 10 の検査: **記録漏れの範囲を広げる**。`--strict` が致命扱いするのは
+  「そのとき書かなければ二度と書けないもの」——`event` の start に加えて、(a) `autonomous`
+  なのに `decisions.md` が無い（人間が承認していない判断の唯一の証跡）、(b) `task_checks > 0`
+  なのに `task_check_mode` が無い（委譲したのか同一セッションで読み直したのか）。どちらも
+  既定の `verify` では **WARN 止まり**で、致命になるのは `--strict` のときだけ。
+  (b) は実走で問題になった——委譲機構の無い環境ではフォールバックが認められている
+  （`protocol-check.md`）のに、metrics 上で区別が付かず、「別コンテキストが見て 0 件」と
+  「本人が読み直して 0 件」が同じ数字として足し上がっていた。
 - 新しい不変条件を足すときは `CURRENT_SCHEMA` を上げ、検査をそのバージョン以上に限定する。
 
 ## `test/lint-docs.sh`（文書と CLI 表面の整合）
@@ -229,6 +237,8 @@ CLI が読むキー。どれも任意で、無ければ既定で動く（PJ 固�
 | `maxDebugRounds` | `debug start` | 1工程あたりのデバッグ回数の上限（既定 2）。超えたら `block` か `stop_for_human` で締める |
 | `smokeCommand` | `smoke` / `verify`（schema 7） / `doctor` | 起動確認のコマンド（**終了するもの**を書く。常駐させない）。対象が無い PJ は `none` と明示する。未設定は `smoke` が exit 2 |
 | `smokeCommandWindows` | `smoke`（ps1・Windows のみ） | Windows で別のコマンドが要るときの上書き（未設定なら `smokeCommand`）。**単独で設定しない**——POSIX 側からは未設定に見える |
+| `smokeCommands` | `smoke` / `doctor` | 起動確認を**複数行で積む**形（`smokeCommand` の代わり。両方あればこちらが優先）。値は 1 行 1 コマンドで、`smokeCommand` と同じく**行をそのまま**読む（配列リテラル `[a, b]` にしないのは、コマンドに含まれるカンマで壊れるため）。**起動確認は成果物と一緒に育てる**ためのもの——固定 1 本だと work が足した表面を一度も起動しないまま `smoke: pass` になる（実走で 3 本ともそうなった） |
+| `smokeStaleAfter` | `doctor` | 起動確認の宣言を最後に変えてから何本着地したら WARN を出すか（既定 5・`0` で停止）。判定は git の pickaxe で「`smokeCommand` を含む行が最後に変わったコミット」を基準にする。`sharedFiles` と同じ「静的な宣言が実態から遅れる」型として扱う |
 | `smokeTimeoutSec` | `smoke` | 起動確認に許す最長秒数（既定 300）。`timeout`(coreutils) がある環境でのみ効く |
 | `sharedFiles` | `worktree add` | 並行作業で衝突しやすい共有ファイル名（完了時に名前を挙げて警告） |
 | `sharedFilesWindow` | `doctor` / `worktree add` | `sharedFiles` の宣言漏れを見るときに遡るコミット数（既定 20・HEAD の履歴）。その 1/4 以上のコミットが触っているファイルが未宣言なら WARN。`doctor` は上位 5 件、`worktree add` の警告は上位 3 件を名指しする（**同じ関数**で判定する——同じハーネスが片方で「この 3 つは共有だ」と言い、もう片方で「共有は storage.py です」と言う状態を作らないため）。`0` で検査を止める |

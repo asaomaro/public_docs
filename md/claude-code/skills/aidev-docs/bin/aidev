@@ -76,7 +76,7 @@ need_arg() { # opt残り引数数
   [ "$2" -ge 2 ] || die "$1 には値が必要です"
 }
 
-CURRENT_SCHEMA=9   # 現行スキーマ版。new がこの値を刻む。schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema 7=起動確認(smoke)の記録検査を導入。schema 8=デバッグ（詰まりの原因究明）の記録検査を導入。schema 9=light の上流4文書の実在検査を導入。schema<=2 は legacy として subtask 不変条件を免除。
+CURRENT_SCHEMA=10  # 現行スキーマ版。new がこの値を刻む。schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema 7=起動確認(smoke)の記録検査を導入。schema 8=デバッグ（詰まりの原因究明）の記録検査を導入。schema 9=light の上流4文書の実在検査を導入。schema 10=autonomous の decisions.md と タスク点検の実施形態(task_check_mode) を記録漏れ扱いに。schema<=2 は legacy として subtask 不変条件を免除。
 
 PHASES="requirement research spec design plan coding test review walkthrough deliver retro"
 
@@ -561,6 +561,16 @@ cmd_approve() {
   # 刻む工程を3つに絞るのは、「plan（または light の requirement）で決めた被覆」と
   # 「review 時点の被覆」の**2点**があれば乖離が読めるから（間を刻んでも量が増えるだけ）。
   # tasks.md がまだ無い工程（full の requirement・分割 work の親 plan）は刻まない。
+  # 実施形態は enum。タイポ（deligated 等）を通すと層別が静かに壊れる
+  for _akv in "$@"; do
+    case "$_akv" in
+      task_check_mode=*)
+        case "${_akv#task_check_mode=}" in
+          delegated|same_session) ;;
+          *) die "task_check_mode は delegated|same_session（委譲したか、同一セッションで読み直したか）" ;;
+        esac ;;
+    esac
+  done
   case "$ph" in
     plan|requirement|review)
       # 明示指定があれば尊重する（機械値で上書きしない）。判定は**引数ごとの先頭一致**——
@@ -1344,6 +1354,38 @@ smoke_cmd() {
   printf '%s' "$_v"
 }
 
+# 起動確認は**成果物と一緒に育つ**もの。1 本の固定コマンドだと、work が足した表面を
+# 一度も起動しないまま `smoke: pass` になる（実走で `stats` / `rename-tag` / `--json` の
+# どれも smoke を通らなかった）。`protocol.md`「主張は証拠の範囲を超えない」に照らすと、
+# 起動確認の記録が現在の成果物を代表していない。複数行で積めるようにして、
+# 表面を足した work がその場で 1 行足せる形にする:
+#   smokeCommands:
+#     - cmd one && cmd two
+#     - cmd three
+# 値は `smokeCommand` と同じく**行をそのまま**読む（YAML のエスケープを解釈しない。
+# 配列リテラル `[a, b]` にしないのは、コマンドに含まれるカンマで壊れるため）
+smoke_cmds() {
+  awk '
+    /^smokeCommands:[ \t]*$/ { inblk = 1; next }
+    inblk {
+      if (match($0, /^[ \t]+-[ \t]+/)) { s = substr($0, RLENGTH + 1); sub(/[ \t]+$/, "", s); if (s != "") print s; next }
+      if ($0 ~ /^[ \t]*$/) next
+      inblk = 0
+    }
+  ' "$AIDEV/config.yml" 2>/dev/null || true
+  # ↑ config.yml が無いと awk が非ゼロで返り、**関数の最後のコマンド**なので set -e が
+  #   呼び出し側で発火する（このリポジトリで何度も踏んだ形）。必ず 0 で返す
+  return 0
+}
+# 実行するコマンド一覧（smokeCommands があればそれ、無ければ smokeCommand 1 本）
+smoke_list() {
+  _sl=$(smoke_cmds)
+  if [ -n "$_sl" ]; then printf '%s\n' "$_sl"; return 0; fi
+  _s1=$(smoke_cmd)
+  [ -n "$_s1" ] && printf '%s\n' "$_s1"
+  return 0
+}
+
 # 起動確認は **work 全体（親＋全 subtask）の性質**なので、記録も家族の根に一本化する。
 # 子の metrics に刻むと、着地する親の verify から見えず「記録が無い」と誤 FAIL する
 # （被覆を `cov_root()` で家族単位にしたのと同じ理由。片方だけ work 単位だと非対称になる）。
@@ -1377,6 +1419,8 @@ cmd_smoke() {
   done
   resolve_work "$sslug"
   _sc=$(smoke_cmd)
+  _scl=$(smoke_list)
+  [ -n "$_scl" ] && _sc=$(printf '%s\n' "$_scl" | head -n1)
   printf 'smoke: %s\n' "$SLUG"
 
   if [ -z "$_sc" ]; then
@@ -1405,28 +1449,46 @@ cmd_smoke() {
     return 0
   fi
 
-  printf '$ %s\n' "$_sc"
   # 出力は**捕まえずに素通しする**。test 工程が `test-result.md` に貼るのは生の出力で、
   # ここで要約や整形を挟むと「そのまま貼った」が成立しなくなる。
   # **時間上限を掛ける**——常駐コマンドを書かれると自律実行がそこで永久に止まる。
   # 「終了するコマンドを書け」を散文だけに任せない（この harness が繰り返し採ってきた線）。
   # `timeout` が無い環境では掛けられないので、**その事実を出力に残す**（黙って無制限にしない）。
   _sto=$(smoke_timeout)
-  set +e
-  if command -v timeout >/dev/null 2>&1; then
-    ( cd "$ROOT" && timeout "$_sto" sh -c "$_sc" )
+  _src=0; _sidx=0; _sfail=0; _sn=0
+  _sold=$IFS; IFS='
+'
+  for _s1 in $_scl; do
+    _sn=$((_sn+1))
+    [ "$_sfail" -eq 0 ] || continue    # 1 本落ちたらそれ以降は走らせない（原因を1つに絞る）
+    _sidx=$_sn
+    printf '$ %s\n' "$_s1"
+    set +e
+    if command -v timeout >/dev/null 2>&1; then
+      ( cd "$ROOT" && timeout "$_sto" sh -c "$_s1" )
+    else
+      ( cd "$ROOT" && sh -c "$_s1" )
+    fi
+    _src=$?
+    set -e
+    if [ "$_src" -ne 0 ]; then _sfail=$_sidx; fi
+    if [ "$_src" -eq 124 ]; then
+      printf 'note: %s 秒で打ち切りました（smokeTimeoutSec）。**終了するコマンド**を書くこと\n' "$_sto"
+    fi
+  done
+  IFS=$_sold
+  if [ "$_sfail" -eq 0 ]; then _srr=pass; else _srr=fail; fi
+  # **何本走ったか**を刻む。`smoke: pass` だけだと、その pass が成果物のどこを通ったのかが
+  # 後から分からない（起動確認の主張が証拠の範囲を超える）。設定は git に載っているので、
+  # 本数と版が分かれば「その時点で何を確かめたか」が復元できる
+  if [ "$_sfail" -eq 0 ]; then
+    append_event test smoke "result=$_srr" "exit_code=$_src" "commands=$_sn"
   else
-    ( cd "$ROOT" && sh -c "$_sc" )
+    append_event test smoke "result=$_srr" "exit_code=$_src" "commands=$_sn" "failed_index=$_sfail"
   fi
-  _src=$?
-  set -e
-  if [ "$_src" -eq 0 ]; then _srr=pass; else _srr=fail; fi
-  if [ "$_src" -eq 124 ]; then
-    printf 'note: %s 秒で打ち切りました（smokeTimeoutSec）。**終了するコマンド**を書くこと\n' "$_sto"
-  fi
-  append_event test smoke "result=$_srr" "exit_code=$_src"
   WORK=$_sw; SLUG=$_ssl
-  printf 'smoke: %s (exit %s)\n' "$_srr" "$_src"
+  if [ "$_sn" -gt 1 ]; then printf 'smoke: %s (exit %s, %s 本)\n' "$_srr" "$_src" "$_sn"
+  else printf 'smoke: %s (exit %s)\n' "$_srr" "$_src"; fi
   [ "$_srr" = pass ] || return 4
   return 0
 }
@@ -1582,8 +1644,23 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail / 5 stri
   # autonomous は「重要判断を decisions.md に残す」ことになっている（protocol-autonomous.md）。
   # 散文でしか守られておらず、実走では 1 本が decisions.md 無しで着地して doctor も素通りした。
   # 人間が承認していない判断の唯一の証跡なので、欠落を見えるようにする（WARN 止まり）
+  VMISS=""
   if [ "$(yget "$st" mode)" = autonomous ] && approved_has deliver && [ ! -f "$WORK/decisions.md" ]; then
     printf '  WARN autonomous なのに decisions.md が無い: 人間が承認していない判断の証跡が残らない\n'
+    VMISS="yes"
+  fi
+  # schema 10: タスク点検を**どう実施したか**。委譲機構が無い環境では同一セッションで
+  # 読み直すフォールバックが認められている（protocol-check.md）が、metrics 上で区別が付かないと
+  # 「別コンテキストが見て 0 件」と「本人が読み直して 0 件」が同じ数字として足し上がり、
+  # 点検の効果（protocol.md「8.」）を横断で測れない。件数を刻むなら形態も刻む
+  if [ "$schema" -ge 10 ] 2>/dev/null && approved_has coding; then
+    _vtc=$(mt_last_metric "$WORK/metrics.yml" coding task_checks)
+    case "$_vtc" in ''|0) ;; *)
+      if [ -z "$(mt_last_metric "$WORK/metrics.yml" coding task_check_mode)" ]; then
+        printf '  WARN task_checks=%s なのに task_check_mode が無い: 委譲したのか同一セッションで読み直したのかが残らない（approve coding に task_check_mode=delegated|same_session）\n' "$_vtc"
+        VMISS="yes"
+      fi ;;
+    esac
   fi
 
   # またがり work の検知（WARN）。schema 4 以降のみ＝旧 work を遡って違反扱いしない。
@@ -1618,7 +1695,10 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail / 5 stri
   # --strict: **記録漏れだけ**を致命扱いにする（Stop フック等の機械ゲート用）。
   # 記録漏れは「今しか直せない」（metrics は追記のみで、当時の時刻は復元できない）。
   # 対して light の逸脱は人間の判断（昇格するか）なので strict でも致命にしない。
-  if [ "${STRICT:-no}" = yes ] && [ -n "$EPW" ]; then
+  # 記録漏れは event の start だけではない。**そのとき書かなければ二度と書けない**ものは
+  # 同じ扱いにする——decisions.md（当時どう判断したか）とタスク点検の実施形態がそれ。
+  # どちらも schema 10 以降の work だけを対象にする（旧 work を遡って落とさない）
+  if [ "${STRICT:-no}" = yes ] && { [ -n "$EPW" ] || { [ "$schema" -ge 10 ] 2>/dev/null && [ -n "$VMISS" ]; }; }; then
     printf '  FAIL(strict) 記録漏れ: 上記 WARN を解消してから終えること（timestamp は後から復元できません）\n'
     return 5
   fi
@@ -2194,6 +2274,14 @@ END{
 # 出力: "<phase> <gap> <ac_total>" を出現順に。gap = (総数-被覆数) + AC行欠落数（+ AC が0件なら1）。
 # **`ac_covered` を持たない刻印は捨てる**——`approve plan ac_total=5` のように一部だけ手で
 # 渡された行を 0 とみなすと、被覆数 0 として gap を捏造する（乖離が無いのに 5 と出る）。
+# metrics.yml から「その工程の最後の approved 刻印にある key の値」を取る。
+# 追記のみのログなので、最後の刻印が現在の値（差し戻して再承認したら新しい方が正）
+mt_last_metric() { # metrics_file phase key
+  [ -f "$1" ] || return 0
+  grep "phase:[[:space:]]*$2,.*event:[[:space:]]*approved" "$1" 2>/dev/null | tail -n1 \
+    | sed -n "s/.*[{,][[:space:]]*$3:[[:space:]]*\([^,}]*\).*/\1/p" | sed 's/[[:space:]]*$//'
+}
+
 mt_cov_stamps() { # metrics_file
   [ -f "$1" ] || return 0
   awk '
@@ -2476,6 +2564,23 @@ wt_add() {
     [ -f "$_wtbin" ] || _wt_rollback "worktree 内に CLI がありません: $_wtbin（skills が追跡・コミット済みか確認）"
     ( cd "$wpath" && "$_wtbin" "$@" ) || _wt_rollback "worktree 内の new に失敗"
     work_note="新規 work を作成（add 内で new）"
+  fi
+
+  # **枝を切った地点**を state.yml に刻む。deliver「1.5」の既着地検知は
+  # `<default>..HEAD` を見るが、base が未マージの枝だと**無関係なコミットが必ず並ぶ**ので、
+  # 「空かどうか」という判定基準が成立しない（実測: 実装と無関係な 4 本が出た）。
+  # 比べる先を推測させず、**その work が実際に分岐した commit** を記録して渡す。
+  # 既定 base を既定ブランチに変えないのは、積み上げ（前の work の上で続ける）が
+  # 正当なやり方だから——直すべきは既定値ではなく、比較点が記録されていないこと。
+  _wtcur="$wpath/.aidev/current"
+  if [ -f "$_wtcur" ]; then
+    _wtw=$(head -n1 "$_wtcur" | tr -d '\r\n')
+    _wtst="$wpath/.aidev/works/$_wtw/state.yml"
+    if [ -n "$_wtw" ] && [ -f "$_wtst" ]; then
+      _wtbc=$(git -C "$wpath" rev-parse HEAD 2>/dev/null) || _wtbc=""
+      set_or_append "$_wtst" base "base: $base"
+      [ -n "$_wtbc" ] && set_or_append "$_wtst" baseCommit "baseCommit: $_wtbc"
+    fi
   fi
 
   printf 'worktree 追加: %s\n' "$wpath"
@@ -3834,8 +3939,44 @@ doctor_shared() {
   printf 'sharedFiles-summary: declared=%s 実在しない=%s 未宣言の常連=%s\n' "$_dsn" "$_dsstale" "$_dsmiss"
 }
 
+# 起動確認の宣言が**成果物の成長に置いていかれていないか**。
+# 実走で `stats` / `rename-tag` / `--json` を足した 3 本のどれも smoke を通らないまま
+# `smoke: pass` になった——「テストが緑なだけでは着地の根拠にしない」と言いながら、
+# 起動確認の側が現在の成果物を代表していない。sharedFiles と同じ「静的な宣言が実態から
+# 遅れる」型なので、同じ扱いにする: 直すのは人間、古びていることは機械が言う。
+smoke_stale_warn() {
+  command -v git >/dev/null 2>&1 || return 0
+  _ssn=$(yget "$AIDEV/config.yml" smokeStaleAfter)
+  case "$_ssn" in ''|*[!0-9]*) _ssn=5 ;; esac
+  [ "$_ssn" -gt 0 ] 2>/dev/null || return 0
+  # 宣言が最後に変わったコミットの日時（pickaxe。config.yml の他の行の変更では動かない）
+  _sscut=$(TZ=UTC git -C "$ROOT" log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ \
+             -S smokeCommand -- "$AIDEV/config.yml" 2>/dev/null) || _sscut=""
+  [ -n "$_sscut" ] || return 0   # 履歴が無い/読めないなら黙る（推測で急かさない）
+  _sscnt=0
+  for _ssd in "$AIDEV/works"/*/; do
+    [ -f "$_ssd/metrics.yml" ] || continue
+    _ssts=$(grep 'phase:[[:space:]]*deliver,.*event:[[:space:]]*approved' "$_ssd/metrics.yml" 2>/dev/null \
+             | tail -n1 | sed -n 's/.*ts:[[:space:]]*\([0-9TZ:-]*\).*/\1/p')
+    [ -n "$_ssts" ] || continue
+    # ISO・UTC・同じ桁なので辞書順で比較できる
+    if [ "$(printf '%s\n%s\n' "$_sscut" "$_ssts" | LC_ALL=C sort | tail -n1)" = "$_ssts" ] \
+       && [ "$_ssts" != "$_sscut" ]; then
+      _sscnt=$((_sscnt+1))
+    fi
+  done
+  if [ "$_sscnt" -ge "$_ssn" ] 2>/dev/null; then
+    printf '    WARN 起動確認の宣言を最後に変えてから %s 本が着地しています（しきい値 %s）: 足した表面が一度も起動されていない可能性\n' \
+      "$_sscnt" "$_ssn"
+    printf '         smokeCommands: の下に 1 行足せば増やせる（起動確認は成果物と一緒に育てる）\n'
+  fi
+  return 0
+}
+
 doctor_smoke() {
   _dsc=$(smoke_cmd)
+  _dscl=$(smoke_list)
+  [ -n "$_dscl" ] && _dsc=$(printf '%s\n' "$_dscl" | head -n1)
   printf 'smoke: 起動確認の設定\n'
   if [ -z "$_dsc" ]; then
     printf '    WARN smokeCommand が .aidev/config.yml にありません: **テストが緑でも成果物が起動するかは誰も見ていません**\n'
@@ -3845,7 +3986,9 @@ doctor_smoke() {
   elif [ "$_dsc" = none ]; then
     printf 'smoke-summary: configured=none（起動確認の対象外と宣言済み）\n'
   else
-    printf 'smoke-summary: configured=yes\n'
+    smoke_stale_warn
+    _dsn=$(printf '%s\n' "$_dscl" | grep -c . || true)
+    printf 'smoke-summary: configured=yes commands=%s\n' "$_dsn"
   fi
   return 0
 }

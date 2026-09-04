@@ -1993,6 +1993,51 @@ run_au use "$AU_LW" >/dev/null; run_au event spec start >/dev/null
 assert_contains "$(run_au verify "$AU_LW" 2>&1)" "profile=light だが spec を個別に起動" \
   "verify: light の指紋から外れたら WARN（定義しておいて見ていない、を無くす）"
 
+# (5) schema 10: 記録漏れの範囲。**そのとき書かなければ二度と書けない**ものを strict で落とす
+# 先行テストが $AUD の config.yml に smokeCommand を残しているので消す。残っていると
+# schema 7（起動確認の記録）で FAIL し、ここで見たい記録漏れの検査に届かない
+rm -f "$AUD/.aidev/config.yml"
+mk_work s10a
+# start も刻む。刻まないと event 対の WARN が残り、--strict はそちらで落ちるので
+# 「実施形態を刻めば通る」が確かめられない（見たい検査だけを残す）
+run_au event coding start >/dev/null; run_au approve coding task_checks=3 >/dev/null
+run_au event deliver start >/dev/null; run_au approve deliver >/dev/null
+AU_V10=$(run_au verify 2>&1); AU_R10=$?
+assert_eq "$AU_R10" "0" "verify: task_check_mode 欠落は既定では WARN 止まり"
+assert_contains "$AU_V10" "task_check_mode が無い" \
+  "verify: 点検の実施形態が残っていないことを知らせる（委譲か同一セッションかで効き方が違う）"
+run_au verify --strict >/dev/null 2>&1; assert_eq "$?" "5" \
+  "verify --strict: 実施形態の記録漏れは致命（後から書けない）"
+# 刻んだ側は**別の work**で見る。同じ work で approve を打ち直すと start/approved の
+# 数が合わなくなり（これは正しい検知）、--strict はそちらで落ちる
+mk_work s10c
+run_au event coding start >/dev/null
+run_au approve coding task_checks=3 task_check_mode=same_session >/dev/null
+run_au event deliver start >/dev/null; run_au approve deliver >/dev/null
+run_au verify --strict >/dev/null 2>&1; assert_eq "$?" "0" \
+  "verify --strict: 実施形態を刻めば通る"
+run_au approve coding task_check_mode=deligated >/dev/null 2>&1
+assert_eq "$?" "1" "approve: task_check_mode のタイポを弾く（層別が静かに壊れるのを防ぐ）"
+# task_checks=0 なら実施形態は要らない（点検していないので形態が無い）
+mk_work s10b
+run_au event coding start >/dev/null; run_au approve coding task_checks=0 >/dev/null
+run_au event deliver start >/dev/null; run_au approve deliver >/dev/null
+run_au verify --strict >/dev/null 2>&1
+assert_eq "$?" "0" "verify --strict: task_checks=0 なら実施形態は要らない"
+
+# (6) 起動確認は複数行で積める（固定 1 本だと足した表面が一度も起動されない）
+mk_work smk
+printf 'smokeCommands:\n  - exit 0\n  - exit 0\n' > "$AUD/.aidev/config.yml"
+AU_SM=$(run_au smoke 2>&1)
+assert_contains "$AU_SM" "smoke: pass (exit 0, 2 本)" "smoke: smokeCommands の全部を走らせる"
+assert_contains "$(cat "$AU_D/metrics.yml")" "commands: 2" \
+  "smoke: 何本走ったかを刻む（pass が成果物のどこを通ったのか後から分かる）"
+printf 'smokeCommands:\n  - exit 0\n  - exit 3\n  - exit 0\n' > "$AUD/.aidev/config.yml"
+run_au smoke >/dev/null 2>&1; assert_eq "$?" "4" "smoke: 1 本でも落ちれば fail"
+assert_contains "$(cat "$AU_D/metrics.yml")" "failed_index: 2" \
+  "smoke: 何本目で落ちたかを刻む（原因を1つに絞る）"
+rm -f "$AUD/.aidev/config.yml"
+
 # (4) doctor: 0 件でも節見出しを出す（「検査が無い」と「検査して 0 件」は別の情報）
 assert_contains "$(run_au doctor 2>&1)" "harness-summary: files=0" \
   "doctor: ハーネス改修の記録が 0 件でも節を出す（条項側と同じ）"
