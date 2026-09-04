@@ -8,7 +8,7 @@
 #
 # 使い方:
 #   aidev new <slug> [--mode interactive|autonomous] [--profile full|light] [--light] [--ticket ID]
-#                    [--depends a,b,#N] [--parent <親work>] [--backlog <file>] [--backlog-item <text>]
+#                    [--depends a,b,#N] [--parent <親work>] [--backlog <file>] [--backlog-item <text>] [--human-gates <list>]
 #     --parent 指定時は親 work 配下に subtask（<NN>-<subslug>・date prefix なし・current=plan）を作る
 #     --backlog は backlog 項目から起こした work に出自を刻む（deliver での消し込みを verify が強制する）
 #     --profile/--light は「どこまで工程を回すか」（protocol.md「11.」）。mode（誰が承認するか）と直交
@@ -45,14 +45,14 @@
 #   aidev convention defer   <id> --verify-after <n> --note <text>  # 判定を先送り（母集団の必要件数を積み増す。理由必須）
 #   aidev convention promote <id> --to <path#anchor>    # 本文を PJ docs へ移した後、tombstone 化して退避
 #   aidev convention status [--format table|tsv] [--members <id>]  # 条項の一覧。--members は母集団の work 一覧（分母と分子を同じ集合で見る）
-#   aidev status [--format table|tsv] [--active]  # works横断＋backlog未着手の状況サマリ（読み取り専用）。--active は deliver 済みを隠す
-#   aidev metrics [slug] [--all] [--phases] [--format table|tsv]  # metrics.yml から派生指標を集計（読み取り専用）。--all は harnessRev/straddle 列も出す（版で層別する）
+#   aidev status [--format table|tsv] [--active] [--subtasks]  # works横断＋backlog未着手の状況サマリ（読み取り専用）。--active は deliver 済みを隠す
+#   aidev metrics [slug] [--all] [--phases] [--format table|tsv]  # metrics.yml から派生指標を集計（読み取り専用）。--all は全 work を対象にする（列の増減はしない）（版で層別する）
 #   aidev harness new <id> --hypothesis <text> --baseline <text> [--source <p>] [--verify-after <n>]
 #     ハーネス改修の仮説を .aidev/harness/ に登録する（introduced_rev に今の版を刻む）。条項と同じ入口・出口ゲート
 #   aidev harness confirm <id> --result <text> [--force] / retire <id> --status ineffective|superseded --note <text> [--force]
 #   aidev harness status [--format table|tsv]   # 改修ごとの母集団（導入後に着手し、またがらずに deliver した work）と判定可否
 #   aidev worktree add <slug> [--branch n] [--base ref] [--path dir] [--mode m] [--profile p|--light]
-#                            [--ticket id] [--depends list] [--backlog <file>] [--backlog-item <text>]
+#                            [--ticket id] [--depends list] [--backlog <file>] [--backlog-item <text>] [--human-gates <list>]
 #                                              # work 専用の git worktree+ブランチを作る（ユーザー責任の並行 on-ramp）
 #     new へ委譲する引数は new と同じ意味（--backlog を落とすと deliver の消し込み強制が静かに外れる）
 #   aidev worktree list [--format table|tsv]   # aidev 管理 worktree を一覧（読み取り専用）
@@ -360,9 +360,22 @@ cv_ready_notice() {
   done
 }
 
+# `humanGates` は「autonomous でもこの工程だけは人間が承認する」宣言。
+# 設定口が無く state.yml の手編集しか手段が無かった——`escalate` / `unapprove` を作ったのと
+# 同じ理由（state の更新は単一の検証済み経路に集約する）で口を設ける。値は工程名として検査する
+emit_human_gates() {
+  if [ -n "${humangates:-}" ]; then
+    _hg=$(printf '%s' "$humangates" | tr ',' ' ')
+    for _h in $_hg; do is_phase "$_h" || die "humanGates に未知の工程: $_h"; done
+    printf 'humanGates: [%s]\n' "$(printf '%s' "$_hg" | tr -s ' ' | sed 's/^ *//; s/ *$//; s/ /, /g')"
+  else
+    printf 'humanGates: []\n'
+  fi
+}
+
 # --- コマンド: new ------------------------------------------------------------
 cmd_new() {
-  slug=""; mode=""; profile=""; ticket=""; depends=""; parent=""; backlog=""; backlogitem=""
+  slug=""; mode=""; profile=""; ticket=""; depends=""; parent=""; backlog=""; backlogitem=""; humangates=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --mode) need_arg "$1" $#; mode=$2; shift 2 ;;
@@ -375,11 +388,12 @@ cmd_new() {
       # `aidev:` 前置なしで漏れる（need_arg を入れた動機と同じ穴）
       --backlog) need_arg "$1" $#; backlog=$(basename -- "$2"); shift 2 ;;
       --backlog-item) need_arg "$1" $#; backlogitem=$2; shift 2 ;;
+      --human-gates) need_arg "$1" $#; humangates=$2; shift 2 ;;
       -*) die "未知のオプション: $1" ;;
       *) [ -z "$slug" ] && slug=$1 || die "slug は1つだけ"; shift ;;
     esac
   done
-  [ -n "$slug" ] || die "使用法: aidev new <slug> [--mode ..] [--profile ..|--light] [--ticket ..] [--depends ..] [--parent <親work>] [--backlog <file>] [--backlog-item <text>]"
+  [ -n "$slug" ] || die "使用法: aidev new <slug> [--mode ..] [--profile ..|--light] [--ticket ..] [--depends ..] [--parent <親work>] [--backlog <file>] [--backlog-item <text>] [--human-gates <list>]"
   # backlog 出自は「消し込み忘れ」を verify で捕まえるための刻印。存在しないファイルを
   # 指したまま進むと deliver 直前まで気づけないので、この場で弾く
   if [ -n "$backlog" ] && [ ! -f "$AIDEV/backlog/$backlog" ]; then
@@ -441,7 +455,7 @@ cmd_new() {
       printf 'approved: []\n'
       printf 'mode: %s\n' "$mode"
       printf 'profile: %s\n' "$profile"
-      printf 'humanGates: []\n'
+      emit_human_gates
       printf 'maxSendBacks: 3\n'
       printf 'dependsOn: %s\n' "$deps_yaml"
       printf 'harnessRev: %s\n' "$(harness_rev)"
@@ -492,7 +506,7 @@ cmd_new() {
     printf 'approved: []\n'
     printf 'mode: %s\n' "$mode"
     printf 'profile: %s\n' "$profile"
-    printf 'humanGates: []\n'
+    emit_human_gates
     printf 'maxSendBacks: 3\n'
     printf 'dependsOn: %s\n' "$deps_yaml"
     printf 'harnessRev: %s\n' "$(harness_rev)"
@@ -1599,7 +1613,9 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail / 5 stri
       # 検査するのは `smokeCommand` を**設定している PJ** だけ——設定していない PJ に
       # 毎 work 鳴かせると「直せない WARN」になる。未設定は doctor が PJ 単位で1行知らせる。
       if [ "$schema" -ge 7 ] 2>/dev/null && approved_has deliver; then
-        _vsc=$(smoke_cmd)
+        # `smoke_cmd`（単数キーだけ）で見ると、**`smokeCommands` だけの PJ でこのゲートが
+        # 黙って外れる**（実測）。`smoke` と `doctor` は既に smoke_list を使っている
+        _vsc=$(smoke_list | head -n1)
         if [ -n "$_vsc" ] && [ "$_vsc" != none ]; then
           case "$(smoke_last "$(smoke_root)/metrics.yml")" in
             pass|skip) ;;
@@ -2579,7 +2595,7 @@ wt_shared_warn() {
 }
 
 wt_add() {
-  slug=""; branch=""; base="HEAD"; wpath=""; mode=interactive; ticket=""; depends=""; backlog=""; profile=""; backlogitem=""
+  slug=""; branch=""; base="HEAD"; wpath=""; mode=interactive; ticket=""; depends=""; backlog=""; profile=""; backlogitem=""; humangates=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --branch)  need_arg "$1" $#; branch=$2; shift 2 ;;
@@ -2592,6 +2608,7 @@ wt_add() {
       # **verify の消し込み強制が静かに効かなくなる**（並行経路だけ enforcement が外れる）
       --backlog) need_arg "$1" $#; backlog=$(basename -- "$2"); shift 2 ;;
       --backlog-item) need_arg "$1" $#; backlogitem=$2; shift 2 ;;
+      --human-gates) need_arg "$1" $#; humangates=$2; shift 2 ;;
       --profile) need_arg "$1" $#; profile=$2; shift 2 ;;
       --light)   profile=light; shift ;;
       -*) die "未知のオプション: $1" ;;
@@ -2641,6 +2658,7 @@ wt_add() {
     [ -n "$depends" ] && set -- "$@" --depends "$depends"
     [ -n "$backlog" ] && set -- "$@" --backlog "$backlog"
     [ -n "$backlogitem" ] && set -- "$@" --backlog-item "$backlogitem"
+    [ -n "$humangates" ] && set -- "$@" --human-gates "$humangates"
     [ -n "$profile" ] && set -- "$@" --profile "$profile"
     # 先に CLI の実在を見る。無いまま委譲すると「コマンドが無い」というシェルのエラーが出て、
     # 本当の原因（skills が worktree に持ち込まれていない＝未追跡・未コミット）が読めない。

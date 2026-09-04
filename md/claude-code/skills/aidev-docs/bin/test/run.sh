@@ -2038,6 +2038,24 @@ assert_contains "$(cat "$AU_D/metrics.yml")" "failed_index: 2" \
   "smoke: 何本目で落ちたかを刻む（原因を1つに絞る）"
 rm -f "$AUD/.aidev/config.yml"
 
+# (10) schema 7 のゲートは smokeCommands だけの PJ でも効く（単数キーしか見ていなかった）
+printf 'smokeCommands:\n  - exit 0\n' > "$AUD/.aidev/config.yml"
+mk_work sc7
+run_au approve deliver >/dev/null
+assert_contains "$(run_au verify 2>&1)" "起動確認の記録が無い" \
+  "verify: smokeCommands だけの PJ でも deliver 前の起動確認ゲートが効く"
+run_au smoke >/dev/null 2>&1
+assert_eq "$(run_au verify 2>&1 | grep -c '起動確認の記録が無い')" "0" \
+  "verify: smoke を通せばゲートは解ける"
+rm -f "$AUD/.aidev/config.yml"
+
+# (11) humanGates に設定口がある（state.yml の手編集しか手段が無かった）
+run_au new hg1 --mode autonomous --human-gates spec,review >/dev/null
+assert_contains "$(cat "$AUD/.aidev/works/$(cat "$AUD/.aidev/current")/state.yml")" "humanGates: [spec, review]" \
+  "new --human-gates: 部分自律の宣言を CLI から刻める"
+run_au new hg2 --human-gates bogus >/dev/null 2>&1
+assert_eq "$?" "1" "new --human-gates: 未知の工程を弾く（タイポで黙って無効化されない）"
+
 # (9) 刻み直しは「訂正」であって新しいラウンドではない（WARN の指示が別の FAIL を生まない）
 mk_work amd
 run_au event coding start >/dev/null

@@ -5,7 +5,7 @@
 # 役割と正典は `aidev` 冒頭コメント／protocol.md「4.1」を参照。
 #
 # 使い方:
-#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 new <slug> [--mode interactive|autonomous] [--profile full|light] [--light] [--ticket ID] [--depends a,b,#N] [--parent <親work>] [--backlog <file>] [--backlog-item <text>]
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 new <slug> [--mode interactive|autonomous] [--profile full|light] [--light] [--ticket ID] [--depends a,b,#N] [--parent <親work>] [--backlog <file>] [--backlog-item <text>] [--human-gates <list>]
 #     --parent 指定時は親 work 配下に subtask（<NN>-<subslug>・date prefix なし・current=plan）を作る
 #     --profile/--light は「どこまで工程を回すか」（protocol.md「11.」）。mode（誰が承認するか）と直交
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 escalate [slug]   # profile を light -> full に昇格（片方向）
@@ -16,7 +16,7 @@
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 verify [slug] [--strict]
 #     --strict は記録漏れ(event の start 欠落)だけを致命(exit 5)にする（機械ゲート用）
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 doctor [--quiet]
-#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 status [--format table|tsv] [--active]
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 status [--format table|tsv] [--active] [--subtasks]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 metrics [slug] [--all] [--phases] [--format table|tsv]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 coverage [slug] [--format table|tsv] [--strict]
 #     受け入れ基準(AC)の被覆率と tasks.md の整合を検査する。--strict は gap があれば exit 4
@@ -30,13 +30,14 @@
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 backlog <new|archive|compact> ...
 #     PJ規約の条項を .aidev/conventions/ で起こし・判定し・PJ ドキュメントへ移送する（protocol.md「12.」）
 #     new は --hypothesis と --baseline が必須（検証できない条項を作らせない入口ゲート）
-#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree add <slug> [--branch n] [--base ref] [--path dir] [--mode m] [--profile p|--light] [--ticket id] [--depends list] [--backlog <file>] [--backlog-item <text>]
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree add <slug> [--branch n] [--base ref] [--path dir] [--mode m] [--profile p|--light] [--ticket id] [--depends list] [--backlog <file>] [--backlog-item <text>] [--human-gates <list>]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree list [--format table|tsv]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree files [--planned] [--all] [--format table|tsv]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree rm <slug|path> [--force] [--delete-branch]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 help
 #
 # 終了コード: 0=OK / 1=使用法・環境エラー / 2=前提成果物の不足 / 3=依存未充足 / 4=不変条件違反
+#             5=記録漏れ（verify --strict のときのみ。既定の verify では WARN 止まりで 0）
 
 $ErrorActionPreference = 'Stop'
 # git をネイティブ呼び出しする（worktree）。PS7.4+ の既定 throw-on-nonzero を無効化し、$LASTEXITCODE で判定する
@@ -454,6 +455,16 @@ function CvDirRel() {
   return $d
 }
 
+# humanGates の設定口（sh 版 emit_human_gates の注記に理由）
+function EmitHumanGates($humangates) {
+  if ($humangates) {
+    $hg = @(($humangates -split '[, ]') | Where-Object { $_ })
+    foreach ($h in $hg) { if (-not (IsPhase $h)) { Die "humanGates に未知の工程: $h" } }
+    return "humanGates: [" + ($hg -join ', ') + "]`n"
+  }
+  return "humanGates: []`n"
+}
+
 function Cmd-New($rest) {
   $slug=''; $mode=''; $profile=''; $ticket=''; $depends=''; $parent=''; $backlog=''
   for ($i=0; $i -lt $rest.Count; $i++) {
@@ -469,13 +480,14 @@ function Cmd-New($rest) {
       # 同じ入力で片方は work を作り片方は落ちる
       '--backlog' { $i++; $_bv=(ArgAt $rest $i '--backlog'); if ($_bv) { $backlog=Split-Path -Leaf $_bv } }
       '--backlog-item' { $i++; $backlogitem=(ArgAt $rest $i '--backlog-item') }
+      '--human-gates' { $i++; $humangates=(ArgAt $rest $i '--human-gates') }
       default {
         if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
         if ($slug) { Die "slug は1つだけ" } else { $slug=$rest[$i] }
       }
     }
   }
-  if (-not $slug) { Die "使用法: aidev new <slug> [--mode ..] [--profile ..|--light] [--ticket ..] [--depends ..] [--parent <親work>] [--backlog <file>] [--backlog-item <text>]" }
+  if (-not $slug) { Die "使用法: aidev new <slug> [--mode ..] [--profile ..|--light] [--ticket ..] [--depends ..] [--parent <親work>] [--backlog <file>] [--backlog-item <text>] [--human-gates <list>]" }
   # backlog 出自は「消し込み忘れ」を verify で捕まえるための刻印。存在しないファイルを
   # 指したまま進むと deliver 直前まで気づけないので、この場で弾く（sh 版と同一）
   if ($backlog -and -not (IsFile (Join-Path (Join-Path $script:AIDEV 'backlog') $backlog))) {
@@ -520,7 +532,7 @@ function Cmd-New($rest) {
 
     $sb = "schema: $($script:CURRENT_SCHEMA)`nslug: $slug`nparent: $parent`n"
     if ($ticket) { $sb += "ticket: $ticket`n" }
-    $sb += "current: plan`napproved: []`nmode: $mode`nprofile: $profile`nhumanGates: []`nmaxSendBacks: 3`ndependsOn: $depsYaml`n"
+    $sb += "current: plan`napproved: []`nmode: $mode`nprofile: $profile`n" + (EmitHumanGates $humangates) + "maxSendBacks: 3`ndependsOn: $depsYaml`n"
     $sb += "harnessRev: $(HarnessRev)`n"
     WriteText (Join-Path $work 'state.yml') $sb
     WriteText (Join-Path $work 'metrics.yml') "events:`n"
@@ -555,7 +567,7 @@ function Cmd-New($rest) {
 
   $sb = "schema: $($script:CURRENT_SCHEMA)`nslug: $slug`n"
   if ($ticket) { $sb += "ticket: $ticket`n" }
-  $sb += "current: requirement`napproved: []`nmode: $mode`nprofile: $profile`nhumanGates: []`nmaxSendBacks: 3`ndependsOn: $depsYaml`n"
+  $sb += "current: requirement`napproved: []`nmode: $mode`nprofile: $profile`n" + (EmitHumanGates $humangates) + "maxSendBacks: 3`ndependsOn: $depsYaml`n"
   $sb += "harnessRev: $(HarnessRev)`n"
   if ($backlog) { $sb += "backlog: $backlog`n" }
   # どの行を掴んだか（sh 版 cmd_new の注記に理由）
@@ -1486,7 +1498,8 @@ function VerifyWork($work) {
       # schema 7: 起動確認（smoke）の記録。テストが緑なだけでは着地の根拠にしない。
       # 検査するのは smokeCommand を設定している PJ だけ（未設定は doctor が PJ 単位で1行）
       if ($sn -ge 7 -and (ApprovedHas $work 'deliver')) {
-        $vsc = SmokeCmd
+        # smokeCommands だけの PJ でゲートが黙って外れる（sh 版の注記に理由）
+        $vscl = @(SmokeList); $vsc = if ($vscl.Count -gt 0) { $vscl[0] } else { SmokeCmd }
         if ($vsc -and $vsc -cne 'none') {
           switch (SmokeLast (Join-Path (SmokeRoot $work) 'metrics.yml')) {
             'pass' { }
@@ -2663,6 +2676,7 @@ function Wt-Add($rest) {
       # 内部の new に渡す。落とすと verify の消し込み強制が静かに効かなくなる（sh 版と同一）
       '--backlog' { $i++; $backlog=(Split-Path -Leaf (ArgAt $rest $i '--backlog')) }
       '--backlog-item' { $i++; $backlogitem=(ArgAt $rest $i '--backlog-item') }
+      '--human-gates' { $i++; $humangates=(ArgAt $rest $i '--human-gates') }
       '--profile' { $i++; $profile=(ArgAt $rest $i '--profile') }
       '--light'   { $profile='light' }
       default {
@@ -2721,6 +2735,7 @@ function Wt-Add($rest) {
     if ($depends) { $argv += @('--depends', $depends) }
     if ($backlog) { $argv += @('--backlog', $backlog) }
     if ($backlogitem) { $argv += @('--backlog-item', $backlogitem) }
+    if ($humangates) { $argv += @('--human-gates', $humangates) }
     if ($profile) { $argv += @('--profile', $profile) }
     # ロールバックは **Pop-Location の後**に回す。try の中で呼ぶと finally の Pop-Location と
     # 二重になり、しかも worktree の中に居るまま `git worktree remove` を打つことになる

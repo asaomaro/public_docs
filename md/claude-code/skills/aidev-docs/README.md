@@ -213,7 +213,7 @@ work 専用の git worktree と `feature/<slug>` ブランチを作り、main tr
   aidev-docs/          このREADMEとDESIGN（参照専用・skillではない）＋ bin/
     bin/               ランタイムガード CLI（aidev=POSIX sh / aidev.ps1=PowerShell・README.md / test/ 同梱）
 .aidev/                PJ固有の実行時状態（skill ではない）
-  config.yml           PJ単位の設定（tracker / lightMaxFiles / smokeCommand（または smokeCommands）/ smokeTimeoutSec /
+  config.yml           PJ単位の設定（tracker / lightMaxFiles / smokeCommand（または smokeCommands）/ smokeCommandWindows / smokeTimeoutSec /
                        smokeStaleAfter / maxDebugRounds / conventionsDir / conventionsIndex / docsRoots /
                        sharedFiles / sharedFilesWindow。全キーと書式は bin/README.md の設定表。コミット対象）
   charter.md           propose（planner）の方針（任意）
