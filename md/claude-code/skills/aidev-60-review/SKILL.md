@@ -78,6 +78,8 @@ AI 開発ワークフローの **review（レビュー）工程**を実行する
        3条件に該当すれば、遷移ゲートに `承認して walkthrough(任意) を挟む`（推奨）を加え理由を添える
        （次工程: 推奨時 `walkthrough`、それ以外 `deliver`）。
 5. 承認は `aidev approve review must=<件数> should=<件数> nit=<件数>`（protocol.md「3.」「8.」）。
+   **被覆メトリクスは CLI が自動で刻む**ので手で渡さない。plan 時の刻印と対になり、
+   `aidev metrics` の `ac_drift`（plan 以降に増えた gap ＝ spec と実装の乖離）になる。
 
 ## light の昇格トリガ
 

@@ -527,6 +527,24 @@ cmd_approve() {
     replace_line "$st" approved "approved: $newl"
   fi
   replace_line "$st" current "current: $ph"
+
+  # 被覆の刻印（plan / requirement / review）。**手書きの key=value に任せない**——
+  # `harnessRev` や `schema` を new に一本化したのと同じ理由で、手書きの値は忘れられ、
+  # 忘れられた work は静かに母集団から漏れる。ここは既存ファイルから機械的に出せる。
+  # 刻む工程を3つに絞るのは、「plan（または light の requirement）で決めた被覆」と
+  # 「review 時点の被覆」の**2点**があれば乖離が読めるから（間を刻んでも量が増えるだけ）。
+  # tasks.md がまだ無い工程（full の requirement・分割 work の親 plan）は刻まない。
+  case "$ph" in
+    plan|requirement|review)
+      case " $* " in
+        *" ac_total="*) ;;   # 明示指定があれば尊重する（機械値で上書きしない）
+        *)
+          if cov_analyze; then
+            set -- "$@" "ac_total=$COV_AC" "ac_covered=$COV_TASK" \
+                        "tasks_no_ac=$COV_TASKS_NOAC" "tasks_ac_none=$COV_TASKS_ACNONE"
+          fi ;;
+      esac ;;
+  esac
   append_event "$ph" approved "$@"
   printf 'approved: %s @ %s\n' "$ph" "$SLUG"
 
@@ -858,7 +876,7 @@ cov_root() { # -> 家族の根の work ディレクトリ
 # 戻り値: 0=tasks.md を見られた / 1=どこにも tasks.md が無く検査対象外
 cov_analyze() {
   COV_AC=0; COV_SPEC=0; COV_TASK=0; COV_ROWS=""; COV_GAPS=0; COV_GAPS_S=0; COV_GAPS_C=0
-  COV_GAPLINES=""; COV_TASKS=0; COV_TASKS_NOAC=0; COV_PENDING=no
+  COV_GAPLINES=""; COV_TASKS=0; COV_TASKS_NOAC=0; COV_TASKS_ACNONE=0; COV_PENDING=no
   _cvr0=$(cov_root)
 
   # 走査するタスク表を集める（"prefix<TAB>path"）。親自身 → 各 subtask の順。
@@ -926,7 +944,11 @@ cov_analyze() {
     elif [ -z "$_tac" ]; then
       COV_TASKS_NOAC=$((COV_TASKS_NOAC+1))
       cov_gap cover "$_tid の AC 行が空（対応する AC が無いなら \`AC: なし\` と明示する）"
-    elif ! cov_is_none "$_tac"; then
+    elif cov_is_none "$_tac"; then
+      # 明示的に「対応する AC が無い」と書かれたタスク。書き忘れ（上）とは別に数える——
+      # **受け入れ基準に紐づかない作業の割合**は、スコープクリープか要件の書き漏れの目印になる。
+      COV_TASKS_ACNONE=$((COV_TASKS_ACNONE+1))
+    else
       IFS=' '
       _acseen=" "
       for _a in $_tac; do
@@ -1024,10 +1046,10 @@ cmd_coverage() {
     { printf 'ac	spec	tasks\n'; printf '%s' "$COV_ROWS"; } | fmt_table
   fi
   if [ -n "$COV_GAPLINES" ]; then printf '%s' "$COV_GAPLINES"; fi
-  printf 'coverage-summary: ac=%s spec=%s/%s(%s%%) tasks=%s/%s(%s%%) task_rows=%s no_ac=%s gaps=%s\n' \
+  printf 'coverage-summary: ac=%s spec=%s/%s(%s%%) tasks=%s/%s(%s%%) task_rows=%s no_ac=%s ac_none=%s gaps=%s\n' \
     "$COV_AC" "$COV_SPEC" "$COV_AC" "$(cov_pct "$COV_SPEC" "$COV_AC")" \
     "$COV_TASK" "$COV_AC" "$(cov_pct "$COV_TASK" "$COV_AC")" \
-    "$COV_TASKS" "$COV_TASKS_NOAC" "$COV_GAPS"
+    "$COV_TASKS" "$COV_TASKS_NOAC" "$COV_TASKS_ACNONE" "$COV_GAPS"
   printf 'coverage-gaps: struct=%s cover=%s\n' "$COV_GAPS_S" "$COV_GAPS_C"
   if ! cov_cover_enforced; then
     printf 'note: plan 未実施の subtask があります。cover の gap は全 subtask の plan が済むまで致命にしません\n'
@@ -1743,6 +1765,25 @@ END{
   }
 }'
 
+# metrics.yml の approved イベントから、被覆の刻印を出現順に "総数 被覆数 AC行欠落数" で出す。
+mt_cov_stamps() { # metrics_file
+  [ -f "$1" ] || return 0
+  awk '
+    function num(s, key,   m) {
+      if (match(s, key ":[[:space:]]*[0-9]+")) {
+        m = substr(s, RSTART, RLENGTH); sub(/^[^0-9]*/, "", m); return m + 0
+      }
+      return -1
+    }
+    /event:[[:space:]]*approved/ {
+      t = num($0, "ac_total"); if (t < 0) next
+      c = num($0, "ac_covered"); if (c < 0) c = 0
+      n = num($0, "tasks_no_ac"); if (n < 0) n = 0
+      printf "%d %d %d\n", t, c, n
+    }
+  ' "$1"
+}
+
 cmd_metrics() {
   fmt=table; allf=no; phasesf=no; mslug=""
   while [ $# -gt 0 ]; do
@@ -1790,6 +1831,25 @@ cmd_metrics() {
     # ハーネス版で層別できるよう harnessRev / straddle（着手時と着地時で版が違う）を添える。
     # これが無いと insights は state.yml を grep して手で JOIN するしかなかった
     if [ "$phasesf" = no ] && [ -n "$out" ]; then
+      # 受け入れ基準の規模（分母）と、plan から review までの被覆の乖離。
+      # 分母がこれまで実装側（files_changed）と分解側（tasks_planned）しか無く、
+      # **要求の大きさ**で正規化できなかった（「AC 1件あたりの手戻り」が出せない）。
+      _cs=$(mt_cov_stamps "$mf" | sed '/^$/d')
+      _cn=$(printf '%s' "$_cs" | grep -c . || true)
+      _f=$(printf '%s\n' "$_cs" | head -n1)
+      _l=$(printf '%s\n' "$_cs" | tail -n1)
+      if [ -z "$_l" ]; then _ac=-; _adr=-
+      else
+        _ac=$(printf '%s' "$_l" | cut -d' ' -f1)
+        # **件数で判定する**（値の一致で判定すると、2点あって乖離ゼロの work が
+        # 「1点しか無い＝測れない」と表示され、ps1 と食い違う）
+        if [ "$_cn" -lt 2 ]; then _adr=-   # 刻印が1点しか無い＝乖離は測れない
+        else
+          _adr=$(( ($(printf '%s' "$_l" | cut -d' ' -f1) - $(printf '%s' "$_l" | cut -d' ' -f2) + $(printf '%s' "$_l" | cut -d' ' -f3)) \
+                 - ($(printf '%s' "$_f" | cut -d' ' -f1) - $(printf '%s' "$_f" | cut -d' ' -f2) + $(printf '%s' "$_f" | cut -d' ' -f3)) ))
+        fi
+      fi
+      out="$out	$_ac	$_adr"
       _hr=$(yget "$wd/state.yml" harnessRev); [ -n "$_hr" ] || _hr=-
       _hd=$(yget "$wd/state.yml" harnessRevDelivered)
       if [ -z "$_hd" ] || [ "$_hr" = - ] || [ "$_hr" = unknown ] || [ "$_hd" = unknown ]; then _sd=-
@@ -1801,7 +1861,7 @@ cmd_metrics() {
   done
 
   if [ "$phasesf" = yes ]; then hdr='work	phase	start	approved	elapsed_sec	rounds'
-  else hdr='work	first_start	delivered	lead_sec	reworks	sent_backs	harnessRev	straddle'; fi
+  else hdr='work	first_start	delivered	lead_sec	reworks	sent_backs	ac	ac_drift	harnessRev	straddle'; fi
 
   if [ "$fmt" = tsv ]; then
     printf '%s' "$rows" | sed '/^[[:space:]]*$/d'

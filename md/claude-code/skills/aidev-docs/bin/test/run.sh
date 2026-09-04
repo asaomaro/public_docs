@@ -1673,6 +1673,53 @@ CSV=$(run_cs verify "$CSP" 2>&1)
 assert_eq "$(printf '%s\n' "$CSV" | grep -c 'AC 被覆')" "0" "verify: 未 plan の subtask がある間は被覆 WARN を出さない"
 rm -rf "$CVS"
 
+
+echo "== 被覆の刻印（approve が自動で刻む）と ac / ac_drift =="
+# 背景: 分母がこれまで実装側(files_changed)と分解側(tasks_planned)しか無く、**要求の大きさ**で
+# 正規化できなかった。刻印を手書きに任せない理由は harnessRev / schema と同じ（忘れられる）。
+MTR=$(mktemp -d); mkdir -p "$MTR/.aidev/backlog"
+run_mt() { ( cd "$MTR" && "$AIDEV_SH" "$@" ); }
+run_mt new mstamp >/dev/null; MTW=$(cat "$MTR/.aidev/current"); MTD="$MTR/.aidev/works/$MTW"
+
+# tasks.md がまだ無い工程は刻まない（full の requirement をここで潰さない）
+run_mt approve requirement >/dev/null
+assert_absent "$(cat "$MTD/metrics.yml")" "ac_total" "approve: tasks.md が無ければ被覆を刻まない"
+
+printf -- '- [ ] AC1: a\n- [ ] AC2: b\n- [ ] AC3: c\n' > "$MTD/requirement.md"
+printf -- '- AC1: x\n- AC2: y\n' > "$MTD/spec.md"
+printf -- '- [ ] T1: a\n      AC: AC1\n      依存: なし\n- [ ] T2: b\n      AC: AC2, AC3\n      依存: なし\n- [ ] T3: 下準備\n      AC: なし\n      依存: なし\n' > "$MTD/tasks.md"
+assert_contains "$(run_mt coverage)" "ac_none=1" "coverage: 明示的な AC: なし を書き忘れと分けて数える"
+
+run_mt approve spec >/dev/null
+run_mt approve plan tasks_planned=3 tasks_anchored=3 >/dev/null
+MTM=$(cat "$MTD/metrics.yml")
+assert_contains "$MTM" "tasks_planned: 3, tasks_anchored: 3, ac_total: 3" "approve plan: 手書きのキーの後ろに機械値を足す"
+assert_contains "$MTM" "ac_covered: 3, tasks_no_ac: 0, tasks_ac_none: 1" "approve plan: 被覆・書き忘れ・AC 無しを刻む"
+
+# coding でタスクを足して AC を書き忘れる＝ plan 以降に生まれた乖離
+printf -- '- [ ] T4: 追加でやった作業\n      依存: なし\n' >> "$MTD/tasks.md"
+run_mt approve coding tasks_done=4 >/dev/null
+assert_absent "$(sed -n 's/.*phase: coding.*/&/p' "$MTD/metrics.yml")" "ac_total" "approve coding: 被覆は刻まない（刻むのは plan/requirement/review の3工程）"
+run_mt approve test passed=9 failed=0 >/dev/null
+run_mt approve review must=0 should=0 nit=0 >/dev/null
+assert_contains "$(cat "$MTD/metrics.yml")" "nit: 0, ac_total: 3, ac_covered: 3, tasks_no_ac: 1" "approve review: 実装後の被覆を刻む"
+
+MTOUT=$(run_mt metrics)
+assert_contains "$MTOUT" "ac  ac_drift" "metrics: ac / ac_drift 列を出す"
+assert_eq "$(run_mt metrics --format tsv | awk -F'\t' '{print $7, $8}')" "3 1" "metrics: 要求の規模(3)と plan 以降に増えた gap(1)"
+
+# 明示指定は機械値で上書きしない
+run_mt new mstamp2 >/dev/null; MTW2=$(cat "$MTR/.aidev/current"); MTD2="$MTR/.aidev/works/$MTW2"
+printf -- '- [ ] AC1: a\n' > "$MTD2/requirement.md"
+printf -- '- [ ] T1: a\n      AC: AC1\n      依存: なし\n' > "$MTD2/tasks.md"
+run_mt approve requirement ac_total=99 >/dev/null
+assert_contains "$(cat "$MTD2/metrics.yml")" "ac_total: 99" "approve: 明示指定があれば機械値で上書きしない"
+assert_absent "$(cat "$MTD2/metrics.yml")" "ac_total: 1," "approve: 明示指定と機械値を二重に刻まない"
+
+# 刻印が1点しかない work では乖離を測れない（0 と表示して「乖離なし」と誤読させない）
+assert_eq "$(run_mt metrics "$MTW2" --format tsv | awk -F'\t' '{print $8}')" "-" "metrics: 刻印が1点なら ac_drift は - （測れないことを 0 と書かない）"
+rm -rf "$MTR"
+
 echo "== sh ⇔ ps1 パリティ =="
 if [ -n "$PS_HOST" ]; then
   block_begin parity
@@ -1727,6 +1774,31 @@ EOF
   PC_PS=$(printf '%s' "$PC_PS_RAW" | tr -d '\r')
   assert_eq "$PC_SH" "$PC_PS" "パリティ: coverage --strict（出力）"
   assert_eq "$PC_SH_RC" "$PC_PS_RC" "パリティ: coverage --strict（exit code は 4）"
+  # 被覆の刻印のパリティ（刻む工程・キーの並び・値、および metrics の ac/ac_drift）。
+  # ここが割れると、同じ work を OS 違いで回しただけで insights の分母が変わる。
+  PMS=$(mktemp -d); PMS2=$(mktemp -d)
+  for pimpl in sh ps1; do
+    if [ "$pimpl" = sh ]; then PD=$PMS; else PD=$PMS2; fi
+    mkdir -p "$PD/.aidev/backlog"
+    pr() { if [ "$pimpl" = sh ]; then ( cd "$PD" && "$AIDEV_SH" "$@" >/dev/null ); \
+           else ( cd "$PD" && run_ps1 "$AIDEV_PS1" "$@" >/dev/null ); fi; }
+    pr new pm
+    PW=$(cat "$PD/.aidev/current" | tr -d '\r'); PDD="$PD/.aidev/works/$PW"
+    printf -- '- [ ] AC1: a\n- [ ] AC2: b\n- [ ] AC3: c\n' > "$PDD/requirement.md"
+    printf -- '- AC1: x\n- AC2: y\n' > "$PDD/spec.md"
+    printf -- '- [ ] T1: a\n      AC: AC1\n      依存: なし\n- [ ] T2: b\n      AC: AC2, AC3\n      依存: なし\n- [ ] T3: 下準備\n      AC: なし\n      依存: なし\n' > "$PDD/tasks.md"
+    pr approve requirement; pr approve spec; pr approve plan tasks_planned=3 tasks_anchored=3
+    printf -- '- [ ] T4: 追加\n      依存: なし\n' >> "$PDD/tasks.md"
+    pr approve coding tasks_done=4; pr approve test passed=9 failed=0; pr approve review must=0 should=0 nit=0
+  done
+  PM_SH=$(sed 's/ts: [^,]*, //' "$PMS/.aidev/works"/*/metrics.yml)
+  PM_PS=$(tr -d '\r' < "$(ls -d "$PMS2/.aidev/works"/*/metrics.yml)" | sed 's/ts: [^,]*, //')
+  assert_eq "$PM_SH" "$PM_PS" "パリティ: approve が刻む被覆メトリクス（キーの並びと値）"
+  PMM_SH=$( ( cd "$PMS"  && "$AIDEV_SH" metrics --format tsv ) 2>&1 | cut -f2- )
+  PMM_PS=$( ( cd "$PMS2" && run_ps1 "$AIDEV_PS1" metrics --format tsv ) 2>&1 | tr -d '\r' | cut -f2- )
+  assert_eq "$PMM_SH" "$PMM_PS" "パリティ: metrics の ac / ac_drift 列"
+  rm -rf "$PMS" "$PMS2"
+
   # 入力の揺れのパリティ。**ここが割れると同じ work が片方の OS でだけ deliver できる**。
   # sh は awk/sed のバイト単位の角括弧式、ps1 は .NET の Unicode 正規表現＋BOM/CRLF 自動除去、
   # という素の挙動差がそのまま判定差になるので、素の挙動に任せず両方を明示的に揃えてある。
@@ -2399,9 +2471,9 @@ YML
   else
     skip 10 "git 不在のため worktree パリティを省略"
   fi
-  block_end parity "182" "parity"
+  block_end parity "184" "parity"
 else
-  skip 182 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
+  skip 184 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
 fi
 
 echo

@@ -98,6 +98,9 @@ spec を実装可能な作業単位に分解し、`plan.md`（方針・順序）
    `aidev approve plan tasks_planned=<tasks.md のタスク総数> tasks_anchored=<対象が特定済みのタスク数>`
    （protocol.md「3.」「8.」）。`tasks_anchored` は `対象: 未特定` を除いた数——
    coding の `unplanned_lookups` と対になり、アンカー的中率の分母になる。
+   **被覆メトリクス（`ac_total` / `ac_covered` / `tasks_no_ac` / `tasks_ac_none`）は CLI が自動で刻む**
+   ので手で渡さない（protocol.md「8.」）。ここで刻まれた値が、review 時の値と対になって
+   「spec と実装の乖離（`ac_drift`）」の基準点になる。
 
 ## plan.md テンプレート
 

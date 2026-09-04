@@ -581,6 +581,19 @@ function Cmd-Approve($rest) {
     ReplaceLine $st 'approved' "approved: $newl"
   }
   ReplaceLine $st 'current' "current: $ph"
+
+  # 被覆の刻印（plan / requirement / review）。手書きの key=value に任せない——
+  # harnessRev や schema を new に一本化したのと同じ理由（sh 版 cmd_approve と同一）。
+  if (@('plan','requirement','review') -ccontains $ph) {
+    $hasAc = $false
+    foreach ($kv in $kvs) { if ($kv -like 'ac_total=*') { $hasAc = $true } }
+    if (-not $hasAc) {
+      if (CovAnalyze $script:WORK) {
+        $kvs = @($kvs) + @("ac_total=$($script:COV_AC)", "ac_covered=$($script:COV_TASK)",
+                           "tasks_no_ac=$($script:COV_TASKS_NOAC)", "tasks_ac_none=$($script:COV_TASKS_ACNONE)")
+      }
+    }
+  }
   AppendEvent $script:WORK $ph 'approved' $kvs
   Write-Output "approved: $ph @ $($script:SLUG)"
 
@@ -867,7 +880,7 @@ function CovRoot($work) {
 function CovAnalyze($work) {
   $script:COV_AC=0; $script:COV_SPEC=0; $script:COV_TASK=0; $script:COV_ROWS=@()
   $script:COV_GAPS=0; $script:COV_GAPS_S=0; $script:COV_GAPS_C=0; $script:COV_GAPLINES=@()
-  $script:COV_TASKS=0; $script:COV_TASKS_NOAC=0; $script:COV_PENDING=$false
+  $script:COV_TASKS=0; $script:COV_TASKS_NOAC=0; $script:COV_TASKS_ACNONE=0; $script:COV_PENDING=$false
   $root = CovRoot $work
 
   # 走査するタスク表を集める（親自身 → 各 subtask の名前順。sh のグロブ順と揃える）
@@ -917,7 +930,11 @@ function CovAnalyze($work) {
     } elseif ($r.acs -ceq '') {
       $script:COV_TASKS_NOAC++
       CovGap 'cover' "$($r.id) の AC 行が空（対応する AC が無いなら ``AC: なし`` と明示する）"
-    } elseif (-not (CovIsNone $r.acs)) {
+    } elseif (CovIsNone $r.acs) {
+      # 明示的に「対応する AC が無い」と書かれたタスク。書き忘れ（上）とは別に数える——
+      # 受け入れ基準に紐づかない作業の割合は、スコープクリープか要件の書き漏れの目印になる。
+      $script:COV_TASKS_ACNONE++
+    } else {
       $acseen=@{}
       foreach ($a in ($r.acs -split ' ')) {
         if (CovIsNone $a) { continue }
@@ -989,7 +1006,7 @@ function Cmd-Coverage($rest) {
   $tp = CovPct $script:COV_TASK $script:COV_AC
   Write-Output ("coverage-summary: ac=$($script:COV_AC) spec=$($script:COV_SPEC)/$($script:COV_AC)($sp%)" +
                 " tasks=$($script:COV_TASK)/$($script:COV_AC)($tp%) task_rows=$($script:COV_TASKS)" +
-                " no_ac=$($script:COV_TASKS_NOAC) gaps=$($script:COV_GAPS)")
+                " no_ac=$($script:COV_TASKS_NOAC) ac_none=$($script:COV_TASKS_ACNONE) gaps=$($script:COV_GAPS)")
   Write-Output "coverage-gaps: struct=$($script:COV_GAPS_S) cover=$($script:COV_GAPS_C)"
   if (-not (CovCoverEnforced)) {
     Write-Output "note: plan 未実施の subtask があります。cover の gap は全 subtask の plan が済むまで致命にしません"
@@ -1568,6 +1585,23 @@ function Mt-Epoch($ts) {
   } catch { return -1 }
 }
 
+# metrics.yml の approved イベントから、被覆の刻印を出現順に @(総数,被覆数,AC行欠落数) で返す。
+function MtCovStamps($metricsFile) {
+  $r = @()
+  if (-not (IsFile $metricsFile)) { return $r }
+  foreach ($l in [System.IO.File]::ReadAllLines($metricsFile)) {
+    if ($l -notmatch 'event:\s*approved') { continue }
+    $mt = [regex]::Match($l, 'ac_total:\s*([0-9]+)')
+    if (-not $mt.Success) { continue }
+    $mc = [regex]::Match($l, 'ac_covered:\s*([0-9]+)')
+    $mn = [regex]::Match($l, 'tasks_no_ac:\s*([0-9]+)')
+    $c = if ($mc.Success) { [int]$mc.Groups[1].Value } else { 0 }
+    $n = if ($mn.Success) { [int]$mn.Groups[1].Value } else { 0 }
+    $r += ,@([int]$mt.Groups[1].Value, $c, $n)
+  }
+  return $r
+}
+
 function Cmd-Metrics($rest) {
   $fmt='table'; $allf=$false; $phasesf=$false; $mslug=''
   for ($i=0; $i -lt $rest.Count; $i++) {
@@ -1679,12 +1713,21 @@ function Cmd-Metrics($rest) {
       $hd = YGet $sty 'harnessRevDelivered'
       $sd = '-'
       if ($hd -and $hr -cne '-' -and $hr -cne 'unknown' -and $hd -cne 'unknown') { $sd = if ($hr -ceq $hd) { 'no' } else { 'yes' } }
-      $rows += ($name + "`t" + $fs + "`t" + $dv + "`t" + $lead + "`t" + $rw + "`t" + $sback + "`t" + $hr + "`t" + $sd)
+      # 受け入れ基準の規模（分母）と、plan から review までの被覆の乖離（sh 版と同一）
+      $cs = @(MtCovStamps $mf)
+      if ($cs.Count -eq 0) { $acN='-'; $acD='-' }
+      else {
+        $fst = $cs[0]; $lst = $cs[$cs.Count-1]
+        $acN = $lst[0]
+        if ($cs.Count -lt 2) { $acD = '-' }
+        else { $acD = (($lst[0] - $lst[1] + $lst[2]) - ($fst[0] - $fst[1] + $fst[2])) }
+      }
+      $rows += ($name + "`t" + $fs + "`t" + $dv + "`t" + $lead + "`t" + $rw + "`t" + $sback + "`t" + $acN + "`t" + $acD + "`t" + $hr + "`t" + $sd)
     }
   }
 
   if ($phasesf) { $hdr = "work`tphase`tstart`tapproved`telapsed_sec`trounds" }
-  else          { $hdr = "work`tfirst_start`tdelivered`tlead_sec`treworks`tsent_backs`tharnessRev`tstraddle" }
+  else          { $hdr = "work`tfirst_start`tdelivered`tlead_sec`treworks`tsent_backs`tac`tac_drift`tharnessRev`tstraddle" }
 
   if ($fmt -ceq 'tsv') { foreach ($r in $rows) { Write-Output $r } }
   else { foreach ($l in (Fmt-Table (@($hdr) + $rows))) { Write-Output $l } }

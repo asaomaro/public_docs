@@ -431,6 +431,23 @@ events:
 
 - **plan**: `tasks_planned`（tasks.md のタスク総数）/
   `tasks_anchored`（`対象` が特定済みのタスク数。`対象: 未特定` は数えない）
+- **被覆（`plan` / `requirement` / `review` に CLI が自動で刻む。手で書かない）**:
+  `ac_total`（受け入れ基準の総数）/ `ac_covered`（タスクが1件以上ある `AC` の数）/
+  `tasks_no_ac`（`AC:` 行を書き忘れた・空にしたタスク数）/
+  `tasks_ac_none`（`AC: なし` と明示したタスク数＝**受け入れ基準に紐づかない作業**）
+  - **刻むのは `aidev approve`** で、値は `requirement.md` と `tasks.md` から機械的に出す。
+    手書きの `key=value` に任せない——`harnessRev` や `schema` を `new` に一本化したのと同じ理由で、
+    手書きの値は忘れられ、忘れられた work は静かに母集団から漏れる。
+    明示的に `ac_total=` を渡した場合だけ、その値を尊重する（機械値で上書きしない）。
+  - **刻む工程を3つに絞る**のは、「plan（light では requirement）で決めた被覆」と
+    「review 時点の被覆」の**2点**があれば乖離が読めるから。tasks.md がまだ無い工程
+    （full の requirement・分割 work の親 plan）では刻まない。
+  - **`ac_total` は「要求の大きさ」の分母**。これまで分母は実装側（`files_changed`）と
+    分解側（`tasks_planned`）しか無く、「`AC` 1件あたりの手戻り・リードタイム」が出せなかった。
+  - **被覆率そのものを目標値にしない**。plan の承認前ゲート（`aidev coverage --strict`）で
+    100% が強制されるので値は常に張り付き、**動くのはゲートを迂回したときだけ**。
+    率を目標にすると「率を守るために `AC` を書かない」＝分母を減らす方向に力がかかる
+    （条項の効果測定で学んだ「検出器と発生率を分離する」と同じ罠。「12.」）。読むのは**差分**の方。
 - **coding**: `tasks_done`（チェック済みタスク数）/
   `unplanned_lookups`（**アンカー付きタスクなのに**探索し直した回数。`未特定` のタスクでの探索は
   最初から想定内なので数えない——分母 `tasks_anchored` と対応させる）/
