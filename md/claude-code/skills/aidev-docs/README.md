@@ -26,6 +26,11 @@ PJ非依存の開発ワークフローを、skill 群で制御・進捗管理す
 
 慣れていれば各工程を直接呼んでもよい（例 `/aidev-40-coding`）。各工程は前提を自己チェックする。
 
+**初めて回すときに読むもの**は 3 つだけでよい——(1) この README の「工程一覧」と「承認ゲート」、
+(2) `aidev-00-start/SKILL.md`（入口。ここが次に読むものを指示する）、(3) **いま居る工程の
+`SKILL.md` だけ**。`protocol.md` は各 SKILL が節番号で指すので、**指された節だけ**を読む
+（先に通読しない。600 行ある）。付録 `protocol-*.md` は冒頭の「読む条件」に当てはまるときだけ。
+
 ## 工程一覧
 
 | 番号 | 工程 | 種別 | 役割 |
@@ -125,6 +130,9 @@ planner の方針は `.aidev/charter.md` で縛る。
 選択肢とは別に、**機械が判定する硬いゲート**が 3 つある——plan の `aidev coverage --strict`
 （受け入れ基準の被覆と tasks.md の整合）、test の `aidev smoke`（成果物が起動するか）、
 deliver 前の `aidev verify`（不変条件）。いずれも exit≠0 なら承認しない。
+`aidev verify --strict` はさらに**記録漏れ**（`event` の start 欠落、`autonomous` の
+`decisions.md`、タスク点検の実施形態）を致命にする——どれも「そのとき書かなければ
+二度と書けない」もので、機械ゲート（Stop フック等）から使う想定。
 
 ## 実行モード（interactive / autonomous）
 
@@ -158,6 +166,28 @@ light は**上流3工程（requirement / spec / plan）を1ゲートに畳む**�
 昇格の合図は「想定外のファイルに触った」「test が落ちた」「review で must が出た」
 「`files_changed` が上限超過」。昇格漏れは `aidev verify` が WARN で知らせる。
 
+## 並行作業（worktree）
+
+既定は**直列**（1 つのワーキングツリーで 1 work ずつ）。並行させたいときはユーザーが
+`aidev worktree add <slug>` を明示する——ハーネスは並列化を自動判断しない。
+work 専用の git worktree と `feature/<slug>` ブランチを作り、main tree の `.aidev/current` は
+書き換えない。詳細は `protocol-worktree.md`。
+
+並行時に**衝突を見るための道具**が 3 つある。
+
+- `aidev worktree files --planned`（**coding 前**）: 各 work の `tasks.md` の `対象:` を突き合わせ、
+  これから触るファイルの重なりを出す。実差分は「書いた後」しか見えないので、避ける余地がある
+  時間帯はこちらを見る。
+- `aidev worktree files`（**deliver 前**）: 実際の差分の重なり。マージ順の判断に使う。
+  外れるのは**既定ブランチにマージ済み**の worktree だけ（deliver 済み・未マージは衝突の相手として現役）。
+- `aidev status` の `HELD`: `--backlog-item` を渡した work について、**どの backlog 行を誰が
+  掴んでいるか**を出す。同じ行を 2 本が作業中なら警告する。deliver 済み・未マージの行も残る
+  ——`inflight` から外れ `todo` に戻るので、台帳だけ見ると未着手に見える区間があるため。
+
+衝突しやすいファイルは `config.yml` の `sharedFiles` に挙げておくと `worktree add` が名指しで
+警告する。宣言は静的なので古びる——`aidev doctor` が「実在しない名前」「多くのコミットが
+触っているのに未宣言」「いま複数の worktree が触っているのに未宣言」を WARN する。
+
 ## 任意工程の起動
 
 - **ユーザー指定**：明示的に `/aidev-15-research` 等を選ぶ。
@@ -183,12 +213,15 @@ light は**上流3工程（requirement / spec / plan）を1ゲートに畳む**�
   aidev-docs/          このREADMEとDESIGN（参照専用・skillではない）＋ bin/
     bin/               ランタイムガード CLI（aidev=POSIX sh / aidev.ps1=PowerShell・README.md / test/ 同梱）
 .aidev/                PJ固有の実行時状態（skill ではない）
-  config.yml           PJ単位の設定（tracker / lightMaxFiles / smokeCommand / maxDebugRounds / conventionsDir / conventionsIndex / docsRoots / sharedFiles。コミット対象）
+  config.yml           PJ単位の設定（tracker / lightMaxFiles / smokeCommand（または smokeCommands）/ smokeTimeoutSec /
+                       smokeStaleAfter / maxDebugRounds / conventionsDir / conventionsIndex / docsRoots /
+                       sharedFiles / sharedFilesWindow。全キーと書式は bin/README.md の設定表。コミット対象）
   charter.md           propose（planner）の方針（任意）
   current              現在の作業フォルダ名（.gitignore 対象）
   works/<YYYYMMDD-slug>/  作業単位ごとの成果物（命名: 日付(UTC)-slug）
     state.yml          進捗（schema / slug / current / approved / dependsOn / ticket / mode / humanGates / maxSendBacks /
-                       profile / backlog / harnessRev / harnessRevDelivered。分割 work は parent / subtasks / activeSubtask）
+                       profile / backlog / backlogItem / harnessRev / harnessRevDelivered。
+                       worktree 由来は base / baseCommit。分割 work は parent / subtasks / activeSubtask）
     metrics.yml        工程の実施日時・時間・件数などのイベントログ
     requirement.md / spec.md / plan.md / tasks.md / decisions.md / review.md / test-result.md など
     <NN>-<subslug>/    分割 work（subtask。plan/coding/test/review のみ）
