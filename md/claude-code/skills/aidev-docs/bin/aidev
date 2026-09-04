@@ -781,21 +781,32 @@ cov_lines() { # file
   ' "$1"
 }
 
-# 行頭パターン `pre` に続く AC の ID を1行1件で出す（stdin）。
-# requirement 側（`- [ ] AC1: …`）と spec 側（`- AC1: …`）で**同じ文法**を使う。
+# 行頭パターンに続く AC の ID を1行1件で出す。
+# requirement 側（`- [ ] AC1: …`）と spec 側（`- AC1: …`）で**同じ ID 文法**を使う。
 # 片方だけ「ID の直後にコロンが要る」にすると、`- [ ] AC-I1 開く / 閉じる:` という
 # テンプレートどおりの相互作用 AC が spec 側で永久に拾えなくなる。
-cov_pick_ac() { # 行頭パターン
-  awk -v pre="$1" -v idre="$COV_AC_RE" '
-    { s = $0
-      if (match(s, pre) != 1) next
-      s = substr(s, RLENGTH + 1)
+#
+# **行頭パターンを `-v` で渡さない**。awk は `-v` の値にもエスケープ処理をかけるが、
+# その扱いが実装で割れる——mawk は `\[` をそのまま残し、gawk は `[` に潰して警告を出す。
+# 潰れると `- \[[ xX]\]` が `- [[ xX]]`（角括弧式）に化けてチェックボックス行に当たらなくなり、
+# **受け入れ基準が1件も取れなくなる**（CI の gawk で 57 件落ちて発覚。mawk の開発機では緑だった）。
+# 正規表現リテラルとしてプログラム中に書けば、この差は出ない。
+cov_req_acs() { # file
+  cov_lines "$1" | awk -v idre="$COV_AC_RE" '
+    match($0, /^[[:space:]]*- \[[ xX]\][[:space:]]*/) == 1 {
+      s = substr($0, RLENGTH + 1)
       if (match(s, "^" idre) != 1) next
       print substr(s, 1, RLENGTH)
     }'
 }
-cov_req_acs()  { cov_lines "$1" | cov_pick_ac '^[[:space:]]*- \[[ xX]\][[:space:]]*'; }
-cov_spec_acs() { cov_lines "$1" | cov_pick_ac '^[[:space:]]*- '; }
+cov_spec_acs() { # file
+  cov_lines "$1" | awk -v idre="$COV_AC_RE" '
+    match($0, /^[[:space:]]*- /) == 1 {
+      s = substr($0, RLENGTH + 1)
+      if (match(s, "^" idre) != 1) next
+      print substr(s, 1, RLENGTH)
+    }'
+}
 
 # tasks.md を1タスク1行の TSV に畳む: "TID<TAB>AC参照<TAB>依存"
 # 欄の値は3状態ある。`-`=その行が無い / 空=行はあるが値が空 / それ以外=値。

@@ -1955,6 +1955,50 @@ run_au verify 20200107-old >/dev/null 2>&1
 assert_eq "$?" "4" "verify: schema 7 からは起動確認の記録を要求する"
 rm -rf "$AUD"
 
+
+echo "== awk 実装の差（同じ入力で同じ判定になるか）=="
+# 背景: `awk -v` の**値**にもエスケープ処理がかかり、その扱いが実装で割れる。
+# mawk は `\[` をそのまま残し、gawk は `[` に潰して警告を出す。潰れると
+# `- \[[ xX]\]` が `- [[ xX]]`（角括弧式）に化けてチェックボックス行に当たらず、
+# **受け入れ基準が1件も取れなくなる**。開発機（mawk）では緑、CI（gawk）で 57 件 fail、
+# という形で一度出した。正規表現は**プログラム中のリテラル**として書くこと。
+AWKD=$(mktemp -d); mkdir -p "$AWKD/.aidev/works/w"
+printf 'schema: 8\nslug: w\ncurrent: plan\napproved: []\n' > "$AWKD/.aidev/works/w/state.yml"
+printf 'w\n' > "$AWKD/.aidev/current"
+printf -- '- [ ] AC1: ひとつ\n- [ ] AC-I1 開く / 閉じる: どう\n- [ ] ACL の設定\n' > "$AWKD/.aidev/works/w/requirement.md"
+printf -- '- AC1: x\n' > "$AWKD/.aidev/works/w/spec.md"
+printf -- '- [ ] T1: t\n      AC: AC1、AC-I1\n      依存: なし\n' > "$AWKD/.aidev/works/w/tasks.md"
+
+AWK_IMPLS=""
+for _a in awk gawk mawk busybox; do
+  command -v "$_a" >/dev/null 2>&1 || continue
+  if [ "$_a" = busybox ]; then busybox awk 'BEGIN{}' >/dev/null 2>&1 || continue; fi
+  AWK_IMPLS="$AWK_IMPLS $_a"
+done
+printf 'awk 実装: %s\n' "${AWK_IMPLS# }"
+
+AWK_REF=""; AWK_N=0
+for _a in $AWK_IMPLS; do
+  _bin=$(mktemp -d)
+  if [ "$_a" = busybox ]; then printf '#!/bin/sh\nexec busybox awk "$@"\n' > "$_bin/awk"; chmod +x "$_bin/awk"
+  else ln -sf "$(command -v "$_a")" "$_bin/awk"; fi
+  _out=$( ( cd "$AWKD" && PATH="$_bin:$PATH" "$AIDEV_SH" coverage --strict ) 2>&1 ); _rc=$?
+  rm -rf "$_bin"
+  AWK_N=$((AWK_N+1))
+  if [ -z "$AWK_REF" ]; then
+    AWK_REF="$_out"; AWK_REF_RC=$_rc; AWK_REF_NAME=$_a
+    assert_contains "$_out" "ac=2" "awk($_a): 受け入れ基準を 2 件拾う（ACL は AC ではない）"
+    assert_absent "$_out" "warning" "awk($_a): 警告を出さない（stderr が出力に混ざる）"
+  else
+    assert_eq "$_out" "$AWK_REF" "awk($_a): $AWK_REF_NAME と同じ判定（-v のエスケープ差で割れない）"
+    assert_eq "$_rc" "$AWK_REF_RC" "awk($_a): $AWK_REF_NAME と同じ exit code"
+  fi
+done
+if [ "$AWK_N" -lt 2 ]; then
+  skip 2 "awk 実装が1つしか無いため実装間の突き合わせを省略（CI の ubuntu は gawk / 開発機は mawk のことが多い）"
+fi
+rm -rf "$AWKD"
+
 echo "== sh ⇔ ps1 パリティ =="
 if [ -n "$PS_HOST" ]; then
   block_begin parity
