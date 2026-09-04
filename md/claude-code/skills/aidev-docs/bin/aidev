@@ -3701,6 +3701,9 @@ doctor_shared() {
   #     git が無い / 履歴が浅い環境では**黙る**（推測で名前を挙げない）
   _dsw=$(yget "$AIDEV/config.yml" sharedFilesWindow)
   case "$_dsw" in ''|*[!0-9]*) _dsw=20 ;; esac
+  # ハーネス自身の置き場を ROOT からの相対で求める（配置を変えても効くように）
+  _dshrel=""
+  case "$HARNESS/" in "$ROOT"/*) _dshrel=${HARNESS#"$ROOT"/} ;; esac
   if command -v git >/dev/null 2>&1 && [ "$_dsw" -gt 0 ] 2>/dev/null; then
     # 見るのは HEAD の履歴。既定ブランチにすると、マージ前の feature 枝で回している間は
     # 実態（そこで何度も触っているファイル）が一度も見えない（実測: cli.py が main には 5/20 しか出ない）
@@ -3729,8 +3732,12 @@ doctor_shared() {
         [ "$_dscnt" -ge "$_dsthr" ] 2>/dev/null || continue
         # 上位だけ出す。全部並べると「直せない WARN の壁」になり、直せる 1 件が埋もれる
         [ "$_dsmiss" -ge 5 ] && continue
-        # .aidev/ はハーネスの帳簿で、work ごとに必ず動く。ここで挙げても PJ の判断材料にならない
+        # .aidev/ はハーネスの帳簿で work ごとに必ず動く。ハーネス本体（skills）も、
+        # 更新のたびに全ファイルが動く。どちらも **PJ のコードではない**ので、
+        # 「並行作業でぶつかる共有ファイル」として挙げても判断材料にならない——
+        # 実測では skills の 5 ファイルが上位を占め、本命の notes/cli.py を押し出した
         case "$_dsf" in .aidev/*) continue ;; esac
+        [ -n "$_dshrel" ] && case "$_dsf" in "$_dshrel"/*) continue ;; esac
         case "$_dsdecls" in *" $_dsf "*) continue ;; esac
         printf '    WARN %s/%s コミットが触っているのに sharedFiles に無い: %s\n' \
           "$_dscnt" "$_dsw" "$_dsf"

@@ -3447,6 +3447,11 @@ function Doctor-Shared() {
   }
   $w = YGet (Join-Path $script:AIDEV 'config.yml') 'sharedFilesWindow'
   if ($w -notmatch '^\d+$') { $w = 20 } else { $w = [int]$w }
+  # ハーネス自身の置き場（sh 版 doctor_shared の注記と同じ理由で除く）
+  $hrel = ''
+  $rootp = "$script:ROOT".Replace('\', '/').TrimEnd('/')
+  $harp  = "$script:HARNESS".Replace('\', '/').TrimEnd('/')
+  if ($harp.StartsWith("$rootp/", [StringComparison]::Ordinal)) { $hrel = $harp.Substring($rootp.Length + 1) }
   if ((Get-Command git -ErrorAction SilentlyContinue) -and $w -gt 0) {
     $c = (& git -C $script:ROOT rev-list --count HEAD 2>$null)
     if ($LASTEXITCODE -ne 0 -or $c -notmatch '^\d+$') { $c = 0 } else { $c = [int]$c }
@@ -3471,6 +3476,7 @@ function Doctor-Shared() {
           if ($cnt[$f] -lt $thr) { continue }
           if ($miss -ge 5) { continue }
           if ($f -like '.aidev/*') { continue }
+          if ($hrel -and $f.StartsWith("$hrel/", [StringComparison]::Ordinal)) { continue }
           if ($decl -ccontains $f) { continue }
           Write-Output "    WARN $($cnt[$f])/$w コミットが触っているのに sharedFiles に無い: $f"
           $miss++

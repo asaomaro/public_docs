@@ -2968,6 +2968,12 @@ YML
       "doctor: sharedFiles の誤記・残骸を名指しする（宣言だけ古びるのを機械が言う）"
     assert_contains "$DS_SH" "sharedFiles-summary: declared=1 実在しない=1" \
       "doctor: sharedFiles の件数を要約に出す"
+    # ハーネス自身（skills 配下）は PJ のコードではないので常連から外す。
+    # 外さないと、ハーネスを更新するたび skills の全ファイルが上位を占め、本命を押し出す（実測）
+    assert_eq "$(printf '%s' "$DS_SH" | grep -c 'sharedFiles に無い: .claude/skills/')" "0" \
+      "doctor: ハーネス自身の置き場を sharedFiles の常連に数えない"
+    assert_eq "$(printf '%s' "$DS_SH" | grep -c 'sharedFiles に無い: .aidev/')" "0" \
+      "doctor: .aidev/（帳簿）を sharedFiles の常連に数えない"
 
     # (2) ps1 の add（既存work一致＝current 設定のみ）。current が full dated 名であること
     #     ＝ review 検出の must「PowerShell 単一要素配列アンラップ($mw[0]が先頭1文字)」の回帰ガード
@@ -2995,11 +3001,11 @@ YML
     ( cd "$PREPO" && run_ps1 "$AIDEV_PS1" worktree rm "$PB" --force --delete-branch >/dev/null 2>&1 )
     assert_eq "$?" "0" "パリティ: ps1 rm は list が出したパス表記をそのまま扱える"
     assert_eq "$([ -d "$TMP/prepo-wt/fresh" ] && echo yes || echo no)" "no" "パリティ: ps1 rm(path) で worktree 撤去済み"
-    block_end wtparity "19" "wtparity"
+    block_end wtparity "21" "wtparity"
   else
     skip 10 "git 不在のため worktree パリティを省略"
   fi
-  block_end parity "237" "parity"
+  block_end parity "239" "parity"
 else
   skip 228 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
 fi
