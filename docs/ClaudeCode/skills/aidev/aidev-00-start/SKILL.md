@@ -75,7 +75,9 @@ CLI が使えない環境のフォールバック: `cat .aidev/current` / `ls .a
   - **選ぶ前に、その項目が本当に未着手か確かめる**（`inflight` の見方は `protocol-backlog.md`）。backlog は**遅れる**——別の作業が結果的に
     閉じていても、行は `[ ]` のまま残りうる。**works の記述ではなくリポジトリの現物**
     （ファイル・シンボル・テスト・ビルド出力）で裏を取ってから着手する。
-  - **backlog 由来なら手順 4 で `--backlog <file>` を渡す**（deliver での消し込みを verify が強制する）。
+  - **backlog 由来なら手順 4 で `--backlog <file>` と `--backlog-item "<掴んだ行の文言>"` を渡す**
+    （前者は deliver での消し込みを verify が強制する。後者が無いと `status` の `HELD` が行単位で出せず、
+    並行 N 本で「どの行が空いているか」を機械が答えられない）。
 - **新規 requirement を起こす**：手順 4 へ。
 - **並行で始める（worktree・任意）**：進行中の作業を**止めずに**別の作業へ着手したいと
   **ユーザーが望むとき**だけ。`aidev worktree add <slug>` が work 専用の worktree と

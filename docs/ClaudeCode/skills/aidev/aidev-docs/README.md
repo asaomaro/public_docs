@@ -131,8 +131,8 @@ planner の方針は `.aidev/charter.md` で縛る。
 （受け入れ基準の被覆と tasks.md の整合）、test の `aidev smoke`（成果物が起動するか）、
 deliver 前の `aidev verify`（不変条件）。いずれも exit≠0 なら承認しない。
 `aidev verify --strict` はさらに**記録漏れ**（`event` の start 欠落、`autonomous` の
-`decisions.md`、タスク点検の実施形態）を致命にする——どれも「そのとき書かなければ
-二度と書けない」もので、機械ゲート（Stop フック等）から使う想定。
+`decisions.md`、タスク点検の実施形態、**`autonomous` の上流4文書の独立点検**）を致命にする
+——どれも「そのとき書かなければ二度と書けない」もので、機械ゲート（Stop フック等）から使う想定。
 
 ## 実行モード（interactive / autonomous）
 
@@ -156,9 +156,15 @@ deliver 前の `aidev verify`（不変条件）。いずれも exit≠0 なら�
 |---|---|---|
 | `maxSendBacks` | 同一工程の差し戻し（`aidev event <工程> sent_back` が数える） | `aidev debug start` へ倒す（まっさらなコンテキストで原因究明） |
 | `maxTaskCheckRounds` | 同一タスクの「点検 → 修正」（`aidev taskcheck start` が数える） | `decisions.md` に経緯を残して次のタスクへ。判断は 60 review に委ねる |
+| `maxDocCheckRounds` | 上流4文書の「点検 → 修正」（`aidev doccheck start` が数える） | 残った疑問を `decisions.md` に残して承認へ進む。判断は次工程・60 review に委ねる |
 | `maxDebugRounds` | 1工程あたりのデバッグ（`aidev debug start` が数える） | `block` か `stop_for_human` で締める |
 
 どれも **1ラウンド = 1 コマンド**の形で数えるので、CLI がその場で止められる（exit 4）。
+`taskcheck` / `doccheck` は `report` を **`start` と対でだけ**受ける——対を見ないと、
+上限で `start` が止まったあとも `report` だけ打てて件数が積み上がる（実際にその穴を作った）。
+
+**`mode: autonomous` では上流4工程の `doccheck` が必須**（人間の目が入らないので、点検の要否を
+書いた本人の裁量に残さない）。記録が無いまま承認すると `verify` が WARN、`--strict` で落ちる。
 
 **`aidev limits` が現在値を一覧する**——値だけでなく**どこから来たか**（`config` / `state` / 既定）まで出す。
 変えるのは `aidev limits set <key> <n>`。手編集は要らない（見えない設定は忘れられる、というのが
@@ -231,7 +237,7 @@ work 専用の git worktree と `feature/<slug>` ブランチを作り、main tr
     bin/               ランタイムガード CLI（aidev=POSIX sh / aidev.ps1=PowerShell・README.md / test/ 同梱）
 .aidev/                PJ固有の実行時状態（skill ではない）
   config.yml           PJ単位の設定（tracker / lightMaxFiles / smokeCommand（または smokeCommands）/ smokeCommandWindows / smokeTimeoutSec /
-                       smokeStaleAfter / maxDebugRounds / maxTaskCheckRounds / conventionsDir / conventionsIndex / docsRoots /
+                       smokeStaleAfter / maxDebugRounds / maxTaskCheckRounds / maxDocCheckRounds / conventionsDir / conventionsIndex / docsRoots /
                        sharedFiles / sharedFilesWindow。全キーと書式は bin/README.md の設定表。コミット対象）
   charter.md           propose（planner）の方針（任意）
   current              現在の作業フォルダ名（.gitignore 対象）

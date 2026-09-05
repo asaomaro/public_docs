@@ -52,7 +52,8 @@ spec 終了時に **protocol.md「4.5」の design の4条件**のいずれか�
 4. 下記テンプレートに沿って `design.md` を記述する。
    アーキテクチャ/コンポーネント・class・sequence・state は mermaid で図示する（protocol.md「9.」）。
    - 書き終えたら内部一貫性の点検（対象範囲を構造が満たすか・責務分割の漏れと重複・図と本文の整合）を
-     別コンテキストへ委譲してよい（任意。protocol.md「3.3」(a)）。
+     別コンテキストへ点検させる（`autonomous` は必須。規約は `protocol-check.md`「(a)」）:
+     `aidev doccheck start design --mode <delegated|same_session>` → `report design --findings <n>`。
 5. protocol.md「3. 工程終了プロトコル」に従って終了する（次工程: `plan`）。
 
 ## design.md テンプレート

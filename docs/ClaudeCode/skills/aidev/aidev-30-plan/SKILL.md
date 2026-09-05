@@ -93,6 +93,8 @@ spec を実装可能な作業単位に分解し、`plan.md`（方針・順序）
        `- [ ] AC3: …` の形のまま移すと、節が変わっても受け入れ基準として数え続ける。
      タスクを持たない `AC` を `完了条件` に残したまま承認しない——それは
      「完了条件を満たさずに完了できる」状態。
+6.5. **独立点検**（`autonomous` は必須。規約は `protocol-check.md`「(a)」）:
+   `aidev doccheck start plan --mode <delegated|same_session>` → `report plan --findings <n>`。
 7. protocol.md「3. 工程終了プロトコル」に従って終了する（次工程: 分割時は最初の subtask の `plan`、
    非分割時は `coding`）。承認は
    `aidev approve plan tasks_planned=<tasks.md のタスク総数> tasks_anchored=<対象が特定済みのタスク数>`

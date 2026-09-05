@@ -1451,10 +1451,37 @@ if command -v git >/dev/null 2>&1; then
            sed -n 's/^harnessRev: //p' "$GRR/w/.aidev/works/"*g5/state.yml ) )
   assert_eq "$GR5" "$GR4" "harnessRev: squash しても内容が同じなら同じ版（SHA ではなく内容ハッシュ）"
   assert_eq "${#GR5}" "12" "harnessRev: 固定長 12 桁（%h の自動伸長で偽またがりを作らない）"
+  # **ハーネスが git 管理外なら unknown**。ここは長く sh だけ落ちていた——`ls-tree` が空でも
+  # `git hash-object --stdin` が**空入力に空 blob のハッシュ**を返すので `$r` が空にならず、
+  # unknown フォールバックが一度も効かなかった。全環境・全 work で同じ値が刻まれ、
+  # 母集団から外れるべき work が「同一版で回した仲間」に化ける（他 PJ の retro が実測）。
+  # ps1 には元からガードがあったので、**両実装を突き合わせていれば気づけた**穴でもある
+  UNR=$(mktemp -d)
+  mkdir -p "$UNR/skills/aidev-docs/bin" "$UNR/w/.aidev/works"
+  cp "$AIDEV_SH" "$UNR/skills/aidev-docs/bin/aidev"; cp "$AIDEV_PS1" "$UNR/skills/aidev-docs/bin/aidev.ps1"
+  ( cd "$UNR/w" && git init -q -b master . && printf 'x\n' > f \
+    && git add -A && git -c user.email=t@t -c user.name=t commit -qm i ) >/dev/null 2>&1
+  ( cd "$UNR/w" && "$UNR/skills/aidev-docs/bin/aidev" new u1 ) >/dev/null 2>&1
+  assert_eq "$(sed -n 's/^harnessRev: //p' "$UNR/w/.aidev/works/"*u1/state.yml)" "unknown" \
+    "harnessRev: ハーネスが git 管理外なら unknown（空 blob のハッシュを刻まない）"
+  if [ -n "$PS_HOST" ]; then
+    ( cd "$UNR/w" && run_ps1 "$UNR/skills/aidev-docs/bin/aidev.ps1" new u2 ) >/dev/null 2>&1
+    assert_eq "$(sed -n 's/^harnessRev: //p' "$UNR/w/.aidev/works/"*u2/state.yml | tr -d '\r')" "unknown" \
+      "パリティ: ps1 も git 管理外なら unknown"
+  else
+    skip 1 "ps1 の unknown 刻印（PowerShell 不在）"
+  fi
+  # 既に空 blob 値を刻んでしまった work は、読む側でも unknown に寄せる（比較で別 PJ と混ざらない）
+  UNW=$(ls -d "$UNR/w/.aidev/works/"*u1)
+  awk '{ if ($0 ~ /^harnessRev:/) print "harnessRev: e69de29bb2d1"; else print }' "$UNW/state.yml" > "$UNW/state.yml.t"
+  mv "$UNW/state.yml.t" "$UNW/state.yml"
+  assert_contains "$( ( cd "$UNR/w" && "$UNR/skills/aidev-docs/bin/aidev" metrics --all --format tsv ) )" "	unknown	" \
+    "harnessRev: 既に刻まれた空 blob 値は読むときに unknown へ正規化する"
+  rm -rf "$UNR"
   rm -rf "$GRR"
-  block_end hrgrain "7" "hrgrain"
+  block_end hrgrain "10" "hrgrain"
 else
-  skip 7 "harnessRev の粒度（git 不在）"
+  skip 10 "harnessRev の粒度（git 不在）"
 fi
 
 echo "== coverage（AC 被覆 / tasks.md の整合）=="
@@ -2078,6 +2105,99 @@ run_au event coding start >/dev/null
 run_au approve coding task_checks=0 >/dev/null
 assert_contains "$(cat "$AU_D/metrics.yml")" "task_checks: 0" "approve coding: 明示指定は上書きしない"
 
+# (12b) doccheck: 上流文書の独立点検（(a) は長く観測点の無い規約だった）
+mk_work dc
+: > "$AU_D/design.md"
+run_au doccheck start bogus --mode delegated >/dev/null 2>&1
+assert_eq "$?" "1" "doccheck start: 上流4工程以外は弾く（coding のタスク点検は taskcheck）"
+run_au doccheck start spec >/dev/null 2>&1
+assert_eq "$?" "1" "doccheck start: --mode は必須（実施形態が残らないと効果を測れない）"
+run_au doccheck start requirement --mode delegated >/dev/null 2>&1
+assert_eq "$?" "0" "doccheck start: 文書があれば通る（requirement.md は mk_work が作る）"
+rm -f "$AU_D/design.md"
+run_au doccheck start design --mode delegated >/dev/null 2>&1
+assert_eq "$?" "2" "doccheck start: 対象 md が無ければ exit 2（前提成果物の不足。使い方の誤り=1 と分ける）"
+: > "$AU_D/design.md"
+run_au doccheck start plan --mode delegated >/dev/null 2>&1   # plan.md は mk_work が作る
+assert_eq "$?" "0" "doccheck start: plan も通る"
+run_au doccheck report plan --findings 2 >/dev/null
+run_au doccheck report plan --findings 5 >/dev/null 2>&1
+assert_eq "$?" "4" "doccheck report: 対になる start が無ければ弾く（taskcheck と同じ穴を塞いである）"
+run_au doccheck start plan --mode delegated >/dev/null
+run_au doccheck start plan --mode delegated >/dev/null 2>&1
+assert_eq "$?" "4" "doccheck start: maxDocCheckRounds に達したら exit 4"
+run_au doccheck start spec --mode same_session >/dev/null
+run_au doccheck report spec --findings 0 >/dev/null
+assert_contains "$(run_au doccheck status)" "doccheck-summary: rounds=4 findings=2 mode=mixed" \
+  "doccheck status: 工程ごとに数え、形態が割れていれば mixed"
+# 件数は approve が自動で刻む（工程ごと）
+run_au approve plan >/dev/null
+assert_contains "$(cat "$AU_D/metrics.yml")" "doc_check_rounds: 2, doc_check_findings: 2, doc_check_mode: delegated" \
+  "approve <phase>: 上流の点検メトリクスを doccheck の記録から自動で刻む"
+# schema 11: autonomous で記録が無ければ verify が WARN（--strict で致命）
+mk_work dcauto
+awk '{ if ($0 ~ /^mode:/) print "mode: autonomous"; else print }' "$AU_D/state.yml" > "$AU_D/state.yml.t"
+mv "$AU_D/state.yml.t" "$AU_D/state.yml"
+run_au approve spec >/dev/null
+assert_contains "$(run_au verify 2>&1)" "spec を autonomous で承認したのに独立点検の記録がありません" \
+  "verify: autonomous の上流文書に独立点検の記録が無ければ WARN（schema 11）"
+run_au verify --strict >/dev/null 2>&1
+assert_eq "$?" "5" "verify --strict: 上流の独立点検の記録漏れは致命"
+run_au doccheck start spec --mode delegated >/dev/null
+run_au doccheck report spec --findings 0 >/dev/null
+run_au approve spec >/dev/null
+assert_eq "$(run_au verify 2>&1 | grep -c '独立点検の記録がありません')" "0" \
+  "verify: 記録があれば鳴らない"
+assert_contains "$(run_au limits --format tsv)" "limit	maxDocCheckRounds	2	default	pj	2" \
+  "limits: maxDocCheckRounds も一覧に出る"
+# **work が 1 本も無い PJ でも PJ 側の上限は見せる**。die は exit するので `if resolve_work …` では
+# 受からず、無言の exit 1 になっていた（実走で発覚。導入直後に上限を確かめたい、その瞬間に効かない）
+LMZ=$(mktemp -d); mkdir -p "$LMZ/.aidev/works"
+LMZ_OUT=$( ( cd "$LMZ" && "$AIDEV_SH" limits ) 2>&1 ); LMZ_RC=$?
+assert_eq "$LMZ_RC" "0" "limits: work が 1 本も無くても落ちない（die が exit する穴）"
+assert_contains "$LMZ_OUT" "work が未選択なので scope=work は既定値" "limits: work 未選択を明示して既定値を見せる"
+if [ -n "$PS_HOST" ]; then
+  LMZ_PS=$( ( cd "$LMZ" && run_ps1 "$AIDEV_PS1" limits ) 2>&1 | tr -d '\r' ); LMZ_PRC=$?
+  assert_eq "$LMZ_PRC" "0" "パリティ: ps1 も work 0 本で落ちない（try/catch も exit は受からない）"
+  assert_eq "$LMZ_OUT" "$LMZ_PS" "パリティ: limits（work 0 本）の出力"
+else
+  skip 2 "ps1 の limits（work 0 本）"
+fi
+rm -rf "$LMZ"
+# **手渡しの *_check_mode は CLI の記録と突き合わせる**。突き合わせないと、点検を一度も打たずに
+# approve <phase> doc_check_mode=… と書くだけで verify --strict を通せた（実走で再現）
+mk_work dcfake
+: > "$AU_D/spec.md"
+run_au approve spec doc_check_mode=delegated >/dev/null 2>&1
+assert_eq "$?" "1" "approve: doccheck の記録が無いのに doc_check_mode を手で渡せない（strict のすり抜け）"
+run_au approve coding task_check_mode=delegated >/dev/null 2>&1
+assert_eq "$?" "1" "approve: taskcheck の記録が無いのに task_check_mode を手で渡せない"
+run_au approve coding task_checks=0 >/dev/null 2>&1
+assert_eq "$?" "0" "approve: 「点検していない」を表す task_checks=0 は従来どおり通る"
+run_au doccheck start spec --mode delegated >/dev/null
+run_au doccheck report spec --findings 0 >/dev/null
+run_au approve spec doc_check_mode=delegated >/dev/null 2>&1
+assert_eq "$?" "0" "approve: 記録があれば手渡しの doc_check_mode を尊重する"
+# plan の点検には tasks.md も渡す（AC: 行は tasks.md にしかない）
+assert_contains "$(run_au doccheck start plan --mode delegated)" "渡すもの: plan.md と tasks.md" \
+  "doccheck start: plan だけ渡すものが違う（AC: 行の在処に合わせる）"
+# 失敗時の見出しを stdout に出さない（成功時と同じ1行に見えてしまう）
+run_au doccheck report plan --findings 0 >/dev/null
+assert_eq "$( ( run_au doccheck report plan --findings 0 ) 2>/dev/null )" "" \
+  "doccheck report: 対欠落の FAIL は stdout を汚さない"
+# subtask は上流3文書を親から継承する（子に md が無い）ので、対象は**子自身の plan.md だけ**
+run_au new dcp --mode autonomous >/dev/null
+DCP=$(cat "$AUD/.aidev/current")
+run_au new dcs --parent "$DCP" --mode autonomous >/dev/null
+DCSD="$AUD/.aidev/works/$DCP/dcs"
+: > "$DCSD/plan.md"
+run_au approve plan >/dev/null
+DCSV=$(run_au verify 2>&1)
+assert_contains "$DCSV" "plan を autonomous で承認したのに独立点検の記録がありません" \
+  "verify(subtask): 子自身の plan.md は独立点検の対象"
+assert_eq "$(printf '%s' "$DCSV" | grep -c 'spec を autonomous')" "0" \
+  "verify(subtask): 親から継承する上流3文書は対象外（子に md が無い）"
+
 # (13) limits: 上限の一覧と設定口（手編集しかなかった）
 assert_contains "$(run_au limits)" "maxTaskCheckRounds" "limits: 上限を一覧できる"
 assert_contains "$(run_au limits --format tsv)" "limit	maxDebugRounds	2	default	pj	2" \
@@ -2136,7 +2256,12 @@ run_au new hg2 --human-gates bogus >/dev/null 2>&1
 assert_eq "$?" "1" "new --human-gates: 未知の工程を弾く（タイポで黙って無効化されない）"
 
 # (9) 刻み直しは「訂正」であって新しいラウンドではない（WARN の指示が別の FAIL を生まない）
+# `task_check_mode` は CLI の記録と突き合わせるので、先に taskcheck を打っておく
+# （手渡しだけで「点検した」と名乗れないのが正。approve の突き合わせ検査を参照）
 mk_work amd
+printf -- '- [ ] T1: x\n      AC: AC1\n' > "$AU_D/tasks.md"
+run_au taskcheck start T1 --mode same_session >/dev/null
+run_au taskcheck report T1 --findings 0 >/dev/null
 run_au event coding start >/dev/null
 run_au approve coding task_checks=3 >/dev/null
 run_au approve coding task_checks=3 task_check_mode=same_session >/dev/null
@@ -2273,6 +2398,26 @@ if [ -n "$PS_HOST" ]; then
     assert_eq "$S_SH_RC" "$S_PS_RC" "パリティ: $sargs（exit code）"
   done
 
+
+  # doccheck のパリティ。**ps1 側は他のどのテストからも通らない**ので、ここが唯一の検査になる
+  # （taskcheck を入れたときは ps1 の enum 検証が抜けていて、緑のまま気づかなかった）
+  PDC=$(mktemp -d); mkdir -p "$PDC/.aidev/works"
+  ( cd "$PDC" && "$AIDEV_SH" new pdc >/dev/null )
+  PDCD="$PDC/.aidev/works/$(cat "$PDC/.aidev/current")"
+  : > "$PDCD/spec.md"
+  ( cd "$PDC" && run_ps1 "$AIDEV_PS1" doccheck start spec --mode delegated ) >/dev/null 2>&1
+  assert_contains "$(tr -d '\r' < "$PDCD/metrics.yml")" "event: doccheck, metrics: { stage: start, phase: spec" \
+    "パリティ: ps1 doccheck start が同じ形のイベントを刻む"
+  PDC_S=$( ( cd "$PDC" && "$AIDEV_SH" doccheck status --format tsv ) )
+  PDC_P=$( ( cd "$PDC" && run_ps1 "$AIDEV_PS1" doccheck status --format tsv ) | tr -d '\r' )
+  assert_eq "$PDC_S" "$PDC_P" "パリティ: doccheck status --format tsv"
+  ( cd "$PDC" && run_ps1 "$AIDEV_PS1" doccheck start spec --mode delegated ) >/dev/null 2>&1
+  ( cd "$PDC" && run_ps1 "$AIDEV_PS1" doccheck start spec --mode delegated ) >/dev/null 2>&1
+  assert_eq "$?" "4" "パリティ: ps1 も maxDocCheckRounds で exit 4"
+  ( cd "$PDC" && run_ps1 "$AIDEV_PS1" approve spec ) >/dev/null 2>&1
+  assert_contains "$(tr -d '\r' < "$PDCD/metrics.yml")" "doc_check_rounds: 2" \
+    "パリティ: ps1 の approve も上流の点検メトリクスを自動で刻む"
+  rm -rf "$PDC"
 
   # coverage のパリティ（被覆率と gap の判定が OS で食い違うと、片方の環境でだけ穴が通る）
   PCOV=$(mktemp -d); mkdir -p "$PCOV/.aidev/backlog"
@@ -3228,9 +3373,9 @@ YML
   else
     skip 10 "git 不在のため worktree パリティを省略"
   fi
-  block_end parity "244" "parity"
+  block_end parity "248" "parity"
 else
-  skip 230 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
+  skip 234 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
 fi
 
 echo

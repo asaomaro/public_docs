@@ -24,7 +24,7 @@
   | `protocol-backlog.md` | 「2.9」 | backlog 項目を選ぶ / deliver で消し込む |
   | `protocol-analysis.md` | 「8.」 | retro / insights の定量分析 |
   | `protocol-conventions.md` | 「12.」 | PJ規約の条項を起こす / 効果を判定する / PJ ドキュメントへ移送する |
-  | `protocol-check.md` | 「3.3」 | 上流4工程の承認ゲートで独立点検を選ぶ / spec・design の点検 / coding のタスク点検 |
+  | `protocol-check.md` | 「3.3」 | 上流4工程の独立点検（`autonomous` は必須）/ coding のタスク点検 |
   | `protocol-debug.md` | 「10.」末尾 | 同一工程の差し戻しが上限に達した / 点検を繰り返しても直らない（詰まりの原因究明） |
   | `protocol-autonomous.md` | 「10.」 | `mode: autonomous` の work / plan モードを使う（start・spec・design） |
   | `protocol-light.md` | 「11.」 | `profile: light` の work（4文書の必須節・昇格） |
@@ -242,10 +242,10 @@ backlog は**遅延キュー**で、完了した行を閉じるのは deliver �
 設定と他環境のフォールバックは `aidev-docs/README.md`）が `aidev verify --strict` を呼ぶ。フックが無い環境は
 ルールファイルに「終える前に `verify --strict`」と書く。`/goal` は**ユーザーが打つ**補助で skill が設定してはならない。
 
-### 3.3 独立検証（別コンテキストで点検・任意）
+### 3.3 独立検証（別コンテキストで点検。**`autonomous` は (a)(b) とも必須**）
 
 成果物を**書いた本人とは別のコンテキスト**に見せて点検させる。(a) 文書の内部一貫性（上流4工程の
-承認ゲートの 4 つ目、または spec・design の工程内）／(b) coding のタスク差分点検。
+承認ゲートの 4 つ目、または各工程内。記録は `aidev doccheck`）／(b) coding のタスク差分点検。
 **一次資料との照合は委譲しない**（「2.6」）。`profile: light` では使わない。詳細・発火条件・ラウンド上限は
 `protocol-check.md`。
 
@@ -460,6 +460,9 @@ events:
     （被覆・`harnessRev` と同じ扱い）。**点検を1件も行わなかった work だけ** `task_checks=0` を
     明示する（省略すると「測っていない」と区別できない）。
   - 読み方（率の分母・`must` との突き合わせ）は `protocol-analysis.md`。
+- **上流4工程（requirement / spec / design / plan）**: `doc_check_rounds` / `doc_check_findings` /
+  `doc_check_mode`（独立点検（「3.3」(a)）。**手で渡さない**——`aidev doccheck` の記録から自動で刻む。
+  `autonomous` では必須で、記録が無ければ `verify` が WARN、`--strict` で致命）
 - **test**: `passed` / `failed`（検証結果の件数）
 - **review**: `must` / `should` / `nit`（重大度別の指摘件数）
 - **任意工程（light からの昇格時）**: `escalated_from_light`（`1` を刻む。昇格が起きた工程の approved に付す。

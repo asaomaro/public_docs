@@ -43,6 +43,9 @@
 - **予算/時間上限**: 上限到達で停止・報告（無限ループ防止）。
 - **記録継続**: モードに関わらず state/metrics/各成果物・walkthrough は残す（朝の一括レビューの証跡）。
 - **逸脱記録**: 自律中の重要判断は decisions.md に残す。
+- **独立点検**: 人間の目が入らないので、上流4文書は `aidev doccheck`、coding の各タスクは
+  `aidev taskcheck` で点検を記録する（`protocol-check.md`「3.3」）。記録が無いまま承認すると
+  `verify` が WARN、`--strict` で落ちる。
 
 ### 実行手段（別レイヤ）
 autonomous の「夜間に回す」には実行主体が要る（headless 実行 / スケジュール起動でオーケストレーターが

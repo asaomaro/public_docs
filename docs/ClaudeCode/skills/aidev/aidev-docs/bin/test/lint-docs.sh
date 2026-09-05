@@ -189,13 +189,64 @@ echo "== L6: 実行時に読む量の予算 =="
 # 全 work が払うコスト。**増やすなら意図的に**（この数を書き換えるコミットで理由を述べる）。
 # 減るぶんには落とさない（削減は歓迎）
 BUDGET_PROTOCOL=608
-BUDGET_TOTAL=3395
+# 3395 -> 3410: doccheck の追加に伴う増加。内訳と根拠（すべて実走で必要と分かったもの）:
+#   protocol-autonomous「安全弁」に独立点検 +3（autonomous の必須事項一覧から到達できず、
+#     一覧だけ読んだ実行者は schema 11 の必須記録に辿り着けなかった）
+#   protocol-check「(a)」の起動経路・report のタイミング・対象工程の限定 +5
+#     （起動経路が spec/design だけの古い記述で、requirement/plan の経路が「存在しない」ことになっていた）
+#   protocol-analysis に doc_check_* の読み方 +2（刻んだメトリクスの使い道が未定義だった）
+#   aidev-00-start に --backlog-item +2（打たないと status の HELD が行単位で出ない）
+#   各 SKILL の doccheck 行 +3（正典は protocol-check。ここは引き金と打つコマンドだけ）
+BUDGET_TOTAL=3410
 _p=$(wc -l < "$SKILLS/aidev-00-start/protocol.md")
 _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 [ "$_p" -le "$BUDGET_PROTOCOL" ] && ok "L6 protocol.md が予算内（$_p / $BUDGET_PROTOCOL 行）" \
   || ng "L6 protocol.md が予算超過（$_p / $BUDGET_PROTOCOL 行）。要約は protocol.md・詳細は付録・理由は DESIGN"
 [ "$_t" -le "$BUDGET_TOTAL" ] && ok "L6 実行時文書の合計が予算内（$_t / $BUDGET_TOTAL 行）" \
   || ng "L6 実行時文書の合計が予算超過（$_t / $BUDGET_TOTAL 行）"
+
+echo "== L8: ハーネス改修の実走記録 =="
+# **「改修のたびに実走を1本通す」は DESIGN「3.5」に書いてあったのに、次の改修で破られた**
+# （doccheck の追加。テストと lint で止めた）。分類 G（散文にしか無い規約）そのものなので、
+# 扱いも同じ——観測点を作る。L1〜L7 は表面の整合しか見ないので、
+# 「書いてある規約が実際に発火するか」はここでしか担保できない。
+FLOWDIR=$SELF/flow-runs
+# git の pathspec は $SKILLS からの相対で渡す（絶対パス + :(exclude) は環境差が出る）
+FLOWREL=aidev-docs/bin/test/flow-runs
+if ! command -v git >/dev/null 2>&1 || ! git -C "$SKILLS" rev-parse --git-dir >/dev/null 2>&1; then
+  ok "L8 実走記録の鮮度（git 不在のため検査省略）"
+else
+  # 記録ファイル自身のコミットは「改修」に数えない（数えると永久に追いつけない）
+  _fr=$(ls "$FLOWDIR"/[0-9]*.md 2>/dev/null | LC_ALL=C sort | tail -n1)
+  if [ -z "$_fr" ]; then
+    ng "L8 実走記録が1件も無い（$FLOWDIR/<日付>-<slug>.md。書き方は同ディレクトリの README.md）"
+  else
+    _frc=$(git -C "$SKILLS" log -1 --format=%H -- "$FLOWREL" 2>/dev/null) || _frc=""
+    if [ -z "$_frc" ]; then
+      ok "L8 実走記録あり（未コミットなので鮮度は判定しない）: $(basename "$_fr")"
+    else
+      # 記録より後に入った「実質的な」ハーネス改修の本数（記録ディレクトリ自身は除く）
+      _stale=$(git -C "$SKILLS" rev-list --count "$_frc..HEAD" -- . ":(exclude)$FLOWREL" 2>/dev/null) || _stale=0
+      case "$_stale" in ''|*[!0-9]*) _stale=0 ;; esac
+      if [ "$_stale" -eq 0 ]; then
+        ok "L8 実走記録が最新の改修をカバーしている: $(basename "$_fr")"
+      else
+        ng "L8 実走記録より後にハーネス改修が $_stale 本ある（$(basename "$_fr") 以降）。着地前に 3 ゲートを通し、$FLOWDIR に記録すること: (1) 文書が実態に追いついているか (2) README のメンテナンス (3) サブエージェントでの実走"
+      fi
+    fi
+    # 3 見出しが揃っているか（記録の形が崩れると、あとから何を確かめたのか読めない）
+    _miss=""
+    for _h in "## 1. 文書は実態に追いついているか" "## 2. README のメンテナンス" "## 3. 実走（サブエージェント）"; do
+      grep -qF "$_h" "$_fr" || _miss="$_miss [$_h]"
+    done
+    if [ -z "$_miss" ]; then ok "L8 実走記録に 3 ゲートの見出しが揃っている"
+    else ng "L8 実走記録に見出しが足りない:$_miss（$(basename "$_fr")）"; fi
+    # 未コミットのハーネス変更があれば、記録はそれを見ていない
+    _dirty=$(git -C "$SKILLS" status --porcelain -- . ":(exclude)$FLOWREL" 2>/dev/null | grep -c . 2>/dev/null) || _dirty=0
+    case "$_dirty" in ''|*[!0-9]*) _dirty=0 ;; esac
+    [ "$_dirty" -gt 0 ] && printf '  note: 未コミットのハーネス変更が %s 件あります（実走記録はこれを見ていません）\n' "$_dirty"
+  fi
+fi
 
 echo
 printf 'LINT: pass=%s fail=%s\n' "$PASS" "$FAIL"
