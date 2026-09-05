@@ -21,7 +21,7 @@
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 coverage [slug] [--format table|tsv] [--strict]
 #     受け入れ基準(AC)の被覆率と tasks.md の整合を検査する。--strict は gap があれば exit 4
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 taskcheck <start|report|status> ...
-#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 limits [show|set <key> <n>] [--format table|tsv] [--slug <work>]
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 limits [show|set <key> <n>|unset <key>] [--format table|tsv] [--slug <work>]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 smoke [slug]
 #     config.yml の smokeCommand を実行して結果を metrics に刻む（起動確認 GO/NO-GO）。未設定は exit 2
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 debug <start|report|status> ...
@@ -1378,6 +1378,22 @@ function TcMax() {
   return $n
 }
 function TcValidId($id) { return ($id -cmatch '^T[0-9][A-Za-z0-9_-]*$') }
+# tasks.md にそのタスクが実在するか。tasks.md がまだ無ければ判定不能として通す
+function TcKnownId($task) {
+  $tf = Join-Path $script:WORK 'tasks.md'
+  if (-not (IsFile $tf)) { return $true }
+  foreach ($r in (CovTaskRows $tf)) { if ($r.id -ceq $task) { return $true } }
+  return $false
+}
+# そのタスクの report 回数（start と対になっているかの判定に使う）
+function TcReports($metricsFile, $task) {
+  if (-not (IsFile $metricsFile)) { return 0 }
+  $c = 0
+  foreach ($l in [System.IO.File]::ReadAllLines($metricsFile)) {
+    if ($l -match 'event:\s*taskcheck' -and $l -match 'stage:\s*report' -and $l -match "task:\s*$([regex]::Escape($task))[,}]") { $c++ }
+  }
+  return $c
+}
 function TcRounds($metricsFile, $task) {
   if (-not (IsFile $metricsFile)) { return 0 }
   $c = 0
@@ -1425,6 +1441,7 @@ function Tc-Start($rest) {
   if (-not $tmode) { Die "--mode は必須（delegated=別コンテキストへ委譲 / same_session=同一セッションで読み直し）。点検が効く理由はコンテキスト分離なので、どちらで行ったかを残さないと効果を測れない" }
   if ($script:TC_MODES -cnotcontains $tmode) { Die "--mode は delegated|same_session" }
   ResolveWork $tslug
+  if (-not (TcKnownId $tid)) { Die "tasks.md にそのタスクがありません: $tid（打ち間違いか、tasks.md へ足し忘れ。足したなら AC: も書く）" }
   $mf = Join-Path $script:WORK 'metrics.yml'
   $tmax = TcMax
   $tr = TcRounds $mf $tid
@@ -1463,7 +1480,15 @@ function Tc-Report($rest) {
   if ($tf -notmatch '^\d+$') { Die "--findings は必須（0 以上の整数）。**崩れた返答から数字を拾わない**——件数が読めないなら点検しなかったものとして扱い、report を打たない" }
   ResolveWork $tslug
   $mf = Join-Path $script:WORK 'metrics.yml'
-  if ((TcRounds $mf $tid) -lt 1) { Die "そのタスクの taskcheck start がありません: $tid（start を打たずに結果だけ記録しない）" }
+  $trs = TcRounds $mf $tid
+  $trr = TcReports $mf $tid
+  if ($trs -lt 1) { Die "そのタスクの taskcheck start がありません: $tid（start を打たずに結果だけ記録しない）" }
+  if ($trr -ge $trs) {
+    Write-Output "taskcheck: $($script:SLUG) / $tid"
+    [Console]::Error.WriteLine("FAIL 対になる start がありません（start $trs / report $trr）")
+    [Console]::Error.WriteLine("next: 点検し直すなら aidev taskcheck start $tid から。上限で止まっているならそこで打ち切る")
+    exit 4
+  }
   AppendEvent $script:WORK 'coding' 'taskcheck' @('stage=report', "task=$tid", "findings=$tf")
   Write-Output "taskcheck: $($script:SLUG) / $tid（findings $tf）"
   if ([int]$tf -gt 0) {
@@ -1588,7 +1613,7 @@ function Lm-Show($rest) {
   Write-Output "LIMITS（回数の上限。scope=pj は .aidev/config.yml、work は state.yml）"
   foreach ($l in (Fmt-Table (@("key`tvalue`tsource`tscope`tdefault") + $rows))) { Write-Output $l }
   if (-not $lst) { Write-Output "note: work が未選択なので scope=work は既定値を表示しています" }
-  Write-Output "変更: aidev limits set <key> <n> [--slug <work>]"
+  Write-Output "変更: aidev limits set <key> <n> [--slug <work>]（既定へ戻す: aidev limits unset <key>）"
 }
 function Lm-Set($rest) {
   $k=''; $v=''; $lslug=''
@@ -1596,7 +1621,13 @@ function Lm-Set($rest) {
     switch -CaseSensitive ($rest[$i]) {
       '--slug' { $i++; $lslug=(ArgAt $rest $i '--slug') }
       default {
-        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        # `-1` を**オプションとして先に食わない**。負値は「未知のオプション」ではなく
+        # 下限違反として弾かれるべき（実走で「未知のオプション: -1」と出て誤誘導した）
+        if ($rest[$i] -match '^-[0-9]') {
+          if (-not $k) { Die "使用法: aidev limits set <key> <n>" }
+          if (-not $v) { $v=$rest[$i] } else { Die "引数が多すぎます: $($rest[$i])" }
+        }
+        elseif ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
         elseif (-not $k) { $k=$rest[$i] } elseif (-not $v) { $v=$rest[$i] }
         else { Die "引数が多すぎます: $($rest[$i])" }
       }
@@ -1609,6 +1640,11 @@ function Lm-Set($rest) {
     Die "未知の上限キー: $k（設定できるのは $names ）"
   }
   $sc=$sp[0]; $mn=[int]$sp[1]; $df=$sp[2]
+  # scope=pj のキーに --slug を渡されたら**黙って無視しない**。work ごとの上限は
+  # 原理的に持てない（読む側が config.yml しか見ない）ので、効いたつもりが一番危ない
+  if ($sc -cne 'work' -and $lslug) {
+    Die "$k は PJ 全体の上限なので --slug は使えません（work ごとに変えられるのは scope=work のキーだけ。aidev limits で確認）"
+  }
   if ($v -notmatch '^\d+$') { Die "値は 0 以上の整数: $v" }
   if ([int]$v -lt $mn) { Die "$k の下限は $mn です（$v は指定できない）" }
   if ($sc -ceq 'work') {
@@ -1621,17 +1657,54 @@ function Lm-Set($rest) {
     SetOrAppend $cfg $k "$k`: $v"
     Write-Output "set: $k = $v（.aidev/config.yml。PJ 全体に効く）"
   }
-  if ($v -ceq $df) { Write-Output "note: 既定値と同じ値です（明示しておくこと自体は無害）" }
+  if ($v -ceq $df) { Write-Output "note: 既定値と同じ値です（既定へ戻すなら aidev limits unset $k）" }
+}
+
+# 一時的に上限を緩めて戻す運用（検証・緊急対応）で、`set <既定値>` だと行が残り
+# source が config のままになる。「既定に戻した」と「たまたま既定と同じ値を書いた」は別物
+function Lm-Unset($rest) {
+  $k=''; $lslug=''
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch -CaseSensitive ($rest[$i]) {
+      '--slug' { $i++; $lslug=(ArgAt $rest $i '--slug') }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        elseif (-not $k) { $k=$rest[$i] } else { Die "引数が多すぎます: $($rest[$i])" }
+      }
+    }
+  }
+  if (-not $k) { Die "使用法: aidev limits unset <key> [--slug <work>]" }
+  $sp = LmSpec $k
+  if (-not $sp) {
+    $names = (($script:LIMIT_KEYS | ForEach-Object { ($_ -split ';')[0] }) -join ' ')
+    Die "未知の上限キー: $k（設定できるのは $names ）"
+  }
+  $sc=$sp[0]; $df=$sp[2]
+  if ($sc -cne 'work' -and $lslug) { Die "$k は PJ 全体の上限なので --slug は使えません" }
+  if ($sc -ceq 'work') { ResolveWork $lslug; $lf = Join-Path $script:WORK 'state.yml'; $lw = $script:SLUG }
+  else { $lf = Join-Path $script:AIDEV 'config.yml'; $lw = 'PJ 全体' }
+  $hit = $false; $keep = @()
+  if (IsFile $lf) {
+    foreach ($l in [System.IO.File]::ReadAllLines($lf)) {
+      if ($l -match "^\s*$([regex]::Escape($k))\:") { $hit = $true } else { $keep += $l }
+    }
+  }
+  if (-not $hit) { Write-Output "unset: $k は書かれていません（既定 $df のまま）"; return }
+  $txt = ''
+  foreach ($l in $keep) { $txt += $l + "`n" }
+  WriteText $lf $txt
+  Write-Output "unset: $k を削除しました（$lw。既定 $df に戻ります）"
 }
 function Cmd-Limits($rest) {
   if ($rest.Count -lt 1) { Lm-Show @(); return }
   $sub=$rest[0]; $sr=@(); if ($rest.Count -gt 1) { $sr=$rest[1..($rest.Count-1)] }
   switch -CaseSensitive ($sub) {
-    'set'  { Lm-Set $sr }
-    'show' { Lm-Show $sr }
+    'set'   { Lm-Set $sr }
+    'unset' { Lm-Unset $sr }
+    'show'  { Lm-Show $sr }
     default {
       if ($sub.StartsWith('-')) { Lm-Show $rest }
-      else { Die "未知の limits サブコマンド: $sub（show|set）" }
+      else { Die "未知の limits サブコマンド: $sub（show|set|unset）" }
     }
   }
 }
@@ -2474,14 +2547,16 @@ function Cmd-Metrics($rest) {
           }
           if (-not $firstStartTs.ContainsKey($ph)) { $firstStartTs[$ph]=$ts }
         } elseif ($ev -ceq 'approved') {
-          if ($e -ge 0) {
+          # `amend: yes`（start を挟まない再承認＝記録の訂正）は**時刻を上書きしない**（sh 版と同一）
+          $isam = ($line -match 'amend:\s*yes')
+          if ($e -ge 0 -and -not $isam) {
             $appat[$ph]=$e; $appatTs[$ph]=$ts
             if ($openat.ContainsKey($ph)) {
               if ($elsum.ContainsKey($ph)) { $elsum[$ph] += $e-$openat[$ph] } else { $elsum[$ph] = $e-$openat[$ph] }
               $openat.Remove($ph)
             }
           }
-          if ($ph -ceq 'deliver') { $deliveredFlag=$true; if ($e -ge 0) { $deliveredE=$e } }
+          if ($ph -ceq 'deliver') { $deliveredFlag=$true; if ($e -ge 0 -and -not $isam) { $deliveredE=$e } }
         } elseif ($ev -ceq 'sent_back') {
           # `by: unapprove` は原因ではなく結果なので数えない（DbgSentBacks と同じ規則）
           if ($line -notmatch 'by:\s*unapprove') { $sback++ }
@@ -3066,6 +3141,7 @@ function Wt-Add($rest) {
     $bdef = GitDefaultBranch $script:ROOT
     if ($bdef -and $bdef -cne $bhead) {
       Write-Output "  ⚠ base が既定ブランチ($bdef)ではなく $bhead です。未マージの変更の上に積まれます"
+      Write-Output "    （意図した積み上げなら問題ない。意図していないなら --base $bdef で取り直す）"
       Write-Output "    （deliver「1.5」の既着地検知が $bdef..HEAD の無関係なコミットで濁る）"
     }
   }

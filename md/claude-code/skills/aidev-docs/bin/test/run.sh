@@ -2040,12 +2040,19 @@ rm -f "$AUD/.aidev/config.yml"
 
 # (12) taskcheck: 散文にしか無かった上限を CLI が止める
 mk_work tc
+printf -- '- [ ] T1: x\n      AC: AC1\n- [ ] T2: y\n      AC: AC2\n' > "$AU_D/tasks.md"
+run_au taskcheck start T9 --mode delegated >/dev/null 2>&1
+assert_eq "$?" "1" "taskcheck start: tasks.md に無いタスク ID を弾く（打ち間違いが「点検した」に化ける）"
 run_au taskcheck start T1 --mode delegated >/dev/null
 run_au taskcheck report T1 --findings 2 >/dev/null
 run_au taskcheck start T1 --mode delegated >/dev/null
 run_au taskcheck start T1 --mode delegated >/dev/null 2>&1
 assert_eq "$?" "4" "taskcheck start: maxTaskCheckRounds に達したら exit 4（散文だけだった上限を CLI へ）"
-run_au taskcheck report T9 --findings 0 >/dev/null 2>&1
+# 上限で start が止まったあとに report だけ打てると、ラウンドは止まるのに件数が積み上がる
+run_au taskcheck report T1 --findings 0 >/dev/null   # 2 回目の start と対になる report
+run_au taskcheck report T1 --findings 9 >/dev/null 2>&1
+assert_eq "$?" "4" "taskcheck report: 対になる start が無ければ弾く（上限後に件数だけ積ませない）"
+run_au taskcheck report T2 --findings 0 >/dev/null 2>&1
 assert_eq "$?" "1" "taskcheck report: start の無いタスクは弾く（結果だけ記録させない）"
 run_au taskcheck start T2 --mode bogus >/dev/null 2>&1
 assert_eq "$?" "1" "taskcheck start: --mode の enum を検査する"
@@ -2079,6 +2086,20 @@ run_au limits set maxTaskCheckRounds 0 >/dev/null 2>&1
 assert_eq "$?" "1" "limits set: 下限を検査する（0 だと start が必ず止まり出口が無い）"
 run_au limits set bogus 3 >/dev/null 2>&1
 assert_eq "$?" "1" "limits set: 未知のキーを弾く（効かない設定を書かせない）"
+assert_contains "$(run_au limits set maxDebugRounds -1 2>&1)" "値は 0 以上の整数" \
+  "limits set: 負値を「未知のオプション」と言わない（値として読んでから弾く）"
+assert_contains "$(run_au limits set maxTaskCheckRounds 3 --slug "$AU_W" 2>&1)" "--slug は使えません" \
+  "limits set: PJ スコープのキーに --slug を渡したら弾く（黙って無視すると効いたつもりが残る）"
+run_au limits unset maxSendBacks >/dev/null
+assert_contains "$(run_au limits --format tsv)" "limit	maxSendBacks	3	default	work	3" \
+  "limits unset: 行を消して既定へ戻す（set <既定値> だと source が config のまま残る）"
+assert_contains "$(run_au limits unset maxSendBacks 2>&1)" "書かれていません" \
+  "limits unset: 書かれていないキーでも落ちない（冪等）"
+# config.yml が「そのキーだけ」のとき（grep -v が全行落として exit 1 になる形）
+printf 'maxDebugRounds: 4\n' > "$AUD/.aidev/config.yml"
+run_au limits unset maxDebugRounds >/dev/null
+assert_contains "$(run_au limits --format tsv)" "limit	maxDebugRounds	2	default	pj	2" \
+  "limits unset: 唯一の行でも消える（grep -v の全行落ち exit 1 で消え損ねない）"
 # 設定した上限が実際に効く
 mk_work tc3
 run_au taskcheck start T1 --mode delegated >/dev/null

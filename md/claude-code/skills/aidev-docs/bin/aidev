@@ -32,7 +32,7 @@
 #     タスク単位の独立点検を有限化する。start が maxTaskCheckRounds を検査し、超えていれば exit 4
 #     start <task-id> --mode <delegated|same_session> [--slug s] / report <task-id> --findings <n> [--slug s]
 #     status [--format table|tsv] [--slug s]   # 件数は approve coding が自動で刻む（手書きしない）
-#   aidev limits [show|set <key> <n>] [--format table|tsv] [--slug <work>]
+#   aidev limits [show|set <key> <n>|unset <key>] [--format table|tsv] [--slug <work>]
 #     回数の上限を一覧・設定する。どこから来た値か（config / state / 既定）まで出す
 #   aidev smoke [slug]
 #     .aidev/config.yml の smokeCommand を実行し、結果を metrics に刻む（起動確認 GO/NO-GO）。
@@ -1469,7 +1469,7 @@ EOF2
   printf 'LIMITS（回数の上限。scope=pj は .aidev/config.yml、work は state.yml）\n'
   { printf 'key\tvalue\tsource\tscope\tdefault\n'; printf '%s' "$_rows"; } | fmt_table
   [ -z "$_lst" ] && printf 'note: work が未選択なので scope=work は既定値を表示しています\n'
-  printf '変更: aidev limits set <key> <n> [--slug <work>]\n'
+  printf '変更: aidev limits set <key> <n> [--slug <work>]（既定へ戻す: aidev limits unset <key>）\n'
   return 0
 }
 
@@ -1478,6 +1478,10 @@ lm_set() {
   while [ $# -gt 0 ]; do
     case "$1" in
       --slug) need_arg "$1" $#; _lslug=$2; shift 2 ;;
+      # `-1` を**オプションとして先に食わない**。負値は「未知のオプション」ではなく
+      # 下限違反として弾かれるべき（実走で「未知のオプション: -1」と出て誤誘導した）
+      -[0-9]*) if [ -z "$_k" ]; then die "使用法: aidev limits set <key> <n>"; fi
+               if [ -z "$_v" ]; then _v=$1; else die "引数が多すぎます: $1"; fi; shift ;;
       -*) die "未知のオプション: $1" ;;
       *) if [ -z "$_k" ]; then _k=$1; elif [ -z "$_v" ]; then _v=$1; else die "引数が多すぎます: $1"; fi; shift ;;
     esac
@@ -1487,6 +1491,11 @@ lm_set() {
   [ -n "$_sp" ] || die "未知の上限キー: $_k（設定できるのは $(printf '%s\n' "$LIMIT_KEYS" | cut -d: -f1 | tr '\n' ' ')）"
   set -- $_sp
   _sc=$1; _mn=$2; _df=$3
+  # scope=pj のキーに --slug を渡されたら**黙って無視しない**。work ごとの上限は
+  # 原理的に持てない（読む側が config.yml しか見ない）ので、効いたつもりが一番危ない
+  if [ "$_sc" != work ] && [ -n "$_lslug" ]; then
+    die "$_k は PJ 全体の上限なので --slug は使えません（work ごとに変えられるのは scope=work のキーだけ。aidev limits で確認）"
+  fi
   case "$_v" in ''|*[!0-9]*) die "値は 0 以上の整数: $_v" ;; esac
   [ "$_v" -ge "$_mn" ] 2>/dev/null || die "$_k の下限は $_mn です（$_v は指定できない）"
   if [ "$_sc" = work ]; then
@@ -1498,17 +1507,55 @@ lm_set() {
     set_or_append "$AIDEV/config.yml" "$_k" "$_k: $_v"
     printf 'set: %s = %s（.aidev/config.yml。PJ 全体に効く）\n' "$_k" "$_v"
   fi
-  [ "$_v" = "$_df" ] && printf 'note: 既定値と同じ値です（明示しておくこと自体は無害）\n'
+  [ "$_v" = "$_df" ] && printf 'note: 既定値と同じ値です（既定へ戻すなら aidev limits unset %s）\n' "$_k"
+  return 0
+}
+
+# 一時的に上限を緩めて戻す運用（検証・緊急対応）で、`set <既定値>` だと行が残り
+# source が config のままになる。「既定に戻した」と「たまたま既定と同じ値を書いた」は別物
+lm_unset() {
+  _k=""; _lslug=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --slug) need_arg "$1" $#; _lslug=$2; shift 2 ;;
+      -*) die "未知のオプション: $1" ;;
+      *) if [ -z "$_k" ]; then _k=$1; else die "引数が多すぎます: $1"; fi; shift ;;
+    esac
+  done
+  [ -n "$_k" ] || die "使用法: aidev limits unset <key> [--slug <work>]"
+  _sp=$(lm_spec "$_k")
+  [ -n "$_sp" ] || die "未知の上限キー: $_k（設定できるのは $(printf '%s\n' "$LIMIT_KEYS" | cut -d: -f1 | tr '\n' ' ')）"
+  set -- $_sp
+  _sc=$1; _mn=$2; _df=$3
+  if [ "$_sc" != work ] && [ -n "$_lslug" ]; then
+    die "$_k は PJ 全体の上限なので --slug は使えません"
+  fi
+  if [ "$_sc" = work ]; then
+    resolve_work "$_lslug"; _lf="$WORK/state.yml"; _lw=$SLUG
+  else
+    _lf="$AIDEV/config.yml"; _lw="PJ 全体"
+  fi
+  if [ ! -f "$_lf" ] || ! grep -q "^[[:space:]]*$_k:" "$_lf"; then
+    printf 'unset: %s は書かれていません（既定 %s のまま）\n' "$_k" "$_df"
+    return 0
+  fi
+  # `grep -v` は**全行落ちると exit 1**。`&& mv` にすると「唯一の行を消したときだけ消えない」
+  # という一番踏みやすい形になる（`grep -c` が 0 で 1 を返すのと同じ罠）
+  _lt="$_lf.tmp.$$"
+  grep -v "^[[:space:]]*$_k:" "$_lf" > "$_lt" || :
+  mv "$_lt" "$_lf"
+  printf 'unset: %s を削除しました（%s。既定 %s に戻ります）\n' "$_k" "$_lw" "$_df"
   return 0
 }
 
 cmd_limits() {
   [ $# -ge 1 ] || { lm_show; return $?; }
   case "$1" in
-    set)  shift; lm_set "$@" ;;
-    show) shift; lm_show "$@" ;;
+    set)   shift; lm_set "$@" ;;
+    unset) shift; lm_unset "$@" ;;
+    show)  shift; lm_show "$@" ;;
     -*)   lm_show "$@" ;;
-    *) die "未知の limits サブコマンド: $1（show|set）" ;;
+    *) die "未知の limits サブコマンド: $1（show|set|unset）" ;;
   esac
 }
 
@@ -1540,10 +1587,26 @@ tc_valid_id() { # id
     *) return 1 ;;
   esac
 }
+# tasks.md にそのタスクが実在するか。tasks.md がまだ無ければ判定不能として通す
+# （書式だけ見ていた頃は `T1` を `T11` と打ち間違えると、上限判定が別カウンタになり
+#  `task_checks` も 1 増える——**打ち間違いが「点検した」に化ける**）
+tc_known_id() { # task
+  [ -f "$WORK/tasks.md" ] || return 0
+  if cov_task_rows "$WORK/tasks.md" | cut -f1 | grep -qx "$1"; then return 0; fi
+  return 1
+}
 # そのタスクの点検ラウンド数（start の回数）
 tc_rounds() { # metrics_file task
   [ -f "$1" ] || { printf '0'; return; }
   _n=$(grep 'event:[[:space:]]*taskcheck' "$1" 2>/dev/null | grep 'stage:[[:space:]]*start' \
+        | grep -c "task:[[:space:]]*$2[,}]") || _n=0
+  case "$_n" in ''|*[!0-9]*) _n=0 ;; esac
+  printf '%s' "$_n"
+}
+# そのタスクの report 回数（start と対になっているかの判定に使う）
+tc_reports() { # metrics_file task
+  [ -f "$1" ] || { printf '0'; return; }
+  _n=$(grep 'event:[[:space:]]*taskcheck' "$1" 2>/dev/null | grep 'stage:[[:space:]]*report' \
         | grep -c "task:[[:space:]]*$2[,}]") || _n=0
   case "$_n" in ''|*[!0-9]*) _n=0 ;; esac
   printf '%s' "$_n"
@@ -1584,6 +1647,7 @@ tc_start() {
   [ -n "$_tmode" ] || die "--mode は必須（delegated=別コンテキストへ委譲 / same_session=同一セッションで読み直し）。点検が効く理由はコンテキスト分離なので、どちらで行ったかを残さないと効果を測れない"
   case " $TC_MODES " in *" $_tmode "*) ;; *) die "--mode は delegated|same_session" ;; esac
   resolve_work "$_tslug"
+  tc_known_id "$_tid" || die "tasks.md にそのタスクがありません: $_tid（打ち間違いか、tasks.md へ足し忘れ。足したなら AC: も書く）"
   _tmax=$(tc_max)
   _tr=$(tc_rounds "$WORK/metrics.yml" "$_tid")
   printf 'taskcheck: %s / %s\n' "$SLUG" "$_tid"
@@ -1622,8 +1686,20 @@ tc_report() {
     ''|*[!0-9]*) die "--findings は必須（0 以上の整数）。**崩れた返答から数字を拾わない**——件数が読めないなら点検しなかったものとして扱い、report を打たない" ;;
   esac
   resolve_work "$_tslug"
-  [ "$(tc_rounds "$WORK/metrics.yml" "$_tid")" -ge 1 ] 2>/dev/null \
-    || die "そのタスクの taskcheck start がありません: $_tid（start を打たずに結果だけ記録しない）"
+  # **start と対になっていない report は受けない**。start が 1 回以上あることだけを見ていた頃は、
+  # 上限で start が止まったあとでも report を打てて findings が積み上がった——
+  # `maxTaskCheckRounds` がラウンドは止めるのに件数は止めない、という穴（1ラウンド=1対）
+  _trs=$(tc_rounds "$WORK/metrics.yml" "$_tid")
+  _trr=$(tc_reports "$WORK/metrics.yml" "$_tid")
+  if [ "$_trs" -le 0 ] 2>/dev/null; then
+    die "そのタスクの taskcheck start がありません: $_tid（start を打たずに結果だけ記録しない）"
+  fi
+  if [ "$_trr" -ge "$_trs" ] 2>/dev/null; then
+    printf 'taskcheck: %s / %s\n' "$SLUG" "$_tid"
+    printf 'FAIL 対になる start がありません（start %s / report %s）\n' "$_trs" "$_trr" >&2
+    printf 'next: 点検し直すなら aidev taskcheck start %s から。上限で止まっているならそこで打ち切る\n' "$_tid" >&2
+    return 4
+  fi
   append_event coding taskcheck stage=report "task=$_tid" "findings=$_tf"
   printf 'taskcheck: %s / %s（findings %s）\n' "$SLUG" "$_tid" "$_tf"
   if [ "$_tf" -gt 0 ] 2>/dev/null; then
@@ -2640,9 +2716,13 @@ BEGIN{ first=-1; delivered_e=-1; delivered_flag=0; sback=0 }
               openat[ph]=e }
     if(!(ph in firststart_ts)) firststart_ts[ph]=ts
   } else if(ev=="approved"){
-    if(e>=0){ appat[ph]=e; appat_ts[ph]=ts
+    # `amend: yes`（start を挟まない再承認＝記録の訂正）は**時刻を上書きしない**。
+    # 上書きすると approved 列だけ後ろにずれ、同じ行の elapsed と辻褄が合わなくなる
+    # （deliver 後の訂正は正規の運用なので必ず起きる）。lead_sec も訂正時刻で伸びていた
+    isam = ($0 ~ /amend:[ \t]*yes/)
+    if(e>=0 && !isam){ appat[ph]=e; appat_ts[ph]=ts
               if(ph in openat){ elsum[ph]+=e-openat[ph]; delete openat[ph] } }
-    if(ph=="deliver"){ delivered_flag=1; if(e>=0) delivered_e=e }
+    if(ph=="deliver"){ delivered_flag=1; if(e>=0 && !isam) delivered_e=e }
   } else if(ev=="sent_back"){
     # `by: unapprove` は原因ではなく結果なので数えない（dbg_sent_backs と同じ規則）
     if($0 !~ /by:[ \t]*unapprove/) sback++
@@ -3014,6 +3094,7 @@ wt_add() {
     _bdef=$(git_default_branch)
     if [ -n "$_bdef" ] && [ "$_bdef" != "$_bhead" ]; then
       printf '  ⚠ base が既定ブランチ(%s)ではなく %s です。未マージの変更の上に積まれます\n' "$_bdef" "$_bhead"
+      printf '    （意図した積み上げなら問題ない。意図していないなら --base %s で取り直す）\n' "$_bdef"
       printf '    （deliver「1.5」の既着地検知が %s..HEAD の無関係なコミットで濁る）\n' "$_bdef"
     fi
   fi
@@ -4341,6 +4422,12 @@ $w"
 # この状態だと deliver「1.5」の既着地検知と `worktree files` の基点がどちらも素直でなくなる。
 doctor_branch() {
   command -v git >/dev/null 2>&1 || return 0
+  # **linked worktree では検査しない**。aidev の worktree は定義上 `feature/<slug>` に載っている
+  # （`worktree add` がそう作る）ので、ここで鳴らすと 100% 誤警告になる。
+  # 見出しどおり「main worktree の位置」を見る検査なので、main worktree でだけ意味がある
+  _dbg=$(git -C "$ROOT" rev-parse --git-dir 2>/dev/null) || _dbg=""
+  _dbc=$(git -C "$ROOT" rev-parse --git-common-dir 2>/dev/null) || _dbc=""
+  if [ -n "$_dbg" ] && [ -n "$_dbc" ] && [ "$_dbg" != "$_dbc" ]; then return 0; fi
   _dbcur=$(git -C "$ROOT" symbolic-ref --quiet --short HEAD 2>/dev/null) || _dbcur=""
   [ -n "$_dbcur" ] || return 0
   _dbdef=$(git_default_branch)
