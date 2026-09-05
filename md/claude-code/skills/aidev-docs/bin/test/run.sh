@@ -2038,6 +2038,12 @@ assert_contains "$(cat "$AU_D/metrics.yml")" "failed_index: 2" \
   "smoke: 何本目で落ちたかを刻む（原因を1つに絞る）"
 rm -f "$AUD/.aidev/config.yml"
 
+# ps1 が Windows PowerShell 5.1 で動くか（構文レベル）。**pwsh 7 では通るのに 5.1 で落ちる**
+# 構文は CI の winps ジョブだけが赤くなり、手元では一生気づかない。安いので静的に見張る
+AU_PS51=$(grep -vE '^[[:space:]]*#' aidev.ps1 \
+  | grep -nE -- '-Stable|Split-Path[^|]*-LeafBase|Join-String|-AsByteStream|-AsHashtable' || :)
+assert_eq "$AU_PS51" "" "aidev.ps1: PowerShell 6+ でしか無い構文を使っていない（5.1 の CI が落ちる）"
+
 # (12) taskcheck: 散文にしか無かった上限を CLI が止める
 mk_work tc
 printf -- '- [ ] T1: x\n      AC: AC1\n- [ ] T2: y\n      AC: AC2\n' > "$AU_D/tasks.md"

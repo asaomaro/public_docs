@@ -151,6 +151,22 @@ function SetOrAppend($file,$key,$newline) {
 
 function IsPhase($p) { return $script:PHASES -ccontains $p }
 
+# **Windows PowerShell 5.1 に `Sort-Object -Stable` は無い**（PS 6 で追加）。
+# 5.1 では「パラメーター名 'Stable' が見つかりません」で**その場で落ちる**——CI の winps ジョブ
+# だけが赤くなり、Linux の pwsh 7 では一生気づかない形。安定ソートを自前で行う
+# （入力は ordinal 済みなので、件数でバケットに分けて降順に連結すれば同順になる）。
+function SortByCountDesc($keys, $countOf) {
+  $buckets = @{}
+  foreach ($k in $keys) {
+    $c = [int](& $countOf $k)
+    if (-not $buckets.ContainsKey($c)) { $buckets[$c] = @() }
+    $buckets[$c] += $k
+  }
+  $out = @()
+  foreach ($c in @($buckets.Keys | Sort-Object -Descending)) { $out += $buckets[$c] }
+  return $out
+}
+
 # scalar 読み取り（前後空白と囲み二重引用符を除去）。inline コメント(#)は除去しない
 # （ticket/dependsOn は '#18' 等 '#' 始まりの値を持つため）。sh の yget と一致。
 function YGet($file,$key) {
@@ -2993,7 +3009,7 @@ function SharedHotUndeclared($max) {
   }
   $ck = [string[]]@($cnt.Keys)
   [Array]::Sort($ck, [System.StringComparer]::Ordinal)   # 同数の並びを sh と揃える
-  $ck = @($ck | Sort-Object -Stable @{Expression={$cnt[$_]};Descending=$true})
+  $ck = @(SortByCountDesc $ck { param($k) $cnt[$k] })
   $out = @(); $n = 0
   foreach ($f in $ck) {
     if ($cnt[$f] -lt $thr) { continue }
@@ -4106,7 +4122,7 @@ function Doctor-Shared() {
     $m = $cp.map
     $keys = [string[]]@($m.Keys)
     [Array]::Sort($keys, [System.StringComparer]::Ordinal)
-    $keys = @($keys | Sort-Object -Stable @{Expression={ @($m[$_]).Count };Descending=$true})
+    $keys = @(SortByCountDesc $keys { param($k) @($m[$k]).Count })
     foreach ($f in $keys) {
       $c2 = @($m[$f]).Count
       if ($c2 -lt 2) { continue }
