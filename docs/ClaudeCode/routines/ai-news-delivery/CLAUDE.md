@@ -11,7 +11,7 @@ AI 関連情報を WebSearch で収集し、HTML メールとして配信する�
 1. **収集** — WebSearch で下記のクエリ群を実行し、記事を集める
 2. **選別・要約** — 採否基準に従って絞り、日本語で要約する
 3. **`/tmp/items.json` を書く** — 下記スキーマに厳密に従う
-4. **ビルド** — `node md/claude-code/routines/build.mjs /tmp/items.json --out /tmp/digest`
+4. **ビルド** — `node docs/ClaudeCode/routines/ai-news-delivery/build.mjs /tmp/items.json --out /tmp/digest`
    （`/tmp/digest/htmlBody.html` と `/tmp/digest/body.txt` が出る）
 5. **送信** — Gmail コネクタの `send_message` で送る。パラメータ対応は下記「送信」節を厳守
 6. **検証** — 送ったメールを読み直し、HTML が生ソースで届いていないか確かめる

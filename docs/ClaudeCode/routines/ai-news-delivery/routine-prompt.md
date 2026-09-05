@@ -19,7 +19,7 @@ claude.ai/code/routines の **Instructions** 欄に貼るテキスト。
 ## Instructions（以下をコピー）
 
 ```text
-リポジトリの md/claude-code/routines/CLAUDE.md を最初に読み、そこに書かれた
+リポジトリの docs/ClaudeCode/routines/ai-news-delivery/CLAUDE.md を最初に読み、そこに書かれた
 収集ルール・採否基準・items.json スキーマに厳密に従うこと。
 
 手順:
@@ -35,7 +35,7 @@ claude.ai/code/routines の **Instructions** 欄に貼るテキスト。
 3. CLAUDE.md の採否基準で選別し、日本語で要約して /tmp/items.json を書く。
    スキーマは CLAUDE.md の定義に厳密に従うこと。
 
-4. node md/claude-code/routines/build.mjs /tmp/items.json --out /tmp/digest
+4. node docs/ClaudeCode/routines/ai-news-delivery/build.mjs /tmp/items.json --out /tmp/digest
    を実行する。スキーマ違反で失敗したら /tmp/items.json を直して再実行する。
    HTML を自分で書いてはいけない。必ずこのスクリプトの出力を使う。
    出力ファイル名は send_message の引数名と同じで、htmlBody.html と body.txt。

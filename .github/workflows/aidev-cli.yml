@@ -23,11 +23,11 @@ name: aidev CLI
 on:
   push:
     paths:
-      - 'md/claude-code/skills/aidev-**'
+      - 'docs/ClaudeCode/skills/aidev/**'
       - '.github/workflows/aidev-cli.yml'
   pull_request:
     paths:
-      - 'md/claude-code/skills/aidev-**'
+      - 'docs/ClaudeCode/skills/aidev/**'
       - '.github/workflows/aidev-cli.yml'
   workflow_dispatch:
 
@@ -52,7 +52,7 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: md/claude-code/skills/aidev-docs/bin
+        working-directory: docs/ClaudeCode/skills/aidev/aidev-docs/bin
     steps:
       - uses: actions/checkout@v4
         with:

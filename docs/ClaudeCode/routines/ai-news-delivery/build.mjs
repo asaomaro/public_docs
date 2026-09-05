@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // items.json + template.html -> htmlBody.html / body.txt
 //
-//   node md/claude-code/routines/build.mjs /tmp/items.json --out /tmp/digest
+//   node docs/ClaudeCode/routines/ai-news-delivery/build.mjs /tmp/items.json --out /tmp/digest
 //
 // 依存パッケージなし。Node 18+ の ESM で動く。
 // スキーマ違反は全部まとめて報告して exit 1。

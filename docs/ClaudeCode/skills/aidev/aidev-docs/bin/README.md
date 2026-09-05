@@ -162,7 +162,7 @@ CI ではこれを失敗として扱う（`.github/workflows/aidev-cli.yml`）�
 
 ## `test/lint-docs.sh`（文書と CLI 表面の整合）
 
-`run.sh` から呼ばれ、CI でも走る（ワークフローのトリガは `md/claude-code/skills/aidev-**`
+`run.sh` から呼ばれ、CI でも走る（ワークフローのトリガは `docs/ClaudeCode/skills/aidev/**`
 ＝**文書だけの変更でも走る**）。散文で「気をつける」と書いても片側だけ更新される、という事故を
 繰り返したので、機械で見られるものを第二層に上げたもの。
 
