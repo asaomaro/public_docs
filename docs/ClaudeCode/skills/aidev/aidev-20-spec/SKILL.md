@@ -38,10 +38,9 @@ requirement を「どう作るか」の実装仕様に落とす。設計判断�
      小規模と autonomous ではスキップ）。
 4. 下記テンプレートに沿って `spec.md` を記述する。
    シーケンス・状態遷移・データモデルは、明確になるなら mermaid で図示する（protocol.md「9.」）。
-   - 書き終えたら内部一貫性の点検（各 `AC` への対応・`対象範囲` と方針の整合）を別コンテキストへ
-     委譲してよい（`protocol.md`「3.3」(a)。**`autonomous` では必須**、light では使わない）。
-     打つのは `aidev doccheck start spec --mode <delegated|same_session>` → 結果を
-     `aidev doccheck report spec --findings <件数>`（`protocol-check.md`「(a)」）。
+   - 書き終えたら内部一貫性を別コンテキストへ点検させる（`autonomous` は必須。規約は
+     `protocol-check.md`「(a)」）: `aidev doccheck start spec --mode <delegated|same_session>`
+     → `aidev doccheck report spec --findings <n>`。
 5. **複雑度の自己評価（design 推奨判定）**：protocol.md「4.5」の design の4条件に該当すれば、
    次の遷移ゲートの選択肢に `承認して design(任意) を挟む`（推奨）を加え、推奨理由を添える。
 6. protocol.md「3. 工程終了プロトコル」に従って終了する
@@ -80,12 +79,11 @@ requirement を「どう作るか」の実装仕様に落とす。設計判断�
 書式は行頭 `- AC<id>: …`——`aidev coverage` の `spec` 列がここを読む）
 ```
 
-**各 AC について「その入力はどこから来るか」が spec 内で辿れることを確かめる**。
-`coverage` が見るのは ID の対応だけで、**入力の出所が書かれていないことは検知できない**
-（他 PJ の retro が実測: 入力の出所を書いていない AC が coding まで素通りした）。
-辿れないなら、それは spec の穴か requirement への差し戻し。
+**各 AC には「その入力がどこから来るか」を書く**。`coverage` は ID の対応しか見ないので、
+入力の出所の欠落は機械では拾えない（他 PJ の retro が実測——出所の無い AC が coding まで素通りした）。
 
 ## 完了の目安
 
 - requirement の全完了条件に対し、実現方法が spec 上で説明できる。
+  **各 AC の入力の出所が spec 内で辿れる**（辿れないなら spec の穴か requirement への差し戻し）。
 - plan 工程で作業分解できる粒度まで設計が具体化している。

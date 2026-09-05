@@ -152,6 +152,22 @@ function SetOrAppend($file,$key,$newline) {
 
 function IsPhase($p) { return $script:PHASES -ccontains $p }
 
+# Die は exit するので `if (ResolveWork …)` では受からない（sh 版 resolve_work_soft の注記に理由）
+function ResolveWorkSoft($slug) {
+  $rs = $slug
+  if (-not $rs) { $rs = $env:AIDEV_WORK }
+  if (-not $rs) {
+    $cur = Join-Path $script:AIDEV 'current'
+    if (-not (IsFile $cur)) { return $false }
+    $rs = ((Get-Content -LiteralPath $cur -TotalCount 1) -replace "`r|`n", '').Trim()
+  }
+  if (-not $rs) { return $false }
+  $w = Join-Path (Join-Path $script:AIDEV 'works') $rs
+  if (-not (IsDir $w)) { return $false }
+  $script:WORK = $w; $script:SLUG = $rs
+  return $true
+}
+
 # **Windows PowerShell 5.1 は `2>$null` だけでは native コマンドの stderr を消しきれない**。
 # $ErrorActionPreference='Stop' の下では NativeCommandError として湧き、
 # 「git.exe : fatal: not a git repository」がそのまま出力に混ざる（sh 側は消しているので
@@ -676,20 +692,32 @@ function Cmd-Approve($rest) {
       }
     }
   }
-  # 実施形態は enum。タイポ（deligated 等）を通すと層別が静かに壊れる（sh 版と同一）
+  # 実施形態は enum。タイポ（deligated 等）を通すと層別が静かに壊れる（sh 版と同一）。
+  # 手渡しの *_check_mode は CLI の記録と突き合わせる（sh 版 cmd_approve の注記に理由）
+  $akmodeTask = $false; $akmodeDoc = $false
   foreach ($kv in @($kvs)) {
     if ($kv -like 'task_check_mode=*') {
       $mv = $kv.Substring('task_check_mode='.Length)
       if ('delegated','same_session','mixed' -cnotcontains $mv) {
         Die "task_check_mode は delegated|same_session（taskcheck から自動で刻むときは、形態が割れていれば mixed）"
       }
+      $akmodeTask = $true
     }
     if ($kv -like 'doc_check_mode=*') {
       $mv = $kv.Substring('doc_check_mode='.Length)
       if ('delegated','same_session','mixed' -cnotcontains $mv) {
         Die "doc_check_mode は delegated|same_session（doccheck から自動で刻むときは、形態が割れていれば mixed）"
       }
+      $akmodeDoc = $true
     }
+  }
+  if ($akmodeTask) {
+    $tt = TcTotals (Join-Path $script:WORK 'metrics.yml')
+    if ($tt.tasks -le 0) { Die "task_check_mode を手で渡せません: この work に taskcheck の記録がありません（aidev taskcheck start <task-id> --mode … から打つ。点検していないなら task_checks=0 だけを渡す）" }
+  }
+  if ($akmodeDoc) {
+    $dd = DcTotals (Join-Path $script:WORK 'metrics.yml') $ph
+    if ($dd.rounds -le 0) { Die "doc_check_mode を手で渡せません: $ph に doccheck の記録がありません（aidev doccheck start $ph --mode … から打つ）" }
   }
   # coding の点検メトリクスは taskcheck の記録から自動で刻む（sh 版 cmd_approve の注記に理由）
   if ($ph -ceq 'coding') {
@@ -1667,21 +1695,28 @@ function Dc-Start($rest) {
   if (-not $dmode) { Die "--mode は必須（delegated=別コンテキストへ委譲 / same_session=同一セッションで読み直し）。点検が効く理由はコンテキスト分離なので、どちらで行ったかを残さないと効果を測れない" }
   if ($script:TC_MODES -cnotcontains $dmode) { Die "--mode は delegated|same_session" }
   ResolveWork $dslug
-  if (-not (IsFile (Join-Path $script:WORK "$dph.md"))) { Die "点検する文書がありません: $dph.md（その工程を先に書く）" }
+  # 前提成果物の不足は exit 2（guard と同じ分類。使い方の誤り=1 と混ぜない）
+  if (-not (IsFile (Join-Path $script:WORK "$dph.md"))) {
+    [Console]::Error.WriteLine("aidev: 点検する文書がありません: $dph.md（その工程を先に書く）")
+    exit 2
+  }
   $mf = Join-Path $script:WORK 'metrics.yml'
   $dmax = DcMax
   $dr = DcCount $mf 'start' $dph
-  Write-Output "doccheck: $($script:SLUG) / $dph"
   if ($dr -ge $dmax) {
+    [Console]::Error.WriteLine("doccheck: $($script:SLUG) / $dph")
     [Console]::Error.WriteLine("FAIL 点検ラウンドが上限に達しています（$dr/$dmax。maxDocCheckRounds）")
     [Console]::Error.WriteLine("next: 深追いせず、残った疑問を decisions.md に残して承認へ進む（判断は次工程・60 review に委ねる）")
     exit 4
   }
+  Write-Output "doccheck: $($script:SLUG) / $dph"
   AppendEvent $script:WORK $dph 'doccheck' @('stage=start', "phase=$dph", "mode=$dmode")
   Write-Output "round: $($dr + 1)/$dmax"
-  Write-Output "渡すもの: $dph.md だけ（上流の元文書は渡さない。内部一貫性を見るため）"
-  Write-Output "観点: **内部一貫性のみ**——AC の ID 対応漏れ / 目的・ゴールが状態で書けているか /"
-  Write-Output "      対象範囲と方針・図と本文の食い違い / 節の欠落・前後の矛盾"
+  # plan の `AC:` 行は tasks.md にしかない（sh 版の注記に理由）
+  if ($dph -ceq 'plan') { Write-Output "渡すもの: plan.md と tasks.md（AC: 行は tasks.md にある。上流の元文書は渡さない）" }
+  else { Write-Output "渡すもの: $dph.md だけ（上流の元文書は渡さない。内部一貫性を見るため）" }
+  Write-Output "観点: **内部一貫性のみ**——AC の ID 対応漏れ / **AC の入力の出所が文書内で辿れるか** /"
+  Write-Output "      目的・ゴールが状態で書けているか / 対象範囲と方針・図と本文の食い違い / 節の欠落・前後の矛盾"
   Write-Output "禁止: **外部ソース・一次資料との照合**（幻覚的な指摘を量産する。一次資料は主エージェントが直読）"
   Write-Output "返却形式（これ以外は解釈しない）:"
   Write-Output "  CHECK: <ok|findings>"
@@ -1710,7 +1745,7 @@ function Dc-Report($rest) {
   $drr = DcCount $mf 'report' $dph
   if ($drs -lt 1) { Die "その工程の doccheck start がありません: $dph（start を打たずに結果だけ記録しない）" }
   if ($drr -ge $drs) {
-    Write-Output "doccheck: $($script:SLUG) / $dph"
+    [Console]::Error.WriteLine("doccheck: $($script:SLUG) / $dph")
     [Console]::Error.WriteLine("FAIL 対になる start がありません（start $drs / report $drr）")
     [Console]::Error.WriteLine("next: 点検し直すなら aidev doccheck start $dph から。上限で止まっているならそこで打ち切る")
     exit 4
@@ -1806,8 +1841,9 @@ function Lm-Show($rest) {
   }
   if ($fmt -cne 'table' -and $fmt -cne 'tsv') { Die "--format は table|tsv" }
   # work が無くても PJ 側は見せる（sh 版と同一）
+  # Die は exit するので try/catch でも受からない（sh 版と同じ穴が ps1 にもあった）
   $lst = ''
-  try { ResolveWork $lslug; $lst = Join-Path $script:WORK 'state.yml' } catch { $lst = '' }
+  if (ResolveWorkSoft $lslug) { $lst = Join-Path $script:WORK 'state.yml' }
   $cfg = Join-Path $script:AIDEV 'config.yml'
   $rows=@()
   foreach ($e in $script:LIMIT_KEYS) {

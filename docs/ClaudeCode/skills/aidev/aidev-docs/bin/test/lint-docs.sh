@@ -189,7 +189,15 @@ echo "== L6: 実行時に読む量の予算 =="
 # 全 work が払うコスト。**増やすなら意図的に**（この数を書き換えるコミットで理由を述べる）。
 # 減るぶんには落とさない（削減は歓迎）
 BUDGET_PROTOCOL=608
-BUDGET_TOTAL=3395
+# 3395 -> 3410: doccheck の追加に伴う増加。内訳と根拠（すべて実走で必要と分かったもの）:
+#   protocol-autonomous「安全弁」に独立点検 +3（autonomous の必須事項一覧から到達できず、
+#     一覧だけ読んだ実行者は schema 11 の必須記録に辿り着けなかった）
+#   protocol-check「(a)」の起動経路・report のタイミング・対象工程の限定 +5
+#     （起動経路が spec/design だけの古い記述で、requirement/plan の経路が「存在しない」ことになっていた）
+#   protocol-analysis に doc_check_* の読み方 +2（刻んだメトリクスの使い道が未定義だった）
+#   aidev-00-start に --backlog-item +2（打たないと status の HELD が行単位で出ない）
+#   各 SKILL の doccheck 行 +3（正典は protocol-check。ここは引き金と打つコマンドだけ）
+BUDGET_TOTAL=3410
 _p=$(wc -l < "$SKILLS/aidev-00-start/protocol.md")
 _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 [ "$_p" -le "$BUDGET_PROTOCOL" ] && ok "L6 protocol.md が予算内（$_p / $BUDGET_PROTOCOL 行）" \

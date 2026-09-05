@@ -133,6 +133,23 @@ resolve_work() { # [slug]
   SLUG=$slug
 }
 
+# **die は exit する**ので `if resolve_work …; then` では受からない（プロセスごと落ち、
+# `2>/dev/null` がメッセージまで消して「無言の exit 1」になる。`limits` で実際に起きた
+# ——導入直後に上限値を確かめたい、まさにその瞬間に効かなかった）。
+# 「work があれば使う、無ければ黙って続ける」用の落ちない版。
+resolve_work_soft() { # [slug] -> 0=解決した / 1=解決できない（die しない）
+  _rs=${1:-}
+  [ -n "$_rs" ] || _rs=${AIDEV_WORK:-}
+  if [ -z "$_rs" ]; then
+    [ -f "$AIDEV/current" ] || return 1
+    _rs=$(head -n1 "$AIDEV/current" | tr -d '\r\n')
+  fi
+  [ -n "$_rs" ] || return 1
+  [ -d "$AIDEV/works/$_rs" ] || return 1
+  WORK="$AIDEV/works/$_rs"; SLUG=$_rs
+  return 0
+}
+
 # state.yml の key 行を差し替え、無ければ末尾に追記（subtasks/activeSubtask の冪等更新用）。
 set_or_append() { # file key newline
   if grep -q "^$2:" "$1"; then replace_line "$1" "$2" "$3"; else printf '%s\n' "$3" >> "$1"; fi
@@ -622,20 +639,38 @@ cmd_approve() {
   # 「review 時点の被覆」の**2点**があれば乖離が読めるから（間を刻んでも量が増えるだけ）。
   # tasks.md がまだ無い工程（full の requirement・分割 work の親 plan）は刻まない。
   # 実施形態は enum。タイポ（deligated 等）を通すと層別が静かに壊れる
+  # **手渡しの `*_check_mode` は CLI の記録と突き合わせる**。突き合わせないと、
+  # 点検を一度も打たずに `approve <phase> doc_check_mode=delegated` と書くだけで
+  # `verify --strict` を通せた（実走で再現）。`protocol.md`「2.10」の
+  # 「判定・不変条件は必ず CLI に置く」に反する——**件数と違って真実は CLI 側にある**
+  # （`doccheck` / `taskcheck` のイベント）ので、名乗りだけを受け取らない。
+  _akmode_doc=no; _akmode_task=no
   for _akv in "$@"; do
     case "$_akv" in
       task_check_mode=*)
         case "${_akv#task_check_mode=}" in
           delegated|same_session|mixed) ;;
           *) die "task_check_mode は delegated|same_session（taskcheck から自動で刻むときは、形態が割れていれば mixed）" ;;
-        esac ;;
+        esac
+        _akmode_task=yes ;;
       doc_check_mode=*)
         case "${_akv#doc_check_mode=}" in
           delegated|same_session|mixed) ;;
           *) die "doc_check_mode は delegated|same_session（doccheck から自動で刻むときは、形態が割れていれば mixed）" ;;
-        esac ;;
+        esac
+        _akmode_doc=yes ;;
     esac
   done
+  if [ "$_akmode_task" = yes ]; then
+    tc_totals "$WORK/metrics.yml"
+    [ "$TC_TASKS" -gt 0 ] 2>/dev/null \
+      || die "task_check_mode を手で渡せません: この work に taskcheck の記録がありません（aidev taskcheck start <task-id> --mode … から打つ。点検していないなら task_checks=0 だけを渡す）"
+  fi
+  if [ "$_akmode_doc" = yes ]; then
+    dc_totals "$WORK/metrics.yml" "$ph"
+    [ "$DC_ROUNDS" -gt 0 ] 2>/dev/null \
+      || die "doc_check_mode を手で渡せません: $ph に doccheck の記録がありません（aidev doccheck start $ph --mode … から打つ）"
+  fi
   # **同じラウンドの刻み直しは「訂正」であって新しいラウンドではない**。
   # 直近の approved のあとに start が無ければ訂正とみなし、`amend=yes` を付けて追記する。
   # 付けないと `verify` の対検査が「start 1 に approved 2」と鳴り、WARN が指示した
@@ -1477,7 +1512,7 @@ lm_show() {
   case "$_fmt" in table|tsv) ;; *) die "--format は table|tsv" ;; esac
   # work が無くても PJ 側は見せる（導入直後に効いている値を確かめられるように）
   _lst=""
-  if resolve_work "$_lslug" 2>/dev/null; then _lst="$WORK/state.yml"; fi
+  if resolve_work_soft "$_lslug"; then _lst="$WORK/state.yml"; fi
   _rows=""
   _oi=$IFS; IFS='
 '
@@ -1857,20 +1892,31 @@ dc_start() {
   [ -n "$_dmode" ] || die "--mode は必須（delegated=別コンテキストへ委譲 / same_session=同一セッションで読み直し）。点検が効く理由はコンテキスト分離なので、どちらで行ったかを残さないと効果を測れない"
   case " $TC_MODES " in *" $_dmode "*) ;; *) die "--mode は delegated|same_session" ;; esac
   resolve_work "$_dslug"
-  [ -f "$WORK/$_dph.md" ] || die "点検する文書がありません: $_dph.md（その工程を先に書く）"
+  # 前提成果物の不足は exit 2（`guard` と同じ分類。使い方の誤り=1 と混ぜない）
+  if [ ! -f "$WORK/$_dph.md" ]; then
+    printf 'aidev: 点検する文書がありません: %s.md（その工程を先に書く）\n' "$_dph" >&2
+    exit 2
+  fi
   _dmax=$(dc_max)
   _dr=$(dc_rounds "$WORK/metrics.yml" "$_dph")
-  printf 'doccheck: %s / %s\n' "$SLUG" "$_dph"
   if [ "$_dr" -ge "$_dmax" ] 2>/dev/null; then
+    printf 'doccheck: %s / %s\n' "$SLUG" "$_dph" >&2
     printf 'FAIL 点検ラウンドが上限に達しています（%s/%s。maxDocCheckRounds）\n' "$_dr" "$_dmax" >&2
     printf 'next: 深追いせず、残った疑問を decisions.md に残して承認へ進む（判断は次工程・60 review に委ねる）\n' >&2
     return 4
   fi
+  printf 'doccheck: %s / %s\n' "$SLUG" "$_dph"
   append_event "$_dph" doccheck stage=start "phase=$_dph" "mode=$_dmode"
   printf 'round: %s/%s\n' "$((_dr + 1))" "$_dmax"
-  printf '渡すもの: %s.md だけ（上流の元文書は渡さない。内部一貫性を見るため）\n' "$_dph"
-  printf '観点: **内部一貫性のみ**——AC の ID 対応漏れ / 目的・ゴールが状態で書けているか /\n'
-  printf '      対象範囲と方針・図と本文の食い違い / 節の欠落・前後の矛盾\n'
+  # plan 工程の成果物は plan.md と tasks.md の2つで、`AC:` 行は tasks.md にしかない。
+  # 「plan.md だけ」と言いながら「AC の ID 対応漏れ」を観点に挙げると、構造的に検知できない（実走で判明）
+  if [ "$_dph" = plan ]; then
+    printf '渡すもの: plan.md と tasks.md（AC: 行は tasks.md にある。上流の元文書は渡さない）\n'
+  else
+    printf '渡すもの: %s.md だけ（上流の元文書は渡さない。内部一貫性を見るため）\n' "$_dph"
+  fi
+  printf '観点: **内部一貫性のみ**——AC の ID 対応漏れ / **AC の入力の出所が文書内で辿れるか** /\n'
+  printf '      目的・ゴールが状態で書けているか / 対象範囲と方針・図と本文の食い違い / 節の欠落・前後の矛盾\n'
   printf '禁止: **外部ソース・一次資料との照合**（幻覚的な指摘を量産する。一次資料は主エージェントが直読）\n'
   printf '返却形式（これ以外は解釈しない）:\n'
   printf '  CHECK: <ok|findings>\n'
@@ -1903,7 +1949,7 @@ dc_report() {
     die "その工程の doccheck start がありません: $_dph（start を打たずに結果だけ記録しない）"
   fi
   if [ "$_drr" -ge "$_drs" ] 2>/dev/null; then
-    printf 'doccheck: %s / %s\n' "$SLUG" "$_dph"
+    printf 'doccheck: %s / %s\n' "$SLUG" "$_dph" >&2
     printf 'FAIL 対になる start がありません（start %s / report %s）\n' "$_drs" "$_drr" >&2
     printf 'next: 点検し直すなら aidev doccheck start %s から。上限で止まっているならそこで打ち切る\n' "$_dph" >&2
     return 4
