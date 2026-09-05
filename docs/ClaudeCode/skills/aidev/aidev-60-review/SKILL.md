@@ -29,7 +29,8 @@ AI 開発ワークフローの **review（レビュー）工程**を実行する
 ## 手順
 
 1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定する。
-   `aidev guard review` で前提を検査する（exit≠0＝未充足。目視確認で代替しない）。
+   `aidev guard review` で前提を検査し、`aidev event review start` を記録する
+   （exit≠0＝未充足。目視確認で代替しない。start が無いと所要時間も手戻りも導出できない）。
    - 対象が subtask（state.yml に `parent` あり）か親（統合 review）かを見分ける（`protocol-subtask.md`）。
 2. 差分を以下の観点で点検する。**実作業の優先順位は protocol.md「2.5」の三段階**に従う
    （PJ 固有 skill → エージェント組み込みのレビューコマンド → 下記のジェネリック観点）。

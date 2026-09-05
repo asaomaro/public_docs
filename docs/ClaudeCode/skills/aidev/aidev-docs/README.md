@@ -130,6 +130,10 @@ planner の方針は `.aidev/charter.md` で縛る。
 選択肢とは別に、**機械が判定する硬いゲート**が 3 つある——plan の `aidev coverage --strict`
 （受け入れ基準の被覆と tasks.md の整合）、test の `aidev smoke`（成果物が起動するか）、
 deliver 前の `aidev verify`（不変条件）。いずれも exit≠0 なら承認しない。
+`aidev doctor` は導入の自己診断も兼ねる——`.aidev/current` が git に追跡されていないか
+（追跡されていると worktree の前提が崩れる）、`smokeCommands:` ブロックの外に書いた行が
+黙って無視されていないか、ハーネスが git 管理外で**またがり検知が成立しない**環境でないか、も見る。
+
 `aidev verify --strict` はさらに**記録漏れ**（`event` の start 欠落、`autonomous` の
 `decisions.md`、タスク点検の実施形態、**`autonomous` の上流4文書の独立点検**）を致命にする
 ——どれも「そのとき書かなければ二度と書けない」もので、機械ゲート（Stop フック等）から使う想定。

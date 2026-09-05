@@ -30,8 +30,8 @@ plan / tasks に沿ってコードを書く。`tasks.md` の未チェック項�
 
 ## 手順
 
-1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定。`aidev guard coding` で前提を検査する
-   （exit≠0＝未充足。目視確認で代替しない）。
+1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定。`aidev guard coding` で前提を検査し、
+   `aidev event coding start` を記録する（exit≠0＝未充足。start が無いと所要時間も手戻りも導出できない）。
    `research.md` / `design.md` があれば、先に「実装アンカー」「実装時の注意」に目を通す。
    - 対象が subtask（state.yml に `parent` あり）なら `protocol-subtask.md` を読む（差し戻しの戻り先はここ）。
 2. `tasks.md` の未チェック項目のうち、**`依存:` が全て済んでいるものの集合＝現在のウェーブ**を求め、

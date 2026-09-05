@@ -165,10 +165,13 @@ run_sh status --format bogus >/dev/null 2>&1; assert_eq "$?" "1" "不正 --forma
 
 echo "== metrics =="
 MT=$(run_sh metrics --all --format tsv)
-assert_contains "$MT" "20260101-alpha	2026-01-01T00:00:00Z	yes	10800	1	1" "alpha: lead=10800/reworks=1/sent_backs=1"
+# `lead_sec` は**暦の上の時間**（離席ぶんが乗る）、`work_sec` は工程の elapsed 合計。
+# 並べて出さないと「実作業に近い時間」と読み分けられない（retro が実測: lead の 60% が待ち時間だった）
+assert_contains "$MT" "20260101-alpha	2026-01-01T00:00:00Z	yes	10800	3900	1	1" "alpha: lead=10800 / work_sec=3900 / reworks=1 / sent_backs=1"
 assert_contains "$MT" "20260103-legacy	-	no	-	0	0" "legacy: metrics空でも 0/-"
 # ハーネス版で層別する材料（harnessRev / straddle）。無いと insights は state.yml を grep して手で JOIN していた
-assert_contains "$MT" "20260101-alpha	2026-01-01T00:00:00Z	yes	10800	1	1	-	-" "metrics --all: harnessRev/straddle 列（刻印なしは -/-）"
+assert_contains "$MT" "20260101-alpha	2026-01-01T00:00:00Z	yes	10800	3900	1	1	-	-" "metrics --all: harnessRev/straddle 列（刻印なしは -/-）"
+assert_contains "$(run_sh metrics --all)" "lead_sec  work_sec" "metrics --all: work_sec も表の見出しに出る"
 assert_contains "$(run_sh metrics --all)" "harnessRev  straddle" "metrics --all: 表形式の見出しにも出る"
 
 echo "== status --active / doctor --quiet（100 works で読める出力量にする） =="
@@ -1464,6 +1467,11 @@ if command -v git >/dev/null 2>&1; then
   ( cd "$UNR/w" && "$UNR/skills/aidev-docs/bin/aidev" new u1 ) >/dev/null 2>&1
   assert_eq "$(sed -n 's/^harnessRev: //p' "$UNR/w/.aidev/works/"*u1/state.yml)" "unknown" \
     "harnessRev: ハーネスが git 管理外なら unknown（空 blob のハッシュを刻まない）"
+  # 版名が取れない環境では**またがり判定が原理的に成立しない**（両端が unknown で差が出ない）。
+  # 版名を捏造して埋めない——mtime や内容ハッシュの代用は無関係な変更で誤検知し、
+  # 誤検知はそのまま効果検証の母集団を痩せさせる。代わりに**効かないことを言う**
+  assert_contains "$( ( cd "$UNR/w" && "$UNR/skills/aidev-docs/bin/aidev" doctor ) 2>&1 )" "またがり判定が成立しません" \
+    "doctor: ハーネスが git 管理外なら、またがり検知が効かないことを言う"
   if [ -n "$PS_HOST" ]; then
     ( cd "$UNR/w" && run_ps1 "$UNR/skills/aidev-docs/bin/aidev.ps1" new u2 ) >/dev/null 2>&1
     assert_eq "$(sed -n 's/^harnessRev: //p' "$UNR/w/.aidev/works/"*u2/state.yml | tr -d '\r')" "unknown" \
@@ -1479,9 +1487,9 @@ if command -v git >/dev/null 2>&1; then
     "harnessRev: 既に刻まれた空 blob 値は読むときに unknown へ正規化する"
   rm -rf "$UNR"
   rm -rf "$GRR"
-  block_end hrgrain "10" "hrgrain"
+  block_end hrgrain "11" "hrgrain"
 else
-  skip 10 "harnessRev の粒度（git 不在）"
+  skip 11 "harnessRev の粒度（git 不在）"
 fi
 
 echo "== coverage（AC 被覆 / tasks.md の整合）=="
@@ -1733,7 +1741,7 @@ assert_contains "$(cat "$MTD/metrics.yml")" "nit: 0, ac_total: 3, ac_covered: 3,
 
 MTOUT=$(run_mt metrics)
 assert_contains "$MTOUT" "ac  ac_drift" "metrics: ac / ac_drift 列を出す"
-assert_eq "$(run_mt metrics --format tsv | awk -F'\t' '{print $7, $8}')" "3 1" "metrics: 要求の規模(3)と plan 以降に増えた gap(1)"
+assert_eq "$(run_mt metrics --format tsv | awk -F'\t' '{print $8, $9}')" "3 1" "metrics: 要求の規模(3)と plan 以降に増えた gap(1)"
 
 # 明示指定は機械値で上書きしない
 run_mt new mstamp2 >/dev/null; MTW2=$(cat "$MTR/.aidev/current"); MTD2="$MTR/.aidev/works/$MTW2"
@@ -1744,7 +1752,7 @@ assert_contains "$(cat "$MTD2/metrics.yml")" "ac_total: 99" "approve: 明示指�
 assert_absent "$(cat "$MTD2/metrics.yml")" "ac_total: 1," "approve: 明示指定と機械値を二重に刻まない"
 
 # 刻印が1点しかない work では乖離を測れない（0 と表示して「乖離なし」と誤読させない）
-assert_eq "$(run_mt metrics "$MTW2" --format tsv | awk -F'\t' '{print $8}')" "-" "metrics: 刻印が1点なら ac_drift は - （測れないことを 0 と書かない）"
+assert_eq "$(run_mt metrics "$MTW2" --format tsv | awk -F'\t' '{print $9}')" "-" "metrics: 刻印が1点なら ac_drift は - （測れないことを 0 と書かない）"
 rm -rf "$MTR"
 
 
@@ -1908,16 +1916,16 @@ assert_contains "$(cat "$AUD2/metrics.yml")" "metrics: { ac_total: 9 }" "approve
 
 # ac_covered を持たない刻印は乖離の計算から捨てる（0 とみなすと乖離を捏造する）
 run_au approve review >/dev/null
-assert_eq "$(run_au metrics "$AU_M1B" --format tsv | awk -F'\t' '{print $8}')" "-" \
+assert_eq "$(run_au metrics "$AU_M1B" --format tsv | awk -F'\t' '{print $9}')" "-" \
   "metrics: ac_total だけ手で渡した刻印は ac_drift に使わない（乖離を捏造しない）"
 
 # 同じ工程を2回 approve しても「2点ある」ことにしない（測れないことを 0 と書かない）
 mk_work m5; AUD3=$AU_D; AU_M5=$AU_W
 run_au approve plan >/dev/null; run_au approve plan >/dev/null
-assert_eq "$(run_au metrics "$AU_M5" --format tsv 2>/dev/null | awk -F'\t' '{print $8}')" "-" \
+assert_eq "$(run_au metrics "$AU_M5" --format tsv 2>/dev/null | awk -F'\t' '{print $9}')" "-" \
   "metrics: 同じ工程の二重 approve を 2 点と数えない（plan と review で選ぶ）"
 run_au approve review >/dev/null
-assert_eq "$(run_au metrics "$AU_M5" --format tsv | awk -F'\t' '{print $8}')" "0" "metrics: plan と review がそろえば測れる"
+assert_eq "$(run_au metrics "$AU_M5" --format tsv | awk -F'\t' '{print $9}')" "0" "metrics: plan と review がそろえば測れる"
 
 # 分割 work: 子では刻まない（家族単位の値を子ごとに刻むと分母が多重計上される）
 mk_work split; AUDP=$AU_D
@@ -1994,7 +2002,7 @@ run_au unapprove test >/dev/null; run_au unapprove coding >/dev/null
 AU_SBM=$(cat "$AU_D/metrics.yml")
 assert_contains "$AU_SBM" "phase: test, event: sent_back, metrics: { by: unapprove }" \
   "unapprove: 取り消しは by: unapprove 付きで刻む（記録は消さない）"
-assert_eq "$(run_au metrics "$AU_SBQ" --format tsv | awk -F'\t' '{print $6}')" "1" \
+assert_eq "$(run_au metrics "$AU_SBQ" --format tsv | awk -F'\t' '{print $7}')" "1" \
   "metrics: sent_backs は unapprove 由来を数えない（規約を守った work だけ数が増えない）"
 assert_eq "$(run_au debug status --format tsv 2>/dev/null | awk -F'\t' '$1=="coding"{print "leaked"}')" "" \
   "debug status: 一度も失敗していない coding が上流の取り消しで予算を消費しない（行ごと出ない）"
@@ -2198,6 +2206,35 @@ assert_contains "$DCSV" "plan を autonomous で承認したのに独立点検�
 assert_eq "$(printf '%s' "$DCSV" | grep -c 'spec を autonomous')" "0" \
   "verify(subtask): 親から継承する上流3文書は対象外（子に md が無い）"
 
+# (12c) 他 PJ の retro が見つけた指摘
+# **旧 schema の work には doccheck の WARN を出さない**。一度は「schema を問わず WARN」を入れたが、
+# 報告元が「その時点のハーネスに機能が無かっただけ」と訂正してきたので撤回した——
+# 承認済みの工程に後から点検は掛けられず、旧 work では永久に鳴って直せない
+mk_work dcs10
+awk '{ if ($0 ~ /^schema:/) print "schema: 10"; else if ($0 ~ /^mode:/) print "mode: autonomous"; else print }' \
+  "$AU_D/state.yml" > "$AU_D/state.yml.t" && mv "$AU_D/state.yml.t" "$AU_D/state.yml"
+: > "$AU_D/spec.md"
+run_au event spec start >/dev/null
+run_au approve spec >/dev/null
+assert_eq "$(run_au verify 2>&1 | grep -c '独立点検の記録がありません')" "0" \
+  "verify: schema 10 の work には独立点検の WARN を出さない（直せない警告を永久に鳴らさない）"
+# 件数を刻んだのに内容が review.md に残っていない
+mk_work tclog
+printf -- '- [ ] T1: x\n      AC: AC1\n' > "$AU_D/tasks.md"
+run_au taskcheck start T1 --mode delegated >/dev/null
+run_au taskcheck report T1 --findings 2 >/dev/null
+run_au approve coding >/dev/null
+assert_contains "$(run_au verify 2>&1)" "「タスク点検ログ」節がありません" \
+  "verify: findings>0 なのにログ節が無ければ WARN（件数だけ残り何を直したか辿れない）"
+printf '# レビュー\n\n## タスク点検ログ\n- x\n' > "$AU_D/review.md"
+assert_eq "$(run_au verify 2>&1 | grep -c 'タスク点検ログ」節がありません')" "0" \
+  "verify: ログ節があれば鳴らない"
+# new --mode autonomous は「選択の帰結」をその場で出す
+assert_contains "$(run_au new dcnote --mode autonomous)" "上流4工程は独立点検が必須" \
+  "new: autonomous を選んだ時点で必須になる点検を知らせる（付録は該当条件を知らないと読まれない）"
+assert_eq "$(run_au new dclight --mode autonomous --light | grep -c '上流4工程は独立点検が必須')" "0" \
+  "new: light では出さない（light は独立点検を使わない）"
+
 # (13) limits: 上限の一覧と設定口（手編集しかなかった）
 assert_contains "$(run_au limits)" "maxTaskCheckRounds" "limits: 上限を一覧できる"
 assert_contains "$(run_au limits --format tsv)" "limit	maxDebugRounds	2	default	pj	2" \
@@ -2271,7 +2308,7 @@ assert_contains "$AU_AM" "task_check_mode: same_session, amend: yes" \
 assert_eq "$(run_au verify >/dev/null 2>&1; echo $?)" "0" \
   "verify: 訂正を「approve の重複」と誤検知しない（WARN の指示が別の WARN を生まない）"
 assert_eq "$(run_au verify 2>&1 | grep -c 'approve の重複')" "0" "verify: 重複 WARN が出ない"
-assert_eq "$(run_au metrics "$AU_W" --format tsv 2>/dev/null | awk -F'\t' '{print $6}')" "0" \
+assert_eq "$(run_au metrics "$AU_W" --format tsv 2>/dev/null | awk -F'\t' '{print $7}')" "0" \
   "metrics: 訂正は差し戻しにも数えない"
 # 差し戻しを挟んだ再承認は**新しいラウンド**（amend にしない）
 run_au event coding start >/dev/null

@@ -71,7 +71,8 @@ smoke: pass (exit 0)
 ## 手順
 
 1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定する。
-   `aidev guard test` で前提を検査する（exit≠0＝未充足。目視確認で代替しない）。
+   `aidev guard test` で前提を検査し、`aidev event test start` を記録する
+   （exit≠0＝未充足。目視確認で代替しない。start が無いと所要時間も手戻りも導出できない）。
    - **対象が subtask（state.yml に `parent` あり）か親かを見分ける**（protocol.md「2.8」）。test の範囲が変わるので、subtask なら `protocol-subtask.md` を読む。
 2. `plan.md` のテスト方針と `spec.md` の受け入れ基準に沿って検証する。
    - 自動テストがあれば実行する。無ければ受け入れ基準ごとに確認手順を実施する。

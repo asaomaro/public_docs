@@ -213,6 +213,10 @@ echo "== L8: ハーネス改修の実走記録 =="
 FLOWDIR=$SELF/flow-runs
 # git の pathspec は $SKILLS からの相対で渡す（絶対パス + :(exclude) は環境差が出る）
 FLOWREL=aidev-docs/bin/test/flow-runs
+# 「改修」に数えないもの: 記録ファイル自身（数えると永久に追いつけない）と、
+# **他 PJ から受け取った retro**（入力であって改修ではない）。マージコミットも数えない
+# ——どちらも実走をやり直す理由にならないのに、L8 を鳴らして本物の警告を埋もれさせる
+RETRO_REL=aidev-docs/retro
 if ! command -v git >/dev/null 2>&1 || ! git -C "$SKILLS" rev-parse --git-dir >/dev/null 2>&1; then
   ok "L8 実走記録の鮮度（git 不在のため検査省略）"
 else
@@ -226,7 +230,8 @@ else
       ok "L8 実走記録あり（未コミットなので鮮度は判定しない）: $(basename "$_fr")"
     else
       # 記録より後に入った「実質的な」ハーネス改修の本数（記録ディレクトリ自身は除く）
-      _stale=$(git -C "$SKILLS" rev-list --count "$_frc..HEAD" -- . ":(exclude)$FLOWREL" 2>/dev/null) || _stale=0
+      _stale=$(git -C "$SKILLS" rev-list --no-merges --count "$_frc..HEAD" \
+                 -- . ":(exclude)$FLOWREL" ":(exclude)$RETRO_REL" 2>/dev/null) || _stale=0
       case "$_stale" in ''|*[!0-9]*) _stale=0 ;; esac
       if [ "$_stale" -eq 0 ]; then
         ok "L8 実走記録が最新の改修をカバーしている: $(basename "$_fr")"
@@ -242,7 +247,7 @@ else
     if [ -z "$_miss" ]; then ok "L8 実走記録に 3 ゲートの見出しが揃っている"
     else ng "L8 実走記録に見出しが足りない:$_miss（$(basename "$_fr")）"; fi
     # 未コミットのハーネス変更があれば、記録はそれを見ていない
-    _dirty=$(git -C "$SKILLS" status --porcelain -- . ":(exclude)$FLOWREL" 2>/dev/null | grep -c . 2>/dev/null) || _dirty=0
+    _dirty=$(git -C "$SKILLS" status --porcelain -- . ":(exclude)$FLOWREL" ":(exclude)$RETRO_REL" 2>/dev/null | grep -c . 2>/dev/null) || _dirty=0
     case "$_dirty" in ''|*[!0-9]*) _dirty=0 ;; esac
     [ "$_dirty" -gt 0 ] && printf '  note: 未コミットのハーネス変更が %s 件あります（実走記録はこれを見ていません）\n' "$_dirty"
   fi
