@@ -3209,19 +3209,28 @@ YML
     assert_eq "$([ -f "$TMP/prepo-wt/fresh/.aidev/works/$PN_CUR/state.yml" ] && echo yes || echo no)" "yes" \
       "パリティ: ps1 add(新規slug) が work を実際に作る（委譲失敗の空振り回帰）"
 
+    # doctor の branch 検査: linked worktree では鳴らさない（aidev の worktree は定義上 feature/<slug>
+    # に載っているので、鳴らすと 100% 誤警告になる）。sh/ps1 の両方で確かめる——**片側だけ直した**
+    # のを一度やっている
+    DB_WT="$TMP/prepo-wt/probe"
+    DB_SH=$( ( cd "$DB_WT" && "$AIDEV_SH" doctor 2>&1 ) | grep -c '^branch:' ) || DB_SH=0
+    assert_eq "$DB_SH" "0" "doctor: linked worktree では branch 検査を鳴らさない（sh）"
+    DB_PS=$( ( cd "$DB_WT" && run_ps1 "$AIDEV_PS1" doctor 2>&1 ) | tr -d '\r' | grep -c '^branch:' ) || DB_PS=0
+    assert_eq "$DB_PS" "0" "doctor: linked worktree では branch 検査を鳴らさない（ps1）"
+
     # (4) ps1 の rm <path>: 自分の list が出したパス表記をそのまま渡せること
     #     （git は C:/... 、.NET の解決は C:\... なので素の比較だと Windows で必ず外れた）
     PB=$( ( cd "$PREPO" && run_ps1 "$AIDEV_PS1" worktree list --format tsv ) | tr -d '\r' | awk -F'\t' '$2 ~ /fresh$/ {print $2}')
     ( cd "$PREPO" && run_ps1 "$AIDEV_PS1" worktree rm "$PB" --force --delete-branch >/dev/null 2>&1 )
     assert_eq "$?" "0" "パリティ: ps1 rm は list が出したパス表記をそのまま扱える"
     assert_eq "$([ -d "$TMP/prepo-wt/fresh" ] && echo yes || echo no)" "no" "パリティ: ps1 rm(path) で worktree 撤去済み"
-    block_end wtparity "24" "wtparity"
+    block_end wtparity "26" "wtparity"
   else
     skip 10 "git 不在のため worktree パリティを省略"
   fi
-  block_end parity "242" "parity"
+  block_end parity "244" "parity"
 else
-  skip 228 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
+  skip 230 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
 fi
 
 echo

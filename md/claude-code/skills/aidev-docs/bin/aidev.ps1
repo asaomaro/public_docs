@@ -151,6 +151,17 @@ function SetOrAppend($file,$key,$newline) {
 
 function IsPhase($p) { return $script:PHASES -ccontains $p }
 
+# **Windows PowerShell 5.1 は `2>$null` だけでは native コマンドの stderr を消しきれない**。
+# $ErrorActionPreference='Stop' の下では NativeCommandError として湧き、
+# 「git.exe : fatal: not a git repository」がそのまま出力に混ざる（sh 側は消しているので
+# パリティが割れる）。pwsh 7 では $PSNativeCommandUseErrorActionPreference=$false が効くため
+# 再現せず、**CI の winps ジョブだけが赤くなる**。失敗しうる git はすべてここを通す。
+function GitQ {
+  $old = $ErrorActionPreference
+  $ErrorActionPreference = 'SilentlyContinue'
+  try { & git @args 2>$null } finally { $ErrorActionPreference = $old }
+}
+
 # **Windows PowerShell 5.1 に `Sort-Object -Stable` は無い**（PS 6 で追加）。
 # 5.1 では「パラメーター名 'Stable' が見つかりません」で**その場で落ちる**——CI の winps ジョブ
 # だけが赤くなり、Linux の pwsh 7 では一生気づかない形。安定ソートを自前で行う
@@ -243,14 +254,14 @@ function HarnessRev() {
                ForEach-Object { $_.FullName })
     if ($paths.Count -eq 0) { return 'unknown' }
     # 版の実体は内容の tree hash（コミット SHA だと squash / rebase で同一内容が別版に割れる。sh 版と同じ）
-    $trees = @(& git -C $script:HARNESS ls-tree -d HEAD -- @paths 2>$null | ForEach-Object { ($_ -split '\s+')[2] })
+    $trees = @(GitQ -C $script:HARNESS ls-tree -d HEAD -- @paths 2>$null | ForEach-Object { ($_ -split '\s+')[2] })
     if ($trees.Count -eq 0) { return 'unknown' }
     # stdin パイプは使わない: PowerShell は native コマンドへ渡すとき自分で改行を足し、しかも
     # Windows では CRLF になるので sh 版（LF）と別のハッシュになる。LF 固定の一時ファイルで渡す
     $tmp = [System.IO.Path]::GetTempFileName()
     try {
       [System.IO.File]::WriteAllText($tmp, (($trees -join "`n") + "`n"), $script:Utf8)
-      $r = (& git hash-object -- $tmp 2>$null | Select-Object -First 1)
+      $r = (GitQ hash-object -- $tmp 2>$null | Select-Object -First 1)
     } finally { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
     if ([string]::IsNullOrWhiteSpace($r)) { return 'unknown' }
     return $r.Trim().Substring(0, 12)
@@ -2941,7 +2952,7 @@ function WtPorcelain() {
   $out=@(); $p=''; $b=''
   # stderr は出さない。doctor から呼ぶと git リポジトリでない PJ で `fatal: not a git
   # repository` が本文に混ざり、sh 版（呼び出し側で 2>/dev/null）と食い違う（実測）
-  foreach ($line in (git worktree list --porcelain 2>$null)) {
+  foreach ($line in (GitQ worktree list --porcelain 2>$null)) {
     if ($line -like 'worktree *') {
       if ($p -cne '') { $out += ($p + "`t" + ($(if ($b -ceq '') { '-' } else { $b }))); $b='' }
       $p = $line.Substring(9)
@@ -2961,12 +2972,12 @@ function WtPorcelain() {
 # 既定ブランチ名。読めなければ空を返す（推測しない。sh 版 git_default_branch と同一）
 function GitDefaultBranch($repoDir) {
   if (-not $repoDir) { $repoDir = $script:ROOT }
-  $b = (& git -C $repoDir symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>$null)
+  $b = (GitQ -C $repoDir symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>$null)
   if ($LASTEXITCODE -ne 0) { $b = '' }
   $b = "$b".Trim() -replace '^origin/', ''
   if (-not $b) {
     foreach ($c in @('main','master')) {
-      & git -C $repoDir show-ref --verify --quiet "refs/heads/$c" 2>$null
+      GitQ -C $repoDir show-ref --verify --quiet "refs/heads/$c" 2>$null
       if ($LASTEXITCODE -eq 0) { $b = $c; break }
     }
   }
@@ -2984,7 +2995,7 @@ function SharedHotUndeclared($max) {
   $w = YGet $cfg 'sharedFilesWindow'
   if ($w -notmatch '^\d+$') { $w = 20 } else { $w = [int]$w }
   if ($w -le 0) { $script:SHARED_HOT_WINDOW = $w; return @() }
-  $c = (& git -C $script:ROOT rev-list --count HEAD 2>$null)
+  $c = (GitQ -C $script:ROOT rev-list --count HEAD 2>$null)
   if ($LASTEXITCODE -ne 0 -or $c -notmatch '^\d+$') { $c = 0 } else { $c = [int]$c }
   if ($c -lt $w) { $w = $c }
   $script:SHARED_HOT_WINDOW = $w
@@ -2996,7 +3007,7 @@ function SharedHotUndeclared($max) {
   $rootp = "$script:ROOT".Replace('\', '/').TrimEnd('/')
   $harp  = "$script:HARNESS".Replace('\', '/').TrimEnd('/')
   if ($harp.StartsWith("$rootp/", [StringComparison]::Ordinal)) { $hrel = $harp.Substring($rootp.Length + 1) }
-  $log = (& git -C $script:ROOT log -n $w --name-only --pretty=format:'@@C@@' HEAD 2>$null)
+  $log = (GitQ -C $script:ROOT log -n $w --name-only --pretty=format:'@@C@@' HEAD 2>$null)
   if ($LASTEXITCODE -ne 0 -or -not $log) { return @() }
   $cnt = @{}; $seen = @{}
   foreach ($l in $log) {
@@ -3018,7 +3029,7 @@ function SharedHotUndeclared($max) {
     if ($hrel -and $f.StartsWith("$hrel/", [StringComparison]::Ordinal)) { continue }
     if ($decl -ccontains $f) { continue }
     # いま無視されているファイル・既に無いファイルは勧めない（sh 版の注記に理由）
-    & git -C $script:ROOT check-ignore -q -- $f 2>$null
+    GitQ -C $script:ROOT check-ignore -q -- $f 2>$null
     if ($LASTEXITCODE -eq 0) { continue }
     if (-not (Test-Path -LiteralPath (Join-Path $script:ROOT $f))) { continue }
     $out += ("" + $cnt[$f] + "`t" + $f)
@@ -3136,7 +3147,7 @@ function Wt-Add($rest) {
     $wtw = if ($cl2.Count -ge 1) { $cl2[0].Trim() } else { '' }
     $wtst = Join-Path (Join-Path (Join-Path (Join-Path $wpath '.aidev') 'works') $wtw) 'state.yml'
     if ($wtw -and (IsFile $wtst)) {
-      $wtbc = (& git -C $wpath rev-parse HEAD 2>$null)
+      $wtbc = (GitQ -C $wpath rev-parse HEAD 2>$null)
       if ($LASTEXITCODE -ne 0) { $wtbc = '' } else { $wtbc = "$wtbc".Trim() }
       SetOrAppend $wtst 'base' "base: $base"
       if ($wtbc) { SetOrAppend $wtst 'baseCommit' "baseCommit: $wtbc" }
@@ -3148,7 +3159,7 @@ function Wt-Add($rest) {
   # （sh 版 cmd_worktree_add の注記に理由の全文。既定ブランチが読めなければ推測しない）
   $bshown = $base; $bhead = ''
   if ($base -ceq 'HEAD') {
-    $bhead = (& git -C $script:ROOT symbolic-ref --quiet --short HEAD 2>$null)
+    $bhead = (GitQ -C $script:ROOT symbolic-ref --quiet --short HEAD 2>$null)
     if ($LASTEXITCODE -ne 0) { $bhead = '' }
     if ($bhead) { $bhead = "$bhead".Trim(); $bshown = "HEAD (= $bhead)" }
   }
@@ -3212,22 +3223,22 @@ function Wt-List($rest) {
 function Wt-ChangedFiles($path, $allHeads) {
   # 基点は「他の tree との merge-base のうち最も新しいもの」（sh 版 wt_changed_files の注記に理由）
   $base = ''; $best = -1
-  $own = (& git -C $path rev-parse HEAD 2>$null)
+  $own = (GitQ -C $path rev-parse HEAD 2>$null)
   if ($LASTEXITCODE -ne 0) { $own = '' } else { $own = "$own".Trim() }
   foreach ($o in @($allHeads)) {
     if (-not $o -or $o -ceq $own) { continue }
-    $mb = (& git -C $path merge-base $o HEAD 2>$null)
+    $mb = (GitQ -C $path merge-base $o HEAD 2>$null)
     if ($LASTEXITCODE -ne 0) { continue }
     $mb = "$mb".Trim(); if (-not $mb) { continue }
-    $d = (& git -C $path rev-list --count "$mb..HEAD" 2>$null)
+    $d = (GitQ -C $path rev-list --count "$mb..HEAD" 2>$null)
     if ($LASTEXITCODE -ne 0 -or $d -notmatch '^\d+$') { continue }
     $d = [int]$d
     if ($best -lt 0 -or $d -lt $best) { $best = $d; $base = $mb }
   }
   if (-not $base) { $base = 'HEAD' }
   $out = @()
-  $d = (& git -C $path diff --name-only $base 2>$null); if ($LASTEXITCODE -eq 0 -and $d) { $out += $d }
-  $u = (& git -C $path ls-files --others --exclude-standard 2>$null); if ($LASTEXITCODE -eq 0 -and $u) { $out += $u }
+  $d = (GitQ -C $path diff --name-only $base 2>$null); if ($LASTEXITCODE -eq 0 -and $d) { $out += $d }
+  $u = (GitQ -C $path ls-files --others --exclude-standard 2>$null); if ($LASTEXITCODE -eq 0 -and $u) { $out += $u }
   return ($out | ForEach-Object { "$_".TrimEnd("`r") } | Where-Object { $_ } | Sort-Object -Unique)
 }
 
@@ -3266,7 +3277,7 @@ function Wt-CollectPairs($showall, $planned) {
   foreach ($line in $wtAll) {
     $p2 = ($line -split "`t")[0]
     if (-not (IsFile (Join-Path (Join-Path $p2 '.aidev') 'current'))) { continue }
-    $h = (& git -C $p2 rev-parse HEAD 2>$null)
+    $h = (GitQ -C $p2 rev-parse HEAD 2>$null)
     if ($LASTEXITCODE -eq 0 -and $h) { $heads += "$h".Trim() }
   }
   foreach ($line in $wtAll) {
@@ -3277,7 +3288,7 @@ function Wt-CollectPairs($showall, $planned) {
     $w = if ($cl.Count -ge 1) { $cl[0].Trim() } else { '' }
     # 落とすのは既定ブランチにマージ済みの worktree だけ（sh 版の注記に理由）
     if (-not $showall -and $def) {
-      & git -C $path merge-base --is-ancestor HEAD $def 2>$null
+      GitQ -C $path merge-base --is-ancestor HEAD $def 2>$null
       if ($LASTEXITCODE -eq 0) { continue }
     }
     $n++
@@ -4078,7 +4089,11 @@ function Doctor-Conventions() {
 # main worktree が既定ブランチに載っていないか（sh 版 doctor_branch の注記に理由）
 function Doctor-Branch() {
   if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return }
-  $cur = (& git -C $script:ROOT symbolic-ref --quiet --short HEAD 2>$null)
+  # **linked worktree では検査しない**（sh 版と同一。理由もそちらに）
+  $gd = (GitQ -C $script:ROOT rev-parse --git-dir 2>$null)
+  $gc = (GitQ -C $script:ROOT rev-parse --git-common-dir 2>$null)
+  if ($gd -and $gc -and ("$gd".Trim() -cne "$gc".Trim())) { return }
+  $cur = (GitQ -C $script:ROOT symbolic-ref --quiet --short HEAD 2>$null)
   if ($LASTEXITCODE -ne 0) { return }
   $cur = "$cur".Trim(); if (-not $cur) { return }
   $def = GitDefaultBranch $script:ROOT
@@ -4148,7 +4163,7 @@ function SmokeStaleWarn() {
   if ($n -notmatch '^\d+$') { $n = 5 } else { $n = [int]$n }
   if ($n -le 0) { return }
   $env:TZ = 'UTC'
-  $cut = (& git -C $script:ROOT log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ -S smokeCommand -- $cfg 2>$null)
+  $cut = (GitQ -C $script:ROOT log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ -S smokeCommand -- $cfg 2>$null)
   if ($LASTEXITCODE -ne 0) { $cut = '' }
   $cut = "$cut".Trim()
   if (-not $cut) { return }
