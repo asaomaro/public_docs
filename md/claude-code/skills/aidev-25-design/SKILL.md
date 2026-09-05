@@ -47,7 +47,7 @@ spec 終了時に **protocol.md「4.5」の design の4条件**のいずれか�
    - 処理フロー / 状態遷移 / シーケンス（必要なら）
    - 既存アーキテクチャとの整合、横断的関心事（エラー処理・ログ等）
 3. 設計上の選択は理由とともに残す（採用案・退けた代替案）。重い検討は委譲してよい。
-   - 構造の選択肢が複数あるなら plan モードを使ってよい（`interactive` のみ。解除してから書く。
+   - 構造の選択肢が複数あるなら plan モードを使ってよい（使える条件は `protocol-autonomous.md`。解除してから書く。
      `protocol-autonomous.md`）。
 4. 下記テンプレートに沿って `design.md` を記述する。
    アーキテクチャ/コンポーネント・class・sequence・state は mermaid で図示する（protocol.md「9.」）。

@@ -26,6 +26,11 @@ PJ非依存の開発ワークフローを、skill 群で制御・進捗管理す
 
 慣れていれば各工程を直接呼んでもよい（例 `/aidev-40-coding`）。各工程は前提を自己チェックする。
 
+**初めて回すときに読むもの**は 3 つだけでよい——(1) この README の「工程一覧」と「承認ゲート」、
+(2) `aidev-00-start/SKILL.md`（入口。ここが次に読むものを指示する）、(3) **いま居る工程の
+`SKILL.md` だけ**。`protocol.md` は各 SKILL が節番号で指すので、**指された節だけ**を読む
+（先に通読しない。600 行ある）。付録 `protocol-*.md` は冒頭の「読む条件」に当てはまるときだけ。
+
 ## 工程一覧
 
 | 番号 | 工程 | 種別 | 役割 |
@@ -125,6 +130,9 @@ planner の方針は `.aidev/charter.md` で縛る。
 選択肢とは別に、**機械が判定する硬いゲート**が 3 つある——plan の `aidev coverage --strict`
 （受け入れ基準の被覆と tasks.md の整合）、test の `aidev smoke`（成果物が起動するか）、
 deliver 前の `aidev verify`（不変条件）。いずれも exit≠0 なら承認しない。
+`aidev verify --strict` はさらに**記録漏れ**（`event` の start 欠落、`autonomous` の
+`decisions.md`、タスク点検の実施形態）を致命にする——どれも「そのとき書かなければ
+二度と書けない」もので、機械ゲート（Stop フック等）から使う想定。
 
 ## 実行モード（interactive / autonomous）
 
@@ -138,6 +146,23 @@ deliver 前の `aidev verify`（不変条件）。いずれも exit≠0 なら�
   原因究明だけを委譲する（試行履歴は渡さない）。デバッグも有限で、尽きたら `stop_for_human` で人を待つ
   （`protocol-debug.md`）。
   ※夜間に回す実行手段（headless/スケジュール）は harness とは別レイヤで用意する。
+- `--human-gates spec,review` で `aidev new` / `aidev worktree add` から部分自律を宣言できる。
+
+## ループの上限（回数を有限にする）
+
+**上限は必ず有限にする**、が全体を通した規律。同じ場所を回り続けるより、方向を変えるか人を待つ方が安い。
+
+| 上限 | 何を止めるか | 到達したら |
+|---|---|---|
+| `maxSendBacks` | 同一工程の差し戻し（`aidev event <工程> sent_back` が数える） | `aidev debug start` へ倒す（まっさらなコンテキストで原因究明） |
+| `maxTaskCheckRounds` | 同一タスクの「点検 → 修正」（`aidev taskcheck start` が数える） | `decisions.md` に経緯を残して次のタスクへ。判断は 60 review に委ねる |
+| `maxDebugRounds` | 1工程あたりのデバッグ（`aidev debug start` が数える） | `block` か `stop_for_human` で締める |
+
+どれも **1ラウンド = 1 コマンド**の形で数えるので、CLI がその場で止められる（exit 4）。
+
+**`aidev limits` が現在値を一覧する**——値だけでなく**どこから来たか**（`config` / `state` / 既定）まで出す。
+変えるのは `aidev limits set <key> <n>`。手編集は要らない（見えない設定は忘れられる、というのが
+`maxTaskCheckRounds` が長く「書いてあるのに効かない」状態だった理由）。
 
 ## 実行プロファイル（full / light）
 
@@ -157,6 +182,28 @@ light は**上流3工程（requirement / spec / plan）を1ゲートに畳む**�
 条件を外れたら `aidev escalate` で **full へ片方向に昇格**する（省略していた節を足すだけ）。
 昇格の合図は「想定外のファイルに触った」「test が落ちた」「review で must が出た」
 「`files_changed` が上限超過」。昇格漏れは `aidev verify` が WARN で知らせる。
+
+## 並行作業（worktree）
+
+既定は**直列**（1 つのワーキングツリーで 1 work ずつ）。並行させたいときはユーザーが
+`aidev worktree add <slug>` を明示する——ハーネスは並列化を自動判断しない。
+work 専用の git worktree と `feature/<slug>` ブランチを作り、main tree の `.aidev/current` は
+書き換えない。詳細は `protocol-worktree.md`。
+
+並行時に**衝突を見るための道具**が 3 つある。
+
+- `aidev worktree files --planned`（**coding 前**）: 各 work の `tasks.md` の `対象:` を突き合わせ、
+  これから触るファイルの重なりを出す。実差分は「書いた後」しか見えないので、避ける余地がある
+  時間帯はこちらを見る。
+- `aidev worktree files`（**deliver 前**）: 実際の差分の重なり。マージ順の判断に使う。
+  外れるのは**既定ブランチにマージ済み**の worktree だけ（deliver 済み・未マージは衝突の相手として現役）。
+- `aidev status` の `HELD`: `--backlog-item` を渡した work について、**どの backlog 行を誰が
+  掴んでいるか**を出す。同じ行を 2 本が作業中なら警告する。deliver 済み・未マージの行も残る
+  ——`inflight` から外れ `todo` に戻るので、台帳だけ見ると未着手に見える区間があるため。
+
+衝突しやすいファイルは `config.yml` の `sharedFiles` に挙げておくと `worktree add` が名指しで
+警告する。宣言は静的なので古びる——`aidev doctor` が「実在しない名前」「多くのコミットが
+触っているのに未宣言」「いま複数の worktree が触っているのに未宣言」を WARN する。
 
 ## 任意工程の起動
 
@@ -183,12 +230,15 @@ light は**上流3工程（requirement / spec / plan）を1ゲートに畳む**�
   aidev-docs/          このREADMEとDESIGN（参照専用・skillではない）＋ bin/
     bin/               ランタイムガード CLI（aidev=POSIX sh / aidev.ps1=PowerShell・README.md / test/ 同梱）
 .aidev/                PJ固有の実行時状態（skill ではない）
-  config.yml           PJ単位の設定（tracker / lightMaxFiles / smokeCommand / maxDebugRounds / conventionsDir / conventionsIndex / docsRoots / sharedFiles。コミット対象）
+  config.yml           PJ単位の設定（tracker / lightMaxFiles / smokeCommand（または smokeCommands）/ smokeCommandWindows / smokeTimeoutSec /
+                       smokeStaleAfter / maxDebugRounds / maxTaskCheckRounds / conventionsDir / conventionsIndex / docsRoots /
+                       sharedFiles / sharedFilesWindow。全キーと書式は bin/README.md の設定表。コミット対象）
   charter.md           propose（planner）の方針（任意）
   current              現在の作業フォルダ名（.gitignore 対象）
   works/<YYYYMMDD-slug>/  作業単位ごとの成果物（命名: 日付(UTC)-slug）
     state.yml          進捗（schema / slug / current / approved / dependsOn / ticket / mode / humanGates / maxSendBacks /
-                       profile / backlog / harnessRev / harnessRevDelivered。分割 work は parent / subtasks / activeSubtask）
+                       profile / backlog / backlogItem / harnessRev / harnessRevDelivered。
+                       worktree 由来は base / baseCommit。分割 work は parent / subtasks / activeSubtask）
     metrics.yml        工程の実施日時・時間・件数などのイベントログ
     requirement.md / spec.md / plan.md / tasks.md / decisions.md / review.md / test-result.md など
     <NN>-<subslug>/    分割 work（subtask。plan/coding/test/review のみ）
@@ -203,16 +253,22 @@ AGENTS.md              PJ 所有。<!-- aidev:conventions --> ブロックに条
 
 1. `.claude/skills/aidev-*`（`aidev-docs/bin/` のランタイムガード CLI を含む）をコピー。CLI は skills 同梱なので
    別途コピーは不要。`aidev-docs/bin/aidev` に実行権限を付ける（`chmod +x`）。
-2. リポジトリ直下に `.aidev/` を用意する（CLI は `.aidev/` を上方探索して状態を読み書きする。最初の作業前に
-   存在させる。`config.yml` を置くか空ディレクトリでよい）。
-3. `.gitignore` に `.aidev/current` を追加（`.aidev/works/` 配下の成果物はコミット推奨）。
-4. PJ の AGENTS.md に規約・レビュー観点を書く。PJ固有 skill があればそのまま活かされる。
-5. 条項（PJ 規約の効果検証）を使うなら、AGENTS.md に索引ブロック（`<!-- aidev:conventions -->` … `<!-- /aidev:conventions -->`）
+2. **skills を先にコミットする**（`harnessRev` はコミット済みの `aidev-*` から取るため。
+   未コミットだと `unknown` になり、ハーネス改修の効果検証から外れる）。
+3. `mkdir -p .aidev/works` する（CLI は `.aidev/` を上方探索して状態を読み書きする）。
+   `.aidev/config.yml` に最低限 **`smokeCommand`（または `smokeCommands`）** を書く——
+   起動確認は test の硬いゲートで、未設定だと `aidev smoke` が exit 2 で止まる。
+   対象が無い PJ（純粋なライブラリ等）は `smokeCommand: none` と明示する。
+   キーの一覧と書式は `bin/README.md` の設定表。
+4. `aidev doctor` を打つ。**これが導入の自己診断**で、未設定の `smokeCommand` や
+   `sharedFiles` をその場で知らせる（work が 0 件でも走る）。
+5. `.gitignore` に `.aidev/current` を追加（`.aidev/works/` 配下の成果物はコミット推奨）。
+6. PJ の AGENTS.md に規約・レビュー観点を書く。PJ固有 skill があればそのまま活かされる。
+7. 条項（PJ 規約の効果検証）を使うなら、AGENTS.md に索引ブロック（`<!-- aidev:conventions -->` … `<!-- /aidev:conventions -->`）
    を 1 回置く。`.aidev/conventions/` は `aidev convention new` が作る。置き場を変えるなら `config.yml` の `conventionsDir` /
    `conventionsIndex`、既存 docs との重複確認先は `docsRoots`。
-6. git が無い（または `aidev-*` が未コミットの）環境では `harnessRev` が `unknown` になり、ハーネス改修の
-   効果検証から外れる。`worktree` 以外は動く。導入直後の最初の `aidev new` は skills をコミットしてから。
-   Windows は `pwsh`（または Windows PowerShell 5.1）か Git Bash（`aidev-docs/bin/README.md`）。
+8. git が無い環境では `harnessRev` が `unknown` になり、ハーネス改修の効果検証から外れる
+   （`worktree` 以外は動く）。Windows は `pwsh`（または Windows PowerShell 5.1）か Git Bash（`aidev-docs/bin/README.md`）。
 
 基盤はドメイン非依存。PJ固有の知識・実作業は AGENTS.md と PJ skill 側が担う。
 

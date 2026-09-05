@@ -65,7 +65,12 @@ AI 開発ワークフローの **review（レビュー）工程**を実行する
 4. 判定に応じて分岐する。
    - **must/should の指摘あり** → `aidev event review sent_back` を記録のうえ coding 工程への
      差し戻しを提案する（protocol.md「4. 番号と順序」に基づく正当な遷移）。
-     coding を**再開する際は `aidev event coding start` を記録する**（さもないと手戻り回数を取りこぼす。protocol.md「3.」「8.」）。
+     - **無効になる後工程の承認を `aidev unapprove` で取り消す**（protocol.md「3.」）。
+       review → coding なら **`aidev unapprove test` → `aidev unapprove coding` の順**（後ろから）。
+       取り消さないと `approved` に test/coding が残ったまま coding をやり直すことになり、
+       state が実態と食い違う。取り消しても記録は消えない（`by: unapprove` 付きで残り、
+       差し戻し回数には数えない）。
+     - そのうえで coding を**再開する際は `aidev event coding start` を記録する**（さもないと手戻り回数を取りこぼす。protocol.md「3.」「8.」）。
      - **`maxSendBacks`（既定 3）に達したら `aidev debug start`**——まっさらなコンテキストに
        原因究明だけを委譲する（`protocol-debug.md`）。同じコンテキストで回し続けない。
      - **統合 review の差し戻し先（protocol.md「2.8」＋ `protocol-subtask.md`）**: 結合起因の指摘は**原因となった subtask の coding** へ
@@ -80,6 +85,9 @@ AI 開発ワークフローの **review（レビュー）工程**を実行する
        3条件に該当すれば、遷移ゲートに `承認して walkthrough(任意) を挟む`（推奨）を加え理由を添える
        （次工程: 推奨時 `walkthrough`、それ以外 `deliver`）。
 5. 承認は `aidev approve review must=<件数> should=<件数> nit=<件数>`（protocol.md「3.」「8.」）。
+   **件数は work 全体の合計**（全ラウンドの通算）——`approve review` は最後に 1 回しか打たないので、
+   最終ラウンドの 0 件を刻むと「差し戻したのに指摘 0 件」という読めない記録になる。
+   ラウンドごとの分布を残したいときは `review.md` 本文に書く（metrics のキーは増やさない）。
    **被覆メトリクスは CLI が自動で刻む**ので手で渡さない。plan 時の刻印と対になり、
    `aidev metrics` の `ac_drift`（plan 以降に増えた gap ＝ spec と実装の乖離）になる。
 

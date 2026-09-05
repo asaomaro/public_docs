@@ -36,6 +36,12 @@ review を通過した変更を、コミット・PR 作成によって実際に�
    - **チェック内容**:
      - 実装の主要変更が既にデフォルトブランチに入っているか
        （例: `git log --oneline <default>..HEAD` が空、かつ対象ファイルの変更がデフォルトブランチに存在）。
+       - **worktree 由来の work（`state.yml` に `baseCommit` がある）は `<default>` と比べない**。
+         base が未マージの枝なら無関係なコミットが必ず並び、「空か」という基準が成立しない
+         （実測で実装と無関係な 4 本が出た）。比べる先は **`baseCommit`**——その work が実際に
+         分岐した地点なので、`git log --oneline <baseCommit>..HEAD` は自分の変更だけになる。
+         既着地かどうかは、そのうえで**対象ファイル単位**で確かめる
+         （`git log <baseCommit> -- <対象>` に自分の変更が既にあるか）。
      - チケットが既にクローズ/完了か（github: `gh issue view <N> --json state -q .state`、
        他トラッカーは `.aidev/config.yml` の `tracker` に応じる。`tracker: none` なら**この検査は省く**）。
      - remote が無い／デフォルトブランチがローカルにしか無い場合は、比較先をローカルの既定ブランチにする
@@ -96,8 +102,11 @@ review を通過した変更を、コミット・PR 作成によって実際に�
      `git add -A && git diff --cached --stat HEAD -- . ':!.aidev'` で計測する（**先にステージする**——`git diff` は未追跡ファイルを見ないので、新しく足したファイルが規模から丸ごと落ちる）。**工程成果物（`.aidev/` 配下）は規模に含めない**
      （含めると実装の規模が水増しされ、work 間の比較が壊れる）。
      承認は `aidev approve deliver files_changed=<n> insertions=<n> deletions=<n>`。
-     - 事後記録モード（手順 1.5）では、既着地コミットの範囲で計測する
-       （`git diff --stat <base>..<着地コミット> -- . ':!.aidev'`）。
+     - 事後記録モード（手順 1.5）では **`files_changed=0 insertions=0 deletions=0` を刻む**。
+       規模はその変更を実際に着地させた work が既に計上しているので、ここで計り直すと
+       `metrics --all` の足し上げが**二重になる**（被覆を家族の根にだけ刻むのと同じ理由）。
+       実体は `decisions.md` に「どの work / どのコミットが着地させたか」を `file:line` で残す
+       ——数字ではなく**参照**で繋ぐ。
      - この値は insights で「規模あたりの手戻り」の分母になる（タスク数は粒度の癖でぶれるため）。
      - **`profile: light` の昇格判定**（protocol.md「11.」）: `files_changed` が上限
        （`.aidev/config.yml` の `lightMaxFiles`、既定 3）を超えていたら light の条件を外れている。
@@ -137,15 +146,11 @@ review を通過した変更を、コミット・PR 作成によって実際に�
   - **フォールバック既定**: PJ にコミット/PR skill が無ければ、コミットは **Conventional Commits**
     （`feat:` / `fix:` / `docs:` 等）、PR 本文は上記テンプレートを用いる。
 - **ブランチ対応**: 原則 **1 works（`.aidev/works/<YYYYMMDD-slug>`） = 1 作業ブランチ = 1 PR**。
-  既存の作業ブランチがあればそれを使い、無ければ手順どおり切る。
-  worktree で着手した work は `aidev worktree add` が `feature/<slug>` を作って**既にその上にいる**ため、
-  この規約を最初から満たしている（切り直さない）。
+  PR は作業ブランチからデフォルトブランチへ作成する。既存の作業ブランチがあればそれを使い、
+  無ければコミット前に PJ 規約に沿って切る（デフォルトブランチへの直接コミットを避ける）。
+  worktree で着手した work は `aidev worktree add` が `feature/<slug>` を作って**既にその上にいる**ので
+  切り直さない。trunk-based 等ブランチを使わない PJ ではこの限りでない。
 - 破壊的操作（push 等）や外部公開（PR 作成）は、ユーザーの承認を得てから行う。
-- **ブランチ前提（PR 運用時）**：PR は作業ブランチからデフォルトブランチへ作成する。
-  作業開始時（`aidev-00-start` 手順 4-3）にブランチを用意していない場合、コミット前に
-  PJ 規約に沿って作業ブランチを切る（デフォルトブランチへの直接コミットを避ける）。
-  worktree で着手した場合は既にブランチ上にいるので不要。
-  trunk-based 等ブランチを使わない PJ ではこの限りでない。
 
 ## deliver 後に作業が続いたら（PR レビュー・利用者の指摘）
 

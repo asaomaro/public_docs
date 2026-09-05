@@ -99,7 +99,7 @@ CLI が使えない環境のフォールバック: `cat .aidev/current` / `ls .a
    | 層 | 対象 | 案内 |
    |---|---|---|
    | **対象外** | typo・コメント・整形・生成物の再生成など、判断を伴わない変更 | **aidev を通さない**。直接修正・コミットを案内してここで終了する |
-   | **light** | 振る舞いを変えない（または単一の閉じた挙動）／触るファイルが `lightMaxFiles`（既定 3）以下／共有モジュール・公開 API・スキーマに触らない／新規依存なし | `aidev new <slug> --light`。上流 3 工程を 1 ゲートに畳む |
+   | **light** | 4 条件をすべて満たす（**条件の本文は `protocol-light.md`**。ここには写さない） | `aidev new <slug> --light`。上流 3 工程を 1 ゲートに畳む |
    | **full** | それ以外すべて | `aidev new <slug>`（既定） |
 
    - **判定はユーザーに確認する**（`AskUserQuestion`）。「小さい変更」の見立ては外れやすく、
@@ -108,6 +108,9 @@ CLI が使えない環境のフォールバック: `cat .aidev/current` / `ls .a
      **full を選び**（迷ったら full の既定に従う）、判定の根拠を作成後に `decisions.md` へ記録する。
      この判定は `aidev new` より前なので `--mode autonomous` の自動承認が及ばない——
      **勝手に light を選ばない**のが無人時の安全側。
+     ただし**起動指示が明示的に `--light`（または `--profile light`）を指している**なら、
+     それは人間が事前に答えた判定なので light を採る。禁じているのは自分で小さいと
+     見立てることであって、`light × autonomous` は成立する組み合わせ（`protocol.md`「11.」）。
    - 影響範囲が読めないときは plan モードを使ってよい（`protocol-autonomous.md`。`aidev new` は書き込みなので
      **解除してから**実行する）。
    - 迷ったら **full を選ぶ**。light は後から full へ昇格できる（`aidev escalate`）が、逆はできない。

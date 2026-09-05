@@ -11,10 +11,14 @@
 - **手戻り回数（reworks）**：`start` の**回数の合計から工程数を引いた値**（`Σ max(0, start回数−1)`）。
   「差し戻し回数」ではない——1 回の review→coding 差し戻しで coding/test/review が再開すれば **3** になる。
   規模あたりの手戻りの分子はこの値なので、`sent_backs` と混同しないこと。
+  **1 回の差し戻しがいくつ増えるかは戻り先で決まる**（`review → coding` は間の test も踏み直すので +3、
+  `test → coding` は +2）。工程をまたいで比べるときは戻り先を揃えること。
   ※差し戻しで coding を再開する際に `aidev event coding start` を記録しないと、この指標は手戻りを取りこぼす（「3.」差し戻し分岐）。
-- **差し戻し回数**：sent_back の件数（工程別）。**`aidev unapprove` も `sent_back` を刻む**ので、
-  1 回の差し戻しで「差し戻した工程」と「承認を取り消した後工程」の両方が数に入る。
-  「何回やり直したか」を見たいときは `reworks`、「どこで止まったか」を見たいときは工程別の内訳を使う。
+- **差し戻し回数**：sent_back の件数（工程別）。**`aidev unapprove` が刻む分は数えない**
+  （`by: unapprove` が併記される）。差し戻しの原因は指摘のあった 1 工程で、後工程の取り消しは
+  その結果だから——区別しないと、規約どおり `unapprove` した work だけ数が 3 倍になり、
+  打たなかった work と比較できなくなる。「何回やり直したか」を見たいときは `reworks`、
+  「どこで止まったか」を見たいときは工程別の内訳を使う。
 - **リードタイム**：最初の start 〜 deliver の approved。
 - **任意工程の使用**：research / design の start 有無。
 - **アンカー的中率**：`1 − unplanned_lookups / tasks_anchored`（research/plan の位置特定がどれだけ当たったか）。

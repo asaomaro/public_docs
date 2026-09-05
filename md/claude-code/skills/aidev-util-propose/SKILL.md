@@ -66,7 +66,7 @@ AI 開発ワークフローの **planner（課題提案 / L_planner・A 層）**
      `- <YYYY-MM-DD> | <題名/短い id> | <理由> | by: human | src: <信号のパス>`。
      記録するのは**人間の却下だけ**（autonomous は書かない。AI が「却下された」と自己申告できると、
      採用されない提案を黙らせる手段になる）。これが無いと同じ提案が毎周「未対応の改善」として再浮上する。
-   - autonomous: ガード内で自動採用（**grounded・独立・1回の件数上限内（既定 3）（既定 3。`aidev-util-batch` の1回の処理上限と揃える）**のみ。曖昧/高結合/根拠薄は採用しない）。
+   - autonomous: ガード内で自動採用（**grounded・独立・1回の件数上限内（既定 3。`aidev-util-batch` の1回の処理上限と揃える）**のみ。曖昧/高結合/根拠薄は採用しない）。
 7. 採用分を起票: `create-issue` で issue 化（ブランチ運用は委譲）かつ/または バックログへ `[ ]` 追記。
    - **PJ規約の追補は issue/backlog ではなく条項として起こす**:
      `aidev convention new <id> --hypothesis "<…>" --baseline "<…>" --source <信号のパス>`。

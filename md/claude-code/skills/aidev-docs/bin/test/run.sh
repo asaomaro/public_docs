@@ -1242,7 +1242,7 @@ done
 assert_contains "$(run_rd convention status --format tsv)" "	0	1	no	" "母集団: deliver 前の work は数えない（review 記録がまだ無い）"
 run_rd event deliver start >/dev/null
 RD_A=$(run_rd approve deliver files_changed=1 insertions=1 deletions=0 2>&1)
-assert_contains "$RD_A" "条項 conv1 の母集団が揃いました(1/1)" "approve deliver: 母集団が揃った瞬間に知らせる"
+assert_contains "$RD_A" "条項 conv1 の母集団が揃っています(1/1)" "approve deliver: 母集団が揃ったら知らせる（判定するまで鳴る）"
 assert_contains "$(run_rd convention status --format tsv)" "	1	1	yes	" "母集団: deliver 済みになって初めて数える"
 # 跨いだ**瞬間だけ**。-ge だと以後の全 deliver で全条項ぶん鳴り続ける（100 works×30 条項で 1 回 31 行）
 run_rd new rd2 >/dev/null; RDW2=$(ls "$RDR/.aidev/works" | grep -- '-rd2$')
@@ -1341,7 +1341,7 @@ for f in requirement spec plan tasks review test-result; do : > "$HVR/.aidev/wor
 for p in requirement spec plan coding test review; do run_hv event "$p" start >/dev/null; run_hv approve "$p" >/dev/null; done
 run_hv event deliver start >/dev/null
 HA=$(run_hv approve deliver files_changed=1 2>&1)
-assert_contains "$HA" "ハーネス改修 h1 の母集団が揃いました(1/1)" "approve deliver: ハーネス改修の母集団到達も知らせる"
+assert_contains "$HA" "ハーネス改修 h1 の母集団が揃っています(1/1)" "approve deliver: ハーネス改修の母集団到達も知らせる"
 assert_eq "$(run_hv harness status --format tsv | awk -F'\t' '$2=="h1"{print $6"/"$8}')" "1/yes" "harness status: またがらずに deliver した work を数える"
 # またがった work は数えない（着手時の刻印を別版に書き換えてから deliver）
 run_hv new h1s >/dev/null; H1S=$(cat "$HVR/.aidev/current")
@@ -1953,6 +1953,246 @@ run_au verify 20200106-old >/dev/null 2>&1
 assert_eq "$?" "0" "verify: schema 6 の work に起動確認を要求しない（遡って違反にしない）"
 run_au verify 20200107-old >/dev/null 2>&1
 assert_eq "$?" "4" "verify: schema 7 からは起動確認の記録を要求する"
+
+# --- 2026-09-04 の並行実走で見つかった経路 ---------------------------------------
+# いずれも「散文には書いてあるのに CLI が見ていなかった」もの。実走 3 本が独立に踏んだ。
+
+# (1) unapprove の sent_back は**差し戻しの結果**であって原因ではない。
+#     数に入れると、規約どおり unapprove した work だけ 3 倍になり、
+#     一度も失敗していない coding/test が maxSendBacks の予算を使い切る
+mk_work sbq; AU_SBQ=$AU_W
+run_au approve coding >/dev/null; run_au approve test >/dev/null
+run_au event review sent_back >/dev/null
+run_au unapprove test >/dev/null; run_au unapprove coding >/dev/null
+AU_SBM=$(cat "$AU_D/metrics.yml")
+assert_contains "$AU_SBM" "phase: test, event: sent_back, metrics: { by: unapprove }" \
+  "unapprove: 取り消しは by: unapprove 付きで刻む（記録は消さない）"
+assert_eq "$(run_au metrics "$AU_SBQ" --format tsv | awk -F'\t' '{print $6}')" "1" \
+  "metrics: sent_backs は unapprove 由来を数えない（規約を守った work だけ数が増えない）"
+assert_eq "$(run_au debug status --format tsv 2>/dev/null | awk -F'\t' '$1=="coding"{print "leaked"}')" "" \
+  "debug status: 一度も失敗していない coding が上流の取り消しで予算を消費しない（行ごと出ない）"
+
+# (2) schema 9: light は spec/plan を approve しないので、承認を条件にした
+#     成果物実在検査が **light では一度も走らなかった**（requirement.md だけで verify OK だった）
+AU_L=$AUD/.aidev
+run_au new lt1 --light >/dev/null
+AU_LW=$(cat "$AU_L/current"); AU_LD="$AU_L/works/$AU_LW"
+printf -- '- [ ] AC1: a\n' > "$AU_LD/requirement.md"
+run_au approve requirement >/dev/null
+AU_LV=$(run_au verify "$AU_LW" 2>&1); AU_LVR=$?
+assert_eq "$AU_LVR" "4" "verify: light で spec/plan/tasks が無ければ落ちる（4=不変条件違反）"
+assert_contains "$AU_LV" "spec.md欠落" "verify: light の欠落を名指しする"
+assert_contains "$AU_LV" "tasks.md欠落" "verify: light でも tasks.md を要求する（AC の被覆先）"
+for f in spec plan; do : > "$AU_LD/$f.md"; done
+printf -- '- [ ] T1: x\n      AC: AC1\n      依存: なし\n' > "$AU_LD/tasks.md"
+assert_eq "$(run_au verify "$AU_LW" >/dev/null 2>&1; echo $?)" "0" "verify: 4文書そろえば light も通る"
+
+# (3) light の「指紋」（spec/plan の start が無いこと）を機械が見ていなかった
+run_au event spec start --slug "$AU_LW" >/dev/null 2>&1 || run_au use "$AU_LW" >/dev/null 2>&1
+run_au use "$AU_LW" >/dev/null; run_au event spec start >/dev/null
+assert_contains "$(run_au verify "$AU_LW" 2>&1)" "profile=light だが spec を個別に起動" \
+  "verify: light の指紋から外れたら WARN（定義しておいて見ていない、を無くす）"
+
+# (5) schema 10: 記録漏れの範囲。**そのとき書かなければ二度と書けない**ものを strict で落とす
+# 先行テストが $AUD の config.yml に smokeCommand を残しているので消す。残っていると
+# schema 7（起動確認の記録）で FAIL し、ここで見たい記録漏れの検査に届かない
+rm -f "$AUD/.aidev/config.yml"
+mk_work s10a
+# start も刻む。刻まないと event 対の WARN が残り、--strict はそちらで落ちるので
+# 「実施形態を刻めば通る」が確かめられない（見たい検査だけを残す）
+run_au event coding start >/dev/null; run_au approve coding task_checks=3 >/dev/null
+run_au event deliver start >/dev/null; run_au approve deliver >/dev/null
+AU_V10=$(run_au verify 2>&1); AU_R10=$?
+assert_eq "$AU_R10" "0" "verify: task_check_mode 欠落は既定では WARN 止まり"
+assert_contains "$AU_V10" "task_check_mode が無い" \
+  "verify: 点検の実施形態が残っていないことを知らせる（委譲か同一セッションかで効き方が違う）"
+run_au verify --strict >/dev/null 2>&1; assert_eq "$?" "5" \
+  "verify --strict: 実施形態の記録漏れは致命（後から書けない）"
+# 刻んだ側は**別の work**で見る。同じ work で approve を打ち直すと start/approved の
+# 数が合わなくなり（これは正しい検知）、--strict はそちらで落ちる
+mk_work s10c
+run_au event coding start >/dev/null
+run_au approve coding task_checks=3 task_check_mode=same_session >/dev/null
+run_au event deliver start >/dev/null; run_au approve deliver >/dev/null
+run_au verify --strict >/dev/null 2>&1; assert_eq "$?" "0" \
+  "verify --strict: 実施形態を刻めば通る"
+run_au approve coding task_check_mode=deligated >/dev/null 2>&1
+assert_eq "$?" "1" "approve: task_check_mode のタイポを弾く（層別が静かに壊れるのを防ぐ）"
+# task_checks=0 なら実施形態は要らない（点検していないので形態が無い）
+mk_work s10b
+run_au event coding start >/dev/null; run_au approve coding task_checks=0 >/dev/null
+run_au event deliver start >/dev/null; run_au approve deliver >/dev/null
+run_au verify --strict >/dev/null 2>&1
+assert_eq "$?" "0" "verify --strict: task_checks=0 なら実施形態は要らない"
+
+# (6) 起動確認は複数行で積める（固定 1 本だと足した表面が一度も起動されない）
+mk_work smk
+printf 'smokeCommands:\n  - exit 0\n  - exit 0\n' > "$AUD/.aidev/config.yml"
+AU_SM=$(run_au smoke 2>&1)
+assert_contains "$AU_SM" "smoke: pass (exit 0, 2 本)" "smoke: smokeCommands の全部を走らせる"
+assert_contains "$(cat "$AU_D/metrics.yml")" "commands: 2" \
+  "smoke: 何本走ったかを刻む（pass が成果物のどこを通ったのか後から分かる）"
+printf 'smokeCommands:\n  - exit 0\n  - exit 3\n  - exit 0\n' > "$AUD/.aidev/config.yml"
+run_au smoke >/dev/null 2>&1; assert_eq "$?" "4" "smoke: 1 本でも落ちれば fail"
+assert_contains "$(cat "$AU_D/metrics.yml")" "failed_index: 2" \
+  "smoke: 何本目で落ちたかを刻む（原因を1つに絞る）"
+rm -f "$AUD/.aidev/config.yml"
+
+# ps1 が Windows PowerShell 5.1 で動くか（構文レベル）。**pwsh 7 では通るのに 5.1 で落ちる**
+# 構文は CI の winps ジョブだけが赤くなり、手元では一生気づかない。安いので静的に見張る
+AU_PS51=$(grep -vE '^[[:space:]]*#' aidev.ps1 \
+  | grep -nE -- '-Stable|Split-Path[^|]*-LeafBase|Join-String|-AsByteStream|-AsHashtable' || :)
+assert_eq "$AU_PS51" "" "aidev.ps1: PowerShell 6+ でしか無い構文を使っていない（5.1 の CI が落ちる）"
+
+# (12) taskcheck: 散文にしか無かった上限を CLI が止める
+mk_work tc
+printf -- '- [ ] T1: x\n      AC: AC1\n- [ ] T2: y\n      AC: AC2\n' > "$AU_D/tasks.md"
+run_au taskcheck start T9 --mode delegated >/dev/null 2>&1
+assert_eq "$?" "1" "taskcheck start: tasks.md に無いタスク ID を弾く（打ち間違いが「点検した」に化ける）"
+run_au taskcheck start T1 --mode delegated >/dev/null
+run_au taskcheck report T1 --findings 2 >/dev/null
+run_au taskcheck start T1 --mode delegated >/dev/null
+run_au taskcheck start T1 --mode delegated >/dev/null 2>&1
+assert_eq "$?" "4" "taskcheck start: maxTaskCheckRounds に達したら exit 4（散文だけだった上限を CLI へ）"
+# 上限で start が止まったあとに report だけ打てると、ラウンドは止まるのに件数が積み上がる
+run_au taskcheck report T1 --findings 0 >/dev/null   # 2 回目の start と対になる report
+run_au taskcheck report T1 --findings 9 >/dev/null 2>&1
+assert_eq "$?" "4" "taskcheck report: 対になる start が無ければ弾く（上限後に件数だけ積ませない）"
+run_au taskcheck report T2 --findings 0 >/dev/null 2>&1
+assert_eq "$?" "1" "taskcheck report: start の無いタスクは弾く（結果だけ記録させない）"
+run_au taskcheck start T2 --mode bogus >/dev/null 2>&1
+assert_eq "$?" "1" "taskcheck start: --mode の enum を検査する"
+run_au taskcheck start T2 >/dev/null 2>&1
+assert_eq "$?" "1" "taskcheck start: --mode は必須（実施形態が残らないと効果を測れない）"
+run_au taskcheck start T2 --mode same_session >/dev/null
+run_au taskcheck report T2 --findings 0 >/dev/null
+assert_contains "$(run_au taskcheck status)" "taskcheck-summary: tasks=2 findings=2 mode=mixed" \
+  "taskcheck status: 形態が割れていれば mixed"
+# 件数は approve が自動で刻む（手書きさせない）
+run_au approve coding >/dev/null
+assert_contains "$(cat "$AU_D/metrics.yml")" "task_checks: 2, task_check_findings: 2, task_check_mode: mixed" \
+  "approve coding: 点検メトリクスを taskcheck の記録から自動で刻む"
+# 明示指定があればそちらを尊重する（従来の手渡しを壊さない）
+mk_work tc2
+run_au event coding start >/dev/null
+run_au approve coding task_checks=0 >/dev/null
+assert_contains "$(cat "$AU_D/metrics.yml")" "task_checks: 0" "approve coding: 明示指定は上書きしない"
+
+# (13) limits: 上限の一覧と設定口（手編集しかなかった）
+assert_contains "$(run_au limits)" "maxTaskCheckRounds" "limits: 上限を一覧できる"
+assert_contains "$(run_au limits --format tsv)" "limit	maxDebugRounds	2	default	pj	2" \
+  "limits: どこから来た値か（config/state/既定）まで出す"
+run_au limits set maxTaskCheckRounds 5 >/dev/null
+assert_contains "$(run_au limits --format tsv)" "limit	maxTaskCheckRounds	5	config	pj	2" \
+  "limits set: PJ スコープは config.yml に書く"
+run_au limits set maxSendBacks 7 >/dev/null
+assert_contains "$(run_au limits --format tsv)" "limit	maxSendBacks	7	state	work	3" \
+  "limits set: work スコープは state.yml に書く"
+run_au limits set maxTaskCheckRounds 0 >/dev/null 2>&1
+assert_eq "$?" "1" "limits set: 下限を検査する（0 だと start が必ず止まり出口が無い）"
+run_au limits set bogus 3 >/dev/null 2>&1
+assert_eq "$?" "1" "limits set: 未知のキーを弾く（効かない設定を書かせない）"
+assert_contains "$(run_au limits set maxDebugRounds -1 2>&1)" "値は 0 以上の整数" \
+  "limits set: 負値を「未知のオプション」と言わない（値として読んでから弾く）"
+assert_contains "$(run_au limits set maxTaskCheckRounds 3 --slug "$AU_W" 2>&1)" "--slug は使えません" \
+  "limits set: PJ スコープのキーに --slug を渡したら弾く（黙って無視すると効いたつもりが残る）"
+run_au limits unset maxSendBacks >/dev/null
+assert_contains "$(run_au limits --format tsv)" "limit	maxSendBacks	3	default	work	3" \
+  "limits unset: 行を消して既定へ戻す（set <既定値> だと source が config のまま残る）"
+assert_contains "$(run_au limits unset maxSendBacks 2>&1)" "書かれていません" \
+  "limits unset: 書かれていないキーでも落ちない（冪等）"
+# config.yml が「そのキーだけ」のとき（grep -v が全行落として exit 1 になる形）
+printf 'maxDebugRounds: 4\n' > "$AUD/.aidev/config.yml"
+run_au limits unset maxDebugRounds >/dev/null
+assert_contains "$(run_au limits --format tsv)" "limit	maxDebugRounds	2	default	pj	2" \
+  "limits unset: 唯一の行でも消える（grep -v の全行落ち exit 1 で消え損ねない）"
+# 設定した上限が実際に効く
+mk_work tc3
+run_au taskcheck start T1 --mode delegated >/dev/null
+run_au taskcheck start T1 --mode delegated >/dev/null
+run_au taskcheck start T1 --mode delegated >/dev/null
+run_au taskcheck start T1 --mode delegated >/dev/null
+run_au taskcheck start T1 --mode delegated >/dev/null
+run_au taskcheck start T1 --mode delegated >/dev/null 2>&1
+assert_eq "$?" "4" "limits set: 設定した maxTaskCheckRounds=5 が実際に効く"
+run_au limits set maxTaskCheckRounds 2 >/dev/null
+
+# (10) schema 7 のゲートは smokeCommands だけの PJ でも効く（単数キーしか見ていなかった）
+printf 'smokeCommands:\n  - exit 0\n' > "$AUD/.aidev/config.yml"
+mk_work sc7
+run_au approve deliver >/dev/null
+assert_contains "$(run_au verify 2>&1)" "起動確認の記録が無い" \
+  "verify: smokeCommands だけの PJ でも deliver 前の起動確認ゲートが効く"
+run_au smoke >/dev/null 2>&1
+assert_eq "$(run_au verify 2>&1 | grep -c '起動確認の記録が無い')" "0" \
+  "verify: smoke を通せばゲートは解ける"
+rm -f "$AUD/.aidev/config.yml"
+
+# (11) humanGates に設定口がある（state.yml の手編集しか手段が無かった）
+run_au new hg1 --mode autonomous --human-gates spec,review >/dev/null
+assert_contains "$(cat "$AUD/.aidev/works/$(cat "$AUD/.aidev/current")/state.yml")" "humanGates: [spec, review]" \
+  "new --human-gates: 部分自律の宣言を CLI から刻める"
+run_au new hg2 --human-gates bogus >/dev/null 2>&1
+assert_eq "$?" "1" "new --human-gates: 未知の工程を弾く（タイポで黙って無効化されない）"
+
+# (9) 刻み直しは「訂正」であって新しいラウンドではない（WARN の指示が別の FAIL を生まない）
+mk_work amd
+run_au event coding start >/dev/null
+run_au approve coding task_checks=3 >/dev/null
+run_au approve coding task_checks=3 task_check_mode=same_session >/dev/null
+AU_AM=$(cat "$AU_D/metrics.yml")
+assert_contains "$AU_AM" "task_check_mode: same_session, amend: yes" \
+  "approve: 同一ラウンドの刻み直しは amend として追記する（記録は消さない）"
+assert_eq "$(run_au verify >/dev/null 2>&1; echo $?)" "0" \
+  "verify: 訂正を「approve の重複」と誤検知しない（WARN の指示が別の WARN を生まない）"
+assert_eq "$(run_au verify 2>&1 | grep -c 'approve の重複')" "0" "verify: 重複 WARN が出ない"
+assert_eq "$(run_au metrics "$AU_W" --format tsv 2>/dev/null | awk -F'\t' '{print $6}')" "0" \
+  "metrics: 訂正は差し戻しにも数えない"
+# 差し戻しを挟んだ再承認は**新しいラウンド**（amend にしない）
+run_au event coding start >/dev/null
+run_au approve coding task_checks=1 task_check_mode=delegated >/dev/null
+assert_eq "$(grep -c 'phase: coding, event: approved' "$AU_D/metrics.yml")" "3" \
+  "approve: start を挟んだ再承認は訂正ではない（3 件目が積まれる）"
+assert_eq "$(run_au verify 2>&1 | grep -c 'approve の重複')" "0" \
+  "verify: start 2 / approved 2（訂正を除く）は対が揃っている"
+
+# (7) backlog の行単位の保持（inflight はファイル単位の件数しか言えない）
+BLR=$(mktemp -d); mkdir -p "$BLR/.aidev/backlog"
+run_bl() { ( cd "$BLR" && "$AIDEV_SH" "$@" ); }
+printf -- '- [ ] 項目A\n- [ ] 項目B\n' > "$BLR/.aidev/backlog/b.md"
+run_bl new w1 --backlog b.md --backlog-item "項目A" >/dev/null
+run_bl new w2 --backlog b.md --backlog-item "項目B" >/dev/null
+BL_S=$(run_bl status)
+assert_contains "$BL_S" "[作業中] 項目A" "status: 掴んでいる行を HELD に出す（どの行が空いているか答えられる）"
+run_bl approve deliver --slug w2 >/dev/null
+BL_S=$(run_bl status)
+assert_contains "$BL_S" "[着地済] 項目B" \
+  "status: deliver 済み・未マージの行も HELD に残す（inflight から外れ todo に戻る死角）"
+assert_eq "$(printf '%s' "$BL_S" | grep -c '⚠ 同じ項目')" "0" "status: 重複が無ければ二重着手の警告は出さない"
+run_bl new w3 --backlog b.md --backlog-item "項目A" >/dev/null
+assert_contains "$(run_bl status)" "⚠ 同じ項目を 2 本以上が作業中です（二重着手）: 項目A" \
+  "status: 同じ行を 2 本が作業中なら警告する（CLI が二重着手を言えるようにする）"
+rm -rf "$BLR"
+
+# (8) 条項の母集団通知は**判定するまで**鳴る（跨いだ瞬間だけだと、後から着地した work に届かない）
+CVR=$(mktemp -d); mkdir -p "$CVR/.aidev/works" "$CVR/docs/aidev"
+run_cv() { ( cd "$CVR" && "$AIDEV_SH" "$@" ); }
+printf 'conventionsDir: docs/aidev\n' > "$CVR/.aidev/config.yml"
+run_cv convention new c1 --hypothesis h --baseline b --verify-after 1 >/dev/null 2>&1
+for w in a b; do
+  run_cv new "$w" >/dev/null
+  CVW=$(cat "$CVR/.aidev/current")
+  for f in requirement spec plan review test-result; do : > "$CVR/.aidev/works/$CVW/$f.md"; done
+  CV_OUT=$(run_cv approve deliver 2>&1)
+done
+assert_contains "$CV_OUT" "母集団が揃っています" \
+  "approve deliver: 閾値を跨いだ**後**の着地にも催促が届く（未判定のあいだ鳴る）"
+rm -rf "$CVR"
+
+# (4) doctor: 0 件でも節見出しを出す（「検査が無い」と「検査して 0 件」は別の情報）
+assert_contains "$(run_au doctor 2>&1)" "harness-summary: files=0" \
+  "doctor: ハーネス改修の記録が 0 件でも節を出す（条項側と同じ）"
+
 rm -rf "$AUD"
 
 
@@ -2007,6 +2247,15 @@ if [ "$AWK_N" -lt 2 ]; then
   skip 2 "awk 実装が1つしか無いため実装間の突き合わせを省略（CI の ubuntu は gawk / 開発機は mawk のことが多い）"
 fi
 rm -rf "$AWKD"
+
+
+echo "== 文書と CLI 表面の整合（lint-docs.sh）=="
+# ハーネス自身の文書を機械で検査する層。このセッションで踏んだ欠陥の分類のうち、
+# 「片方だけ直して食い違う」「CLI 表面の更新漏れ」「文書の冗長化」「予算の無い増加」を受け持つ。
+# 出力はそのまま流し、合否だけをここで数える（詳細は lint 側が ok:/NG: で出す）
+LINTOUT=$("$SELF/lint-docs.sh" 2>&1); LINTRC=$?
+printf '%s\n' "$LINTOUT" | sed 's/^/  | /'
+assert_eq "$LINTRC" "0" "lint-docs: 文書と CLI 表面が整合している"
 
 echo "== sh ⇔ ps1 パリティ =="
 if [ -n "$PS_HOST" ]; then
@@ -2880,6 +3129,66 @@ YML
     WL_PS=$( ( cd "$PREPO" && run_ps1 "$AIDEV_PS1" worktree list --format tsv ) | tr -d '\r' )
     assert_eq "$WL_SH" "$WL_PS" "パリティ: worktree list --format tsv"
 
+    # worktree files: 重なりの検知と sh⇔ps1 の一致（並びは LC_ALL=C / Ordinal で固定してある）
+    printf 'x\n' > "$PREPO/README.md"; printf 'y\n' > "$PREPO/shared.txt"
+    ( cd "$PREPO" && git add -A && git commit -qm f2 >/dev/null 2>&1 )
+    ( cd "$PREPO" && "$AIDEV_SH" worktree add wa >/dev/null 2>&1 )
+    ( cd "$PREPO" && "$AIDEV_SH" worktree add wb >/dev/null 2>&1 )
+    for w in wa wb; do
+      printf 'touched by %s\n' "$w" >> "$TMP/prepo-wt/$w/shared.txt"
+      ( cd "$TMP/prepo-wt/$w" && git add -A && git commit -qm "$w" >/dev/null 2>&1 )
+    done
+    WF_SH=$( ( cd "$PREPO" && "$AIDEV_SH" worktree files --format tsv ) )
+    WF_PS=$( ( cd "$PREPO" && run_ps1 "$AIDEV_PS1" worktree files --format tsv ) | tr -d '\r' )
+    assert_eq "$WF_SH" "$WF_PS" "パリティ: worktree files --format tsv"
+    assert_contains "$WF_SH" "file	shared.txt	2	no	wa, wb" \
+      "worktree files: 2 本が触っているファイルを名前と本数で出す（sharedFiles 未宣言も分かる）"
+    assert_eq "$(printf '%s' "$WF_SH" | grep -c 'file	README.md')" "0" \
+      "worktree files: 1 本しか触っていないファイルは既定では出さない（重なりが埋もれる）"
+    assert_contains "$( ( cd "$PREPO" && "$AIDEV_SH" worktree files ) )" "sharedFiles に無いファイルが 1 件" \
+      "worktree files: 未宣言の重なりを数えて知らせる"
+
+    # deliver しただけでは重なりの相手から外れない。deliver は PR 作成で終わりで、
+    # **マージは人間の仕事**——未マージのまま deliver した枝はマージ衝突の相手として現役
+    ( cd "$TMP/prepo-wt/wb" && "$AIDEV_SH" approve deliver >/dev/null 2>&1 )
+    assert_contains "$( ( cd "$PREPO" && "$AIDEV_SH" worktree files --format tsv ) )" "shared.txt" \
+      "worktree files: deliver 済みでも未マージなら重なりの相手のまま（マージ順の判断に要る）"
+    # 既定ブランチに入った時点で初めて外れる（実際その差分はもう base 側にあるので重ならない）
+    ( cd "$PREPO" && git merge -q --no-edit feature/wb >/dev/null 2>&1 )
+    assert_eq "$( ( cd "$PREPO" && "$AIDEV_SH" worktree files --format tsv ) | grep -c 'wb')" "0" \
+      "worktree files: 既定ブランチにマージ済みの worktree は外れる"
+    assert_contains "$( ( cd "$PREPO" && "$AIDEV_SH" worktree files --all --format tsv ) )" "shared.txt" \
+      "worktree files: --all ならマージ済みも含めて全件出す"
+
+    # --planned: tasks.md の 対象: アンカーから「これから触る」重なりを出す。
+    # 実差分モードは 3 本が同時に上流工程にいる立ち上がり期に構造的に空になる（実走で観測）
+    for w in wa wb; do
+      WD="$TMP/prepo-wt/$w"; WW=$(cat "$WD/.aidev/current")
+      printf -- '- [ ] T1: x\n      対象: `planned/shared.py:12` `planned/only-%s.py`\n      依存: なし\n' \
+        "$w" > "$WD/.aidev/works/$WW/tasks.md"
+    done
+    WP=$( ( cd "$PREPO" && "$AIDEV_SH" worktree files --planned --all --format tsv ) )
+    assert_contains "$WP" "file	planned/shared.py	2	no	wa, wb" \
+      "worktree files --planned: tasks.md の 対象: から予定の重なりを出す（書く前に見える）"
+    assert_eq "$(printf '%s' "$WP" | grep -c 'planned/only-wa.py	1')" "1" \
+      "worktree files --planned: 1 本だけの宣言は重なりに数えない"
+
+    # doctor: sharedFiles の宣言が実態から遅れていないか
+    printf 'sharedFiles: [nonexistent.txt]\n' > "$PREPO/.aidev/config.yml"
+    DS_SH=$( ( cd "$PREPO" && "$AIDEV_SH" doctor --quiet ) 2>&1 )
+    DS_PS=$( ( cd "$PREPO" && run_ps1 "$AIDEV_PS1" doctor --quiet ) 2>&1 | tr -d '\r' )
+    assert_eq "$DS_SH" "$DS_PS" "パリティ: doctor の sharedFiles 検査"
+    assert_contains "$DS_SH" "宣言されているが実在しません: nonexistent.txt" \
+      "doctor: sharedFiles の誤記・残骸を名指しする（宣言だけ古びるのを機械が言う）"
+    assert_contains "$DS_SH" "sharedFiles-summary: declared=1 実在しない=1" \
+      "doctor: sharedFiles の件数を要約に出す"
+    # ハーネス自身（skills 配下）は PJ のコードではないので常連から外す。
+    # 外さないと、ハーネスを更新するたび skills の全ファイルが上位を占め、本命を押し出す（実測）
+    assert_eq "$(printf '%s' "$DS_SH" | grep -c 'sharedFiles に無い: .claude/skills/')" "0" \
+      "doctor: ハーネス自身の置き場を sharedFiles の常連に数えない"
+    assert_eq "$(printf '%s' "$DS_SH" | grep -c 'sharedFiles に無い: .aidev/')" "0" \
+      "doctor: .aidev/（帳簿）を sharedFiles の常連に数えない"
+
     # (2) ps1 の add（既存work一致＝current 設定のみ）。current が full dated 名であること
     #     ＝ review 検出の must「PowerShell 単一要素配列アンラップ($mw[0]が先頭1文字)」の回帰ガード
     PW_OUT=$( ( cd "$PREPO" && run_ps1 "$AIDEV_PS1" worktree add existing ) | tr -d '\r' )
@@ -2900,19 +3209,28 @@ YML
     assert_eq "$([ -f "$TMP/prepo-wt/fresh/.aidev/works/$PN_CUR/state.yml" ] && echo yes || echo no)" "yes" \
       "パリティ: ps1 add(新規slug) が work を実際に作る（委譲失敗の空振り回帰）"
 
+    # doctor の branch 検査: linked worktree では鳴らさない（aidev の worktree は定義上 feature/<slug>
+    # に載っているので、鳴らすと 100% 誤警告になる）。sh/ps1 の両方で確かめる——**片側だけ直した**
+    # のを一度やっている
+    DB_WT="$TMP/prepo-wt/probe"
+    DB_SH=$( ( cd "$DB_WT" && "$AIDEV_SH" doctor 2>&1 ) | grep -c '^branch:' ) || DB_SH=0
+    assert_eq "$DB_SH" "0" "doctor: linked worktree では branch 検査を鳴らさない（sh）"
+    DB_PS=$( ( cd "$DB_WT" && run_ps1 "$AIDEV_PS1" doctor 2>&1 ) | tr -d '\r' | grep -c '^branch:' ) || DB_PS=0
+    assert_eq "$DB_PS" "0" "doctor: linked worktree では branch 検査を鳴らさない（ps1）"
+
     # (4) ps1 の rm <path>: 自分の list が出したパス表記をそのまま渡せること
     #     （git は C:/... 、.NET の解決は C:\... なので素の比較だと Windows で必ず外れた）
     PB=$( ( cd "$PREPO" && run_ps1 "$AIDEV_PS1" worktree list --format tsv ) | tr -d '\r' | awk -F'\t' '$2 ~ /fresh$/ {print $2}')
     ( cd "$PREPO" && run_ps1 "$AIDEV_PS1" worktree rm "$PB" --force --delete-branch >/dev/null 2>&1 )
     assert_eq "$?" "0" "パリティ: ps1 rm は list が出したパス表記をそのまま扱える"
     assert_eq "$([ -d "$TMP/prepo-wt/fresh" ] && echo yes || echo no)" "no" "パリティ: ps1 rm(path) で worktree 撤去済み"
-    block_end wtparity "10" "wtparity"
+    block_end wtparity "26" "wtparity"
   else
     skip 10 "git 不在のため worktree パリティを省略"
   fi
-  block_end parity "228" "parity"
+  block_end parity "244" "parity"
 else
-  skip 228 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
+  skip 230 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
 fi
 
 echo

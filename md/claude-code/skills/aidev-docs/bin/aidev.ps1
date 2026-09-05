@@ -5,7 +5,7 @@
 # 役割と正典は `aidev` 冒頭コメント／protocol.md「4.1」を参照。
 #
 # 使い方:
-#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 new <slug> [--mode interactive|autonomous] [--profile full|light] [--light] [--ticket ID] [--depends a,b,#N] [--parent <親work>] [--backlog <file>]
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 new <slug> [--mode interactive|autonomous] [--profile full|light] [--light] [--ticket ID] [--depends a,b,#N] [--parent <親work>] [--backlog <file>] [--backlog-item <text>] [--human-gates <list>]
 #     --parent 指定時は親 work 配下に subtask（<NN>-<subslug>・date prefix なし・current=plan）を作る
 #     --profile/--light は「どこまで工程を回すか」（protocol.md「11.」）。mode（誰が承認するか）と直交
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 escalate [slug]   # profile を light -> full に昇格（片方向）
@@ -16,32 +16,37 @@
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 verify [slug] [--strict]
 #     --strict は記録漏れ(event の start 欠落)だけを致命(exit 5)にする（機械ゲート用）
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 doctor [--quiet]
-#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 status [--format table|tsv] [--active]
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 status [--format table|tsv] [--active] [--subtasks]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 metrics [slug] [--all] [--phases] [--format table|tsv]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 coverage [slug] [--format table|tsv] [--strict]
 #     受け入れ基準(AC)の被覆率と tasks.md の整合を検査する。--strict は gap があれば exit 4
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 taskcheck <start|report|status> ...
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 limits [show|set <key> <n>|unset <key>] [--format table|tsv] [--slug <work>]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 smoke [slug]
 #     config.yml の smokeCommand を実行して結果を metrics に刻む（起動確認 GO/NO-GO）。未設定は exit 2
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 debug <start|report|status> ...
 #     詰まったときの原因究明を有限化する（report は --root-cause/--category/--next-action が必須）
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 convention <new|confirm|retire|defer|promote|status> ...
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 harness <new|confirm|retire|status> ...
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 use [<slug>]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 backlog <new|archive|compact> ...
 #     PJ規約の条項を .aidev/conventions/ で起こし・判定し・PJ ドキュメントへ移送する（protocol.md「12.」）
 #     new は --hypothesis と --baseline が必須（検証できない条項を作らせない入口ゲート）
-#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree add <slug> [--branch n] [--base ref] [--path dir] [--mode m] [--ticket id] [--depends list]
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree add <slug> [--branch n] [--base ref] [--path dir] [--mode m] [--profile p|--light] [--ticket id] [--depends list] [--backlog <file>] [--backlog-item <text>] [--human-gates <list>]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree list [--format table|tsv]
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree files [--planned] [--all] [--format table|tsv]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 worktree rm <slug|path> [--force] [--delete-branch]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 help
 #
 # 終了コード: 0=OK / 1=使用法・環境エラー / 2=前提成果物の不足 / 3=依存未充足 / 4=不変条件違反
+#             5=記録漏れ（verify --strict のときのみ。既定の verify では WARN 止まりで 0）
 
 $ErrorActionPreference = 'Stop'
 # git をネイティブ呼び出しする（worktree）。PS7.4+ の既定 throw-on-nonzero を無効化し、$LASTEXITCODE で判定する
 # （git show-ref 等は ref 不在で 1 を返すのが正常系のため）。古い pwsh では通常変数になるだけで無害。
 $PSNativeCommandUseErrorActionPreference = $false
 
-$script:CURRENT_SCHEMA = 8   # schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema 7=起動確認(smoke)の記録検査を導入。schema 8=デバッグ（詰まりの原因究明）の記録検査を導入。schema<=2 は legacy 免除
+$script:CURRENT_SCHEMA = 10  # schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema 7=起動確認(smoke)の記録検査を導入。schema 8=デバッグ（詰まりの原因究明）の記録検査を導入。schema 9=light の上流4文書の実在検査を導入。schema 10=autonomous の decisions.md と task_check_mode を記録漏れ扱いに。schema<=2 は legacy 免除
 $script:STRICT = $false      # verify --strict（記録漏れを致命にする）。doctor 経由では常に false
 $script:PHASES = @('requirement','research','spec','design','plan','coding','test','review','walkthrough','deliver','retro')
 $script:Utf8 = New-Object System.Text.UTF8Encoding($false)  # BOM なし
@@ -113,8 +118,15 @@ function FindRoot() {
   return $null
 }
 
+# help は .aidev を要らない（sh 版の注記に理由）
 $script:ROOT = FindRoot
-if (-not $script:ROOT) { Die ".aidev が見つかりません（リポジトリ内で実行してください）" }
+$_firstArg = if ($args.Count -gt 0) { "$($args[0])" } else { '' }
+if (-not $script:ROOT) {
+  if ('help','--help','-h','' -cnotcontains $_firstArg) {
+    Die ".aidev が見つかりません（リポジトリ内で実行してください）"
+  }
+  $script:ROOT = (Get-Location).Path
+}
 $script:AIDEV = Join-Path $script:ROOT '.aidev'
 
 function ResolveWork($slug) {
@@ -138,6 +150,33 @@ function SetOrAppend($file,$key,$newline) {
 }
 
 function IsPhase($p) { return $script:PHASES -ccontains $p }
+
+# **Windows PowerShell 5.1 は `2>$null` だけでは native コマンドの stderr を消しきれない**。
+# $ErrorActionPreference='Stop' の下では NativeCommandError として湧き、
+# 「git.exe : fatal: not a git repository」がそのまま出力に混ざる（sh 側は消しているので
+# パリティが割れる）。pwsh 7 では $PSNativeCommandUseErrorActionPreference=$false が効くため
+# 再現せず、**CI の winps ジョブだけが赤くなる**。失敗しうる git はすべてここを通す。
+function GitQ {
+  $old = $ErrorActionPreference
+  $ErrorActionPreference = 'SilentlyContinue'
+  try { & git @args 2>$null } finally { $ErrorActionPreference = $old }
+}
+
+# **Windows PowerShell 5.1 に `Sort-Object -Stable` は無い**（PS 6 で追加）。
+# 5.1 では「パラメーター名 'Stable' が見つかりません」で**その場で落ちる**——CI の winps ジョブ
+# だけが赤くなり、Linux の pwsh 7 では一生気づかない形。安定ソートを自前で行う
+# （入力は ordinal 済みなので、件数でバケットに分けて降順に連結すれば同順になる）。
+function SortByCountDesc($keys, $countOf) {
+  $buckets = @{}
+  foreach ($k in $keys) {
+    $c = [int](& $countOf $k)
+    if (-not $buckets.ContainsKey($c)) { $buckets[$c] = @() }
+    $buckets[$c] += $k
+  }
+  $out = @()
+  foreach ($c in @($buckets.Keys | Sort-Object -Descending)) { $out += $buckets[$c] }
+  return $out
+}
 
 # scalar 読み取り（前後空白と囲み二重引用符を除去）。inline コメント(#)は除去しない
 # （ticket/dependsOn は '#18' 等 '#' 始まりの値を持つため）。sh の yget と一致。
@@ -215,14 +254,14 @@ function HarnessRev() {
                ForEach-Object { $_.FullName })
     if ($paths.Count -eq 0) { return 'unknown' }
     # 版の実体は内容の tree hash（コミット SHA だと squash / rebase で同一内容が別版に割れる。sh 版と同じ）
-    $trees = @(& git -C $script:HARNESS ls-tree -d HEAD -- @paths 2>$null | ForEach-Object { ($_ -split '\s+')[2] })
+    $trees = @(GitQ -C $script:HARNESS ls-tree -d HEAD -- @paths 2>$null | ForEach-Object { ($_ -split '\s+')[2] })
     if ($trees.Count -eq 0) { return 'unknown' }
     # stdin パイプは使わない: PowerShell は native コマンドへ渡すとき自分で改行を足し、しかも
     # Windows では CRLF になるので sh 版（LF）と別のハッシュになる。LF 固定の一時ファイルで渡す
     $tmp = [System.IO.Path]::GetTempFileName()
     try {
       [System.IO.File]::WriteAllText($tmp, (($trees -join "`n") + "`n"), $script:Utf8)
-      $r = (& git hash-object -- $tmp 2>$null | Select-Object -First 1)
+      $r = (GitQ hash-object -- $tmp 2>$null | Select-Object -First 1)
     } finally { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
     if ([string]::IsNullOrWhiteSpace($r)) { return 'unknown' }
     return $r.Trim().Substring(0, 12)
@@ -385,9 +424,10 @@ function CvReadyNotice() {
     if ([int]$va -le 0) { continue }
     $pop = CvPop $intro
     # 跨いだ瞬間だけ鳴らす（-ge だと以後の全 deliver で全条項ぶん鳴り続ける。sh 版と同じ）
-    if ([int]$pop -eq [int]$va) {
+    # 未判定のあいだは鳴らし続ける（sh 版 cv_ready_notice の注記に理由）
+    if ([int]$pop -ge [int]$va) {
       $id = [System.IO.Path]::GetFileNameWithoutExtension($fi.Name)
-      Write-Output "note: 条項 $id の母集団が揃いました($pop/$va)。insights で効果を判定してください"
+      Write-Output "note: 条項 $id の母集団が揃っています($pop/$va)。insights で効果を判定してください（判定するまで毎回出ます）"
     }
   }
 }
@@ -444,6 +484,16 @@ function CvDirRel() {
   return $d
 }
 
+# humanGates の設定口（sh 版 emit_human_gates の注記に理由）
+function EmitHumanGates($humangates) {
+  if ($humangates) {
+    $hg = @(($humangates -split '[, ]') | Where-Object { $_ })
+    foreach ($h in $hg) { if (-not (IsPhase $h)) { Die "humanGates に未知の工程: $h" } }
+    return "humanGates: [" + ($hg -join ', ') + "]`n"
+  }
+  return "humanGates: []`n"
+}
+
 function Cmd-New($rest) {
   $slug=''; $mode=''; $profile=''; $ticket=''; $depends=''; $parent=''; $backlog=''
   for ($i=0; $i -lt $rest.Count; $i++) {
@@ -458,13 +508,15 @@ function Cmd-New($rest) {
       # 素で Split-Path に渡すと 'Cannot bind argument...' の生の .NET 例外が出て、
       # 同じ入力で片方は work を作り片方は落ちる
       '--backlog' { $i++; $_bv=(ArgAt $rest $i '--backlog'); if ($_bv) { $backlog=Split-Path -Leaf $_bv } }
+      '--backlog-item' { $i++; $backlogitem=(ArgAt $rest $i '--backlog-item') }
+      '--human-gates' { $i++; $humangates=(ArgAt $rest $i '--human-gates') }
       default {
         if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
         if ($slug) { Die "slug は1つだけ" } else { $slug=$rest[$i] }
       }
     }
   }
-  if (-not $slug) { Die "使用法: aidev new <slug> [--mode ..] [--profile ..|--light] [--ticket ..] [--depends ..] [--parent <親work>] [--backlog <file>]" }
+  if (-not $slug) { Die "使用法: aidev new <slug> [--mode ..] [--profile ..|--light] [--ticket ..] [--depends ..] [--parent <親work>] [--backlog <file>] [--backlog-item <text>] [--human-gates <list>]" }
   # backlog 出自は「消し込み忘れ」を verify で捕まえるための刻印。存在しないファイルを
   # 指したまま進むと deliver 直前まで気づけないので、この場で弾く（sh 版と同一）
   if ($backlog -and -not (IsFile (Join-Path (Join-Path $script:AIDEV 'backlog') $backlog))) {
@@ -509,7 +561,7 @@ function Cmd-New($rest) {
 
     $sb = "schema: $($script:CURRENT_SCHEMA)`nslug: $slug`nparent: $parent`n"
     if ($ticket) { $sb += "ticket: $ticket`n" }
-    $sb += "current: plan`napproved: []`nmode: $mode`nprofile: $profile`nhumanGates: []`nmaxSendBacks: 3`ndependsOn: $depsYaml`n"
+    $sb += "current: plan`napproved: []`nmode: $mode`nprofile: $profile`n" + (EmitHumanGates $humangates) + "maxSendBacks: 3`ndependsOn: $depsYaml`n"
     $sb += "harnessRev: $(HarnessRev)`n"
     WriteText (Join-Path $work 'state.yml') $sb
     WriteText (Join-Path $work 'metrics.yml') "events:`n"
@@ -544,9 +596,11 @@ function Cmd-New($rest) {
 
   $sb = "schema: $($script:CURRENT_SCHEMA)`nslug: $slug`n"
   if ($ticket) { $sb += "ticket: $ticket`n" }
-  $sb += "current: requirement`napproved: []`nmode: $mode`nprofile: $profile`nhumanGates: []`nmaxSendBacks: 3`ndependsOn: $depsYaml`n"
+  $sb += "current: requirement`napproved: []`nmode: $mode`nprofile: $profile`n" + (EmitHumanGates $humangates) + "maxSendBacks: 3`ndependsOn: $depsYaml`n"
   $sb += "harnessRev: $(HarnessRev)`n"
   if ($backlog) { $sb += "backlog: $backlog`n" }
+  # どの行を掴んだか（sh 版 cmd_new の注記に理由）
+  if ($backlogitem) { $sb += "backlogItem: $backlogitem`n" }
   WriteText (Join-Path $work 'state.yml') $sb
   WriteText (Join-Path $work 'metrics.yml') "events:`n"
   WriteText (Join-Path $script:AIDEV 'current') "$name`n"
@@ -612,6 +666,38 @@ function Cmd-Approve($rest) {
       }
     }
   }
+  # 実施形態は enum。タイポ（deligated 等）を通すと層別が静かに壊れる（sh 版と同一）
+  foreach ($kv in @($kvs)) {
+    if ($kv -like 'task_check_mode=*') {
+      $mv = $kv.Substring('task_check_mode='.Length)
+      if ('delegated','same_session','mixed' -cnotcontains $mv) {
+        Die "task_check_mode は delegated|same_session（taskcheck から自動で刻むときは、形態が割れていれば mixed）"
+      }
+    }
+  }
+  # coding の点検メトリクスは taskcheck の記録から自動で刻む（sh 版 cmd_approve の注記に理由）
+  if ($ph -ceq 'coding') {
+    $tchas = $false
+    foreach ($kv in @($kvs)) { if ($kv -like 'task_checks=*' -or $kv -like 'task_check_findings=*' -or $kv -like 'task_check_mode=*') { $tchas = $true } }
+    if (-not $tchas) {
+      $tot = TcTotals (Join-Path $script:WORK 'metrics.yml')
+      if ($tot.tasks -gt 0) {
+        $kvs = @($kvs) + @("task_checks=$($tot.tasks)", "task_check_findings=$($tot.findings)")
+        if ($tot.mode) { $kvs = @($kvs) + @("task_check_mode=$($tot.mode)") }
+      }
+    }
+  }
+  # 同じラウンドの刻み直しは訂正（sh 版 cmd_approve の注記に理由）
+  $amend = $false
+  $mfA = Join-Path $script:WORK 'metrics.yml'
+  if ((ApprovedHas $script:WORK $ph) -and (IsFile $mfA)) {
+    $lastEv = ''
+    foreach ($l in [System.IO.File]::ReadAllLines($mfA)) {
+      if ($l -match "phase:\s*$ph," -and $l -match 'event:\s*(start|approved)') { $lastEv = $l }
+    }
+    if ($lastEv -match 'event:\s*approved') { $amend = $true }
+  }
+  if ($amend) { $kvs = @($kvs) + @('amend=yes') }
   AppendEvent $script:WORK $ph 'approved' $kvs
   Write-Output "approved: $ph @ $($script:SLUG)"
 
@@ -1059,11 +1145,12 @@ function DbgMaxSendBacks($work) {
   $n = 0; if ([int]::TryParse($v, [ref]$n) -and $n -ge 0) { return $n }
   return 3
 }
+# `by: unapprove` の行は数えない（差し戻しの結果であって原因ではない。Cmd-Unapprove の注記）。
 function DbgSentBacks($metricsFile, $phase) {
   if (-not (IsFile $metricsFile)) { return 0 }
   $c = 0
   foreach ($l in [System.IO.File]::ReadAllLines($metricsFile)) {
-    if ($l -match "phase:\s*$phase," -and $l -match 'event:\s*sent_back') { $c++ }
+    if ($l -match "phase:\s*$phase," -and $l -match 'event:\s*sent_back' -and $l -notmatch 'by:\s*unapprove') { $c++ }
   }
   return $c
 }
@@ -1261,6 +1348,29 @@ function SmokeCmd() {
 }
 # 起動確認は work 全体（親＋全 subtask）の性質なので、記録も家族の根に一本化する
 # （子に刻むと、着地する親の verify から見えず「記録が無い」と誤 FAIL する。sh 版と同一）
+# 起動確認を複数行で積めるようにする（sh 版 smoke_cmds の注記に理由）
+function SmokeCmds() {
+  $cfg = Join-Path $script:AIDEV 'config.yml'
+  if (-not (IsFile $cfg)) { return @() }
+  $out = @(); $inblk = $false
+  foreach ($l in [System.IO.File]::ReadAllLines($cfg)) {
+    $l = "$l".TrimEnd("`r")
+    if ($l -match '^smokeCommands:[ \t]*$') { $inblk = $true; continue }
+    if (-not $inblk) { continue }
+    if ($l -match '^[ \t]+-[ \t]+(.*)$') { $v = $Matches[1].TrimEnd(); if ($v) { $out += $v }; continue }
+    if ($l -match '^[ \t]*$') { continue }
+    $inblk = $false
+  }
+  return $out
+}
+function SmokeList() {
+  $l = @(SmokeCmds)
+  if ($l.Count -gt 0) { return $l }
+  $one = SmokeCmd
+  if ($one) { return @($one) }
+  return @()
+}
+
 function SmokeRoot($work) {
   $parent = YGet (Join-Path $work 'state.yml') 'parent'
   if ($parent) {
@@ -1285,6 +1395,347 @@ function SmokeLast($metricsFile) {
   return $r
 }
 
+# --- taskcheck（タスク単位の独立点検を有限化する。sh 版 cmd_taskcheck の注記に理由）------
+$script:TC_MODES = @('delegated','same_session')
+
+function TcMax() {
+  $v = YGet (Join-Path $script:AIDEV 'config.yml') 'maxTaskCheckRounds'
+  if ($v -notmatch '^\d+$') { return 2 }
+  $n = [int]$v; if ($n -lt 1) { return 1 }
+  return $n
+}
+function TcValidId($id) { return ($id -cmatch '^T[0-9][A-Za-z0-9_-]*$') }
+# tasks.md にそのタスクが実在するか。tasks.md がまだ無ければ判定不能として通す
+function TcKnownId($task) {
+  $tf = Join-Path $script:WORK 'tasks.md'
+  if (-not (IsFile $tf)) { return $true }
+  foreach ($r in (CovTaskRows $tf)) { if ($r.id -ceq $task) { return $true } }
+  return $false
+}
+# そのタスクの report 回数（start と対になっているかの判定に使う）
+function TcReports($metricsFile, $task) {
+  if (-not (IsFile $metricsFile)) { return 0 }
+  $c = 0
+  foreach ($l in [System.IO.File]::ReadAllLines($metricsFile)) {
+    if ($l -match 'event:\s*taskcheck' -and $l -match 'stage:\s*report' -and $l -match "task:\s*$([regex]::Escape($task))[,}]") { $c++ }
+  }
+  return $c
+}
+function TcRounds($metricsFile, $task) {
+  if (-not (IsFile $metricsFile)) { return 0 }
+  $c = 0
+  foreach ($l in [System.IO.File]::ReadAllLines($metricsFile)) {
+    if ($l -match 'event:\s*taskcheck' -and $l -match 'stage:\s*start' -and $l -match "task:\s*$([regex]::Escape($task))[,}]") { $c++ }
+  }
+  return $c
+}
+function TcTotals($metricsFile) {
+  $r = @{ tasks = 0; findings = 0; mode = '' }
+  if (-not (IsFile $metricsFile)) { return $r }
+  $tasks = @{}; $modes = @{}; $f = 0
+  foreach ($l in [System.IO.File]::ReadAllLines($metricsFile)) {
+    if ($l -notmatch 'event:\s*taskcheck') { continue }
+    if ($l -match 'stage:\s*start') {
+      $m = [regex]::Match($l, 'task:\s*([^,}]*)')
+      if ($m.Success) { $tasks[$m.Groups[1].Value.Trim()] = $true }
+      $mm = [regex]::Match($l, 'mode:\s*([a-z_]+)')
+      if ($mm.Success) { $modes[$mm.Groups[1].Value] = $true }
+    } elseif ($l -match 'stage:\s*report') {
+      $mf = [regex]::Match($l, 'findings:\s*(\d+)')
+      if ($mf.Success) { $f += [int]$mf.Groups[1].Value }
+    }
+  }
+  $r.tasks = $tasks.Keys.Count
+  $r.findings = $f
+  if ($modes.Keys.Count -eq 1) { $r.mode = @($modes.Keys)[0] }
+  elseif ($modes.Keys.Count -gt 1) { $r.mode = 'mixed' }
+  return $r
+}
+function Tc-Start($rest) {
+  $tid=''; $tslug=''; $tmode=''
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch -CaseSensitive ($rest[$i]) {
+      '--slug' { $i++; $tslug=(ArgAt $rest $i '--slug') }
+      '--mode' { $i++; $tmode=(ArgAt $rest $i '--mode') }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        elseif (-not $tid) { $tid=$rest[$i] } else { Die "タスク ID は1つだけ" }
+      }
+    }
+  }
+  if (-not $tid) { Die "使用法: aidev taskcheck start <task-id> [--mode delegated|same_session] [--slug <work>]" }
+  if (-not (TcValidId $tid)) { Die "タスク ID の書式が違います: $tid（tasks.md と同じ T<数字> 形式）" }
+  if (-not $tmode) { Die "--mode は必須（delegated=別コンテキストへ委譲 / same_session=同一セッションで読み直し）。点検が効く理由はコンテキスト分離なので、どちらで行ったかを残さないと効果を測れない" }
+  if ($script:TC_MODES -cnotcontains $tmode) { Die "--mode は delegated|same_session" }
+  ResolveWork $tslug
+  if (-not (TcKnownId $tid)) { Die "tasks.md にそのタスクがありません: $tid（打ち間違いか、tasks.md へ足し忘れ。足したなら AC: も書く）" }
+  $mf = Join-Path $script:WORK 'metrics.yml'
+  $tmax = TcMax
+  $tr = TcRounds $mf $tid
+  Write-Output "taskcheck: $($script:SLUG) / $tid"
+  if ($tr -ge $tmax) {
+    [Console]::Error.WriteLine("FAIL 点検ラウンドが上限に達しています（$tr/$tmax。maxTaskCheckRounds）")
+    [Console]::Error.WriteLine("next: 深追いせず decisions.md に経緯を残して次のタスクへ進み、判断は 60 review に委ねる")
+    [Console]::Error.WriteLine("      それでも詰まっているなら aidev debug start で原因究明へ倒す（試行履歴は渡さない）")
+    exit 4
+  }
+  AppendEvent $script:WORK 'coding' 'taskcheck' @('stage=start', "task=$tid", "mode=$tmode")
+  Write-Output "round: $($tr + 1)/$tmax"
+  Write-Output "渡すもの: そのタスクの差分だけ"
+  Write-Output "観点: **正確性・規約適合の2つだけ**（要件適合・価値適合は work 全体の文脈が要るので 60 review）"
+  Write-Output "規約は3つとも見る: AGENTS.md 本体 / 索引に載っている条項 / PJ ドキュメント"
+  Write-Output "返却形式（これ以外は解釈しない）:"
+  Write-Output "  CHECK: <ok|findings>"
+  Write-Output "  FINDINGS: <件数>"
+  Write-Output '  - [<must|should|nit>] <指摘> — 根拠: <file:line または 節名> [conv:<id>]'
+  Write-Output "次: 結果を aidev taskcheck report $tid --findings <件数> で記録する"
+}
+function Tc-Report($rest) {
+  $tid=''; $tslug=''; $tf=''
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch -CaseSensitive ($rest[$i]) {
+      '--slug'     { $i++; $tslug=(ArgAt $rest $i '--slug') }
+      '--findings' { $i++; $tf=(ArgAt $rest $i '--findings') }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        elseif (-not $tid) { $tid=$rest[$i] } else { Die "タスク ID は1つだけ" }
+      }
+    }
+  }
+  if (-not $tid) { Die "使用法: aidev taskcheck report <task-id> --findings <n> [--slug <work>]" }
+  if (-not (TcValidId $tid)) { Die "タスク ID の書式が違います: $tid" }
+  if ($tf -notmatch '^\d+$') { Die "--findings は必須（0 以上の整数）。**崩れた返答から数字を拾わない**——件数が読めないなら点検しなかったものとして扱い、report を打たない" }
+  ResolveWork $tslug
+  $mf = Join-Path $script:WORK 'metrics.yml'
+  $trs = TcRounds $mf $tid
+  $trr = TcReports $mf $tid
+  if ($trs -lt 1) { Die "そのタスクの taskcheck start がありません: $tid（start を打たずに結果だけ記録しない）" }
+  if ($trr -ge $trs) {
+    Write-Output "taskcheck: $($script:SLUG) / $tid"
+    [Console]::Error.WriteLine("FAIL 対になる start がありません（start $trs / report $trr）")
+    [Console]::Error.WriteLine("next: 点検し直すなら aidev taskcheck start $tid から。上限で止まっているならそこで打ち切る")
+    exit 4
+  }
+  AppendEvent $script:WORK 'coding' 'taskcheck' @('stage=report', "task=$tid", "findings=$tf")
+  Write-Output "taskcheck: $($script:SLUG) / $tid（findings $tf）"
+  if ([int]$tf -gt 0) {
+    Write-Output "next: 指摘をその場で直し、内容を review.md の「タスク点検ログ」節に1件1行で追記する"
+    Write-Output "      直したあと再点検するなら aidev taskcheck start $tid（上限は maxTaskCheckRounds）"
+  }
+}
+function Tc-Status($rest) {
+  $fmt='table'; $tslug=''
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch -CaseSensitive ($rest[$i]) {
+      '--format' { $i++; $fmt=(ArgAt $rest $i '--format') }
+      '--slug'   { $i++; $tslug=(ArgAt $rest $i '--slug') }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        else { Die "status は位置引数を取りません: $($rest[$i])" }
+      }
+    }
+  }
+  if ($fmt -cne 'table' -and $fmt -cne 'tsv') { Die "--format は table|tsv" }
+  ResolveWork $tslug
+  $mf = Join-Path $script:WORK 'metrics.yml'
+  $tmax = TcMax
+  $tasks = @{}
+  if (IsFile $mf) {
+    foreach ($l in [System.IO.File]::ReadAllLines($mf)) {
+      if ($l -notmatch 'event:\s*taskcheck') { continue }
+      $m = [regex]::Match($l, 'task:\s*([^,}]*)')
+      if ($m.Success) { $tasks[$m.Groups[1].Value.Trim()] = $true }
+    }
+  }
+  $keys = [string[]]@($tasks.Keys); [Array]::Sort($keys, [System.StringComparer]::Ordinal)
+  $rows=@()
+  foreach ($t in $keys) {
+    $r = TcRounds $mf $t
+    $f = 0
+    foreach ($l in [System.IO.File]::ReadAllLines($mf)) {
+      if ($l -match 'event:\s*taskcheck' -and $l -match 'stage:\s*report' -and $l -match "task:\s*$([regex]::Escape($t))[,}]") {
+        $mf2 = [regex]::Match($l, 'findings:\s*(\d+)')
+        if ($mf2.Success) { $f += [int]$mf2.Groups[1].Value }
+      }
+    }
+    $atmax = if ($r -ge $tmax) { 'yes' } else { 'no' }
+    $rows += ($t + "`t" + $r + "`t" + $f + "`t" + $atmax)
+  }
+  $tot = TcTotals $mf
+  $mode = if ($tot.mode) { $tot.mode } else { '-' }
+  if ($fmt -ceq 'tsv') {
+    foreach ($r in $rows) { Write-Output ("taskcheck`t" + $r) }
+    Write-Output ("taskcheck-summary`t" + $tot.tasks + "`t" + $tot.findings + "`t" + $mode + "`t" + $tmax)
+    return
+  }
+  Write-Output "taskcheck: $($script:SLUG)"
+  if ($rows.Count -gt 0) { foreach ($l in (Fmt-Table (@("task`trounds`tfindings`tat_max") + $rows))) { Write-Output $l } }
+  Write-Output "taskcheck-summary: tasks=$($tot.tasks) findings=$($tot.findings) mode=$mode maxTaskCheckRounds=$tmax"
+}
+function Cmd-TaskCheck($rest) {
+  if ($rest.Count -lt 1) { Tc-Status @(); return }
+  $sub=$rest[0]; $sr=@(); if ($rest.Count -gt 1) { $sr=$rest[1..($rest.Count-1)] }
+  switch -CaseSensitive ($sub) {
+    'start'  { Tc-Start $sr }
+    'report' { Tc-Report $sr }
+    'status' { Tc-Status $sr }
+    default { Die "未知の taskcheck サブコマンド: $sub（start|report|status）" }
+  }
+}
+
+# --- limits（回数の上限を一覧・設定する。sh 版 cmd_limits の注記に理由）--------------
+# key;scope;min;default
+$script:LIMIT_KEYS = @(
+  'maxSendBacks;work;0;3',
+  'maxDebugRounds;pj;1;2',
+  'maxTaskCheckRounds;pj;1;2',
+  'lightMaxFiles;pj;1;3',
+  'smokeStaleAfter;pj;0;5',
+  'smokeTimeoutSec;pj;1;300',
+  'sharedFilesWindow;pj;0;20'
+)
+function LmSpec($key) {
+  foreach ($e in $script:LIMIT_KEYS) {
+    $c = $e -split ';'
+    if ($c[0] -ceq $key) { return @($c[1], $c[2], $c[3]) }
+  }
+  return $null
+}
+function Lm-Show($rest) {
+  $fmt='table'; $lslug=''
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch -CaseSensitive ($rest[$i]) {
+      '--format' { $i++; $fmt=(ArgAt $rest $i '--format') }
+      '--slug'   { $i++; $lslug=(ArgAt $rest $i '--slug') }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        else { Die "limits は位置引数を取りません: $($rest[$i])" }
+      }
+    }
+  }
+  if ($fmt -cne 'table' -and $fmt -cne 'tsv') { Die "--format は table|tsv" }
+  # work が無くても PJ 側は見せる（sh 版と同一）
+  $lst = ''
+  try { ResolveWork $lslug; $lst = Join-Path $script:WORK 'state.yml' } catch { $lst = '' }
+  $cfg = Join-Path $script:AIDEV 'config.yml'
+  $rows=@()
+  foreach ($e in $script:LIMIT_KEYS) {
+    $c = $e -split ';'
+    $k=$c[0]; $sc=$c[1]; $df=$c[3]
+    $src='default'; $val=''
+    if ($sc -ceq 'work') {
+      if ($lst -and (IsFile $lst)) { $val = YGet $lst $k }
+      if ($val) { $src='state' }
+    } else {
+      if (IsFile $cfg) { $val = YGet $cfg $k }
+      if ($val) { $src='config' }
+    }
+    if ($val -notmatch '^\d+$') { $val=$df; $src='default' }
+    $rows += ($k + "`t" + $val + "`t" + $src + "`t" + $sc + "`t" + $df)
+  }
+  if ($fmt -ceq 'tsv') {
+    foreach ($r in $rows) { Write-Output ("limit`t" + $r) }
+    return
+  }
+  Write-Output "LIMITS（回数の上限。scope=pj は .aidev/config.yml、work は state.yml）"
+  foreach ($l in (Fmt-Table (@("key`tvalue`tsource`tscope`tdefault") + $rows))) { Write-Output $l }
+  if (-not $lst) { Write-Output "note: work が未選択なので scope=work は既定値を表示しています" }
+  Write-Output "変更: aidev limits set <key> <n> [--slug <work>]（既定へ戻す: aidev limits unset <key>）"
+}
+function Lm-Set($rest) {
+  $k=''; $v=''; $lslug=''
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch -CaseSensitive ($rest[$i]) {
+      '--slug' { $i++; $lslug=(ArgAt $rest $i '--slug') }
+      default {
+        # `-1` を**オプションとして先に食わない**。負値は「未知のオプション」ではなく
+        # 下限違反として弾かれるべき（実走で「未知のオプション: -1」と出て誤誘導した）
+        if ($rest[$i] -match '^-[0-9]') {
+          if (-not $k) { Die "使用法: aidev limits set <key> <n>" }
+          if (-not $v) { $v=$rest[$i] } else { Die "引数が多すぎます: $($rest[$i])" }
+        }
+        elseif ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        elseif (-not $k) { $k=$rest[$i] } elseif (-not $v) { $v=$rest[$i] }
+        else { Die "引数が多すぎます: $($rest[$i])" }
+      }
+    }
+  }
+  if (-not $k -or -not $v) { Die "使用法: aidev limits set <key> <n> [--slug <work>]（key は aidev limits で一覧）" }
+  $sp = LmSpec $k
+  if (-not $sp) {
+    $names = (($script:LIMIT_KEYS | ForEach-Object { ($_ -split ';')[0] }) -join ' ')
+    Die "未知の上限キー: $k（設定できるのは $names ）"
+  }
+  $sc=$sp[0]; $mn=[int]$sp[1]; $df=$sp[2]
+  # scope=pj のキーに --slug を渡されたら**黙って無視しない**。work ごとの上限は
+  # 原理的に持てない（読む側が config.yml しか見ない）ので、効いたつもりが一番危ない
+  if ($sc -cne 'work' -and $lslug) {
+    Die "$k は PJ 全体の上限なので --slug は使えません（work ごとに変えられるのは scope=work のキーだけ。aidev limits で確認）"
+  }
+  if ($v -notmatch '^\d+$') { Die "値は 0 以上の整数: $v" }
+  if ([int]$v -lt $mn) { Die "$k の下限は $mn です（$v は指定できない）" }
+  if ($sc -ceq 'work') {
+    ResolveWork $lslug
+    SetOrAppend (Join-Path $script:WORK 'state.yml') $k "$k`: $v"
+    Write-Output "set: $k = $v（$($script:SLUG) の state.yml）"
+  } else {
+    $cfg = Join-Path $script:AIDEV 'config.yml'
+    if (-not (IsFile $cfg)) { WriteText $cfg '' }
+    SetOrAppend $cfg $k "$k`: $v"
+    Write-Output "set: $k = $v（.aidev/config.yml。PJ 全体に効く）"
+  }
+  if ($v -ceq $df) { Write-Output "note: 既定値と同じ値です（既定へ戻すなら aidev limits unset $k）" }
+}
+
+# 一時的に上限を緩めて戻す運用（検証・緊急対応）で、`set <既定値>` だと行が残り
+# source が config のままになる。「既定に戻した」と「たまたま既定と同じ値を書いた」は別物
+function Lm-Unset($rest) {
+  $k=''; $lslug=''
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch -CaseSensitive ($rest[$i]) {
+      '--slug' { $i++; $lslug=(ArgAt $rest $i '--slug') }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        elseif (-not $k) { $k=$rest[$i] } else { Die "引数が多すぎます: $($rest[$i])" }
+      }
+    }
+  }
+  if (-not $k) { Die "使用法: aidev limits unset <key> [--slug <work>]" }
+  $sp = LmSpec $k
+  if (-not $sp) {
+    $names = (($script:LIMIT_KEYS | ForEach-Object { ($_ -split ';')[0] }) -join ' ')
+    Die "未知の上限キー: $k（設定できるのは $names ）"
+  }
+  $sc=$sp[0]; $df=$sp[2]
+  if ($sc -cne 'work' -and $lslug) { Die "$k は PJ 全体の上限なので --slug は使えません" }
+  if ($sc -ceq 'work') { ResolveWork $lslug; $lf = Join-Path $script:WORK 'state.yml'; $lw = $script:SLUG }
+  else { $lf = Join-Path $script:AIDEV 'config.yml'; $lw = 'PJ 全体' }
+  $hit = $false; $keep = @()
+  if (IsFile $lf) {
+    foreach ($l in [System.IO.File]::ReadAllLines($lf)) {
+      if ($l -match "^\s*$([regex]::Escape($k))\:") { $hit = $true } else { $keep += $l }
+    }
+  }
+  if (-not $hit) { Write-Output "unset: $k は書かれていません（既定 $df のまま）"; return }
+  $txt = ''
+  foreach ($l in $keep) { $txt += $l + "`n" }
+  WriteText $lf $txt
+  Write-Output "unset: $k を削除しました（$lw。既定 $df に戻ります）"
+}
+function Cmd-Limits($rest) {
+  if ($rest.Count -lt 1) { Lm-Show @(); return }
+  $sub=$rest[0]; $sr=@(); if ($rest.Count -gt 1) { $sr=$rest[1..($rest.Count-1)] }
+  switch -CaseSensitive ($sub) {
+    'set'   { Lm-Set $sr }
+    'unset' { Lm-Unset $sr }
+    'show'  { Lm-Show $sr }
+    default {
+      if ($sub.StartsWith('-')) { Lm-Show $rest }
+      else { Die "未知の limits サブコマンド: $sub（show|set|unset）" }
+    }
+  }
+}
+
 function Cmd-Smoke($rest) {
   $sslug=''
   for ($i=0; $i -lt $rest.Count; $i++) {
@@ -1292,7 +1743,8 @@ function Cmd-Smoke($rest) {
     elseif ($sslug) { Die "slug は1つだけ" } else { $sslug = $rest[$i] }
   }
   ResolveWork $sslug
-  $sc = SmokeCmd
+  $scl = @(SmokeList)
+  $sc = if ($scl.Count -gt 0) { $scl[0] } else { SmokeCmd }
   Write-Output "smoke: $($script:SLUG)"
 
   if (-not $sc) {
@@ -1318,31 +1770,44 @@ function Cmd-Smoke($rest) {
     exit 0
   }
 
-  Write-Output "`$ $sc"
   # 出力は捕まえずに素通しする（test 工程が test-result.md に貼るのは生の出力）。
   # **時間上限**: 常駐コマンドを書かれると自律実行がそこで永久に止まる。`timeout` があるときだけ
   # 掛かる（Windows の `timeout` は別物なので使わない）——掛けられない環境ではその事実を出力に残す。
   $sto = SmokeTimeout
-  $src = $null
-  $prev = $PWD
-  try {
-    Set-Location -LiteralPath $script:ROOT
-    # native コマンドが**投げる**経路（sh/cmd.exe が見つからない等）では代入に到達しないので、
-    # $LASTEXITCODE の null ガードだけでは効かない。catch で拾って fail として刻む
+  $src = 0; $sidx = 0; $sfail = 0; $sn = 0
+  foreach ($s1 in $scl) {
+    $sn++
+    if ($sfail -ne 0) { continue }   # 1 本落ちたらそれ以降は走らせない（原因を1つに絞る）
+    $sidx = $sn
+    Write-Output "`$ $s1"
+    $src = $null
+    $prev = $PWD
     try {
-      if (IsWindowsHost) { & cmd.exe /c $sc }
-      elseif (Get-Command timeout -ErrorAction SilentlyContinue) { & timeout $sto sh -c $sc }
-      else { & sh -c $sc }
-      $src = $LASTEXITCODE
-    } catch { $src = 127 }
-  } finally { Set-Location -LiteralPath $prev }
-  if ($null -eq $src) { $src = 1 }
-  $srr = if ($src -eq 0) { 'pass' } else { 'fail' }
-  if ($src -eq 124) {
-    Write-Output "note: $sto 秒で打ち切りました（smokeTimeoutSec）。**終了するコマンド**を書くこと"
+      Set-Location -LiteralPath $script:ROOT
+      # native コマンドが**投げる**経路（sh/cmd.exe が見つからない等）では代入に到達しないので、
+      # $LASTEXITCODE の null ガードだけでは効かない。catch で拾って fail として刻む
+      try {
+        if (IsWindowsHost) { & cmd.exe /c $s1 }
+        elseif (Get-Command timeout -ErrorAction SilentlyContinue) { & timeout $sto sh -c $s1 }
+        else { & sh -c $s1 }
+        $src = $LASTEXITCODE
+      } catch { $src = 127 }
+    } finally { Set-Location -LiteralPath $prev }
+    if ($null -eq $src) { $src = 1 }
+    if ($src -ne 0) { $sfail = $sidx }
+    if ($src -eq 124) {
+      Write-Output "note: $sto 秒で打ち切りました（smokeTimeoutSec）。**終了するコマンド**を書くこと"
+    }
   }
-  AppendEvent $sw 'test' 'smoke' @("result=$srr", "exit_code=$src")
-  Write-Output "smoke: $srr (exit $src)"
+  $srr = if ($sfail -eq 0) { 'pass' } else { 'fail' }
+  # 何本走ったかを刻む（sh 版 cmd_smoke の注記に理由）
+  if ($sfail -eq 0) {
+    AppendEvent $sw 'test' 'smoke' @("result=$srr", "exit_code=$src", "commands=$sn")
+  } else {
+    AppendEvent $sw 'test' 'smoke' @("result=$srr", "exit_code=$src", "commands=$sn", "failed_index=$sfail")
+  }
+  if ($sn -gt 1) { Write-Output "smoke: $srr (exit $src, $sn 本)" }
+  else { Write-Output "smoke: $srr (exit $src)" }
   if ($srr -cne 'pass') { exit 4 }
   exit 0
 }
@@ -1384,15 +1849,18 @@ function VerifyWork($work) {
       if ($sn -ge 5) {
         $issub = YGet $st 'parent'
         $hassub = @(YList $st 'subtasks')
+        # schema 9: light は spec/plan を approve しないので、承認を条件にしたこの検査が
+        # light では一度も走らなかった（sh 版 verify の注記に理由の全文）。
+        $vlight = ($sn -ge 9 -and (YGet $st 'profile') -ceq 'light' -and (ApprovedHas $work 'requirement'))
         foreach ($pf in @(@('requirement','requirement.md'), @('spec','spec.md'), @('plan','plan.md'))) {
-          if (-not (ApprovedHas $work $pf[0])) { continue }
+          if (-not (ApprovedHas $work $pf[0]) -and -not $vlight) { continue }
           if (IsFile (Join-Path $work $pf[1])) { continue }
           # subtask は親の requirement/spec/design を継承する
           if ($issub -and (IsFile (Join-Path (Join-Path (Join-Path $script:AIDEV 'works') $issub) $pf[1]))) { continue }
           $vf += "$($pf[1])欠落($($pf[0])承認済)"
         }
         # 親（subtasks を持つ）は tasks.md を持たない（各 subtask の plan が作る）
-        if ((ApprovedHas $work 'plan') -and $hassub.Count -eq 0 -and -not (IsFile (Join-Path $work 'tasks.md'))) {
+        if (((ApprovedHas $work 'plan') -or $vlight) -and $hassub.Count -eq 0 -and -not (IsFile (Join-Path $work 'tasks.md'))) {
           $vf += "tasks.md欠落(plan承認済)"
         }
       }
@@ -1421,7 +1889,8 @@ function VerifyWork($work) {
       # schema 7: 起動確認（smoke）の記録。テストが緑なだけでは着地の根拠にしない。
       # 検査するのは smokeCommand を設定している PJ だけ（未設定は doctor が PJ 単位で1行）
       if ($sn -ge 7 -and (ApprovedHas $work 'deliver')) {
-        $vsc = SmokeCmd
+        # smokeCommands だけの PJ でゲートが黙って外れる（sh 版の注記に理由）
+        $vscl = @(SmokeList); $vsc = if ($vscl.Count -gt 0) { $vscl[0] } else { SmokeCmd }
         if ($vsc -and $vsc -cne 'none') {
           switch (SmokeLast (Join-Path (SmokeRoot $work) 'metrics.yml')) {
             'pass' { }
@@ -1490,8 +1959,21 @@ function VerifyWork($work) {
   LightWarnings $work
 
   # autonomous は重要判断を decisions.md に残す規約（sh 版と同一）
+  $vmiss = $false
   if ((YGet $st 'mode') -ceq 'autonomous' -and (ApprovedHas $work 'deliver') -and -not (IsFile (Join-Path $work 'decisions.md'))) {
     VLine("  WARN autonomous なのに decisions.md が無い: 人間が承認していない判断の証跡が残らない")
+    $vmiss = $true
+  }
+  # schema 10: タスク点検を**どう実施したか**（sh 版 verify_work の注記に理由）
+  $sn10 = YGet $st 'schema'; if ($sn10 -notmatch '^\d+$') { $sn10 = '0' }
+  if ([int]$sn10 -ge 10 -and (ApprovedHas $work 'coding')) {
+    $tc = MtLastMetric (Join-Path $work 'metrics.yml') 'coding' 'task_checks'
+    if ($tc -and $tc -cne '0') {
+      if (-not (MtLastMetric (Join-Path $work 'metrics.yml') 'coding' 'task_check_mode')) {
+        VLine("  WARN task_checks=$tc なのに task_check_mode が無い: 委譲したのか同一セッションで読み直したのかが残らない（approve coding に task_check_mode=delegated|same_session）")
+        $vmiss = $true
+      }
+    }
   }
 
   # またがり work の検知（WARN）。schema 4 以降のみ＝旧 work を遡って違反扱いしない。
@@ -1518,7 +2000,8 @@ function VerifyWork($work) {
 
   if ($vf.Count -gt 0) { VLine("  FAIL " + ($vf -join ' ')); return 4 }
   # --strict: 記録漏れだけを致命扱い（sh 版と同一。理由は sh 側のコメント参照）
-  if ($script:STRICT -and $epw.Count -gt 0) {
+  # 記録漏れは event の start だけではない（sh 版の注記に理由）。schema 10 以降のみ
+  if ($script:STRICT -and ($epw.Count -gt 0 -or ([int]$sn10 -ge 10 -and $vmiss))) {
     VLine("  FAIL(strict) 記録漏れ: 上記 WARN を解消してから終えること（timestamp は後から復元できません）")
     return 5
   }
@@ -1543,6 +2026,16 @@ function LightWarnings($work) {
     foreach ($l in $lines) {
       if ($l -match ("phase:\s*" + $p + ",")) {
         VLine("  WARN profile=light だが任意工程 $p を実施（aidev escalate で full へ）")
+        break
+      }
+    }
+  }
+
+  # 上流を畳んでいない＝light の指紋から外れている（sh 版 light_warnings と同一）
+  foreach ($p in @('spec','plan')) {
+    foreach ($l in $lines) {
+      if ($l -match ("phase:\s*" + $p + ",") -and $l -match 'event:\s*start') {
+        VLine("  WARN profile=light だが $p を個別に起動（light は requirement 1ゲートに畳む）")
         break
       }
     }
@@ -1576,7 +2069,8 @@ function EventPairWarnings($metricsFile) {
     $p = $m.Groups[1].Value
     if (-not $seen.Contains($p)) { [void]$seen.Add($p) }
     if ($l -match 'event:\s*start')    { $starts[$p]    = [int]$starts[$p] + 1 }
-    if ($l -match 'event:\s*approved') { $approved[$p]  = [int]$approved[$p] + 1 }
+    # `amend: yes` は同じラウンドの訂正なのでラウンドとして数えない（sh 版と同一）
+    if ($l -match 'event:\s*approved' -and $l -notmatch 'amend:\s*yes') { $approved[$p] = [int]$approved[$p] + 1 }
   }
   # 出力順は PHASES 順（未知の phase は初出順で後ろに）。ハッシュの列挙順に任せると
   # awk と PowerShell で並びが変わり「出力を一致させる」契約が破れる。
@@ -1735,7 +2229,14 @@ function Cmd-Doctor($rest) {
     else { Die "doctor は位置引数を取りません: $a" }
   }
   $worksDir = Join-Path $script:AIDEV 'works'
-  if (-not (IsDir $worksDir)) { Die "works がありません" }
+  # works が無いのは導入直後の正常な状態（sh 版 cmd_doctor の注記に理由）
+  if (-not (IsDir $worksDir)) {
+    Write-Output "doctor: 全 work 横断検査"
+    Write-Output "summary: works=0 fail=0 legacy(免除)=0"
+    Write-Output "note: work がまだありません（.aidev/works 未作成）。aidev new で最初の work を起こす"
+    Doctor-Backlog; Doctor-Conventions; Doctor-Harness; Doctor-Smoke; Doctor-Shared; Doctor-Branch
+    exit 0
+  }
   $total=0; $script:DFail=0; $legacy=0
   $qn = if ($script:DQuiet) { '（--quiet: OK は省略）' } else { '' }
   Write-Output "doctor: 全 work 横断検査$qn"
@@ -1759,6 +2260,8 @@ function Cmd-Doctor($rest) {
   Doctor-Conventions
   Doctor-Harness
   Doctor-Smoke
+  Doctor-Shared
+  Doctor-Branch
   # 4（不変条件違反）に揃える。1 は使用法・環境エラー用（sh 版と同一）
   if ($fail -eq 0) { exit 0 } else { exit 4 }
 }
@@ -1865,6 +2368,7 @@ function Cmd-Status($rest) {
   # in-flight 収集（sh 版と同一）: backlog 刻印を持ち、まだ deliver していない work。
   # backlog 行が [x] になるのは deliver なので、その間 backlog 側は掴まれた項目を区別できない。
   $inflight = @{}
+  $script:HELD_ROWS = @()
   # worktree を横断して数える（sh 版と同一）。現在の tree だけ見ると、並行 worktree で進行中の
   # 項目が 0 と出て、二重選択を防ぐための列が並行作業のときだけ効かない
   $iroots = @((Join-Path $script:AIDEV 'works'))
@@ -1887,8 +2391,13 @@ function Cmd-Status($rest) {
       if (-not (IsFile $ist)) { continue }
       $ibl = YGet $ist 'backlog'
       if ([string]::IsNullOrEmpty($ibl)) { continue }
-      if ((YList $ist 'approved') -ccontains 'deliver') { continue }
-      if ($inflight.ContainsKey($ibl)) { $inflight[$ibl]++ } else { $inflight[$ibl] = 1 }
+      $iitem = YGet $ist 'backlogItem'
+      $idone = if ((YList $ist 'approved') -ccontains 'deliver') { '着地済' } else { '作業中' }
+      if ($idone -ceq '作業中') {
+        if ($inflight.ContainsKey($ibl)) { $inflight[$ibl]++ } else { $inflight[$ibl] = 1 }
+      }
+      # 行単位の保持状況（deliver 済みも載せる。sh 版の注記に理由）
+      if ($iitem) { $script:HELD_ROWS += ($iitem + "`t" + $d.Name + "`t" + $idone) }
     }
   }
 
@@ -1930,6 +2439,21 @@ function Cmd-Status($rest) {
   Write-Output ""
   Write-Output "BACKLOG (未着手 $bn 件)"
   if ($bf -gt 0) { foreach ($l in (Fmt-Table (@("file`ttodo`tneeds`tinflight") + $brows))) { Write-Output $l } }
+  # 行単位の保持状況（sh 版 cmd_status の注記に理由）
+  if ($script:HELD_ROWS.Count -gt 0) {
+    Write-Output "HELD (掴まれている項目)"
+    # 表にしない（sh 版の注記に理由）
+    $hr = [string[]]@($script:HELD_ROWS); [Array]::Sort($hr, [System.StringComparer]::Ordinal)
+    foreach ($l in $hr) { $c = $l -split "`t"; Write-Output "  - [$($c[2])] $($c[0])（$($c[1])）" }
+    $act = @($hr | Where-Object { $_ -like "*`t作業中" } | ForEach-Object { ($_ -split "`t")[0] })
+    $dup = @($act | Group-Object | Where-Object { $_.Count -gt 1 } | ForEach-Object { $_.Name })
+    [Array]::Sort([string[]]$dup, [System.StringComparer]::Ordinal)
+    foreach ($di in $dup) { Write-Output "⚠ 同じ項目を 2 本以上が作業中です（二重着手）: $di" }
+    if ($hr | Where-Object { $_ -like "*`t着地済" }) {
+      Write-Output "note: state=着地済 は deliver 済み・**未マージ**。[x] は main tree に来ていないので"
+      Write-Output "      台帳だけ見ると未着手に見える。次に選ぶときはこの表で除くこと"
+    }
+  }
 }
 
 # --- metrics（読み取り専用・metrics.yml から派生指標を集計） ----------------------
@@ -1946,6 +2470,19 @@ function Mt-Epoch($ts) {
 # 返す各要素は @(phase, gap, ac_total)。gap = (総数-被覆数) + AC行欠落数（+ AC が0件なら1）。
 # **ac_covered を持たない刻印は捨てる**——手で ac_total だけ渡された行を 0 とみなすと
 # 被覆数 0 として gap を捏造する（sh 版 mt_cov_stamps と同一）。
+# その工程の最後の approved 刻印にある key の値（sh 版 mt_last_metric と同一）
+function MtLastMetric($metricsFile, $phase, $key) {
+  if (-not (IsFile $metricsFile)) { return '' }
+  $hit = ''
+  foreach ($l in [System.IO.File]::ReadAllLines($metricsFile)) {
+    if ($l -match "phase:\s*$phase," -and $l -match 'event:\s*approved') { $hit = $l }
+  }
+  if (-not $hit) { return '' }
+  $m = [regex]::Match($hit, "[{,]\s*$key\s*:\s*([^,}]*)")
+  if ($m.Success) { return $m.Groups[1].Value.Trim() }
+  return ''
+}
+
 function MtCovStamps($metricsFile) {
   $r = @()
   if (-not (IsFile $metricsFile)) { return $r }
@@ -2037,16 +2574,19 @@ function Cmd-Metrics($rest) {
           }
           if (-not $firstStartTs.ContainsKey($ph)) { $firstStartTs[$ph]=$ts }
         } elseif ($ev -ceq 'approved') {
-          if ($e -ge 0) {
+          # `amend: yes`（start を挟まない再承認＝記録の訂正）は**時刻を上書きしない**（sh 版と同一）
+          $isam = ($line -match 'amend:\s*yes')
+          if ($e -ge 0 -and -not $isam) {
             $appat[$ph]=$e; $appatTs[$ph]=$ts
             if ($openat.ContainsKey($ph)) {
               if ($elsum.ContainsKey($ph)) { $elsum[$ph] += $e-$openat[$ph] } else { $elsum[$ph] = $e-$openat[$ph] }
               $openat.Remove($ph)
             }
           }
-          if ($ph -ceq 'deliver') { $deliveredFlag=$true; if ($e -ge 0) { $deliveredE=$e } }
+          if ($ph -ceq 'deliver') { $deliveredFlag=$true; if ($e -ge 0 -and -not $isam) { $deliveredE=$e } }
         } elseif ($ev -ceq 'sent_back') {
-          $sback++
+          # `by: unapprove` は原因ではなく結果なので数えない（DbgSentBacks と同じ規則）
+          if ($line -notmatch 'by:\s*unapprove') { $sback++ }
           # 差し戻しもラウンドの終わり（sh 版と同一）
           if ($e -ge 0 -and $openat.ContainsKey($ph)) {
             if ($elsum.ContainsKey($ph)) { $elsum[$ph] += $e-$openat[$ph] } else { $elsum[$ph] = $e-$openat[$ph] }
@@ -2170,9 +2710,9 @@ function HvReadyNotice() {
     if ($va -notmatch '^\d+$') { continue }
     if ([int]$va -le 0) { continue }
     $pop = HvPop $intro
-    if ([int]$pop -eq [int]$va) {
+    if ([int]$pop -ge [int]$va) {
       $id = [System.IO.Path]::GetFileNameWithoutExtension($fi.Name)
-      Write-Output "note: ハーネス改修 $id の母集団が揃いました($pop/$va)。insights で効果を判定してください"
+      Write-Output "note: ハーネス改修 $id の母集団が揃っています($pop/$va)。insights で効果を判定してください（判定するまで毎回出ます）"
     }
   }
 }
@@ -2326,7 +2866,13 @@ function Hv-Status($rest) {
 }
 function Doctor-Harness() {
   $d = HvDir
-  if (-not (IsDir $d)) { return }
+  # 0 件でも節見出しを出す（sh 版 doctor_harness の注記と同じ理由）
+  if (-not (IsDir $d)) {
+    Write-Output "harness: ハーネス改修の記録検査"
+    Write-Output "harness-summary: files=0 archived=0 warn=0"
+    Write-Output "note: ハーネス改修の記録がまだありません。aidev harness new で起こす"
+    return
+  }
   HvPopPrime
   $items=@()
   foreach ($f in (Get-ChildItem -LiteralPath $d -File -Filter *.md -ErrorAction SilentlyContinue | Sort-Object Name)) { $items += ,@($f.FullName, $f.Name, $false) }
@@ -2404,7 +2950,9 @@ function WorksMatchingSlug($path, $slug) {
 # git worktree list --porcelain を "path<TAB>branch" 配列に整形（sh の wt_porcelain と一致）
 function WtPorcelain() {
   $out=@(); $p=''; $b=''
-  foreach ($line in (git worktree list --porcelain)) {
+  # stderr は出さない。doctor から呼ぶと git リポジトリでない PJ で `fatal: not a git
+  # repository` が本文に混ざり、sh 版（呼び出し側で 2>/dev/null）と食い違う（実測）
+  foreach ($line in (GitQ worktree list --porcelain 2>$null)) {
     if ($line -like 'worktree *') {
       if ($p -cne '') { $out += ($p + "`t" + ($(if ($b -ceq '') { '-' } else { $b }))); $b='' }
       $p = $line.Substring(9)
@@ -2421,6 +2969,75 @@ function WtPorcelain() {
 # 共有ファイル警告。PJ 固有のファイル名は CLI に埋めず .aidev/config.yml の sharedFiles から生成する
 # （基盤は PJ 非依存＝DESIGN「1.」「2.」。機械が言えるのは config にある事実だけで、検証義務のような
 #  PJ 規約は散文＝AGENTS.md / protocol-worktree.md の担当。DESIGN「2.6」の線引きと同じ）。
+# 既定ブランチ名。読めなければ空を返す（推測しない。sh 版 git_default_branch と同一）
+function GitDefaultBranch($repoDir) {
+  if (-not $repoDir) { $repoDir = $script:ROOT }
+  $b = (GitQ -C $repoDir symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>$null)
+  if ($LASTEXITCODE -ne 0) { $b = '' }
+  $b = "$b".Trim() -replace '^origin/', ''
+  if (-not $b) {
+    foreach ($c in @('main','master')) {
+      GitQ -C $repoDir show-ref --verify --quiet "refs/heads/$c" 2>$null
+      if ($LASTEXITCODE -eq 0) { $b = $c; break }
+    }
+  }
+  return $b
+}
+
+# 直近 N コミットの 1/4 以上が触っているのに sharedFiles に無いファイル（上位 max 件）。
+# doctor と worktree add の両方が使う（sh 版 shared_hot_undeclared の注記に理由）。
+# 戻り値は "件数<TAB>ファイル" の配列。走査した窓幅は $script:SHARED_HOT_WINDOW に置く。
+function SharedHotUndeclared($max) {
+  if (-not $max) { $max = 3 }
+  $script:SHARED_HOT_WINDOW = 20
+  if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return @() }
+  $cfg = Join-Path $script:AIDEV 'config.yml'
+  $w = YGet $cfg 'sharedFilesWindow'
+  if ($w -notmatch '^\d+$') { $w = 20 } else { $w = [int]$w }
+  if ($w -le 0) { $script:SHARED_HOT_WINDOW = $w; return @() }
+  $c = (GitQ -C $script:ROOT rev-list --count HEAD 2>$null)
+  if ($LASTEXITCODE -ne 0 -or $c -notmatch '^\d+$') { $c = 0 } else { $c = [int]$c }
+  if ($c -lt $w) { $w = $c }
+  $script:SHARED_HOT_WINDOW = $w
+  # 履歴が浅いうちは黙る（sh 版の注記に理由）
+  if ($w -lt 10) { return @() }
+  $thr = [int][math]::Floor(($w + 3) / 4); if ($thr -lt 2) { $thr = 2 }
+  $decl = @(YList $cfg 'sharedFiles')
+  $hrel = ''
+  $rootp = "$script:ROOT".Replace('\', '/').TrimEnd('/')
+  $harp  = "$script:HARNESS".Replace('\', '/').TrimEnd('/')
+  if ($harp.StartsWith("$rootp/", [StringComparison]::Ordinal)) { $hrel = $harp.Substring($rootp.Length + 1) }
+  $log = (GitQ -C $script:ROOT log -n $w --name-only --pretty=format:'@@C@@' HEAD 2>$null)
+  if ($LASTEXITCODE -ne 0 -or -not $log) { return @() }
+  $cnt = @{}; $seen = @{}
+  foreach ($l in $log) {
+    $l = "$l".TrimEnd("`r")
+    if ($l -ceq '@@C@@') { $seen = @{}; continue }
+    if (-not $l) { continue }
+    if ($seen.ContainsKey($l)) { continue }
+    $seen[$l] = $true
+    if ($cnt.ContainsKey($l)) { $cnt[$l]++ } else { $cnt[$l] = 1 }
+  }
+  $ck = [string[]]@($cnt.Keys)
+  [Array]::Sort($ck, [System.StringComparer]::Ordinal)   # 同数の並びを sh と揃える
+  $ck = @(SortByCountDesc $ck { param($k) $cnt[$k] })
+  $out = @(); $n = 0
+  foreach ($f in $ck) {
+    if ($cnt[$f] -lt $thr) { continue }
+    if ($n -ge $max) { continue }
+    if ($f -like '.aidev/*') { continue }
+    if ($hrel -and $f.StartsWith("$hrel/", [StringComparison]::Ordinal)) { continue }
+    if ($decl -ccontains $f) { continue }
+    # いま無視されているファイル・既に無いファイルは勧めない（sh 版の注記に理由）
+    GitQ -C $script:ROOT check-ignore -q -- $f 2>$null
+    if ($LASTEXITCODE -eq 0) { continue }
+    if (-not (Test-Path -LiteralPath (Join-Path $script:ROOT $f))) { continue }
+    $out += ("" + $cnt[$f] + "`t" + $f)
+    $n++
+  }
+  return $out
+}
+
 function Wt-SharedWarn {
   $sh = @(YList (Join-Path $script:AIDEV 'config.yml') 'sharedFiles')
   if ($sh.Count -gt 0) {
@@ -2429,6 +3046,13 @@ function Wt-SharedWarn {
   } else {
     Write-Output "⚠ この work が他 worktree と共有するもの（ビルド設定・登録テーブル・共有モジュール等）に触るなら、"
     Write-Output "  波及・マージ衝突が起きうる（PJ 規約は AGENTS.md。config.yml の sharedFiles で名指しできる）。並行可否はユーザー判断。"
+  }
+  # 宣言は静的なので実態から遅れる。同じ CLI が知っている事実を黙って持っていないこと
+  $hot = @(SharedHotUndeclared 3)
+  if ($hot.Count -gt 0) {
+    Write-Output "  なお sharedFiles に無いが直近 $($script:SHARED_HOT_WINDOW) コミットの常連（＝重なりやすい）:"
+    foreach ($r in $hot) { $p2 = $r -split "`t"; Write-Output "    $($p2[1])（$($p2[0]) コミット）" }
+    Write-Output "  いま何が重なっているかは aidev worktree files（宣言の検査は aidev doctor）。"
   }
 }
 
@@ -2444,6 +3068,8 @@ function Wt-Add($rest) {
       '--depends' { $i++; $depends=(ArgAt $rest $i '--depends') }
       # 内部の new に渡す。落とすと verify の消し込み強制が静かに効かなくなる（sh 版と同一）
       '--backlog' { $i++; $backlog=(Split-Path -Leaf (ArgAt $rest $i '--backlog')) }
+      '--backlog-item' { $i++; $backlogitem=(ArgAt $rest $i '--backlog-item') }
+      '--human-gates' { $i++; $humangates=(ArgAt $rest $i '--human-gates') }
       '--profile' { $i++; $profile=(ArgAt $rest $i '--profile') }
       '--light'   { $profile='light' }
       default {
@@ -2501,6 +3127,8 @@ function Wt-Add($rest) {
     if ($ticket)  { $argv += @('--ticket', $ticket) }
     if ($depends) { $argv += @('--depends', $depends) }
     if ($backlog) { $argv += @('--backlog', $backlog) }
+    if ($backlogitem) { $argv += @('--backlog-item', $backlogitem) }
+    if ($humangates) { $argv += @('--human-gates', $humangates) }
     if ($profile) { $argv += @('--profile', $profile) }
     # ロールバックは **Pop-Location の後**に回す。try の中で呼ぶと finally の Pop-Location と
     # 二重になり、しかも worktree の中に居るまま `git worktree remove` を打つことになる
@@ -2512,8 +3140,38 @@ function Wt-Add($rest) {
     $workNote = "新規 work を作成（add 内で new）"
   }
 
+  # 枝を切った地点を state.yml に刻む（sh 版 wt_add の注記に理由）
+  $wtcur = Join-Path (Join-Path $wpath '.aidev') 'current'
+  if (IsFile $wtcur) {
+    $cl2 = [System.IO.File]::ReadAllLines($wtcur)
+    $wtw = if ($cl2.Count -ge 1) { $cl2[0].Trim() } else { '' }
+    $wtst = Join-Path (Join-Path (Join-Path (Join-Path $wpath '.aidev') 'works') $wtw) 'state.yml'
+    if ($wtw -and (IsFile $wtst)) {
+      $wtbc = (GitQ -C $wpath rev-parse HEAD 2>$null)
+      if ($LASTEXITCODE -ne 0) { $wtbc = '' } else { $wtbc = "$wtbc".Trim() }
+      SetOrAppend $wtst 'base' "base: $base"
+      if ($wtbc) { SetOrAppend $wtst 'baseCommit' "baseCommit: $wtbc" }
+    }
+  }
+
   Write-Output "worktree 追加: $wpath"
-  Write-Output "  branch: $branch / base: $base"
+  # 既定 base=HEAD の実体を併記し、既定ブランチから外れていれば 1 行足す
+  # （sh 版 cmd_worktree_add の注記に理由の全文。既定ブランチが読めなければ推測しない）
+  $bshown = $base; $bhead = ''
+  if ($base -ceq 'HEAD') {
+    $bhead = (GitQ -C $script:ROOT symbolic-ref --quiet --short HEAD 2>$null)
+    if ($LASTEXITCODE -ne 0) { $bhead = '' }
+    if ($bhead) { $bhead = "$bhead".Trim(); $bshown = "HEAD (= $bhead)" }
+  }
+  Write-Output "  branch: $branch / base: $bshown"
+  if ($bhead) {
+    $bdef = GitDefaultBranch $script:ROOT
+    if ($bdef -and $bdef -cne $bhead) {
+      Write-Output "  ⚠ base が既定ブランチ($bdef)ではなく $bhead です。未マージの変更の上に積まれます"
+      Write-Output "    （意図した積み上げなら問題ない。意図していないなら --base $bdef で取り直す）"
+      Write-Output "    （deliver「1.5」の既着地検知が $bdef..HEAD の無関係なコミットで濁る）"
+    }
+  }
   Write-Output "  work:   $workNote"
   Wt-SharedWarn
   Write-Output "次: cd $wpath して各工程 skill を実行。"
@@ -2559,6 +3217,145 @@ function Wt-List($rest) {
   }
   Write-Output ("WORKTREES (" + $rows.Count + ")")
   if ($rows.Count -gt 0) { foreach ($l in (Fmt-Table (@("path`tbranch`twork`tphase`tkind") + $rows))) { Write-Output $l } }
+}
+
+# その worktree が他と違えているファイル名（sh 版 wt_changed_files と同一。理由もそちらに）
+function Wt-ChangedFiles($path, $allHeads) {
+  # 基点は「他の tree との merge-base のうち最も新しいもの」（sh 版 wt_changed_files の注記に理由）
+  $base = ''; $best = -1
+  $own = (GitQ -C $path rev-parse HEAD 2>$null)
+  if ($LASTEXITCODE -ne 0) { $own = '' } else { $own = "$own".Trim() }
+  foreach ($o in @($allHeads)) {
+    if (-not $o -or $o -ceq $own) { continue }
+    $mb = (GitQ -C $path merge-base $o HEAD 2>$null)
+    if ($LASTEXITCODE -ne 0) { continue }
+    $mb = "$mb".Trim(); if (-not $mb) { continue }
+    $d = (GitQ -C $path rev-list --count "$mb..HEAD" 2>$null)
+    if ($LASTEXITCODE -ne 0 -or $d -notmatch '^\d+$') { continue }
+    $d = [int]$d
+    if ($best -lt 0 -or $d -lt $best) { $best = $d; $base = $mb }
+  }
+  if (-not $base) { $base = 'HEAD' }
+  $out = @()
+  $d = (GitQ -C $path diff --name-only $base 2>$null); if ($LASTEXITCODE -eq 0 -and $d) { $out += $d }
+  $u = (GitQ -C $path ls-files --others --exclude-standard 2>$null); if ($LASTEXITCODE -eq 0 -and $u) { $out += $u }
+  return ($out | ForEach-Object { "$_".TrimEnd("`r") } | Where-Object { $_ } | Sort-Object -Unique)
+}
+
+# その work が「これから触る」と宣言したファイル（tasks.md の 対象:）。sh 版 wt_planned_files と同一
+function Wt-PlannedFiles($path, $work) {
+  $tf = Join-Path (Join-Path (Join-Path (Join-Path $path '.aidev') 'works') $work) 'tasks.md'
+  if (-not (IsFile $tf)) { return @() }
+  $out = @(); $inblk = $false
+  foreach ($l in [System.IO.File]::ReadAllLines($tf)) {
+    $l = "$l".TrimEnd("`r")
+    if ($l -match '^[ \t]*対象:') { $inblk = $true }
+    if (-not $inblk) { continue }
+    if ($l -match '^[ \t]*(依存|AC):' -or $l -match '^[ \t]*- \[') { $inblk = $false; continue }
+    $parts = $l -split '`'
+    for ($i = 1; $i -lt $parts.Count; $i += 2) {
+      $t = $parts[$i]
+      if (-not $t) { continue }
+      $t = $t -replace ':[0-9][0-9-]*$', ''
+      if ($t -match '^[A-Za-z0-9_][A-Za-z0-9_./-]*\.[A-Za-z0-9]+$') { $out += $t }
+    }
+  }
+  # backlog は誰も 対象: に書かないが必ず触る（sh 版 wt_planned_files の注記に理由）
+  $wbl = YGet (Join-Path (Join-Path (Join-Path (Join-Path $path '.aidev') 'works') $work) 'state.yml') 'backlog'
+  if ($wbl) { $out += ".aidev/backlog/$wbl" }
+  return ($out | Sort-Object -Unique)
+}
+
+# 「ファイル → worktree 名」の対を集める（sh 版 wt_collect_pairs と同一）
+function Wt-CollectPairs($showall, $planned) {
+  $map = @{}; $n = 0
+  $wtAll = @(WtPorcelain)
+  $mainTree = if ($wtAll.Count -gt 0) { ($wtAll[0] -split "`t")[0] } else { '' }
+  $def = GitDefaultBranch $script:ROOT
+  # 比較対象の全 tree の HEAD を集める。基点は tree ごとに Wt-ChangedFiles が決める
+  $heads = @()
+  foreach ($line in $wtAll) {
+    $p2 = ($line -split "`t")[0]
+    if (-not (IsFile (Join-Path (Join-Path $p2 '.aidev') 'current'))) { continue }
+    $h = (GitQ -C $p2 rev-parse HEAD 2>$null)
+    if ($LASTEXITCODE -eq 0 -and $h) { $heads += "$h".Trim() }
+  }
+  foreach ($line in $wtAll) {
+    $path = ($line -split "`t")[0]
+    $cur = Join-Path (Join-Path $path '.aidev') 'current'
+    if (-not (IsFile $cur)) { continue }
+    $cl = [System.IO.File]::ReadAllLines($cur)
+    $w = if ($cl.Count -ge 1) { $cl[0].Trim() } else { '' }
+    # 落とすのは既定ブランチにマージ済みの worktree だけ（sh 版の注記に理由）
+    if (-not $showall -and $def) {
+      GitQ -C $path merge-base --is-ancestor HEAD $def 2>$null
+      if ($LASTEXITCODE -eq 0) { continue }
+    }
+    $n++
+    $wname = Split-Path -Leaf $path
+    $src = if ($planned) { @(Wt-PlannedFiles $path $w) } else { @(Wt-ChangedFiles $path $heads) }
+    foreach ($f in $src) {
+      if ($f -like '.aidev/works/*') { continue }
+      if (-not $map.ContainsKey($f)) { $map[$f] = @() }
+      $map[$f] += $wname
+    }
+  }
+  return @{ map = $map; n = $n }
+}
+
+# どのファイルを何本の worktree が触っているか（sh 版 wt_files と同一）
+function Wt-Files($rest) {
+  $fmt='table'; $showall=$false; $planned=$false
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch -CaseSensitive ($rest[$i]) {
+      '--format' { $i++; $fmt=(ArgAt $rest $i '--format') }
+      '--all'    { $showall=$true }
+      '--planned'{ $planned=$true }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        else { Die "files は位置引数を取りません: $($rest[$i])" }
+      }
+    }
+  }
+  if ($fmt -cne 'table' -and $fmt -cne 'tsv') { Die "--format は table|tsv" }
+  GitPresent
+
+  $decl = @(YList (Join-Path $script:AIDEV 'config.yml') 'sharedFiles')
+  $cp = Wt-CollectPairs $showall $planned
+  $map = $cp.map; $n = $cp.n
+  $rows=@(); $over=0; $undecl=0
+  # 並びは**バイト順**に固定する（.NET の既定はカルチャ照合で、sh の LC_ALL=C sort と
+  # `README.md` / `notes/cli.py` の前後が入れ替わる。実測）
+  $keys = [string[]]@($map.Keys)
+  [Array]::Sort($keys, [System.StringComparer]::Ordinal)
+  foreach ($f in $keys) {
+    # sh は "file<TAB>名" をまとめて LC_ALL=C sort するので、名前もバイト順に並ぶ。
+    # 挿入順（porcelain 順＝main tree が先頭）のままだと出力が食い違う（実測）
+    $names = [string[]]@($map[$f]); [Array]::Sort($names, [System.StringComparer]::Ordinal)
+    $c = $names.Count
+    if (-not $showall -and $c -lt 2) { continue }
+    $d = if ($decl -ccontains $f) { 'yes' } else { 'no' }
+    # .aidev/* は必ず衝突するが宣言対象ではない（sh 版の注記に理由）
+    if ($c -ge 2) { $over++; if ($d -ceq 'no' -and -not ($f -like '.aidev/*')) { $undecl++ } }
+    $rows += ($f + "`t" + $c + "`t" + $d + "`t" + ($names -join ', '))
+  }
+  if ($fmt -ceq 'tsv') {
+    foreach ($r in $rows) { Write-Output ("file`t" + $r) }
+    Write-Output ("files-summary`t" + $n + "`t" + $over + "`t" + $undecl)   # 母数の意味は table 側のラベル参照
+    return
+  }
+  $hdr = if ($planned) { "worktree files: $n 本の worktree が触ると宣言したファイル（tasks.md の 対象:。着地済み・未マージの宣言も含む）" }
+         else { "worktree files: $n 本の worktree の変更ファイル" }
+  if (-not $showall) { $hdr += '（未マージの worktree・2本以上が重なるものだけ。全件は --all）' }
+  Write-Output $hdr
+  if ($rows.Count -gt 0) { foreach ($l in (Fmt-Table (@("file`tworktrees`tsharedFiles`twhere") + $rows))) { Write-Output $l } }
+  # 既定と --all で母数が違う（未マージだけ / 全部）。同じラベルにすると数が動いた理由が読めない
+  $lbl = if ($showall) { 'worktrees_all' } else { 'worktrees_unmerged' }
+  Write-Output "files-summary: $lbl=$n overlap=$over undeclared=$undecl"
+  if ($undecl -gt 0) {
+    Write-Output "⚠ 重なっているのに sharedFiles に無いファイルが $undecl 件。config.yml に足すと"
+    Write-Output "  worktree add がその名前で警告できる（並行可否の判断はユーザー）。"
+  }
 }
 
 function Wt-Rm($rest) {
@@ -2645,6 +3442,8 @@ function Cmd-Use($rest) {
 # 差し戻しで無効化される後工程の承認を取り消す。元は「approved から手で除く」だったが、
 # それは state.yml の更新を CLI に集約するという原則と矛盾する（sh 版のコメント参照）。
 # 記録は消さない——取り消し自体を sent_back イベントとして刻む（手戻りは実際に起きた事実）。
+# ただし `by: unapprove` を併記する。差し戻しの原因は指摘のあった 1 工程で、後工程の
+# 取り消しはその結果だから（sh 版 cmd_unapprove の注記に理由の全文）。
 function Cmd-Unapprove($rest) {
   $uslug=''; $uph=''
   for ($i=0; $i -lt $rest.Count; $i++) {
@@ -2665,7 +3464,7 @@ function Cmd-Unapprove($rest) {
   $keep = @(@(YList $st 'approved') | Where-Object { $_ -cne $uph })
   ReplaceLine $st 'approved' ('approved: [' + ([string]::Join(', ', $keep)) + ']')
   ReplaceLine $st 'current' "current: $uph"
-  AppendEvent $script:WORK $uph 'sent_back' @()
+  AppendEvent $script:WORK $uph 'sent_back' @('by=unapprove')
   Write-Output "unapproved: $uph @ $($script:SLUG)"
   Write-Output "next: やり直す工程で aidev event <phase> start を記録すること（統合 review からの差し戻しは coding）"
 
@@ -3286,8 +4085,114 @@ function Doctor-Conventions() {
 }
 
 # 起動確認の設定を PJ 単位で1行だけ検査する（work ごとに鳴らさない。sh 版 doctor_smoke と同一）
+# sharedFiles の妥当性（sh 版 doctor_shared と同一。理由もそちらに）
+# main worktree が既定ブランチに載っていないか（sh 版 doctor_branch の注記に理由）
+function Doctor-Branch() {
+  if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return }
+  # **linked worktree では検査しない**（sh 版と同一。理由もそちらに）
+  $gd = (GitQ -C $script:ROOT rev-parse --git-dir 2>$null)
+  $gc = (GitQ -C $script:ROOT rev-parse --git-common-dir 2>$null)
+  if ($gd -and $gc -and ("$gd".Trim() -cne "$gc".Trim())) { return }
+  $cur = (GitQ -C $script:ROOT symbolic-ref --quiet --short HEAD 2>$null)
+  if ($LASTEXITCODE -ne 0) { return }
+  $cur = "$cur".Trim(); if (-not $cur) { return }
+  $def = GitDefaultBranch $script:ROOT
+  if (-not $def) { return }
+  if ($cur -cne $def) {
+    Write-Output "branch: main worktree の位置"
+    Write-Output "    WARN 既定ブランチ($def)ではなく $cur に載っています: 新しい work はこの上に積まれ、"
+    Write-Output "         deliver「1.5」の既着地検知が濁ります（work は state.yml の baseCommit と比べること）"
+    Write-Output "branch-summary: current=$cur default=$def"
+  }
+}
+
+function Doctor-Shared() {
+  Write-Output "sharedFiles: 並行作業で名指しする共有ファイルの検査"
+  $decl = @(YList (Join-Path $script:AIDEV 'config.yml') 'sharedFiles')
+  $n=0; $stale=0; $miss=0
+  foreach ($f in $decl) {
+    if (-not $f) { continue }
+    $n++
+    if (-not (Test-Path -LiteralPath (Join-Path $script:ROOT $f))) {
+      Write-Output "    WARN 宣言されているが実在しません: $f（誤記か、消えたファイルの残骸）"
+      $stale++
+    }
+  }
+  $decls = @($decl)
+  $seen = @{}
+  $hrel = ''
+  $rootp = "$script:ROOT".Replace('\', '/').TrimEnd('/')
+  $harp  = "$script:HARNESS".Replace('\', '/').TrimEnd('/')
+  if ($harp.StartsWith("$rootp/", [StringComparison]::Ordinal)) { $hrel = $harp.Substring($rootp.Length + 1) }
+  # (b) 多くのコミットが触っているのに宣言が無い。判定は worktree add の警告と**同じ関数**
+  foreach ($r in @(SharedHotUndeclared 5)) {
+    $p2 = $r -split "`t"
+    Write-Output "    WARN $($p2[0])/$($script:SHARED_HOT_WINDOW) コミットが触っているのに sharedFiles に無い: $($p2[1])"
+    $seen[$p2[1]] = $true
+    $miss++
+  }
+  # (c) いま未マージの worktree が 2 本以上触っているのに未宣言（sh 版の注記に理由）
+  if (Get-Command git -ErrorAction SilentlyContinue) {
+    $cp = Wt-CollectPairs $false $false
+    $m = $cp.map
+    $keys = [string[]]@($m.Keys)
+    [Array]::Sort($keys, [System.StringComparer]::Ordinal)
+    $keys = @(SortByCountDesc $keys { param($k) @($m[$k]).Count })
+    foreach ($f in $keys) {
+      $c2 = @($m[$f]).Count
+      if ($c2 -lt 2) { continue }
+      if ($f -like '.aidev/*') { continue }
+      if ($hrel -and $f.StartsWith("$hrel/", [StringComparison]::Ordinal)) { continue }
+      if ($decls -ccontains $f) { continue }
+      if ($seen.ContainsKey($f)) { continue }
+      Write-Output "    WARN いま $c2 本の未マージ worktree が触っているのに sharedFiles に無い: $f"
+      $miss++
+    }
+  }
+  if ($n -eq 0 -and $miss -eq 0) {
+    Write-Output "note: sharedFiles 未設定。並行作業の警告が汎用文言になります（config.yml で名指しできる）"
+  }
+  Write-Output "sharedFiles-summary: declared=$n 実在しない=$stale 未宣言の常連=$miss"
+}
+
+# 起動確認の宣言が成果物の成長に置いていかれていないか（sh 版 smoke_stale_warn の注記に理由）
+function SmokeStaleWarn() {
+  if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return }
+  $cfg = Join-Path $script:AIDEV 'config.yml'
+  $n = YGet $cfg 'smokeStaleAfter'
+  if ($n -notmatch '^\d+$') { $n = 5 } else { $n = [int]$n }
+  if ($n -le 0) { return }
+  $env:TZ = 'UTC'
+  $cut = (GitQ -C $script:ROOT log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ -S smokeCommand -- $cfg 2>$null)
+  if ($LASTEXITCODE -ne 0) { $cut = '' }
+  $cut = "$cut".Trim()
+  if (-not $cut) { return }
+  $cnt = 0
+  $wroot = Join-Path $script:AIDEV 'works'
+  if (-not (IsDir $wroot)) { return }
+  foreach ($d in (Get-ChildItem -LiteralPath $wroot -Directory -ErrorAction SilentlyContinue)) {
+    $mf = Join-Path $d.FullName 'metrics.yml'
+    if (-not (IsFile $mf)) { continue }
+    $ts = ''
+    foreach ($l in [System.IO.File]::ReadAllLines($mf)) {
+      if ($l -match 'phase:\s*deliver,' -and $l -match 'event:\s*approved') {
+        $m = [regex]::Match($l, 'ts:\s*([0-9T:Z-]+)')
+        if ($m.Success) { $ts = $m.Groups[1].Value }
+      }
+    }
+    if (-not $ts) { continue }
+    # ISO・UTC・同じ桁なので序数比較できる
+    if ([string]::CompareOrdinal($ts, $cut) -gt 0) { $cnt++ }
+  }
+  if ($cnt -ge $n) {
+    Write-Output "    WARN 起動確認の宣言を最後に変えてから $cnt 本が着地しています（しきい値 $n）: 足した表面が一度も起動されていない可能性"
+    Write-Output "         smokeCommands: の下に 1 行足せば増やせる（起動確認は成果物と一緒に育てる）"
+  }
+}
+
 function Doctor-Smoke() {
-  $dsc = SmokeCmd
+  $dscl = @(SmokeList)
+  $dsc = if ($dscl.Count -gt 0) { $dscl[0] } else { SmokeCmd }
   Write-Output "smoke: 起動確認の設定"
   if (-not $dsc) {
     Write-Output "    WARN smokeCommand が .aidev/config.yml にありません: **テストが緑でも成果物が起動するかは誰も見ていません**"
@@ -3297,18 +4202,20 @@ function Doctor-Smoke() {
   } elseif ($dsc -ceq 'none') {
     Write-Output "smoke-summary: configured=none（起動確認の対象外と宣言済み）"
   } else {
-    Write-Output "smoke-summary: configured=yes"
+    SmokeStaleWarn
+    Write-Output "smoke-summary: configured=yes commands=$($dscl.Count)"
   }
 }
 
 function Cmd-Worktree($rest) {
-  if ($rest.Count -lt 1) { Die "使用法: aidev worktree <add|list|rm> ..." }
+  if ($rest.Count -lt 1) { Die "使用法: aidev worktree <add|list|files|rm> ..." }
   $sub=$rest[0]; $sr=@(); if ($rest.Count -gt 1) { $sr=$rest[1..($rest.Count-1)] }
   switch -CaseSensitive ($sub) {
     'add'  { Wt-Add $sr }
     'list' { Wt-List $sr }
+    'files' { Wt-Files $sr }
     'rm'   { Wt-Rm $sr }
-    default { Die "未知の worktree サブコマンド: $sub（add|list|rm）" }
+    default { Die "未知の worktree サブコマンド: $sub（add|list|files|rm）" }
   }
 }
 
@@ -3332,6 +4239,8 @@ switch -CaseSensitive ($cmd) {
   'coverage' { Cmd-Coverage $rest }
   'smoke'   { Cmd-Smoke $rest }
   'debug'   { Cmd-Debug $rest }
+  'limits'  { Cmd-Limits $rest }
+  'taskcheck' { Cmd-TaskCheck $rest }
   'escalate' { Cmd-Escalate $rest }
   'doctor'  { Cmd-Doctor $rest }
   'harness' { Cmd-Harness $rest }

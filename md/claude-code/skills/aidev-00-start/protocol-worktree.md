@@ -5,10 +5,6 @@
 > （工程ごとの読み込み量を抑えるため。`protocol.md`「0.」の付録一覧を参照）。
 
 
-複数の作業を**並行**で進めたいとき、ユーザーは `aidev worktree`（CLI。`bin/README.md` 参照）で work 専用の
-git worktree＋`feature/<slug>` ブランチを作って隔離着手できる。ハーネスは並列化を自動判断せず、
-**並列の要否はユーザーが明示 `aidev worktree add` で判断する**（人間オプトインの逸脱。既定は単一ワーキングツリーの直列）。
-
 - **current は worktree ローカル**: `.aidev/current` は `.gitignore` 対象＝未追跡のため、各 worktree が独立した
   current を持ち、worktree 間で共有されない。よって **worktree 操作は main tree の `.aidev/current` を書き換えない（INV-1）**。
 - **1 worktree = 1 branch = 1 work** を単位とする。`worktree add` は worktree 内に該当 slug の work が無ければ `new` を
@@ -20,10 +16,30 @@ git worktree＋`feature/<slug>` ブランチを作って隔離着手できる。
   - **backlog の消し込みも成果物と同じくブランチに乗る**。`.aidev/backlog/*.md` は追跡対象なので、
   worktree で `[x]` にしてもマージするまで main tree の `aidev status` は未着手のままに見える。
   `inflight` 列は worktree を横断して数えるので、着手中であることはそちらで分かる。
+  **ただし deliver した時点で `inflight` から外れ、未マージなら `todo` に戻る**。
+  選ぶ前の確認は `protocol-backlog.md` の `HELD`（行単位で答えられる）。
 - **共有ファイルは `.aidev/config.yml` の `sharedFiles` に挙げておく**と、`worktree add` の完了時に
     CLI がその名前を挙げて警告する（未設定なら汎用文言）。例: `sharedFiles: [package.json, src/registry.ts]`。
   - CLI が名指しできるのは**そこに書かれた事実だけ**。「この work は委譲せず主エージェントが検証すべきか」
     のような判断は散文（AGENTS.md）の担当で、CLI には持たせない（`DESIGN.md`「2.6」の線引き）。
+  - **宣言が実態から遅れていないかは `aidev doctor` が見る**（実在しない名前／多くのコミットが
+    触っているのに未宣言、を WARN）。直すのは人間だが、古びていることは機械が言える。
+- **いま重なっているファイルは `aidev worktree files` で見る**。`sharedFiles` は静的な宣言なので、
+  「触らないファイルが警告され、触るファイルは警告されない」という反転が起きうる。
+  `worktree files` は**未マージの worktree**の変更を突き合わせて、**2 本以上が触っているファイル**を出す。
+  - **coding に入る前は `--planned`**（`tasks.md` の `対象:` を突き合わせる）。実差分は
+    「もう書いた後」しか見えず、上流工程にいる間は**構造的に空になる**。衝突を避ける余地が
+    あるのはその時間帯なので、そこでは**宣言**を見る（`対象:` は plan の時点で揃っている）。
+  - **deliver の前は実差分**（オプション無し）。「マージ順で相手を壊さないか」の判断に要る。
+    重なっていること自体は禁止ではない（並行可否はユーザー判断）——見ずに進むことだけが問題。
+  - **`doctor` と食い違ったら `worktree files` を採る**。`doctor` が見るのは履歴の頻度（過去の傾向）、
+    `worktree files` は**いま未マージの差分**（目の前の事実）。いま重なっているものが履歴の閾値に
+    届かないことは普通に起きる。
+- **`.aidev/backlog/*.md` は並行 N 本なら必ず衝突する**。`verify` が deliver での消し込みを強制する以上、
+  N 本すべてが同じファイルの近い行を書き換えるため（実マージで確認済み）。避けられないので
+  **マージ時に手で解決する前提**で進める（消し込み行どうしは独立なので、両方を残せば正しい）。
+  `.aidev/config.yml` も同じ性質を持つ（`smokeCommands` を足す等、PJ 全体の設定を機能追加 work の
+  差分に同梱することになる）。こちらは行が独立とは限らないので、**触ったら deliver の PR 本文に書く**。
 
 ## ライフサイクルの終わり（撤去）
 
