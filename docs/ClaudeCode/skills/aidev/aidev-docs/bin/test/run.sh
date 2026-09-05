@@ -1451,10 +1451,37 @@ if command -v git >/dev/null 2>&1; then
            sed -n 's/^harnessRev: //p' "$GRR/w/.aidev/works/"*g5/state.yml ) )
   assert_eq "$GR5" "$GR4" "harnessRev: squash しても内容が同じなら同じ版（SHA ではなく内容ハッシュ）"
   assert_eq "${#GR5}" "12" "harnessRev: 固定長 12 桁（%h の自動伸長で偽またがりを作らない）"
+  # **ハーネスが git 管理外なら unknown**。ここは長く sh だけ落ちていた——`ls-tree` が空でも
+  # `git hash-object --stdin` が**空入力に空 blob のハッシュ**を返すので `$r` が空にならず、
+  # unknown フォールバックが一度も効かなかった。全環境・全 work で同じ値が刻まれ、
+  # 母集団から外れるべき work が「同一版で回した仲間」に化ける（他 PJ の retro が実測）。
+  # ps1 には元からガードがあったので、**両実装を突き合わせていれば気づけた**穴でもある
+  UNR=$(mktemp -d)
+  mkdir -p "$UNR/skills/aidev-docs/bin" "$UNR/w/.aidev/works"
+  cp "$AIDEV_SH" "$UNR/skills/aidev-docs/bin/aidev"; cp "$AIDEV_PS1" "$UNR/skills/aidev-docs/bin/aidev.ps1"
+  ( cd "$UNR/w" && git init -q -b master . && printf 'x\n' > f \
+    && git add -A && git -c user.email=t@t -c user.name=t commit -qm i ) >/dev/null 2>&1
+  ( cd "$UNR/w" && "$UNR/skills/aidev-docs/bin/aidev" new u1 ) >/dev/null 2>&1
+  assert_eq "$(sed -n 's/^harnessRev: //p' "$UNR/w/.aidev/works/"*u1/state.yml)" "unknown" \
+    "harnessRev: ハーネスが git 管理外なら unknown（空 blob のハッシュを刻まない）"
+  if [ -n "$PS_HOST" ]; then
+    ( cd "$UNR/w" && run_ps1 "$UNR/skills/aidev-docs/bin/aidev.ps1" new u2 ) >/dev/null 2>&1
+    assert_eq "$(sed -n 's/^harnessRev: //p' "$UNR/w/.aidev/works/"*u2/state.yml | tr -d '\r')" "unknown" \
+      "パリティ: ps1 も git 管理外なら unknown"
+  else
+    skip 1 "ps1 の unknown 刻印（PowerShell 不在）"
+  fi
+  # 既に空 blob 値を刻んでしまった work は、読む側でも unknown に寄せる（比較で別 PJ と混ざらない）
+  UNW=$(ls -d "$UNR/w/.aidev/works/"*u1)
+  awk '{ if ($0 ~ /^harnessRev:/) print "harnessRev: e69de29bb2d1"; else print }' "$UNW/state.yml" > "$UNW/state.yml.t"
+  mv "$UNW/state.yml.t" "$UNW/state.yml"
+  assert_contains "$( ( cd "$UNR/w" && "$UNR/skills/aidev-docs/bin/aidev" metrics --all --format tsv ) )" "	unknown	" \
+    "harnessRev: 既に刻まれた空 blob 値は読むときに unknown へ正規化する"
+  rm -rf "$UNR"
   rm -rf "$GRR"
-  block_end hrgrain "7" "hrgrain"
+  block_end hrgrain "10" "hrgrain"
 else
-  skip 7 "harnessRev の粒度（git 不在）"
+  skip 10 "harnessRev の粒度（git 不在）"
 fi
 
 echo "== coverage（AC 被覆 / tasks.md の整合）=="

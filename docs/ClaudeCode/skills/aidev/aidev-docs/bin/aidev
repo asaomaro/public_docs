@@ -209,9 +209,27 @@ harness_rev() {
   # 同一内容が別版になり、PR ブランチで回した work と main で回した work が常に別層に割れる
   # （GitHub 既定の squash 運用で必ず起きる）。tree hash は内容が同じなら同じ。
   # 未コミットの編集は版に出ない（従来どおり。またがり＝除外を増やさない側に倒す）
-  r=$(git -C "$HARNESS" ls-tree -d HEAD -- "$@" 2>/dev/null | awk '{print $3}' | git hash-object --stdin 2>/dev/null | cut -c1-12 || true)
+  # **`ls-tree` の出力が空なら、そこで unknown**（ハーネスが git 管理外／未コミット）。
+  # パイプで繋いだままだと `git hash-object --stdin` が**空入力に空 blob のハッシュ**
+  # （e69de29bb2d1…）を返すので `$r` が空にならず、unknown フォールバックが一度も効かない。
+  # 結果として**全環境・全 work で同じ値**が刻まれ、母集団から外れるべき work が
+  # 「同一版で回した仲間」に化ける（他 PJ の retro が実測で見つけた。ps1 には元から
+  # このガードがあり、sh だけが落ちていた＝両実装を突き合わせる検査の穴でもあった）
+  _hrt=$(git -C "$HARNESS" ls-tree -d HEAD -- "$@" 2>/dev/null | awk '{print $3}') || _hrt=""
+  [ -n "$_hrt" ] || { printf 'unknown'; return 0; }
+  r=$(printf '%s\n' "$_hrt" | git hash-object --stdin 2>/dev/null | cut -c1-12 || true)
   [ -n "$r" ] || r=unknown
   printf '%s' "$r"
+}
+
+# 空 blob のハッシュ（git の定数）。上のバグで**既に刻まれてしまった work** がある以上、
+# 読む側でも unknown に寄せる——「全環境で同じ値」なので、そのまま比べると別 PJ・別版の
+# work まで同一版に見え、またがり判定も効果検証の母集団も静かに壊れる。
+HR_EMPTY=e69de29bb2d1
+hr_get() { # state.yml [key] -> harnessRev（空 blob 値は unknown に正規化）
+  _hv=$(yget "$1" "${2:-harnessRev}")
+  if [ "$_hv" = "$HR_EMPTY" ]; then _hv=unknown; fi
+  printf '%s' "$_hv"
 }
 
 # --- 条項（.aidev/conventions の PJ規約）---------------------------------------------------
@@ -659,7 +677,7 @@ cmd_approve() {
   if [ "$ph" = deliver ]; then
     _hr=$(harness_rev)
     set_or_append "$st" harnessRevDelivered "harnessRevDelivered: $_hr"
-    _hr0=$(yget "$st" harnessRev)
+    _hr0=$(hr_get "$st")
     if [ -n "$_hr0" ] && [ "$_hr0" != "$_hr" ] && [ "$_hr0" != unknown ] && [ "$_hr" != unknown ]; then
       printf 'note: ハーネス版が着手時(%s)と着地時(%s)で異なる＝またがり work。効果検証の母集団からは除外される\n' "$_hr0" "$_hr"
     fi
@@ -2104,8 +2122,8 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail / 5 stri
   vsc=$(yget "$WORK/state.yml" schema)
   case "$vsc" in ''|*[!0-9]*) vsc=0 ;; esac
   if [ "$vsc" -ge 4 ]; then
-    hr0=$(yget "$WORK/state.yml" harnessRev)
-    hr1=$(yget "$WORK/state.yml" harnessRevDelivered)
+    hr0=$(hr_get "$WORK/state.yml")
+    hr1=$(hr_get "$WORK/state.yml" harnessRevDelivered)
     # `harnessRevDelivered` を書くのは **approve deliver**、verify が走るのは **その前**。
     # 着地時の刻印を待つ書き方だと、この検査は通常の順序では一度も発火しない。
     # まだ無いときは**今の版**と比べる（このまま deliver すればそれが着地時の版になる）。
@@ -2853,8 +2871,8 @@ cmd_metrics() {
         _adr=$(( $(printf '%s' "$_l" | cut -d' ' -f2) - $(printf '%s' "$_f" | cut -d' ' -f2) ))
       fi
       out="$out	$_ac	$_adr"
-      _hr=$(yget "$wd/state.yml" harnessRev); [ -n "$_hr" ] || _hr=-
-      _hd=$(yget "$wd/state.yml" harnessRevDelivered)
+      _hr=$(hr_get "$wd/state.yml"); [ -n "$_hr" ] || _hr=-
+      _hd=$(hr_get "$wd/state.yml" harnessRevDelivered)
       if [ -z "$_hd" ] || [ "$_hr" = - ] || [ "$_hr" = unknown ] || [ "$_hd" = unknown ]; then _sd=-
       elif [ "$_hr" = "$_hd" ]; then _sd=no; else _sd=yes; fi
       out="$out	$_hr	$_sd"
@@ -4152,7 +4170,7 @@ hv_pop_prime() {
     _pf="${_pd}metrics.yml"; _ps="${_pd}state.yml"
     [ -f "$_pf" ] && [ -f "$_ps" ] || continue
     ylist "$_ps" approved | grep -qw deliver || continue
-    _hr=$(yget "$_ps" harnessRev); _hd=$(yget "$_ps" harnessRevDelivered)
+    _hr=$(hr_get "$_ps"); _hd=$(hr_get "$_ps" harnessRevDelivered)
     [ -n "$_hr" ] && [ "$_hr" != unknown ] || continue
     if [ -n "$_hd" ] && [ "$_hd" != "$_hr" ]; then continue; fi
     _pts=$(cv_first_ts "$_pf"); [ -n "$_pts" ] || continue

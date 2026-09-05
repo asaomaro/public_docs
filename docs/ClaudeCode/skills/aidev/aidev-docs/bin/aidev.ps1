@@ -268,6 +268,15 @@ function HarnessRev() {
   } catch { return 'unknown' }
 }
 
+# 空 blob のハッシュ（git の定数）。sh 版に「ls-tree が空でも hash-object が空 blob を返す」
+# バグがあった間に刻まれた work があるので、読む側でも unknown に寄せる（sh 版 hr_get と同一）
+$script:HR_EMPTY = 'e69de29bb2d1'
+function HrGet($stateFile, $key = 'harnessRev') {
+  $v = YGet $stateFile $key
+  if ($v -ceq $script:HR_EMPTY) { return 'unknown' }
+  return $v
+}
+
 # --- 条項（.aidev/conventions の PJ規約）---------------------------------------------------
 # ハーネスが生成した規約は PJ 所有の AGENTS.md / CLAUDE.md に書き込まない（protocol.md「12.」）。
 # 条項ディレクトリは終着点ではなく**検証中の待避所**で、条項は必ずここから出ていく
@@ -706,7 +715,7 @@ function Cmd-Approve($rest) {
   if ($ph -ceq 'deliver') {
     $hr = HarnessRev
     SetOrAppend $st 'harnessRevDelivered' "harnessRevDelivered: $hr"
-    $hr0 = YGet $st 'harnessRev'
+    $hr0 = HrGet $st
     if ($hr0 -and $hr0 -cne $hr -and $hr0 -cne 'unknown' -and $hr -cne 'unknown') {
       Write-Output "note: ハーネス版が着手時($hr0)と着地時($hr)で異なる＝またがり work。効果検証の母集団からは除外される"
     }
@@ -1980,8 +1989,8 @@ function VerifyWork($work) {
   $vsc = YGet (Join-Path $work 'state.yml') 'schema'
   if ($vsc -notmatch '^\d+$') { $vsc = '0' }
   if ([int]$vsc -ge 4) {
-    $hr0 = YGet (Join-Path $work 'state.yml') 'harnessRev'
-    $hr1 = YGet (Join-Path $work 'state.yml') 'harnessRevDelivered'
+    $hr0 = HrGet (Join-Path $work 'state.yml')
+    $hr1 = HrGet (Join-Path $work 'state.yml') 'harnessRevDelivered'
     # harnessRevDelivered を書くのは approve deliver、verify が走るのはその前。着地時の刻印を
     # 待つ書き方だと、この検査は通常の順序では一度も発火しない。まだ無いときは今の版と比べる。
     $hrw = '着地時'
@@ -2615,8 +2624,8 @@ function Cmd-Metrics($rest) {
       $rw=0; foreach ($k in $scount.Keys) { if ($scount[$k] -ge 2) { $rw += $scount[$k] - 1 } }
       # ハーネス版で層別できるよう harnessRev / straddle を添える（sh 版と同一）
       $sty = Join-Path $wd 'state.yml'
-      $hr = YGet $sty 'harnessRev'; if (-not $hr) { $hr = '-' }
-      $hd = YGet $sty 'harnessRevDelivered'
+      $hr = HrGet $sty; if (-not $hr) { $hr = '-' }
+      $hd = HrGet $sty 'harnessRevDelivered'
       $sd = '-'
       if ($hd -and $hr -cne '-' -and $hr -cne 'unknown' -and $hd -cne 'unknown') { $sd = if ($hr -ceq $hd) { 'no' } else { 'yes' } }
       # 受け入れ基準の規模（分母）と、plan から review までの被覆の乖離（sh 版と同一）
@@ -2666,7 +2675,7 @@ function HvPopPrime() {
     $pf = Join-Path $d.FullName 'metrics.yml'; $ps = Join-Path $d.FullName 'state.yml'
     if (-not (IsFile $pf) -or -not (IsFile $ps)) { continue }
     if (@(YList $ps 'approved') -cnotcontains 'deliver') { continue }
-    $hr = YGet $ps 'harnessRev'; $hd = YGet $ps 'harnessRevDelivered'
+    $hr = HrGet $ps; $hd = HrGet $ps 'harnessRevDelivered'
     if (-not $hr -or $hr -ceq 'unknown') { continue }
     if ($hd -and $hd -cne $hr) { continue }
     $ts = CvFirstTs ([System.IO.File]::ReadAllLines($pf))
