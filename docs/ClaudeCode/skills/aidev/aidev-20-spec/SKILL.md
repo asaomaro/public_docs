@@ -39,7 +39,9 @@ requirement を「どう作るか」の実装仕様に落とす。設計判断�
 4. 下記テンプレートに沿って `spec.md` を記述する。
    シーケンス・状態遷移・データモデルは、明確になるなら mermaid で図示する（protocol.md「9.」）。
    - 書き終えたら内部一貫性の点検（各 `AC` への対応・`対象範囲` と方針の整合）を別コンテキストへ
-     委譲してよい（任意。protocol.md「3.3」(a)。light では使わない）。
+     委譲してよい（`protocol.md`「3.3」(a)。**`autonomous` では必須**、light では使わない）。
+     打つのは `aidev doccheck start spec --mode <delegated|same_session>` → 結果を
+     `aidev doccheck report spec --findings <件数>`（`protocol-check.md`「(a)」）。
 5. **複雑度の自己評価（design 推奨判定）**：protocol.md「4.5」の design の4条件に該当すれば、
    次の遷移ゲートの選択肢に `承認して design(任意) を挟む`（推奨）を加え、推奨理由を添える。
 6. protocol.md「3. 工程終了プロトコル」に従って終了する

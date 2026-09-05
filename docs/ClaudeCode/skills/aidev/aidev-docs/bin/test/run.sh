@@ -2105,6 +2105,46 @@ run_au event coding start >/dev/null
 run_au approve coding task_checks=0 >/dev/null
 assert_contains "$(cat "$AU_D/metrics.yml")" "task_checks: 0" "approve coding: 明示指定は上書きしない"
 
+# (12b) doccheck: 上流文書の独立点検（(a) は長く観測点の無い規約だった）
+mk_work dc
+: > "$AU_D/design.md"
+run_au doccheck start bogus --mode delegated >/dev/null 2>&1
+assert_eq "$?" "1" "doccheck start: 上流4工程以外は弾く（coding のタスク点検は taskcheck）"
+run_au doccheck start spec >/dev/null 2>&1
+assert_eq "$?" "1" "doccheck start: --mode は必須（実施形態が残らないと効果を測れない）"
+run_au doccheck start plan --mode delegated >/dev/null 2>&1   # plan.md は mk_work が作る
+assert_eq "$?" "0" "doccheck start: 文書があれば通る"
+run_au doccheck report plan --findings 2 >/dev/null
+run_au doccheck report plan --findings 5 >/dev/null 2>&1
+assert_eq "$?" "4" "doccheck report: 対になる start が無ければ弾く（taskcheck と同じ穴を塞いである）"
+run_au doccheck start plan --mode delegated >/dev/null
+run_au doccheck start plan --mode delegated >/dev/null 2>&1
+assert_eq "$?" "4" "doccheck start: maxDocCheckRounds に達したら exit 4"
+run_au doccheck start spec --mode same_session >/dev/null
+run_au doccheck report spec --findings 0 >/dev/null
+assert_contains "$(run_au doccheck status)" "doccheck-summary: rounds=3 findings=2 mode=mixed" \
+  "doccheck status: 工程ごとに数え、形態が割れていれば mixed"
+# 件数は approve が自動で刻む（工程ごと）
+run_au approve plan >/dev/null
+assert_contains "$(cat "$AU_D/metrics.yml")" "doc_check_rounds: 2, doc_check_findings: 2, doc_check_mode: delegated" \
+  "approve <phase>: 上流の点検メトリクスを doccheck の記録から自動で刻む"
+# schema 11: autonomous で記録が無ければ verify が WARN（--strict で致命）
+mk_work dcauto
+awk '{ if ($0 ~ /^mode:/) print "mode: autonomous"; else print }' "$AU_D/state.yml" > "$AU_D/state.yml.t"
+mv "$AU_D/state.yml.t" "$AU_D/state.yml"
+run_au approve spec >/dev/null
+assert_contains "$(run_au verify 2>&1)" "spec を autonomous で承認したのに独立点検の記録がありません" \
+  "verify: autonomous の上流文書に独立点検の記録が無ければ WARN（schema 11）"
+run_au verify --strict >/dev/null 2>&1
+assert_eq "$?" "5" "verify --strict: 上流の独立点検の記録漏れは致命"
+run_au doccheck start spec --mode delegated >/dev/null
+run_au doccheck report spec --findings 0 >/dev/null
+run_au approve spec >/dev/null
+assert_eq "$(run_au verify 2>&1 | grep -c '独立点検の記録がありません')" "0" \
+  "verify: 記録があれば鳴らない"
+assert_contains "$(run_au limits --format tsv)" "limit	maxDocCheckRounds	2	default	pj	2" \
+  "limits: maxDocCheckRounds も一覧に出る"
+
 # (13) limits: 上限の一覧と設定口（手編集しかなかった）
 assert_contains "$(run_au limits)" "maxTaskCheckRounds" "limits: 上限を一覧できる"
 assert_contains "$(run_au limits --format tsv)" "limit	maxDebugRounds	2	default	pj	2" \
@@ -2300,6 +2340,26 @@ if [ -n "$PS_HOST" ]; then
     assert_eq "$S_SH_RC" "$S_PS_RC" "パリティ: $sargs（exit code）"
   done
 
+
+  # doccheck のパリティ。**ps1 側は他のどのテストからも通らない**ので、ここが唯一の検査になる
+  # （taskcheck を入れたときは ps1 の enum 検証が抜けていて、緑のまま気づかなかった）
+  PDC=$(mktemp -d); mkdir -p "$PDC/.aidev/works"
+  ( cd "$PDC" && "$AIDEV_SH" new pdc >/dev/null )
+  PDCD="$PDC/.aidev/works/$(cat "$PDC/.aidev/current")"
+  : > "$PDCD/spec.md"
+  ( cd "$PDC" && run_ps1 "$AIDEV_PS1" doccheck start spec --mode delegated ) >/dev/null 2>&1
+  assert_contains "$(tr -d '\r' < "$PDCD/metrics.yml")" "event: doccheck, metrics: { stage: start, phase: spec" \
+    "パリティ: ps1 doccheck start が同じ形のイベントを刻む"
+  PDC_S=$( ( cd "$PDC" && "$AIDEV_SH" doccheck status --format tsv ) )
+  PDC_P=$( ( cd "$PDC" && run_ps1 "$AIDEV_PS1" doccheck status --format tsv ) | tr -d '\r' )
+  assert_eq "$PDC_S" "$PDC_P" "パリティ: doccheck status --format tsv"
+  ( cd "$PDC" && run_ps1 "$AIDEV_PS1" doccheck start spec --mode delegated ) >/dev/null 2>&1
+  ( cd "$PDC" && run_ps1 "$AIDEV_PS1" doccheck start spec --mode delegated ) >/dev/null 2>&1
+  assert_eq "$?" "4" "パリティ: ps1 も maxDocCheckRounds で exit 4"
+  ( cd "$PDC" && run_ps1 "$AIDEV_PS1" approve spec ) >/dev/null 2>&1
+  assert_contains "$(tr -d '\r' < "$PDCD/metrics.yml")" "doc_check_rounds: 2" \
+    "パリティ: ps1 の approve も上流の点検メトリクスを自動で刻む"
+  rm -rf "$PDC"
 
   # coverage のパリティ（被覆率と gap の判定が OS で食い違うと、片方の環境でだけ穴が通る）
   PCOV=$(mktemp -d); mkdir -p "$PCOV/.aidev/backlog"
@@ -3255,9 +3315,9 @@ YML
   else
     skip 10 "git 不在のため worktree パリティを省略"
   fi
-  block_end parity "244" "parity"
+  block_end parity "248" "parity"
 else
-  skip 230 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
+  skip 234 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
 fi
 
 echo

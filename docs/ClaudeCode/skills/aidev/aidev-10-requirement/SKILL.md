@@ -55,6 +55,8 @@ AI 開発ワークフローの **requirement（要件定義）工程**を実行�
    （ここには写さない——写した結果、条件が片方だけ更新されて**UI の条件が判定側に届かず
    一度も発火しない**状態が実際に起きた）。該当すれば、次の遷移ゲートの選択肢に
    `承認して research(任意) を挟む`（推奨）を加え、推奨理由を添える。
+4.9. **`mode: autonomous` なら独立点検を挟む**（`protocol-check.md`「(a)」）:
+   `aidev doccheck start requirement --mode <delegated|same_session>` → `report requirement --findings <件数>`。
 5. protocol.md「3. 工程終了プロトコル」に従って終了する
    （提示 → 承認 → `state.yml` 更新 → 次工程 `spec`、または推奨時は `research` へ進むか確認）。
 

@@ -460,6 +460,9 @@ events:
     （被覆・`harnessRev` と同じ扱い）。**点検を1件も行わなかった work だけ** `task_checks=0` を
     明示する（省略すると「測っていない」と区別できない）。
   - 読み方（率の分母・`must` との突き合わせ）は `protocol-analysis.md`。
+- **上流4工程（requirement / spec / design / plan）**: `doc_check_rounds` / `doc_check_findings` /
+  `doc_check_mode`（独立点検（「3.3」(a)）。**手で渡さない**——`aidev doccheck` の記録から自動で刻む。
+  `autonomous` では必須で、記録が無ければ `verify` が WARN、`--strict` で致命）
 - **test**: `passed` / `failed`（検証結果の件数）
 - **review**: `must` / `should` / `nit`（重大度別の指摘件数）
 - **任意工程（light からの昇格時）**: `escalated_from_light`（`1` を刻む。昇格が起きた工程の approved に付す。

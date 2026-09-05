@@ -21,6 +21,7 @@
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 coverage [slug] [--format table|tsv] [--strict]
 #     受け入れ基準(AC)の被覆率と tasks.md の整合を検査する。--strict は gap があれば exit 4
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 taskcheck <start|report|status> ...
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 doccheck <start|report|status> ...
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 limits [show|set <key> <n>|unset <key>] [--format table|tsv] [--slug <work>]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 smoke [slug]
 #     config.yml の smokeCommand を実行して結果を metrics に刻む（起動確認 GO/NO-GO）。未設定は exit 2
@@ -46,7 +47,7 @@ $ErrorActionPreference = 'Stop'
 # （git show-ref 等は ref 不在で 1 を返すのが正常系のため）。古い pwsh では通常変数になるだけで無害。
 $PSNativeCommandUseErrorActionPreference = $false
 
-$script:CURRENT_SCHEMA = 10  # schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema 7=起動確認(smoke)の記録検査を導入。schema 8=デバッグ（詰まりの原因究明）の記録検査を導入。schema 9=light の上流4文書の実在検査を導入。schema 10=autonomous の decisions.md と task_check_mode を記録漏れ扱いに。schema<=2 は legacy 免除
+$script:CURRENT_SCHEMA = 11  # schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema 7=起動確認(smoke)の記録検査を導入。schema 8=デバッグ（詰まりの原因究明）の記録検査を導入。schema 9=light の上流4文書の実在検査を導入。schema 10=autonomous の decisions.md と task_check_mode を記録漏れ扱いに。schema 11=autonomous の上流4文書の独立点検(doccheck)の記録を必須に。schema<=2 は legacy 免除
 $script:STRICT = $false      # verify --strict（記録漏れを致命にする）。doctor 経由では常に false
 $script:PHASES = @('requirement','research','spec','design','plan','coding','test','review','walkthrough','deliver','retro')
 $script:Utf8 = New-Object System.Text.UTF8Encoding($false)  # BOM なし
@@ -683,6 +684,12 @@ function Cmd-Approve($rest) {
         Die "task_check_mode は delegated|same_session（taskcheck から自動で刻むときは、形態が割れていれば mixed）"
       }
     }
+    if ($kv -like 'doc_check_mode=*') {
+      $mv = $kv.Substring('doc_check_mode='.Length)
+      if ('delegated','same_session','mixed' -cnotcontains $mv) {
+        Die "doc_check_mode は delegated|same_session（doccheck から自動で刻むときは、形態が割れていれば mixed）"
+      }
+    }
   }
   # coding の点検メトリクスは taskcheck の記録から自動で刻む（sh 版 cmd_approve の注記に理由）
   if ($ph -ceq 'coding') {
@@ -693,6 +700,18 @@ function Cmd-Approve($rest) {
       if ($tot.tasks -gt 0) {
         $kvs = @($kvs) + @("task_checks=$($tot.tasks)", "task_check_findings=$($tot.findings)")
         if ($tot.mode) { $kvs = @($kvs) + @("task_check_mode=$($tot.mode)") }
+      }
+    }
+  }
+  # 上流4工程の点検メトリクスも doccheck の記録から自動で刻む（sh 版と同一）
+  if (DcValidPhase $ph) {
+    $dchas = $false
+    foreach ($kv in @($kvs)) { if ($kv -like 'doc_check_rounds=*' -or $kv -like 'doc_check_findings=*' -or $kv -like 'doc_check_mode=*') { $dchas = $true } }
+    if (-not $dchas) {
+      $dt = DcTotals (Join-Path $script:WORK 'metrics.yml') $ph
+      if ($dt.rounds -gt 0) {
+        $kvs = @($kvs) + @("doc_check_rounds=$($dt.rounds)", "doc_check_findings=$($dt.findings)")
+        if ($dt.mode) { $kvs = @($kvs) + @("doc_check_mode=$($dt.mode)") }
       }
     }
   }
@@ -1592,12 +1611,175 @@ function Cmd-TaskCheck($rest) {
   }
 }
 
+
+# --- doccheck（上流文書の独立点検を有限化する。sh 版 cmd_doccheck の注記に理由）------
+$script:DC_PHASES = @('requirement','spec','design','plan')
+function DcMax() {
+  $v = YGet (Join-Path $script:AIDEV 'config.yml') 'maxDocCheckRounds'
+  if ($v -notmatch '^\d+$') { return 2 }
+  $n = [int]$v; if ($n -lt 1) { return 1 }
+  return $n
+}
+function DcValidPhase($p) { return ($script:DC_PHASES -ccontains $p) }
+function DcCount($metricsFile, $stage, $phase) {
+  if (-not (IsFile $metricsFile)) { return 0 }
+  $c = 0
+  foreach ($l in [System.IO.File]::ReadAllLines($metricsFile)) {
+    if ($l -match 'event:\s*doccheck' -and $l -match "stage:\s*$stage" -and $l -match "phase:\s*$([regex]::Escape($phase))[,}]") { $c++ }
+  }
+  return $c
+}
+function DcTotals($metricsFile, $phase) {
+  $r = @{ rounds = 0; findings = 0; mode = '' }
+  if (-not (IsFile $metricsFile)) { return $r }
+  $modes = @{}; $f = 0
+  $r.rounds = DcCount $metricsFile 'start' $phase
+  foreach ($l in [System.IO.File]::ReadAllLines($metricsFile)) {
+    if ($l -notmatch 'event:\s*doccheck') { continue }
+    if ($l -notmatch "phase:\s*$([regex]::Escape($phase))[,}]") { continue }
+    if ($l -match 'stage:\s*start') {
+      $mm = [regex]::Match($l, 'mode:\s*([a-z_]+)')
+      if ($mm.Success) { $modes[$mm.Groups[1].Value] = $true }
+    } elseif ($l -match 'stage:\s*report') {
+      $mf = [regex]::Match($l, 'findings:\s*(\d+)')
+      if ($mf.Success) { $f += [int]$mf.Groups[1].Value }
+    }
+  }
+  $r.findings = $f
+  if ($modes.Keys.Count -eq 1) { $r.mode = @($modes.Keys)[0] }
+  elseif ($modes.Keys.Count -gt 1) { $r.mode = 'mixed' }
+  return $r
+}
+function Dc-Start($rest) {
+  $dph=''; $dslug=''; $dmode=''
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch -CaseSensitive ($rest[$i]) {
+      '--slug' { $i++; $dslug=(ArgAt $rest $i '--slug') }
+      '--mode' { $i++; $dmode=(ArgAt $rest $i '--mode') }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        elseif (-not $dph) { $dph=$rest[$i] } else { Die "工程は1つだけ" }
+      }
+    }
+  }
+  if (-not $dph) { Die "使用法: aidev doccheck start <requirement|spec|design|plan> --mode <delegated|same_session> [--slug <work>]" }
+  if (-not (DcValidPhase $dph)) { Die "独立点検の対象は上流4工程だけ: $dph（$($script:DC_PHASES -join ' ')）。coding のタスク点検は aidev taskcheck" }
+  if (-not $dmode) { Die "--mode は必須（delegated=別コンテキストへ委譲 / same_session=同一セッションで読み直し）。点検が効く理由はコンテキスト分離なので、どちらで行ったかを残さないと効果を測れない" }
+  if ($script:TC_MODES -cnotcontains $dmode) { Die "--mode は delegated|same_session" }
+  ResolveWork $dslug
+  if (-not (IsFile (Join-Path $script:WORK "$dph.md"))) { Die "点検する文書がありません: $dph.md（その工程を先に書く）" }
+  $mf = Join-Path $script:WORK 'metrics.yml'
+  $dmax = DcMax
+  $dr = DcCount $mf 'start' $dph
+  Write-Output "doccheck: $($script:SLUG) / $dph"
+  if ($dr -ge $dmax) {
+    [Console]::Error.WriteLine("FAIL 点検ラウンドが上限に達しています（$dr/$dmax。maxDocCheckRounds）")
+    [Console]::Error.WriteLine("next: 深追いせず、残った疑問を decisions.md に残して承認へ進む（判断は次工程・60 review に委ねる）")
+    exit 4
+  }
+  AppendEvent $script:WORK $dph 'doccheck' @('stage=start', "phase=$dph", "mode=$dmode")
+  Write-Output "round: $($dr + 1)/$dmax"
+  Write-Output "渡すもの: $dph.md だけ（上流の元文書は渡さない。内部一貫性を見るため）"
+  Write-Output "観点: **内部一貫性のみ**——AC の ID 対応漏れ / 目的・ゴールが状態で書けているか /"
+  Write-Output "      対象範囲と方針・図と本文の食い違い / 節の欠落・前後の矛盾"
+  Write-Output "禁止: **外部ソース・一次資料との照合**（幻覚的な指摘を量産する。一次資料は主エージェントが直読）"
+  Write-Output "返却形式（これ以外は解釈しない）:"
+  Write-Output "  CHECK: <ok|findings>"
+  Write-Output "  FINDINGS: <件数>"
+  Write-Output '  - [<must|should|nit>] <指摘> — 根拠: <file:line または 節名>'
+  Write-Output "次: 結果を aidev doccheck report $dph --findings <件数> で記録する"
+}
+function Dc-Report($rest) {
+  $dph=''; $dslug=''; $df=''
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch -CaseSensitive ($rest[$i]) {
+      '--slug'     { $i++; $dslug=(ArgAt $rest $i '--slug') }
+      '--findings' { $i++; $df=(ArgAt $rest $i '--findings') }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        elseif (-not $dph) { $dph=$rest[$i] } else { Die "工程は1つだけ" }
+      }
+    }
+  }
+  if (-not $dph) { Die "使用法: aidev doccheck report <phase> --findings <n> [--slug <work>]" }
+  if (-not (DcValidPhase $dph)) { Die "独立点検の対象は上流4工程だけ: $dph（$($script:DC_PHASES -join ' ')）" }
+  if ($df -notmatch '^\d+$') { Die "--findings は必須（0 以上の整数）。**崩れた返答から数字を拾わない**——件数が読めないなら点検しなかったものとして扱い、report を打たない" }
+  ResolveWork $dslug
+  $mf = Join-Path $script:WORK 'metrics.yml'
+  $drs = DcCount $mf 'start' $dph
+  $drr = DcCount $mf 'report' $dph
+  if ($drs -lt 1) { Die "その工程の doccheck start がありません: $dph（start を打たずに結果だけ記録しない）" }
+  if ($drr -ge $drs) {
+    Write-Output "doccheck: $($script:SLUG) / $dph"
+    [Console]::Error.WriteLine("FAIL 対になる start がありません（start $drs / report $drr）")
+    [Console]::Error.WriteLine("next: 点検し直すなら aidev doccheck start $dph から。上限で止まっているならそこで打ち切る")
+    exit 4
+  }
+  AppendEvent $script:WORK $dph 'doccheck' @('stage=report', "phase=$dph", "findings=$df")
+  Write-Output "doccheck: $($script:SLUG) / $dph（findings $df）"
+  if ([int]$df -gt 0) {
+    Write-Output "next: 指摘をその場で直して再提示するか、差し戻す（protocol.md「3.」の分岐に合流）"
+    Write-Output "      直したあと再点検するなら aidev doccheck start $dph（上限は maxDocCheckRounds）"
+  }
+}
+function Dc-Status($rest) {
+  $fmt='table'; $dslug=''
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch -CaseSensitive ($rest[$i]) {
+      '--format' { $i++; $fmt=(ArgAt $rest $i '--format') }
+      '--slug'   { $i++; $dslug=(ArgAt $rest $i '--slug') }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        else { Die "status は位置引数を取りません: $($rest[$i])" }
+      }
+    }
+  }
+  if ($fmt -cne 'table' -and $fmt -cne 'tsv') { Die "--format は table|tsv" }
+  ResolveWork $dslug
+  $mf = Join-Path $script:WORK 'metrics.yml'
+  $dmax = DcMax
+  $rows=@(); $tr=0; $tf=0; $modes=@{}
+  foreach ($p in $script:DC_PHASES) {
+    $t = DcTotals $mf $p
+    if ($t.rounds -le 0) { continue }
+    $atmax = if ($t.rounds -ge $dmax) { 'yes' } else { 'no' }
+    $md = if ($t.mode) { $t.mode } else { '-' }
+    $rows += ($p + "`t" + $t.rounds + "`t" + $t.findings + "`t" + $md + "`t" + $atmax)
+    $tr += $t.rounds; $tf += $t.findings
+    if ($t.mode) { $modes[$t.mode] = $true }
+  }
+  $amode = '-'
+  if ($modes.Keys.Count -eq 1) { $amode = @($modes.Keys)[0] }
+  elseif ($modes.Keys.Count -gt 1) { $amode = 'mixed' }
+  if ($fmt -ceq 'tsv') {
+    foreach ($r in $rows) { Write-Output ("doccheck`t" + $r) }
+    Write-Output ("doccheck-summary`t" + $tr + "`t" + $tf + "`t" + $amode + "`t" + $dmax)
+    return
+  }
+  Write-Output "doccheck: $($script:SLUG)"
+  if ($rows.Count -gt 0) {
+    foreach ($l in (Fmt-Table (@("phase`trounds`tfindings`tmode`tat_max") + $rows))) { Write-Output $l }
+  }
+  Write-Output "doccheck-summary: rounds=$tr findings=$tf mode=$amode maxDocCheckRounds=$dmax"
+}
+function Cmd-DocCheck($rest) {
+  if ($rest.Count -lt 1) { Dc-Status @(); return }
+  $sub=$rest[0]; $sr=@(); if ($rest.Count -gt 1) { $sr=$rest[1..($rest.Count-1)] }
+  switch -CaseSensitive ($sub) {
+    'start'  { Dc-Start $sr }
+    'report' { Dc-Report $sr }
+    'status' { Dc-Status $sr }
+    default { Die "未知の doccheck サブコマンド: $sub（start|report|status）" }
+  }
+}
+
 # --- limits（回数の上限を一覧・設定する。sh 版 cmd_limits の注記に理由）--------------
 # key;scope;min;default
 $script:LIMIT_KEYS = @(
   'maxSendBacks;work;0;3',
   'maxDebugRounds;pj;1;2',
   'maxTaskCheckRounds;pj;1;2',
+  'maxDocCheckRounds;pj;1;2',
   'lightMaxFiles;pj;1;3',
   'smokeStaleAfter;pj;0;5',
   'smokeTimeoutSec;pj;1;300',
@@ -1980,6 +2162,18 @@ function VerifyWork($work) {
     if ($tc -and $tc -cne '0') {
       if (-not (MtLastMetric (Join-Path $work 'metrics.yml') 'coding' 'task_check_mode')) {
         VLine("  WARN task_checks=$tc なのに task_check_mode が無い: 委譲したのか同一セッションで読み直したのかが残らない（approve coding に task_check_mode=delegated|same_session）")
+        $vmiss = $true
+      }
+    }
+  }
+
+  # schema 11: autonomous の上流文書は必ず独立点検する（sh 版 verify_work の注記に理由）
+  if ([int]$sn10 -ge 11 -and (YGet $st 'mode') -ceq 'autonomous' -and (YGet $st 'profile') -cne 'light') {
+    foreach ($vdp in @('requirement','spec','design','plan')) {
+      if (-not (ApprovedHas $work $vdp)) { continue }
+      if (-not (IsFile (Join-Path $work "$vdp.md"))) { continue }
+      if (-not (MtLastMetric (Join-Path $work 'metrics.yml') $vdp 'doc_check_mode')) {
+        VLine("  WARN $vdp を autonomous で承認したのに独立点検の記録がありません（aidev doccheck start $vdp --mode <delegated|same_session>）")
         $vmiss = $true
       }
     }
@@ -4250,6 +4444,7 @@ switch -CaseSensitive ($cmd) {
   'debug'   { Cmd-Debug $rest }
   'limits'  { Cmd-Limits $rest }
   'taskcheck' { Cmd-TaskCheck $rest }
+  'doccheck' { Cmd-DocCheck $rest }
   'escalate' { Cmd-Escalate $rest }
   'doctor'  { Cmd-Doctor $rest }
   'harness' { Cmd-Harness $rest }

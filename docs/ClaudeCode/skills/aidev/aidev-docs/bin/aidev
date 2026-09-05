@@ -32,6 +32,10 @@
 #     タスク単位の独立点検を有限化する。start が maxTaskCheckRounds を検査し、超えていれば exit 4
 #     start <task-id> --mode <delegated|same_session> [--slug s] / report <task-id> --findings <n> [--slug s]
 #     status [--format table|tsv] [--slug s]   # 件数は approve coding が自動で刻む（手書きしない）
+#   aidev doccheck <start|report|status> ...
+#     上流4文書(requirement/spec/design/plan)の独立点検を有限化する。start が maxDocCheckRounds を検査
+#     start <phase> --mode <delegated|same_session> [--slug s] / report <phase> --findings <n> [--slug s]
+#     status [--format table|tsv] [--slug s]   # 件数は approve <phase> が自動で刻む（手書きしない）
 #   aidev limits [show|set <key> <n>|unset <key>] [--format table|tsv] [--slug <work>]
 #     回数の上限を一覧・設定する。どこから来た値か（config / state / 既定）まで出す
 #   aidev smoke [slug]
@@ -82,7 +86,7 @@ need_arg() { # opt残り引数数
   [ "$2" -ge 2 ] || die "$1 には値が必要です"
 }
 
-CURRENT_SCHEMA=10  # 現行スキーマ版。new がこの値を刻む。schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema 7=起動確認(smoke)の記録検査を導入。schema 8=デバッグ（詰まりの原因究明）の記録検査を導入。schema 9=light の上流4文書の実在検査を導入。schema 10=autonomous の decisions.md と タスク点検の実施形態(task_check_mode) を記録漏れ扱いに。schema<=2 は legacy として subtask 不変条件を免除。
+CURRENT_SCHEMA=11  # 現行スキーマ版。new がこの値を刻む。schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema 7=起動確認(smoke)の記録検査を導入。schema 8=デバッグ（詰まりの原因究明）の記録検査を導入。schema 9=light の上流4文書の実在検査を導入。schema 10=autonomous の decisions.md と タスク点検の実施形態(task_check_mode) を記録漏れ扱いに。schema 11=autonomous の上流4文書の独立点検(doccheck)の記録を必須に。schema<=2 は legacy として subtask 不変条件を免除。
 
 PHASES="requirement research spec design plan coding test review walkthrough deliver retro"
 
@@ -625,6 +629,11 @@ cmd_approve() {
           delegated|same_session|mixed) ;;
           *) die "task_check_mode は delegated|same_session（taskcheck から自動で刻むときは、形態が割れていれば mixed）" ;;
         esac ;;
+      doc_check_mode=*)
+        case "${_akv#doc_check_mode=}" in
+          delegated|same_session|mixed) ;;
+          *) die "doc_check_mode は delegated|same_session（doccheck から自動で刻むときは、形態が割れていれば mixed）" ;;
+        esac ;;
     esac
   done
   # **同じラウンドの刻み直しは「訂正」であって新しいラウンドではない**。
@@ -650,6 +659,18 @@ cmd_approve() {
       if [ "$TC_TASKS" -gt 0 ] 2>/dev/null; then
         set -- "$@" "task_checks=$TC_TASKS" "task_check_findings=$TC_FINDINGS"
         [ -n "$TC_MODE" ] && set -- "$@" "task_check_mode=$TC_MODE"
+      fi
+    fi
+  fi
+  # 上流4工程の点検メトリクスも `doccheck` の記録から自動で刻む（coding と同じ理由）
+  if dc_valid_phase "$ph"; then
+    _dchas=no
+    for _akv in "$@"; do case "$_akv" in doc_check_rounds=*|doc_check_findings=*|doc_check_mode=*) _dchas=yes ;; esac; done
+    if [ "$_dchas" = no ]; then
+      dc_totals "$WORK/metrics.yml" "$ph"
+      if [ "$DC_ROUNDS" -gt 0 ] 2>/dev/null; then
+        set -- "$@" "doc_check_rounds=$DC_ROUNDS" "doc_check_findings=$DC_FINDINGS"
+        [ -n "$DC_MODE" ] && set -- "$@" "doc_check_mode=$DC_MODE"
       fi
     fi
   fi
@@ -1426,6 +1447,7 @@ cmd_debug() {
 LIMIT_KEYS='maxSendBacks:work:0:3
 maxDebugRounds:pj:1:2
 maxTaskCheckRounds:pj:1:2
+maxDocCheckRounds:pj:1:2
 lightMaxFiles:pj:1:3
 smokeStaleAfter:pj:0:5
 smokeTimeoutSec:pj:1:300
@@ -1614,21 +1636,19 @@ tc_known_id() { # task
   return 1
 }
 # そのタスクの点検ラウンド数（start の回数）
-tc_rounds() { # metrics_file task
+# 点検イベントの共通カウンタ。**数え方を 1 箇所に置く**——taskcheck と doccheck は
+# どちらも「1ラウンド = 1 対（start と report）」で有限化するので、片方だけ数え方が
+# ずれると上限が効いているつもりで効かない（taskcheck で実際にその穴を作った）
+ck_count() { # metrics_file event stage key target
   [ -f "$1" ] || { printf '0'; return; }
-  _n=$(grep 'event:[[:space:]]*taskcheck' "$1" 2>/dev/null | grep 'stage:[[:space:]]*start' \
-        | grep -c "task:[[:space:]]*$2[,}]") || _n=0
+  _n=$(grep "event:[[:space:]]*$2" "$1" 2>/dev/null | grep "stage:[[:space:]]*$3" \
+        | grep -c "$4:[[:space:]]*$5[,}]") || _n=0
   case "$_n" in ''|*[!0-9]*) _n=0 ;; esac
   printf '%s' "$_n"
 }
+tc_rounds()  { ck_count "$1" taskcheck start  task "$2"; }
 # そのタスクの report 回数（start と対になっているかの判定に使う）
-tc_reports() { # metrics_file task
-  [ -f "$1" ] || { printf '0'; return; }
-  _n=$(grep 'event:[[:space:]]*taskcheck' "$1" 2>/dev/null | grep 'stage:[[:space:]]*report' \
-        | grep -c "task:[[:space:]]*$2[,}]") || _n=0
-  case "$_n" in ''|*[!0-9]*) _n=0 ;; esac
-  printf '%s' "$_n"
-}
+tc_reports() { ck_count "$1" taskcheck report task "$2"; }
 # 点検したタスクの数（重複を除く）と findings 合計。TC_TASKS / TC_FINDINGS / TC_MODE に入れる
 tc_totals() { # metrics_file
   TC_TASKS=0; TC_FINDINGS=0; TC_MODE=""
@@ -1776,6 +1796,178 @@ cmd_taskcheck() {
     report) shift; tc_report "$@" ;;
     status) shift; tc_status "$@" ;;
     *) die "未知の taskcheck サブコマンド: $1（start|report|status）" ;;
+  esac
+}
+
+
+# --- コマンド: doccheck（上流文書の独立点検を有限化する） ------------------------
+# `protocol-check.md`「3.3」(a) は長く**観測点の無い規約**だった。coding は
+# `mode: autonomous` なら全タスクの差分点検が必須なのに、上流4工程（requirement / spec /
+# design / plan）の独立検証は「使わない場面: autonomous のゲート経路」に入っていた——
+# **同じ文書が「手戻りの最大の源は方向 / spec 誤り＝上流で最も効く」と書いているのに
+# 優先順位が逆**という、プロトコル内部の非対称。他 PJ の retro が「4 工程すべてで
+# 差し替えを提案せず、spec の自己矛盾（同一文書内の 101 行目 vs 347 行目）を素通りさせた」と
+# 実測で報告してきた。**書いた本人が「点検は要らない」と判断する構造**になっていた。
+#
+# taskcheck と同じ「1ラウンド = 1 コマンド」の形を与え、記録から approve が自動で刻む。
+DC_PHASES='requirement spec design plan'
+
+dc_max() {
+  _m=$(yget "$AIDEV/config.yml" maxDocCheckRounds)
+  case "$_m" in ''|*[!0-9]*) _m=2 ;; esac
+  [ "$_m" -ge 1 ] 2>/dev/null || _m=1
+  printf '%s' "$_m"
+}
+dc_valid_phase() { # phase
+  case " $DC_PHASES " in *" $1 "*) return 0 ;; *) return 1 ;; esac
+}
+dc_rounds()  { ck_count "$1" doccheck start  phase "$2"; }
+dc_reports() { ck_count "$1" doccheck report phase "$2"; }
+# その工程の点検ラウンド数 / findings 合計 / 実施形態。DC_ROUNDS / DC_FINDINGS / DC_MODE に入れる
+dc_totals() { # metrics_file phase
+  DC_ROUNDS=0; DC_FINDINGS=0; DC_MODE=""
+  [ -f "$1" ] || return 0
+  DC_ROUNDS=$(dc_rounds "$1" "$2")
+  DC_FINDINGS=$(grep 'event:[[:space:]]*doccheck' "$1" 2>/dev/null | grep 'stage:[[:space:]]*report' \
+    | grep "phase:[[:space:]]*$2[,}]" \
+    | sed -n 's/.*findings:[[:space:]]*\([0-9][0-9]*\).*/\1/p' \
+    | awk '{t+=$1} END{print t+0}') || DC_FINDINGS=0
+  case "$DC_FINDINGS" in ''|*[!0-9]*) DC_FINDINGS=0 ;; esac
+  _dcm=$(grep 'event:[[:space:]]*doccheck' "$1" 2>/dev/null | grep 'stage:[[:space:]]*start' \
+    | grep "phase:[[:space:]]*$2[,}]" \
+    | sed -n 's/.*mode:[[:space:]]*\([a-z_]*\).*/\1/p' | LC_ALL=C sort -u)
+  _dcn=$(printf '%s\n' "$_dcm" | grep -c .) || _dcn=0
+  if [ "$_dcn" -eq 1 ] 2>/dev/null; then DC_MODE=$_dcm
+  elif [ "$_dcn" -gt 1 ] 2>/dev/null; then DC_MODE=mixed; fi
+  return 0
+}
+
+dc_start() {
+  _dph=""; _dslug=""; _dmode=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --slug) need_arg "$1" $#; _dslug=$2; shift 2 ;;
+      --mode) need_arg "$1" $#; _dmode=$2; shift 2 ;;
+      -*) die "未知のオプション: $1" ;;
+      *) [ -z "$_dph" ] && _dph=$1 || die "工程は1つだけ"; shift ;;
+    esac
+  done
+  [ -n "$_dph" ] || die "使用法: aidev doccheck start <requirement|spec|design|plan> --mode <delegated|same_session> [--slug <work>]"
+  dc_valid_phase "$_dph" || die "独立点検の対象は上流4工程だけ: $_dph（$DC_PHASES）。coding のタスク点検は aidev taskcheck"
+  [ -n "$_dmode" ] || die "--mode は必須（delegated=別コンテキストへ委譲 / same_session=同一セッションで読み直し）。点検が効く理由はコンテキスト分離なので、どちらで行ったかを残さないと効果を測れない"
+  case " $TC_MODES " in *" $_dmode "*) ;; *) die "--mode は delegated|same_session" ;; esac
+  resolve_work "$_dslug"
+  [ -f "$WORK/$_dph.md" ] || die "点検する文書がありません: $_dph.md（その工程を先に書く）"
+  _dmax=$(dc_max)
+  _dr=$(dc_rounds "$WORK/metrics.yml" "$_dph")
+  printf 'doccheck: %s / %s\n' "$SLUG" "$_dph"
+  if [ "$_dr" -ge "$_dmax" ] 2>/dev/null; then
+    printf 'FAIL 点検ラウンドが上限に達しています（%s/%s。maxDocCheckRounds）\n' "$_dr" "$_dmax" >&2
+    printf 'next: 深追いせず、残った疑問を decisions.md に残して承認へ進む（判断は次工程・60 review に委ねる）\n' >&2
+    return 4
+  fi
+  append_event "$_dph" doccheck stage=start "phase=$_dph" "mode=$_dmode"
+  printf 'round: %s/%s\n' "$((_dr + 1))" "$_dmax"
+  printf '渡すもの: %s.md だけ（上流の元文書は渡さない。内部一貫性を見るため）\n' "$_dph"
+  printf '観点: **内部一貫性のみ**——AC の ID 対応漏れ / 目的・ゴールが状態で書けているか /\n'
+  printf '      対象範囲と方針・図と本文の食い違い / 節の欠落・前後の矛盾\n'
+  printf '禁止: **外部ソース・一次資料との照合**（幻覚的な指摘を量産する。一次資料は主エージェントが直読）\n'
+  printf '返却形式（これ以外は解釈しない）:\n'
+  printf '  CHECK: <ok|findings>\n'
+  printf '  FINDINGS: <件数>\n'
+  printf '  - [<must|should|nit>] <指摘> — 根拠: <file:line または 節名>\n'
+  printf '次: 結果を aidev doccheck report %s --findings <件数> で記録する\n' "$_dph"
+  return 0
+}
+
+dc_report() {
+  _dph=""; _dslug=""; _df=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --slug) need_arg "$1" $#; _dslug=$2; shift 2 ;;
+      --findings) need_arg "$1" $#; _df=$2; shift 2 ;;
+      -*) die "未知のオプション: $1" ;;
+      *) [ -z "$_dph" ] && _dph=$1 || die "工程は1つだけ"; shift ;;
+    esac
+  done
+  [ -n "$_dph" ] || die "使用法: aidev doccheck report <phase> --findings <n> [--slug <work>]"
+  dc_valid_phase "$_dph" || die "独立点検の対象は上流4工程だけ: $_dph（$DC_PHASES）"
+  case "$_df" in
+    ''|*[!0-9]*) die "--findings は必須（0 以上の整数）。**崩れた返答から数字を拾わない**——件数が読めないなら点検しなかったものとして扱い、report を打たない" ;;
+  esac
+  resolve_work "$_dslug"
+  # start と対になっていない report は受けない（taskcheck と同じ規則。理由もそちらに）
+  _drs=$(dc_rounds "$WORK/metrics.yml" "$_dph")
+  _drr=$(dc_reports "$WORK/metrics.yml" "$_dph")
+  if [ "$_drs" -le 0 ] 2>/dev/null; then
+    die "その工程の doccheck start がありません: $_dph（start を打たずに結果だけ記録しない）"
+  fi
+  if [ "$_drr" -ge "$_drs" ] 2>/dev/null; then
+    printf 'doccheck: %s / %s\n' "$SLUG" "$_dph"
+    printf 'FAIL 対になる start がありません（start %s / report %s）\n' "$_drs" "$_drr" >&2
+    printf 'next: 点検し直すなら aidev doccheck start %s から。上限で止まっているならそこで打ち切る\n' "$_dph" >&2
+    return 4
+  fi
+  append_event "$_dph" doccheck stage=report "phase=$_dph" "findings=$_df"
+  printf 'doccheck: %s / %s（findings %s）\n' "$SLUG" "$_dph" "$_df"
+  if [ "$_df" -gt 0 ] 2>/dev/null; then
+    printf 'next: 指摘をその場で直して再提示するか、差し戻す（protocol.md「3.」の分岐に合流）\n'
+    printf '      直したあと再点検するなら aidev doccheck start %s（上限は maxDocCheckRounds）\n' "$_dph"
+  fi
+  return 0
+}
+
+dc_status() {
+  _fmt=table; _dslug=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --format) need_arg "$1" $#; _fmt=${2:-}; shift 2 ;;
+      --slug) need_arg "$1" $#; _dslug=$2; shift 2 ;;
+      -*) die "未知のオプション: $1" ;;
+      *) die "status は位置引数を取りません: $1" ;;
+    esac
+  done
+  case "$_fmt" in table|tsv) ;; *) die "--format は table|tsv" ;; esac
+  resolve_work "$_dslug"
+  _dmax=$(dc_max)
+  _rows=""; _tr=0; _tf=0; _modes=""
+  for _p in $DC_PHASES; do
+    dc_totals "$WORK/metrics.yml" "$_p"
+    [ "$DC_ROUNDS" -gt 0 ] 2>/dev/null || continue
+    _atmax=no; [ "$DC_ROUNDS" -ge "$_dmax" ] 2>/dev/null && _atmax=yes
+    _rows="$_rows$_p	$DC_ROUNDS	$DC_FINDINGS	${DC_MODE:--}	$_atmax
+"
+    _tr=$((_tr + DC_ROUNDS)); _tf=$((_tf + DC_FINDINGS))
+    _modes="$_modes $DC_MODE"
+  done
+  _um=$(printf '%s\n' $_modes | grep -c . 2>/dev/null || true)
+  _uu=$(printf '%s\n' $_modes | LC_ALL=C sort -u | grep -c . 2>/dev/null || true)
+  _amode=-
+  if [ "${_uu:-0}" -eq 1 ] 2>/dev/null; then _amode=$(printf '%s\n' $_modes | LC_ALL=C sort -u)
+  elif [ "${_uu:-0}" -gt 1 ] 2>/dev/null; then _amode=mixed; fi
+  if [ "$_fmt" = tsv ]; then
+    printf '%s' "$_rows" | while IFS='	' read -r a b c d e; do
+      [ -n "$a" ] && printf 'doccheck\t%s\t%s\t%s\t%s\t%s\n' "$a" "$b" "$c" "$d" "$e"
+    done
+    printf 'doccheck-summary\t%s\t%s\t%s\t%s\n' "$_tr" "$_tf" "$_amode" "$_dmax"
+    return 0
+  fi
+  printf 'doccheck: %s\n' "$SLUG"
+  if [ -n "$_rows" ]; then
+    { printf 'phase\trounds\tfindings\tmode\tat_max\n'; printf '%s' "$_rows"; } | fmt_table
+  fi
+  printf 'doccheck-summary: rounds=%s findings=%s mode=%s maxDocCheckRounds=%s\n' \
+    "$_tr" "$_tf" "$_amode" "$_dmax"
+  return 0
+}
+
+cmd_doccheck() {
+  [ $# -ge 1 ] || { dc_status; return $?; }
+  case "$1" in
+    start)  shift; dc_start "$@" ;;
+    report) shift; dc_report "$@" ;;
+    status) shift; dc_status "$@" ;;
+    *) die "未知の doccheck サブコマンド: $1（start|report|status）" ;;
   esac
 }
 
@@ -2114,6 +2306,22 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail / 5 stri
         VMISS="yes"
       fi ;;
     esac
+  fi
+
+  # schema 11: autonomous の上流文書は**必ず**独立点検する（protocol-check.md「3.3」(a)）。
+  # coding は autonomous なら全タスク点検が必須なのに、上流4工程は「使わない場面」に入っていた
+  # ——同じ文書が「上流で最も効く」と書いているのに優先順位が逆だった（他 PJ の retro が実測）。
+  # 人間の目が入らない以上、点検を入れるかどうかを**書いた本人の裁量に委ねない**
+  if [ "$schema" -ge 11 ] 2>/dev/null && [ "$(yget "$st" mode)" = autonomous ] \
+     && [ "$(yget "$st" profile)" != light ]; then
+    for _vdp in requirement spec design plan; do
+      approved_has "$_vdp" || continue
+      [ -f "$WORK/$_vdp.md" ] || continue
+      if [ -z "$(mt_last_metric "$WORK/metrics.yml" "$_vdp" doc_check_mode)" ]; then
+        printf '  WARN %s を autonomous で承認したのに独立点検の記録がありません（aidev doccheck start %s --mode <delegated|same_session>）\n' "$_vdp" "$_vdp"
+        VMISS="yes"
+      fi
+    done
   fi
 
   # またがり work の検知（WARN）。schema 4 以降のみ＝旧 work を遡って違反扱いしない。
@@ -4617,6 +4825,7 @@ case "$cmd" in
   smoke)   cmd_smoke "$@" ;;
   debug)   cmd_debug "$@" ;;
   taskcheck) cmd_taskcheck "$@" ;;
+  doccheck) cmd_doccheck "$@" ;;
   limits)  cmd_limits "$@" ;;
   escalate) cmd_escalate "$@" ;;
   doctor)  cmd_doctor "$@" ;;
