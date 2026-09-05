@@ -632,6 +632,11 @@ function Cmd-New($rest) {
   WriteText (Join-Path $script:AIDEV 'current') "$name`n"
   Write-Output "created: $work (schema $($script:CURRENT_SCHEMA), mode $mode, profile $profile)"
   if ($profile -ceq 'light') { Write-Output "note: profile=light。上流3工程は requirement 1ゲートに畳む（protocol.md「11.」）" }
+  # 選択の帰結を、選択の場に出す（sh 版 cmd_new の注記に理由）
+  if ($mode -ceq 'autonomous' -and $profile -cne 'light') {
+    Write-Output "note: mode=autonomous。上流4工程は独立点検が必須（aidev doccheck start <phase> --mode <delegated|same_session>）"
+    Write-Output "      人間の目が入らないので、点検の要否を書いた本人の裁量に委ねない。記録が無いと verify が WARN"
+  }
   if ($backlog) { Write-Output "backlog: $backlog（deliver で該当行を [x] にすること。verify が検査する）" }
 }
 
@@ -1405,6 +1410,60 @@ function SmokeCmd() {
 # 起動確認は work 全体（親＋全 subtask）の性質なので、記録も家族の根に一本化する
 # （子に刻むと、着地する親の verify から見えず「記録が無い」と誤 FAIL する。sh 版と同一）
 # 起動確認を複数行で積めるようにする（sh 版 smoke_cmds の注記に理由）
+# 宣言の中身を任意のファイルから取り出す（履歴の版と現在版を比べるために要る。sh 版 smoke_decl_of と同一）
+function SmokeDeclOf($path) {
+  $out = @()
+  if (-not (IsFile $path)) { return $out }
+  $inblk = $false
+  foreach ($l in [System.IO.File]::ReadAllLines($path)) {
+    $l = "$l".TrimEnd("`r")
+    if ($l -match '^smokeCommand:[ \t]*(.*)$') {
+      $v = $Matches[1].TrimEnd(); if ($v) { $out += ('1:' + $v) }; continue
+    }
+    if ($l -match '^smokeCommands:[ \t]*$') { $inblk = $true; continue }
+    if ($inblk) {
+      $m = [regex]::Match($l, '^[ \t]+-[ \t]+')
+      if ($m.Success) { $v = $l.Substring($m.Length).TrimEnd(); if ($v) { $out += ('N:' + $v) }; continue }
+      if ($l -match '^[ \t]*$') { continue }
+      $inblk = $false
+    }
+  }
+  return $out
+}
+
+# smokeCommands: ブロックの外にある `- ` 行の本数（sh 版 smoke_orphan_lines の注記に理由）
+function SmokeOrphanLines() {
+  $cfg = Join-Path $script:AIDEV 'config.yml'
+  if (-not (IsFile $cfg)) { return 0 }
+  $inblk = $false; $n = 0
+  foreach ($l in [System.IO.File]::ReadAllLines($cfg)) {
+    $l = "$l".TrimEnd("`r")
+    if ($l -match '^smokeCommands:[ \t]*$') { $inblk = $true; continue }
+    $isitem = [regex]::IsMatch($l, '^[ \t]+-[ \t]+')
+    if ($inblk) {
+      if ($isitem) { continue }
+      if ($l -match '^[ \t]*$') { continue }
+      $inblk = $false
+    }
+    if ((-not $inblk) -and $isitem) { $n++ }
+  }
+  return $n
+}
+
+# `.aidev/current` が追跡されていると worktree の前提が崩れる（sh 版 doctor_gitignore の注記に理由）
+function Doctor-Gitignore() {
+  if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return }
+  $null = GitQ -C $script:ROOT rev-parse --git-dir 2>$null
+  if ($LASTEXITCODE -ne 0) { return }
+  $rel = (Join-Path $script:AIDEV 'current').Substring($script:ROOT.Length).TrimStart('/','\') -replace '\\','/'
+  $null = GitQ -C $script:ROOT ls-files --error-unmatch $rel 2>$null
+  if ($LASTEXITCODE -eq 0) {
+    Write-Output "gitignore: 実行時状態の追跡"
+    Write-Output "    WARN $rel が git に追跡されています: worktree は current が worktree ローカルであることに乗っています"
+    Write-Output "         .gitignore に $rel を足し、git rm --cached $rel で外すこと（導入手順）"
+  }
+}
+
 function SmokeCmds() {
   $cfg = Join-Path $script:AIDEV 'config.yml'
   if (-not (IsFile $cfg)) { return @() }
@@ -1722,7 +1781,8 @@ function Dc-Start($rest) {
   Write-Output "  CHECK: <ok|findings>"
   Write-Output "  FINDINGS: <件数>"
   Write-Output '  - [<must|should|nit>] <指摘> — 根拠: <file:line または 節名>'
-  Write-Output "次: 結果を aidev doccheck report $dph --findings <件数> で記録する"
+  Write-Output "次: 結果を aidev doccheck report $dph --findings <件数> で記録する（**直す前に打つ**。"
+  Write-Output "    直してから打つと、その件数が次のラウンドに寄る）"
 }
 function Dc-Report($rest) {
   $dph=''; $dslug=''; $df=''
@@ -2204,6 +2264,7 @@ function VerifyWork($work) {
   }
 
   # schema 11: autonomous の上流文書は必ず独立点検する（sh 版 verify_work の注記に理由）
+  # schema 11 以降だけ（旧 work に出す案は撤回。sh 版 verify_work の注記に理由）
   if ([int]$sn10 -ge 11 -and (YGet $st 'mode') -ceq 'autonomous' -and (YGet $st 'profile') -cne 'light') {
     foreach ($vdp in @('requirement','spec','design','plan')) {
       if (-not (ApprovedHas $work $vdp)) { continue }
@@ -2212,6 +2273,17 @@ function VerifyWork($work) {
         VLine("  WARN $vdp を autonomous で承認したのに独立点検の記録がありません（aidev doccheck start $vdp --mode <delegated|same_session>）")
         $vmiss = $true
       }
+    }
+  }
+
+  # 件数を刻んだのに内容が review.md に残っていない（sh 版 verify_work の注記に理由）
+  $vtf = MtLastMetric (Join-Path $work 'metrics.yml') 'coding' 'task_check_findings'
+  if ($vtf -and $vtf -cne '0') {
+    $rvm = Join-Path $work 'review.md'
+    $hasLog = $false
+    if (IsFile $rvm) { if (([System.IO.File]::ReadAllText($rvm)).Contains('タスク点検ログ')) { $hasLog = $true } }
+    if (-not $hasLog) {
+      VLine("  WARN task_check_findings=$vtf なのに review.md に「タスク点検ログ」節がありません: 件数だけ残り、何を直したかが辿れない")
     }
   }
 
@@ -2473,7 +2545,7 @@ function Cmd-Doctor($rest) {
     Write-Output "doctor: 全 work 横断検査"
     Write-Output "summary: works=0 fail=0 legacy(免除)=0"
     Write-Output "note: work がまだありません（.aidev/works 未作成）。aidev new で最初の work を起こす"
-    Doctor-Backlog; Doctor-Conventions; Doctor-Harness; Doctor-Smoke; Doctor-Shared; Doctor-Branch
+    Doctor-Backlog; Doctor-Conventions; Doctor-Harness; Doctor-Smoke; Doctor-Shared; Doctor-Gitignore; Doctor-HrStraddle; Doctor-HrSentinel; Doctor-Branch
     exit 0
   }
   $total=0; $script:DFail=0; $legacy=0
@@ -2500,6 +2572,9 @@ function Cmd-Doctor($rest) {
   Doctor-Harness
   Doctor-Smoke
   Doctor-Shared
+  Doctor-Gitignore
+  Doctor-HrStraddle
+  Doctor-HrSentinel
   Doctor-Branch
   # 4（不変条件違反）に揃える。1 は使用法・環境エラー用（sh 版と同一）
   if ($fail -eq 0) { exit 0 } else { exit 4 }
@@ -2871,12 +2946,13 @@ function Cmd-Metrics($rest) {
       if ($null -ne $lst) { $acN = $lst[2] }
       if (($null -eq $fst) -or ($null -eq $lst)) { $acD = '-' }
       else { $acD = $lst[1] - $fst[1] }
-      $rows += ($name + "`t" + $fs + "`t" + $dv + "`t" + $lead + "`t" + $rw + "`t" + $sback + "`t" + $acN + "`t" + $acD + "`t" + $hr + "`t" + $sd)
+      $work = 0; foreach ($k in $elsum.Keys) { $work += $elsum[$k] }
+      $rows += ($name + "`t" + $fs + "`t" + $dv + "`t" + $lead + "`t" + $work + "`t" + $rw + "`t" + $sback + "`t" + $acN + "`t" + $acD + "`t" + $hr + "`t" + $sd)
     }
   }
 
   if ($phasesf) { $hdr = "work`tphase`tstart`tapproved`telapsed_sec`trounds" }
-  else          { $hdr = "work`tfirst_start`tdelivered`tlead_sec`treworks`tsent_backs`tac`tac_drift`tharnessRev`tstraddle" }
+  else          { $hdr = "work`tfirst_start`tdelivered`tlead_sec`twork_sec`treworks`tsent_backs`tac`tac_drift`tharnessRev`tstraddle" }
 
   if ($fmt -ceq 'tsv') { foreach ($r in $rows) { Write-Output $r } }
   else { foreach ($l in (Fmt-Table (@($hdr) + $rows))) { Write-Output $l } }
@@ -4326,6 +4402,33 @@ function Doctor-Conventions() {
 # 起動確認の設定を PJ 単位で1行だけ検査する（work ごとに鳴らさない。sh 版 doctor_smoke と同一）
 # sharedFiles の妥当性（sh 版 doctor_shared と同一。理由もそちらに）
 # main worktree が既定ブランチに載っていないか（sh 版 doctor_branch の注記に理由）
+# 版名が取れない環境では straddle が成立しない（sh 版 doctor_hrstraddle の注記に理由）
+function Doctor-HrStraddle() {
+  if ((HarnessRev) -cne 'unknown') { return }
+  Write-Output "harnessRev: またがり検知"
+  Write-Output "    note: ハーネス($($script:HARNESS))が git 管理下にないため版名が取れません。"
+  Write-Output "          harnessRev / harnessRevDelivered の両端が unknown になり、**またがり判定が成立しません**"
+  Write-Output "          （版をまたいだ work は規約と実装の対応がずれた状態で記録されるので、層別から外せない）。"
+  Write-Output "          ハーネスの置き場を git 管理下に置けば有効になります"
+}
+
+# H1 が直る前に刻まれた空 blob 値の説明（sh 版 doctor_hrsentinel の注記に理由）
+function Doctor-HrSentinel() {
+  $wroot = Join-Path $script:AIDEV 'works'
+  if (-not (IsDir $wroot)) { return }
+  $n = 0
+  foreach ($d in (Get-ChildItem -LiteralPath $wroot -Directory -ErrorAction SilentlyContinue)) {
+    $st = Join-Path $d.FullName 'state.yml'
+    if (-not (IsFile $st)) { continue }
+    if ((YGet $st 'harnessRev') -ceq $script:HR_EMPTY) { $n++ }
+  }
+  if ($n -gt 0) {
+    Write-Output "harnessRev: 効果検証の母集団"
+    Write-Output "    note: $n 本が $($script:HR_EMPTY)（空 blob のハッシュ）を刻んでいます。ハーネスが git 管理外だった頃の値で、"
+    Write-Output "          全環境で同じ値になるため母集団には使えません。読む側は unknown に正規化しています（直す必要はありません）"
+  }
+}
+
 function Doctor-Branch() {
   if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return }
   # **linked worktree では検査しない**（sh 版と同一。理由もそちらに）
@@ -4402,9 +4505,22 @@ function SmokeStaleWarn() {
   if ($n -notmatch '^\d+$') { $n = 5 } else { $n = [int]$n }
   if ($n -le 0) { return }
   $env:TZ = 'UTC'
-  $cut = (GitQ -C $script:ROOT log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ -S smokeCommand -- $cfg 2>$null)
-  if ($LASTEXITCODE -ne 0) { $cut = '' }
-  $cut = "$cut".Trim()
+  # `-S` は文字列の出現回数の変化しか見ないので、smokeCommands: の下に行を足しても
+  # 基準日が動かない（sh 版 smoke_stale_warn の注記に理由）。宣言そのものを版ごとに比べる
+  $cur = @(SmokeDeclOf $cfg) -join "`n"
+  $rel = $cfg.Substring($script:ROOT.Length).TrimStart('/','\') -replace '\\','/'
+  $cut = ''; $cut0 = ''
+  $tmp = [System.IO.Path]::GetTempFileName()
+  try {
+    foreach ($c in @(GitQ -C $script:ROOT log --format=%H -n 50 -- $rel 2>$null)) {
+      $blob = (GitQ -C $script:ROOT show "${c}:$rel" 2>$null)
+      if ($LASTEXITCODE -ne 0) { break }
+      [System.IO.File]::WriteAllText($tmp, (($blob -join "`n") + "`n"), $script:Utf8)
+      if (((@(SmokeDeclOf $tmp)) -join "`n") -cne $cur) { if ($cut0) { $cut = $cut0 }; break }
+      $cut0 = "$(GitQ -C $script:ROOT log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ $c 2>$null)".Trim()
+      $cut = $cut0
+    }
+  } finally { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
   if (-not $cut) { return }
   $cnt = 0
   $wroot = Join-Path $script:AIDEV 'works'
@@ -4441,6 +4557,11 @@ function Doctor-Smoke() {
   } elseif ($dsc -ceq 'none') {
     Write-Output "smoke-summary: configured=none（起動確認の対象外と宣言済み）"
   } else {
+  $orph = SmokeOrphanLines
+  if ($orph -gt 0) {
+    Write-Output "    WARN smokeCommands: ブロックの外に ``- `` 行が $orph 本あります: **黙って無視されます**"
+    Write-Output "         足す行は smokeCommands: の直下に、同じ字下げで並べること（末尾に追記すると外れる）"
+  }
     SmokeStaleWarn
     Write-Output "smoke-summary: configured=yes commands=$($dscl.Count)"
   }

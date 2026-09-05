@@ -570,6 +570,13 @@ cmd_new() {
   if [ "$profile" = light ]; then
     printf 'note: profile=light。上流3工程は requirement 1ゲートに畳む（protocol.md「11.」）\n'
   fi
+  # **選択の帰結を、選択の場に出す**。autonomous を選んだ時点で上流4工程の独立点検が必須になるのに、
+  # それは protocol-check.md「(a)」を読まないと分からなかった——付録は「該当する状況のときだけ読む」
+  # 建付けなので、**該当条件（autonomous）を選ばせた側が知らせない限り読まれない**（retro が実測）
+  if [ "$mode" = autonomous ] && [ "$profile" != light ]; then
+    printf 'note: mode=autonomous。上流4工程は独立点検が必須（aidev doccheck start <phase> --mode <delegated|same_session>）\n'
+    printf '      人間の目が入らないので、点検の要否を書いた本人の裁量に委ねない。記録が無いと verify が WARN\n'
+  fi
   # 注意: ここを `[ -n "$backlog" ] && printf …` と書くと、backlog 未指定時に
   # **関数の戻り値が 1 になる**（末尾コマンドの終了状態がそのまま返る）。
   # worktree add は cmd_new の戻り値を見るので、それだけで add が失敗する
@@ -1922,7 +1929,8 @@ dc_start() {
   printf '  CHECK: <ok|findings>\n'
   printf '  FINDINGS: <件数>\n'
   printf '  - [<must|should|nit>] <指摘> — 根拠: <file:line または 節名>\n'
-  printf '次: 結果を aidev doccheck report %s --findings <件数> で記録する\n' "$_dph"
+  printf '次: 結果を aidev doccheck report %s --findings <件数> で記録する（**直す前に打つ**。\n' "$_dph"
+  printf '    直してから打つと、その件数が次のラウンドに寄る）\n'
   return 0
 }
 
@@ -2053,6 +2061,20 @@ smoke_cmd() {
 #     - cmd three
 # 値は `smokeCommand` と同じく**行をそのまま**読む（YAML のエスケープを解釈しない。
 # 配列リテラル `[a, b]` にしないのは、コマンドに含まれるカンマで壊れるため）
+# 宣言の中身を**任意のテキスト**から取り出す（履歴の版と現在版を比べるために要る）
+smoke_decl_of() { # file
+  awk '
+    /^smokeCommand:[ \t]*/ { sub(/^smokeCommand:[ \t]*/, ""); sub(/[ \t]+$/, ""); if ($0 != "") print "1:" $0; next }
+    /^smokeCommands:[ \t]*$/ { inblk = 1; next }
+    inblk {
+      if (match($0, /^[ \t]+-[ \t]+/)) { s = substr($0, RLENGTH + 1); sub(/[ \t]+$/, "", s); if (s != "") print "N:" s; next }
+      if ($0 ~ /^[ \t]*$/) next
+      inblk = 0
+    }
+  ' "$1" 2>/dev/null || true
+  return 0
+}
+
 smoke_cmds() {
   awk '
     /^smokeCommands:[ \t]*$/ { inblk = 1; next }
@@ -2354,10 +2376,16 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail / 5 stri
     esac
   fi
 
-  # schema 11: autonomous の上流文書は**必ず**独立点検する（protocol-check.md「3.3」(a)）。
+  # autonomous の上流文書は**必ず**独立点検する（protocol-check.md「3.3」(a)）。
   # coding は autonomous なら全タスク点検が必須なのに、上流4工程は「使わない場面」に入っていた
   # ——同じ文書が「上流で最も効く」と書いているのに優先順位が逆だった（他 PJ の retro が実測）。
-  # 人間の目が入らない以上、点検を入れるかどうかを**書いた本人の裁量に委ねない**
+  # 人間の目が入らない以上、点検を入れるかどうかを**書いた本人の裁量に委ねない**。
+  #
+  # **schema 11 以降だけ**。旧 work にも WARN を出す案を一度入れたが撤回した——
+  # 報告元の retro が「その時点のハーネスに doccheck が無かっただけで、規約違反ではない」と
+  # 訂正してきたため。**承認済みの工程に後から点検は掛けられない**ので、旧 work では
+  # この WARN は永久に鳴り続けて直せない。またがり検知を `note:` に落としたのと同じ判断
+  # （直せない事実を毎回混ぜると、直せる WARN がノイズに埋もれる）。
   if [ "$schema" -ge 11 ] 2>/dev/null && [ "$(yget "$st" mode)" = autonomous ] \
      && [ "$(yget "$st" profile)" != light ]; then
     for _vdp in requirement spec design plan; do
@@ -2368,6 +2396,19 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail / 5 stri
         VMISS="yes"
       fi
     done
+  fi
+
+  # 点検で見つけた件数を刻んだのに、**内容が review.md に残っていない**。
+  # 件数だけでは「何を直したか」が辿れず、条項の効果判定（`[conv:…]` タグ）も拾えない。
+  # 件数そのものの正しさは検査できない（1 指摘を 2 行に割る等は記録側の妥当な判断）ので、
+  # **節が丸ごと無い**という明白な欠落だけを見る（retro の指摘を、誤検知しない形に絞った）
+  if [ -f "$WORK/metrics.yml" ]; then
+    _vtf=$(mt_last_metric "$WORK/metrics.yml" coding task_check_findings)
+    case "$_vtf" in ''|0) ;; *)
+      if [ ! -f "$WORK/review.md" ] || ! grep -q 'タスク点検ログ' "$WORK/review.md" 2>/dev/null; then
+        printf '  WARN task_check_findings=%s なのに review.md に「タスク点検ログ」節がありません: 件数だけ残り、何を直したかが辿れない\n' "$_vtf"
+      fi ;;
+    esac
   fi
 
   # またがり work の検知（WARN）。schema 4 以降のみ＝旧 work を遡って違反扱いしない。
@@ -2697,7 +2738,7 @@ cmd_doctor() {
     printf 'doctor: 全 work 横断検査\n'
     printf 'summary: works=0 fail=0 legacy(免除)=0\n'
     printf 'note: work がまだありません（.aidev/works 未作成）。aidev new で最初の work を起こす\n'
-    doctor_backlog; doctor_conventions; doctor_harness; doctor_smoke; doctor_shared; doctor_branch
+    doctor_backlog; doctor_conventions; doctor_harness; doctor_smoke; doctor_shared; doctor_gitignore; doctor_hrstraddle; doctor_hrsentinel; doctor_branch
     exit 0
   fi
   total=0; fail=0; legacy=0
@@ -2726,6 +2767,9 @@ cmd_doctor() {
   doctor_harness
   doctor_smoke
   doctor_shared
+  doctor_gitignore
+  doctor_hrstraddle
+  doctor_hrsentinel
   doctor_branch
   # exit code は 4（不変条件違反）に揃える。1 は「使用法・環境エラー」に割り当てられているので、
   # exit code で分岐する機械ゲートが「ドリフト検知」を「環境が壊れている」と誤読する
@@ -3019,10 +3063,15 @@ END{
     fs=(first>=0)?firstts:"-"
     dv=(delivered_flag>0)?"yes":"no"
     lead="-"; if(delivered_flag>0 && first>=0 && delivered_e>=0) lead=delivered_e-first
+    # `lead_sec` は**暦の上の時間**で、離席すればそのぶん伸びる（実測で 60% が
+    # 「次のコマンド待ち」だった work がある）。工程の elapsed 合計を並べて出し、
+    # 「実作業に近い時間」と読み分けられるようにする。外部の締切には lead、
+    # 工程の重さの比較には work。**どちらも KPI にはしない**（規模あたりの手戻りのほうが頑健）
+    work=0; for(p in elsum) work+=elsum[p]
     # 「手戻り回数」（protocol-analysis.md「1.」）＝ **やり直した回数**。工程数で数えると
     # 上限が工程数で飽和し、「規模あたりの手戻り」の分子が頭打ちになる
     rw=0; for(p in scount) if(scount[p]>=2) rw+=scount[p]-1
-    printf "%s\t%s\t%s\t%s\t%s\t%s\n", name, fs, dv, lead, rw, sback+0
+    printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", name, fs, dv, lead, work, rw, sback+0
   }
 }'
 
@@ -3136,7 +3185,7 @@ cmd_metrics() {
   done
 
   if [ "$phasesf" = yes ]; then hdr='work	phase	start	approved	elapsed_sec	rounds'
-  else hdr='work	first_start	delivered	lead_sec	reworks	sent_backs	ac	ac_drift	harnessRev	straddle'; fi
+  else hdr='work	first_start	delivered	lead_sec	work_sec	reworks	sent_backs	ac	ac_drift	harnessRev	straddle'; fi
 
   if [ "$fmt" = tsv ]; then
     printf '%s' "$rows" | sed '/^[[:space:]]*$/d'
@@ -4692,6 +4741,55 @@ $w"
 # main worktree が既定ブランチに載っていないことを PJ 単位で 1 行だけ知らせる。
 # `worktree add` は新しい枝を切るときにしか警告しないので、**既に載っている状態**は誰も言わない。
 # この状態だと deliver「1.5」の既着地検知と `worktree files` の基点がどちらも素直でなくなる。
+# H1（`ls-tree` が空でも空 blob のハッシュが返る）が直る前に刻まれた work は、
+# **全環境で同じ値**を持つので効果検証に使えない。読む側では unknown に正規化しているが、
+# `state.yml` には値が残るので「state に値があるのに metrics が unknown」に見える（retro が実測）。
+# 何が起きているかを 1 行で言う——直せないが、混乱は防げる
+# `.aidev/current` は **gitignore 対象である前提**で worktree 機能が成り立っている
+# （DESIGN「INV-1」: worktree ローカルで main と非干渉）。追跡されていると deliver 手順の
+# `git add -A` が current を巻き込み、前提が静かに崩れる（実走で発生）。導入手順 5 の自己診断
+doctor_gitignore() {
+  command -v git >/dev/null 2>&1 || return 0
+  git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1 || return 0
+  _dgc=${AIDEV#"$ROOT"/}/current
+  if git -C "$ROOT" ls-files --error-unmatch "$_dgc" >/dev/null 2>&1; then
+    printf 'gitignore: 実行時状態の追跡\n'
+    printf '    WARN %s が git に追跡されています: worktree は current が worktree ローカルであることに乗っています\n' "$_dgc"
+    printf '         .gitignore に %s を足し、git rm --cached %s で外すこと（導入手順）\n' "$_dgc" "$_dgc"
+  fi
+  return 0
+}
+
+# ハーネスが git 管理下にないと `harness_rev` は常に `unknown` を返す。すると
+# `harnessRev` も `harnessRevDelivered` も `unknown` になり、**両端が同じなので差が出ず、
+# またがり（straddle）の判定が原理的に成立しない**（改訂版 retro が実測）。
+# **版名を捏造してまで埋めない**——mtime や内容ハッシュで代用すると、無関係な touch で
+# 誤検知し、誤検知はそのまま効果検証の母集団を痩せさせる（`harness_rev` を aidev-* に
+# 絞ったのと同じ理由）。代わりに**検知が効かない環境であることを言う**。直し方は 1 つしかない
+doctor_hrstraddle() {
+  [ "$(harness_rev)" = unknown ] || return 0
+  printf 'harnessRev: またがり検知\n'
+  printf '    note: ハーネス(%s)が git 管理下にないため版名が取れません。\n' "$HARNESS"
+  printf '          harnessRev / harnessRevDelivered の両端が unknown になり、**またがり判定が成立しません**\n'
+  printf '          （版をまたいだ work は規約と実装の対応がずれた状態で記録されるので、層別から外せない）。\n'
+  printf '          ハーネスの置き場を git 管理下に置けば有効になります\n'
+  return 0
+}
+
+doctor_hrsentinel() {
+  _dhn=0
+  for _dhd in "$AIDEV/works"/*/; do
+    [ -f "$_dhd/state.yml" ] || continue
+    [ "$(yget "$_dhd/state.yml" harnessRev)" = "$HR_EMPTY" ] && _dhn=$((_dhn+1))
+  done
+  if [ "$_dhn" -gt 0 ] 2>/dev/null; then
+    printf 'harnessRev: 効果検証の母集団\n'
+    printf '    note: %s 本が %s（空 blob のハッシュ）を刻んでいます。ハーネスが git 管理外だった頃の値で、\n' "$_dhn" "$HR_EMPTY"
+    printf '          全環境で同じ値になるため母集団には使えません。読む側は unknown に正規化しています（直す必要はありません）\n'
+  fi
+  return 0
+}
+
 doctor_branch() {
   command -v git >/dev/null 2>&1 || return 0
   # **linked worktree では検査しない**。aidev の worktree は定義上 `feature/<slug>` に載っている
@@ -4785,9 +4883,33 @@ smoke_stale_warn() {
   _ssn=$(yget "$AIDEV/config.yml" smokeStaleAfter)
   case "$_ssn" in ''|*[!0-9]*) _ssn=5 ;; esac
   [ "$_ssn" -gt 0 ] 2>/dev/null || return 0
-  # 宣言が最後に変わったコミットの日時（pickaxe。config.yml の他の行の変更では動かない）
-  _sscut=$(TZ=UTC git -C "$ROOT" log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ \
-             -S smokeCommand -- "$AIDEV/config.yml" 2>/dev/null) || _sscut=""
+  # 宣言が最後に変わったコミットの日時。
+  # **`-S smokeCommand` の pickaxe では駄目**——`-S` は文字列の**出現回数の変化**しか見ないので、
+  # `smokeCommands:` の下に行を足しても出現数は 1 のまま＝基準日が導入コミットから動かない。
+  # 「起動確認は成果物と一緒に育てる」ための検査が、育てても古い WARN を出し続ける（実測）。
+  # config.yml を触ったコミットを新しい順に辿り、**宣言そのものが変わった**最初の点を採る。
+  _sscur=$(smoke_decl_of "$AIDEV/config.yml")
+  _sscfg=${AIDEV#"$ROOT"/}/config.yml
+  # **`set -u` の下ではループ内で初めて代入する変数も事前に初期化する**。
+  # 1 周目で宣言が食い違うと代入前に参照して `parameter not set` でプロセスごと落ちた
+  # ——しかも落ちる条件は「宣言を編集してまだコミットしていない」＝`aidev-50-test`「3.2」が
+  # 作れと指示している当の状態で、**規約に素直に従うと doctor が壊れる**区間ができていた（実走で発覚）。
+  # ps1 は最初から両方初期化してあり、ここでも sh だけが落ちていた
+  _sscut=""; _sscut0=""
+  # 一時ファイルは **`.aidev` の外**に置く。中に置くと、落ちたときの残骸を
+  # deliver 手順の `git add -A` がそのまま拾う（実走で 3 個コミットされかけた）
+  _sstmp=${TMPDIR:-/tmp}/aidev-smoke.$$
+  for _ssc in $(git -C "$ROOT" log --format=%H -n 50 -- "$_sscfg" 2>/dev/null); do
+    git -C "$ROOT" show "$_ssc:$_sscfg" > "$_sstmp" 2>/dev/null || { rm -f "$_sstmp"; break; }
+    if [ "$(smoke_decl_of "$_sstmp")" != "$_sscur" ]; then
+      # この版で違う＝**1 つ後**のコミットが宣言を変えた点。そこを基準にする
+      [ -n "$_sscut0" ] && _sscut=$_sscut0
+      break
+    fi
+    _sscut0=$(TZ=UTC git -C "$ROOT" log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ "$_ssc" 2>/dev/null) || _sscut0=""
+    _sscut=$_sscut0
+  done
+  rm -f "$_sstmp"
   [ -n "$_sscut" ] || return 0   # 履歴が無い/読めないなら黙る（推測で急かさない）
   _sscnt=0
   for _ssd in "$AIDEV/works"/*/; do
@@ -4809,6 +4931,26 @@ smoke_stale_warn() {
   return 0
 }
 
+# `smokeCommands:` ブロックの**外**にある `- ` 行の本数。awk は非リスト行でブロックを閉じるので、
+# 末尾に追記した行などは黙って捨てられる——`smoke` は pass、`doctor` は configured=yes と言うだけで、
+# 「足した表面を一度も起動しないまま pass」というこの機能が塞ぐはずの事故が、
+# **設定の書き間違いという別の入口から再現する**（実走で発生）
+smoke_orphan_lines() {
+  [ -f "$AIDEV/config.yml" ] || { printf '0'; return 0; }
+  _son=$(awk '
+    /^smokeCommands:[ \t]*$/ { inblk = 1; next }
+    inblk {
+      if (match($0, /^[ \t]+-[ \t]+/)) next
+      if ($0 ~ /^[ \t]*$/) next
+      inblk = 0
+    }
+    !inblk && match($0, /^[ \t]+-[ \t]+/) { n++ }
+    END { print n+0 }
+  ' "$AIDEV/config.yml" 2>/dev/null) || _son=0
+  case "$_son" in ''|*[!0-9]*) _son=0 ;; esac
+  printf '%s' "$_son"
+}
+
 doctor_smoke() {
   _dsc=$(smoke_cmd)
   _dscl=$(smoke_list)
@@ -4822,7 +4964,12 @@ doctor_smoke() {
   elif [ "$_dsc" = none ]; then
     printf 'smoke-summary: configured=none（起動確認の対象外と宣言済み）\n'
   else
-    smoke_stale_warn
+    _dso=$(smoke_orphan_lines)
+  if [ "$_dso" -gt 0 ] 2>/dev/null; then
+    printf '    WARN smokeCommands: ブロックの外に `- ` 行が %s 本あります: **黙って無視されます**\n' "$_dso"
+    printf '         足す行は smokeCommands: の直下に、同じ字下げで並べること（末尾に追記すると外れる）\n'
+  fi
+  smoke_stale_warn
     _dsn=$(printf '%s\n' "$_dscl" | grep -c . || true)
     printf 'smoke-summary: configured=yes commands=%s\n' "$_dsn"
   fi

@@ -355,7 +355,8 @@ parent: <親 work の dated 名> # 子が親 work を逆参照（例 20260622-fe
   **被覆の単位は work 全体（親＋全 subtask）**——分割 work での扱いは `protocol-subtask.md`。
 - **起動確認（smoke）を test 工程で通す**（`aidev smoke`。手順は `aidev-50-test`「3.2」）。
   **「テストが全部通ったこと」は着地の根拠として足りない**——見るのは「ビルドした成果物が
-  **最初の使える状態**まで到達するか」。コマンドは `.aidev/config.yml` の `smokeCommand`。
+  **最初の使える状態**まで到達するか」。コマンドは `.aidev/config.yml` の `smokeCommand`
+  （複数本なら `smokeCommands:` のブロック。**足す行はブロックの直下に並べる**——外に書くと黙って無視される）。
   **記録は家族の根に一本化する**（分割 work では子で打っても親に刻む。着地するのは親1本の PR なので
   被覆と同じ単位に揃える）。設定済みの PJ では、記録が無い／失敗のままの work を
   `aidev verify` が deliver 前に FAIL で止める。

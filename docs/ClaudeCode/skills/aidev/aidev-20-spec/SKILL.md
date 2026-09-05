@@ -29,7 +29,8 @@ requirement を「どう作るか」の実装仕様に落とす。設計判断�
 ## 手順
 
 1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定。
-   `aidev guard spec` で前提を検査する（exit≠0＝未充足。目視確認で代替しない）。
+   `aidev guard spec` で前提を検査し、`aidev event spec start` を記録する
+   （exit≠0＝未充足。目視確認で代替しない。start が無いと所要時間も手戻りも導出できない）。
 2. `requirement.md` を読み、完了条件を満たす実装方針を検討する。
    - 有力な案が複数あるなら plan モードを使ってよい（使える条件は `protocol-autonomous.md`。解除してから書く。
      `protocol-autonomous.md`）。
