@@ -331,7 +331,16 @@ BUDGET_PROTOCOL=608
 #     昇格の deliver 済み拒否（工程 skill が読むのはこちら）／カーソルの正典が
 #     `new --parent` と親の `approve tasks` に触れていなかった／`cross` だけ実施した work の
 #     `task_checks` の書き方が読めなかった。
-BUDGET_TOTAL=3451
+# 3451 -> 3462: **仕様の穴 2 件**を塞いだぶん（+11）。どちらも対話で確認した認識との差分。
+#   `protocol.md` +6 / `aidev-00-start` +3: **work に「廃止」が無かった**——完了は
+#     `deliver ∈ approved` の導出で表せるが、**やめた判断**を書く場所がどこにも無く、
+#     中止した work は `done: no` のまま一覧に残り `doctor` も評価を続けていた
+#     （畳む手段は backlog 側の archive にしかなかった）。`status: abandoned` を state に置き、
+#     `aidev abandon --reason` で刻む。理由を必須にしたのは `convention new` と同じ入口ゲート。
+#   `aidev-60-review` +3 / `aidev-50-test` +2: 差し戻しの**理由を書く前に記録できた**。
+#     `verify` が review.md / test-result.md を見るのは**承認時**なので、記録だけ先に打って
+#     セッションが切れると理由が永久に残らない。順序は散文だけだったので `event sent_back` に降ろした。
+BUDGET_TOTAL=3462
 _p=$(wc -l < "$SKILLS/aidev-00-start/protocol.md")
 _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 [ "$_p" -le "$BUDGET_PROTOCOL" ] && ok "L6 protocol.md が予算内（$_p / $BUDGET_PROTOCOL 行）" \

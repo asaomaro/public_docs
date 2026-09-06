@@ -106,6 +106,8 @@ smoke: pass (exit 0)
 4. 判定に応じて分岐する。
    - **全て合格** → protocol.md「3. 工程終了プロトコル」に従って終了（次工程: `review`）。
    - **失敗あり** → 失敗内容を指摘としてまとめ、`aidev event test sent_back` を記録のうえ
+     （**生出力を先に貼ること**——`sent_back` は `test-result.md` に ``` のブロックが無ければ
+     **exit 2 で止まる**。直してから貼ろうとすると出力は既に消えている）
      coding 工程への差し戻しを提案する（protocol.md「4. 番号と順序」に基づく正当な遷移）。
      coding を**再開する際は `aidev event coding start` を記録する**（さもないと手戻り回数を取りこぼす。protocol.md「3.」「8.」）。
      - **統合 test（親）の差し戻し先は「原因の subtask の coding」**（`protocol-subtask.md`）。

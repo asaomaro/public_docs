@@ -303,6 +303,10 @@ ticket: <ID または 省略>     # 任意。外部チケット/issue の ID（�
                             # 後方互換: 旧 `issue: <番号>`（GitHub前提）も受理する。新規は ticket を使う。
 current: <直近で作業した工程の論理名>
 approved: [<承認済み工程の論理名…>]
+status: active              # 省略可（未記載=active）。abandoned=着手したが着地させないと決めた work。
+                            # 「完了」は approved に deliver が入っているかの導出だが、廃止は**判断**なので明示する。
+                            # `aidev abandon <slug> --reason <理由>` が刻み、status/doctor の既定表示から外れる（--all で出る）
+abandonedReason: <理由>      # status: abandoned のとき必須（CLI が --reason を必須にしている）
 mode: interactive           # interactive（既定）| autonomous。「10.」参照＝**誰が承認するか**
 profile: full               # full（既定・省略可）| light。「11.」参照＝**どこまで回すか**
                             # mode と直交する別軸。省略＝full（既存 work は記載が無く full 扱い＝後方互換）
@@ -509,7 +513,7 @@ review 工程はラウンドごとに追記する（差し戻し後の再レビ�
 （`!` 付き）と書き、関係するが違反ではないもの（条項があるから気づけた改善・既存挙動への言及）は `!` を付けない。
 効果検証で仮説と突き合わせるのは `!` 付きだけで、タグ全体は「条項が読まれているか」の傍証に使う
 （`protocol-conventions.md`「タグ件数は効果の指標ではない」）。候補は `aidev convention status` の一覧
-——分類の語彙を新規に発明しない。**集計は行頭 `- [` の指摘行だけを数える**（本文中の言及を数えると
+——分類の語彙を新規に発明しない。**差し戻しは、理由を書いてから記録する**（`aidev event <工程> sent_back` が review.md の指摘行 / test-result.md の生出力を検査し、無ければ exit 2）。**集計は行頭 `- [` の指摘行だけを数える**（本文中の言及を数えると
 「指摘 0 件だった」と書いた行が 1 件になる）。タグから「規約の穴（`conv:-`）」と「条項の効果（違反件数 vs `baseline`）」が
 機械的に読める。点検ログ節（`protocol-check.md`）と PR レビュー節にも同じ規約で付ける。詳細は `protocol-conventions.md`。
 

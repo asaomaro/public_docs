@@ -79,6 +79,9 @@ AI 開発ワークフローの **review（レビュー）工程**を実行する
 4. 判定に応じて分岐する。
    - **must/should の指摘あり** → `aidev event review sent_back` を記録のうえ coding 工程への
      差し戻しを提案する（protocol.md「4. 番号と順序」に基づく正当な遷移）。
+     **手順3（review.md への追記）を先に済ませること**——`sent_back` は `review.md` に
+     行頭 `- [must|should|nit]` の指摘行が無ければ **exit 2 で止まる**（記録だけ先に打つと、
+     セッションが切れたときに理由が永久に残らない）。
      - **無効になる後工程の承認を `aidev unapprove` で取り消す**（protocol.md「3.」）。
        review → coding なら **`aidev unapprove test` → `aidev unapprove coding` の順**（後ろから）。
        取り消さないと `approved` に test/coding が残ったまま coding をやり直すことになり、

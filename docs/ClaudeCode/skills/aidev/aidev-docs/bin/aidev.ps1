@@ -9,6 +9,7 @@
 #     --parent 指定時は親 work 配下に subtask（<NN>-<subslug>・date prefix なし・current=tasks）を作る
 #     --profile/--light は「どこまで工程を回すか」（protocol.md「11.」）。mode（誰が承認するか）と直交
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 escalate [slug]   # profile を light -> full に昇格（片方向）
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 abandon [slug] --reason <理由>  # 着地させないと決めた work を廃止（--undo で戻す）
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 event <phase> <start|sent_back> [key=value ...]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 approve <phase> [key=value ...]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 unapprove <phase> [--slug <work>]
@@ -696,6 +697,33 @@ function Cmd-Event($rest) {
   if ($ev -ceq 'approved') { Die "approved は aidev approve <phase> で記録すること（event では state.yml が更新されず、metrics と乖離する）" }
   if ('start','sent_back' -cnotcontains $ev) { Die "event は start|sent_back（approved は approve コマンド）" }
   ResolveWork ''
+  # **差し戻しを記録する、その瞬間に理由の所在を検査する**（sh 側 cmd_event と同じ理由・同じ文言）
+  if ($ev -ceq 'sent_back') {
+    if ($ph -ceq 'review') {
+      $rvm = Join-Path $script:WORK 'review.md'; $hasf = $false
+      if (IsFile $rvm) {
+        foreach ($l in [System.IO.File]::ReadAllLines($rvm)) {
+          if ($l -match '^\s*- \[(must|should|nit)\]') { $hasf = $true; break }
+        }
+      }
+      if (-not $hasf) {
+        [Console]::Error.WriteLine("NG 差し戻しの理由が review.md にありません: $($script:SLUG)")
+        [Console]::Error.WriteLine('   → 先に当該ラウンドの指摘を書く（行頭 - [must|should|nit] … の形。protocol.md「8.」）')
+        [Console]::Error.WriteLine('      書いてから aidev event review sent_back を打つ（順序が逆だと理由が残らない）')
+        exit 2
+      }
+    } elseif ($ph -ceq 'test') {
+      $trm = Join-Path $script:WORK 'test-result.md'; $hasb = $false
+      if (IsFile $trm) {
+        foreach ($l in [System.IO.File]::ReadAllLines($trm)) { if ($l.StartsWith('```')) { $hasb = $true; break } }
+      }
+      if (-not $hasb) {
+        [Console]::Error.WriteLine("NG 差し戻しの理由が test-result.md にありません: $($script:SLUG)")
+        [Console]::Error.WriteLine('   → 先に失敗の生出力を ``` のブロックで貼る（**修正する前に**。直すと出力は消える）')
+        exit 2
+      }
+    }
+  }
   AppendEvent $script:WORK $ph $ev $kvs
   Write-Output "recorded: $($script:SLUG)/$ph/$ev"
   # 差し戻しの上限到達をその瞬間に知らせる（sh 版 cmd_event と同一）
@@ -2697,6 +2725,43 @@ function Cmd-Verify($rest) {
 
 # --- escalate（profile: light -> full。片方向） --------------------------------
 # state.yml の更新を CLI に集約するための経路（sh 版 cmd_escalate と同一）。
+# **廃止（abandoned）**——着手したが着地させないと決めた work（sh 側 cmd_abandon と同じ理由・同じ出力）
+function Cmd-Abandon($rest) {
+  $abslug=''; $abreason=''; $abundo=$false
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch -CaseSensitive ($rest[$i]) {
+      '--reason' { $i++; $abreason=(ArgAt $rest $i '--reason') }
+      '--undo'   { $abundo=$true }
+      default {
+        if ($rest[$i].StartsWith("-")) { Die "未知のオプション: $($rest[$i])" }
+        elseif (-not $abslug) { $abslug=$rest[$i] } else { Die "slug は1つだけ" }
+      }
+    }
+  }
+  ResolveWork $abslug
+  $st = Join-Path $script:WORK 'state.yml'
+  $abcur = YGet $st 'status'
+  if ($abundo) {
+    if ($abcur -cne "abandoned") { Die "廃止されていません: $($script:SLUG)" }
+    ReplaceLine $st 'status' 'status: active'
+    Write-Output "revived: $($script:SLUG)（status: active。再開できます）"
+    return
+  }
+  if ($abcur -ceq "abandoned") { Die "既に廃止済みです: $($script:SLUG)（戻すなら aidev abandon $($script:SLUG) --undo）" }
+  if ((YList $st 'approved') -ccontains 'deliver') {
+    Die "deliver 承認済みの work は廃止できません（着地しています）: $($script:SLUG)"
+  }
+  if (-not $abreason) {
+    Die "--reason は必須（なぜやめたかを残す。例: aidev abandon $($script:SLUG) --reason '上流の要件が取り下げ')"
+  }
+  if ($abreason -match '[,{}]') { Die '--reason に , { } は使えません（state.yml の1行に収める）' }
+  SetOrAppend $st 'status' 'status: abandoned'
+  SetOrAppend $st 'abandonedReason' "abandonedReason: $abreason"
+  AppendEvent $script:WORK (YGet $st 'current') 'abandoned' @()
+  Write-Output "abandoned: $($script:SLUG)"
+  Write-Output "note: status/doctor の既定表示から外れます（--all で出ます）。再開するなら aidev abandon $($script:SLUG) --undo"
+}
+
 function Cmd-Escalate($rest) {
   $slug=''; if ($rest.Count -ge 1) { $slug=$rest[0] }
   ResolveWork $slug
@@ -2825,10 +2890,12 @@ function Cmd-Doctor($rest) {
     Doctor-Backlog; Doctor-Conventions; Doctor-Harness; Doctor-Smoke; Doctor-Shared; Doctor-Gitignore; Doctor-HrStraddle; Doctor-HrSentinel; Doctor-Branch
     exit 0
   }
-  $total=0; $script:DFail=0; $legacy=0
+  $total=0; $script:DFail=0; $legacy=0; $dab=0
   $qn = if ($script:DQuiet) { '（--quiet: OK は省略）' } else { '' }
   Write-Output "doctor: 全 work 横断検査$qn"
   foreach ($d in (Get-ChildItem -LiteralPath $worksDir -Directory | Sort-Object Name)) {
+    # **廃止した work は検査しない**（sh 側 cmd_doctor と同じ理由）。子ごと飛ばす
+    if ((YGet (Join-Path $d.FullName 'state.yml') 'status') -ceq 'abandoned') { $dab++; continue }
     $total++
     $sc = YGet (Join-Path $d.FullName 'state.yml') 'schema'
     if ([string]::IsNullOrEmpty($sc)) { $legacy++ }
@@ -2843,7 +2910,9 @@ function Cmd-Doctor($rest) {
     }
   }
   $fail = $script:DFail
-  Write-Output "summary: works=$total fail=$fail legacy(免除)=$legacy"
+  # 廃止 work は**数えて見えるようにする**（sh 側と同じ）
+  if ($dab -gt 0) { Write-Output "summary: works=$total fail=$fail legacy(免除)=$legacy 廃止(検査対象外)=$dab" }
+  else { Write-Output "summary: works=$total fail=$fail legacy(免除)=$legacy" }
   Doctor-Backlog
   Doctor-Conventions
   Doctor-Harness
@@ -2895,12 +2964,14 @@ function SubtaskProgress($workDir) {
 }
 
 function Cmd-Status($rest) {
-  $fmt='table'; $subflag=$false; $activef=$false
+  # **既定で「いま手を動かせるもの」だけを出す**（sh 側 cmd_status と同じ理由・同じ出力）
+  $fmt='table'; $subflag=$false; $allf=$false; $whid=0
   for ($i=0; $i -lt $rest.Count; $i++) {
     switch -CaseSensitive ($rest[$i]) {
       '--format'   { $i++; $fmt=(ArgAt $rest $i '--format') }
       '--subtasks' { $subflag=$true }
-      '--active'   { $activef=$true }
+      '--all'      { $allf=$true }
+      '--active'   { }
       default {
         if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
         else { Die "status は位置引数を取りません: $($rest[$i])" }
@@ -2920,8 +2991,13 @@ function Cmd-Status($rest) {
       $current = YGet $st 'current';if (-not $current) { $current='-' }
       $appr = @(YList $st 'approved')
       $wdone = if ($appr -ccontains 'deliver') { 'yes' } else { 'no' }
+      $wab = ((YGet $st 'status') -ceq 'abandoned')
+      # 表に出すのは 3 値（sh 側と同じ）。done の yes/no のままだと廃止 work が「進行中」に見える
+      $wstate = 'active'
+      if ($wdone -ceq 'yes') { $wstate = 'done' }
+      if ($wab) { $wstate = 'abandoned' }
       # --active: deliver 済みは出さない（sh 版と同一）
-      if ($activef -and $wdone -ceq 'yes') { continue }
+      if ((-not $allf) -and ($wdone -ceq 'yes' -or $wab)) { $whid++; continue }
       $next='-'
       if ($wdone -ceq 'no') {
         # profile: light は design/tasks を畳む（承認されないのが正常）。素通しすると next が
@@ -2943,7 +3019,7 @@ function Cmd-Status($rest) {
       foreach ($a in $script:EvalAdvisory) { $tok += "$a(advisory)" }
       $deps = if ($tok.Count -gt 0) { [string]::Join(',', $tok) } else { 'ok' }
       $wn++
-      $wrows += ("W`t" + $d.Name + "`t" + $ticket + "`t" + $mode + "`t" + $current + "`t" + $next + "`t" + $wdone + "`t" + $deps)
+      $wrows += ("W`t" + $d.Name + "`t" + $ticket + "`t" + $mode + "`t" + $current + "`t" + $next + "`t" + $wstate + "`t" + $deps)
       # --subtasks: 親直下に子を列挙（S 行）
       if ($subflag -and $sp) {
         foreach ($cs in @(YList $st 'subtasks')) {
@@ -3017,9 +3093,10 @@ function Cmd-Status($rest) {
     return
   }
 
-  Write-Output "WORKS ($wn)"
+  if ($whid -gt 0) { Write-Output "WORKS ($wn / 完了・廃止 $whid 件は非表示。--all で全部)" }
+  else { Write-Output "WORKS ($wn)" }
   if ($wn -gt 0) {
-    $disp = @("work`tticket`tmode`tcurrent`tnext`tdone`tdeps")
+    $disp = @("work`tticket`tmode`tcurrent`tnext`tstate`tdeps")
     foreach ($r in $wrows) {
       $c = $r -split "`t"
       if ($c[0] -ceq 'W') { $disp += ($c[1..7] -join "`t") }
@@ -4880,6 +4957,7 @@ switch -CaseSensitive ($cmd) {
   'taskcheck' { Cmd-TaskCheck $rest }
   'doccheck' { Cmd-DocCheck $rest }
   'escalate' { Cmd-Escalate $rest }
+  'abandon'  { Cmd-Abandon $rest }
   'doctor'  { Cmd-Doctor $rest }
   'harness' { Cmd-Harness $rest }
   'status'  { Cmd-Status $rest }
