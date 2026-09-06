@@ -1341,7 +1341,7 @@ cmd_coverage() {
 #   2. ラウンドを数えて**有限化**する（`maxDebugRounds`、既定 2）
 #   3. 返却を構造で受け、**上限に達したのに何もせず着地した work** を verify が捕まえる
 # 手順・渡すもの/渡さないものは `protocol-debug.md`（散文）。
-DBG_CATEGORIES='dependency environment config logic spec_conflict test_defect external'
+DBG_CATEGORIES='dependency environment config logic upstream_conflict test_defect external'
 DBG_ACTIONS='retry block stop_for_human'
 DBG_CONFIDENCE='high medium low'
 

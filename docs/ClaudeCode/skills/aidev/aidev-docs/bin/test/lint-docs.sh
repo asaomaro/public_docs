@@ -387,7 +387,7 @@ echo "== L10: 退役した名前と、統合で生まれた重複 =="
 # だから裸の語ではなく、**工程として扱っている形**——skill 名・CLI の動詞の目的語・「〜工程」——を見る
 RETIRED='\brequirement\b|\bspec\b|\bplan\.md\b|\brequirement\.md\b|\bspec\.md\b|aidev-65-walkthrough|(guard|event|approve|unapprove) walkthrough|walkthrough ?工程|walkthrough\(任意\)'
 # 温存すべきもの（工程名ではない）: 他ツール名・英単語・plan モード族・デバッグ分類
-RET_OK='Spec Kit|spec-kit|spec_conflict|specif|specia|respect|inspect|aspect|plan ?モード|planモード|plan mode|PlanMode|plan agent|plan file|planner|planning|planned|permission-mode plan|defaultMode|permissionMode'
+RET_OK='Spec Kit|spec-kit|specif|specia|respect|inspect|aspect|plan ?モード|planモード|plan mode|PlanMode|plan agent|plan file|planner|planning|planned|permission-mode plan|defaultMode|permissionMode'
 # **同名の並び**は工程ごとに展開して書く——`grep -E` の後方参照（`\1`）は POSIX ERE の外で、
 # 環境によっては**黙って何にもマッチしない**（実際、導入時の自己検査を素通りさせた）。
 # 間隔は**バイト数**で数える（`LC_ALL=C`）。`` `tasks.md`（方針）と `tasks.md` `` の

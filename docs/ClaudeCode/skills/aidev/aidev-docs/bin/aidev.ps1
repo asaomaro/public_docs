@@ -1217,7 +1217,7 @@ function Cmd-Coverage($rest) {
 # --- debug（詰まったときの原因究明を有限化する。sh 版 dbg_* / cmd_debug と同一）----------
 # 出所: cc-sdd の kiro-impl の debug subagent。要点は **fresh context**——
 # 失敗した試行の履歴を渡さない（渡すと同じ穴を掘り続ける）。手順は protocol-debug.md。
-$script:DBG_CATEGORIES = @('dependency','environment','config','logic','spec_conflict','test_defect','external')
+$script:DBG_CATEGORIES = @('dependency','environment','config','logic','upstream_conflict','test_defect','external')
 $script:DBG_ACTIONS    = @('retry','block','stop_for_human')
 $script:DBG_CONFIDENCE = @('high','medium','low')
 

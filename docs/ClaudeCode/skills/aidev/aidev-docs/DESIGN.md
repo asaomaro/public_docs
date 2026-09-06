@@ -768,7 +768,10 @@ aidev はループの上限を2つ持っていた（`maxSendBacks` 既定 3・`m
 **分類（`--category`）は cc-sdd の8種をそのまま持ち込まず、7種に組み替えた**。本家の分類は
 `NATIVE_ABI` / `MODULE_FORMAT` のように JS/Electron 寄りで、aidev は言語非依存だから。
 残したのは分類の**目的**——「リポジトリ内の編集で直るか」を判定すること。
-`spec_conflict`（上流へ戻す）と `external`（人の判断が要る）を `retry` にしないのがその判定にあたる。
+`upstream_conflict`（上流へ戻す）と `external`（人の判断が要る）を `retry` にしないのがその判定にあたる。
+**`spec_conflict` から改名した**（2026-09-06）——工程の改名で `spec` が退役したのに分類名だけ残り、
+旧分類名が何を指すのか読めなくなっていた。戻す先は `requirements.md` と `design.md` の**両方**なので、
+`design_conflict` ではなく定義文（「上流へ戻す必要がある」）どおりの語にした。
 
 ## 2.5 タスク管理モデル（works = 実行の正 / backlog = 遅延キュー）
 
