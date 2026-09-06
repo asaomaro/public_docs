@@ -113,7 +113,7 @@ find_root() {
 ROOT=""
 case "${1:-}" in
   help|--help|-h|'') ;;
-  *) ROOT=$(find_root) || die ".aidev が見つかりません（リポジトリ内で実行してください）" ;;
+  *) ROOT=$(find_root) || die ".aidev が見つかりません（`mkdir -p .aidev/works` で作る。導入手順は aidev-docs/README.md「別PJへの導入」）" ;;
 esac
 AIDEV="$ROOT/.aidev"
 

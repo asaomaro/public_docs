@@ -55,7 +55,10 @@ AI 開発ワークフローの入口（ルーター）。
 CLI が使えない環境のフォールバック: `cat .aidev/current` / `ls .aidev/works` と各 `state.yml`
 （`current`/`approved`/`dependsOn`）＋ `.aidev/backlog/*.md`（`archive/` 除く）を読んで同等に要約する。
 
-`.aidev/` 自体が無い場合は「新規作業の開始」のみ提示する。
+`.aidev/` 自体が無い場合は**まずここを作る**——`mkdir -p .aidev/works` と、`.aidev/config.yml` に
+最低限 `smokeCommand`（対象が無い PJ は `none`）。作ってから「新規作業の開始」を提示する。
+CLI は `.aidev/` を上方探索するので、無いと**どのコマンドも動かない**（残りの導入手順は
+`aidev-docs/README.md`「別PJへの導入」。`aidev doctor` が未設定をその場で知らせる）。
 
 ## 3. ユーザーへの確認
 

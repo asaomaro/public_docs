@@ -124,7 +124,7 @@ $script:ROOT = FindRoot
 $_firstArg = if ($args.Count -gt 0) { "$($args[0])" } else { '' }
 if (-not $script:ROOT) {
   if ('help','--help','-h','' -cnotcontains $_firstArg) {
-    Die ".aidev が見つかりません（リポジトリ内で実行してください）"
+    Die ".aidev が見つかりません（`mkdir -p .aidev/works` で作る。導入手順は aidev-docs/README.md「別PJへの導入」）"
   }
   $script:ROOT = (Get-Location).Path
 }

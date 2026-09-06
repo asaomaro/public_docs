@@ -285,7 +285,13 @@ BUDGET_PROTOCOL=608
 #   外した理由は「作業段階ではない」——遷移ゲートを1つ消費して「やる/やらない」を尋ねるだけの
 #   工程で、成果物の**形式**であって段階ではなかった。工程だった頃は protocol.md「4.5」に条件、
 #   `aidev-60-review` に推奨判定、`aidev-65-walkthrough` に検知ロジックと、**同じ判断が3箇所**にあった
-BUDGET_TOTAL=3392
+# 3392 -> 3395: **ハーネスが 1 コマンドも動かない入口**を実行時文書で塞いだぶん（+3）。
+#   `.aidev/` の作り方は `aidev-docs/README.md`「別PJへの導入」にしか無く、**実行時に読む文書には
+#   無かった**。`aidev-00-start` は「`.aidev/` が無ければ新規作業の開始のみ提示」と書いていたが、
+#   その `.aidev/` をどう作るかが書いていないので、新規 PJ では最初の `aidev` で止まる。
+#   併せて CLI の die メッセージも「リポジトリ内で実行してください」（リポジトリ内なのに出る）から
+#   打つべきコマンドに直した。**導入の入口は 3 行使ってでも実行時側に置く**
+BUDGET_TOTAL=3395
 _p=$(wc -l < "$SKILLS/aidev-00-start/protocol.md")
 _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 [ "$_p" -le "$BUDGET_PROTOCOL" ] && ok "L6 protocol.md が予算内（$_p / $BUDGET_PROTOCOL 行）" \
