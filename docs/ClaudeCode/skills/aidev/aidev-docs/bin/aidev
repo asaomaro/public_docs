@@ -901,6 +901,25 @@ cmd_guard() {
     if needs_start "$ph"; then
       printf '   → 忘れずに: aidev event %s start\n' "$ph"
     fi
+    # **plan モードが使える工程でだけ、名指しで促す**。散文（`protocol-autonomous.md`）に
+    # 「spec・design では使ってよい」と書いてあっても、**打つ側は工程に入る瞬間には思い出さない**
+    # ——`event start` の促しと同じ型で、CLI が散文を肩代わりする。
+    # **「方針の合意を取る」のような役割だけの言い方にはしない**——それだと丁寧に計画するだけで
+    # **モードは切り替わらない**。plan モードへ入るには明示の命令が要る（`EnterPlanMode` は
+    # 主エージェントが持つツールで、定義自身が「proactively 使え」と言っている）。
+    # 「plan モード」は Cursor / Copilot にもある**横断的な概念名**で、`Stop` フックや
+    # `AskUserQuestion` のような製品固有 API 名とは別物なので、`protocol.md`「2.5」に抵触しない。
+    # 持たない環境でのフォールバックは `aidev-docs/README.md` の表。
+    # 条件は散文と同じ **full × interactive の spec / design だけ**——`light` は往復を減らす趣旨に反し、
+    # `autonomous` には承認者がいない。条件を外すと「使ってはいけない工程で勧める」ことになる
+    case "$ph" in
+      spec|design)
+        if [ "$(yget "$WORK/state.yml" profile)" != light ] \
+           && [ "$(yget "$WORK/state.yml" mode)" != autonomous ]; then
+          printf '   → 有力案が複数あるなら **plan モードへ入ってから** 書く（承認を取り、解除してから成果物を書く）\n'
+          printf '      抜けた先は承認時に選んだモードで、元のモードには戻らない（protocol-autonomous.md）\n'
+        fi ;;
+    esac
   fi
   return $rc
 }

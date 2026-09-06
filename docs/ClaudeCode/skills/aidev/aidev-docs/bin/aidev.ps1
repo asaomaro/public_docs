@@ -905,6 +905,14 @@ function Cmd-Guard($rest) {
     # start を自動記録はしない（skill 側の event start と二重になり、手戻り回数を
     # 誤って数えるため）。代わりに、まだ必要な場合だけ促す。
     if (NeedsStart $script:WORK $ph) { Write-Output "   → 忘れずに: aidev event $ph start" }
+    # plan モードが使える工程でだけ名指しで促す（sh 版 cmd_guard の注記に理由）
+    if ($ph -ceq 'spec' -or $ph -ceq 'design') {
+      $sf = Join-Path $script:WORK 'state.yml'
+      if ((YGet $sf 'profile') -cne 'light' -and (YGet $sf 'mode') -cne 'autonomous') {
+        Write-Output "   → 有力案が複数あるなら **plan モードへ入ってから** 書く（承認を取り、解除してから成果物を書く）"
+        Write-Output "      抜けた先は承認時に選んだモードで、元のモードには戻らない（protocol-autonomous.md）"
+      }
+    }
   }
   exit $rc
 }

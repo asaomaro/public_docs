@@ -280,6 +280,26 @@ H1=$(run_sh guard spec 2>&1)
 echo "$H1" | grep -q "aidev event spec start" && ok "guard: 未 start の工程では start を促す" || ng "guard: start の促しが出ない"
 H2=$(run_sh guard requirement 2>&1)
 echo "$H2" | grep -q "aidev event requirement start" && ng "guard: start 済なのに促している" || ok "guard: start 済の工程では促さない"
+# **plan モードへ入るよう、該当条件の工程でだけ名指しで促す**。散文に書いてあっても、
+# 打つ側は工程に入る瞬間には思い出さない（event start の促しと同じ型）
+echo "$H1" | grep -q "plan モードへ入ってから" \
+  && ok "guard spec: plan モードへ入るよう促す（full × interactive）" || ng "guard spec: plan モードの促しが出ない"
+echo "$H2" | grep -q "plan モードへ入ってから" \
+  && ng "guard requirement: 対象外の工程で促している" || ok "guard: spec / design 以外では促さない"
+# **「入れ」と命じる**。「方針を先に固める」のような役割だけの言い方だと、丁寧に計画するだけで
+# モードは切り替わらない（EnterPlanMode は主エージェントのツールなので、明示すれば実際に切り替わる）
+echo "$H1" | grep -q "抜けた先は承認時に選んだモードで、元のモードには戻らない" \
+  && ok "guard spec: 戻り先が選べないことも言う（工程の間だけ入れて戻す、は作れない）" \
+  || ng "guard spec: 抜けた先の説明が無い"
+# 条件は散文と同じ full × interactive だけ——light は往復を減らす趣旨に反し、autonomous には承認者がいない
+printf 'schema: 3\nslug: hint\ncurrent: requirement\napproved: []\nprofile: light\n' \
+  > "$TMP/.aidev/works/20260101-hint/state.yml"
+assert_eq "$(run_sh guard spec 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
+  "guard spec: light では促さない（往復を減らす趣旨に反する）"
+printf 'schema: 3\nslug: hint\ncurrent: requirement\napproved: []\nmode: autonomous\n' \
+  > "$TMP/.aidev/works/20260101-hint/state.yml"
+assert_eq "$(run_sh guard spec 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
+  "guard spec: autonomous では促さない（承認者がいない）"
 rm -rf "$TMP/.aidev/works/20260101-hint"
 printf '%s\n' "$PREV_CURRENT" > "$TMP/.aidev/current"
 # beta は plan 前提(spec.md)が無いので guard plan は exit 2
@@ -2539,6 +2559,26 @@ if [ -n "$PS_HOST" ]; then
     "パリティ: ps1 の approve も上流の点検メトリクスを自動で刻む（report まで届いた分）"
   rm -rf "$PDC"
 
+  # guard の plan モード促し。**ps1 側はここが唯一の検査**（sh 側のテストは ps1 を通らない）
+  PGD=$(mktemp -d); mkdir -p "$PGD/.aidev/works"
+  ( cd "$PGD" && "$AIDEV_SH" new pgd >/dev/null )
+  PGDD="$PGD/.aidev/works/$(cat "$PGD/.aidev/current")"
+  : > "$PGDD/requirement.md"
+  PGD_S=$( ( cd "$PGD" && "$AIDEV_SH" guard spec ) 2>&1 )
+  PGD_P=$( ( cd "$PGD" && run_ps1 "$AIDEV_PS1" guard spec ) 2>&1 | tr -d '\r' )
+  assert_eq "$PGD_S" "$PGD_P" "パリティ: guard spec（plan モードの促し）"
+  assert_contains "$PGD_P" "plan モードへ入ってから" \
+    "パリティ: ps1 guard も plan モードへ入るよう促す"
+  # 条件（light / autonomous では出さない）も両実装で揃っていること
+  ( cd "$PGD" && "$AIDEV_SH" new pgdl --light >/dev/null )
+  : > "$PGD/.aidev/works/$(cat "$PGD/.aidev/current")/requirement.md"
+  PGL_S=$( ( cd "$PGD" && "$AIDEV_SH" guard spec ) 2>&1 )
+  PGL_P=$( ( cd "$PGD" && run_ps1 "$AIDEV_PS1" guard spec ) 2>&1 | tr -d '\r' )
+  assert_eq "$PGL_S" "$PGL_P" "パリティ: guard spec（light では促さない）"
+  assert_eq "$(printf '%s' "$PGL_P" | grep -c 'plan モードへ入ってから')" "0" \
+    "パリティ: ps1 も light では促さない"
+  rm -rf "$PGD"
+
   # 他 PJ の retro（host）が見つけた 3 件の ps1 側。**ここが唯一の検査**（上のブロックと同じ理由）
   PDU=$(mktemp -d); mkdir -p "$PDU/.aidev/works"
   ( cd "$PDU" && "$AIDEV_SH" new pdu >/dev/null )
@@ -3525,9 +3565,9 @@ YML
   else
     skip 10 "git 不在のため worktree パリティを省略"
   fi
-  block_end parity "254" "parity"
+  block_end parity "258" "parity"
 else
-  skip 240 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
+  skip 244 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
 fi
 
 echo

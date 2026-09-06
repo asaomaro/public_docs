@@ -32,8 +32,8 @@ requirement を「どう作るか」の実装仕様に落とす。設計判断�
    `aidev guard spec` で前提を検査し、`aidev event spec start` を記録する
    （exit≠0＝未充足。目視確認で代替しない。start が無いと所要時間も手戻りも導出できない）。
 2. `requirement.md` を読み、完了条件を満たす実装方針を検討する。
-   - 有力な案が複数あるなら plan モードを使ってよい（使える条件は `protocol-autonomous.md`。解除してから書く。
-     `protocol-autonomous.md`）。
+   - 有力な案が複数あるなら、**`spec.md` を書く前に plan モードへ入る**（`full` × `interactive` のみ）。
+     方針の承認を取ってから解除して書く。抜けた先は元のモードには戻らない（`protocol-autonomous.md`）。
 3. 設計判断を行う。PJ のドメイン固有の論点（PJ ルールに記載があれば、それに従う）は明示的に扱う。
    - 設計選択が多いなら深掘り質問（grilling）を opt-in で行う（PJ の質問深掘り skill があれば優先。
      小規模と autonomous ではスキップ）。
