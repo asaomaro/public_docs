@@ -70,7 +70,9 @@ PJ非依存の開発ワークフローを、skill 群で制御・進捗管理す
 `aidev coverage` がその対応を機械的に突き合わせ、**タスクに落ちていない `AC`** と
 **`tasks.md` の壊れた参照**（未定義の ID・依存の循環）を出す。tasks は承認前に
 `aidev coverage --strict` を通し、review は同じコマンドをもう一度打って tasks 時との差分を
-「design と実装の乖離」として読む。
+「design と実装の乖離」として読む。**design 工程でも打つ**——`tasks.md` がまだ無い段では
+`design` 列だけを出すので、`design.md` の AC 対応行の書式ミスをその工程で捕まえられる
+（打たないと tasks まで気づかない。他 PJ が 1 工程遅れて発覚させた）。
 
 ### 命名カテゴリ（役割で割る）
 
@@ -121,7 +123,10 @@ planner の方針は `.aidev/charter.md` で縛る。
 ループが「回っている」だけでなく「効いている」ことを機械で確かめるための仕組み（`protocol.md`「12.」）。
 
 - **PJ 規約の条項**は `.aidev/conventions/<id>.md` に置き、AGENTS.md には索引ブロック（`<!-- aidev:conventions -->`）
-  だけを置く。起票は仮説と baseline が必須（`aidev convention new`）。review は指摘に `[conv:<id>]` を付ける。
+  だけを置く。起票は仮説と baseline が必須（`aidev convention new`）。review は指摘に条項タグを付ける——
+  **3 択で、違反なら `[conv:<id>!]`**（`!` 付き）／関係するだけなら `!` 無し／該当条項が無ければ `[conv:-]`。
+  **効果検証が数えるのは `!` 付きだけ**なので、選ばないとその条項は「一度も破られていない」と読まれる
+  （他 PJ で 140 件すべて `!` 無しになり、母集団が構造的に 0 になった。`approve review` が note で言う）。
 - **母集団**は導入時刻以降に着手し deliver 済みの work（`aidev convention status`。`--members` で一覧）。
   揃う前の `confirm` / `retire --status ineffective` は CLI が拒否する（`--force` は `forced: true` が残る）。
   先送りは `aidev convention defer`。索引に無い条項は判定させない。
@@ -181,6 +186,10 @@ deliver 前の `aidev verify`（不変条件）。いずれも exit≠0 なら�
 どれも **1ラウンド = 1 コマンド**の形で数えるので、CLI がその場で止められる（exit 4）。
 `taskcheck` / `doccheck` は `report` を **`start` と対でだけ**受ける——対を見ないと、
 上限で `start` が止まったあとも `report` だけ打てて件数が積み上がる（実際にその穴を作った）。
+
+**タスクをまたぐ不変条件は、タスク点検の射程では原理的に見えない**（見るのは 1 タスクの差分）。
+coding の終盤に**予約 id `cross`** で 1 回だけ「またぐものだけ」を見る（`aidev taskcheck start cross`）。
+母集団が違うので `task_checks` には数えず、`taskcheck status` に `cross` の行として出す。
 
 **上限を数えるのは `start`、「点検した」を数えるのは `report`** と、役割を分けてある。
 `start` で「点検した」ことにしていた頃は、委譲を出し忘れて `start` だけ残った work と
