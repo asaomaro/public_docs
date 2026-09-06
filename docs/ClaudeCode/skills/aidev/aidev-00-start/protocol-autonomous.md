@@ -60,20 +60,25 @@ plan モードは Write / Edit を禁じるので、成果物を書くのが仕�
 探索（read-only）→ 方針を提案 → 承認 → 解除 → 成果物を書く
 ```
 
-- **使う**: `aidev-00-start` の三層判定（この時点で aidev のゲートが無く二重にならない。解除後
-  `aidev new` へ引き渡す）／spec・design（`full` × `interactive` のみ・任意。有力案が複数あるとき、
-  文書を書く前に方針の承認を取れる）／ハーネス自体の改修（aidev の対象作業ではない）。
-- **使わない**: research（純粋な調査は「2.6」の委譲が正）／plan（`plan.md` と成果物が重複＝
+- **入る**: `aidev-00-start` の三層判定（この時点で aidev のゲートが無く二重にならない。解除後
+  `aidev new` へ引き渡す）／spec・design で有力案が複数あるとき（`light` 以外で、**その工程に
+  承認者がいるなら**——`autonomous` でも `humanGates` に挙がっていれば承認者はいる）／
+  ハーネス自体の改修（aidev の対象作業ではない）。
+- **入らない**: research（純粋な調査は「2.6」の委譲が正）／plan（`plan.md` と成果物が重複＝
   計画を二度書く）／coding（`tasks.md` が承認済みの計画。方針変更は**差し戻し**を使う——
   差し戻しは metrics に残る）／test・review・deliver・retro（実装計画ではない）／
-  `profile: light`（往復を減らす趣旨に反する）／`autonomous`（承認者がいない）。
+  `profile: light`（往復を減らす趣旨に反する）／承認者がいない工程（下記）。
 - **plan モード中に工程を起動されたら、先に抜けるよう促す**（工程を中途で失敗させない）。
 - 「工程内で段階的に確認したい」は **段階レビュー（「3.1」）**が対応する。plan モードとは併用しない。
 - **「入れ」と明示する**——「方針を先に固める」のような言い方では丁寧に計画するだけで
   **モードは切り替わらない**（Claude Code は `EnterPlanMode` / `Shift+Tab` / `/plan`。
   持たない環境は `aidev-docs/README.md` の表）。`aidev guard spec|design` が該当条件でだけ促す。
-- **「工程の間だけ入れて戻す」は成立しない**。抜けた先は承認時に選んだモードで元には戻らず、
-  ハーネス側からモードを切り替える口も無い（裏取りは `DESIGN`「2.」）。
+- **承認者がいない工程で入ると、抜けられない**。抜けるのは人間の承認なので、`autonomous` で
+  `humanGates` に無い工程は**書き込みが塞がったまま完走できない**（`bypassPermissions` の実行だけは
+  ブロック自体が効かず進むが、どちらになるかは起動側の設定次第で work からは見分けられない）。
+  CLI はモードを検知できないので、**`autonomous` を回す環境では `defaultMode: plan` にしないこと**。
+- **委譲で代用しない**——`permissionMode: plan` の子は `AskUserQuestion` を剥がされ会話履歴も
+  見えないので、**plan モードの価値である往復が消える**（`DESIGN`「2.」）。
 
 判断の根拠は `aidev-docs/DESIGN.md`「2.」。
 

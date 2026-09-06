@@ -1,7 +1,7 @@
 ---
 name: aidev-25-design
 description: ［aidev 任意工程］aidev の design（詳細設計）工程。spec と plan の間で構造設計を固める。「aidev design」「design 工程」と言われたとき、または spec 終了時に複雑度が高いと検知され推奨されたときに使用する。
-allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion, Agent]
+allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion, Agent, EnterPlanMode, ExitPlanMode]
 ---
 
 AI 開発ワークフローの **design（詳細設計）工程**（任意）。

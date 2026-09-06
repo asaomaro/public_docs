@@ -207,7 +207,12 @@ BUDGET_PROTOCOL=608
 #   protocol-autonomous「plan モードとの関係」+5（役割だけの言い方では丁寧に計画するだけで
 #     モードは切り替わらない／抜けた先は元のモードではない／ハーネス側から切り替える口が無い、の 3 点。
 #     どれも「書いてあるのに実行できない」を生む差で、裏取りは DESIGN「2.」）
-BUDGET_TOTAL=3417
+# 3417 -> 3422: 実走が見つけた「書いてあるのに実行できない」を塞いだぶん。
+#   protocol-autonomous「plan モードとの関係」+5（承認者がいない工程で入ると**抜けられない**＝
+#     autonomous で工程が完走できなくなる、という一番痛い帰結が書かれていなかった。
+#     併せて「使う／使わない」を「入る／入らない」の命令形に直し、humanGates の部分自律を
+#     条件に含めた——実走が「承認者がいるのに促しを止めている」を実測した）
+BUDGET_TOTAL=3422
 _p=$(wc -l < "$SKILLS/aidev-00-start/protocol.md")
 _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 [ "$_p" -le "$BUDGET_PROTOCOL" ] && ok "L6 protocol.md が予算内（$_p / $BUDGET_PROTOCOL 行）" \

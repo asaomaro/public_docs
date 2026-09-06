@@ -1,7 +1,7 @@
 ---
 name: aidev-00-start
 description: ［aidev 入口］aidev ワークフロー（SDD ハーネス）の入口。.aidev/ の作業状況を確認し、どの工程から始めるかをユーザーに確認して案内する。「aidev」「aidev を始めたい」「aidev の続きから」と言われたときに使用する。工程名だけの依頼（レビュー・コミット・テスト等）では使わない。
-allowed-tools: [Bash, Read, Write, AskUserQuestion]
+allowed-tools: [Bash, Read, Write, AskUserQuestion, EnterPlanMode, ExitPlanMode]
 ---
 
 AI 開発ワークフローの入口（ルーター）。
@@ -113,7 +113,7 @@ CLI が使えない環境のフォールバック: `cat .aidev/current` / `ls .a
      ただし**起動指示が明示的に `--light`（または `--profile light`）を指している**なら、
      それは人間が事前に答えた判定なので light を採る。禁じているのは自分で小さいと
      見立てることであって、`light × autonomous` は成立する組み合わせ（`protocol.md`「11.」）。
-   - 影響範囲が読めないときは plan モードを使ってよい（`protocol-autonomous.md`。`aidev new` は書き込みなので
+   - 影響範囲が読めないなら **plan モードへ入ってから**判定する（`protocol-autonomous.md`。`aidev new` は書き込みなので
      **解除してから**実行する）。
    - 迷ったら **full を選ぶ**。light は後から full へ昇格できる（`aidev escalate`）が、逆はできない。
    - **light を選んでも review / test / deliver は full と同一**に通る。省くのは上流の文書の深さと

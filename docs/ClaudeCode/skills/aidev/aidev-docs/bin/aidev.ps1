@@ -217,6 +217,12 @@ function YList($file,$key) {
 }
 
 function ApprovedHas($work,$phase) { return (YList (Join-Path $work 'state.yml') 'approved') -ccontains $phase }
+# この工程に人間の承認者がいるか（sh 版 has_approver の注記に理由）
+function HasApprover($work,$phase) {
+  $sf = Join-Path $work 'state.yml'
+  if ((YGet $sf 'mode') -cne 'autonomous') { return $true }
+  return (YList $sf 'humanGates') -ccontains $phase
+}
 
 function ReplaceLine($file,$key,$newline) {
   $lines = [System.IO.File]::ReadAllLines($file)
@@ -908,7 +914,7 @@ function Cmd-Guard($rest) {
     # plan モードが使える工程でだけ名指しで促す（sh 版 cmd_guard の注記に理由）
     if ($ph -ceq 'spec' -or $ph -ceq 'design') {
       $sf = Join-Path $script:WORK 'state.yml'
-      if ((YGet $sf 'profile') -cne 'light' -and (YGet $sf 'mode') -cne 'autonomous') {
+      if ((YGet $sf 'profile') -cne 'light' -and (HasApprover $script:WORK $ph)) {
         Write-Output "   → 有力案が複数あるなら **plan モードへ入ってから** 書く（承認を取り、解除してから成果物を書く）"
         Write-Output "      抜けた先は承認時に選んだモードで、元のモードには戻らない（protocol-autonomous.md）"
       }
