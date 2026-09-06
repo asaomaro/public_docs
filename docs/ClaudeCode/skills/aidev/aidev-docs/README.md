@@ -167,6 +167,14 @@ deliver 前の `aidev verify`（不変条件）。いずれも exit≠0 なら�
 `taskcheck` / `doccheck` は `report` を **`start` と対でだけ**受ける——対を見ないと、
 上限で `start` が止まったあとも `report` だけ打てて件数が積み上がる（実際にその穴を作った）。
 
+**上限を数えるのは `start`、「点検した」を数えるのは `report`** と、役割を分けてある。
+`start` で「点検した」ことにしていた頃は、委譲を出し忘れて `start` だけ残った work と
+「点検して 0 件」の work が同じ数字になり、点検の有効性を測る母集団が汚れていた。
+`report` が追いついていない `start` は `status` が `note:` で、`verify` が **WARN** で名指しする
+（`taskcheck` と `doccheck` で同じ関数・同じ文言）。形式不正で断念すること自体は認められているので
+致命にはせず、**`decisions.md` にそのタスク ID／工程名を含む行を残せば消える**——
+消す手段が「規約が禁じている `report` を打つ」しか無い WARN では、規約に従うほど鳴り続ける。
+
 **`mode: autonomous` では上流4工程の `doccheck` が必須**（人間の目が入らないので、点検の要否を
 書いた本人の裁量に残さない）。記録が無いまま承認すると `verify` が WARN、`--strict` で落ちる。
 

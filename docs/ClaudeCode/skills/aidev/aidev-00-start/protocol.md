@@ -39,7 +39,9 @@
 
 - 迷ったとき・再開時は `aidev-00-start` から始めるのを推奨する。
 - ただし各工程 skill は単独でも実行できる（このプロトコルを自身で参照し、前提を自己チェックする）。
-  慣れた利用者は `/aidev-40-coding` のように直接工程を叩いてもよい。
+  慣れた利用者は `/aidev-40-coding` のように直接工程を叩いてもよい。**その場合も CLI の場所は
+  自分で確定すること**——各 skill のコマンド例は裸の `aidev` だが、実体は
+  `<skills>/aidev-docs/bin/aidev`（Windows は `aidev.ps1`）で、PATH は誰も通していない。
 
 ## 1. 対象作業の特定
 
@@ -454,7 +456,7 @@ events:
 - **coding**: `tasks_done`（チェック済みタスク数）/
   `unplanned_lookups`（**アンカー付きタスクなのに**探索し直した回数。`未特定` のタスクでの探索は
   最初から想定内なので数えない——分母 `tasks_anchored` と対応させる）/
-  `task_checks`（独立点検（「3.3」(b)）を行ったタスク数）/
+  `task_checks`（独立点検（「3.3」(b)）が **report まで届いた**タスク数。start だけは数えない）/
   `task_check_findings`（点検で見つけた指摘の件数）/ `task_check_mode`（`delegated`／`same_session`／
   タスクごとに割れていれば `mixed`）
   - **この3キーは手で渡さない**。`aidev taskcheck` の記録から `approve` が自動で刻む
@@ -464,6 +466,8 @@ events:
 - **上流4工程（requirement / spec / design / plan）**: `doc_check_rounds` / `doc_check_findings` /
   `doc_check_mode`（独立点検（「3.3」(a)）。**手で渡さない**——`aidev doccheck` の記録から自動で刻む。
   `autonomous` では必須で、記録が無ければ `verify` が WARN、`--strict` で致命）
+- **deliver**: `remote`（`none` なら PR を作れない環境＝`review.md` に「PR レビュー（人間）」節が
+  生まれない。**人間由来の判定材料が 1 件も無い work**として層別できる。CLI が自動で刻む）
 - **test**: `passed` / `failed`（検証結果の件数）
 - **review**: `must` / `should` / `nit`（重大度別の指摘件数）
 - **任意工程（light からの昇格時）**: `escalated_from_light`（`1` を刻む。昇格が起きた工程の approved に付す。

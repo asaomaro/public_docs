@@ -704,6 +704,17 @@ cmd_approve() {
       fi
     fi
   fi
+  # **remote が無い環境では `review.md` に「PR レビュー（人間）」節が生まれない**。
+  # `protocol-autonomous.md` は「insights はその旨を明記する」と定めるが、
+  # **その事実を機械が拾う印が state にも metrics にも無かった**（他 PJ の retro が実測）。
+  # 人間由来の判定材料が 1 件も無い work を、insights が層別できるようにする。
+  # **`append_event` より前**で足すこと——deliver 後のブロックで set -- しても刻まれない
+  if [ "$ph" = deliver ] && command -v git >/dev/null 2>&1 \
+     && [ -z "$(git -C "$ROOT" remote 2>/dev/null)" ]; then
+    _hasrem=no
+    for _akv in "$@"; do case "$_akv" in remote=*) _hasrem=yes ;; esac; done
+    if [ "$_hasrem" = no ]; then set -- "$@" "remote=none"; fi
+  fi
   # 上流4工程の点検メトリクスも `doccheck` の記録から自動で刻む（coding と同じ理由）
   if dc_valid_phase "$ph"; then
     _dchas=no
@@ -1688,14 +1699,50 @@ ck_count() { # metrics_file event stage key target
   case "$_n" in ''|*[!0-9]*) _n=0 ;; esac
   printf '%s' "$_n"
 }
+# 断念が `decisions.md` に残っているか（`protocol-check.md`「(b)」の締めが求めている 1 行）。
+# **文面は求めず、ID か工程名を含む行が 1 本あれば「記録済み」とみなす**
+# （backlog の消し込み検査が slug の出現で見るのと同じ強さ）。
+# これが無かった頃は、規約どおり断念しても WARN を消す手段が
+# 「**規約が禁じている `report` を打つ**」しか無かった（実走で実測）
+# **「点検して 0 件」と「start だけで終わった」を見分けられるようにする**。
+# taskcheck と doccheck で**同じ文言**を出す（同じ規約の同じ出口なので、片方だけ言い方が違うと
+# 「別の話だ」と読まれる）
+ck_unreported_note() { # list unit
+  [ -n "$1" ] || return 0
+  printf 'note: report が無い start が %s 件あります（%s）。委譲の出し忘れか、形式不正で断念したもの\n' \
+    "$(printf '%s\n' "$1" | grep -c .)" "$(printf '%s' "$1" | tr '\n' ' ' | sed 's/ *$//')"
+  printf '      断念なら decisions.md に「断念」と%s名を含む1行を残す（残せばこの note は消えます）\n' "$2"
+  return 0
+}
+
+# verify 側の同じ通知。**WARN 止まりで `--strict` でも致命にしない**——記録漏れ（`event` の start）が
+# 致命なのは「そのとき書かなければ二度と書けない」からだが、点検の断念は
+# `protocol-check.md`「(b)」が**認めた出口**で、`decisions.md` に残せばここは消える
+ck_unreported_warn() { # name unit list
+  [ -n "$3" ] || return 0
+  printf '  WARN %s の start に report が追いついていないものが %s 件あります（%s）: 委譲の出し忘れか断念。断念なら decisions.md に「断念」と%s名を含む1行を残す\n' \
+    "$1" "$(printf '%s\n' "$3" | grep -c .)" "$(printf '%s' "$3" | tr '\n' ' ' | sed 's/ *$//')" "$2"
+  return 0
+}
+
+ck_recorded() { # metrics_file id
+  _ckd=$(dirname "$1")/decisions.md
+  [ -f "$_ckd" ] || return 1
+  grep -Eq "(^|[^0-9A-Za-z_])$2([^0-9A-Za-z_]|\$)" "$_ckd" 2>/dev/null
+}
+
 tc_rounds()  { ck_count "$1" taskcheck start  task "$2"; }
 # そのタスクの report 回数（start と対になっているかの判定に使う）
 tc_reports() { ck_count "$1" taskcheck report task "$2"; }
-# 点検したタスクの数（重複を除く）と findings 合計。TC_TASKS / TC_FINDINGS / TC_MODE に入れる
+# 点検したタスクの数（重複を除く）と findings 合計。TC_TASKS / TC_FINDINGS / TC_MODE に入れる。
+# **数えるのは `report` まで届いたタスクだけ**。`start` で数えていた頃は、
+# `protocol-check.md` が「形式不正なら**点検しなかったものとして扱う**（`task_checks` に数えない）」と
+# 定めているのに CLI は数えており、**散文と CLI が食い違っていた**。委譲を出し忘れたまま
+# `start` だけ残った work も「点検して 0 件」と区別が付かなかった（他 PJ の retro が実測）
 tc_totals() { # metrics_file
   TC_TASKS=0; TC_FINDINGS=0; TC_MODE=""
   [ -f "$1" ] || return 0
-  TC_TASKS=$(grep 'event:[[:space:]]*taskcheck' "$1" 2>/dev/null | grep 'stage:[[:space:]]*start' \
+  TC_TASKS=$(grep 'event:[[:space:]]*taskcheck' "$1" 2>/dev/null | grep 'stage:[[:space:]]*report' \
     | sed -n 's/.*task:[[:space:]]*\([^,}]*\).*/\1/p' | sed 's/[[:space:]]*$//' \
     | LC_ALL=C sort -u | grep -c .) || TC_TASKS=0
   case "$TC_TASKS" in ''|*[!0-9]*) TC_TASKS=0 ;; esac
@@ -1712,6 +1759,24 @@ tc_totals() { # metrics_file
   return 0
 }
 
+# `start` に `report` が追いついていないタスク（改行区切り）。委譲の出し忘れ・形式不正で断念、の跡。
+# **判定は `report` 数 < `start` 数**——`tc_status` の `unreported` 列と同じ式にする。
+# 「`report` が 1 度も無い」だけで見ていた頃は、`protocol-check.md`「(b)」が明示的に認めている
+# 「1 ラウンド目は成功・2 ラウンド目を断念」がまるごと網から落ちていた（表は `yes` と出すのに
+# 同じコマンドの `note:` と `verify` が黙る、という自己矛盾つき。実走で実測）
+tc_unreported() { # metrics_file
+  [ -f "$1" ] || return 0
+  _tur=$(grep 'event:[[:space:]]*taskcheck' "$1" 2>/dev/null | grep 'stage:[[:space:]]*start' \
+    | sed -n 's/.*task:[[:space:]]*\([^,}]*\).*/\1/p' | sed 's/[[:space:]]*$//' | LC_ALL=C sort -u)
+  for _t in $_tur; do
+    [ -n "$_t" ] || continue
+    [ "$(tc_reports "$1" "$_t")" -lt "$(tc_rounds "$1" "$_t")" ] 2>/dev/null || continue
+    ck_recorded "$1" "$_t" && continue
+    printf '%s\n' "$_t"
+  done
+  return 0
+}
+
 tc_start() {
   _tid=""; _tslug=""; _tmode=""
   while [ $# -gt 0 ]; do
@@ -1722,7 +1787,7 @@ tc_start() {
       *) [ -z "$_tid" ] && _tid=$1 || die "タスク ID は1つだけ"; shift ;;
     esac
   done
-  [ -n "$_tid" ] || die "使用法: aidev taskcheck start <task-id> [--mode delegated|same_session] [--slug <work>]"
+  [ -n "$_tid" ] || die "使用法: aidev taskcheck start <task-id> --mode <delegated|same_session> [--slug <work>]"
   tc_valid_id "$_tid" || die "タスク ID の書式が違います: $_tid（tasks.md と同じ T<数字> 形式）"
   [ -n "$_tmode" ] || die "--mode は必須（delegated=別コンテキストへ委譲 / same_session=同一セッションで読み直し）。点検が効く理由はコンテキスト分離なので、どちらで行ったかを残さないと効果を測れない"
   case " $TC_MODES " in *" $_tmode "*) ;; *) die "--mode は delegated|same_session" ;; esac
@@ -1811,11 +1876,13 @@ tc_status() {
               | grep 'stage:[[:space:]]*report' | grep "task:[[:space:]]*$_t[,}]" \
               | sed -n 's/.*findings:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | awk '{t+=$1} END{print t+0}')
         _atmax=no; [ "$_r" -ge "$_tmax" ] 2>/dev/null && _atmax=yes
-        printf '%s\t%s\t%s\t%s\n' "$_t" "$_r" "$_f" "$_atmax"
+        _rp=$(tc_reports "$WORK/metrics.yml" "$_t")
+        _unrep=no; [ "$_rp" -lt "$_r" ] 2>/dev/null && _unrep=yes
+        printf '%s\t%s\t%s\t%s\t%s\n' "$_t" "$_r" "$_f" "$_atmax" "$_unrep"
       done)
   if [ "$_fmt" = tsv ]; then
-    printf '%s\n' "$_rows" | while IFS='	' read -r a b c d; do
-      [ -n "$a" ] && printf 'taskcheck\t%s\t%s\t%s\t%s\n' "$a" "$b" "$c" "$d"
+    printf '%s\n' "$_rows" | while IFS='	' read -r a b c d e; do
+      [ -n "$a" ] && printf 'taskcheck\t%s\t%s\t%s\t%s\t%s\n' "$a" "$b" "$c" "$d" "$e"
     done
     tc_totals "$WORK/metrics.yml"
     printf 'taskcheck-summary\t%s\t%s\t%s\t%s\n' "$TC_TASKS" "$TC_FINDINGS" "${TC_MODE:--}" "$_tmax"
@@ -1823,11 +1890,12 @@ tc_status() {
   fi
   printf 'taskcheck: %s\n' "$SLUG"
   if [ -n "$_rows" ]; then
-    { printf 'task\trounds\tfindings\tat_max\n'; printf '%s\n' "$_rows"; } | fmt_table
+    { printf 'task\trounds\tfindings\tat_max\tunreported\n'; printf '%s\n' "$_rows"; } | fmt_table
   fi
   tc_totals "$WORK/metrics.yml"
   printf 'taskcheck-summary: tasks=%s findings=%s mode=%s maxTaskCheckRounds=%s\n' \
     "$TC_TASKS" "$TC_FINDINGS" "${TC_MODE:--}" "$_tmax"
+  ck_unreported_note "$(tc_unreported "$WORK/metrics.yml")" タスク
   return 0
 }
 
@@ -1866,10 +1934,43 @@ dc_valid_phase() { # phase
 dc_rounds()  { ck_count "$1" doccheck start  phase "$2"; }
 dc_reports() { ck_count "$1" doccheck report phase "$2"; }
 # その工程の点検ラウンド数 / findings 合計 / 実施形態。DC_ROUNDS / DC_FINDINGS / DC_MODE に入れる
+# 点検に渡す文書の合計バイト数。**plan は plan.md と tasks.md の 2 つ**——
+# `dc_start` の出力自身が「渡すもの: plan.md と tasks.md」と言っているのに plan.md しか見ておらず、
+# `AC:` 行がある（＝plan の点検で最も直しやすい）tasks.md だけを直して `report` を打っても
+# 何も言わなかった（実走で実測）
+dc_size() { # phase
+  _dsn=0
+  for _dsf in "$WORK/$1.md" "$([ "$1" = plan ] && printf '%s' "$WORK/tasks.md")"; do
+    [ -n "$_dsf" ] && [ -f "$_dsf" ] || continue
+    _dsb=$(wc -c < "$_dsf" 2>/dev/null | tr -d ' ') || _dsb=0
+    case "$_dsb" in ''|*[!0-9]*) _dsb=0 ;; esac
+    _dsn=$((_dsn + _dsb))
+  done
+  printf '%s' "$_dsn"
+}
+
+# `start` に `report` が追いついていない工程（改行区切り）。**`tc_unreported` と同じ式・同じ出口**。
+# `protocol-check.md` は (a) と (b) で「規律・禁止事項・フォールバックは共通」と宣言しているのに、
+# 数え方だけ対称化して検知は (b) にしか無かった——上流文書の「委譲を出し忘れた点検」は
+# どのコマンドを打っても一生表に出なかった（実走で実測）。
+# 未 report の `start` も `maxDocCheckRounds` の枠は食うので、黙っていると
+# 「静かに枠だけ減って次の start が exit 4」という詰まり方をする
+dc_unreported() { # metrics_file
+  [ -f "$1" ] || return 0
+  for _dph in $DC_PHASES; do
+    _dus=$(dc_rounds "$1" "$_dph"); [ "$_dus" -gt 0 ] 2>/dev/null || continue
+    [ "$(dc_reports "$1" "$_dph")" -lt "$_dus" ] 2>/dev/null || continue
+    ck_recorded "$1" "$_dph" && continue
+    printf '%s\n' "$_dph"
+  done
+  return 0
+}
+
 dc_totals() { # metrics_file phase
   DC_ROUNDS=0; DC_FINDINGS=0; DC_MODE=""
   [ -f "$1" ] || return 0
-  DC_ROUNDS=$(dc_rounds "$1" "$2")
+  # taskcheck と同じ理由で **report まで届いたラウンドだけ**数える（start だけでは「点検した」に数えない）
+  DC_ROUNDS=$(dc_reports "$1" "$2")
   DC_FINDINGS=$(grep 'event:[[:space:]]*doccheck' "$1" 2>/dev/null | grep 'stage:[[:space:]]*report' \
     | grep "phase:[[:space:]]*$2[,}]" \
     | sed -n 's/.*findings:[[:space:]]*\([0-9][0-9]*\).*/\1/p' \
@@ -1913,7 +2014,12 @@ dc_start() {
     return 4
   fi
   printf 'doccheck: %s / %s\n' "$SLUG" "$_dph"
-  append_event "$_dph" doccheck stage=start "phase=$_dph" "mode=$_dmode"
+  # **`report` は「直す前に」打つ**という規約は、破っても何も起きなかった（他 PJ の retro で 1 回発生）。
+  # start 時点の大きさを刻んでおき、report で変わっていたら「直したあとに打った」と言う。
+  # ハッシュでなくバイト数なのは、sh/ps1 で同じ値を出せる最も単純な量だから
+  # （同じ大きさの書き換えは見逃す。WARN 止まりなのはそのため）
+  _dsz=$(dc_size "$_dph")
+  append_event "$_dph" doccheck stage=start "phase=$_dph" "mode=$_dmode" "size=$_dsz"
   printf 'round: %s/%s\n' "$((_dr + 1))" "$_dmax"
   # plan 工程の成果物は plan.md と tasks.md の2つで、`AC:` 行は tasks.md にしかない。
   # 「plan.md だけ」と言いながら「AC の ID 対応漏れ」を観点に挙げると、構造的に検知できない（実走で判明）
@@ -1962,8 +2068,19 @@ dc_report() {
     printf 'next: 点検し直すなら aidev doccheck start %s から。上限で止まっているならそこで打ち切る\n' "$_dph" >&2
     return 4
   fi
+  # 直前の start の大きさと比べる（変わっていれば「直したあとに report を打った」）
+  _dsz0=$(grep 'event:[[:space:]]*doccheck' "$WORK/metrics.yml" 2>/dev/null \
+    | grep 'stage:[[:space:]]*start' | grep "phase:[[:space:]]*$_dph[,}]" \
+    | sed -n 's/.*size:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | tail -n1)
+  _dsz1=$(dc_size "$_dph")
+  _dsdoc=$_dph.md; [ "$_dph" = plan ] && _dsdoc="plan.md と tasks.md"
   append_event "$_dph" doccheck stage=report "phase=$_dph" "findings=$_df"
   printf 'doccheck: %s / %s（findings %s）\n' "$SLUG" "$_dph" "$_df"
+  if [ -n "$_dsz0" ] && [ "$_dsz0" != "$_dsz1" ] 2>/dev/null; then
+    printf 'note: %s が start 時点から変わっています（%s→%s バイト）: **report は直す前に打つ**\n' \
+      "$_dsdoc" "$_dsz0" "$_dsz1"
+    printf '      直してから打つと、その件数が次のラウンドに寄ります\n'
+  fi
   if [ "$_df" -gt 0 ] 2>/dev/null; then
     printf 'next: 指摘をその場で直して再提示するか、差し戻す（protocol.md「3.」の分岐に合流）\n'
     printf '      直したあと再点検するなら aidev doccheck start %s（上限は maxDocCheckRounds）\n' "$_dph"
@@ -1987,9 +2104,14 @@ dc_status() {
   _rows=""; _tr=0; _tf=0; _modes=""
   for _p in $DC_PHASES; do
     dc_totals "$WORK/metrics.yml" "$_p"
-    [ "$DC_ROUNDS" -gt 0 ] 2>/dev/null || continue
-    _atmax=no; [ "$DC_ROUNDS" -ge "$_dmax" ] 2>/dev/null && _atmax=yes
-    _rows="$_rows$_p	$DC_ROUNDS	$DC_FINDINGS	${DC_MODE:--}	$_atmax
+    _dst=$(dc_rounds "$WORK/metrics.yml" "$_p")
+    [ "$DC_ROUNDS" -gt 0 ] 2>/dev/null || [ "$_dst" -gt 0 ] 2>/dev/null || continue
+    # **上限に照らすのは `start` の数**（`dc_start` が検査しているのがそれ）。`rounds` 列に出す
+    # `report` 数で判定すると、未 report の start がある工程で「まだ余裕がある」と出したそばから
+    # 次の `start` が exit 4 になる
+    _atmax=no; [ "$_dst" -ge "$_dmax" ] 2>/dev/null && _atmax=yes
+    _unrep=no; [ "$DC_ROUNDS" -lt "$_dst" ] 2>/dev/null && _unrep=yes
+    _rows="$_rows$_p	$DC_ROUNDS	$DC_FINDINGS	${DC_MODE:--}	$_atmax	$_unrep
 "
     _tr=$((_tr + DC_ROUNDS)); _tf=$((_tf + DC_FINDINGS))
     _modes="$_modes $DC_MODE"
@@ -2000,18 +2122,19 @@ dc_status() {
   if [ "${_uu:-0}" -eq 1 ] 2>/dev/null; then _amode=$(printf '%s\n' $_modes | LC_ALL=C sort -u)
   elif [ "${_uu:-0}" -gt 1 ] 2>/dev/null; then _amode=mixed; fi
   if [ "$_fmt" = tsv ]; then
-    printf '%s' "$_rows" | while IFS='	' read -r a b c d e; do
-      [ -n "$a" ] && printf 'doccheck\t%s\t%s\t%s\t%s\t%s\n' "$a" "$b" "$c" "$d" "$e"
+    printf '%s' "$_rows" | while IFS='	' read -r a b c d e f; do
+      [ -n "$a" ] && printf 'doccheck\t%s\t%s\t%s\t%s\t%s\t%s\n' "$a" "$b" "$c" "$d" "$e" "$f"
     done
     printf 'doccheck-summary\t%s\t%s\t%s\t%s\n' "$_tr" "$_tf" "$_amode" "$_dmax"
     return 0
   fi
   printf 'doccheck: %s\n' "$SLUG"
   if [ -n "$_rows" ]; then
-    { printf 'phase\trounds\tfindings\tmode\tat_max\n'; printf '%s' "$_rows"; } | fmt_table
+    { printf 'phase\trounds\tfindings\tmode\tat_max\tunreported\n'; printf '%s' "$_rows"; } | fmt_table
   fi
   printf 'doccheck-summary: rounds=%s findings=%s mode=%s maxDocCheckRounds=%s\n' \
     "$_tr" "$_tf" "$_amode" "$_dmax"
+  ck_unreported_note "$(dc_unreported "$WORK/metrics.yml")" 工程
   return 0
 }
 
@@ -2192,6 +2315,11 @@ cmd_smoke() {
   # **何本走ったか**を刻む。`smoke: pass` だけだと、その pass が成果物のどこを通ったのかが
   # 後から分からない（起動確認の主張が証拠の範囲を超える）。設定は git に載っているので、
   # 本数と版が分かれば「その時点で何を確かめたか」が復元できる
+  # **deliver 承認後でも刻む**。実走の報告が「着地済み work の記録を静かに書き換える」と指摘したので
+  # 一度止めてみたところ、テストが 3 本落ちた——`verify` は smoke が失敗のままなら deliver 済でも FAIL し、
+  # **それを解く唯一の手段が「直して smoke を打ち直す」**（`smoke` の記録が deliver ゲートの入力）。
+  # 事後の追記を止めると、失敗したまま着地した work を直す経路そのものが消える。
+  # 追記が測定を動かす懸念は本物だが、対価が「直せない FAIL」では釣り合わない
   if [ "$_sfail" -eq 0 ]; then
     append_event test smoke "result=$_srr" "exit_code=$_src" "commands=$_sn"
   else
@@ -2396,6 +2524,14 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail / 5 stri
         VMISS="yes"
       fi
     done
+  fi
+
+  # `start` を打ったのに `report` が無い＝「点検して 0 件」と見分けが付かない状態。
+  # 断念は認められている（形式不正で 2 回崩れたら諦める）が、**その痕跡が残らない**のが問題。
+  # 数え方は既に直してある（report まで届いたものだけ数える）ので、ここは事実の通知
+  if [ -f "$WORK/metrics.yml" ]; then
+    ck_unreported_warn taskcheck タスク "$(tc_unreported "$WORK/metrics.yml")"
+    ck_unreported_warn doccheck  工程   "$(dc_unreported "$WORK/metrics.yml")"
   fi
 
   # 点検で見つけた件数を刻んだのに、**内容が review.md に残っていない**。
@@ -4805,7 +4941,8 @@ doctor_branch() {
   if [ "$_dbcur" != "$_dbdef" ]; then
     printf 'branch: main worktree の位置\n'
     printf '    WARN 既定ブランチ(%s)ではなく %s に載っています: 新しい work はこの上に積まれ、\n' "$_dbdef" "$_dbcur"
-    printf '         deliver「1.5」の既着地検知が濁ります（work は state.yml の baseCommit と比べること）\n'
+    printf '         deliver「1.5」の既着地検知が濁ります（work は state.yml の baseCommit と比べること）。\n'
+    printf '         remote 無しで作業ブランチに着地して人を待っている状態ならこれが正常です——マージ後に %s へ戻すこと\n' "$_dbdef"
     printf 'branch-summary: current=%s default=%s\n' "$_dbcur" "$_dbdef"
   fi
   return 0

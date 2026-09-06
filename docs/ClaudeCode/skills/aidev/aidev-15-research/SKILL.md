@@ -49,7 +49,7 @@ requirement 終了時（requirement 工程の終了ゲート）に、**protocol.
 ## 手順
 
 1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定。
-   `aidev guard research` で前提を検査する（exit≠0＝未充足。目視確認で代替しない）。
+   `aidev guard research` で前提を検査し、`aidev event research start` を記録する（exit≠0＝未充足。start が無いと `verify --strict` が落ち、ts は後から復元できない）。
 2. 調査すべき問い（unknowns）を列挙する。典型例:
    - 既存コードの実装把握 / 影響範囲（どのコードが対象挙動を担うか、変更が波及する箇所）
    - **出力先の仕様（生成・変更する対象のスキーマ・型・フォーマット・既存実装）**。

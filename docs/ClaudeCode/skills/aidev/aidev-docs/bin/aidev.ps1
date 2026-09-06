@@ -736,6 +736,15 @@ function Cmd-Approve($rest) {
       }
     }
   }
+  # remote が無い環境を機械が拾えるようにする（sh 版 cmd_approve の注記に理由）
+  if ($ph -ceq 'deliver' -and (Get-Command git -ErrorAction SilentlyContinue)) {
+    $rem = (GitQ -C $script:ROOT remote 2>$null)
+    if (-not ("$rem".Trim())) {
+      $hasrem = $false
+      foreach ($kv in @($kvs)) { if ($kv -like 'remote=*') { $hasrem = $true } }
+      if (-not $hasrem) { $kvs = @($kvs) + @('remote=none') }
+    }
+  }
   # 上流4工程の点検メトリクスも doccheck の記録から自動で刻む（sh 版と同一）
   if (DcValidPhase $ph) {
     $dchas = $false
@@ -1551,11 +1560,12 @@ function TcTotals($metricsFile) {
   foreach ($l in [System.IO.File]::ReadAllLines($metricsFile)) {
     if ($l -notmatch 'event:\s*taskcheck') { continue }
     if ($l -match 'stage:\s*start') {
-      $m = [regex]::Match($l, 'task:\s*([^,}]*)')
-      if ($m.Success) { $tasks[$m.Groups[1].Value.Trim()] = $true }
       $mm = [regex]::Match($l, 'mode:\s*([a-z_]+)')
       if ($mm.Success) { $modes[$mm.Groups[1].Value] = $true }
     } elseif ($l -match 'stage:\s*report') {
+      # 数えるのは report まで届いたタスクだけ（sh 版 tc_totals の注記に理由）
+      $m = [regex]::Match($l, 'task:\s*([^,}]*)')
+      if ($m.Success) { $tasks[$m.Groups[1].Value.Trim()] = $true }
       $mf = [regex]::Match($l, 'findings:\s*(\d+)')
       if ($mf.Success) { $f += [int]$mf.Groups[1].Value }
     }
@@ -1566,6 +1576,45 @@ function TcTotals($metricsFile) {
   elseif ($modes.Keys.Count -gt 1) { $r.mode = 'mixed' }
   return $r
 }
+# 断念が decisions.md に残っているか（sh 版 ck_recorded と同一）
+function CkRecorded($metricsFile, $id) {
+  $d = Join-Path (Split-Path -Parent $metricsFile) 'decisions.md'
+  if (-not (IsFile $d)) { return $false }
+  $re = '(^|[^0-9A-Za-z_])' + [regex]::Escape($id) + '([^0-9A-Za-z_]|$)'
+  foreach ($l in [System.IO.File]::ReadAllLines($d)) { if ($l -cmatch $re) { return $true } }
+  return $false
+}
+# start に report が追いついていないタスク（sh 版 tc_unreported と同一）
+function TcUnreported($metricsFile) {
+  $out = @()
+  if (-not (IsFile $metricsFile)) { return $out }
+  $started = @{}
+  foreach ($l in [System.IO.File]::ReadAllLines($metricsFile)) {
+    if ($l -notmatch 'event:\s*taskcheck') { continue }
+    if ($l -notmatch 'stage:\s*start') { continue }
+    $m = [regex]::Match($l, 'task:\s*([^,}]*)')
+    if ($m.Success) { $started[$m.Groups[1].Value.Trim()] = $true }
+  }
+  $keys = [string[]]@($started.Keys); [Array]::Sort($keys, [System.StringComparer]::Ordinal)
+  foreach ($t in $keys) {
+    if ((TcReports $metricsFile $t) -ge (TcRounds $metricsFile $t)) { continue }
+    if (CkRecorded $metricsFile $t) { continue }
+    $out += $t
+  }
+  return $out
+}
+# 未報告の通知（sh 版 ck_unreported_note と同一）
+function CkUnreportedNote($list, $unit) {
+  if (-not $list -or @($list).Count -eq 0) { return }
+  Write-Output ("note: report が無い start が {0} 件あります（{1}）。委譲の出し忘れか、形式不正で断念したもの" -f @($list).Count, (@($list) -join ' '))
+  Write-Output ("      断念なら decisions.md に「断念」と{0}名を含む1行を残す（残せばこの note は消えます）" -f $unit)
+}
+# verify 側の同じ通知（sh 版 ck_unreported_warn と同一）
+function CkUnreportedWarn($name, $unit, $list) {
+  if (-not $list -or @($list).Count -eq 0) { return @() }
+  return @(("  WARN {0} の start に report が追いついていないものが {1} 件あります（{2}）: 委譲の出し忘れか断念。断念なら decisions.md に「断念」と{3}名を含む1行を残す" -f $name, @($list).Count, (@($list) -join ' '), $unit))
+}
+
 function Tc-Start($rest) {
   $tid=''; $tslug=''; $tmode=''
   for ($i=0; $i -lt $rest.Count; $i++) {
@@ -1578,7 +1627,7 @@ function Tc-Start($rest) {
       }
     }
   }
-  if (-not $tid) { Die "使用法: aidev taskcheck start <task-id> [--mode delegated|same_session] [--slug <work>]" }
+  if (-not $tid) { Die "使用法: aidev taskcheck start <task-id> --mode <delegated|same_session> [--slug <work>]" }
   if (-not (TcValidId $tid)) { Die "タスク ID の書式が違います: $tid（tasks.md と同じ T<数字> 形式）" }
   if (-not $tmode) { Die "--mode は必須（delegated=別コンテキストへ委譲 / same_session=同一セッションで読み直し）。点検が効く理由はコンテキスト分離なので、どちらで行ったかを残さないと効果を測れない" }
   if ($script:TC_MODES -cnotcontains $tmode) { Die "--mode は delegated|same_session" }
@@ -1674,7 +1723,9 @@ function Tc-Status($rest) {
       }
     }
     $atmax = if ($r -ge $tmax) { 'yes' } else { 'no' }
-    $rows += ($t + "`t" + $r + "`t" + $f + "`t" + $atmax)
+    $rp = TcReports $mf $t
+    $unrep = if ($rp -lt $r) { 'yes' } else { 'no' }
+    $rows += ($t + "`t" + $r + "`t" + $f + "`t" + $atmax + "`t" + $unrep)
   }
   $tot = TcTotals $mf
   $mode = if ($tot.mode) { $tot.mode } else { '-' }
@@ -1684,8 +1735,9 @@ function Tc-Status($rest) {
     return
   }
   Write-Output "taskcheck: $($script:SLUG)"
-  if ($rows.Count -gt 0) { foreach ($l in (Fmt-Table (@("task`trounds`tfindings`tat_max") + $rows))) { Write-Output $l } }
+  if ($rows.Count -gt 0) { foreach ($l in (Fmt-Table (@("task`trounds`tfindings`tat_max`tunreported") + $rows))) { Write-Output $l } }
   Write-Output "taskcheck-summary: tasks=$($tot.tasks) findings=$($tot.findings) mode=$mode maxTaskCheckRounds=$tmax"
+  CkUnreportedNote (@(TcUnreported $mf)) 'タスク'
 }
 function Cmd-TaskCheck($rest) {
   if ($rest.Count -lt 1) { Tc-Status @(); return }
@@ -1716,11 +1768,36 @@ function DcCount($metricsFile, $stage, $phase) {
   }
   return $c
 }
+# 点検に渡す文書の合計バイト数（sh 版 dc_size の注記に理由。plan は plan.md と tasks.md）
+function DcSize($phase) {
+  $n = 0
+  $files = @((Join-Path $script:WORK "$phase.md"))
+  if ($phase -ceq 'plan') { $files += (Join-Path $script:WORK 'tasks.md') }
+  foreach ($f in $files) {
+    if (-not (IsFile $f)) { continue }
+    try { $n += [int64](Get-Item -LiteralPath $f).Length } catch { }
+  }
+  return $n
+}
+# start に report が追いついていない工程（sh 版 dc_unreported と同一）
+function DcUnreported($metricsFile) {
+  $out = @()
+  if (-not (IsFile $metricsFile)) { return $out }
+  foreach ($p in $script:DC_PHASES) {
+    $st = DcCount $metricsFile 'start' $p
+    if ($st -le 0) { continue }
+    if ((DcCount $metricsFile 'report' $p) -ge $st) { continue }
+    if (CkRecorded $metricsFile $p) { continue }
+    $out += $p
+  }
+  return $out
+}
 function DcTotals($metricsFile, $phase) {
   $r = @{ rounds = 0; findings = 0; mode = '' }
   if (-not (IsFile $metricsFile)) { return $r }
   $modes = @{}; $f = 0
-  $r.rounds = DcCount $metricsFile 'start' $phase
+  # taskcheck と同じ理由で report まで届いたラウンドだけ数える（sh 版の注記に理由）
+  $r.rounds = DcCount $metricsFile 'report' $phase
   foreach ($l in [System.IO.File]::ReadAllLines($metricsFile)) {
     if ($l -notmatch 'event:\s*doccheck') { continue }
     if ($l -notmatch "phase:\s*$([regex]::Escape($phase))[,}]") { continue }
@@ -1769,7 +1846,9 @@ function Dc-Start($rest) {
     exit 4
   }
   Write-Output "doccheck: $($script:SLUG) / $dph"
-  AppendEvent $script:WORK $dph 'doccheck' @('stage=start', "phase=$dph", "mode=$dmode")
+  # report を「直す前に」打たせるための観測点（sh 版 dc_start の注記に理由）
+  $dsz = DcSize $dph
+  AppendEvent $script:WORK $dph 'doccheck' @('stage=start', "phase=$dph", "mode=$dmode", "size=$dsz")
   Write-Output "round: $($dr + 1)/$dmax"
   # plan の `AC:` 行は tasks.md にしかない（sh 版の注記に理由）
   if ($dph -ceq 'plan') { Write-Output "渡すもの: plan.md と tasks.md（AC: 行は tasks.md にある。上流の元文書は渡さない）" }
@@ -1810,8 +1889,23 @@ function Dc-Report($rest) {
     [Console]::Error.WriteLine("next: 点検し直すなら aidev doccheck start $dph から。上限で止まっているならそこで打ち切る")
     exit 4
   }
+  # 直前の start の大きさと比べる（sh 版 dc_report の注記に理由）
+  $dsz0 = ''
+  foreach ($l in [System.IO.File]::ReadAllLines($mf)) {
+    if ($l -notmatch 'event:\s*doccheck') { continue }
+    if ($l -notmatch 'stage:\s*start') { continue }
+    if ($l -notmatch "phase:\s*$([regex]::Escape($dph))[,}]") { continue }
+    $ms = [regex]::Match($l, 'size:\s*(\d+)')
+    if ($ms.Success) { $dsz0 = $ms.Groups[1].Value }
+  }
+  $dsz1 = DcSize $dph
+  $dsdoc = if ($dph -ceq 'plan') { 'plan.md と tasks.md' } else { "$dph.md" }
   AppendEvent $script:WORK $dph 'doccheck' @('stage=report', "phase=$dph", "findings=$df")
   Write-Output "doccheck: $($script:SLUG) / $dph（findings $df）"
+  if ($dsz0 -ne '' -and $dsz0 -cne "$dsz1") {
+    Write-Output "note: $dsdoc が start 時点から変わっています（$dsz0→$dsz1 バイト）: **report は直す前に打つ**"
+    Write-Output "      直してから打つと、その件数が次のラウンドに寄ります"
+  }
   if ([int]$df -gt 0) {
     Write-Output "next: 指摘をその場で直して再提示するか、差し戻す（protocol.md「3.」の分岐に合流）"
     Write-Output "      直したあと再点検するなら aidev doccheck start $dph（上限は maxDocCheckRounds）"
@@ -1836,10 +1930,13 @@ function Dc-Status($rest) {
   $rows=@(); $tr=0; $tf=0; $modes=@{}
   foreach ($p in $script:DC_PHASES) {
     $t = DcTotals $mf $p
-    if ($t.rounds -le 0) { continue }
-    $atmax = if ($t.rounds -ge $dmax) { 'yes' } else { 'no' }
+    $dst = DcCount $mf 'start' $p
+    if ($t.rounds -le 0 -and $dst -le 0) { continue }
+    # 上限に照らすのは start の数（sh 版 dc_status の注記に理由）
+    $atmax = if ($dst -ge $dmax) { 'yes' } else { 'no' }
+    $unrep = if ($t.rounds -lt $dst) { 'yes' } else { 'no' }
     $md = if ($t.mode) { $t.mode } else { '-' }
-    $rows += ($p + "`t" + $t.rounds + "`t" + $t.findings + "`t" + $md + "`t" + $atmax)
+    $rows += ($p + "`t" + $t.rounds + "`t" + $t.findings + "`t" + $md + "`t" + $atmax + "`t" + $unrep)
     $tr += $t.rounds; $tf += $t.findings
     if ($t.mode) { $modes[$t.mode] = $true }
   }
@@ -1853,9 +1950,10 @@ function Dc-Status($rest) {
   }
   Write-Output "doccheck: $($script:SLUG)"
   if ($rows.Count -gt 0) {
-    foreach ($l in (Fmt-Table (@("phase`trounds`tfindings`tmode`tat_max") + $rows))) { Write-Output $l }
+    foreach ($l in (Fmt-Table (@("phase`trounds`tfindings`tmode`tat_max`tunreported") + $rows))) { Write-Output $l }
   }
   Write-Output "doccheck-summary: rounds=$tr findings=$tf mode=$amode maxDocCheckRounds=$dmax"
+  CkUnreportedNote (@(DcUnreported $mf)) '工程'
 }
 function Cmd-DocCheck($rest) {
   if ($rest.Count -lt 1) { Dc-Status @(); return }
@@ -2275,6 +2373,11 @@ function VerifyWork($work) {
       }
     }
   }
+
+  # start に report が追いついていない（sh 版 verify_work の注記に理由）
+  $vmy = Join-Path $work 'metrics.yml'
+  foreach ($w in (CkUnreportedWarn 'taskcheck' 'タスク' @(TcUnreported $vmy))) { VLine($w) }
+  foreach ($w in (CkUnreportedWarn 'doccheck' '工程' @(DcUnreported $vmy))) { VLine($w) }
 
   # 件数を刻んだのに内容が review.md に残っていない（sh 版 verify_work の注記に理由）
   $vtf = MtLastMetric (Join-Path $work 'metrics.yml') 'coding' 'task_check_findings'
