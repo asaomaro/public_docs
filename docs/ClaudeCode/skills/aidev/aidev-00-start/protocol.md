@@ -548,8 +548,8 @@ review 工程はラウンドごとに追記する（差し戻し後の再レビ�
 
 `state.yml` の `mode`＝**誰が承認するか**。既定 `interactive`（各ゲートで人間が選ぶ）。`autonomous` は
 夜間自律で PR まで一気通貫——**PR で停止し auto-merge しない**、test を硬ゲートに、`maxSendBacks`（既定 3）を
-超えたら停止、`humanGates` で部分的に人間ゲートを残せる。plan モードは
-**入る条件も入り方も `protocol-autonomous.md`**（ここに条件を写さない）。
+超えたら停止、`humanGates` で部分的に人間ゲートを残せる。
+plan モードは**入る条件も入り方も `protocol-autonomous.md`**（ここに条件を写さない）。
 
 **差し戻しの上限に達したら、回数を止めるだけでなく方向を変える**。同一工程の差し戻しが
 `maxSendBacks` に達したら（`aidev event <工程> sent_back` がその場で促す）、

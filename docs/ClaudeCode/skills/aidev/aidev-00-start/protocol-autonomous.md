@@ -1,6 +1,6 @@
 # 実行モード（autonomous）と plan モード（`protocol.md`「10.」の詳細）
 
-> **読む条件**: `state.yml` が `mode: autonomous` の work／`aidev-util-batch`／plan モードを使うか迷ったとき（start・spec・design）
+> **読む条件**: `state.yml` が `mode: autonomous` の work／`aidev-util-batch`／plan モードに入るか迷ったとき
 > 核となる規約と要約は `protocol.md`「10.」。ここはその詳細（工程ごとの読み込み量を抑えるため切り出し）。
 
 `state.yml` の `mode` で実行モードを選ぶ。新規作業時に決定する（既定 interactive）。

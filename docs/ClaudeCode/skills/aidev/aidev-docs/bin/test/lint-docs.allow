@@ -49,3 +49,8 @@ L9:Copilot は VS Code / Visual Studio の Plan agent
 L9:残るのは read-only の一発調査
 # L9 という検査そのものの説明（bin/README の lint 一覧）。条件の写しではなく検査の仕様
 L9:判定キーの有無だけでは足りない
+# 付録表の「読む条件」の行。`mode: autonomous` はその付録を読む条件で、plan モードの条件ではない
+L9:「10.」 | `mode: autonomous` の work
+# `guard` の仕様説明（bin/README の CLI リファレンス）。plan モードの条件は正典を参照するだけで、
+# ここに残る語は guard 自身の前提検査・profile・mode の説明。**条件の写しではない**
+L9:工程開始時の**前提チェック**

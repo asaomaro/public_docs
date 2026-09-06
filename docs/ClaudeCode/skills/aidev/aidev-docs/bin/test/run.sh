@@ -291,44 +291,36 @@ echo "$H2" | grep -q "aidev event requirement start" && ng "guard: start 済な�
 # 打つ側は工程に入る瞬間には思い出さない（event start の促しと同じ型）
 echo "$H1" | grep -q "plan モードへ入ってから" \
   && ok "guard spec: plan モードへ入るよう促す（full × interactive）" || ng "guard spec: plan モードの促しが出ない"
-# **入るのは上流4工程**。ここに至るまで分類を 3 回発明して 3 回とも外した
-# （「方針と成果物が分離できない」＝spec にも当てはまる／「行動計画 vs 仕様」＝ExitPlanMode の
-# 定義が逆／「入力に既存コードが入る」＝plan に無く test/review に有るので集合が反転する）。
-# 正解は EnterPlanMode 自身の WHEN TO USE にあった——**方向が複数あって選び損なうと無駄になるか**
-# **requirement は入らない**。`ExitPlanMode` が「planning the **implementation steps**」に
-# 限定しており、「何を・なぜ」は実装計画ではない。**承認を出すのはこのツールだけ**なので
-# ここが実質の資格条件——`EnterPlanMode`（入口）の広い WHEN TO USE で判定していた頃は入っていた
-assert_eq "$(printf '%s' "$H2" | grep -c 'plan モードへ入ってから')" "0" \
-  "guard requirement: 実装計画ではないので促さない（ExitPlanMode の用途規定）"
-# guard plan は spec.md を前提にする（無いと exit 2 で促しまで到達しない＝空振り検査になる）
-: > "$TMP/.aidev/works/20260101-hint/spec.md"
-assert_ne "$(run_sh guard plan 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
-  "guard plan: 実装手順そのものなので促す（ExitPlanMode の用途規定に文字どおり合致）"
-printf -- '- [ ] T1: x\n' > "$TMP/.aidev/works/20260101-hint/tasks.md"
-: > "$TMP/.aidev/works/20260101-hint/plan.md"
-assert_eq "$(run_sh guard coding 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
-  "guard coding: 実装計画の実行であって計画ではないので促さない"
-assert_eq "$(run_sh guard review 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
-  "guard review: 指摘であって実装計画ではないので促さない（コードは読む）"
-assert_eq "$(run_sh guard research 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
-  "guard research: 基準内で落ちる（ExitPlanMode が gathering information を名指しで外す）"
+# **全 11 工程を前提充足済みで回す**。個別に書いていた頃は
+# (1) 前提が足りず exit 2 で終わる**空振り**が 3 本混ざり（`guard review` は `need_approved test` に
+#     落ちて促しに一度も到達していなかった）、
+# (2) `case` に test|walkthrough|deliver|retro を足しても design を消しても**緑のまま**だった
+#     （実走が変異試験で実測）。**検査が中核を守っていなかった**。
+# 前提を全部揃えてから 11 工程を一巡し、rc=0 であることも確かめる
+PM_W=$TMP/.aidev/works/20260101-hint
+printf 'schema: 3\nslug: hint\ncurrent: requirement\napproved: [requirement, spec, design, plan, coding, test, review, walkthrough, deliver]\n' > "$PM_W/state.yml"
+: > "$PM_W/spec.md"; : > "$PM_W/design.md"; : > "$PM_W/plan.md"
+printf -- '- [ ] T1: x\n' > "$PM_W/tasks.md"
+# 期待値の正典は protocol-autonomous.md「plan モードとの関係」——入るのは spec / design / plan
+for _pmc in requirement:no research:no spec:yes design:yes plan:yes coding:no \
+            test:no review:no walkthrough:no deliver:no retro:no; do
+  _pmp=${_pmc%%:*}; _pmw=${_pmc#*:}
+  _pmo=$(run_sh guard "$_pmp" 2>&1); _pmr=$?
+  assert_eq "$_pmr" "0" "guard $_pmp: 前提が揃っていて rc=0（空振り検査になっていない）"
+  _pmg=$(printf '%s' "$_pmo" | grep -c 'plan モードへ入ってから') || _pmg=0
+  if [ "$_pmw" = yes ]; then
+    assert_ne "$_pmg" "0" "guard $_pmp: 促す（成果物が実装計画）"
+  else
+    assert_eq "$_pmg" "0" "guard $_pmp: 促さない（成果物が実装計画ではない）"
+  fi
+done
 # **subtask の plan は親が切り方を確定済み**——同じ工程名でも促してはいけない
 printf 'schema: 3\nslug: hint\ncurrent: requirement\napproved: []\nparent: 20260101-order\n' \
-  > "$TMP/.aidev/works/20260101-hint/state.yml"
+  > "$PM_W/state.yml"
 assert_eq "$(run_sh guard plan 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
   "guard plan: subtask では促さない（切り方は親の plan が確定済み）"
-printf 'schema: 3\nslug: hint\ncurrent: requirement\napproved: []\n' \
-  > "$TMP/.aidev/works/20260101-hint/state.yml"
-rm -f "$TMP/.aidev/works/20260101-hint/spec.md" "$TMP/.aidev/works/20260101-hint/tasks.md" \
-      "$TMP/.aidev/works/20260101-hint/plan.md"
-assert_eq "$(run_sh guard coding 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
-  "guard coding: 上流の tasks.md が承認済みなので促さない"
-assert_eq "$(run_sh guard review 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
-  "guard review: 上流で方向が決まっているので促さない"
-rm -f "$TMP/.aidev/works/20260101-hint/spec.md" "$TMP/.aidev/works/20260101-hint/tasks.md" \
-      "$TMP/.aidev/works/20260101-hint/plan.md"
-assert_eq "$(run_sh guard plan 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
-  "guard plan: 成果物が行動計画そのものなので促さない（計画を二度書かない）"
+printf 'schema: 3\nslug: hint\ncurrent: requirement\napproved: []\n' > "$PM_W/state.yml"
+rm -f "$PM_W/spec.md" "$PM_W/design.md" "$PM_W/plan.md" "$PM_W/tasks.md"
 # **「入れ」と命じる**。「方針を先に固める」のような役割だけの言い方だと、丁寧に計画するだけで
 # モードは切り替わらない（EnterPlanMode は主エージェントのツールなので、明示すれば実際に切り替わる）
 echo "$H1" | grep -q "抜けた先は承認時に選んだモードで、元のモードには戻らない" \

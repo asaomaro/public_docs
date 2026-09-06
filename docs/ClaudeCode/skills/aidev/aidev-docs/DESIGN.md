@@ -484,7 +484,7 @@ flowchart LR
     Write / Edit だけで、読み取りも `AskUserQuestion` による対話も動く（SDK ドキュメント:
     「Claude may use `AskUserQuestion` to clarify requirements before finalizing the plan」）。
     「実装計画かどうか」は可否の理由にならない。
-    正しい導出は「**plan モードで承認するものが、aidev のゲートが承認するものと違うか**」で、
+    当時そう考えた導出は「plan モードで承認するものが、aidev のゲートが承認するものと違うか」で、
     requirement / plan / test / review / walkthrough / deliver / retro は**成果物がその工程の
     判断そのもの**なのでゲートと同じものを承認することになり、二重になる。
     **結論は変わらないが、理由が変わると次に工程が増えたときの判断が変わる**ので実行時文書に基準を置いた。
@@ -540,10 +540,8 @@ flowchart LR
       plan file が写しになる——それが「計画を二度書く」の正体で、順序を決めれば起きない。
     - **教訓**: **道具の可否を決める前に、その道具の定義を読む。しかも入口と出口の両方を。**
       4 回とも手元に定義があるのに、読まずに分類を作るか、片方だけ読んだ。
-    - 副産物: **`research` の除外に一次根拠が付いた**。`EnterPlanMode` の WHEN NOT TO USE が
-      「Pure research/exploration tasks (**use the Agent tool instead**)」と言っており、
-      ハーネスの「純粋な調査は「2.6」の委譲が正」と一致する。「基準の外の規則」ではなくなった。
-    - 教訓: **道具の可否を決める前に、その道具の定義を読む**。3 回とも、読めば 5 分で分かった。
+    - `research` の一次根拠は `ExitPlanMode` 側（「gathering information … do NOT use」）へ移した。
+      `EnterPlanMode` の WHEN NOT TO USE を根拠にしていた版は残さない——入口と出口で範囲が違う。
   - **「工程の間だけ plan モードにして、終わったら戻す」は作れない**（2026-09-06 に裏取り）。
     - **ハーネス側から切り替える口が無い**: フックの JSON 出力にモードを変える項目は無く、
       `PermissionModeChange` 系のイベントも無い（要望 anthropics/claude-code#31579・#14044 は未実装）。

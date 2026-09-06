@@ -315,7 +315,7 @@ echo "== L9: 判定条件の写しを工程 SKILL に作らない =="
 PMHEAD='plan ?モード|planモード|plan mode'
 # **改修のたびに語彙を足す**。足さないと「旧条件の写し」しか捕まえられず、**新条件の写しは
 # 全部素通りする**（実走が H10-H13 で実測）。工程名の列挙（`spec / design / plan` の形）も条件の写し
-PMKEY='profile|humanGates|human-gates|interactive|autonomous|full[^ ]* *×|light|承認者|対話モード|自律モード|プロファイル|機械で止ま|ゲートの実体化|exit code|read-only|主活動|ヒアリング|既存コード|コード探索|方向が複数|選び損な|上流4工程|spec *[/／] *design'
+PMKEY='profile|humanGates|human-gates|interactive|autonomous|full[^ ]* *×|light|承認者|対話モード|自律モード|プロファイル|機械で止ま|ゲートの実体化|exit code|read-only|主活動|ヒアリング|既存コード|コード探索|方向が複数|選び損な|上流4工程|spec *[/／] *design|spec[・、] *design|実装計画|implementation steps|ExitPlanMode|EnterPlanMode'
 _l9=0
 # `runtime_docs` は `$d/SKILL.md`（`$d` は末尾 `/`）を出すので **`//` を含む**。
 # 潰さないと `sort -u` が別物として残し、二重走査がそのまま生き残る（テストで実測）
@@ -328,18 +328,16 @@ for _f in $({ runtime_docs
   # **見出し行とその継続行**（行頭が空白で始まる後続行）をひとまとまりで見る。
   # 正典への参照そのものは条件ではない（ファイル名が `autonomous` を含む）ので落とす
   _hits=$(awk -v head="$PMHEAD" '
-      # **見出しより前は切り落とす**。plan モードの可否を縛る条件は見出しの後ろに来るので、
-      # 同じ行の無関係な前置き（`humanGates` で部分的に人間ゲートを残せる。plan モードは…）を拾わない
       function ltrim(x) { sub(/^[ \t]+/, "", x); return x }
-      $0 ~ head { inb=1; ln=NR; buf=substr($0, match($0, head))
-                  ind=length($0) - length(ltrim($0)); next }
-      # **継続行は「字下げされていて、新しい箇条書きでも表の行でもない行」**。
-      # 字下げだけで見ると隣の箇条書きや次の表の行まで飲み込んで誤検知した（両方とも実際に踏んだ）
-      # **より深く字下げされた箇条書きは「子」なので取り込む**。打ち切っていた頃は
-      # `- plan モードの扱い` の下にぶら下げた条件が原理的に見えず、`DESIGN.md` の
-      # `  - **使う**:` 以下の列挙もまるごと素通りしていた（実走が H8 で実測）。
-      # 打ち切るのは**同じ深さ以下**の箇条書き・表の行だけ
-      inb && /^[ \t]+/ && (!/^[ \t]*([-*+|]|[0-9]+\.)/ || length($0) - length(ltrim($0)) > ind) {
+      # **行は丸ごと見る**。見出しより前を切っていた頃は `上流4工程では plan モードへ入る…` の
+      # ように**条件語が見出しより前に来る語順**で素通りした（実走が実測。自己テストは必ず
+      # 見出しを先頭に置いていたので、この語順を原理的に再現できなかった）
+      $0 ~ head { inb=1; ln=NR; buf=$0; ind=length($0) - length(ltrim($0)); next }
+      # **継続行は「空行が来るまで」**。字下げを必須にしていた頃は Markdown の**段落形**の写しが
+      # 1 行目で切れて見えず、`aidev-docs/README.md` の 8 行の写しが素通りした（実走が実測）。
+      # 打ち切るのは**空行**と、**同じ深さ以下の箇条書き・表の行**だけ
+      # （より深い箇条書きは「子」なので取り込む——`DESIGN.md` の `  - **使う**:` 以下がそれ）
+      inb && NF > 0 && (!/^[ \t]*([-*+|]|[0-9]+\.)/ || length($0) - length(ltrim($0)) > ind) {
         buf=buf " " $0; next }
       inb { print ln ": " buf; inb=0 }
       END { if (inb) print ln ": " buf }
