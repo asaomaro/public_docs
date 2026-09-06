@@ -212,13 +212,79 @@ BUDGET_PROTOCOL=608
 #     autonomous で工程が完走できなくなる、という一番痛い帰結が書かれていなかった。
 #     併せて「使う／使わない」を「入る／入らない」の命令形に直し、humanGates の部分自律を
 #     条件に含めた——実走が「承認者がいるのに促しを止めている」を実測した）
-BUDGET_TOTAL=3422
+# 3422 -> 3426: **判断基準を書いていなかった**ぶん（外部レビューの読み合わせで発覚）。
+#   protocol-autonomous「plan モードとの関係」+4。工程ごとの可否だけが列挙され、
+#   **11 工程のうち requirement と walkthrough が どちらのリストにも無かった**。
+#   さらに除外理由の一部が「実装計画ではない」で、**論点がずれていた**——plan モードで
+#   禁じられるのは Write/Edit だけで対話は動くので、それは理由にならない。
+#   本当の基準（「二重ゲートに見合うか」＝承認する対象がゲートと違うか）は DESIGN「2.」に
+#   あったが実行時文書に無く、**各工程の可否が基準から導かれていなかった**。
+#   基準を 1 行書けば全工程が導出できるので、列挙を短くしたぶんを差し引いて +4 に収まる
+# 3426 -> 3429: 基準だけでは **11 工程のうち 9 しか導出できなかった**ぶん（実走が実測）。
+#   protocol-autonomous「plan モードとの関係」+3。足りなかったのは 3 点:
+#   (1)「aidev のゲート」が**その工程だけか上流を含むか**が未定義で、素直に読むと
+#      coding が「入る」に化けた（`tasks.md` は plan のゲートが承認済み、と読ませる必要がある）
+#   (2) research は**基準の外の規則**（純粋な調査は「2.6」の委譲）なのに、基準から導けるように
+#      並んでいたので spec と同じ形に見えた
+#   (3) walkthrough の除外理由が「成果物がその工程の判断そのもの」で、
+#      **説明文書である walkthrough には当てはまっていなかった**（結論は同じだが理由が嘘）
+BUDGET_TOTAL=3429
 _p=$(wc -l < "$SKILLS/aidev-00-start/protocol.md")
 _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 [ "$_p" -le "$BUDGET_PROTOCOL" ] && ok "L6 protocol.md が予算内（$_p / $BUDGET_PROTOCOL 行）" \
   || ng "L6 protocol.md が予算超過（$_p / $BUDGET_PROTOCOL 行）。要約は protocol.md・詳細は付録・理由は DESIGN"
 [ "$_t" -le "$BUDGET_TOTAL" ] && ok "L6 実行時文書の合計が予算内（$_t / $BUDGET_TOTAL 行）" \
   || ng "L6 実行時文書の合計が予算超過（$_t / $BUDGET_TOTAL 行）"
+
+echo "== L9: 判定条件の写しを工程 SKILL に作らない =="
+# **条件を skill に写した時点で、次の変更での取り残しが予約される**。実際に起きた——
+# `guard` の promote 条件を「mode」から「その工程に承認者がいるか」へ変えたとき、CLI と
+# `protocol-autonomous.md` は直したのに、spec / design の SKILL.md に写した
+# `（full × interactive のみ）` が残り、**部分自律で CLI は促すのに skill は「入るな」と読める**
+# 状態になった（外部レビューが実測）。
+# 規律自体は既にあった——`doccheck` では「正典は protocol-check。ここは引き金と打つコマンドだけ」
+# として条件を写していない（上の L6 の内訳コメント）。**規律はあったのに守られなかった**ので、
+# 分類 G と同じ扱いで観測点にする。
+#
+# **検査するのは「plan モードに言及する行が、判定に使う語を抱えていないか」**。
+# 外部レビューは「判定キー（profile / mode / humanGates）が SKILL 本文に出たら WARN」を
+# 提案したが、**それでは今回の欠陥を捕まえられない**——残っていた文言は
+# `full` × `interactive` で、キー名を 1 つも含んでいなかった。値の側も見る必要がある。
+# 対象を「plan モードの行」に絞るのは、`profile: light` 等の**正当な言及**が
+# 工程 SKILL に多数あるため（13 ファイル。全部を弾くと誤検知だらけになる）。
+# **初版は「plan モードを含むその 1 行」しか見ておらず、4 通りで素通りした**（実走が実測）。
+#   H1 条件を継続行へ送る——**現行の文体そのものが 2 行構成**なので一番踏みやすい
+#   H2/H5/H6 現行条件を自然語や CLI フラグ綴りで写す（「承認者がいるときだけ」「--human-gates」
+#           「対話モードで、簡易プロファイルでないとき」）
+#   H3/H4 表記ゆれ（`planモード` / `plan mode`）
+#   H7 対象ファイル外へ写す（`aidev-util-*` / `protocol*.md` / `DESIGN.md`）——実際に
+#      `DESIGN.md` と `protocol.md` に旧条件が生き残っていた
+# **見出し語のゆれを吸収し、継続行まで見て、対象を実行時文書ぜんぶに広げる**。
+# 正典（`protocol-autonomous.md` の当該節）だけを除外する
+PMHEAD='plan ?モード|planモード|plan mode'
+PMKEY='profile|humanGates|human-gates|interactive|autonomous|full[^ ]* *×|light|承認者|対話モード|自律モード|プロファイル'
+_l9=0
+for _f in $(runtime_docs; printf '%s\n' "$SKILLS"/aidev-*/SKILL.md); do
+  [ -f "$_f" ] || continue
+  case "$_f" in *protocol-autonomous.md) continue ;; esac  # 正典。ここには条件が在ってよい
+  # **見出し行とその継続行**（行頭が空白で始まる後続行）をひとまとまりで見る。
+  # 正典への参照そのものは条件ではない（ファイル名が `autonomous` を含む）ので落とす
+  _hits=$(awk -v head="$PMHEAD" '
+      # **見出しより前は切り落とす**。plan モードの可否を縛る条件は見出しの後ろに来るので、
+      # 同じ行の無関係な前置き（`humanGates` で部分的に人間ゲートを残せる。plan モードは…）を拾わない
+      $0 ~ head { inb=1; ln=NR; buf=substr($0, match($0, head)); next }
+      # **継続行は「字下げされていて、新しい箇条書きでも表の行でもない行」**。
+      # 字下げだけで見ると隣の箇条書きや次の表の行まで飲み込んで誤検知した（両方とも実際に踏んだ）
+      inb && /^[ \t]+/ && !/^[ \t]*([-*+|]|[0-9]+\.)/ { buf=buf " " $0; next }
+      inb { print ln ": " buf; inb=0 }
+      END { if (inb) print ln ": " buf }
+    ' "$_f" | sed 's/protocol-autonomous\.md//g' | grep -E "$PMKEY") || true
+  [ -n "$_hits" ] || continue
+  _l9=$((_l9 + 1))
+  printf '%s:\n%s\n' "${_f#"$SKILLS"/}" "$_hits" >&2
+done
+if [ "$_l9" -eq 0 ]; then ok "L9 plan モードの判定条件が正典の外に写されていない"
+else ng "L9 plan モードの判定条件の写しが $_l9 ファイル（正典は protocol-autonomous.md「plan モードとの関係」だけ。他所には引き金と参照だけを置く）"; fi
 
 echo "== L8: ハーネス改修の実走記録 =="
 # **「改修のたびに実走を1本通す」は DESIGN「3.5」に書いてあったのに、次の改修で破られた**
@@ -236,7 +302,22 @@ if ! command -v git >/dev/null 2>&1 || ! git -C "$SKILLS" rev-parse --git-dir >/
   ok "L8 実走記録の鮮度（git 不在のため検査省略）"
 else
   # 記録ファイル自身のコミットは「改修」に数えない（数えると永久に追いつけない）
-  _fr=$(ls "$FLOWDIR"/[0-9]*.md 2>/dev/null | LC_ALL=C sort | tail -n1)
+  # **「最新の記録」は git のコミット時刻で選ぶ**。ファイル名の辞書順で選んでいた頃は、
+  # 同じ日に 2 本置くとスラグ順で決まり、**古いほうを「最新」として表示し、
+  # 3 見出しの検査も古い側に対して行っていた**（実走が実測）。1 日 2 回改修すれば必ず起きる。
+  # git が無い／未コミットなら辞書順に落とす（判定自体はそのとき鮮度を見ないので実害が無い）
+  _fr=""
+  if git -C "$SKILLS" rev-parse --git-dir >/dev/null 2>&1; then
+    _fr=$(for _ff in "$FLOWDIR"/[0-9]*.md; do
+            [ -f "$_ff" ] || continue
+            _ft=$(git -C "$SKILLS" log -1 --format=%ct -- "$_ff" 2>/dev/null)
+            # **未コミットの記録は「いちばん新しい」**。記録は改修と同じコミットに載せる運用なので、
+            # 書いた直後は必ず未コミットになる。0 に落とすと**いま書いた記録が最下位になり、
+            # 古い記録を相手に鮮度を見る**（コミット時刻で選ぶようにした直後にこれを踏んだ）
+            printf '%s\t%s\n' "${_ft:-9999999999}" "$_ff"
+          done | LC_ALL=C sort -n -k1,1 | tail -n1 | cut -f2-)
+  fi
+  [ -n "$_fr" ] || _fr=$(ls "$FLOWDIR"/[0-9]*.md 2>/dev/null | LC_ALL=C sort | tail -n1)
   if [ -z "$_fr" ]; then
     ng "L8 実走記録が1件も無い（$FLOWDIR/<日付>-<slug>.md。書き方は同ディレクトリの README.md）"
   else

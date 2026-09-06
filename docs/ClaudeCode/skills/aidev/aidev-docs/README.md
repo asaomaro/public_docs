@@ -175,6 +175,12 @@ deliver 前の `aidev verify`（不変条件）。いずれも exit≠0 なら�
 致命にはせず、**`decisions.md` にそのタスク ID／工程名を含む行を残せば消える**——
 消す手段が「規約が禁じている `report` を打つ」しか無い WARN では、規約に従うほど鳴り続ける。
 
+**plan モードに入る条件の正典は `protocol-autonomous.md`「plan モードとの関係」の 1 箇所**。
+判断基準は「**二重ゲートに見合うか**」——aidev は全工程に承認ゲートを持つので、
+plan モードで承認するものがゲートの承認対象と違うときだけ割に合う。
+工程 SKILL には引き金だけを置き、**条件を写さない**（写した条件は次の変更で取り残される。
+`lint-docs.sh` の L9 が検査する）。
+
 **`mode: autonomous` では上流4工程の `doccheck` が必須**（人間の目が入らないので、点検の要否を
 書いた本人の裁量に残さない）。記録が無いまま承認すると `verify` が WARN、`--strict` で落ちる。
 
@@ -245,8 +251,10 @@ work 専用の git worktree と `feature/<slug>` ブランチを作り、main tr
   aidev-00-start/      入口 + protocol.md（共通規約のホーム）
   aidev-10-requirement/ … aidev-95-retro/   各工程（番号付きパイプライン）
   aidev-util-propose/ aidev-util-batch/ aidev-util-insights/   ユーティリティ（番号なし・パイプライン外）
-  aidev-docs/          このREADMEとDESIGN（参照専用・skillではない）＋ bin/
+  aidev-docs/          このREADMEとDESIGN（参照専用・skillではない）＋ bin/ + retro/
     bin/               ランタイムガード CLI（aidev=POSIX sh / aidev.ps1=PowerShell・README.md / test/ 同梱）
+      test/flow-runs/  ハーネス改修の実走記録（3 ゲートの証跡。書き方は同ディレクトリの README.md。L8 が検査）
+    retro/             改修の材料として受け取った振り返り（work の公開写し／外部レビュー。README.md に置き方）
 .aidev/                PJ固有の実行時状態（skill ではない）
   config.yml           PJ単位の設定（tracker / lightMaxFiles / smokeCommand（または smokeCommands）/ smokeCommandWindows / smokeTimeoutSec /
                        smokeStaleAfter / maxDebugRounds / maxTaskCheckRounds / maxDocCheckRounds / conventionsDir / conventionsIndex / docsRoots /

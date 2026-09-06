@@ -2542,6 +2542,50 @@ echo "== 文書と CLI 表面の整合（lint-docs.sh）=="
 LINTOUT=$("$SELF/lint-docs.sh" 2>&1); LINTRC=$?
 printf '%s\n' "$LINTOUT" | sed 's/^/  | /'
 assert_eq "$LINTRC" "0" "lint-docs: 文書と CLI 表面が整合している"
+# **検査が本当にその欠陥を捕まえるか**を、欠陥を一度戻して確かめる。
+# L9 は「工程 SKILL の plan モード行に判定条件を写さない」を見る検査で、
+# 外部レビューが提案した形（判定キーが本文に出たら WARN）では**今回の欠陥を捕まえられなかった**
+# ——残っていた文言は `full` × `interactive` でキー名を 1 つも含んでいなかったため。値の側も見る
+# **ハーネス本体は書き換えない**。初版は正典ファイルを in-place で汚して cp で戻していたが、
+# 中断（Ctrl-C・タイムアウト・lint の異常終了）で**欠陥文言が残ったままになる**（実走が指摘）。
+# skills ごと $TMP へ写して、その複製の中で欠陥を再現する
+L9SRC=$(cd "$SELF/../../.." && pwd)
+rm -rf "$TMP/l9skills"; cp -r "$L9SRC" "$TMP/l9skills"
+L9F=$TMP/l9skills/aidev-20-spec/SKILL.md
+L9LINT=$TMP/l9skills/aidev-docs/bin/test/lint-docs.sh
+assert_eq "$("$L9LINT" >/dev/null 2>&1; echo $?)" "0" "lint L9: 複製そのままでは通る（土台の確認）"
+# 実走が見つけた抜け穴を 1 つずつ塞いだので、**塞いだ形が本当に捕まるか**を全部見る。
+# 見出しのゆれ・継続行・自然語・CLI フラグ綴り——どれか 1 つでも素通りすると、
+# 検査は「在るのに効かない」状態になる（分類 G と同じ）
+l9probe() { # 名前 置換後の本文
+  printf '%s' "$2" > "$TMP/l9.to"
+  python3 - "$L9F" "$L9SRC/aidev-20-spec/SKILL.md" "$TMP/l9.to" <<'PYEOF'
+import io,sys
+tgt,orig,to=sys.argv[1],sys.argv[2],sys.argv[3]
+s=io.open(orig,encoding='utf-8').read()
+lines=s.split('\n')
+for i,l in enumerate(lines):
+    if 'plan モードへ入る' in l:
+        j=i+1
+        while j<len(lines) and lines[j].startswith('     '): j+=1
+        lines[i:j]=io.open(to,encoding='utf-8').read().split('\n')
+        break
+io.open(tgt,'w',encoding='utf-8').write('\n'.join(lines))
+PYEOF
+  _n=$("$L9LINT" 2>&1 | grep -c 'NG: L9') || _n=0
+  cp "$L9SRC/aidev-20-spec/SKILL.md" "$L9F"
+  assert_ne "$_n" "0" "lint L9: $1 を捕まえる"
+}
+l9probe "条件をそのまま写す" '   - 有力な案が複数あるなら、**`spec.md` を書く前に plan モードへ入る**（`full` × `interactive` のみ）。'
+l9probe "条件を継続行へ送る" '   - 有力な案が複数あるなら、**`spec.md` を書く前に plan モードへ入る**。
+     入るのは `full` × `interactive` のときだけ。'
+l9probe "現行条件を自然語で写す" '   - 有力な案が複数あるなら、**plan モードへ入る**（その工程に承認者がいるときだけ）。'
+l9probe "見出しの表記ゆれ" '   - 有力な案が複数あるなら、**planモードへ入る**（`full` × `interactive` のみ）。'
+l9probe "英語表記" '   - 有力な案が複数あるなら、**plan mode へ入る**（`full` × `interactive` のみ）。'
+l9probe "CLI フラグの綴り" '   - 有力な案が複数あるなら、**plan モードへ入る**（`--human-gates` に挙がっているときだけ）。'
+assert_eq "$("$L9LINT" >/dev/null 2>&1; echo $?)" "0" "lint L9: 全て戻せば通る（複製を汚したままにしない）"
+assert_eq "$(cd "$L9SRC" && git status --porcelain -- aidev-20-spec/SKILL.md 2>/dev/null | grep -c .)" "0" \
+  "lint L9: ハーネス本体を書き換えていない"
 
 echo "== sh ⇔ ps1 パリティ =="
 if [ -n "$PS_HOST" ]; then
