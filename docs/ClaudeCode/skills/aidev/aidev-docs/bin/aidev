@@ -1871,6 +1871,7 @@ tc_start() {
   [ -n "$_tmode" ] || die "--mode は必須（delegated=別コンテキストへ委譲 / same_session=同一セッションで読み直し）。点検が効く理由はコンテキスト分離なので、どちらで行ったかを残さないと効果を測れない"
   case " $TC_MODES " in *" $_tmode "*) ;; *) die "--mode は delegated|same_session" ;; esac
   resolve_work "$_tslug"
+  check_reject_light "タスクの差分点検（taskcheck）"
   tc_known_id "$_tid" || die "tasks.md にそのタスクがありません: $_tid（打ち間違いか、tasks.md へ足し忘れ。足したなら AC: も書く）"
   _tmax=$(tc_max)
   _tr=$(tc_rounds "$WORK/metrics.yml" "$_tid")
@@ -2058,6 +2059,15 @@ dc_totals() { # metrics_file phase
   return 0
 }
 
+# **`protocol-check.md` の「`profile: light` では使わない」は散文にしか無かった**（実走が実測）。
+# light の趣旨は往復を減らすことなので、点検が要るなら light の条件を外れている
+# ——止めて `aidev escalate` を名指しする（同文書いわく「(a) では昇格の合図でもある」）
+check_reject_light() { # ラベル（WORK は解決済み）
+  [ "$(yget "$WORK/state.yml" profile)" = light ] || return 0
+  printf 'aidev: profile=light では%sを使いません（往復を減らす趣旨に反する。protocol-check.md）\n' "$1" >&2
+  printf 'next: 点検が要るなら light の条件を外れています。aidev escalate で full へ昇格してから打つ\n' >&2
+  exit 2
+}
 dc_start() {
   _dph=""; _dslug=""; _dmode=""
   while [ $# -gt 0 ]; do
@@ -2073,6 +2083,7 @@ dc_start() {
   [ -n "$_dmode" ] || die "--mode は必須（delegated=別コンテキストへ委譲 / same_session=同一セッションで読み直し）。点検が効く理由はコンテキスト分離なので、どちらで行ったかを残さないと効果を測れない"
   case " $TC_MODES " in *" $_dmode "*) ;; *) die "--mode は delegated|same_session" ;; esac
   resolve_work "$_dslug"
+  check_reject_light "文書の独立点検（doccheck）"
   # 前提成果物の不足は exit 2（`guard` と同じ分類。使い方の誤り=1 と混ぜない）
   if [ ! -f "$WORK/$_dph.md" ]; then
     printf 'aidev: 点検する文書がありません: %s.md（その工程を先に書く）\n' "$_dph" >&2

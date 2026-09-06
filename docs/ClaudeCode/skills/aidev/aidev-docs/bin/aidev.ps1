@@ -1680,6 +1680,7 @@ function Tc-Start($rest) {
   if (-not $tmode) { Die "--mode は必須（delegated=別コンテキストへ委譲 / same_session=同一セッションで読み直し）。点検が効く理由はコンテキスト分離なので、どちらで行ったかを残さないと効果を測れない" }
   if ($script:TC_MODES -cnotcontains $tmode) { Die "--mode は delegated|same_session" }
   ResolveWork $tslug
+  CheckRejectLight 'タスクの差分点検（taskcheck）'
   if (-not (TcKnownId $tid)) { Die "tasks.md にそのタスクがありません: $tid（打ち間違いか、tasks.md へ足し忘れ。足したなら AC: も書く）" }
   $mf = Join-Path $script:WORK 'metrics.yml'
   $tmax = TcMax
@@ -1858,6 +1859,13 @@ function DcTotals($metricsFile, $phase) {
   elseif ($modes.Keys.Count -gt 1) { $r.mode = 'mixed' }
   return $r
 }
+# **`protocol-check.md` の「`profile: light` では使わない」は散文にしか無かった**（sh 側 check_reject_light と対）。
+function CheckRejectLight($label) {
+  if ((YGet (Join-Path $script:WORK 'state.yml') 'profile') -cne 'light') { return }
+  [Console]::Error.WriteLine("aidev: profile=light では${label}を使いません（往復を減らす趣旨に反する。protocol-check.md）")
+  [Console]::Error.WriteLine("next: 点検が要るなら light の条件を外れています。aidev escalate で full へ昇格してから打つ")
+  exit 2
+}
 function Dc-Start($rest) {
   $dph=''; $dslug=''; $dmode=''
   for ($i=0; $i -lt $rest.Count; $i++) {
@@ -1875,6 +1883,7 @@ function Dc-Start($rest) {
   if (-not $dmode) { Die "--mode は必須（delegated=別コンテキストへ委譲 / same_session=同一セッションで読み直し）。点検が効く理由はコンテキスト分離なので、どちらで行ったかを残さないと効果を測れない" }
   if ($script:TC_MODES -cnotcontains $dmode) { Die "--mode は delegated|same_session" }
   ResolveWork $dslug
+  CheckRejectLight '文書の独立点検（doccheck）'
   # 前提成果物の不足は exit 2（guard と同じ分類。使い方の誤り=1 と混ぜない）
   if (-not (IsFile (Join-Path $script:WORK "$dph.md"))) {
     [Console]::Error.WriteLine("aidev: 点検する文書がありません: $dph.md（その工程を先に書く）")

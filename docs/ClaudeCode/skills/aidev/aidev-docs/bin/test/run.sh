@@ -910,6 +910,23 @@ assert_absent  "$F_NEW" "requirements 1ゲート" "new(既定): light の注意�
 
 run_lsh new bad --profile medium >/dev/null 2>&1; assert_eq "$?" "1" "不正な --profile は exit 1"
 
+# **`protocol-check.md` の「`profile: light` では使わない」は散文にしか無かった**（実走が実測）。
+# light の趣旨は往復を減らすことなので、点検が要るなら light の条件を外れている
+: > "$LREPO/.aidev/works/$L_SLUG/requirements.md"
+printf -- '- [ ] T1: x\n' > "$LREPO/.aidev/works/$L_SLUG/tasks.md"
+LDC=$(run_lsh doccheck start requirements --mode delegated --slug "$L_SLUG" 2>&1); LDC_RC=$?
+assert_eq "$LDC_RC" "2" "doccheck start: profile=light を弾く（exit 2）"
+assert_contains "$LDC" "aidev escalate" "doccheck start: 昇格の手段を名指しする（止めるだけにしない）"
+LTC=$(run_lsh taskcheck start T1 --mode delegated --slug "$L_SLUG" 2>&1); LTC_RC=$?
+assert_eq "$LTC_RC" "2" "taskcheck start: profile=light を弾く（exit 2）"
+assert_contains "$LTC" "aidev escalate" "taskcheck start: 昇格の手段を名指しする"
+# full なら通る（light 判定が空振りでないことの確認）
+: > "$LREPO/.aidev/works/$F_SLUG/requirements.md"
+run_lsh doccheck start requirements --mode delegated --slug "$F_SLUG" >/dev/null 2>&1
+assert_eq "$?" "0" "doccheck start: profile=full は通る（light 判定が全部を止めていない）"
+rm -f "$LREPO/.aidev/works/$L_SLUG/requirements.md" "$LREPO/.aidev/works/$L_SLUG/tasks.md" \
+      "$LREPO/.aidev/works/$F_SLUG/requirements.md"
+
 # subtask は親の profile を継承する（親 light / 子 full の食い違いを構造的に防ぐ）
 P_NEW=$(run_lsh new parent-light --light); P_SLUG=$(cat "$LREPO/.aidev/current")
 assert_contains "$P_NEW" "profile light" "new --light(親): profile light"
