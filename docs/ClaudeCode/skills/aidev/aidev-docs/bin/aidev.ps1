@@ -184,7 +184,7 @@ function IsPhase($p) { return $script:PHASES -ccontains $p }
 # 次に何を打てばよいか分からない、という実走の指摘に対応する
 function DieUnknownPhase($name, $lead, $extra) {
   if (-not $lead) { $lead = '未知の phase' }
-  Die "${lead}: $name（有効な工程: $($script:PHASES -join  )）$extra"
+  Die "${lead}: $name（有効な工程: $($script:PHASES -join ' ')）$extra"
 }
 
 # Die は exit するので `if (ResolveWork …)` では受からない（sh 版 resolve_work_soft の注記に理由）
