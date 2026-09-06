@@ -42,7 +42,7 @@ review 終了時に **protocol.md「4.5」の walkthrough の3条件**のいず�
 ## 手順
 
 1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定する。
-   `aidev guard walkthrough` で前提を検査する（exit≠0＝未充足。目視確認で代替しない）。
+   `aidev guard walkthrough` で前提を検査し、`aidev event walkthrough start` を記録する（exit≠0＝未充足。start が無いと `verify --strict` が落ち、ts は後から復元できない）。
 2. 差分と成果物を読み、**レビュアーが知るべき非自明な点**を抽出する。
    - 重要ポイント（設計判断の要、トリッキーな箇所、影響範囲）
    - リスク・特に見てほしい点

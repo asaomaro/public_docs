@@ -2136,12 +2136,13 @@ run_au doccheck start plan --mode delegated >/dev/null 2>&1
 assert_eq "$?" "4" "doccheck start: maxDocCheckRounds に達したら exit 4"
 run_au doccheck start spec --mode same_session >/dev/null
 run_au doccheck report spec --findings 0 >/dev/null
-assert_contains "$(run_au doccheck status)" "doccheck-summary: rounds=4 findings=2 mode=mixed" \
-  "doccheck status: 工程ごとに数え、形態が割れていれば mixed"
+# **数えるのは report まで届いたラウンドだけ**（start だけのラウンドは「点検した」に数えない）
+assert_contains "$(run_au doccheck status)" "doccheck-summary: rounds=2 findings=2 mode=mixed" \
+  "doccheck status: report まで届いたラウンドだけ数え、形態が割れていれば mixed"
 # 件数は approve が自動で刻む（工程ごと）
 run_au approve plan >/dev/null
-assert_contains "$(cat "$AU_D/metrics.yml")" "doc_check_rounds: 2, doc_check_findings: 2, doc_check_mode: delegated" \
-  "approve <phase>: 上流の点検メトリクスを doccheck の記録から自動で刻む"
+assert_contains "$(cat "$AU_D/metrics.yml")" "doc_check_rounds: 1, doc_check_findings: 2, doc_check_mode: delegated" \
+  "approve <phase>: 上流の点検メトリクスを doccheck の記録から自動で刻む（report まで届いた分）"
 # schema 11: autonomous で記録が無ければ verify が WARN（--strict で致命）
 mk_work dcauto
 awk '{ if ($0 ~ /^mode:/) print "mode: autonomous"; else print }' "$AU_D/state.yml" > "$AU_D/state.yml.t"
@@ -2234,6 +2235,86 @@ assert_contains "$(run_au new dcnote --mode autonomous)" "上流4工程は独立
   "new: autonomous を選んだ時点で必須になる点検を知らせる（付録は該当条件を知らないと読まれない）"
 assert_eq "$(run_au new dclight --mode autonomous --light | grep -c '上流4工程は独立点検が必須')" "0" \
   "new: light では出さない（light は独立点検を使わない）"
+
+# (12d) 他 PJ の retro（host）が見つけた 4 件
+# **「点検して 0 件」と「start だけで終わった」を見分ける**。散文（protocol-check.md）は
+# 「形式不正なら点検しなかったものとして扱う（task_checks に数えない）」と定めているのに、
+# CLI は start で数えていた——**散文と CLI が食い違っていた**
+mk_work tcun
+printf -- '- [ ] T1: x\n      AC: AC1\n- [ ] T2: y\n      AC: AC2\n' > "$AU_D/tasks.md"
+run_au taskcheck start T1 --mode delegated >/dev/null
+run_au taskcheck report T1 --findings 2 >/dev/null
+run_au taskcheck start T2 --mode delegated >/dev/null   # report を打たない（委譲の出し忘れ）
+TCUN=$(run_au taskcheck status)
+assert_contains "$TCUN" "taskcheck-summary: tasks=1 findings=2" \
+  "taskcheck: 数えるのは report まで届いたタスクだけ（断念は数えない）"
+assert_contains "$TCUN" "report が無い start が 1 件あります（T2）" \
+  "taskcheck status: 未報告の start を名指しする（0 件と未実施を見分ける）"
+assert_contains "$(run_au verify 2>&1)" "report が追いついていないものが 1 件あります（T2）" \
+  "verify: 未報告の start を WARN する"
+run_au approve coding >/dev/null
+assert_contains "$(cat "$AU_D/metrics.yml")" "task_checks: 1, task_check_findings: 2" \
+  "approve coding: 未報告のタスクは task_checks に数えない（散文どおり）"
+# **ラウンド粒度**でも見る。protocol-check「(b)」が明示的に認めている「1ラウンド目は成功・
+# 2ラウンド目を断念」は、`report が 1 度も無い` だけで見ていた頃はまるごと網から落ちていた
+# （表は unreported=yes と出すのに、同じコマンドの note と verify が黙る自己矛盾つき）
+run_au taskcheck start T1 --mode delegated >/dev/null   # 2ラウンド目・report を打たない
+TCR2=$(run_au taskcheck status)
+assert_contains "$TCR2" "（T1 T2）" \
+  "taskcheck: 2ラウンド目の断念も名指しする（ラウンド粒度で見る）"
+assert_contains "$(run_au verify 2>&1)" "（T1 T2）" \
+  "verify: 2ラウンド目の断念も WARN する"
+# **断念は認められた出口**なので、decisions.md に残せば消える。消す手段が
+# 「規約が禁じている report を打つ」しか無い WARN は、規約に従うほど鳴り続ける
+printf -- '- T1: 形式不正が2回続いたので断念。60 review に委ねる\n' > "$AU_D/decisions.md"
+assert_contains "$(run_au taskcheck status)" "（T2）" \
+  "taskcheck: decisions.md に残した断念は名指ししない"
+assert_eq "$(run_au verify 2>&1 | grep -c 'T1 T2')" "0" \
+  "verify: decisions.md に残した断念は WARN から外れる"
+rm -f "$AU_D/decisions.md"
+# doccheck の report を「直したあと」に打ったら言う（規約はあったが破っても何も起きなかった）
+mk_work dcsz
+printf 'spec\n' > "$AU_D/spec.md"
+run_au doccheck start spec --mode delegated >/dev/null
+printf 'あとから直した\n' >> "$AU_D/spec.md"
+assert_contains "$(run_au doccheck report spec --findings 1)" "start 時点から変わっています" \
+  "doccheck report: 直したあとに打つと言う（report は直す前に打つ）"
+run_au doccheck start spec --mode delegated >/dev/null
+assert_eq "$(run_au doccheck report spec --findings 0 | grep -c '変わっています')" "0" \
+  "doccheck report: 直していなければ鳴らない"
+# **plan は plan.md と tasks.md の 2 つ**を渡す（dc_start の出力自身がそう言っている）。
+# plan.md しか見ていなかった頃は、`AC:` 行がある tasks.md だけを直しても何も言わなかった
+mk_work dcplan
+printf 'plan\n' > "$AU_D/plan.md"
+printf -- '- [ ] T1: x\n      AC: AC1\n' > "$AU_D/tasks.md"
+run_au doccheck start plan --mode delegated >/dev/null
+printf -- '      対象: src/a.py\n' >> "$AU_D/tasks.md"
+assert_contains "$(run_au doccheck report plan --findings 1)" "plan.md と tasks.md が start 時点から変わっています" \
+  "doccheck report: plan は tasks.md の変更も見る（AC 行はそこにしかない）"
+# **doccheck にも未報告の検知**。protocol-check は (a)(b) で「規律・禁止事項は共通」と宣言しているのに、
+# 数え方だけ対称化して検知は (b) にしか無く、上流文書の出し忘れは一生表に出なかった
+mk_work dcun
+printf 'spec\n' > "$AU_D/spec.md"
+run_au doccheck start spec --mode delegated >/dev/null   # report を打たない
+DCUN=$(run_au doccheck status)
+assert_contains "$DCUN" "report が無い start が 1 件あります（spec）" \
+  "doccheck status: 未報告の start を名指しする（taskcheck と同じ文言）"
+assert_contains "$(run_au doccheck status --format tsv)" "doccheck	spec	0	0	" \
+  "doccheck status: 数えるのは report まで届いたラウンドだけ"
+assert_contains "$(run_au verify 2>&1)" "doccheck の start に report が追いついていない" \
+  "verify: doccheck の未報告も WARN する"
+printf -- '- spec: 形式不正が2回続いたので断念\n' > "$AU_D/decisions.md"
+assert_eq "$(run_au doccheck status | grep -c 'report が無い start')" "0" \
+  "doccheck: decisions.md に残した断念は名指ししない"
+rm -f "$AU_D/decisions.md"
+# 上限に照らすのは **start の数**。report 数で判定すると「まだ余裕がある」と出したそばから exit 4 になる
+assert_contains "$(run_au doccheck status)" "yes" \
+  "doccheck status: at_max は start の数で判定する（未報告でも枠は食う）"
+# remote が無い＝人間由来の判定材料が 1 件も残らない work を機械が拾えるようにする
+mk_work rem
+run_au approve deliver >/dev/null
+assert_contains "$(cat "$AU_D/metrics.yml")" "remote: none" \
+  "approve deliver: remote が無い環境を刻む（PR レビュー節が生まれないことを insights が拾える）"
 
 # (13) limits: 上限の一覧と設定口（手編集しかなかった）
 assert_contains "$(run_au limits)" "maxTaskCheckRounds" "limits: 上限を一覧できる"
@@ -2452,9 +2533,43 @@ if [ -n "$PS_HOST" ]; then
   ( cd "$PDC" && run_ps1 "$AIDEV_PS1" doccheck start spec --mode delegated ) >/dev/null 2>&1
   assert_eq "$?" "4" "パリティ: ps1 も maxDocCheckRounds で exit 4"
   ( cd "$PDC" && run_ps1 "$AIDEV_PS1" approve spec ) >/dev/null 2>&1
-  assert_contains "$(tr -d '\r' < "$PDCD/metrics.yml")" "doc_check_rounds: 2" \
-    "パリティ: ps1 の approve も上流の点検メトリクスを自動で刻む"
+  ( cd "$PDC" && run_ps1 "$AIDEV_PS1" doccheck report spec --findings 0 ) >/dev/null 2>&1
+  ( cd "$PDC" && run_ps1 "$AIDEV_PS1" approve spec ) >/dev/null 2>&1
+  assert_contains "$(tr -d '\r' < "$PDCD/metrics.yml")" "doc_check_rounds: 1" \
+    "パリティ: ps1 の approve も上流の点検メトリクスを自動で刻む（report まで届いた分）"
   rm -rf "$PDC"
+
+  # 他 PJ の retro（host）が見つけた 3 件の ps1 側。**ここが唯一の検査**（上のブロックと同じ理由）
+  PDU=$(mktemp -d); mkdir -p "$PDU/.aidev/works"
+  ( cd "$PDU" && "$AIDEV_SH" new pdu >/dev/null )
+  PDUD="$PDU/.aidev/works/$(cat "$PDU/.aidev/current")"
+  printf 'plan\n' > "$PDUD/plan.md"
+  printf -- '- [ ] T1: x\n      AC: AC1\n' > "$PDUD/tasks.md"
+  # ① plan は plan.md と tasks.md の 2 つを見る（tasks.md だけ直しても言う）
+  ( cd "$PDU" && run_ps1 "$AIDEV_PS1" doccheck start plan --mode delegated ) >/dev/null 2>&1
+  printf -- '      対象: src/a.py\n' >> "$PDUD/tasks.md"
+  PDU_R=$( ( cd "$PDU" && run_ps1 "$AIDEV_PS1" doccheck report plan --findings 1 ) | tr -d '\r' )
+  assert_contains "$PDU_R" "plan.md と tasks.md が start 時点から変わっています" \
+    "パリティ: ps1 doccheck report も plan の tasks.md の変更を見る"
+  # ② doccheck の未報告検知（status の note と verify の WARN）
+  : > "$PDUD/spec.md"
+  ( cd "$PDU" && run_ps1 "$AIDEV_PS1" doccheck start spec --mode delegated ) >/dev/null 2>&1
+  PDU_S=$( ( cd "$PDU" && "$AIDEV_SH" doccheck status ) )
+  PDU_P=$( ( cd "$PDU" && run_ps1 "$AIDEV_PS1" doccheck status ) | tr -d '\r' )
+  assert_eq "$PDU_S" "$PDU_P" "パリティ: doccheck status（unreported 列と note）"
+  assert_contains "$PDU_P" "report が無い start が 1 件あります（spec）" \
+    "パリティ: ps1 も doccheck の未報告を名指しする"
+  PDU_VS=$( ( cd "$PDU" && "$AIDEV_SH" verify ) 2>&1 )
+  PDU_VP=$( ( cd "$PDU" && run_ps1 "$AIDEV_PS1" verify ) 2>&1 | tr -d '\r' )
+  assert_eq "$PDU_VS" "$PDU_VP" "パリティ: verify（doccheck の未報告 WARN）"
+  # ③ 断念を decisions.md に残せば消える（両実装で同じ消え方をする）
+  printf -- '- spec: 形式不正が2回続いたので断念\n' > "$PDUD/decisions.md"
+  PDU_S2=$( ( cd "$PDU" && "$AIDEV_SH" doccheck status ) )
+  PDU_P2=$( ( cd "$PDU" && run_ps1 "$AIDEV_PS1" doccheck status ) | tr -d '\r' )
+  assert_eq "$PDU_S2" "$PDU_P2" "パリティ: doccheck status（decisions.md で断念を認めたあと）"
+  assert_eq "$(printf '%s' "$PDU_P2" | grep -c 'report が無い start')" "0" \
+    "パリティ: ps1 も decisions.md に残した断念は名指ししない"
+  rm -rf "$PDU"
 
   # coverage のパリティ（被覆率と gap の判定が OS で食い違うと、片方の環境でだけ穴が通る）
   PCOV=$(mktemp -d); mkdir -p "$PCOV/.aidev/backlog"
@@ -3410,9 +3525,9 @@ YML
   else
     skip 10 "git 不在のため worktree パリティを省略"
   fi
-  block_end parity "248" "parity"
+  block_end parity "254" "parity"
 else
-  skip 234 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
+  skip 240 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
 fi
 
 echo

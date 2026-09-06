@@ -45,7 +45,7 @@
 - **逸脱記録**: 自律中の重要判断は decisions.md に残す。
 - **独立点検**: 人間の目が入らないので、上流4文書は `aidev doccheck`、coding の各タスクは
   `aidev taskcheck` で点検を記録する（`protocol-check.md`「3.3」）。記録が無いまま承認すると
-  `verify` が WARN、`--strict` で落ちる。
+  `verify` が WARN（**致命になるのは上流4文書の欠落だけ**——`--strict` で exit 5）。
 
 ### 実行手段（別レイヤ）
 autonomous の「夜間に回す」には実行主体が要る（headless 実行 / スケジュール起動でオーケストレーターが

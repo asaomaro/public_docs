@@ -197,7 +197,13 @@ BUDGET_PROTOCOL=608
 #   protocol-analysis に doc_check_* の読み方 +2（刻んだメトリクスの使い道が未定義だった）
 #   aidev-00-start に --backlog-item +2（打たないと status の HELD が行単位で出ない）
 #   各 SKILL の doccheck 行 +3（正典は protocol-check。ここは引き金と打つコマンドだけ）
-BUDGET_TOTAL=3410
+# 3410 -> 3412: 実走で「書いてあるのに機械が一度も通らない」経路が 1 本見つかったぶん。
+#   protocol.md「運用方針」に CLI の実体パス +2（各 skill のコマンド例は裸の `aidev` で、
+#     PATH は誰も通していない。`aidev-00-start` を読まずに工程 skill を直接叩く運用——
+#     同じ節が明示的に許している経路——では最初のコマンドで止まっていた）
+#   任意3工程（research / design / walkthrough）の `event <工程> start` は**行を増やさず**
+#     既存の guard 行を書き換えて足した（打たないと `verify --strict` が exit 5 になる経路）
+BUDGET_TOTAL=3412
 _p=$(wc -l < "$SKILLS/aidev-00-start/protocol.md")
 _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 [ "$_p" -le "$BUDGET_PROTOCOL" ] && ok "L6 protocol.md が予算内（$_p / $BUDGET_PROTOCOL 行）" \

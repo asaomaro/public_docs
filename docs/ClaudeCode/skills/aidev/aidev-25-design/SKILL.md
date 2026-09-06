@@ -40,7 +40,7 @@ spec 終了時に **protocol.md「4.5」の design の4条件**のいずれか�
 ## 手順
 
 1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定。
-   `aidev guard design` で前提を検査する（exit≠0＝未充足。目視確認で代替しない）。
+   `aidev guard design` で前提を検査し、`aidev event design start` を記録する（exit≠0＝未充足。start が無いと `verify --strict` が落ち、ts は後から復元できない）。
 2. spec を実現する構造を設計する。典型的な観点:
    - コンポーネント / モジュール分割と責務
    - 主要インターフェース・型・データモデル
