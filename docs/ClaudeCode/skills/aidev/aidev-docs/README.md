@@ -21,7 +21,7 @@ PJ非依存の開発ワークフローを、skill 群で制御・進捗管理す
    ```
 
    現在の作業状況を確認し、「続きから / 別工程をやり直す / 新規作業」を選べる。
-2. 新規作業を選ぶと `.aidev/works/<YYYYMMDD>-<slug>/` が作られ、requirement 工程へ進む。
+2. 新規作業を選ぶと `.aidev/works/<YYYYMMDD>-<slug>/` が作られ、requirements 工程へ進む。
 3. 以降、各工程の最後で承認ゲート（選択肢UX）が出る。選ぶだけで次へ進む／中断できる。
 
 慣れていれば各工程を直接呼んでもよい（例 `/aidev-40-coding`）。各工程は前提を自己チェックする。
@@ -36,11 +36,11 @@ PJ非依存の開発ワークフローを、skill 群で制御・進捗管理す
 | 番号 | 工程 | 種別 | 役割 |
 |------|------|------|------|
 | 00 | start | 入口 | ルーター。状況確認と工程案内 |
-| 10 | requirement | 標準 | 何を・なぜ作るか。ゴール（達成したい状態）・ユーザーストーリー・受け入れ基準（requirement.md） |
-| 15 | research | 任意 | spec 前の事実調査（research.md） |
-| 20 | spec | 標準 | どう作るか・仕様（spec.md） |
-| 25 | design | 任意 | 構造設計（design.md） |
-| 30 | plan | 標準 | 作業分解（plan.md / tasks.md） |
+| 10 | requirements | 標準 | 何を・なぜ作るか。ゴール（達成したい状態）・ユーザーストーリー・受け入れ基準（requirements.md） |
+| 15 | research | 任意 | design 前の事実調査（research.md） |
+| 20 | design | 標準 | どう作るか・仕様（design.md） |
+| 25 | architecture | 任意 | 構造設計（architecture.md） |
+| 30 | tasks | 標準 | 作業分解（tasks.md） |
 | 40 | coding | 標準 | 実装、tasks 更新 |
 | 50 | test | 標準 | 受け入れ基準の検証と**起動確認**（test-result.md。失敗は生出力ごと残す） |
 | 60 | review | 標準 | 差分点検（指摘あれば coding へ差し戻し） |
@@ -48,21 +48,30 @@ PJ非依存の開発ワークフローを、skill 群で制御・進捗管理す
 | 70 | deliver | 標準（最終） | コミット / PR で着地 |
 | 95 | retro | 任意 | 振り返りと改善提案（retro.md） |
 
-> **`spec` の意味が他ツールと逆**。aidev の `spec` は「**どう作るか**」（実装仕様）だが、
-> GitHub Spec Kit の `spec.md` は「requirements and user stories」＝**要件**で、
-> aidev の `requirement` に当たる（Spec Kit の `plan.md`＝aidev の `spec`、
-> `tasks.md`＝aidev の `plan`）。Kiro も `requirements` / `design` / `tasks`。
-> **他ツールから来たら 1 段ずれる**——実際、この読み違いで「requirement も spec と同じ側」と
-> 誤判定した事故が起きている（`DESIGN`「2.」）。
+> **工程名は他 SDD ツールに合わせてある**（2026-09-06 に改名）。以前は `requirement` /
+> **`spec`**（どう作るか）/ `design`（構造）/ **`plan`**（分解）で、**業界とは 1 段ずれていた**——
+> GitHub Spec Kit の `spec.md` は「requirements and user stories」＝**要件**、`plan.md` は
+> **technical design**、`tasks.md` が分解。Kiro は `requirements` / `design` / `tasks`。
+> このずれで plan モードの適用工程を 3 往復して誤判定した実績があるので、名前を業界の意味に揃えた。
+>
+> | | 何を・なぜ | どう作るか | 構造 | 分解 |
+> |---|---|---|---|---|
+> | Kiro | requirements | — | design | tasks |
+> | Spec Kit | spec | plan | — | tasks |
+> | **aidev** | **requirements** | **design** | **architecture** | **tasks** |
+>
+> `architecture` だけ他ツールに無い（aidev は「どう作るか」と「構造」を別工程に持つ）。
+> 旧名の成果物は**移行しない**——特に**旧 `design.md`（構造）は新 `design.md`（実装仕様）と
+> 同名別義**なので、古い work をそのまま流用しないこと。
 
-標準フロー：`requirement → spec → plan → coding → test → review → deliver`。
+標準フロー：`requirements → design → tasks → coding → test → review → deliver`。
 番号末尾 **0=標準 / 5=任意**。番号は推奨順であり強制ではない（差し戻し可）。
 
-**受け入れ基準（`AC`）は requirement で立て、tasks.md の `AC:` 行が ID で参照する。**
+**受け入れ基準（`AC`）は requirements で立て、tasks.md の `AC:` 行が ID で参照する。**
 `aidev coverage` がその対応を機械的に突き合わせ、**タスクに落ちていない `AC`** と
-**`tasks.md` の壊れた参照**（未定義の ID・依存の循環）を出す。plan は承認前に
-`aidev coverage --strict` を通し、review は同じコマンドをもう一度打って plan 時との差分を
-「spec と実装の乖離」として読む。
+**`tasks.md` の壊れた参照**（未定義の ID・依存の循環）を出す。tasks は承認前に
+`aidev coverage --strict` を通し、review は同じコマンドをもう一度打って tasks 時との差分を
+「design と実装の乖離」として読む。
 
 ### 命名カテゴリ（役割で割る）
 
@@ -134,7 +143,7 @@ planner の方針は `.aidev/charter.md` で縛る。
 自動では次へ進まない。最終工程 deliver では「承認して完了」になる。
 （AskUserQuestion 非対応エージェントでは同じ選択肢をテキストで提示）
 
-選択肢とは別に、**機械が判定する硬いゲート**が 3 つある——plan の `aidev coverage --strict`
+選択肢とは別に、**機械が判定する硬いゲート**が 3 つある——tasks の `aidev coverage --strict`
 （受け入れ基準の被覆と tasks.md の整合）、test の `aidev smoke`（成果物が起動するか）、
 deliver 前の `aidev verify`（不変条件）。いずれも exit≠0 なら承認しない。
 `aidev doctor` は導入の自己診断も兼ねる——`.aidev/current` が git に追跡されていないか
@@ -150,14 +159,14 @@ deliver 前の `aidev verify`（不変条件）。いずれも exit≠0 なら�
 `state.yml` の `mode` で切替（既定 interactive）。
 
 - **interactive**: 各工程末で人間が承認（上記ゲート）。
-- **autonomous**: 人間ゲートを置かず requirement→…→deliver を自律実行し、**PR を出して停止**（auto-merge しない）。
-  夜間に回して朝に PR を一括レビューする使い方。`humanGates`（例 `[spec]`）で特定工程だけ人間ゲートを残す**部分自律**も可。
+- **autonomous**: 人間ゲートを置かず requirements→…→deliver を自律実行し、**PR を出して停止**（auto-merge しない）。
+  夜間に回して朝に PR を一括レビューする使い方。`humanGates`（例 `[design]`）で特定工程だけ人間ゲートを残す**部分自律**も可。
   安全弁: test は硬いゲート（未通過なら draft PR）／差し戻し回数・予算に上限／成果物・walkthrough を証跡として残す。
   **差し戻しが上限に達したら、そこで止めずに方向を変える**——`aidev debug` が**まっさらなコンテキスト**へ
   原因究明だけを委譲する（試行履歴は渡さない）。デバッグも有限で、尽きたら `stop_for_human` で人を待つ
   （`protocol-debug.md`）。
   ※夜間に回す実行手段（headless/スケジュール）は harness とは別レイヤで用意する。
-- `--human-gates spec,review` で `aidev new` / `aidev worktree add` から部分自律を宣言できる。
+- `--human-gates design,review` で `aidev new` / `aidev worktree add` から部分自律を宣言できる。
 
 ## ループの上限（回数を有限にする）
 
@@ -205,9 +214,9 @@ deliver 前の `aidev verify`（不変条件）。いずれも exit≠0 なら�
 | **light** | 振る舞い不変・小規模（`lightMaxFiles`（既定 3）ファイル以下・共有モジュールや公開 API に触らない） | `aidev new <slug> --light` |
 | **full** | それ以外 | `aidev new <slug>`（既定） |
 
-light は**上流3工程（requirement / spec / plan）を1ゲートに畳む**。成果物は4つとも作るが、
+light は**上流3工程（requirements / design / tasks）を1ゲートに畳む**。成果物は4つとも作るが、
 各文書は必須節だけに絞る（`protocol.md`「11.」）。**coding / test / review / deliver は full と完全に同一**で、
-品質ゲートは省かない。任意工程（research / design / walkthrough）は light では使わない。
+品質ゲートは省かない。任意工程（research / architecture / walkthrough）は light では使わない。
 
 条件を外れたら `aidev escalate` で **full へ片方向に昇格**する（省略していた節を足すだけ）。
 昇格の合図は「想定外のファイルに触った」「test が落ちた」「review で must が出た」
@@ -238,8 +247,8 @@ work 専用の git worktree と `feature/<slug>` ブランチを作り、main tr
 ## 任意工程の起動
 
 - **ユーザー指定**：明示的に `/aidev-15-research` 等を選ぶ。
-- **AI検知＋推奨**：requirement 終了時に調査不足を、spec 終了時に複雑度を検知すると、
-  遷移ゲートで research / design を理由付きで推奨する（却下すれば標準工程へ直行）。
+- **AI検知＋推奨**：requirements 終了時に調査不足を、design 終了時に複雑度を検知すると、
+  遷移ゲートで research / architecture を理由付きで推奨する（却下すれば標準工程へ直行）。
 - retro はユーザー指定で起動（作業完了後）。
 
 ## 中断と再開
@@ -255,7 +264,7 @@ work 専用の git worktree と `feature/<slug>` ブランチを作り、main tr
 ```
 .claude/skills/
   aidev-00-start/      入口 + protocol.md（共通規約のホーム）
-  aidev-10-requirement/ … aidev-95-retro/   各工程（番号付きパイプライン）
+  aidev-10-requirements/ … aidev-95-retro/   各工程（番号付きパイプライン）
   aidev-util-propose/ aidev-util-batch/ aidev-util-insights/   ユーティリティ（番号なし・パイプライン外）
   aidev-docs/          このREADMEとDESIGN（参照専用・skillではない）＋ bin/ + retro/
     bin/               ランタイムガード CLI（aidev=POSIX sh / aidev.ps1=PowerShell・README.md / test/ 同梱）
@@ -272,8 +281,8 @@ work 専用の git worktree と `feature/<slug>` ブランチを作り、main tr
                        profile / backlog / backlogItem / harnessRev / harnessRevDelivered。
                        worktree 由来は base / baseCommit。分割 work は parent / subtasks / activeSubtask）
     metrics.yml        工程の実施日時・時間・件数などのイベントログ
-    requirement.md / spec.md / plan.md / tasks.md / decisions.md / review.md / test-result.md など
-    <NN>-<subslug>/    分割 work（subtask。plan/coding/test/review のみ）
+    requirements.md / design.md / tasks.md / decisions.md / review.md / test-result.md など
+    <NN>-<subslug>/    分割 work（subtask。tasks/coding/test/review のみ）
   backlog/             遅延キュー（任意）。<domain>.md（standing）/ split-<親>.md（split）/ <題>.md（topic）/ archive/（退避と <name>-done.md）
   insights/            横断分析レポート（<日付>-insights.md）と却下記録（rejected.md）
   harness/             ハーネス改修の仮説登録（<id>.md / archive/）
@@ -357,7 +366,7 @@ Claude Code 固有の機構は**すべて任意の高速化層**で、無くて�
 
 **持っているかは製品単位ではなく「サーフェス単位」で見ること**。同じ Copilot でも
 VS Code / Visual Studio には Plan agent があり、**Copilot CLI には無い**（github/copilot-cli#934 が
-「no explicit plan-only mode」と明記）。この表は「その環境に無いとき何をするか」の一覧なので、
+「no explicit tasks-only mode」と明記）。この表は「その環境に無いとき何をするか」の一覧なので、
 **製品名ではなく手元のサーフェスで引く**。
 
 Copilot / Codex 等では、各エージェントのルールファイル（`AGENTS.md` /

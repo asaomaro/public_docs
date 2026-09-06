@@ -7,7 +7,7 @@
 
 ## 0. 構成と運用方針
 
-- harness 本体（番号付きパイプライン）: `.claude/skills/aidev-00-start/` 〜 `aidev-95-retro/`（任意工程 research/design/walkthrough/retro を含む）
+- harness 本体（番号付きパイプライン）: `.claude/skills/aidev-00-start/` 〜 `aidev-95-retro/`（任意工程 research/architecture/walkthrough/retro を含む）
   - パイプライン外ユーティリティ: `aidev-util-propose` / `aidev-util-batch` / `aidev-util-insights`（番号なし・`aidev-util-*` で名前空間を分離）
   - ランタイムガード（skill ではない）: `aidev` CLI（`.claude/skills/aidev-docs/bin/aidev`＝POSIX sh / `.claude/skills/aidev-docs/bin/aidev.ps1`＝Windows PowerShell）。
     state/metrics 更新と前提・不変条件検査の単一経路。詳細は `.claude/skills/aidev-docs/bin/README.md`
@@ -20,7 +20,7 @@
   | 付録 | 元の節 | 読む条件 |
   |---|---|---|
   | `protocol-worktree.md` | 「1.5」 | ユーザーが並行作業（worktree）を使う / 使っている work を触る |
-  | `protocol-subtask.md` | 「2.8」 | plan の split 判定 / `state.yml` に `parent` がある work の工程 |
+  | `protocol-subtask.md` | 「2.8」 | tasks の split 判定 / `state.yml` に `parent` がある work の工程 |
   | `protocol-backlog.md` | 「2.9」 | backlog 項目を選ぶ / deliver で消し込む |
   | `protocol-analysis.md` | 「8.」 | retro / insights の定量分析 |
   | `protocol-conventions.md` | 「12.」 | PJ規約の条項を起こす / 効果を判定する / PJ ドキュメントへ移送する |
@@ -93,7 +93,7 @@ git worktree＋`feature/<slug>` ブランチを作って隔離着手できる。
 - **委譲してよい工程**：coding / test / review など、重く対話の少ない工程。
   委譲先は対象 works フォルダ（`.aidev/works/<YYYYMMDD-slug>/`）を読み書きし、結果サマリを返す。
   これにより主エージェントの context を圧迫しない。
-- **委譲しない工程**：requirement はユーザーとの対話が必要なため委譲しない。
+- **委譲しない工程**：requirements はユーザーとの対話が必要なため委譲しない。
 - **委譲しない検証（重要）**：**外部ソース／一次資料との照合を伴う検証（原典準拠のレビュー等）は
   サブエージェントに委譲しない**。委譲先のツール権限（ネットワーク取得・Bash 等）が落ちると照合不能となり、
   知識ベースの幻覚的な指摘を量産して判断を誤らせる。この種の検証は**主エージェントが一次ソースを直読**して
@@ -135,10 +135,10 @@ git worktree＋`feature/<slug>` ブランチを作って隔離着手できる。
 ## 2.8 サブタスク分割（subtask 層・schema 3）
 
 大規模だが 1 PR に割れない work を、PR を保ったまま内部で漸進的に回す仕組み（過剰分割は禁止）。
-**割るかは plan で判定する**（3層決定木は `aidev-docs/DESIGN.md`「5.」）。
+**割るかは tasks で判定する**（3層決定木は `aidev-docs/DESIGN.md`「5.」）。
 
-- **subtask を扱うときは `protocol-subtask.md` を読む**——plan の split 判定時、および `state.yml` に
-  `parent` がある work の plan / coding / test / review。フォルダ規約・工程レイヤリング・カーソル前進・
+- **subtask を扱うときは `protocol-subtask.md` を読む**——tasks の split 判定時、および `state.yml` に
+  `parent` がある work の tasks / coding / test / review。フォルダ規約・工程レイヤリング・カーソル前進・
   兄弟依存・差し戻し先・CLI の機械的強制はそこにある。
 
 ## 2.9 台帳の同期（backlog 出自の消し込み）
@@ -183,7 +183,7 @@ backlog は**遅延キュー**で、完了した行を閉じるのは deliver �
      - `成果物を1項目ずつ確認しながら進む（段階レビュー）`（「3.1」）
      - ※最終工程 deliver では「次工程へ進む」の代わりに `承認して完了` とする。
      - ※選択肢は最大4つのため、上記4つを既定とする（deliver では1つ目を `承認して完了` に置換）。
-     - ※**4つ目は条件付きで差し替えてよい**: 上流工程（requirement / spec / design / plan）で
+     - ※**4つ目は条件付きで差し替えてよい**: 上流工程（requirements / design / architecture / tasks）で
        成果物が長い・判断が多いときは、段階レビューの代わりに
        `独立検証を挟んでから決める`（「3.3」(a)）を提示する。差し替えたときは理由を添える。
        **どちらも `Other` の自由入力で明示的に要求できる**ので、片方を出しても他方は失われない。
@@ -228,7 +228,7 @@ backlog は**遅延キュー**で、完了した行を閉じるのは deliver �
   任意工程。こちらは**任意の工程の承認ゲートで選べる「提示モード」**で、成果物 md を生成・変更しない。
 - **進め方**: 成果物を意味のある単位で順に提示し、各単位ごとに要点を述べてユーザーの確認/指摘を受ける。
   粒度は成果物に合わせる:
-  - `requirement.md` / `spec.md` / `design.md` / `plan.md` → **見出し節ごと**
+  - `requirements.md` / `design.md` / `architecture.md` / `tasks.md` → **見出し節ごと**
   - `tasks.md` → **タスクごと**
   - `review.md` → **指摘ごと**
   - コード差分（review 等）→ **ファイル/ハンク単位**
@@ -256,7 +256,7 @@ backlog は**遅延キュー**で、完了した行を閉じるのは deliver �
 - 工程番号（10 刻み）は推奨されるデフォルト順を示すもので、強制ゲートではない。
 - `review → coding`、`test 失敗 → coding` 等の差し戻しは正当な遷移として許可する。
 - **番号末尾の規約**：
-  - **末尾 0**＝標準工程（デフォルトパイプライン。例 `aidev-20-spec`, `aidev-70-deliver`）。
+  - **末尾 0**＝標準工程（デフォルトパイプライン。例 `aidev-20-design`, `aidev-70-deliver`）。
   - **末尾 5**＝任意・差し込み工程（必要時のみ。例 `aidev-15-research`, `aidev-95-retro`）。
 
 ### 4.1 命名カテゴリ規約
@@ -270,9 +270,9 @@ backlog は**遅延キュー**で、完了した行を閉じるのは deliver �
 
 - **ユーザー指定**：ユーザーが明示的に当該工程を選ぶ。
 - **AI検知＋推奨**：直前工程の終了時に、AI が不足を検知して遷移ゲートで推奨する。
-  - 例（research）：requirement 終了時に次のいずれかを検知したら、遷移ゲートの選択肢に
+  - 例（research）：requirements 終了時に次のいずれかを検知したら、遷移ゲートの選択肢に
     `承認して research(任意) を挟む`（推奨）を加え、推奨理由を添える。**この5条件がこの機構の正典**で、
-    `aidev-15-research` / `aidev-10-requirement` はここを参照する（3箇所に写して1箇所だけ更新され、
+    `aidev-15-research` / `aidev-10-requirements` はここを参照する（3箇所に写して1箇所だけ更新され、
     **UI の条件が判定側に届かず一度も発火しない**状態が実際に起きた）。
     - 調査で解消すべき未確定事項が残る
     - 未検証の既存挙動（既存コードの現在の振る舞い・暗黙の前提）に依存する
@@ -280,18 +280,18 @@ backlog は**遅延キュー**で、完了した行を閉じるのは deliver �
     - 影響が横断的（複数モジュール／言語同居の副作用など）
     - **利用者が操作する部品を作る**（ポップオーバー・ピッカー・一覧・ダイアログ等）——
       確立したパターンの調査を必須とする（`aidev-15-research`「UI の規範」）
-  - design：spec 終了時に次のいずれかを検知したら `承認して design(任意) を挟む`（推奨）を加える。
-    **この4条件が正典**（`aidev-20-spec` / `aidev-25-design` はここを参照する）。
+  - architecture：design 終了時に次のいずれかを検知したら `承認して architecture(任意) を挟む`（推奨）を加える。
+    **この4条件が正典**（`aidev-20-design` / `aidev-25-architecture` はここを参照する）。
     - **モジュール間の境界を動かす**（責務の移動・新しい依存の向き・共有部品の抽出）——
       単に複数ファイルを触るだけでは当たらない。小さな PJ では 2 ファイルの変更が常態なので、
       「またがる」を触ったファイル数で読むと任意工程が事実上必須になる
     - アーキテクチャ判断（新規の構造・パターン・責務分割の選択）が必要
     - インターフェース／データモデルが複雑（型・スキーマ・状態遷移の設計に踏み込む）
-    - plan で直接分解するには設計が粗い
+    - tasks で直接分解するには設計が粗い
   - walkthrough：review 終了時に次のいずれかを検知したら `承認して walkthrough(任意) を挟む`（推奨）を加える。
     **この3条件が正典**（`aidev-60-review` / `aidev-65-walkthrough` はここを参照する）。
     - 差分が大きい（変更ファイル数・行数が多く全体像を掴みにくい）
-    - 複数モジュールを横断する——**design の条件1と同じ但し書き**（触ったファイル数では読まない。
+    - 複数モジュールを横断する——**architecture の条件1と同じ但し書き**（触ったファイル数では読まない。
       見るのは責務や依存の向きが跨いでいるか）
     - 処理フローが複雑（非自明な制御フロー・状態遷移・トリッキーな実装）
   - 検知は推奨に留め、強制しない。ユーザーが却下すれば次の標準工程へ進める。
@@ -312,7 +312,7 @@ approved: [<承認済み工程の論理名…>]
 mode: interactive           # interactive（既定）| autonomous。「10.」参照＝**誰が承認するか**
 profile: full               # full（既定・省略可）| light。「11.」参照＝**どこまで回すか**
                             # mode と直交する別軸。省略＝full（既存 work は記載が無く full 扱い＝後方互換）
-humanGates: []              # autonomous 時に人間ゲートを残す工程の論理名（部分自律）。例: [spec]
+humanGates: []              # autonomous 時に人間ゲートを残す工程の論理名（部分自律）。例: [design]
 maxSendBacks: 3             # autonomous 時の差し戻し上限（同一工程あたり）。未指定なら 3。「10.」参照
 dependsOn: []              # この作業の前提（他の works slug / 同一親内の兄弟 subtask 名 / 外部チケット #N・PROJ-123）。未充足なら着手前に警告。「2.7」参照
 backlog: <file>            # 任意。backlog 項目から起こした場合の出自（`.aidev/backlog/` 内のファイル名。例 hostserver.md）
@@ -337,23 +337,23 @@ parent: <親 work の dated 名> # 子が親 work を逆参照（例 20260622-fe
 
 | 番号 | 論理名 | skill | 種別 | 成果物 | 前提 |
 |------|--------|-------|------|--------|------|
-| 10 | requirement | aidev-10-requirement | 標準 | `requirement.md` | （新規） |
-| 15 | research | aidev-15-research | 任意 | `research.md` | requirement.md |
-| 20 | spec | aidev-20-spec | 標準 | `spec.md` | requirement.md |
-| 25 | design | aidev-25-design | 任意 | `design.md` | spec.md |
-| 30 | plan | aidev-30-plan | 標準 | `plan.md`, `tasks.md` | spec.md（design があればそれも） |
-| 40 | coding | aidev-40-coding | 標準 | コード, tasks 更新 | plan.md, tasks.md |
+| 10 | requirements | aidev-10-requirements | 標準 | `requirements.md` | （新規） |
+| 15 | research | aidev-15-research | 任意 | `research.md` | requirements.md |
+| 20 | design | aidev-20-design | 標準 | `design.md` | requirements.md |
+| 25 | architecture | aidev-25-architecture | 任意 | `architecture.md` | design.md |
+| 30 | tasks | aidev-30-tasks | 標準 | `tasks.md` | design.md（architecture があればそれも） |
+| 40 | coding | aidev-40-coding | 標準 | コード, tasks 更新 | tasks.md |
 | 50 | test | aidev-50-test | 標準 | `test-result.md`（合否・件数・失敗内容・**起動確認**・スキップした検証） | コード |
 | 60 | review | aidev-60-review | 標準 | レビュー指摘（→ coding へ差し戻し可） | diff |
 | 65 | walkthrough | aidev-65-walkthrough | 任意 | `walkthrough.md`（人間レビュー補助） | review 通過 |
 | 70 | deliver | aidev-70-deliver | 標準（最終） | コミット / PR | review 通過 |
 | 95 | retro | aidev-95-retro | 任意 | `retro.md`（改善提案） | 作業完了（deliver 済み） |
 
-- **`tasks.md` の各タスクは `対象` / `依存` / `AC` の3欄を持つ**（書式と ID 文法は `aidev-30-plan`）。
-  `AC` は `requirement.md` の受け入れ基準 ID への**参照**（本文は書き写さない）。この3欄が構造化されて
+- **`tasks.md` の各タスクは `対象` / `依存` / `AC` の3欄を持つ**（書式と ID 文法は `aidev-30-tasks`）。
+  `AC` は `requirements.md` の受け入れ基準 ID への**参照**（本文は書き写さない）。この3欄が構造化されて
   いるから、`aidev coverage` が**被覆率**（タスクに落ちていない `AC`）と**整合**（未定義の参照・依存の循環）を
-  機械的に出せる。**plan の承認前に `aidev coverage --strict` を通す**（cover の穴を承認で飛ばさない）。
-  review では同じコマンドを実装後にもう一度打ち、plan 時との差分を spec と実装の乖離として読む。
+  機械的に出せる。**tasks の承認前に `aidev coverage --strict` を通す**（cover の穴を承認で飛ばさない）。
+  review では同じコマンドを実装後にもう一度打ち、tasks 時との差分を design と実装の乖離として読む。
   **被覆の単位は work 全体（親＋全 subtask）**——分割 work での扱いは `protocol-subtask.md`。
 - **起動確認（smoke）を test 工程で通す**（`aidev smoke`。手順は `aidev-50-test`「3.2」）。
   **「テストが全部通ったこと」は着地の根拠として足りない**——見るのは「ビルドした成果物が
@@ -365,8 +365,8 @@ parent: <親 work の dated 名> # 子が親 work を逆参照（例 20260622-fe
 - **主張は証拠の範囲を超えない**。`skipped > 0` を「全数検証」と書かない、一部だけ確かめて
   「全体が動く」と書かない、テストの緑を「起動する」の根拠にしない。検証できなかった範囲は
   **未検証の穴として残す**（「8.」の「過去分は捏造しない」と同じ態度の、範囲についての版）。
-- **`profile: light` の場合**（「11.」）: 上流 3 工程（requirement / spec / plan）を **1 ゲートに畳む**。
-  成果物は 4 つとも作る（薄く書く）が、承認は `requirement` として 1 回だけ記録する。
+- **`profile: light` の場合**（「11.」）: 上流 3 工程（requirements / design / tasks）を **1 ゲートに畳む**。
+  成果物は 4 つとも作る（薄く書く）が、承認は `requirements` として 1 回だけ記録する。
   以降 coding → test → review → deliver は full と**完全に同一**。任意工程は使わない。
 
 ## 8. メトリクス記録
@@ -407,12 +407,12 @@ retro / insights の定量分析（手戻り回数・差し戻し回数・リー
 
 ```yaml
 events:
-  - { ts: 2026-06-20T10:00:00Z, phase: requirement, event: start }
-  - { ts: 2026-06-20T10:30:00Z, phase: requirement, event: approved }
-  - { ts: 2026-06-20T10:31:00Z, phase: spec,        event: start }
-  - { ts: 2026-06-20T11:10:00Z, phase: spec,        event: sent_back }  # 差し戻し
-  - { ts: 2026-06-20T11:11:00Z, phase: spec,        event: start }      # やり直し
-  - { ts: 2026-06-20T11:40:00Z, phase: spec,        event: approved }
+  - { ts: 2026-06-20T10:00:00Z, phase: requirements, event: start }
+  - { ts: 2026-06-20T10:30:00Z, phase: requirements, event: approved }
+  - { ts: 2026-06-20T10:31:00Z, phase: design,        event: start }
+  - { ts: 2026-06-20T11:10:00Z, phase: design,        event: sent_back }  # 差し戻し
+  - { ts: 2026-06-20T11:11:00Z, phase: design,        event: start }      # やり直し
+  - { ts: 2026-06-20T11:40:00Z, phase: design,        event: approved }
 ```
 
 > `skipped` は**省略した検証の件数**（`aidev-50-test`「3.」）。green でも `skipped > 0` は全数検証ではないので、
@@ -431,27 +431,27 @@ events:
 該当工程の `approved` イベントに `metrics` を付与する（任意キー。値が出せる工程のみ）。
 
 ```yaml
-  - { ts: ..., phase: plan,    event: approved, metrics: { tasks_planned: 4, tasks_anchored: 3 } }
+  - { ts: ..., phase: tasks,    event: approved, metrics: { tasks_planned: 4, tasks_anchored: 3 } }
   - { ts: ..., phase: coding,  event: approved, metrics: { tasks_done: 4, unplanned_lookups: 1 } }
   - { ts: ..., phase: test,    event: approved, metrics: { passed: 12, failed: 0, skipped: 1 } }
   - { ts: ..., phase: review,  event: approved, metrics: { must: 0, should: 1, nit: 2 } }
   - { ts: ..., phase: deliver, event: approved, metrics: { files_changed: 7, insertions: 169, deletions: 31 } }
 ```
 
-- **plan**: `tasks_planned`（tasks.md のタスク総数）/
+- **tasks**: `tasks_planned`（tasks.md のタスク総数）/
   `tasks_anchored`（`対象` が特定済みのタスク数。`対象: 未特定` は数えない）
-- **被覆（`plan` / `requirement` / `review` に CLI が自動で刻む。手で書かない）**:
+- **被覆（`tasks` / `requirements` / `review` に CLI が自動で刻む。手で書かない）**:
   `ac_total`（受け入れ基準の総数）/ `ac_covered`（タスクが1件以上ある `AC` の数）/
   `tasks_no_ac`（`AC:` 行を書き忘れた・空にしたタスク数）/
   `tasks_ac_none`（`AC: なし` と明示したタスク数＝**受け入れ基準に紐づかない作業**）
-  - **刻むのは `aidev approve`**（値は `requirement.md` と `tasks.md` から機械的に出す）。
+  - **刻むのは `aidev approve`**（値は `requirements.md` と `tasks.md` から機械的に出す）。
     手書きの `key=value` に任せない理由は「12.」の `harnessRev` と同じ。
     明示的に `ac_total=` を渡した場合だけその値を尊重する（機械値で上書きしない）。
   - **刻むのは家族の根の work だけ**（subtask では刻まない）。被覆は家族単位（親＋全 subtask）の
     値なので、子ごとに刻むと `metrics --all` の足し上げで分母が subtask 数だけ多重計上される。
   - **手で渡すなら4キーまとめて**。`ac_total=` だけ渡すと `ac_covered` が無く、乖離の計算から
     捨てられる（0 とみなして gap を捏造しない側に倒してある）。
-  - **tasks.md がまだ無い工程では刻まない**（full の requirement・分割 work の親 plan）。
+  - **tasks.md がまだ無い工程では刻まない**（full の requirements・分割 work の親 tasks）。
   - **読み方（分母としての使い道・率を目標にしない理由）は `protocol-analysis.md`**。
 - **coding**: `tasks_done`（チェック済みタスク数）/
   `unplanned_lookups`（**アンカー付きタスクなのに**探索し直した回数。`未特定` のタスクでの探索は
@@ -463,7 +463,7 @@ events:
     （被覆・`harnessRev` と同じ扱い）。**点検を1件も行わなかった work だけ** `task_checks=0` を
     明示する（省略すると「測っていない」と区別できない）。
   - 読み方（率の分母・`must` との突き合わせ）は `protocol-analysis.md`。
-- **上流4工程（requirement / spec / design / plan）**: `doc_check_rounds` / `doc_check_findings` /
+- **上流4工程（requirements / design / architecture / tasks）**: `doc_check_rounds` / `doc_check_findings` /
   `doc_check_mode`（独立点検（「3.3」(a)）。**手で渡さない**——`aidev doccheck` の記録から自動で刻む。
   `autonomous` では必須で、記録が無ければ `verify` が WARN、`--strict` で致命）
 - **deliver**: `remote`（`none` なら PR を作れない環境＝`review.md` に「PR レビュー（人間）」節が
@@ -476,7 +476,7 @@ events:
   `git diff --stat` から機械取得し、工程成果物（`.aidev/` 配下）は除外する
   （例: `git add -A && git diff --cached --stat HEAD -- . ':!.aidev'`。事後記録モードは既着地コミットの範囲で計測）。
 - **CLI 形式**: `k=v` を `aidev approve` に渡すと `metrics:` になる。例:
-  `aidev approve plan tasks_planned=4 tasks_anchored=3` /
+  `aidev approve tasks tasks_planned=4 tasks_anchored=3` /
   `aidev approve coding tasks_done=4 unplanned_lookups=1` /
   `aidev approve test passed=12 failed=0` / `aidev approve review must=0 should=1 nit=2` /
   `aidev approve deliver files_changed=7 insertions=169 deletions=31`。
@@ -539,9 +539,9 @@ review 工程はラウンドごとに追記する（差し戻し後の再レビ�
 - **装飾目的では使わない**。図が理解・レビューを助ける時だけ使う（walkthrough の品質原則と同じ）。
 - 工程別の目安（該当すれば）:
   - research: 既存構造・呼び出し関係・影響範囲
-  - spec: シーケンス・状態遷移・データモデル
-  - design: アーキテクチャ/コンポーネント・class・sequence・state
-  - plan: タスク依存（順序が複雑な場合）
+  - design: シーケンス・状態遷移・データモデル
+  - architecture: アーキテクチャ/コンポーネント・class・sequence・state
+  - tasks: タスク依存（順序が複雑な場合）
   - walkthrough: 処理フロー（review 補助）
 
 ## 10. 実行モード（interactive / autonomous）
@@ -562,7 +562,7 @@ FAIL で止める。手順・分類・渡すもの/渡さないものは `protoc
 ## 11. 実行プロファイル（full / light）
 
 `state.yml` の `profile`＝**どこまで工程を回すか**（`mode` と直交）。**対象外**（typo・整形＝aidev を通さない）／
-**light**（振る舞いを変えない小規模＝上流 3 工程を requirement の 1 ゲートに畳む。coding 以降は full と同一）／
+**light**（振る舞いを変えない小規模＝上流 3 工程を requirements の 1 ゲートに畳む。coding 以降は full と同一）／
 **full**。light の条件・4 文書の必須節・昇格（`aidev escalate`。片方向）は `protocol-light.md`。
 
 ## 12. PJ規約の条項（`.aidev/conventions`）と効果検証

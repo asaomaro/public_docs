@@ -5,7 +5,7 @@ allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion, Agent]
 ---
 
 AI 開発ワークフローの **review（レビュー）工程**を実行する。
-実装全体を spec・要件・コーディング規約の観点で点検する。指摘があれば coding 工程へ差し戻す。
+実装全体を design・要件・コーディング規約の観点で点検する。指摘があれば coding 工程へ差し戻す。
 通過後は最終工程 deliver（着地）へ進む。
 
 **開始前に共通プロトコル `../aidev-00-start/protocol.md` と、PJ 固有ルールを読むこと。**
@@ -17,7 +17,7 @@ AI 開発ワークフローの **review（レビュー）工程**を実行する
 ## 入力
 
 - 変更差分（diff）。
-- 対象フォルダの `requirement.md` / `spec.md` / `decisions.md`。
+- 対象フォルダの `requirements.md` / `design.md` / `decisions.md`。
 - PJ 固有のコーディング規約。
 
 ## 出力
@@ -35,18 +35,18 @@ AI 開発ワークフローの **review（レビュー）工程**を実行する
 2. 差分を以下の観点で点検する。**実作業の優先順位は protocol.md「2.5」の三段階**に従う
    （PJ 固有 skill → エージェント組み込みのレビューコマンド → 下記のジェネリック観点）。
    - **組み込みコマンドは「委譲」ではなく「併用」**。カバーできるのは下記のうち
-     **正確性・保守性**までで、**要件適合 / 価値適合 / 規約適合は work の文脈（requirement.md /
-     spec.md / AGENTS.md）を要するため、この工程が自分で見る**。丸ごと任せると観点が3つ落ちる。
+     **正確性・保守性**までで、**要件適合 / 価値適合 / 規約適合は work の文脈（requirements.md /
+     design.md / AGENTS.md）を要するため、この工程が自分で見る**。丸ごと任せると観点が3つ落ちる。
    - **レビュー対象を明示的に渡す**。組み込みコマンドは `.aidev/current` を知らないので、
      指定しないと work と無関係な差分（未コミットの別変更など）を見に行くことがある。
    - 出力は**テキストを写し取る前提**で `review.md` に落とす（構造化出力ツールの存在を前提にしない）。
-   - **要件適合**: requirement の完了条件（`AC` の各 ID）・spec の意図を満たしているか。
-     **まず `aidev coverage` を打つ**（plan 時と同じコマンドを、実装後の `tasks.md` に対してもう一度回す）。
+   - **要件適合**: requirements の完了条件（`AC` の各 ID）・design の意図を満たしているか。
+     **まず `aidev coverage` を打つ**（tasks 時と同じコマンドを、実装後の `tasks.md` に対してもう一度回す）。
      `ac` 列と `tasks` 列を突き合わせ、**この工程で見るのはコマンドが機械的に出せない側**——
      被覆されている `AC` が「タスクは在るが実装が基準を満たしていない」ものになっていないか、
      coding 中に `tasks.md` へ足したタスクが `AC:` を持たないまま増えていないか。
-     **plan の時と数字が変わっていたら、その差分が spec と実装の乖離**（`git diff` で `tasks.md` を見る）。
-   - **価値適合**: requirement の `目的 / ゴール`（達成したい状態）とユーザーストーリーの
+     **tasks の時と数字が変わっていたら、その差分が design と実装の乖離**（`git diff` で `tasks.md` を見る）。
+   - **価値適合**: requirements の `目的 / ゴール`（達成したい状態）とユーザーストーリーの
      「なぜなら（価値）」に照らして、**その変更が本当にその状態をもたらすか**。
      受け入れ基準を満たしていても価値に繋がっていない実装はここで拾う。
    - **正確性**: バグ・エッジケースの取りこぼし・異常系。
@@ -78,7 +78,7 @@ AI 開発ワークフローの **review（レビュー）工程**を実行する
        戻す。`aidev use <親>/<NN>-<subslug>`（親の `activeSubtask` も同期される）→
        **`aidev unapprove review`**（完了を取り消す。記録は `sent_back` として残る）→ `aidev event coding start`。これで
        再 coding→test→review 後の `approve review` が再びカーソルを前進させられる（D と整合）。
-       再 split（親 plan 戻し）は避け、最小手戻りにする。
+       再 split（親 tasks 戻し）は避け、最小手戻りにする。
    - **指摘なし（または nit のみ）** → protocol.md「3. 工程終了プロトコル」に従って終了する。
      - **subtask の review** なら `aidev approve review` の時点で CLI がカーソルを自動前進させる
        （出力 `cursor: …` で遷移先を確認する）。
@@ -89,8 +89,8 @@ AI 開発ワークフローの **review（レビュー）工程**を実行する
    **件数は work 全体の合計**（全ラウンドの通算）——`approve review` は最後に 1 回しか打たないので、
    最終ラウンドの 0 件を刻むと「差し戻したのに指摘 0 件」という読めない記録になる。
    ラウンドごとの分布を残したいときは `review.md` 本文に書く（metrics のキーは増やさない）。
-   **被覆メトリクスは CLI が自動で刻む**ので手で渡さない。plan 時の刻印と対になり、
-   `aidev metrics` の `ac_drift`（plan 以降に増えた gap ＝ spec と実装の乖離）になる。
+   **被覆メトリクスは CLI が自動で刻む**ので手で渡さない。tasks 時の刻印と対になり、
+   `aidev metrics` の `ac_drift`（tasks 以降に増えた gap ＝ design と実装の乖離）になる。
 
 ## light の昇格トリガ
 
@@ -98,12 +98,12 @@ AI 開発ワークフローの **review（レビュー）工程**を実行する
 可能性が高い**。coding へ差し戻す前に `aidev escalate` で full へ昇格する。`should` / `nit` だけなら
 light のまま続けてよい。
 
-なお **light でも入力に `requirement.md` は存在する**（薄いが必須節は埋まっている）。
+なお **light でも入力に `requirements.md` は存在する**（薄いが必須節は埋まっている）。
 節が足りずレビュー観点を確認できない場合も、昇格の合図として扱う。
 
 ## 完了の目安
 
 - must/should の指摘が解消されている。
-- 変更が requirement・spec・規約に整合している。
-- **`aidev coverage` が plan 承認時と同じ被覆を示している**（gap が増えていない。増えていれば、
-  coding 中に spec と実装が乖離した箇所がそこにある）。
+- 変更が requirements・design・規約に整合している。
+- **`aidev coverage` が tasks 承認時と同じ被覆を示している**（gap が増えていない。増えていれば、
+  coding 中に design と実装が乖離した箇所がそこにある）。

@@ -32,7 +32,7 @@ review 終了時に **protocol.md「4.5」の walkthrough の3条件**のいず�
 ## 入力
 
 - 変更差分（`git diff`）。
-- 対象フォルダの `requirement.md` / `spec.md` / `design.md`(あれば) / `decisions.md`。
+- 対象フォルダの `requirements.md` / `design.md` / `architecture.md`(あれば) / `decisions.md`。
 - 実装コード。
 
 ## 出力
@@ -63,7 +63,7 @@ review 終了時に **protocol.md「4.5」の walkthrough の3条件**のいず�
 # レビューガイド: <タイトル>
 
 ## 変更概要 / 目的
-<何を・なぜ。requirement/spec の要約>
+<何を・なぜ。requirements/design の要約>
 
 ## 重要ポイント（特に見てほしい所）
 - <非自明な実装・設計判断。decisions.md があればリンク>

@@ -92,7 +92,7 @@ cat > "$TMP/.aidev/works/20260101-alpha/state.yml" <<'EOF'
 schema: 2
 slug: alpha
 current: deliver
-approved: [requirement, research, spec, plan, coding, test, review, deliver]
+approved: [requirements, research, design, tasks, coding, test, review, deliver]
 mode: autonomous
 humanGates: []
 maxSendBacks: 3
@@ -100,9 +100,9 @@ dependsOn: []
 EOF
 cat > "$TMP/.aidev/works/20260101-alpha/metrics.yml" <<'EOF'
 events:
-  - { ts: 2026-01-01T00:00:00Z, phase: requirement, event: start }
-  - { ts: 2026-01-01T00:10:00Z, phase: requirement, event: approved }
-  - { ts: 2026-01-01T00:30:00Z, phase: spec, event: sent_back }
+  - { ts: 2026-01-01T00:00:00Z, phase: requirements, event: start }
+  - { ts: 2026-01-01T00:10:00Z, phase: requirements, event: approved }
+  - { ts: 2026-01-01T00:30:00Z, phase: design, event: sent_back }
   - { ts: 2026-01-01T01:00:00Z, phase: coding, event: start }
   - { ts: 2026-01-01T01:05:00Z, phase: coding, event: start }
   - { ts: 2026-01-01T02:00:00Z, phase: coding, event: approved }
@@ -111,14 +111,14 @@ EOF
 # review 承認済なので review.md が必要（verify schema>=2 の不変条件）
 printf '# レビュー記録\n' > "$TMP/.aidev/works/20260101-alpha/review.md"
 
-# beta: 進行中（spec まで承認）。dependsOn: alpha(充足) + #99(advisory)。
+# beta: 進行中（design まで承認）。dependsOn: alpha(充足) + #99(advisory)。
 mkdir -p "$TMP/.aidev/works/20260102-beta"
 cat > "$TMP/.aidev/works/20260102-beta/state.yml" <<'EOF'
 schema: 2
 slug: beta
 ticket: "#42"
-current: spec
-approved: [requirement, research, spec]
+current: design
+approved: [requirements, research, design]
 mode: interactive
 humanGates: []
 maxSendBacks: 3
@@ -130,7 +130,7 @@ printf 'events:\n' > "$TMP/.aidev/works/20260102-beta/metrics.yml"
 mkdir -p "$TMP/.aidev/works/20260103-legacy"
 cat > "$TMP/.aidev/works/20260103-legacy/state.yml" <<'EOF'
 slug: legacy
-current: requirement
+current: requirements
 approved: []
 EOF
 
@@ -151,8 +151,8 @@ run_sh() { ( cd "$TMP" && "$AIDEV_SH" "$@" ); }
 echo "== status =="
 ST_TSV=$(run_sh status --format tsv)
 assert_contains "$ST_TSV" "work	20260101-alpha	-	autonomous	deliver	-	yes	ok" "alpha: 完了行(next=-/done=yes/deps=ok)"
-assert_contains "$ST_TSV" "work	20260102-beta	#42	interactive	spec	plan	no	#99(advisory)" "beta: next=plan/done=no/deps=#99(advisory)（alpha は充足）"
-assert_contains "$ST_TSV" "work	20260103-legacy	-	-	requirement	requirement	no	ok" "legacy: schema無しでも一覧化(next=requirement)"
+assert_contains "$ST_TSV" "work	20260102-beta	#42	interactive	design	tasks	no	#99(advisory)" "beta: next=tasks/done=no/deps=#99(advisory)（alpha は充足）"
+assert_contains "$ST_TSV" "work	20260103-legacy	-	-	requirements	requirements	no	ok" "legacy: schema無しでも一覧化(next=requirements)"
 assert_contains "$ST_TSV" "backlog	x.md	2	1	0" "backlog x.md: todo=2/needs=1/inflight=0（刻印付き work 無し）"
 assert_absent  "$ST_TSV" "should-not-count" "archive/ は除外される"
 
@@ -197,7 +197,7 @@ MTP=$(run_sh metrics 20260101-alpha --phases --format tsv)
 # **最短に見える**のを塞ぐ（実走で review 654 秒が 216 秒と出た）
 assert_contains "$MTP" "20260101-alpha	coding	2026-01-01T01:00:00Z	2026-01-01T02:00:00Z	3300	2" \
   "alpha --phases: start は初回・elapsed は合算・rounds でやり直し回数が見える"
-assert_contains "$MTP" "20260101-alpha	requirement	2026-01-01T00:00:00Z	2026-01-01T00:10:00Z	600	1" "alpha --phases: requirement elapsed=600 / rounds=1"
+assert_contains "$MTP" "20260101-alpha	requirements	2026-01-01T00:00:00Z	2026-01-01T00:10:00Z	600	1" "alpha --phases: requirements elapsed=600 / rounds=1"
 
 echo "== 読み取り専用（status/metrics は state/metrics を書き換えない） =="
 # `.aidev/current` も含める。status/metrics が「今どの work か」を書き換えるのは
@@ -218,18 +218,18 @@ mkdir -p "$TMP/.aidev/works/20260101-gap"
 cat > "$TMP/.aidev/works/20260101-gap/state.yml" <<'YML'
 schema: 3
 slug: gap
-current: spec
-approved: [requirement]
+current: design
+approved: [requirements]
 YML
 cat > "$TMP/.aidev/works/20260101-gap/metrics.yml" <<'YML'
 events:
-  - { ts: 2026-01-01T00:00:00Z, phase: requirement, event: approved }
-  - { ts: 2026-01-01T01:00:00Z, phase: spec, event: start }
-  - { ts: 2026-01-01T02:00:00Z, phase: spec, event: approved }
+  - { ts: 2026-01-01T00:00:00Z, phase: requirements, event: approved }
+  - { ts: 2026-01-01T01:00:00Z, phase: design, event: start }
+  - { ts: 2026-01-01T02:00:00Z, phase: design, event: approved }
 YML
 V_GAP=$(run_sh verify 20260101-gap 2>&1); V_RC=$?
-echo "$V_GAP" | grep -q "WARN requirement" && ok "verify: start 欠落を WARN で知らせる" || ng "verify: start 欠落の WARN が出ない"
-echo "$V_GAP" | grep -q "WARN spec" && ng "verify: 対の揃った工程に WARN が出ている" || ok "verify: 対の揃った工程には WARN を出さない"
+echo "$V_GAP" | grep -q "WARN requirements" && ok "verify: start 欠落を WARN で知らせる" || ng "verify: start 欠落の WARN が出ない"
+echo "$V_GAP" | grep -q "WARN design" && ng "verify: 対の揃った工程に WARN が出ている" || ok "verify: 対の揃った工程には WARN を出さない"
 assert_eq "$V_RC" "0" "verify: WARN は exit コードを変えない"
 rm -rf "$TMP/.aidev/works/20260101-gap"
 
@@ -240,17 +240,17 @@ cat > "$TMP/.aidev/works/20260101-order/state.yml" <<'YML'
 schema: 3
 slug: order
 current: coding
-approved: [requirement, spec, design, plan]
+approved: [requirements, design, architecture, tasks]
 YML
 cat > "$TMP/.aidev/works/20260101-order/metrics.yml" <<'YML'
 events:
-  - { ts: 2026-01-01T00:00:00Z, phase: plan, event: approved }
-  - { ts: 2026-01-01T01:00:00Z, phase: spec, event: approved }
-  - { ts: 2026-01-01T02:00:00Z, phase: design, event: approved }
-  - { ts: 2026-01-01T03:00:00Z, phase: requirement, event: approved }
+  - { ts: 2026-01-01T00:00:00Z, phase: tasks, event: approved }
+  - { ts: 2026-01-01T01:00:00Z, phase: design, event: approved }
+  - { ts: 2026-01-01T02:00:00Z, phase: architecture, event: approved }
+  - { ts: 2026-01-01T03:00:00Z, phase: requirements, event: approved }
 YML
 V_ORD=$(run_sh verify 20260101-order 2>&1 | grep -o 'WARN [a-z]*' | tr '\n' ' ')
-assert_eq "$V_ORD" "WARN requirement WARN spec WARN design WARN plan " "verify: WARN は PHASES 順（記録順やハッシュ順ではない）"
+assert_eq "$V_ORD" "WARN requirements WARN design WARN architecture WARN tasks " "verify: WARN は PHASES 順（記録順やハッシュ順ではない）"
 if [ -n "$PS_HOST" ]; then
   block_begin warnorder
   P_ORD=$( ( cd "$TMP" && run_ps1 "$AIDEV_PS1" verify 20260101-order ) | tr -d '\r' | grep -o 'WARN [a-z]*' | tr '\n' ' ')
@@ -266,43 +266,43 @@ mkdir -p "$TMP/.aidev/works/20260101-hint"
 cat > "$TMP/.aidev/works/20260101-hint/state.yml" <<'YML'
 schema: 3
 slug: hint
-current: requirement
+current: requirements
 approved: []
 YML
-: > "$TMP/.aidev/works/20260101-hint/requirement.md"
+: > "$TMP/.aidev/works/20260101-hint/requirements.md"
 cat > "$TMP/.aidev/works/20260101-hint/metrics.yml" <<'YML'
 events:
-  - { ts: 2026-01-01T00:00:00Z, phase: requirement, event: start }
+  - { ts: 2026-01-01T00:00:00Z, phase: requirements, event: start }
 YML
 PREV_CURRENT=$(cat "$TMP/.aidev/current")
 echo "20260101-hint" > "$TMP/.aidev/current"
-H1=$(run_sh guard spec 2>&1)
-echo "$H1" | grep -q "aidev event spec start" && ok "guard: 未 start の工程では start を促す" || ng "guard: start の促しが出ない"
-# **余分な引数を黙って捨てない**。捨てていた頃は `aidev guard spec --slug X` が
+H1=$(run_sh guard design 2>&1)
+echo "$H1" | grep -q "aidev event design start" && ok "guard: 未 start の工程では start を促す" || ng "guard: start の促しが出ない"
+# **余分な引数を黙って捨てない**。捨てていた頃は `aidev guard design --slug X` が
 # .aidev/current の別 work に対して緑を返していた（工程入口の硬ゲートが打ち間違いを通す形）。
 # sh / ps1 の共有欠陥だったのでパリティテストでは捕まらなかった
-assert_eq "$(run_sh guard spec --slug bogus >/dev/null 2>&1; echo $?)" "1" \
+assert_eq "$(run_sh guard design --slug bogus >/dev/null 2>&1; echo $?)" "1" \
   "guard: 余分なオプションを弾く（別 work に緑を返さない）"
-assert_eq "$(run_sh guard spec bogus >/dev/null 2>&1; echo $?)" "1" \
+assert_eq "$(run_sh guard design bogus >/dev/null 2>&1; echo $?)" "1" \
   "guard: 余分な位置引数も弾く"
-H2=$(run_sh guard requirement 2>&1)
-echo "$H2" | grep -q "aidev event requirement start" && ng "guard: start 済なのに促している" || ok "guard: start 済の工程では促さない"
+H2=$(run_sh guard requirements 2>&1)
+echo "$H2" | grep -q "aidev event requirements start" && ng "guard: start 済なのに促している" || ok "guard: start 済の工程では促さない"
 # **plan モードへ入るよう、該当条件の工程でだけ名指しで促す**。散文に書いてあっても、
 # 打つ側は工程に入る瞬間には思い出さない（event start の促しと同じ型）
 echo "$H1" | grep -q "plan モードへ入ってから" \
-  && ok "guard spec: plan モードへ入るよう促す（full × interactive）" || ng "guard spec: plan モードの促しが出ない"
+  && ok "guard design: plan モードへ入るよう促す（full × interactive）" || ng "guard design: plan モードの促しが出ない"
 # **全 11 工程を前提充足済みで回す**。個別に書いていた頃は
 # (1) 前提が足りず exit 2 で終わる**空振り**が 3 本混ざり（`guard review` は `need_approved test` に
 #     落ちて促しに一度も到達していなかった）、
-# (2) `case` に test|walkthrough|deliver|retro を足しても design を消しても**緑のまま**だった
+# (2) `case` に test|walkthrough|deliver|retro を足しても architecture を消しても**緑のまま**だった
 #     （実走が変異試験で実測）。**検査が中核を守っていなかった**。
 # 前提を全部揃えてから 11 工程を一巡し、rc=0 であることも確かめる
 PM_W=$TMP/.aidev/works/20260101-hint
-printf 'schema: 3\nslug: hint\ncurrent: requirement\napproved: [requirement, spec, design, plan, coding, test, review, walkthrough, deliver]\n' > "$PM_W/state.yml"
-: > "$PM_W/spec.md"; : > "$PM_W/design.md"; : > "$PM_W/plan.md"
+printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: [requirements, design, architecture, tasks, coding, test, review, walkthrough, deliver]\n' > "$PM_W/state.yml"
+: > "$PM_W/design.md"; : > "$PM_W/architecture.md"; : > "$PM_W/tasks.md"
 printf -- '- [ ] T1: x\n' > "$PM_W/tasks.md"
-# 期待値の正典は protocol-autonomous.md「plan モードとの関係」——入るのは spec / design / plan
-for _pmc in requirement:no research:no spec:yes design:yes plan:yes coding:no \
+# 期待値の正典は protocol-autonomous.md「plan モードとの関係」——入るのは design / architecture / tasks
+for _pmc in requirements:no research:no design:yes architecture:yes tasks:yes coding:no \
             test:no review:no walkthrough:no deliver:no retro:no; do
   _pmp=${_pmc%%:*}; _pmw=${_pmc#*:}
   _pmo=$(run_sh guard "$_pmp" 2>&1); _pmr=$?
@@ -314,55 +314,55 @@ for _pmc in requirement:no research:no spec:yes design:yes plan:yes coding:no \
     assert_eq "$_pmg" "0" "guard $_pmp: 促さない（成果物が実装計画ではない）"
   fi
 done
-# **subtask の plan は親が切り方を確定済み**——同じ工程名でも促してはいけない
-printf 'schema: 3\nslug: hint\ncurrent: requirement\napproved: []\nparent: 20260101-order\n' \
+# **subtask の tasks は親が切り方を確定済み**——同じ工程名でも促してはいけない
+printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: []\nparent: 20260101-order\n' \
   > "$PM_W/state.yml"
-assert_eq "$(run_sh guard plan 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
-  "guard plan: subtask では促さない（切り方は親の plan が確定済み）"
-printf 'schema: 3\nslug: hint\ncurrent: requirement\napproved: []\n' > "$PM_W/state.yml"
-rm -f "$PM_W/spec.md" "$PM_W/design.md" "$PM_W/plan.md" "$PM_W/tasks.md"
+assert_eq "$(run_sh guard tasks 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
+  "guard tasks: subtask では促さない（切り方は親の tasks が確定済み）"
+printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: []\n' > "$PM_W/state.yml"
+rm -f "$PM_W/design.md" "$PM_W/architecture.md" "$PM_W/tasks.md" "$PM_W/tasks.md"
 # **「入れ」と命じる**。「方針を先に固める」のような役割だけの言い方だと、丁寧に計画するだけで
 # モードは切り替わらない（EnterPlanMode は主エージェントのツールなので、明示すれば実際に切り替わる）
 echo "$H1" | grep -q "抜けた先は承認時に選んだモードで、元のモードには戻らない" \
-  && ok "guard spec: 戻り先が選べないことも言う（工程の間だけ入れて戻す、は作れない）" \
-  || ng "guard spec: 抜けた先の説明が無い"
+  && ok "guard design: 戻り先が選べないことも言う（工程の間だけ入れて戻す、は作れない）" \
+  || ng "guard design: 抜けた先の説明が無い"
 # 条件は散文と同じ full × interactive だけ——light は往復を減らす趣旨に反し、autonomous には承認者がいない
-printf 'schema: 3\nslug: hint\ncurrent: requirement\napproved: []\nprofile: light\n' \
+printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: []\nprofile: light\n' \
   > "$TMP/.aidev/works/20260101-hint/state.yml"
-assert_eq "$(run_sh guard spec 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
-  "guard spec: light では促さない（往復を減らす趣旨に反する）"
-printf 'schema: 3\nslug: hint\ncurrent: requirement\napproved: []\nmode: autonomous\n' \
+assert_eq "$(run_sh guard design 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
+  "guard design: light では促さない（往復を減らす趣旨に反する）"
+printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: []\nmode: autonomous\n' \
   > "$TMP/.aidev/works/20260101-hint/state.yml"
-assert_eq "$(run_sh guard spec 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
-  "guard spec: autonomous では促さない（承認者がいない）"
+assert_eq "$(run_sh guard design 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
+  "guard design: autonomous では促さない（承認者がいない）"
 # **見るのは mode ではなく「その工程に承認者がいるか」**。`humanGates` の部分自律には承認者がいる。
 # `mode != autonomous` で判定していた頃は、他 PJ の retro が実績として報告している構成で
 # 承認者がいるのに促しを止めていた（実走で実測）
-printf 'schema: 3\nslug: hint\ncurrent: requirement\napproved: []\nmode: autonomous\nhumanGates: [spec]\n' \
+printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: []\nmode: autonomous\nhumanGates: [design]\n' \
   > "$TMP/.aidev/works/20260101-hint/state.yml"
-assert_eq "$(run_sh guard spec 2>&1 | grep -c 'plan モードへ入ってから')" "1" \
-  "guard spec: humanGates に挙がっていれば autonomous でも促す（承認者がいる）"
-assert_eq "$(run_sh guard design 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
-  "guard design: humanGates に無い工程は promote しない（工程ごとに見る）"
+assert_eq "$(run_sh guard design 2>&1 | grep -c 'plan モードへ入ってから')" "1" \
+  "guard design: humanGates に挙がっていれば autonomous でも促す（承認者がいる）"
+assert_eq "$(run_sh guard architecture 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
+  "guard architecture: humanGates に無い工程は promote しない（工程ごとに見る）"
 # **見るのは「この工程に承認者がいるか」で、mode そのものではない**。plan モードを抜けるのが
-# 人間の承認だから。`autonomous` を一律で外していた頃は、`humanGates: [spec]` の部分自律——
+# 人間の承認だから。`autonomous` を一律で外していた頃は、`humanGates: [design]` の部分自律——
 # 他 PJ の retro が実績として報告している構成——で**承認者がいるのに促しを止めていた**（実走で実測）
-printf 'schema: 3\nslug: hint\ncurrent: requirement\napproved: []\nmode: autonomous\nhumanGates: [spec]\n' \
+printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: []\nmode: autonomous\nhumanGates: [design]\n' \
   > "$TMP/.aidev/works/20260101-hint/state.yml"
-assert_eq "$(run_sh guard spec 2>&1 | grep -c 'plan モードへ入ってから')" "1" \
-  "guard spec: autonomous でも humanGates にあれば促す（部分自律）"
-assert_eq "$(run_sh guard design 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
-  "guard design: humanGates に無い工程は autonomous のまま促さない"
+assert_eq "$(run_sh guard design 2>&1 | grep -c 'plan モードへ入ってから')" "1" \
+  "guard design: autonomous でも humanGates にあれば促す（部分自律）"
+assert_eq "$(run_sh guard architecture 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
+  "guard architecture: humanGates に無い工程は autonomous のまま促さない"
 # light は承認者の有無と無関係に外す（往復を減らす趣旨に反する）
-printf 'schema: 3\nslug: hint\ncurrent: requirement\napproved: []\nmode: autonomous\nhumanGates: [spec]\nprofile: light\n' \
+printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: []\nmode: autonomous\nhumanGates: [design]\nprofile: light\n' \
   > "$TMP/.aidev/works/20260101-hint/state.yml"
-assert_eq "$(run_sh guard spec 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
-  "guard spec: humanGates があっても light なら促さない"
+assert_eq "$(run_sh guard design 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
+  "guard design: humanGates があっても light なら促さない"
 rm -rf "$TMP/.aidev/works/20260101-hint"
 printf '%s\n' "$PREV_CURRENT" > "$TMP/.aidev/current"
-# beta は plan 前提(spec.md)が無いので guard plan は exit 2
-run_sh guard plan >/dev/null 2>&1; assert_eq "$?" "2" "guard plan(前提成果物なし) exit 2"
-G_OUT=$(run_sh guard spec 2>&1); echo "$G_OUT" | grep -q "advisory" && ok "guard: #99 を advisory(warn) 表示" || ng "guard advisory 表示"
+# beta は tasks 前提(design.md)が無いので guard tasks は exit 2
+run_sh guard tasks >/dev/null 2>&1; assert_eq "$?" "2" "guard tasks(前提成果物なし) exit 2"
+G_OUT=$(run_sh guard design 2>&1); echo "$G_OUT" | grep -q "advisory" && ok "guard: #99 を advisory(warn) 表示" || ng "guard advisory 表示"
 
 echo "== worktree =="
 if command -v git >/dev/null 2>&1; then
@@ -490,11 +490,11 @@ SUB="$TMP/sub"
 mkdir -p "$SUB/.aidev/works"
 run_sub() { ( cd "$SUB" && "$AIDEV_SH" "$@" ); }
 
-# 親 work を作り、上流成果物を置いて plan まで承認
+# 親 work を作り、上流成果物を置いて tasks まで承認
 run_sub new feat >/dev/null
 SP=$(cat "$SUB/.aidev/current")
-for f in requirement spec design plan; do : > "$SUB/.aidev/works/$SP/$f.md"; done
-for ph in requirement spec design plan; do run_sub approve "$ph" >/dev/null; done
+for f in requirements design architecture tasks; do : > "$SUB/.aidev/works/$SP/$f.md"; done
+for ph in requirements design architecture tasks; do run_sub approve "$ph" >/dev/null; done
 
 # subtask 01-be 作成
 SO=$(run_sub new 01-be --parent "$SP")
@@ -505,7 +505,7 @@ assert_contains "$(cat "$SPST")" "subtasks: [01-be]" "親 subtasks に追記"
 assert_contains "$(cat "$SPST")" "activeSubtask: 01-be" "親 activeSubtask 設定"
 SCST="$SUB/.aidev/works/$SP/01-be/state.yml"
 assert_contains "$(cat "$SCST")" "parent: $SP" "子 state.yml に parent 逆参照"
-assert_contains "$(cat "$SCST")" "current: plan" "子 current=plan"
+assert_contains "$(cat "$SCST")" "current: tasks" "子 current=tasks"
 assert_contains "$(cat "$SCST")" "schema: $CUR_SCHEMA" "子 schema=CURRENT_SCHEMA"
 
 # 2つ目: activeSubtask は先頭(01-be)のまま・subtasks に追記
@@ -520,19 +520,19 @@ run_sub new x --parent nope >/dev/null 2>&1; assert_eq "$?" "1" "親不在の --
 # C: 多段ネスト禁止（親が既に subtask なら exit 1）
 run_sub new deep --parent "$SP/01-be" >/dev/null 2>&1; assert_eq "$?" "1" "C: 親が subtask の --parent は exit 1（多段ネスト不可）"
 
-# guard: subtask plan は親の spec.md を継承して充足(0)
+# guard: subtask tasks は親の design.md を継承して充足(0)
 echo "$SP/01-be" > "$SUB/.aidev/current"
-run_sub guard plan >/dev/null 2>&1; assert_eq "$?" "0" "guard plan: 親 spec.md 継承で充足"
-# guard: subtask coding は親 plan.md を継承「しない」（subtask 固有）。子に plan.md/tasks.md が無いので未充足(2)
-run_sub guard coding >/dev/null 2>&1; assert_eq "$?" "2" "guard coding: 親 plan.md を継承せず未充足(2)"
-# 子に plan.md/tasks.md を置けば充足(0)
-: > "$SUB/.aidev/works/$SP/01-be/plan.md"; : > "$SUB/.aidev/works/$SP/01-be/tasks.md"
-run_sub guard coding >/dev/null 2>&1; assert_eq "$?" "0" "guard coding: 子の plan.md/tasks.md で充足(0)"
-# B: 親専用工程は subtask で実行不可（exit 2）。subtask の工程は plan/coding/test/review のみ
-for ph in spec design deliver walkthrough requirement; do
+run_sub guard tasks >/dev/null 2>&1; assert_eq "$?" "0" "guard tasks: 親 design.md 継承で充足"
+# guard: subtask coding は親 tasks.md を継承「しない」（subtask 固有）。子に tasks.md が無いので未充足(2)
+run_sub guard coding >/dev/null 2>&1; assert_eq "$?" "2" "guard coding: 親 tasks.md を継承せず未充足(2)"
+# 子に tasks.md を置けば充足(0)
+: > "$SUB/.aidev/works/$SP/01-be/tasks.md"; : > "$SUB/.aidev/works/$SP/01-be/tasks.md"
+run_sub guard coding >/dev/null 2>&1; assert_eq "$?" "0" "guard coding: 子の tasks.md で充足(0)"
+# B: 親専用工程は subtask で実行不可（exit 2）。subtask の工程は tasks/coding/test/review のみ
+for ph in design architecture deliver walkthrough requirements; do
   run_sub guard "$ph" >/dev/null 2>&1; assert_eq "$?" "2" "B: subtask の guard $ph は親専用で拒否(2)"
 done
-# B: subtask 固有工程(review)は親専用ブロックに掛からない（spec.md 継承で充足 0）
+# B: subtask 固有工程(review)は親専用ブロックに掛からない（design.md 継承で充足 0）
 # review の前提は「test 通過」（aidev-60-review「前提」）。順に打つのが実運用の形
 run_sub guard review >/dev/null 2>&1; assert_eq "$?" "2" "B: subtask の guard review は test 未承認なら未充足(2)"
 run_sub approve test >/dev/null 2>&1
@@ -540,14 +540,14 @@ run_sub guard review >/dev/null 2>&1; assert_eq "$?" "0" "B: subtask の guard r
 
 # 兄弟 dependsOn: 02-fe は 01-be 未review で未充足(3)、review 後に充足(0)
 echo "$SP/02-fe" > "$SUB/.aidev/current"
-run_sub guard plan >/dev/null 2>&1; assert_eq "$?" "3" "guard: 兄弟 01-be 未review で dependsOn 未充足(3)"
+run_sub guard tasks >/dev/null 2>&1; assert_eq "$?" "3" "guard: 兄弟 01-be 未review で dependsOn 未充足(3)"
 echo "$SP/01-be" > "$SUB/.aidev/current"
-for ph in plan coding test review; do run_sub approve "$ph" >/dev/null; done
+for ph in tasks coding test review; do run_sub approve "$ph" >/dev/null; done
 : > "$SUB/.aidev/works/$SP/01-be/review.md"
 # D: 01-be の review 承認でカーソルが次の未完 subtask(02-fe)へ自動前進する
 assert_contains "$(cat "$SUB/.aidev/works/$SP/state.yml")" "activeSubtask: 02-fe" "D: 01-be review 承認で親 activeSubtask が 02-fe へ前進"
 assert_eq "$(cat "$SUB/.aidev/current")" "$SP/02-fe" "D: カーソル(.aidev/current)が 02-fe へ自動前進"
-run_sub guard plan >/dev/null 2>&1; assert_eq "$?" "0" "guard: 兄弟 01-be review 済で dependsOn 充足(0)"
+run_sub guard tasks >/dev/null 2>&1; assert_eq "$?" "0" "guard: 兄弟 01-be review 済で dependsOn 充足(0)"
 
 # event/approve が subtask に記録される
 echo "$SP/01-be" > "$SUB/.aidev/current"
@@ -563,7 +563,7 @@ SV=$(run_sub verify "$SP/01-be"); assert_contains "$SV" "verify: $SP/01-be" "ver
 
 # D: 最後の subtask(02-fe)の review 承認で activeSubtask=done、カーソルが親へ戻る
 echo "$SP/02-fe" > "$SUB/.aidev/current"
-for ph in plan coding test review; do run_sub approve "$ph" >/dev/null; done
+for ph in tasks coding test review; do run_sub approve "$ph" >/dev/null; done
 : > "$SUB/.aidev/works/$SP/02-fe/review.md"
 assert_contains "$(cat "$SUB/.aidev/works/$SP/state.yml")" "activeSubtask: done" "D: 全 subtask 完了で activeSubtask=done"
 assert_eq "$(cat "$SUB/.aidev/current")" "$SP" "D: 全完了でカーソルが親 work へ戻る"
@@ -572,13 +572,13 @@ assert_eq "$(cat "$SUB/.aidev/current")" "$SP" "D: 全完了でカーソルが�
 TAB=$(printf '\t')
 run_sub new feat2 >/dev/null
 SP2=$(cat "$SUB/.aidev/current")
-for f in requirement spec plan; do : > "$SUB/.aidev/works/$SP2/$f.md"; done
-for ph in requirement spec plan; do run_sub approve "$ph" >/dev/null; done
+for f in requirements design tasks; do : > "$SUB/.aidev/works/$SP2/$f.md"; done
+for ph in requirements design tasks; do run_sub approve "$ph" >/dev/null; done
 run_sub new 01-a --parent "$SP2" >/dev/null
 run_sub new 02-b --parent "$SP2" >/dev/null
 # 01-a を review まで承認（N=1 / M=2。D が current を 02-b へ動かす）
 echo "$SP2/01-a" > "$SUB/.aidev/current"
-for ph in plan coding test review; do run_sub approve "$ph" >/dev/null; done
+for ph in tasks coding test review; do run_sub approve "$ph" >/dev/null; done
 : > "$SUB/.aidev/works/$SP2/01-a/review.md"
 
 # 既定: 親 next=sub 1/2、子行は出さない
@@ -592,12 +592,12 @@ assert_contains "$RSTS" "↳ 02-b" "rollup: --subtasks で子 02-b を展開"
 # tsv: subtask 行型／work 行は8フィールド維持
 RTSV=$(run_sub status --subtasks --format tsv)
 assert_contains "$RTSV" "subtask${TAB}$SP2/01-a${TAB}review${TAB}yes" "rollup: tsv subtask 行(01-a review/yes)"
-assert_contains "$RTSV" "subtask${TAB}$SP2/02-b${TAB}plan${TAB}no"     "rollup: tsv subtask 行(02-b plan/no)"
+assert_contains "$RTSV" "subtask${TAB}$SP2/02-b${TAB}tasks${TAB}no"     "rollup: tsv subtask 行(02-b tasks/no)"
 WNF=$(printf '%s\n' "$RTSV" | awk -F'\t' -v w="$SP2" '$1=="work" && $2==w {print NF}')
 assert_eq "$WNF" "8" "rollup: tsv work 行は8フィールド維持(後方互換)"
 # 回帰: subtask 無し work は next に sub を出さない
 run_sub new solo >/dev/null; SSO=$(cat "$SUB/.aidev/current")
-: > "$SUB/.aidev/works/$SSO/requirement.md"; run_sub approve requirement >/dev/null
+: > "$SUB/.aidev/works/$SSO/requirements.md"; run_sub approve requirements >/dev/null
 SOLOLINE=$(run_sub status --subtasks | grep "$SSO")
 # grep が外れて空になっても assert_absent は通る。まず行が取れたことを確かめる
 assert_contains "$SOLOLINE" "$SSO" "rollup: solo work の行が取れている（この後の assert_absent の前提）"
@@ -618,8 +618,8 @@ BLW=$(cat "$BLR/.aidev/current")
 assert_contains "$(cat "$BLR/.aidev/works/$BLW/state.yml")" "backlog: demo.md" "new --backlog: state.yml に出自を刻む"
 
 # deliver まで通す（review.md は schema>=2、工程成果物は schema>=5 の不変条件）
-for f in requirement spec plan tasks review test-result; do : > "$BLR/.aidev/works/$BLW/$f.md"; done
-for p in requirement spec plan coding test review deliver; do run_bl approve "$p" >/dev/null; done
+for f in requirements design tasks tasks review test-result; do : > "$BLR/.aidev/works/$BLW/$f.md"; done
+for p in requirements design tasks coding test review deliver; do run_bl approve "$p" >/dev/null; done
 
 BLV=$(run_bl verify 2>&1); BLC=$?
 assert_eq "$BLC" "4" "verify: 消し込み前は FAIL（deliver 済 + backlog 出自）"
@@ -659,8 +659,8 @@ assert_eq "$?" "0" "verify: archive/ へ退避後も消し込みを追える"
 run_bl new plain --mode autonomous >/dev/null
 PLW=$(cat "$BLR/.aidev/current")
 assert_absent "$(cat "$BLR/.aidev/works/$PLW/state.yml")" "backlog:" "new: --backlog 無しでは backlog 行を書かない"
-for f in requirement spec plan tasks review test-result; do : > "$BLR/.aidev/works/$PLW/$f.md"; done
-for p in requirement spec plan coding test review deliver; do run_bl approve "$p" >/dev/null; done
+for f in requirements design tasks tasks review test-result; do : > "$BLR/.aidev/works/$PLW/$f.md"; done
+for p in requirements design tasks coding test review deliver; do run_bl approve "$p" >/dev/null; done
 run_bl verify >/dev/null 2>&1
 assert_eq "$?" "0" "verify: backlog 出自の無い work は従来どおり PASS"
 rm -rf "$BLR"
@@ -684,7 +684,7 @@ run_if new plain-b --mode autonomous >/dev/null                     # 刻印な�
 run_if new delivered-c --mode autonomous --backlog q.md >/dev/null
 DC=$(cat "$IFR/.aidev/current")
 : > "$IFR/.aidev/works/$DC/review.md"
-for p in requirement spec plan coding test review deliver; do run_if approve "$p" >/dev/null; done
+for p in requirements design tasks coding test review deliver; do run_if approve "$p" >/dev/null; done
 
 IF_TSV=$(run_if status --format tsv)
 assert_contains "$IF_TSV" "backlog	q.md	2	0	1" "status: inflight=1（未 deliver の刻印付きだけ数える）"
@@ -888,14 +888,14 @@ run_lsh() { ( cd "$LREPO" && "$AIDEV_SH" "$@" ); }
 
 L_NEW=$(run_lsh new tiny --light)
 assert_contains "$L_NEW" "profile light" "new --light: profile light を報告"
-assert_contains "$L_NEW" "requirement 1ゲート" "new --light: 上流1ゲートの注意を出す"
+assert_contains "$L_NEW" "requirements 1ゲート" "new --light: 上流1ゲートの注意を出す"
 L_SLUG=$(cat "$LREPO/.aidev/current")
 assert_contains "$(cat "$LREPO/.aidev/works/$L_SLUG/state.yml")" "profile: light" "new --light: state.yml に profile: light"
 
 F_NEW=$(run_lsh new normal)
 F_SLUG=$(cat "$LREPO/.aidev/current")
 assert_contains "$F_NEW" "profile full" "new(既定): profile full"
-assert_absent  "$F_NEW" "requirement 1ゲート" "new(既定): light の注意は出さない"
+assert_absent  "$F_NEW" "requirements 1ゲート" "new(既定): light の注意は出さない"
 
 run_lsh new bad --profile medium >/dev/null 2>&1; assert_eq "$?" "1" "不正な --profile は exit 1"
 
@@ -940,7 +940,7 @@ cat > "$LREPO/.aidev/works/20260101-oldwork/state.yml" <<'EOF'
 schema: 2
 slug: oldwork
 current: coding
-approved: [requirement, spec, plan]
+approved: [requirements, design, tasks]
 mode: interactive
 humanGates: []
 maxSendBacks: 3
@@ -1047,26 +1047,26 @@ for w in one two; do
   printf 'schema: 4\nslug: %s\ncurrent: deliver\napproved: [deliver]\nharnessRev: aaa1111\n' "$w" \
     > "$CVR/.aidev/works/$TODAY-$w/state.yml"
   # 着手は条項の introduced（いま）より後に固定する（23:59:59Z）。deliver も刻む（--members が出す）
-  printf 'events:\n  - { ts: %sT23:59:59Z, phase: requirement, event: start }\n  - { ts: %sT23:59:59Z, phase: deliver, event: approved }\n' \
+  printf 'events:\n  - { ts: %sT23:59:59Z, phase: requirements, event: start }\n  - { ts: %sT23:59:59Z, phase: deliver, event: approved }\n' \
     "$(date -u +%Y-%m-%d)" "$(date -u +%Y-%m-%d)" > "$CVR/.aidev/works/$TODAY-$w/metrics.yml"
 done
 # 同じ日でも条項より**前**に着手した work は母集団に入れない。日付粒度で比べていた間は混入していた——
 # 条項は「その日回っていた work の retro」から起きるのが典型なので、最初の母集団はほぼ確実に汚染される
 mkdir -p "$CVR/.aidev/works/$TODAY-early"
 printf 'schema: 4\nslug: early\ncurrent: deliver\napproved: [deliver]\n' > "$CVR/.aidev/works/$TODAY-early/state.yml"
-printf 'events:\n  - { ts: %sT00:00:00Z, phase: requirement, event: start }\n' \
+printf 'events:\n  - { ts: %sT00:00:00Z, phase: requirements, event: start }\n' \
   "$(date -u +%Y-%m-%d)" > "$CVR/.aidev/works/$TODAY-early/metrics.yml"
 # 着手しただけの work は review を通っていない＝判定材料を1つも産んでいないので数えない。
 # ここを数えると、レビュー記録がまだ無いのに ready=yes が立ち insights が空の材料で判定する。
 mkdir -p "$CVR/.aidev/works/$TODAY-inflight"
-printf 'schema: 4\nslug: inflight\ncurrent: coding\napproved: [requirement, spec]\n' \
+printf 'schema: 4\nslug: inflight\ncurrent: coding\napproved: [requirements, design]\n' \
   > "$CVR/.aidev/works/$TODAY-inflight/state.yml"
-printf 'events:\n  - { ts: %sT01:00:00Z, phase: requirement, event: start }\n' \
+printf 'events:\n  - { ts: %sT01:00:00Z, phase: requirements, event: start }\n' \
   "$(date -u +%Y-%m-%d)" > "$CVR/.aidev/works/$TODAY-inflight/metrics.yml"
 # 導入日より前に着手した work は母集団に入れない（効果を受けていないため）
 mkdir -p "$CVR/.aidev/works/20200101-old"
-printf 'schema: 4\nslug: old\ncurrent: requirement\napproved: []\n' > "$CVR/.aidev/works/20200101-old/state.yml"
-printf 'events:\n  - { ts: 2020-01-01T01:00:00Z, phase: requirement, event: start }\n' \
+printf 'schema: 4\nslug: old\ncurrent: requirements\napproved: []\n' > "$CVR/.aidev/works/20200101-old/state.yml"
+printf 'events:\n  - { ts: 2020-01-01T01:00:00Z, phase: requirements, event: start }\n' \
   > "$CVR/.aidev/works/20200101-old/metrics.yml"
 
 CV_S1=$(run_cv convention status --format tsv)
@@ -1315,7 +1315,7 @@ run_rd() { ( cd "$RDR" && "$AIDEV_SH" "$@" ); }
 run_rd convention new conv1 --hypothesis h --baseline "b" --verify-after 1 >/dev/null
 run_rd new rd >/dev/null
 RDW=$(ls "$RDR/.aidev/works")
-for p in requirement spec plan coding test review; do
+for p in requirements design tasks coding test review; do
   run_rd event "$p" start >/dev/null; run_rd approve "$p" >/dev/null
 done
 : > "$RDR/.aidev/works/$RDW/review.md"
@@ -1327,8 +1327,8 @@ assert_contains "$RD_A" "条項 conv1 の母集団が揃っています(1/1)" "a
 assert_contains "$(run_rd convention status --format tsv)" "	1	1	yes	" "母集団: deliver 済みになって初めて数える"
 # 跨いだ**瞬間だけ**。-ge だと以後の全 deliver で全条項ぶん鳴り続ける（100 works×30 条項で 1 回 31 行）
 run_rd new rd2 >/dev/null; RDW2=$(ls "$RDR/.aidev/works" | grep -- '-rd2$')
-for f in requirement spec plan tasks review test-result; do : > "$RDR/.aidev/works/$RDW2/$f.md"; done
-for p in requirement spec plan coding test review; do run_rd event "$p" start >/dev/null; run_rd approve "$p" >/dev/null; done
+for f in requirements design tasks tasks review test-result; do : > "$RDR/.aidev/works/$RDW2/$f.md"; done
+for p in requirements design tasks coding test review; do run_rd event "$p" start >/dev/null; run_rd approve "$p" >/dev/null; done
 run_rd event deliver start >/dev/null
 RD_B=$(run_rd approve deliver files_changed=1 insertions=1 deletions=0 2>&1)
 assert_absent "$RD_B" "母集団が揃いました" "approve deliver: 到達済みの条項は2回目以降鳴らさない（跨いだ瞬間だけ）"
@@ -1377,7 +1377,7 @@ assert_contains "$(cat "$HVST")" "harnessRev:" "new: harnessRev を自動で刻�
 assert_contains "$(cat "$HVST")" "schema: $CUR_SCHEMA" "new: schema は CURRENT_SCHEMA"
 
 # またがり work（着手時と着地時で版が違う）は効果を半分しか受けていないので母集団から外す
-for p in requirement spec plan coding test review deliver; do
+for p in requirements design tasks coding test review deliver; do
   run_hv event "$p" start >/dev/null
 done
 : > "$HVR/.aidev/works/$HVW/review.md"
@@ -1418,17 +1418,17 @@ assert_contains "$(run_hv harness status --format tsv)" "harness	h1	pending	" "h
 assert_eq "$(run_hv harness status --format tsv | awk -F'\t' '$2=="h1"{print $6"/"$8}')" "0/no" "harness status: 導入前・またがり work は母集団に入らない"
 # 導入後に着手し、またがらずに deliver した work が母集団に入り、揃った瞬間に知らせる
 run_hv new h1w >/dev/null; H1W=$(cat "$HVR/.aidev/current")
-for f in requirement spec plan tasks review test-result; do : > "$HVR/.aidev/works/$H1W/$f.md"; done
-for p in requirement spec plan coding test review; do run_hv event "$p" start >/dev/null; run_hv approve "$p" >/dev/null; done
+for f in requirements design tasks tasks review test-result; do : > "$HVR/.aidev/works/$H1W/$f.md"; done
+for p in requirements design tasks coding test review; do run_hv event "$p" start >/dev/null; run_hv approve "$p" >/dev/null; done
 run_hv event deliver start >/dev/null
 HA=$(run_hv approve deliver files_changed=1 2>&1)
 assert_contains "$HA" "ハーネス改修 h1 の母集団が揃っています(1/1)" "approve deliver: ハーネス改修の母集団到達も知らせる"
 assert_eq "$(run_hv harness status --format tsv | awk -F'\t' '$2=="h1"{print $6"/"$8}')" "1/yes" "harness status: またがらずに deliver した work を数える"
 # またがった work は数えない（着手時の刻印を別版に書き換えてから deliver）
 run_hv new h1s >/dev/null; H1S=$(cat "$HVR/.aidev/current")
-for f in requirement spec plan tasks review test-result; do : > "$HVR/.aidev/works/$H1S/$f.md"; done
+for f in requirements design tasks tasks review test-result; do : > "$HVR/.aidev/works/$H1S/$f.md"; done
 awk '{ if ($0 ~ /^harnessRev:/) print "harnessRev: deadbee"; else print }' "$HVR/.aidev/works/$H1S/state.yml" > "$HVR/.aidev/works/$H1S/state.yml.t" && mv "$HVR/.aidev/works/$H1S/state.yml.t" "$HVR/.aidev/works/$H1S/state.yml"
-for p in requirement spec plan coding test review deliver; do run_hv approve "$p" >/dev/null; done
+for p in requirements design tasks coding test review deliver; do run_hv approve "$p" >/dev/null; done
 assert_eq "$(run_hv harness status --format tsv | awk -F'\t' '$2=="h1"{print $6}')" "1" "harness status: またがり work は母集団に数えない"
 HD=$(run_hv doctor 2>&1 || true)
 assert_contains "$HD" "harness: ハーネス改修の記録検査" "doctor: ハーネス改修の記録も検査する"
@@ -1451,7 +1451,7 @@ assert_contains "$(run_hv doctor 2>&1 || true)" "harness-summary: files=0 archiv
 
 # schema<4 の旧 work は遡って違反扱いしない（version-aware）
 mkdir -p "$HVR/.aidev/works/20200101-legacy"
-printf 'schema: 3\nslug: legacy\ncurrent: requirement\napproved: []\n' > "$HVR/.aidev/works/20200101-legacy/state.yml"
+printf 'schema: 3\nslug: legacy\ncurrent: requirements\napproved: []\n' > "$HVR/.aidev/works/20200101-legacy/state.yml"
 printf 'events:\n' > "$HVR/.aidev/works/20200101-legacy/metrics.yml"
 HV_L=$(run_hv verify 20200101-legacy 2>&1)
 assert_contains "$HV_L" "verify: 20200101-legacy" "verify が実際に走っている（この後の assert_absent の前提）"
@@ -1469,7 +1469,7 @@ if [ -n "$PS_HOST" ]; then
   HPBODY=$(tr -d '\r' < "$HPST")
   assert_contains "$HPBODY" "schema: $CUR_SCHEMA" "ps1: new が刻む schema が sh と同じ（<4 だと検査が無効化される）"
   assert_contains "$HPBODY" "harnessRev:" "ps1: new が harnessRev を刻む"
-  for ph in requirement spec plan coding test review deliver; do
+  for ph in requirements design tasks coding test review deliver; do
     ( cd "$HP" && run_ps1 "$HV_PS1" event "$ph" start >/dev/null )
   done
   : > "$HP/.aidev/works/$HPW/review.md"
@@ -1571,7 +1571,7 @@ else
 fi
 
 echo "== coverage（AC 被覆 / tasks.md の整合）=="
-# 背景: plan の完了の目安「spec の全範囲が tasks に漏れなく落ちている」と
+# 背景: tasks の完了の目安「design の全範囲が tasks に漏れなく落ちている」と
 # 「存在しないタスク ID を指していない・循環していない」は長く散文だけで、誰も検査していなかった。
 # spec-kit の /analyze が出す Coverage % に相当する層をハードに上げたのがこのコマンド。
 CVR=$(mktemp -d); mkdir -p "$CVR/.aidev/backlog"
@@ -1584,7 +1584,7 @@ CVOUT=$(run_cv coverage 2>&1); CVRC=$?
 assert_eq "$CVRC" "0" "coverage: tasks.md が無くても exit 0（正常な空）"
 assert_contains "$CVOUT" "tasks.md がまだありません" "coverage: 未作成は note で知らせる"
 
-cat > "$CVD/requirement.md" <<'EOF'
+cat > "$CVD/requirements.md" <<'EOF'
 ## 完了条件 (受け入れ基準)
 - [ ] AC1: ひとつ
 - [ ] AC2: ふたつ
@@ -1593,7 +1593,7 @@ cat > "$CVD/requirement.md" <<'EOF'
 ## 相互作用の受け入れ基準
 - [ ] AC-I1 開く / 閉じる: どう開くか
 EOF
-cat > "$CVD/spec.md" <<'EOF'
+cat > "$CVD/design.md" <<'EOF'
 ## 受け入れ基準との対応
 - AC1: こう満たす
 - AC2: ああ満たす
@@ -1616,7 +1616,7 @@ CVOUT=$(run_cv coverage 2>&1); CVRC=$?
 assert_eq "$CVRC" "0" "coverage: 既定は読み取り専用として exit 0"
 assert_contains "$CVOUT" "AC-I1" "coverage: 相互作用の AC（AC-I1）も基準として拾う"
 assert_contains "$CVOUT" "tasks=3/4(75%)" "coverage: 被覆率を出す（AC3 だけタスク無し）"
-assert_contains "$CVOUT" "spec=2/4(50%)" "coverage: spec の対応漏れも数える"
+assert_contains "$CVOUT" "design=2/4(50%)" "coverage: design の対応漏れも数える"
 assert_contains "$CVOUT" "T2 の 依存 が未定義のタスクを指す: T9" "coverage: 未定義のタスク依存を検出"
 assert_contains "$CVOUT" "依存の循環に含まれるタスク: T3,T4" "coverage: 依存の循環を検出"
 assert_contains "$CVOUT" "T4 が未定義の AC を参照: AC7" "coverage: 未定義の AC 参照を検出"
@@ -1636,7 +1636,7 @@ cat > "$CVD/tasks.md" <<'EOF'
       依存: なし
       AC: なし
 EOF
-cat > "$CVD/spec.md" <<'EOF'
+cat > "$CVD/design.md" <<'EOF'
 - AC1: a
 - AC2: b
 - AC3: c
@@ -1650,7 +1650,7 @@ assert_absent "$CVOUT" "gap:" "coverage: 整合していれば gap を出さな�
 # 全角の「なし」がバイト単位の角括弧式で割られていないこと（`[,、]` の事故の回帰）
 assert_absent "$CVOUT" "依存 が未定義" "coverage: 全角『なし』を壊さない（多バイト角括弧式の回帰）"
 
-# --strict は gap があれば exit 4（plan の承認前ゲート）
+# --strict は gap があれば exit 4（tasks の承認前ゲート）
 printf -- '- [ ] T4: 余り\n      依存: なし\n      AC: AC9\n' >> "$CVD/tasks.md"
 CVOUT=$(run_cv coverage --strict 2>&1); CVRC=$?
 assert_eq "$CVRC" "4" "coverage --strict: gap があれば exit 4"
@@ -1662,14 +1662,14 @@ assert_contains "$CVTSV" "$(printf 'AC1\tyes\tT1')" "coverage --format tsv: 行�
 assert_absent "$CVTSV" "$(printf 'ac\tspec\ttasks')" "coverage --format tsv: 見出し行は出さない"
 
 # verify との連動: struct は FAIL、cover は WARN
-for f in requirement spec plan tasks review test-result; do [ -f "$CVD/$f.md" ] || : > "$CVD/$f.md"; done
-run_cv approve requirement >/dev/null; run_cv approve spec >/dev/null; run_cv approve plan >/dev/null
+for f in requirements design tasks tasks review test-result; do [ -f "$CVD/$f.md" ] || : > "$CVD/$f.md"; done
+run_cv approve requirements >/dev/null; run_cv approve design >/dev/null; run_cv approve tasks >/dev/null
 CVV=$(run_cv verify 2>&1); CVVRC=$?
 assert_eq "$CVVRC" "4" "verify: tasks.md の参照が壊れていたら FAIL"
 assert_contains "$CVV" "tasks.mdの参照が壊れている(1件)" "verify: 壊れた参照の件数を出す"
 # 参照を直すと FAIL が消え、被覆の穴だけが WARN で残る
 sed -i.bak 's/AC: AC9/AC: なし/' "$CVD/tasks.md" && rm -f "$CVD/tasks.md.bak"
-printf -- '- [ ] AC4: 未着手\n' >> "$CVD/requirement.md"
+printf -- '- [ ] AC4: 未着手\n' >> "$CVD/requirements.md"
 CVV=$(run_cv verify 2>&1); CVVRC=$?
 assert_eq "$CVVRC" "0" "verify: 参照が直れば被覆の穴だけでは FAIL しない"
 assert_contains "$CVV" "WARN AC 被覆に穴があります（1 件）" "verify: 被覆の穴は WARN で知らせる"
@@ -1697,28 +1697,28 @@ run_cx new cov-edge >/dev/null
 CXW=$(cat "$CVX/.aidev/current"); CXD="$CVX/.aidev/works/$CXW"
 
 # CRLF: Windows チェックアウトの tasks.md で判定が割れると、deliver 前ゲートが OS で反転する
-printf -- '- [ ] AC1: a\r\n- [ ] AC2: b\r\n' > "$CXD/requirement.md"
+printf -- '- [ ] AC1: a\r\n- [ ] AC2: b\r\n' > "$CXD/requirements.md"
 printf -- '- [ ] T1: x\r\n      AC: AC1\r\n      依存: なし\r\n- [ ] T2: y\r\n      AC: AC2\r\n      依存: T1\r\n' > "$CXD/tasks.md"
 CXO=$(run_cx coverage --strict 2>&1); CXR=$?
 assert_eq "$CXR" "0" "coverage: CRLF の tasks.md でも gap を作らない（OS で判定が割れない）"
 assert_contains "$CXO" "tasks=2/2(100%)" "coverage: CRLF でも被覆を正しく数える"
 
 # BOM: ps1 の ReadAllLines は BOM を外すので、sh 側も外さないと先頭行だけ取りこぼす
-printf '\357\273\277- [ ] AC1: a\n' > "$CXD/requirement.md"
+printf '\357\273\277- [ ] AC1: a\n' > "$CXD/requirements.md"
 printf '\357\273\277- [ ] T1: x\n      AC: AC1\n      依存: なし\n' > "$CXD/tasks.md"
 CXO=$(run_cx coverage --strict 2>&1); CXR=$?
 assert_eq "$CXR" "0" "coverage: BOM 付きでも先頭行を取りこぼさない"
-assert_contains "$CXO" "ac=1" "coverage: BOM 付き requirement.md の AC を数える"
+assert_contains "$CXO" "ac=1" "coverage: BOM 付き requirements.md の AC を数える"
 
 # ID 文法: `AC` で始まるだけの普通のチェックリスト行を受け入れ基準にしない
-printf -- '- [ ] AC1: a\n- [ ] ACL の設定を直す\n- [ ] ACCESS ログを見る\n' > "$CXD/requirement.md"
+printf -- '- [ ] AC1: a\n- [ ] ACL の設定を直す\n- [ ] ACCESS ログを見る\n' > "$CXD/requirements.md"
 printf -- '- [ ] T1: x\n      AC: AC1\n      依存: なし\n' > "$CXD/tasks.md"
 CXO=$(run_cx coverage --strict 2>&1); CXR=$?
 assert_eq "$CXR" "0" "coverage: ACL / ACCESS を AC と誤認しない（消せない gap を作らない）"
 assert_absent "$CXO" "ACL" "coverage: ACL は表に出ない"
 
 # タスク ID: `T1-1` を `T1` に潰すと、正しく書かれた依存が「壊れた参照」になる
-printf -- '- [ ] AC1: a\n- [ ] AC2: b\n' > "$CXD/requirement.md"
+printf -- '- [ ] AC1: a\n- [ ] AC2: b\n' > "$CXD/requirements.md"
 printf -- '- [ ] T1-1: 枝1\n      AC: AC1\n      依存: なし\n- [ ] T1-2: 枝2\n      AC: AC2\n      依存: T1-1\n' > "$CXD/tasks.md"
 CXO=$(run_cx coverage --strict 2>&1); CXR=$?
 assert_eq "$CXR" "0" "coverage: T1-1 / T1-2 を別 ID として扱う（依存が壊れない）"
@@ -1739,14 +1739,14 @@ CXT=$(run_cx coverage --format tsv 2>&1)
 assert_contains "$CXT" "$(printf 'AC1\tno\tT2')" "coverage: 同じ AC を2回書いても列は重複しない"
 
 # AC が 0 件は「被覆 100%」ではなく測れていない（ゲートが最も要る場面で空振りしていた）
-rm -f "$CXD/requirement.md"
+rm -f "$CXD/requirements.md"
 printf -- '- [ ] T1: a\n      AC: なし\n      依存: なし\n' > "$CXD/tasks.md"
 CXO=$(run_cx coverage --strict 2>&1); CXR=$?
 assert_eq "$CXR" "4" "coverage --strict: AC が1件も無い work は素通りさせない"
 assert_contains "$CXO" "受け入れ基準が1件もありません" "coverage: AC ゼロを gap として名指しする"
 
 # `AC: *` を unquoted で展開すると gap 件数が cwd の中身に依存する
-printf -- '- [ ] AC1: a\n' > "$CXD/requirement.md"
+printf -- '- [ ] AC1: a\n' > "$CXD/requirements.md"
 printf -- '- [ ] T1: g\n      AC: *\n      依存: なし\n' > "$CXD/tasks.md"
 CXO=$(run_cx coverage 2>&1)
 assert_contains "$CXO" "T1 が未定義の AC を参照: *" "coverage: グロブ文字をファイル名に展開しない"
@@ -1754,20 +1754,20 @@ assert_eq "$(printf '%s\n' "$CXO" | grep -c '未定義の AC を参照')" "1" "c
 rm -rf "$CVX"
 
 echo "== coverage: 分割 work は家族単位で見る（消せない gap を作らない）=="
-# subtask は親の requirement.md を継承するので、自分の slice だけを見ると
+# subtask は親の requirements.md を継承するので、自分の slice だけを見ると
 # 兄弟が担当する AC が必ず「タスクが無い」になり、誰にも直せない gap が恒久的に残る。
 CVS=$(mktemp -d); mkdir -p "$CVS/.aidev/backlog"
 run_cs() { ( cd "$CVS" && "$AIDEV_SH" "$@" ); }
 run_cs new big >/dev/null; CSP=$(cat "$CVS/.aidev/current")
-printf -- '- [ ] AC1: a\n- [ ] AC2: b\n- [ ] AC3: c\n' > "$CVS/.aidev/works/$CSP/requirement.md"
-printf -- '- AC1: x\n- AC2: y\n- AC3: z\n' > "$CVS/.aidev/works/$CSP/spec.md"
+printf -- '- [ ] AC1: a\n- [ ] AC2: b\n- [ ] AC3: c\n' > "$CVS/.aidev/works/$CSP/requirements.md"
+printf -- '- AC1: x\n- AC2: y\n- AC3: z\n' > "$CVS/.aidev/works/$CSP/design.md"
 run_cs new 01-front --parent "$CSP" >/dev/null
 run_cs new 02-back  --parent "$CSP" >/dev/null
 printf -- '- [ ] T1: front\n      AC: AC1\n      依存: なし\n' > "$CVS/.aidev/works/$CSP/01-front/tasks.md"
 
 CSO=$(run_cs coverage --strict "$CSP/01-front" 2>&1); CSR=$?
-assert_eq "$CSR" "0" "coverage --strict: 兄弟が未 plan の間は cover を致命にしない（最初の子が通れなくなる）"
-assert_contains "$CSO" "plan 未実施の subtask があります" "coverage: 致命にしない理由を note で出す"
+assert_eq "$CSR" "0" "coverage --strict: 兄弟が未 tasks の間は cover を致命にしない（最初の子が通れなくなる）"
+assert_contains "$CSO" "tasks 未実施の subtask があります" "coverage: 致命にしない理由を note で出す"
 assert_contains "$CSO" "01-front/T1" "coverage: 子のタスク ID には subslug を前置する（兄弟間の T1 衝突を避ける）"
 CSO2=$(run_cs coverage "$CSP" 2>&1)
 assert_eq "$(printf '%s\n' "$CSO2" | sed -n '/^ac/,$p' | tail -n +2)" \
@@ -1776,14 +1776,14 @@ assert_eq "$(printf '%s\n' "$CSO2" | sed -n '/^ac/,$p' | tail -n +2)" \
 
 printf -- '- [ ] T1: back\n      AC: AC2, AC3\n      依存: なし\n' > "$CVS/.aidev/works/$CSP/02-back/tasks.md"
 CSO=$(run_cs coverage --strict "$CSP" 2>&1); CSR=$?
-assert_eq "$CSR" "0" "coverage --strict: 全 subtask が plan 済みなら被覆が揃う"
+assert_eq "$CSR" "0" "coverage --strict: 全 subtask が tasks 済みなら被覆が揃う"
 assert_contains "$CSO" "tasks=3/3(100%)" "coverage: 家族全体で 3 AC すべてが被覆される"
-assert_absent "$CSO" "plan 未実施" "coverage: 全員 plan 済みなら note を出さない"
+assert_absent "$CSO" "tasks 未実施" "coverage: 全員 tasks 済みなら note を出さない"
 # verify は家族の根でだけ報告する（子ごとに同じ WARN を重複させない）
 rm -f "$CVS/.aidev/works/$CSP/02-back/tasks.md"
-for f in requirement spec plan review test-result; do : > "$CVS/.aidev/works/$CSP/$f.md"; done
+for f in requirements design tasks review test-result; do : > "$CVS/.aidev/works/$CSP/$f.md"; done
 CSV=$(run_cs verify "$CSP" 2>&1)
-assert_eq "$(printf '%s\n' "$CSV" | grep -c 'AC 被覆')" "0" "verify: 未 plan の subtask がある間は被覆 WARN を出さない"
+assert_eq "$(printf '%s\n' "$CSV" | grep -c 'AC 被覆')" "0" "verify: 未 tasks の subtask がある間は被覆 WARN を出さない"
 rm -rf "$CVS"
 
 
@@ -1794,38 +1794,38 @@ MTR=$(mktemp -d); mkdir -p "$MTR/.aidev/backlog"
 run_mt() { ( cd "$MTR" && "$AIDEV_SH" "$@" ); }
 run_mt new mstamp >/dev/null; MTW=$(cat "$MTR/.aidev/current"); MTD="$MTR/.aidev/works/$MTW"
 
-# tasks.md がまだ無い工程は刻まない（full の requirement をここで潰さない）
-run_mt approve requirement >/dev/null
+# tasks.md がまだ無い工程は刻まない（full の requirements をここで潰さない）
+run_mt approve requirements >/dev/null
 assert_absent "$(cat "$MTD/metrics.yml")" "ac_total" "approve: tasks.md が無ければ被覆を刻まない"
 
-printf -- '- [ ] AC1: a\n- [ ] AC2: b\n- [ ] AC3: c\n' > "$MTD/requirement.md"
-printf -- '- AC1: x\n- AC2: y\n' > "$MTD/spec.md"
+printf -- '- [ ] AC1: a\n- [ ] AC2: b\n- [ ] AC3: c\n' > "$MTD/requirements.md"
+printf -- '- AC1: x\n- AC2: y\n' > "$MTD/design.md"
 printf -- '- [ ] T1: a\n      AC: AC1\n      依存: なし\n- [ ] T2: b\n      AC: AC2, AC3\n      依存: なし\n- [ ] T3: 下準備\n      AC: なし\n      依存: なし\n' > "$MTD/tasks.md"
 assert_contains "$(run_mt coverage)" "ac_none=1" "coverage: 明示的な AC: なし を書き忘れと分けて数える"
 
-run_mt approve spec >/dev/null
-run_mt approve plan tasks_planned=3 tasks_anchored=3 >/dev/null
+run_mt approve design >/dev/null
+run_mt approve tasks tasks_planned=3 tasks_anchored=3 >/dev/null
 MTM=$(cat "$MTD/metrics.yml")
-assert_contains "$MTM" "tasks_planned: 3, tasks_anchored: 3, ac_total: 3" "approve plan: 手書きのキーの後ろに機械値を足す"
-assert_contains "$MTM" "ac_covered: 3, tasks_no_ac: 0, tasks_ac_none: 1" "approve plan: 被覆・書き忘れ・AC 無しを刻む"
+assert_contains "$MTM" "tasks_planned: 3, tasks_anchored: 3, ac_total: 3" "approve tasks: 手書きのキーの後ろに機械値を足す"
+assert_contains "$MTM" "ac_covered: 3, tasks_no_ac: 0, tasks_ac_none: 1" "approve tasks: 被覆・書き忘れ・AC 無しを刻む"
 
-# coding でタスクを足して AC を書き忘れる＝ plan 以降に生まれた乖離
+# coding でタスクを足して AC を書き忘れる＝ tasks 以降に生まれた乖離
 printf -- '- [ ] T4: 追加でやった作業\n      依存: なし\n' >> "$MTD/tasks.md"
 run_mt approve coding tasks_done=4 >/dev/null
-assert_absent "$(sed -n 's/.*phase: coding.*/&/p' "$MTD/metrics.yml")" "ac_total" "approve coding: 被覆は刻まない（刻むのは plan/requirement/review の3工程）"
+assert_absent "$(sed -n 's/.*phase: coding.*/&/p' "$MTD/metrics.yml")" "ac_total" "approve coding: 被覆は刻まない（刻むのは tasks/requirements/review の3工程）"
 run_mt approve test passed=9 failed=0 >/dev/null
 run_mt approve review must=0 should=0 nit=0 >/dev/null
 assert_contains "$(cat "$MTD/metrics.yml")" "nit: 0, ac_total: 3, ac_covered: 3, tasks_no_ac: 1" "approve review: 実装後の被覆を刻む"
 
 MTOUT=$(run_mt metrics)
 assert_contains "$MTOUT" "ac  ac_drift" "metrics: ac / ac_drift 列を出す"
-assert_eq "$(run_mt metrics --format tsv | awk -F'\t' '{print $8, $9}')" "3 1" "metrics: 要求の規模(3)と plan 以降に増えた gap(1)"
+assert_eq "$(run_mt metrics --format tsv | awk -F'\t' '{print $8, $9}')" "3 1" "metrics: 要求の規模(3)と tasks 以降に増えた gap(1)"
 
 # 明示指定は機械値で上書きしない
 run_mt new mstamp2 >/dev/null; MTW2=$(cat "$MTR/.aidev/current"); MTD2="$MTR/.aidev/works/$MTW2"
-printf -- '- [ ] AC1: a\n' > "$MTD2/requirement.md"
+printf -- '- [ ] AC1: a\n' > "$MTD2/requirements.md"
 printf -- '- [ ] T1: a\n      AC: AC1\n      依存: なし\n' > "$MTD2/tasks.md"
-run_mt approve requirement ac_total=99 >/dev/null
+run_mt approve requirements ac_total=99 >/dev/null
 assert_contains "$(cat "$MTD2/metrics.yml")" "ac_total: 99" "approve: 明示指定があれば機械値で上書きしない"
 assert_absent "$(cat "$MTD2/metrics.yml")" "ac_total: 1," "approve: 明示指定と機械値を二重に刻まない"
 
@@ -1868,10 +1868,10 @@ assert_eq "$SMR" "4" "smoke: コマンドが失敗すれば exit 4"
 assert_contains "$(cat "$SMD/metrics.yml")" "result: fail, exit_code: 3" "smoke: fail と実際の exit code を刻む"
 
 # verify: smokeCommand を設定している PJ でだけ deliver 前に効かせる
-for f in requirement spec plan tasks review test-result; do : > "$SMD/$f.md"; done
-printf -- '- [ ] AC1: 起動する\n' > "$SMD/requirement.md"
+for f in requirements design tasks tasks review test-result; do : > "$SMD/$f.md"; done
+printf -- '- [ ] AC1: 起動する\n' > "$SMD/requirements.md"
 printf -- '- [ ] T1: 起動経路\n      AC: AC1\n      依存: なし\n' > "$SMD/tasks.md"
-for p in requirement spec plan coding test review deliver; do run_sm approve "$p" >/dev/null; done
+for p in requirements design tasks coding test review deliver; do run_sm approve "$p" >/dev/null; done
 SMV=$(run_sm verify 2>&1); SMR=$?
 assert_eq "$SMR" "4" "verify: smoke が失敗のままなら deliver 済でも FAIL"
 assert_contains "$SMV" "起動確認が失敗のまま" "verify: 失敗のままであることを名指しする"
@@ -1898,10 +1898,10 @@ echo "== debug（詰まったときの原因究明を有限化する）=="
 DBR=$(mktemp -d); mkdir -p "$DBR/.aidev/backlog"
 run_db() { ( cd "$DBR" && "$AIDEV_SH" "$@" ); }
 run_db new stuck >/dev/null; DBW=$(cat "$DBR/.aidev/current"); DBD="$DBR/.aidev/works/$DBW"
-for f in spec plan review test-result; do : > "$DBD/$f.md"; done
-printf -- '- [ ] AC1: a\n' > "$DBD/requirement.md"
+for f in design tasks review test-result; do : > "$DBD/$f.md"; done
+printf -- '- [ ] AC1: a\n' > "$DBD/requirements.md"
 printf -- '- [ ] T1: x\n      AC: AC1\n      依存: なし\n' > "$DBD/tasks.md"
-for p in requirement spec plan; do run_db approve "$p" >/dev/null; done
+for p in requirements design tasks; do run_db approve "$p" >/dev/null; done
 
 # 上限に達するまでは黙っている。達した瞬間に知らせる（気付くのが retro では遅い）
 DBO=$(run_db event coding sent_back 2>&1)
@@ -1931,7 +1931,7 @@ run_db debug report --phase coding --root-cause x --category logic --next-action
 assert_eq "$?" "1" "debug report: 未知の --next-action は弾く"
 
 DBO=$(run_db debug report --phase coding --root-cause "save() が例外を握りつぶしていた" \
-        --category logic --next-action retry --confidence high --fix-plan "os.replace の前に再送出" 2>&1)
+        --category logic --next-action retry --confidence high --fix-tasks "os.replace の前に再送出" 2>&1)
 assert_contains "$DBO" "round 1 -> retry (logic)" "debug report: 記録して次の行動を出す"
 assert_contains "$DBO" "同じコンテキストに戻さない" "debug report: retry の意味を言う"
 # **本文は decisions.md、列挙値は metrics**（フロー形式の1行に自由文を入れると壊れる）
@@ -1960,11 +1960,11 @@ assert_contains "$DBV" "人の判断を待つ出口を素通りした" "verify: 
 
 # 別 work: 差し戻し上限に達したが debug の記録が無い -> WARN（FAIL にはしない）
 run_db new stuck2 >/dev/null; DBW2=$(cat "$DBR/.aidev/current"); DBD2="$DBR/.aidev/works/$DBW2"
-for f in spec plan review test-result; do : > "$DBD2/$f.md"; done
-printf -- '- [ ] AC1: a\n' > "$DBD2/requirement.md"
+for f in design tasks review test-result; do : > "$DBD2/$f.md"; done
+printf -- '- [ ] AC1: a\n' > "$DBD2/requirements.md"
 printf -- '- [ ] T1: x\n      AC: AC1\n      依存: なし\n' > "$DBD2/tasks.md"
 for i in 1 2 3; do run_db event test sent_back >/dev/null; done
-for p in requirement spec plan coding test review deliver; do run_db approve "$p" >/dev/null; done
+for p in requirements design tasks coding test review deliver; do run_db approve "$p" >/dev/null; done
 DBV=$(run_db verify 2>&1); DBR2=$?
 assert_eq "$DBR2" "0" "verify: 原因究明の記録漏れは WARN 止まり（人の判断が要る）"
 assert_contains "$DBV" "test の差し戻しが 3 回（上限 3）だが原因究明の記録が無い" "verify: 上限到達＋未実施を知らせる"
@@ -1979,17 +1979,17 @@ run_au() { ( cd "$AUD" && "$AIDEV_SH" "$@" ); }
 mk_work() { # slug
   run_au new "$1" >/dev/null
   AU_W=$(cat "$AUD/.aidev/current"); AU_D="$AUD/.aidev/works/$AU_W"
-  for f in spec plan review test-result; do : > "$AU_D/$f.md"; done
-  printf -- '- [ ] AC1: a\n- [ ] AC2: b\n' > "$AU_D/requirement.md"
+  for f in design tasks review test-result; do : > "$AU_D/$f.md"; done
+  printf -- '- [ ] AC1: a\n- [ ] AC2: b\n' > "$AU_D/requirements.md"
   printf -- '- [ ] T1: x\n      AC: AC1, AC2\n      依存: なし\n' > "$AU_D/tasks.md"
 }
 
 # 明示キーの判定は**引数ごとの先頭一致**（連結文字列への部分一致だと値の中の ac_total= で分岐が変わる）
 mk_work m1a; AUD1=$AU_D
-run_au approve plan "note=see ac_total=5" >/dev/null
+run_au approve tasks "note=see ac_total=5" >/dev/null
 assert_contains "$(cat "$AUD1/metrics.yml")" "note: see ac_total=5, ac_total: 2" "approve: 値の中の ac_total= を明示指定と誤認しない"
 mk_work m1b; AUD2=$AU_D; AU_M1B=$AU_W
-run_au approve plan ac_total=9 >/dev/null
+run_au approve tasks ac_total=9 >/dev/null
 assert_contains "$(cat "$AUD2/metrics.yml")" "metrics: { ac_total: 9 }" "approve: 先頭が ac_total= なら機械値で上書きしない"
 
 # ac_covered を持たない刻印は乖離の計算から捨てる（0 とみなすと乖離を捏造する）
@@ -1999,18 +1999,18 @@ assert_eq "$(run_au metrics "$AU_M1B" --format tsv | awk -F'\t' '{print $9}')" "
 
 # 同じ工程を2回 approve しても「2点ある」ことにしない（測れないことを 0 と書かない）
 mk_work m5; AUD3=$AU_D; AU_M5=$AU_W
-run_au approve plan >/dev/null; run_au approve plan >/dev/null
+run_au approve tasks >/dev/null; run_au approve tasks >/dev/null
 assert_eq "$(run_au metrics "$AU_M5" --format tsv 2>/dev/null | awk -F'\t' '{print $9}')" "-" \
-  "metrics: 同じ工程の二重 approve を 2 点と数えない（plan と review で選ぶ）"
+  "metrics: 同じ工程の二重 approve を 2 点と数えない（tasks と review で選ぶ）"
 run_au approve review >/dev/null
-assert_eq "$(run_au metrics "$AU_M5" --format tsv | awk -F'\t' '{print $9}')" "0" "metrics: plan と review がそろえば測れる"
+assert_eq "$(run_au metrics "$AU_M5" --format tsv | awk -F'\t' '{print $9}')" "0" "metrics: tasks と review がそろえば測れる"
 
 # 分割 work: 子では刻まない（家族単位の値を子ごとに刻むと分母が多重計上される）
 mk_work split; AUDP=$AU_D
 SPP=$(cat "$AUD/.aidev/current")
 run_au new 01-a --parent "$SPP" >/dev/null
 printf -- '- [ ] T1: x\n      AC: AC1, AC2\n      依存: なし\n' > "$AUDP/01-a/tasks.md"
-run_au approve plan >/dev/null
+run_au approve tasks >/dev/null
 assert_absent "$(cat "$AUDP/01-a/metrics.yml")" "ac_total" "approve: subtask では被覆を刻まない"
 
 # 起動確認は家族単位。子で打っても親に刻まれ、親の verify が通る
@@ -2020,7 +2020,7 @@ assert_contains "$AUSO" "記録は親" "smoke: 子で打ったら親に刻むこ
 assert_contains "$(cat "$AUDP/metrics.yml")" "event: smoke" "smoke: 記録は家族の根に入る"
 assert_absent "$(cat "$AUDP/01-a/metrics.yml")" "event: smoke" "smoke: 子には刻まない"
 run_au use "$SPP" >/dev/null
-for p in requirement spec plan coding test review deliver; do run_au approve "$p" >/dev/null; done
+for p in requirements design tasks coding test review deliver; do run_au approve "$p" >/dev/null; done
 AUV=$(run_au verify "$SPP" 2>&1); AUR=$?
 assert_eq "$AUR" "0" "verify: 子で通した smoke が親の deliver ゲートに届く"
 assert_absent "$AUV" "起動確認の記録が無い" "verify: 家族の記録を見るので誤 FAIL しない"
@@ -2047,7 +2047,7 @@ rm -f "$AUD/.aidev/config.yml"
 
 # maxSendBacks: 0 の PJ で verify が全工程に鳴らない（debug status の due と同じ条件で絞る）
 printf 'maxSendBacks: 0\n' >> "$AUDD/state.yml"
-for p in requirement spec plan coding test review deliver; do run_au approve "$p" >/dev/null; done
+for p in requirements design tasks coding test review deliver; do run_au approve "$p" >/dev/null; done
 AUV=$(run_au verify "$AU_EDGE" 2>&1)
 assert_eq "$(printf '%s\n' "$AUV" | grep -c '原因究明の記録が無い')" "0" \
   "verify: 差し戻し 0 回の工程には原因究明を求めない（maxSendBacks: 0 で全工程が鳴らない）"
@@ -2056,11 +2056,11 @@ assert_eq "$(printf '%s\n' "$AUV" | grep -c '原因究明の記録が無い')" "
 printf 'smokeCommand: true\n' > "$AUD/.aidev/config.yml"
 for sc in 6 7; do
   mkdir -p "$AUD/.aidev/works/2020010$sc-old"
-  printf 'schema: %s\nslug: old%s\ncurrent: deliver\napproved: [requirement, spec, plan, coding, test, review, deliver]\nharnessRev: aaa1111\n' "$sc" "$sc" \
+  printf 'schema: %s\nslug: old%s\ncurrent: deliver\napproved: [requirements, design, tasks, coding, test, review, deliver]\nharnessRev: aaa1111\n' "$sc" "$sc" \
     > "$AUD/.aidev/works/2020010$sc-old/state.yml"
   printf 'events:\n  - { ts: 2020-01-0%s\T00:00:00Z, phase: deliver, event: approved }\n' "$sc" \
     > "$AUD/.aidev/works/2020010$sc-old/metrics.yml"
-  for f in requirement spec plan tasks review test-result; do : > "$AUD/.aidev/works/2020010$sc-old/$f.md"; done
+  for f in requirements design tasks tasks review test-result; do : > "$AUD/.aidev/works/2020010$sc-old/$f.md"; done
 done
 run_au verify 20200106-old >/dev/null 2>&1
 assert_eq "$?" "0" "verify: schema 6 の work に起動確認を要求しない（遡って違反にしない）"
@@ -2085,25 +2085,25 @@ assert_eq "$(run_au metrics "$AU_SBQ" --format tsv | awk -F'\t' '{print $7}')" "
 assert_eq "$(run_au debug status --format tsv 2>/dev/null | awk -F'\t' '$1=="coding"{print "leaked"}')" "" \
   "debug status: 一度も失敗していない coding が上流の取り消しで予算を消費しない（行ごと出ない）"
 
-# (2) schema 9: light は spec/plan を approve しないので、承認を条件にした
-#     成果物実在検査が **light では一度も走らなかった**（requirement.md だけで verify OK だった）
+# (2) schema 9: light は design/plan を approve しないので、承認を条件にした
+#     成果物実在検査が **light では一度も走らなかった**（requirements.md だけで verify OK だった）
 AU_L=$AUD/.aidev
 run_au new lt1 --light >/dev/null
 AU_LW=$(cat "$AU_L/current"); AU_LD="$AU_L/works/$AU_LW"
-printf -- '- [ ] AC1: a\n' > "$AU_LD/requirement.md"
-run_au approve requirement >/dev/null
+printf -- '- [ ] AC1: a\n' > "$AU_LD/requirements.md"
+run_au approve requirements >/dev/null
 AU_LV=$(run_au verify "$AU_LW" 2>&1); AU_LVR=$?
-assert_eq "$AU_LVR" "4" "verify: light で spec/plan/tasks が無ければ落ちる（4=不変条件違反）"
-assert_contains "$AU_LV" "spec.md欠落" "verify: light の欠落を名指しする"
+assert_eq "$AU_LVR" "4" "verify: light で design/plan/tasks が無ければ落ちる（4=不変条件違反）"
+assert_contains "$AU_LV" "design.md欠落" "verify: light の欠落を名指しする"
 assert_contains "$AU_LV" "tasks.md欠落" "verify: light でも tasks.md を要求する（AC の被覆先）"
-for f in spec plan; do : > "$AU_LD/$f.md"; done
+for f in design tasks; do : > "$AU_LD/$f.md"; done
 printf -- '- [ ] T1: x\n      AC: AC1\n      依存: なし\n' > "$AU_LD/tasks.md"
 assert_eq "$(run_au verify "$AU_LW" >/dev/null 2>&1; echo $?)" "0" "verify: 4文書そろえば light も通る"
 
-# (3) light の「指紋」（spec/plan の start が無いこと）を機械が見ていなかった
-run_au event spec start --slug "$AU_LW" >/dev/null 2>&1 || run_au use "$AU_LW" >/dev/null 2>&1
-run_au use "$AU_LW" >/dev/null; run_au event spec start >/dev/null
-assert_contains "$(run_au verify "$AU_LW" 2>&1)" "profile=light だが spec を個別に起動" \
+# (3) light の「指紋」（design/plan の start が無いこと）を機械が見ていなかった
+run_au event design start --slug "$AU_LW" >/dev/null 2>&1 || run_au use "$AU_LW" >/dev/null 2>&1
+run_au use "$AU_LW" >/dev/null; run_au event design start >/dev/null
+assert_contains "$(run_au verify "$AU_LW" 2>&1)" "profile=light だが design を個別に起動" \
   "verify: light の指紋から外れたら WARN（定義しておいて見ていない、を無くす）"
 
 # (5) schema 10: 記録漏れの範囲。**そのとき書かなければ二度と書けない**ものを strict で落とす
@@ -2193,46 +2193,46 @@ assert_contains "$(cat "$AU_D/metrics.yml")" "task_checks: 0" "approve coding: �
 
 # (12b) doccheck: 上流文書の独立点検（(a) は長く観測点の無い規約だった）
 mk_work dc
-: > "$AU_D/design.md"
+: > "$AU_D/architecture.md"
 run_au doccheck start bogus --mode delegated >/dev/null 2>&1
 assert_eq "$?" "1" "doccheck start: 上流4工程以外は弾く（coding のタスク点検は taskcheck）"
-run_au doccheck start spec >/dev/null 2>&1
+run_au doccheck start design >/dev/null 2>&1
 assert_eq "$?" "1" "doccheck start: --mode は必須（実施形態が残らないと効果を測れない）"
-run_au doccheck start requirement --mode delegated >/dev/null 2>&1
-assert_eq "$?" "0" "doccheck start: 文書があれば通る（requirement.md は mk_work が作る）"
-rm -f "$AU_D/design.md"
-run_au doccheck start design --mode delegated >/dev/null 2>&1
+run_au doccheck start requirements --mode delegated >/dev/null 2>&1
+assert_eq "$?" "0" "doccheck start: 文書があれば通る（requirements.md は mk_work が作る）"
+rm -f "$AU_D/architecture.md"
+run_au doccheck start architecture --mode delegated >/dev/null 2>&1
 assert_eq "$?" "2" "doccheck start: 対象 md が無ければ exit 2（前提成果物の不足。使い方の誤り=1 と分ける）"
-: > "$AU_D/design.md"
-run_au doccheck start plan --mode delegated >/dev/null 2>&1   # plan.md は mk_work が作る
-assert_eq "$?" "0" "doccheck start: plan も通る"
-run_au doccheck report plan --findings 2 >/dev/null
-run_au doccheck report plan --findings 5 >/dev/null 2>&1
+: > "$AU_D/architecture.md"
+run_au doccheck start tasks --mode delegated >/dev/null 2>&1   # tasks.md は mk_work が作る
+assert_eq "$?" "0" "doccheck start: tasks も通る"
+run_au doccheck report tasks --findings 2 >/dev/null
+run_au doccheck report tasks --findings 5 >/dev/null 2>&1
 assert_eq "$?" "4" "doccheck report: 対になる start が無ければ弾く（taskcheck と同じ穴を塞いである）"
-run_au doccheck start plan --mode delegated >/dev/null
-run_au doccheck start plan --mode delegated >/dev/null 2>&1
+run_au doccheck start tasks --mode delegated >/dev/null
+run_au doccheck start tasks --mode delegated >/dev/null 2>&1
 assert_eq "$?" "4" "doccheck start: maxDocCheckRounds に達したら exit 4"
-run_au doccheck start spec --mode same_session >/dev/null
-run_au doccheck report spec --findings 0 >/dev/null
+run_au doccheck start design --mode same_session >/dev/null
+run_au doccheck report design --findings 0 >/dev/null
 # **数えるのは report まで届いたラウンドだけ**（start だけのラウンドは「点検した」に数えない）
 assert_contains "$(run_au doccheck status)" "doccheck-summary: rounds=2 findings=2 mode=mixed" \
   "doccheck status: report まで届いたラウンドだけ数え、形態が割れていれば mixed"
 # 件数は approve が自動で刻む（工程ごと）
-run_au approve plan >/dev/null
+run_au approve tasks >/dev/null
 assert_contains "$(cat "$AU_D/metrics.yml")" "doc_check_rounds: 1, doc_check_findings: 2, doc_check_mode: delegated" \
   "approve <phase>: 上流の点検メトリクスを doccheck の記録から自動で刻む（report まで届いた分）"
 # schema 11: autonomous で記録が無ければ verify が WARN（--strict で致命）
 mk_work dcauto
 awk '{ if ($0 ~ /^mode:/) print "mode: autonomous"; else print }' "$AU_D/state.yml" > "$AU_D/state.yml.t"
 mv "$AU_D/state.yml.t" "$AU_D/state.yml"
-run_au approve spec >/dev/null
-assert_contains "$(run_au verify 2>&1)" "spec を autonomous で承認したのに独立点検の記録がありません" \
+run_au approve design >/dev/null
+assert_contains "$(run_au verify 2>&1)" "design を autonomous で承認したのに独立点検の記録がありません" \
   "verify: autonomous の上流文書に独立点検の記録が無ければ WARN（schema 11）"
 run_au verify --strict >/dev/null 2>&1
 assert_eq "$?" "5" "verify --strict: 上流の独立点検の記録漏れは致命"
-run_au doccheck start spec --mode delegated >/dev/null
-run_au doccheck report spec --findings 0 >/dev/null
-run_au approve spec >/dev/null
+run_au doccheck start design --mode delegated >/dev/null
+run_au doccheck report design --findings 0 >/dev/null
+run_au approve design >/dev/null
 assert_eq "$(run_au verify 2>&1 | grep -c '独立点検の記録がありません')" "0" \
   "verify: 記録があれば鳴らない"
 assert_contains "$(run_au limits --format tsv)" "limit	maxDocCheckRounds	2	default	pj	2" \
@@ -2254,35 +2254,35 @@ rm -rf "$LMZ"
 # **手渡しの *_check_mode は CLI の記録と突き合わせる**。突き合わせないと、点検を一度も打たずに
 # approve <phase> doc_check_mode=… と書くだけで verify --strict を通せた（実走で再現）
 mk_work dcfake
-: > "$AU_D/spec.md"
-run_au approve spec doc_check_mode=delegated >/dev/null 2>&1
+: > "$AU_D/design.md"
+run_au approve design doc_check_mode=delegated >/dev/null 2>&1
 assert_eq "$?" "1" "approve: doccheck の記録が無いのに doc_check_mode を手で渡せない（strict のすり抜け）"
 run_au approve coding task_check_mode=delegated >/dev/null 2>&1
 assert_eq "$?" "1" "approve: taskcheck の記録が無いのに task_check_mode を手で渡せない"
 run_au approve coding task_checks=0 >/dev/null 2>&1
 assert_eq "$?" "0" "approve: 「点検していない」を表す task_checks=0 は従来どおり通る"
-run_au doccheck start spec --mode delegated >/dev/null
-run_au doccheck report spec --findings 0 >/dev/null
-run_au approve spec doc_check_mode=delegated >/dev/null 2>&1
+run_au doccheck start design --mode delegated >/dev/null
+run_au doccheck report design --findings 0 >/dev/null
+run_au approve design doc_check_mode=delegated >/dev/null 2>&1
 assert_eq "$?" "0" "approve: 記録があれば手渡しの doc_check_mode を尊重する"
-# plan の点検には tasks.md も渡す（AC: 行は tasks.md にしかない）
-assert_contains "$(run_au doccheck start plan --mode delegated)" "渡すもの: plan.md と tasks.md" \
-  "doccheck start: plan だけ渡すものが違う（AC: 行の在処に合わせる）"
+# tasks の点検には tasks.md も渡す（AC: 行は tasks.md にしかない）
+assert_contains "$(run_au doccheck start tasks --mode delegated)" "渡すもの: tasks.md" \
+  "doccheck start: tasks だけ渡すものが違う（AC: 行の在処に合わせる）"
 # 失敗時の見出しを stdout に出さない（成功時と同じ1行に見えてしまう）
-run_au doccheck report plan --findings 0 >/dev/null
-assert_eq "$( ( run_au doccheck report plan --findings 0 ) 2>/dev/null )" "" \
+run_au doccheck report tasks --findings 0 >/dev/null
+assert_eq "$( ( run_au doccheck report tasks --findings 0 ) 2>/dev/null )" "" \
   "doccheck report: 対欠落の FAIL は stdout を汚さない"
-# subtask は上流3文書を親から継承する（子に md が無い）ので、対象は**子自身の plan.md だけ**
+# subtask は上流3文書を親から継承する（子に md が無い）ので、対象は**子自身の tasks.md だけ**
 run_au new dcp --mode autonomous >/dev/null
 DCP=$(cat "$AUD/.aidev/current")
 run_au new dcs --parent "$DCP" --mode autonomous >/dev/null
 DCSD="$AUD/.aidev/works/$DCP/dcs"
-: > "$DCSD/plan.md"
-run_au approve plan >/dev/null
+: > "$DCSD/tasks.md"
+run_au approve tasks >/dev/null
 DCSV=$(run_au verify 2>&1)
-assert_contains "$DCSV" "plan を autonomous で承認したのに独立点検の記録がありません" \
-  "verify(subtask): 子自身の plan.md は独立点検の対象"
-assert_eq "$(printf '%s' "$DCSV" | grep -c 'spec を autonomous')" "0" \
+assert_contains "$DCSV" "tasks を autonomous で承認したのに独立点検の記録がありません" \
+  "verify(subtask): 子自身の tasks.md は独立点検の対象"
+assert_eq "$(printf '%s' "$DCSV" | grep -c 'design を autonomous')" "0" \
   "verify(subtask): 親から継承する上流3文書は対象外（子に md が無い）"
 
 # (12c) 他 PJ の retro が見つけた指摘
@@ -2292,9 +2292,9 @@ assert_eq "$(printf '%s' "$DCSV" | grep -c 'spec を autonomous')" "0" \
 mk_work dcs10
 awk '{ if ($0 ~ /^schema:/) print "schema: 10"; else if ($0 ~ /^mode:/) print "mode: autonomous"; else print }' \
   "$AU_D/state.yml" > "$AU_D/state.yml.t" && mv "$AU_D/state.yml.t" "$AU_D/state.yml"
-: > "$AU_D/spec.md"
-run_au event spec start >/dev/null
-run_au approve spec >/dev/null
+: > "$AU_D/design.md"
+run_au event design start >/dev/null
+run_au approve design >/dev/null
 assert_eq "$(run_au verify 2>&1 | grep -c '独立点検の記録がありません')" "0" \
   "verify: schema 10 の work には独立点検の WARN を出さない（直せない警告を永久に鳴らさない）"
 # 件数を刻んだのに内容が review.md に残っていない
@@ -2352,36 +2352,36 @@ assert_eq "$(run_au verify 2>&1 | grep -c 'T1 T2')" "0" \
 rm -f "$AU_D/decisions.md"
 # doccheck の report を「直したあと」に打ったら言う（規約はあったが破っても何も起きなかった）
 mk_work dcsz
-printf 'spec\n' > "$AU_D/spec.md"
-run_au doccheck start spec --mode delegated >/dev/null
-printf 'あとから直した\n' >> "$AU_D/spec.md"
-assert_contains "$(run_au doccheck report spec --findings 1)" "start 時点から変わっています" \
+printf 'design\n' > "$AU_D/design.md"
+run_au doccheck start design --mode delegated >/dev/null
+printf 'あとから直した\n' >> "$AU_D/design.md"
+assert_contains "$(run_au doccheck report design --findings 1)" "start 時点から変わっています" \
   "doccheck report: 直したあとに打つと言う（report は直す前に打つ）"
-run_au doccheck start spec --mode delegated >/dev/null
-assert_eq "$(run_au doccheck report spec --findings 0 | grep -c '変わっています')" "0" \
+run_au doccheck start design --mode delegated >/dev/null
+assert_eq "$(run_au doccheck report design --findings 0 | grep -c '変わっています')" "0" \
   "doccheck report: 直していなければ鳴らない"
-# **plan は plan.md と tasks.md の 2 つ**を渡す（dc_start の出力自身がそう言っている）。
-# plan.md しか見ていなかった頃は、`AC:` 行がある tasks.md だけを直しても何も言わなかった
+# **tasks は tasks.md の 2 つ**を渡す（dc_start の出力自身がそう言っている）。
+# tasks.md しか見ていなかった頃は、`AC:` 行がある tasks.md だけを直しても何も言わなかった
 mk_work dcplan
-printf 'plan\n' > "$AU_D/plan.md"
+printf 'tasks\n' > "$AU_D/tasks.md"
 printf -- '- [ ] T1: x\n      AC: AC1\n' > "$AU_D/tasks.md"
-run_au doccheck start plan --mode delegated >/dev/null
+run_au doccheck start tasks --mode delegated >/dev/null
 printf -- '      対象: src/a.py\n' >> "$AU_D/tasks.md"
-assert_contains "$(run_au doccheck report plan --findings 1)" "plan.md と tasks.md が start 時点から変わっています" \
-  "doccheck report: plan は tasks.md の変更も見る（AC 行はそこにしかない）"
+assert_contains "$(run_au doccheck report tasks --findings 1)" "tasks.md が start 時点から変わっています" \
+  "doccheck report: tasks は tasks.md の変更も見る（AC 行はそこにしかない）"
 # **doccheck にも未報告の検知**。protocol-check は (a)(b) で「規律・禁止事項は共通」と宣言しているのに、
 # 数え方だけ対称化して検知は (b) にしか無く、上流文書の出し忘れは一生表に出なかった
 mk_work dcun
-printf 'spec\n' > "$AU_D/spec.md"
-run_au doccheck start spec --mode delegated >/dev/null   # report を打たない
+printf 'design\n' > "$AU_D/design.md"
+run_au doccheck start design --mode delegated >/dev/null   # report を打たない
 DCUN=$(run_au doccheck status)
-assert_contains "$DCUN" "report が無い start が 1 件あります（spec）" \
+assert_contains "$DCUN" "report が無い start が 1 件あります（design）" \
   "doccheck status: 未報告の start を名指しする（taskcheck と同じ文言）"
-assert_contains "$(run_au doccheck status --format tsv)" "doccheck	spec	0	0	" \
+assert_contains "$(run_au doccheck status --format tsv)" "doccheck	design	0	0	" \
   "doccheck status: 数えるのは report まで届いたラウンドだけ"
 assert_contains "$(run_au verify 2>&1)" "doccheck の start に report が追いついていない" \
   "verify: doccheck の未報告も WARN する"
-printf -- '- spec: 形式不正が2回続いたので断念\n' > "$AU_D/decisions.md"
+printf -- '- design: 形式不正が2回続いたので断念\n' > "$AU_D/decisions.md"
 assert_eq "$(run_au doccheck status | grep -c 'report が無い start')" "0" \
   "doccheck: decisions.md に残した断念は名指ししない"
 rm -f "$AU_D/decisions.md"
@@ -2445,8 +2445,8 @@ assert_eq "$(run_au verify 2>&1 | grep -c '起動確認の記録が無い')" "0"
 rm -f "$AUD/.aidev/config.yml"
 
 # (11) humanGates に設定口がある（state.yml の手編集しか手段が無かった）
-run_au new hg1 --mode autonomous --human-gates spec,review >/dev/null
-assert_contains "$(cat "$AUD/.aidev/works/$(cat "$AUD/.aidev/current")/state.yml")" "humanGates: [spec, review]" \
+run_au new hg1 --mode autonomous --human-gates design,review >/dev/null
+assert_contains "$(cat "$AUD/.aidev/works/$(cat "$AUD/.aidev/current")/state.yml")" "humanGates: [design, review]" \
   "new --human-gates: 部分自律の宣言を CLI から刻める"
 run_au new hg2 --human-gates bogus >/dev/null 2>&1
 assert_eq "$?" "1" "new --human-gates: 未知の工程を弾く（タイポで黙って無効化されない）"
@@ -2503,7 +2503,7 @@ run_cv convention new c1 --hypothesis h --baseline b --verify-after 1 >/dev/null
 for w in a b; do
   run_cv new "$w" >/dev/null
   CVW=$(cat "$CVR/.aidev/current")
-  for f in requirement spec plan review test-result; do : > "$CVR/.aidev/works/$CVW/$f.md"; done
+  for f in requirements design tasks review test-result; do : > "$CVR/.aidev/works/$CVW/$f.md"; done
   CV_OUT=$(run_cv approve deliver 2>&1)
 done
 assert_contains "$CV_OUT" "母集団が揃っています" \
@@ -2524,10 +2524,10 @@ echo "== awk 実装の差（同じ入力で同じ判定になるか）=="
 # **受け入れ基準が1件も取れなくなる**。開発機（mawk）では緑、CI（gawk）で 57 件 fail、
 # という形で一度出した。正規表現は**プログラム中のリテラル**として書くこと。
 AWKD=$(mktemp -d); mkdir -p "$AWKD/.aidev/works/w"
-printf 'schema: 8\nslug: w\ncurrent: plan\napproved: []\n' > "$AWKD/.aidev/works/w/state.yml"
+printf 'schema: 8\nslug: w\ncurrent: tasks\napproved: []\n' > "$AWKD/.aidev/works/w/state.yml"
 printf 'w\n' > "$AWKD/.aidev/current"
-printf -- '- [ ] AC1: ひとつ\n- [ ] AC-I1 開く / 閉じる: どう\n- [ ] ACL の設定\n' > "$AWKD/.aidev/works/w/requirement.md"
-printf -- '- AC1: x\n' > "$AWKD/.aidev/works/w/spec.md"
+printf -- '- [ ] AC1: ひとつ\n- [ ] AC-I1 開く / 閉じる: どう\n- [ ] ACL の設定\n' > "$AWKD/.aidev/works/w/requirements.md"
+printf -- '- AC1: x\n' > "$AWKD/.aidev/works/w/design.md"
 # 全角スペース(U+3000)の字下げを混ぜる。POSIX の空白クラスは**ロケール依存**で、
 # UTF-8 ロケールの gawk はこれを空白とみなし、バイト志向の mawk はみなさない
 # （`[[:space:]]` のままだと、この行が実装 × ロケールの組でだけタスクになる）。
@@ -2586,7 +2586,8 @@ assert_eq "$LINTRC" "0" "lint-docs: 文書と CLI 表面が整合している"
 # skills ごと $TMP へ写して、その複製の中で欠陥を再現する
 L9SRC=$(cd "$SELF/../../.." && pwd)
 rm -rf "$TMP/l9skills"; cp -r "$L9SRC" "$TMP/l9skills"
-L9F=$TMP/l9skills/aidev-20-spec/SKILL.md
+L9GIT0=$(cd "$L9SRC" && git status --porcelain -- aidev-20-design/SKILL.md 2>/dev/null)
+L9F=$TMP/l9skills/aidev-20-design/SKILL.md
 L9LINT=$TMP/l9skills/aidev-docs/bin/test/lint-docs.sh
 assert_eq "$("$L9LINT" >/dev/null 2>&1; echo $?)" "0" "lint L9: 複製そのままでは通る（土台の確認）"
 # 実走が見つけた抜け穴を 1 つずつ塞いだので、**塞いだ形が本当に捕まるか**を全部見る。
@@ -2594,7 +2595,7 @@ assert_eq "$("$L9LINT" >/dev/null 2>&1; echo $?)" "0" "lint L9: 複製そのま�
 # 検査は「在るのに効かない」状態になる（分類 G と同じ）
 l9probe() { # 名前 置換後の本文
   printf '%s' "$2" > "$TMP/l9.to"
-  python3 - "$L9F" "$L9SRC/aidev-20-spec/SKILL.md" "$TMP/l9.to" <<'PYEOF'
+  python3 - "$L9F" "$L9SRC/aidev-20-design/SKILL.md" "$TMP/l9.to" <<'PYEOF'
 import io,sys
 tgt,orig,to=sys.argv[1],sys.argv[2],sys.argv[3]
 s=io.open(orig,encoding='utf-8').read()
@@ -2608,11 +2609,11 @@ for i,l in enumerate(lines):
 io.open(tgt,'w',encoding='utf-8').write('\n'.join(lines))
 PYEOF
   _n=$("$L9LINT" 2>&1 | grep -c 'NG: L9') || _n=0
-  cp "$L9SRC/aidev-20-spec/SKILL.md" "$L9F"
+  cp "$L9SRC/aidev-20-design/SKILL.md" "$L9F"
   assert_ne "$_n" "0" "lint L9: $1 を捕まえる"
 }
-l9probe "条件をそのまま写す" '   - 有力な案が複数あるなら、**`spec.md` を書く前に plan モードへ入る**（`full` × `interactive` のみ）。'
-l9probe "条件を継続行へ送る" '   - 有力な案が複数あるなら、**`spec.md` を書く前に plan モードへ入る**。
+l9probe "条件をそのまま写す" '   - 有力な案が複数あるなら、**`design.md` を書く前に plan モードへ入る**（`full` × `interactive` のみ）。'
+l9probe "条件を継続行へ送る" '   - 有力な案が複数あるなら、**`design.md` を書く前に plan モードへ入る**。
      入るのは `full` × `interactive` のときだけ。'
 l9probe "現行条件を自然語で写す" '   - 有力な案が複数あるなら、**plan モードへ入る**（その工程に承認者がいるときだけ）。'
 l9probe "見出しの表記ゆれ" '   - 有力な案が複数あるなら、**planモードへ入る**（`full` × `interactive` のみ）。'
@@ -2635,32 +2636,34 @@ l9out "util skill" "$TMP/l9skills/aidev-util-batch/SKILL.md"
 l9out "bin/README.md" "$TMP/l9skills/aidev-docs/bin/README.md"
 # **H8: 字下げした子の箇条書きへ条件を送る**。打ち切っていた頃は原理的に見えず、
 # `DESIGN.md` の `  - **使う**:` 以下の列挙がまるごと素通りしていた（実走が実測）
-cp "$TMP/l9skills/aidev-20-spec/SKILL.md" "$TMP/l9h8.bak"
+cp "$TMP/l9skills/aidev-20-design/SKILL.md" "$TMP/l9h8.bak"
 printf '\n- plan モードの扱い\n  - 入るのは `full` × `interactive` のときだけ。\n' \
-  >> "$TMP/l9skills/aidev-20-spec/SKILL.md"
+  >> "$TMP/l9skills/aidev-20-design/SKILL.md"
 assert_ne "$("$L9LINT" 2>&1 | grep -c 'NG: L9')" "0" \
   "lint L9: 字下げした子の箇条書きに送った条件を捕まえる"
-cp "$TMP/l9h8.bak" "$TMP/l9skills/aidev-20-spec/SKILL.md"
+cp "$TMP/l9h8.bak" "$TMP/l9skills/aidev-20-design/SKILL.md"
 # **新条件の語彙**。改修のたびに PMKEY を足さないと「旧条件の写し」しか捕まらない
 for _l9w in '入るのは、入力に既存コードが入る工程だけ。' \
             '入るのは、コード探索中の read-only 強制が要るときだけ。' \
             '入らない——主活動がユーザーへのヒアリングだから。' \
             '入るのは上流4工程だけ。'; do
-  cp "$TMP/l9skills/aidev-20-spec/SKILL.md" "$TMP/l9w.bak"
-  printf '\nplan モードへ%s\n' "$_l9w" >> "$TMP/l9skills/aidev-20-spec/SKILL.md"
+  cp "$TMP/l9skills/aidev-20-design/SKILL.md" "$TMP/l9w.bak"
+  printf '\nplan モードへ%s\n' "$_l9w" >> "$TMP/l9skills/aidev-20-design/SKILL.md"
   assert_ne "$("$L9LINT" 2>&1 | grep -c 'NG: L9')" "0" "lint L9: 新条件の語彙を捕まえる（$_l9w）"
-  cp "$TMP/l9w.bak" "$TMP/l9skills/aidev-20-spec/SKILL.md"
+  cp "$TMP/l9w.bak" "$TMP/l9skills/aidev-20-design/SKILL.md"
 done
 # **1 件の写しは「1 ファイル」と数える**。`runtime_docs` と SKILL のグロブが重なっていた頃は
 # 同じファイルを 2 回走査し、1 件を「2 ファイル」と出していた
-cp "$TMP/l9skills/aidev-20-spec/SKILL.md" "$TMP/l9cnt.bak"
-printf '\nplan モードへ入るのは `full` × `interactive` のときだけ。\n' >> "$TMP/l9skills/aidev-20-spec/SKILL.md"
+cp "$TMP/l9skills/aidev-20-design/SKILL.md" "$TMP/l9cnt.bak"
+printf '\nplan モードへ入るのは `full` × `interactive` のときだけ。\n' >> "$TMP/l9skills/aidev-20-design/SKILL.md"
 assert_contains "$("$L9LINT" 2>&1 | grep 'NG: L9')" "写しが 1 ファイル" \
   "lint L9: 同じファイルを二重に数えない"
-cp "$TMP/l9cnt.bak" "$TMP/l9skills/aidev-20-spec/SKILL.md"
+cp "$TMP/l9cnt.bak" "$TMP/l9skills/aidev-20-design/SKILL.md"
 assert_eq "$("$L9LINT" >/dev/null 2>&1; echo $?)" "0" "lint L9: 全て戻せば通る（複製を汚したままにしない）"
-assert_eq "$(cd "$L9SRC" && git status --porcelain -- aidev-20-spec/SKILL.md 2>/dev/null | grep -c .)" "0" \
-  "lint L9: ハーネス本体を書き換えていない"
+# **前後の差**で見る。絶対のクリーンさで見ていた頃は、**改修中（未コミット）だと必ず落ちた**
+# ——テストが「作業ツリーは常にきれい」を前提にしていた
+assert_eq "$(cd "$L9SRC" && git status --porcelain -- aidev-20-design/SKILL.md 2>/dev/null)" "$L9GIT0" \
+  "lint L9: ハーネス本体を書き換えていない（前後で git status が変わらない）"
 
 echo "== sh ⇔ ps1 パリティ =="
 if [ -n "$PS_HOST" ]; then
@@ -2684,19 +2687,19 @@ if [ -n "$PS_HOST" ]; then
   PDC=$(mktemp -d); mkdir -p "$PDC/.aidev/works"
   ( cd "$PDC" && "$AIDEV_SH" new pdc >/dev/null )
   PDCD="$PDC/.aidev/works/$(cat "$PDC/.aidev/current")"
-  : > "$PDCD/spec.md"
-  ( cd "$PDC" && run_ps1 "$AIDEV_PS1" doccheck start spec --mode delegated ) >/dev/null 2>&1
-  assert_contains "$(tr -d '\r' < "$PDCD/metrics.yml")" "event: doccheck, metrics: { stage: start, phase: spec" \
+  : > "$PDCD/design.md"
+  ( cd "$PDC" && run_ps1 "$AIDEV_PS1" doccheck start design --mode delegated ) >/dev/null 2>&1
+  assert_contains "$(tr -d '\r' < "$PDCD/metrics.yml")" "event: doccheck, metrics: { stage: start, phase: design" \
     "パリティ: ps1 doccheck start が同じ形のイベントを刻む"
   PDC_S=$( ( cd "$PDC" && "$AIDEV_SH" doccheck status --format tsv ) )
   PDC_P=$( ( cd "$PDC" && run_ps1 "$AIDEV_PS1" doccheck status --format tsv ) | tr -d '\r' )
   assert_eq "$PDC_S" "$PDC_P" "パリティ: doccheck status --format tsv"
-  ( cd "$PDC" && run_ps1 "$AIDEV_PS1" doccheck start spec --mode delegated ) >/dev/null 2>&1
-  ( cd "$PDC" && run_ps1 "$AIDEV_PS1" doccheck start spec --mode delegated ) >/dev/null 2>&1
+  ( cd "$PDC" && run_ps1 "$AIDEV_PS1" doccheck start design --mode delegated ) >/dev/null 2>&1
+  ( cd "$PDC" && run_ps1 "$AIDEV_PS1" doccheck start design --mode delegated ) >/dev/null 2>&1
   assert_eq "$?" "4" "パリティ: ps1 も maxDocCheckRounds で exit 4"
-  ( cd "$PDC" && run_ps1 "$AIDEV_PS1" approve spec ) >/dev/null 2>&1
-  ( cd "$PDC" && run_ps1 "$AIDEV_PS1" doccheck report spec --findings 0 ) >/dev/null 2>&1
-  ( cd "$PDC" && run_ps1 "$AIDEV_PS1" approve spec ) >/dev/null 2>&1
+  ( cd "$PDC" && run_ps1 "$AIDEV_PS1" approve design ) >/dev/null 2>&1
+  ( cd "$PDC" && run_ps1 "$AIDEV_PS1" doccheck report design --findings 0 ) >/dev/null 2>&1
+  ( cd "$PDC" && run_ps1 "$AIDEV_PS1" approve design ) >/dev/null 2>&1
   assert_contains "$(tr -d '\r' < "$PDCD/metrics.yml")" "doc_check_rounds: 1" \
     "パリティ: ps1 の approve も上流の点検メトリクスを自動で刻む（report まで届いた分）"
   rm -rf "$PDC"
@@ -2705,51 +2708,51 @@ if [ -n "$PS_HOST" ]; then
   PGD=$(mktemp -d); mkdir -p "$PGD/.aidev/works"
   ( cd "$PGD" && "$AIDEV_SH" new pgd >/dev/null )
   PGDD="$PGD/.aidev/works/$(cat "$PGD/.aidev/current")"
-  : > "$PGDD/requirement.md"
-  PGD_S=$( ( cd "$PGD" && "$AIDEV_SH" guard spec ) 2>&1 )
-  PGD_P=$( ( cd "$PGD" && run_ps1 "$AIDEV_PS1" guard spec ) 2>&1 | tr -d '\r' )
-  assert_eq "$PGD_S" "$PGD_P" "パリティ: guard spec（plan モードの促し）"
+  : > "$PGDD/requirements.md"
+  PGD_S=$( ( cd "$PGD" && "$AIDEV_SH" guard design ) 2>&1 )
+  PGD_P=$( ( cd "$PGD" && run_ps1 "$AIDEV_PS1" guard design ) 2>&1 | tr -d '\r' )
+  assert_eq "$PGD_S" "$PGD_P" "パリティ: guard design（plan モードの促し）"
   assert_contains "$PGD_P" "plan モードへ入ってから" \
     "パリティ: ps1 guard も plan モードへ入るよう促す"
   # 条件（light / autonomous では出さない）も両実装で揃っていること
   ( cd "$PGD" && "$AIDEV_SH" new pgdl --light >/dev/null )
-  : > "$PGD/.aidev/works/$(cat "$PGD/.aidev/current")/requirement.md"
-  PGL_S=$( ( cd "$PGD" && "$AIDEV_SH" guard spec ) 2>&1 )
-  PGL_P=$( ( cd "$PGD" && run_ps1 "$AIDEV_PS1" guard spec ) 2>&1 | tr -d '\r' )
-  assert_eq "$PGL_S" "$PGL_P" "パリティ: guard spec（light では促さない）"
+  : > "$PGD/.aidev/works/$(cat "$PGD/.aidev/current")/requirements.md"
+  PGL_S=$( ( cd "$PGD" && "$AIDEV_SH" guard design ) 2>&1 )
+  PGL_P=$( ( cd "$PGD" && run_ps1 "$AIDEV_PS1" guard design ) 2>&1 | tr -d '\r' )
+  assert_eq "$PGL_S" "$PGL_P" "パリティ: guard design（light では促さない）"
   assert_eq "$(printf '%s' "$PGL_P" | grep -c 'plan モードへ入ってから')" "0" \
     "パリティ: ps1 も light では促さない"
   # 承認者の有無で見る（humanGates の部分自律）。sh 側と同じ判定になっていること
-  ( cd "$PGD" && "$AIDEV_SH" new pgdh --mode autonomous --human-gates spec >/dev/null )
-  : > "$PGD/.aidev/works/$(cat "$PGD/.aidev/current")/requirement.md"
-  PGH_S=$( ( cd "$PGD" && "$AIDEV_SH" guard spec ) 2>&1 )
-  PGH_P=$( ( cd "$PGD" && run_ps1 "$AIDEV_PS1" guard spec ) 2>&1 | tr -d '\r' )
-  assert_eq "$PGH_S" "$PGH_P" "パリティ: guard spec（humanGates の部分自律）"
+  ( cd "$PGD" && "$AIDEV_SH" new pgdh --mode autonomous --human-gates design >/dev/null )
+  : > "$PGD/.aidev/works/$(cat "$PGD/.aidev/current")/requirements.md"
+  PGH_S=$( ( cd "$PGD" && "$AIDEV_SH" guard design ) 2>&1 )
+  PGH_P=$( ( cd "$PGD" && run_ps1 "$AIDEV_PS1" guard design ) 2>&1 | tr -d '\r' )
+  assert_eq "$PGH_S" "$PGH_P" "パリティ: guard design（humanGates の部分自律）"
   assert_contains "$PGH_P" "plan モードへ入ってから" \
     "パリティ: ps1 も humanGates に挙がっていれば autonomous で促す"
-  PGH2_S=$( ( cd "$PGD" && "$AIDEV_SH" guard design ) 2>&1 )
-  PGH2_P=$( ( cd "$PGD" && run_ps1 "$AIDEV_PS1" guard design ) 2>&1 | tr -d '\r' )
-  assert_eq "$PGH2_S" "$PGH2_P" "パリティ: guard design（humanGates に無い工程）"
-  # **今回足した工程を ps1 側でも見る**。パリティ検査が `guard spec` だけだった頃は、
-  # `requirement` / `plan` / subtask の分岐が ps1 で壊れても機械が通らなかった（実走が指摘）
+  PGH2_S=$( ( cd "$PGD" && "$AIDEV_SH" guard architecture ) 2>&1 )
+  PGH2_P=$( ( cd "$PGD" && run_ps1 "$AIDEV_PS1" guard architecture ) 2>&1 | tr -d '\r' )
+  assert_eq "$PGH2_S" "$PGH2_P" "パリティ: guard architecture（humanGates に無い工程）"
+  # **今回足した工程を ps1 側でも見る**。パリティ検査が `guard design` だけだった頃は、
+  # `requirements` / `tasks` / subtask の分岐が ps1 で壊れても機械が通らなかった（実走が指摘）
   ( cd "$PGD" && "$AIDEV_SH" new pgd4 >/dev/null )
   PGD4=$PGD/.aidev/works/$(cat "$PGD/.aidev/current")
-  : > "$PGD4/requirement.md"; : > "$PGD4/spec.md"
-  for _pgp in requirement research plan coding review; do
+  : > "$PGD4/requirements.md"; : > "$PGD4/design.md"
+  for _pgp in requirements research tasks coding review; do
     PGN_S=$( ( cd "$PGD" && "$AIDEV_SH" guard "$_pgp" ) 2>&1 )
     PGN_P=$( ( cd "$PGD" && run_ps1 "$AIDEV_PS1" guard "$_pgp" ) 2>&1 | tr -d '\r' )
     assert_eq "$PGN_S" "$PGN_P" "パリティ: guard $_pgp（促しの有無）"
   done
-  # subtask の plan は親が切り方を確定済み。sh / ps1 で同じく促さないこと
+  # subtask の tasks は親が切り方を確定済み。sh / ps1 で同じく促さないこと
   ( cd "$PGD" && "$AIDEV_SH" new pgd5 --parent "$(basename "$PGD4")" >/dev/null ) 2>/dev/null || true
   PGD5=$PGD/.aidev/works/$(cat "$PGD/.aidev/current")
   if [ -d "$PGD5" ]; then
-    : > "$PGD5/spec.md" 2>/dev/null || true
-    PGS_S=$( ( cd "$PGD" && "$AIDEV_SH" guard plan ) 2>&1 )
-    PGS_P=$( ( cd "$PGD" && run_ps1 "$AIDEV_PS1" guard plan ) 2>&1 | tr -d '\r' )
-    assert_eq "$PGS_S" "$PGS_P" "パリティ: guard plan（subtask では促さない）"
+    : > "$PGD5/design.md" 2>/dev/null || true
+    PGS_S=$( ( cd "$PGD" && "$AIDEV_SH" guard tasks ) 2>&1 )
+    PGS_P=$( ( cd "$PGD" && run_ps1 "$AIDEV_PS1" guard tasks ) 2>&1 | tr -d '\r' )
+    assert_eq "$PGS_S" "$PGS_P" "パリティ: guard tasks（subtask では促さない）"
   else
-    assert_eq "1" "1" "パリティ: guard plan（subtask 生成できず・skip 相当）"
+    assert_eq "1" "1" "パリティ: guard tasks（subtask 生成できず・skip 相当）"
   fi
   rm -rf "$PGD"
 
@@ -2757,27 +2760,27 @@ if [ -n "$PS_HOST" ]; then
   PDU=$(mktemp -d); mkdir -p "$PDU/.aidev/works"
   ( cd "$PDU" && "$AIDEV_SH" new pdu >/dev/null )
   PDUD="$PDU/.aidev/works/$(cat "$PDU/.aidev/current")"
-  printf 'plan\n' > "$PDUD/plan.md"
+  printf 'tasks\n' > "$PDUD/tasks.md"
   printf -- '- [ ] T1: x\n      AC: AC1\n' > "$PDUD/tasks.md"
-  # ① plan は plan.md と tasks.md の 2 つを見る（tasks.md だけ直しても言う）
-  ( cd "$PDU" && run_ps1 "$AIDEV_PS1" doccheck start plan --mode delegated ) >/dev/null 2>&1
+  # ① tasks は tasks.md の 2 つを見る（tasks.md だけ直しても言う）
+  ( cd "$PDU" && run_ps1 "$AIDEV_PS1" doccheck start tasks --mode delegated ) >/dev/null 2>&1
   printf -- '      対象: src/a.py\n' >> "$PDUD/tasks.md"
-  PDU_R=$( ( cd "$PDU" && run_ps1 "$AIDEV_PS1" doccheck report plan --findings 1 ) | tr -d '\r' )
-  assert_contains "$PDU_R" "plan.md と tasks.md が start 時点から変わっています" \
-    "パリティ: ps1 doccheck report も plan の tasks.md の変更を見る"
+  PDU_R=$( ( cd "$PDU" && run_ps1 "$AIDEV_PS1" doccheck report tasks --findings 1 ) | tr -d '\r' )
+  assert_contains "$PDU_R" "tasks.md が start 時点から変わっています" \
+    "パリティ: ps1 doccheck report も tasks の tasks.md の変更を見る"
   # ② doccheck の未報告検知（status の note と verify の WARN）
-  : > "$PDUD/spec.md"
-  ( cd "$PDU" && run_ps1 "$AIDEV_PS1" doccheck start spec --mode delegated ) >/dev/null 2>&1
+  : > "$PDUD/design.md"
+  ( cd "$PDU" && run_ps1 "$AIDEV_PS1" doccheck start design --mode delegated ) >/dev/null 2>&1
   PDU_S=$( ( cd "$PDU" && "$AIDEV_SH" doccheck status ) )
   PDU_P=$( ( cd "$PDU" && run_ps1 "$AIDEV_PS1" doccheck status ) | tr -d '\r' )
   assert_eq "$PDU_S" "$PDU_P" "パリティ: doccheck status（unreported 列と note）"
-  assert_contains "$PDU_P" "report が無い start が 1 件あります（spec）" \
+  assert_contains "$PDU_P" "report が無い start が 1 件あります（design）" \
     "パリティ: ps1 も doccheck の未報告を名指しする"
   PDU_VS=$( ( cd "$PDU" && "$AIDEV_SH" verify ) 2>&1 )
   PDU_VP=$( ( cd "$PDU" && run_ps1 "$AIDEV_PS1" verify ) 2>&1 | tr -d '\r' )
   assert_eq "$PDU_VS" "$PDU_VP" "パリティ: verify（doccheck の未報告 WARN）"
   # ③ 断念を decisions.md に残せば消える（両実装で同じ消え方をする）
-  printf -- '- spec: 形式不正が2回続いたので断念\n' > "$PDUD/decisions.md"
+  printf -- '- design: 形式不正が2回続いたので断念\n' > "$PDUD/decisions.md"
   PDU_S2=$( ( cd "$PDU" && "$AIDEV_SH" doccheck status ) )
   PDU_P2=$( ( cd "$PDU" && run_ps1 "$AIDEV_PS1" doccheck status ) | tr -d '\r' )
   assert_eq "$PDU_S2" "$PDU_P2" "パリティ: doccheck status（decisions.md で断念を認めたあと）"
@@ -2789,12 +2792,12 @@ if [ -n "$PS_HOST" ]; then
   PCOV=$(mktemp -d); mkdir -p "$PCOV/.aidev/backlog"
   ( cd "$PCOV" && "$AIDEV_SH" new pcov >/dev/null )
   PCW=$(cat "$PCOV/.aidev/current"); PCD="$PCOV/.aidev/works/$PCW"
-  cat > "$PCD/requirement.md" <<'EOF'
+  cat > "$PCD/requirements.md" <<'EOF'
 - [ ] AC1: ひとつ
 - [ ] AC2: ふたつ
 - [ ] AC-I1 開く / 閉じる: どう
 EOF
-  cat > "$PCD/spec.md" <<'EOF'
+  cat > "$PCD/design.md" <<'EOF'
 - AC1: a
 EOF
   cat > "$PCD/tasks.md" <<'EOF'
@@ -2831,21 +2834,21 @@ EOF
             else ( cd "$PA" && run_ps1 "$AIDEV_PS1" "$@" >/dev/null 2>&1 ); fi; }
     par new fam
     PAW=$(tr -d '\r' < "$PA/.aidev/current"); PAD="$PA/.aidev/works/$PAW"
-    for f in spec plan review test-result; do : > "$PAD/$f.md"; done
-    printf -- '- [ ] AC1: a\n- [ ] AC2: b\n' > "$PAD/requirement.md"
+    for f in design tasks review test-result; do : > "$PAD/$f.md"; done
+    printf -- '- [ ] AC1: a\n- [ ] AC2: b\n' > "$PAD/requirements.md"
     printf -- '- [ ] T1: x\n      AC: AC1, AC2\n      依存: なし\n' > "$PAD/tasks.md"
     par new 01-a --parent "$PAW"
     printf -- '- [ ] T1: y\n      AC: AC1, AC2\n      依存: なし\n' > "$PAD/01-a/tasks.md"
     # `true` は cmd.exe の組み込みに無く、PATH に true.exe があるかで結果が変わる。
     # パリティで**実行される**コマンドは sh / cmd.exe のどちらでも同じ意味のものに限る
     printf 'smokeCommand: exit 0\n' > "$PA/.aidev/config.yml"
-    par use "$PAW/01-a"; par approve plan            # 子: 刻まない / smoke は親へ
+    par use "$PAW/01-a"; par approve tasks            # 子: 刻まない / smoke は親へ
     par smoke
     par use "$PAW"
-    par approve plan "note=see ac_total=5"           # 値の中の ac_total= は明示指定ではない
-    par approve plan ac_total=9                      # 先頭一致なら尊重
+    par approve tasks "note=see ac_total=5"           # 値の中の ac_total= は明示指定ではない
+    par approve tasks ac_total=9                      # 先頭一致なら尊重
     par approve review
-    for p in requirement spec coding test deliver; do par approve "$p"; done
+    for p in requirements design coding test deliver; do par approve "$p"; done
   done
   PAM_SH=$(sed 's/ts: [^,]*, //' "$PAU/.aidev/works"/*/metrics.yml)
   PAM_PS=$(tr -d '\r' < "$(ls -d "$PAU2/.aidev/works"/*/metrics.yml)" | sed 's/ts: [^,]*, //')
@@ -2885,13 +2888,13 @@ EOF
             else ( cd "$PD" && run_ps1 "$AIDEV_PS1" "$@" >/dev/null ); fi; }
     pdr new stuck
     PDW=$(tr -d '\r' < "$PD/.aidev/current"); PDD="$PD/.aidev/works/$PDW"
-    for f in spec plan review test-result; do : > "$PDD/$f.md"; done
-    printf -- '- [ ] AC1: a\n' > "$PDD/requirement.md"
+    for f in design tasks review test-result; do : > "$PDD/$f.md"; done
+    printf -- '- [ ] AC1: a\n' > "$PDD/requirements.md"
     printf -- '- [ ] T1: x\n      AC: AC1\n      依存: なし\n' > "$PDD/tasks.md"
-    for p in requirement spec plan; do pdr approve "$p"; done
+    for p in requirements design tasks; do pdr approve "$p"; done
     for i in 1 2 3; do pdr event coding sent_back; done
     pdr debug start --phase coding
-    pdr debug report --phase coding --root-cause "save() が例外を握りつぶしていた" --category logic --next-action retry --confidence high --fix-plan "os.replace の前に再送出"
+    pdr debug report --phase coding --root-cause "save() が例外を握りつぶしていた" --category logic --next-action retry --confidence high --fix-tasks "os.replace の前に再送出"
     pdr debug start --phase coding
     pdr debug report --phase coding --root-cause "外部 API の仕様が違う" --category external --next-action stop_for_human
     for p in coding test review deliver; do pdr approve "$p"; done
@@ -2960,12 +2963,12 @@ EOF
   done
   # verify の schema 7（smoke fail のまま deliver）
   PSMW=$(cat "$PSM/.aidev/current"); PSMD="$PSM/.aidev/works/$PSMW"
-  for f in requirement spec plan tasks review test-result; do : > "$PSMD/$f.md"; done
-  printf -- '- [ ] AC1: 起動する\n' > "$PSMD/requirement.md"
+  for f in requirements design tasks tasks review test-result; do : > "$PSMD/$f.md"; done
+  printf -- '- [ ] AC1: 起動する\n' > "$PSMD/requirements.md"
   printf -- '- [ ] T1: 起動経路\n      AC: AC1\n      依存: なし\n' > "$PSMD/tasks.md"
   printf 'smokeCommand: exit 1\n' > "$PSM/.aidev/config.yml"
   ( cd "$PSM" && "$AIDEV_SH" smoke >/dev/null 2>&1 ) || true
-  for p in requirement spec plan coding test review deliver; do ( cd "$PSM" && "$AIDEV_SH" approve "$p" >/dev/null ); done
+  for p in requirements design tasks coding test review deliver; do ( cd "$PSM" && "$AIDEV_SH" approve "$p" >/dev/null ); done
   SV_SH=$( ( cd "$PSM" && "$AIDEV_SH" verify ) 2>&1 ); SV_SH_RC=$?
   SV_PS_RAW=$( ( cd "$PSM" && run_ps1 "$AIDEV_PS1" verify ) 2>&1 ); SV_PS_RC=$?
   SV_PS=$(printf '%s' "$SV_PS_RAW" | tr -d '\r')
@@ -2983,10 +2986,10 @@ EOF
            else ( cd "$PD" && run_ps1 "$AIDEV_PS1" "$@" >/dev/null ); fi; }
     pr new pm
     PW=$(cat "$PD/.aidev/current" | tr -d '\r'); PDD="$PD/.aidev/works/$PW"
-    printf -- '- [ ] AC1: a\n- [ ] AC2: b\n- [ ] AC3: c\n' > "$PDD/requirement.md"
-    printf -- '- AC1: x\n- AC2: y\n' > "$PDD/spec.md"
+    printf -- '- [ ] AC1: a\n- [ ] AC2: b\n- [ ] AC3: c\n' > "$PDD/requirements.md"
+    printf -- '- AC1: x\n- AC2: y\n' > "$PDD/design.md"
     printf -- '- [ ] T1: a\n      AC: AC1\n      依存: なし\n- [ ] T2: b\n      AC: AC2, AC3\n      依存: なし\n- [ ] T3: 下準備\n      AC: なし\n      依存: なし\n' > "$PDD/tasks.md"
-    pr approve requirement; pr approve spec; pr approve plan tasks_planned=3 tasks_anchored=3
+    pr approve requirements; pr approve design; pr approve tasks tasks_planned=3 tasks_anchored=3
     printf -- '- [ ] T4: 追加\n      依存: なし\n' >> "$PDD/tasks.md"
     pr approve coding tasks_done=4; pr approve test passed=9 failed=0; pr approve review must=0 should=0 nit=0
   done
@@ -3007,18 +3010,18 @@ EOF
   # 1=CRLF / 2=BOM / 3=全角スペース字下げ / 4=NBSP / 5=グロブ文字 / 6=ID 文法の境界
   for pcase in 1 2 3 4 5 6; do
     case "$pcase" in
-      1) printf -- '- [ ] AC1: a\r\n- [ ] AC2: b\r\n' > "$PCED/requirement.md"
+      1) printf -- '- [ ] AC1: a\r\n- [ ] AC2: b\r\n' > "$PCED/requirements.md"
          printf -- '- [ ] T1: x\r\n      AC: AC1\r\n      依存: なし\r\n- [ ] T2: y\r\n      AC: AC2\r\n      依存: T1\r\n' > "$PCED/tasks.md" ;;
-      2) printf '\357\273\277- [ ] AC1: a\n' > "$PCED/requirement.md"
+      2) printf '\357\273\277- [ ] AC1: a\n' > "$PCED/requirements.md"
          printf '\357\273\277- [ ] T1: x\n      AC: AC1\n      依存: なし\n' > "$PCED/tasks.md" ;;
-      3) printf -- '- [ ] AC1: a\n- [ ] AC2: b\n' > "$PCED/requirement.md"
+      3) printf -- '- [ ] AC1: a\n- [ ] AC2: b\n' > "$PCED/requirements.md"
          printf -- '- [ ] T1: ひとつめ\n\343\200\200\343\200\200AC: AC1\n      依存: なし\n\343\200\200- [ ] T2: 全角字下げ\n      AC: AC2\n      依存: T1\n' > "$PCED/tasks.md" ;;
-      4) printf -- '- [ ] AC1: a\n\302\240- [ ] AC2: NBSP\n' > "$PCED/requirement.md"
+      4) printf -- '- [ ] AC1: a\n\302\240- [ ] AC2: NBSP\n' > "$PCED/requirements.md"
          printf -- '- [ ] T1: x\n      AC: AC1\n      依存: なし\n' > "$PCED/tasks.md" ;;
-      5) printf -- '- [ ] AC1: a\n' > "$PCED/requirement.md"
+      5) printf -- '- [ ] AC1: a\n' > "$PCED/requirements.md"
          printf -- '- [ ] T1: g\n      AC: *\n      依存: なし\n' > "$PCED/tasks.md" ;;
-      6) printf -- '- [ ] AC1: a\n- [ ] AC-I1 開く / 閉じる: どう\n- [ ] ACL の設定\n' > "$PCED/requirement.md"
-         printf -- '- AC-I1 開く / 閉じる: こう\n' > "$PCED/spec.md"
+      6) printf -- '- [ ] AC1: a\n- [ ] AC-I1 開く / 閉じる: どう\n- [ ] ACL の設定\n' > "$PCED/requirements.md"
+         printf -- '- AC-I1 開く / 閉じる: こう\n' > "$PCED/design.md"
          printf -- '- [ ] T1-1: 枝\n      AC: AC1、AC-I1\n      依存: T1-1\n- [ ] T1-1: dup\n      AC: \n      依存: なし\n' > "$PCED/tasks.md" ;;
     esac
     PE_SH=$( ( cd "$PCE" && "$AIDEV_SH" coverage --strict ) 2>&1 ); PE_SH_RC=$?
@@ -3029,10 +3032,10 @@ EOF
   done
   rm -rf "$PCE"
 
-  # 分割 work（家族単位の被覆・未 plan の subtask がある間の扱い）
+  # 分割 work（家族単位の被覆・未 tasks の subtask がある間の扱い）
   PCS=$(mktemp -d); mkdir -p "$PCS/.aidev/backlog"
   ( cd "$PCS" && "$AIDEV_SH" new big >/dev/null ); PCSP=$(cat "$PCS/.aidev/current")
-  printf -- '- [ ] AC1: a\n- [ ] AC2: b\n' > "$PCS/.aidev/works/$PCSP/requirement.md"
+  printf -- '- [ ] AC1: a\n- [ ] AC2: b\n' > "$PCS/.aidev/works/$PCSP/requirements.md"
   ( cd "$PCS" && "$AIDEV_SH" new 01-a --parent "$PCSP" >/dev/null )
   ( cd "$PCS" && "$AIDEV_SH" new 02-b --parent "$PCSP" >/dev/null )
   printf -- '- [ ] T1: a\n      AC: AC1\n      依存: なし\n' > "$PCS/.aidev/works/$PCSP/01-a/tasks.md"
@@ -3051,8 +3054,8 @@ EOF
   rm -rf "$PCS"
 
   # verify 側の連動（struct=FAIL / cover=WARN / test-result.md）もそろって動くこと
-  for f in plan review; do : > "$PCD/$f.md"; done
-  for ph in requirement spec plan coding test; do ( cd "$PCOV" && "$AIDEV_SH" approve "$ph" >/dev/null ); done
+  for f in tasks review; do : > "$PCD/$f.md"; done
+  for ph in requirements design tasks coding test; do ( cd "$PCOV" && "$AIDEV_SH" approve "$ph" >/dev/null ); done
   ( cd "$PCOV" && "$AIDEV_SH" event test sent_back >/dev/null )
   PV_SH=$( ( cd "$PCOV" && "$AIDEV_SH" verify ) 2>&1 ); PV_SH_RC=$?
   PV_PS_RAW=$( ( cd "$PCOV" && run_ps1 "$AIDEV_PS1" verify ) 2>&1 ); PV_PS_RC=$?
@@ -3065,8 +3068,8 @@ EOF
   PCV=$(mktemp -d); mkdir -p "$PCV/.aidev/works" "$PCV/docs"
   printf '# std\n' > "$PCV/docs/std.md"
   mkdir -p "$PCV/.aidev/works/20200101-w1"
-  printf 'schema: 4\nslug: w1\ncurrent: requirement\napproved: []\n' > "$PCV/.aidev/works/20200101-w1/state.yml"
-  printf 'events:\n  - { ts: 2020-01-01T01:00:00Z, phase: requirement, event: start }\n' \
+  printf 'schema: 4\nslug: w1\ncurrent: requirements\napproved: []\n' > "$PCV/.aidev/works/20200101-w1/state.yml"
+  printf 'events:\n  - { ts: 2020-01-01T01:00:00Z, phase: requirements, event: start }\n' \
     > "$PCV/.aidev/works/20200101-w1/metrics.yml"
 
   # sh 側で一生を進め、同じ操作を ps1 側でも行って生成物を突き合わせる
@@ -3155,7 +3158,7 @@ EOF
   ( cd "$PRD" && "$AIDEV_SH" convention new rc --hypothesis h --baseline "b" --verify-after 1 >/dev/null )
   ( cd "$PRD" && "$AIDEV_SH" new pa >/dev/null )
   PAW=$(ls "$PRD/.aidev/works")
-  for p in requirement spec plan coding test review; do
+  for p in requirements design tasks coding test review; do
     ( cd "$PRD" && "$AIDEV_SH" event "$p" start >/dev/null; cd "$PRD" && "$AIDEV_SH" approve "$p" >/dev/null )
   done
   : > "$PRD/.aidev/works/$PAW/review.md"
@@ -3249,12 +3252,12 @@ PYEOF
     else ru() { ( cd "$PUA" && run_ps1 "$AIDEV_PS1" "$@" ); }; fi
 
     ru new ua >/dev/null; UAW=$(ls "$PUA/.aidev/works" | head -n1)
-    for f in requirement spec plan; do : > "$PUA/.aidev/works/$UAW/$f.md"; done
-    for ph in requirement spec plan; do ru approve "$ph" >/dev/null; done
+    for f in requirements design tasks; do : > "$PUA/.aidev/works/$UAW/$f.md"; done
+    for ph in requirements design tasks; do ru approve "$ph" >/dev/null; done
     ru new 01-c --parent "$UAW" >/dev/null
     ru use "$UAW/01-c" >/dev/null
-    for f in plan tasks review; do : > "$PUA/.aidev/works/$UAW/01-c/$f.md"; done
-    for ph in plan coding test review; do ru approve "$ph" >/dev/null; done
+    for f in tasks tasks review; do : > "$PUA/.aidev/works/$UAW/01-c/$f.md"; done
+    for ph in tasks coding test review; do ru approve "$ph" >/dev/null; done
     # 全子完了で activeSubtask=done になる
     assert_contains "$(tr -d '\r' < "$PUA/.aidev/works/$UAW/state.yml")" "activeSubtask: done" \
       "[$impl] 全 subtask 完了で activeSubtask=done"
@@ -3263,7 +3266,7 @@ PYEOF
     ru use "$UAW/01-c" >/dev/null
     ru unapprove review >/dev/null
     UA_C=$(tr -d '\r' < "$PUA/.aidev/works/$UAW/01-c/state.yml")
-    assert_contains "$UA_C" "approved: [plan, coding, test]" "[$impl] unapprove: approved から当該工程だけ外す"
+    assert_contains "$UA_C" "approved: [tasks, coding, test]" "[$impl] unapprove: approved から当該工程だけ外す"
     assert_contains "$UA_C" "current: review" "[$impl] unapprove: current を取り消した工程へ戻す"
     assert_contains "$(tr -d '\r' < "$PUA/.aidev/works/$UAW/state.yml")" "activeSubtask: 01-c" \
       "[$impl] unapprove(子の review): 親の activeSubtask もその子へ戻す"
@@ -3280,7 +3283,7 @@ PYEOF
       "[$impl] use: subtask に切り替えたら親の activeSubtask も同期する"
 
     # event <phase> approved は state を更新しないので metrics と乖離する。入口で弾く
-    ru event spec approved >/dev/null 2>&1
+    ru event design approved >/dev/null 2>&1
     assert_eq "$?" "1" "[$impl] event で approved は書けない（state と metrics が乖離する）"
     rm -rf "$PUA"
   done
@@ -3344,8 +3347,8 @@ PYEOF
     # protocol.md 2.7 は `PROJ-123` 型の外部チケットを dependsOn に認めるが、CLI は `#N` しか
     # advisory にせず works slug として探しに行き「work不明」で guard を exit 3 にしていた
     rx new tk --depends PROJ-123 >/dev/null
-    rx guard requirement >/dev/null 2>&1; TK_RC=$?
-    TK_OUT=$(rx guard requirement 2>&1 | tr -d '\r')
+    rx guard requirements >/dev/null 2>&1; TK_RC=$?
+    TK_OUT=$(rx guard requirements 2>&1 | tr -d '\r')
     assert_eq "$TK_RC" "0" "[$impl] guard: PROJ-123 型の外部チケットは advisory（未充足にしない）"
     assert_contains "$TK_OUT" "advisory" "[$impl] guard: PROJ-123 を advisory として警告表示する"
     rm -rf "$PMX"
@@ -3356,7 +3359,7 @@ PYEOF
   # 背景: verify は deliver の**着地前ゲート**（70-deliver「PASS を着地の前提とする」）なのに、
   # (1) 承認済み工程の成果物を1つも見ておらず、**成果物ゼロの work が「deliver 済み・OK」**になり、
   # (2) 分割 work の親を verify しても子を見ないので、子の記録欠落が硬ゲートを素通りし、
-  # (3) light の next が永久に spec を指していた（20-spec 自身が「light では起動しない」と書く工程）。
+  # (3) light の next が永久に design を指していた（20-design 自身が「light では起動しない」と書く工程）。
   for impl in sh ps1; do
     PNV=$(mktemp -d); mkdir -p "$PNV/.aidev/works"
     if [ "$impl" = sh ]; then rv() { ( cd "$PNV" && "$AIDEV_SH" "$@" ); }
@@ -3365,20 +3368,20 @@ PYEOF
     # (1) 成果物ゼロで全工程 approve → verify は FAIL
     rv new nf >/dev/null; NFW=$(ls "$PNV/.aidev/works" | head -n1)
     : > "$PNV/.aidev/works/$NFW/review.md"
-    for ph in requirement spec plan coding test review; do rv approve "$ph" >/dev/null; done
+    for ph in requirements design tasks coding test review; do rv approve "$ph" >/dev/null; done
     NF_OUT=$(rv verify "$NFW" 2>&1); NF_RC=$?
     NF_OUT=$(printf '%s' "$NF_OUT" | tr -d '\r')
     assert_eq "$NF_RC" "4" "[$impl] 成果物を作らずに承認した work は verify が FAIL（着地前ゲートが効く）"
-    assert_contains "$NF_OUT" "requirement.md欠落(requirement承認済)" "[$impl] 欠けている成果物を名指しする"
-    assert_contains "$NF_OUT" "tasks.md欠落(plan承認済)" "[$impl] plan 承認済なら tasks.md も要る"
+    assert_contains "$NF_OUT" "requirements.md欠落(requirements承認済)" "[$impl] 欠けている成果物を名指しする"
+    assert_contains "$NF_OUT" "tasks.md欠落(tasks承認済)" "[$impl] tasks 承認済なら tasks.md も要る"
     assert_contains "$NF_OUT" "test-result.md欠落(test承認済)" "[$impl] test 承認済なら test-result.md も要る（schema 6）"
-    for f in requirement spec plan tasks test-result; do : > "$PNV/.aidev/works/$NFW/$f.md"; done
+    for f in requirements design tasks tasks test-result; do : > "$PNV/.aidev/works/$NFW/$f.md"; done
     rv verify "$NFW" >/dev/null 2>&1
     assert_eq "$?" "0" "[$impl] 成果物が揃えば PASS"
 
     # 導入前（schema<5）の work は遡って違反にしない（version-aware）
     mkdir -p "$PNV/.aidev/works/20200101-old"
-    printf 'schema: 4\nslug: old\ncurrent: plan\napproved: [requirement, spec, plan]\nharnessRev: aaa1111\n' \
+    printf 'schema: 4\nslug: old\ncurrent: tasks\napproved: [requirements, design, tasks]\nharnessRev: aaa1111\n' \
       > "$PNV/.aidev/works/20200101-old/state.yml"
     printf 'events:\n' > "$PNV/.aidev/works/20200101-old/metrics.yml"
     rv verify 20200101-old >/dev/null 2>&1
@@ -3386,41 +3389,41 @@ PYEOF
 
     # (2) 親 verify が子の欠落を拾う
     rv new pv >/dev/null; PVW=$(ls "$PNV/.aidev/works" | grep -- '-pv$' | head -n1)
-    for f in requirement spec plan; do : > "$PNV/.aidev/works/$PVW/$f.md"; done
-    for ph in requirement spec plan; do rv approve "$ph" >/dev/null; done
+    for f in requirements design tasks; do : > "$PNV/.aidev/works/$PVW/$f.md"; done
+    for ph in requirements design tasks; do rv approve "$ph" >/dev/null; done
     rv new 01-c --parent "$PVW" >/dev/null
     rv use "$PVW/01-c" >/dev/null
-    for f in plan tasks; do : > "$PNV/.aidev/works/$PVW/01-c/$f.md"; done
-    for ph in plan coding test; do rv approve "$ph" >/dev/null; done
+    for f in tasks tasks; do : > "$PNV/.aidev/works/$PVW/01-c/$f.md"; done
+    for ph in tasks coding test; do rv approve "$ph" >/dev/null; done
     rv approve review >/dev/null 2>&1   # review.md を作らずに承認＝子だけ壊れた状態
     PV_OUT=$(rv verify "$PVW" 2>&1); PV_RC=$?
     PV_OUT=$(printf '%s' "$PV_OUT" | tr -d '\r')
     assert_eq "$PV_RC" "4" "[$impl] 親の verify が子の記録欠落を拾う（着地は親1本の PR）"
     assert_contains "$PV_OUT" "review.md欠落" "[$impl] 子の欠落を名指しする"
 
-    # (3) light の next が spec を指さない
+    # (3) light の next が design を指さない
     rv new lt --light >/dev/null; LTW=$(ls "$PNV/.aidev/works" | grep -- '-lt$' | head -n1)
-    : > "$PNV/.aidev/works/$LTW/requirement.md"
-    rv use "$LTW" >/dev/null; rv approve requirement >/dev/null
+    : > "$PNV/.aidev/works/$LTW/requirements.md"
+    rv use "$LTW" >/dev/null; rv approve requirements >/dev/null
     LT_OUT=$(rv status --format tsv 2>&1 | tr -d '\r' | grep -- "-lt	")
-    assert_contains "$LT_OUT" "	coding	" "[$impl] light の next は spec を飛ばして coding を指す"
+    assert_contains "$LT_OUT" "	coding	" "[$impl] light の next は design を飛ばして coding を指す"
     rm -rf "$PNV"
   done
   unset -f rv 2>/dev/null || true
 
   # --- 分割 work の親のカーソルと統合 test のパリティ ---
-  # 背景: (1) 子を作るたび `.aidev/current` を無条件に上書きしていたため、親 plan で子を
+  # 背景: (1) 子を作るたび `.aidev/current` を無条件に上書きしていたため、親 tasks で子を
   # まとめて起こすと activeSubtask=先頭 / current=最後 になり、「冗長コピー」の定義
   # （protocol.md「6.」）が生成直後から破れていた。(2) 親は tasks.md を作らない
-  # （aidev-30-plan「4.」）のに guard test が need_file tasks.md を課しており、
-  # **書いてあるとおりに plan を書くと親の統合 test が必ず塞がる**状態だった。
+  # （aidev-30-tasks「4.」）のに guard test が need_file tasks.md を課しており、
+  # **書いてあるとおりに tasks を書くと親の統合 test が必ず塞がる**状態だった。
   for impl in sh ps1; do
     PSB=$(mktemp -d); mkdir -p "$PSB/.aidev/works"
     if [ "$impl" = sh ]; then rb() { ( cd "$PSB" && "$AIDEV_SH" "$@" ); }
     else rb() { ( cd "$PSB" && run_ps1 "$AIDEV_PS1" "$@" ); }; fi
     rb new pb >/dev/null; PBW=$(ls "$PSB/.aidev/works")
-    for f in requirement spec plan; do : > "$PSB/.aidev/works/$PBW/$f.md"; done
-    for ph in requirement spec plan; do rb approve "$ph" >/dev/null; done
+    for f in requirements design tasks; do : > "$PSB/.aidev/works/$PBW/$f.md"; done
+    for ph in requirements design tasks; do rb approve "$ph" >/dev/null; done
     rb new 01-a --parent "$PBW" >/dev/null
     rb new 02-b --parent "$PBW" >/dev/null
     PB_CUR=$(tr -d '\r' < "$PSB/.aidev/current")
@@ -3431,8 +3434,8 @@ PYEOF
     assert_eq "$?" "2" "[$impl] 子が未 review なら親の統合 test は塞がる"
     for c in 01-a 02-b; do
       rb use "$PBW/$c" >/dev/null
-      for f in plan tasks review; do : > "$PSB/.aidev/works/$PBW/$c/$f.md"; done
-      for ph in plan coding test review; do rb approve "$ph" >/dev/null; done
+      for f in tasks tasks review; do : > "$PSB/.aidev/works/$PBW/$c/$f.md"; done
+      for ph in tasks coding test review; do rb approve "$ph" >/dev/null; done
     done
     rb use "$PBW" >/dev/null
     rb guard test >/dev/null 2>&1
@@ -3450,12 +3453,12 @@ PYEOF
   PAP=$(mktemp -d); mkdir -p "$PAP/.aidev/works"
   ( cd "$PAP" && run_ps1 "$AIDEV_PS1" new pa >/dev/null )
   PAW=$(ls "$PAP/.aidev/works")
-  for f in requirement spec plan tasks review test-result; do : > "$PAP/.aidev/works/$PAW/$f.md"; done
-  for ph in requirement spec plan coding test review; do
+  for f in requirements design tasks tasks review test-result; do : > "$PAP/.aidev/works/$PAW/$f.md"; done
+  for ph in requirements design tasks coding test review; do
     ( cd "$PAP" && run_ps1 "$AIDEV_PS1" approve "$ph" >/dev/null )
   done
   PAP_ST=$(tr -d '\r' < "$PAP/.aidev/works/$PAW/state.yml" | sed -n 's/^approved: //p')
-  assert_eq "$PAP_ST" "[requirement, spec, plan, coding, test, review]" \
+  assert_eq "$PAP_ST" "[requirements, design, tasks, coding, test, review]" \
     "ps1: approve を重ねても approved が配列として積まれる（文字列連結にならない）"
   # 壊れた state は sh からも読めない。両実装が同じ判断をすることまで見る
   ( cd "$PAP" && run_ps1 "$AIDEV_PS1" guard deliver >/dev/null 2>&1 ); PA_P=$?
@@ -3470,9 +3473,9 @@ PYEOF
   # FAIL を印字しながら rc=0、--strict の 5 も 0 になり、**Windows で機械ゲートが素通りする**。
   # これまでのパリティは harnessRev の「刻印値」しか見ておらず、verify の出力と rc を見ていなかった。
   PVR=$(mktemp -d); mkdir -p "$PVR/.aidev/works/20260101-nohr"
-  printf 'schema: 4\nslug: nohr\ncurrent: requirement\napproved: [requirement]\n' \
+  printf 'schema: 4\nslug: nohr\ncurrent: requirements\napproved: [requirements]\n' \
     > "$PVR/.aidev/works/20260101-nohr/state.yml"
-  printf 'events:\n  - { ts: 2026-01-01T01:00:00Z, phase: requirement, event: approved }\n' \
+  printf 'events:\n  - { ts: 2026-01-01T01:00:00Z, phase: requirements, event: approved }\n' \
     > "$PVR/.aidev/works/20260101-nohr/metrics.yml"
   VO_SH=$( ( cd "$PVR" && "$AIDEV_SH" verify --strict 20260101-nohr ) 2>&1 ); VO_SHC=$?
   VO_PS_RAW=$( ( cd "$PVR" && run_ps1 "$AIDEV_PS1" verify --strict 20260101-nohr ) 2>&1 ); VO_PSC=$?
@@ -3542,9 +3545,9 @@ PYEOF
   # -LiteralPath 化しても列挙側が残っていると、doctor が subtask を黙って落とす
   PGL=$(mktemp -d); GW="$PGL/.aidev/works/20260101-a[b]c"
   mkdir -p "$GW/01-sub"
-  printf 'schema: 4\nslug: a[b]c\ncurrent: plan\napproved: []\nsubtasks: [01-sub]\n' > "$GW/state.yml"
+  printf 'schema: 4\nslug: a[b]c\ncurrent: tasks\napproved: []\nsubtasks: [01-sub]\n' > "$GW/state.yml"
   printf 'events:\n' > "$GW/metrics.yml"
-  printf 'schema: 4\nslug: 01-sub\ncurrent: plan\napproved: []\nparent: 20260101-a[b]c\n' > "$GW/01-sub/state.yml"
+  printf 'schema: 4\nslug: 01-sub\ncurrent: tasks\napproved: []\nparent: 20260101-a[b]c\n' > "$GW/01-sub/state.yml"
   printf 'events:\n' > "$GW/01-sub/metrics.yml"
   GS=$( ( cd "$PGL" && "$AIDEV_SH" doctor ) 2>&1 | grep '^summary:' )
   GP=$( ( cd "$PGL" && run_ps1 "$AIDEV_PS1" doctor ) 2>&1 | tr -d '\r' | grep '^summary:' )
@@ -3623,8 +3626,8 @@ PYEOF
     cat > "$PREPO/.aidev/works/20260101-existing/state.yml" <<'YML'
 schema: 2
 slug: existing
-current: spec
-approved: [requirement, spec]
+current: design
+approved: [requirements, design]
 mode: interactive
 humanGates: []
 maxSendBacks: 3

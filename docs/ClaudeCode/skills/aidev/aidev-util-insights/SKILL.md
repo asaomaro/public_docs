@@ -37,14 +37,14 @@ per-work の `retro` が「その作業1件」を振り返るのに対し、こ�
 - **定量指標は `aidev metrics --all` で機械集計する**（`metrics.yml` を手読みしない）。
   - `.claude/skills/aidev-docs/bin/aidev metrics --all`：work 別の first_start / delivered / **lead_sec（リードタイム）** /
     **reworks（手戻り）** / **sent_backs（差し戻し）** / **ac（受け入れ基準の総数＝要求側の規模の分母）** /
-    **ac_drift（plan 以降に増えた gap ＝ spec と実装の乖離）**。
+    **ac_drift（tasks 以降に増えた gap ＝ design と実装の乖離）**。
     - **`ac` は正規化の分母に使う**——`lead_sec` / `reworks` / `files_changed` を「`AC` 1件あたり」で見ると、
       規模の違う work を並べられる（実装側 `files_changed`・分解側 `tasks_planned` しか無かった分母に、
       **要求側**が加わった）。`AC` の粒度は書き手の癖に依存するので、比較は同じ PJ の中に閉じる。
-    - **`ac_drift > 0` の work を先に読む**。そこは「plan で決めた被覆のまま着地しなかった」work で、
+    - **`ac_drift > 0` の work を先に読む**。そこは「tasks で決めた被覆のまま着地しなかった」work で、
       乖離の中身は `aidev coverage <slug>` と `git log -p -- tasks.md` で特定できる。
       `-` は刻印が1点しかなく**測れない**（0 と読み替えない）。
-    - **被覆率そのものを KPI にしない**（`protocol-analysis.md`）。plan の承認前ゲートで 100% が
+    - **被覆率そのものを KPI にしない**（`protocol-analysis.md`）。tasks の承認前ゲートで 100% が
       強制されるため値は張り付き、動くのは迂回したときだけ。読むのは差分（`ac_drift`）の方。
   - `.claude/skills/aidev-docs/bin/aidev metrics --all --phases`：work×工程の start / approved / **elapsed_sec（工程時間）**。
   - `--format tsv` で機械パース可（列の集計・平均算出に使う）。Windows は `pwsh .claude/skills/aidev-docs/bin/aidev.ps1 metrics ...`（pwsh 無しなら `powershell -NoProfile -File ...`）。
@@ -135,7 +135,7 @@ per-work の `retro` が「その作業1件」を振り返るのに対し、こ�
 4. 次の観点で**横断**の傾向を抽出する（数値は手順2の `aidev metrics` 出力から算出する）。
    - **レビュー指摘の再発**：同種・同観点の指摘が複数作業で繰り返されていないか。
    - **ボトルネック工程**：手戻り回数(reworks)・差し戻し(sent_backs)・経過時間(elapsed_sec)が突出する工程はどれか。
-   - **上流の効き**：research/design を挟んだ作業は手戻りが少ないか（任意工程の効果）。
+   - **上流の効き**：research/architecture を挟んだ作業は手戻りが少ないか（任意工程の効果）。
    - **アンカー的中率**：`1 − unplanned_lookups / tasks_anchored`。低ければ research の問いの立て方が
      的外れ（実装の起点を特定できていない）、常に 100% なら research が過剰。
      → **任意工程 research の発火条件そのものを調整する材料**にする。
@@ -192,7 +192,7 @@ per-work の `retro` が「その作業1件」を振り返るのに対し、こ�
 
 ## 主要メトリクス（横断）
 - 平均リードタイム / 手戻り回数の分布 / ボトルネック工程
-- research・design 使用有無と手戻りの相関（わかる範囲で）
+- research・architecture 使用有無と手戻りの相関（わかる範囲で）
 - アンカー的中率（`1 − unplanned_lookups / tasks_anchored`）と、規模あたりの手戻り
 
 ## 再発パターン

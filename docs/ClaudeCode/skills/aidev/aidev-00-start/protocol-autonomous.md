@@ -9,18 +9,18 @@
 - 各工程末で人間の承認ゲート（「3.」）を通す。自動遷移しない。
 
 ### autonomous（夜間自律・PRまで一気通貫）
-人間ゲートを置かずに requirement→…→deliver を自律実行し、**PR を出して停止**する。
+人間ゲートを置かずに requirements→…→deliver を自律実行し、**PR を出して停止**する。
 「ゲートを消す」のではなく「**ゲートを PR（最終レビュー）に集約し、自己チェックを固くする**」モード。
 
-- **requirement**: 起動時に与えられたタスク指示を requirement とする（対話ヒアリングはしない。
+- **requirements**: 起動時に与えられたタスク指示を requirements とする（対話ヒアリングはしない。
   指示が不十分なら autonomous を中止し interactive を促す）。
-- **任意工程（research/design/walkthrough）**: 推奨ではなく**自律的に採否を決める**。
+- **任意工程（research/architecture/walkthrough）**: 推奨ではなく**自律的に採否を決める**。
   発火条件の正典は `protocol.md`「4.5」で、autonomous でもそこを変えない——**条件に当たったら実施、
   当たらなければ実施しない**（「autonomous だから全部やる」ではない。同じ条件から逆の判断が出ないように、
   ここに独自の既定を置かない）。walkthrough は人間の一括レビューを助ける工程なので、
   **PR を出す運用なら条件を満たしやすい**、という程度に読む。
 - **承認ゲート**: 自動承認（「3.」の autonomous 分岐）。`humanGates` に指定された工程だけは人間に確認
-  （**部分自律**。例: `humanGates: [spec]` で方向性の誤り＝最大の手戻り源だけ人間が止める）。
+  （**部分自律**。例: `humanGates: [design]` で方向性の誤り＝最大の手戻り源だけ人間が止める）。
 - **終端**: deliver は **PR を作成して停止**する。**auto-merge は禁止**（マージは人間が行う）。
   - **PR を作れない環境**（remote が無い／PJ が PR 運用でない／ユーザーが PR を禁じた）では、
     **作業ブランチへのコミットで停止**し、「どこに何を着地させたか（ブランチ名・コミット）」と
@@ -76,16 +76,16 @@ plan モードは Write / Edit を禁じるので、成果物を書くのが仕�
 - **ただし「入る」に倒れても、下の「承認者がいない工程で入ると抜けられない」が優先する**。
   ゲートの実体化として入る価値があっても、**抜ける人がいなければ工程が完走できない**からで、
   この 3 つは順に見る——(1) 承認者がいるか →(2) 成果物が実装計画か (b) →(3) 二重でないか (a)。
-- **入る**: **spec・design・plan で方向が複数あるとき**。3 つとも成果物が
+- **入る**: **design・architecture・tasks で方向が複数あるとき**。3 つとも成果物が
   「どう作るか／どんな構造で／どう分けるか」＝**実装計画側**にあり (b) を満たし、
   承認するものが方針／構造／手順と別々なので (a) も満たす。
   ほかに**ハーネス自体の改修**（aidev の対象作業ではない）。
   **`light` 以外で、その工程に承認者がいることが要る**——`autonomous` でも
-  `humanGates` に挙がっていれば承認者はいる。**subtask の plan は除く**（切り方は親の plan が
-  確定済み＝(a) が崩れる。`aidev-30-plan`「subtask の plan は split 判定を行わない」）。
-- **入らない**: **requirement は「何を・なぜ」で実装計画ではない**（**aidev の `spec` は
-  「どう作るか」で、他ツールの `spec`（要件）とは別物**——この名前のずれで「requirement も
-  spec と同じ側」と読み違えた事故が実際に起きた。「11.」の表）／**research も (b) で落ちる**
+  `humanGates` に挙がっていれば承認者はいる。**subtask の tasks は除く**（切り方は親の tasks が
+  確定済み＝(a) が崩れる。`aidev-30-tasks`「subtask の tasks は split 判定を行わない」）。
+- **入らない**: **requirements は「何を・なぜ」で実装計画ではない**（**aidev の `design` は
+  「どう作るか」で、他ツールの `design`（要件）とは別物**——この名前のずれで「requirements も
+  design と同じ側」と読み違えた事故が実際に起きた。「11.」の表）／**research も (b) で落ちる**
   （`ExitPlanMode` が「gathering information … do NOT use」と名指ししている。**特例は要らない**）／
   coding は実装計画の**実行**で上流の `tasks.md` が承認済み（方針変更は**差し戻し**——metrics に残る）／
   test・review・walkthrough・deliver・retro は判定・指摘・解説・着地・振り返りで実装計画ではない／
@@ -97,7 +97,7 @@ plan モードは Write / Edit を禁じるので、成果物を書くのが仕�
 - 「工程内で段階的に確認したい」は **段階レビュー（「3.1」）**が対応する。plan モードとは併用しない。
 - **「入れ」と明示する**——「方針を先に固める」のような言い方では丁寧に計画するだけで
   **モードは切り替わらない**（Claude Code は `EnterPlanMode` / `Shift+Tab` / `/plan`。
-  持たない環境は `aidev-docs/README.md` の表）。`aidev guard spec|design|plan` が該当条件のときだけ促す。
+  持たない環境は `aidev-docs/README.md` の表）。`aidev guard design|architecture|tasks` が該当条件のときだけ促す。
 - **承認者がいない工程で入ると、抜けられない**。抜けるのは人間の承認なので、`autonomous` で
   `humanGates` に無い工程は**書き込みが塞がったまま完走できない**（`bypassPermissions` の実行だけは
   ブロック自体が効かず進むが、どちらになるかは起動側の設定次第で work からは見分けられない）。

@@ -24,7 +24,7 @@ AI 開発ワークフローの **バッチ駆動（L1 オーケストレータ�
 
 ## 入力
 
-- バックログ（markdown チェックリスト）。各 **未チェック行 = 1件のタスク**（autonomous aidev の requirement になる）。
+- バックログ（markdown チェックリスト）。各 **未チェック行 = 1件のタスク**（autonomous aidev の requirements になる）。
 
 ```markdown
 # <タイトル> バックログ
@@ -40,7 +40,7 @@ backlog は1ファイルとは限らない（ドメイン別・タスク分割�
 
 ```yaml
 ---
-backlog: <識別名>              # 例 cl / rpg-spec / split-rpg-dialect
+backlog: <識別名>              # 例 cl / rpg-design / split-rpg-dialect
 kind: standing | split | topic # ファイルの一生の宣言。「消化しきったら終わるか」で選ぶ
 parent: <slug/ticket>          # split のときだけ: 親（work slug / チケット）
 priority: <整数>               # 複数ファイルの選択順（小さいほど先）。未指定は最後

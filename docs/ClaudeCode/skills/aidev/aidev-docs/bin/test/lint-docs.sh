@@ -193,7 +193,7 @@ BUDGET_PROTOCOL=608
 #   protocol-autonomous「安全弁」に独立点検 +3（autonomous の必須事項一覧から到達できず、
 #     一覧だけ読んだ実行者は schema 11 の必須記録に辿り着けなかった）
 #   protocol-check「(a)」の起動経路・report のタイミング・対象工程の限定 +5
-#     （起動経路が spec/design だけの古い記述で、requirement/plan の経路が「存在しない」ことになっていた）
+#     （起動経路が design/architecture だけの古い記述で、requirements/plan の経路が「存在しない」ことになっていた）
 #   protocol-analysis に doc_check_* の読み方 +2（刻んだメトリクスの使い道が未定義だった）
 #   aidev-00-start に --backlog-item +2（打たないと status の HELD が行単位で出ない）
 #   各 SKILL の doccheck 行 +3（正典は protocol-check。ここは引き金と打つコマンドだけ）
@@ -201,7 +201,7 @@ BUDGET_PROTOCOL=608
 #   protocol.md「運用方針」に CLI の実体パス +2（各 skill のコマンド例は裸の `aidev` で、
 #     PATH は誰も通していない。`aidev-00-start` を読まずに工程 skill を直接叩く運用——
 #     同じ節が明示的に許している経路——では最初のコマンドで止まっていた）
-#   任意3工程（research / design / walkthrough）の `event <工程> start` は**行を増やさず**
+#   任意3工程（research / architecture / walkthrough）の `event <工程> start` は**行を増やさず**
 #     既存の guard 行を書き換えて足した（打たないと `verify --strict` が exit 5 になる経路）
 # 3412 -> 3417: plan モードの入り方・抜け方を「使ってよい」から**実行できる指示**にしたぶん。
 #   protocol-autonomous「plan モードとの関係」+5（役割だけの言い方では丁寧に計画するだけで
@@ -214,7 +214,7 @@ BUDGET_PROTOCOL=608
 #     条件に含めた——実走が「承認者がいるのに促しを止めている」を実測した）
 # 3422 -> 3426: **判断基準を書いていなかった**ぶん（外部レビューの読み合わせで発覚）。
 #   protocol-autonomous「plan モードとの関係」+4。工程ごとの可否だけが列挙され、
-#   **11 工程のうち requirement と walkthrough が どちらのリストにも無かった**。
+#   **11 工程のうち requirements と walkthrough が どちらのリストにも無かった**。
 #   さらに除外理由の一部が「実装計画ではない」で、**論点がずれていた**——plan モードで
 #   禁じられるのは Write/Edit だけで対話は動くので、それは理由にならない。
 #   本当の基準（「二重ゲートに見合うか」＝承認する対象がゲートと違うか）は DESIGN「2.」に
@@ -223,9 +223,9 @@ BUDGET_PROTOCOL=608
 # 3426 -> 3429: 基準だけでは **11 工程のうち 9 しか導出できなかった**ぶん（実走が実測）。
 #   protocol-autonomous「plan モードとの関係」+3。足りなかったのは 3 点:
 #   (1)「aidev のゲート」が**その工程だけか上流を含むか**が未定義で、素直に読むと
-#      coding が「入る」に化けた（`tasks.md` は plan のゲートが承認済み、と読ませる必要がある）
+#      coding が「入る」に化けた（`tasks.md` は tasks のゲートが承認済み、と読ませる必要がある）
 #   (2) research は**基準の外の規則**（純粋な調査は「2.6」の委譲）なのに、基準から導けるように
-#      並んでいたので spec と同じ形に見えた
+#      並んでいたので design と同じ形に見えた
 #   (3) walkthrough の除外理由が「成果物がその工程の判断そのもの」で、
 #      **説明文書である walkthrough には当てはまっていなかった**（結論は同じだが理由が嘘）
 # 3429 -> 3434: **基準が前提を 1 つ書いていなかった**ぶん（外部レビューの読み合わせで発覚）。
@@ -246,16 +246,16 @@ BUDGET_PROTOCOL=608
 #      **抜けられない**」と衝突する。**新しい行だけを読んだ実行者は入って詰む**
 #      → 見る順（承認者 → 二重ゲート）を明記した
 # 3438 -> 3449: **除外理由を 2 つとも間違えていた**ぶん（対話で発覚）。
-#   protocol-autonomous +7 / aidev-30-plan +2 / aidev-00-start -1。
-#   requirement の除外理由「方針と成果物が分離できない」は **spec / design にもそのまま
+#   protocol-autonomous +7 / aidev-30-tasks +2 / aidev-00-start -1。
+#   requirements の除外理由「方針と成果物が分離できない」は **design / architecture にもそのまま
 #   当てはまり、区別になっていなかった**（結論に貼った後付けのラベル）。
-#   そこで「行動計画 vs 仕様」という分類を作って plan を外したが、**これも逆だった**——
+#   そこで「行動計画 vs 仕様」という分類を作って tasks を外したが、**これも逆だった**——
 #   `ExitPlanMode` の定義が「planning the **implementation steps**」なので、
-#   plan 工程と種類が同じことは**除外の理由ではなく最も適合する証拠**。
+#   tasks 工程と種類が同じことは**除外の理由ではなく最も適合する証拠**。
 #   **手元にツール定義があるのに読まずに分類を発明した**のが両方の原因。
 #   **plan モードの機能と思想を調べ直した**結果、買えるのは「コード探索中の read-only 強制」で、
 #   機能も思想も「触る前にコードを読む」に収束していた（EnterPlanMode: explore the codebase）。
-#   これを (b) に据えると、**requirement は主活動がユーザーへのヒアリング**（入力は
+#   これを (b) に据えると、**requirements は主活動がユーザーへのヒアリング**（入力は
 #   「要望・課題・背景」でコードは「必要に応じて参照してよい」）なので外れる。
 #   一度 EnterPlanMode の "Unclear Requirements" を根拠に入れたが、その例は
 #   「profile して bottleneck を見つける」＝**コード探索でスコープを掴む**話で、
@@ -269,11 +269,17 @@ BUDGET_PROTOCOL=608
 #   protocol-autonomous「plan モードとの関係」+1（差し引き）。
 #   `EnterPlanMode`（入口）の WHEN TO USE を基準にしていたが、**承認を出すのは `ExitPlanMode` だけ**で、
 #   そこには「planning the **implementation steps** … For **research** … do NOT use」と書いてある。
-#   出口の制約を見ていなかったので `requirement`（何を・なぜ＝実装計画ではない）が入っていた。
+#   出口の制約を見ていなかったので `requirements`（何を・なぜ＝実装計画ではない）が入っていた。
 #   据え直すと **`research` も基準内で落ちる**ので、「基準の外の規則」という特例が 1 つ消える。
 #   併せて **plan file と成果物の書く順序**（探索→plan file→承認→抜ける→清書）を明記した——
 #   逆順だと plan file が写しになり、それが「計画を二度書く」の正体
-BUDGET_TOTAL=3450
+# 3450 -> 3457: **工程の改名**（`requirement`→`requirements` / `spec`→`design` /
+#   `design`→`architecture` / `plan`→`tasks`）で語が伸びたぶん。他 SDD ツールと名前の意味を
+#   揃えた——aidev の `spec` は「どう作るか」だが GitHub Spec Kit の `spec.md` は要件で、
+#   **1 段ずれていた**。この読み違いで plan モードの適用工程を 3 往復して誤判定した実績がある。
+#   併せて `plan.md` を `tasks.md` に統合した（Kiro も Spec Kit も tasks は 1 ファイル。
+#   CLI は旧 `plan.md` の中身を一度も読んでいなかった＝存在確認だけだったので機械側は無傷）
+BUDGET_TOTAL=3457
 _p=$(wc -l < "$SKILLS/aidev-00-start/protocol.md")
 _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 [ "$_p" -le "$BUDGET_PROTOCOL" ] && ok "L6 protocol.md が予算内（$_p / $BUDGET_PROTOCOL 行）" \
@@ -284,7 +290,7 @@ _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 echo "== L9: 判定条件の写しを工程 SKILL に作らない =="
 # **条件を skill に写した時点で、次の変更での取り残しが予約される**。実際に起きた——
 # `guard` の promote 条件を「mode」から「その工程に承認者がいるか」へ変えたとき、CLI と
-# `protocol-autonomous.md` は直したのに、spec / design の SKILL.md に写した
+# `protocol-autonomous.md` は直したのに、design / architecture の SKILL.md に写した
 # `（full × interactive のみ）` が残り、**部分自律で CLI は促すのに skill は「入るな」と読める**
 # 状態になった（外部レビューが実測）。
 # 規律自体は既にあった——`doccheck` では「正典は protocol-check。ここは引き金と打つコマンドだけ」
@@ -314,8 +320,8 @@ echo "== L9: 判定条件の写しを工程 SKILL に作らない =="
 # （`runtime_docs` 自身のコメントが同じ罠を警告しているのに、その隣で再発させた）
 PMHEAD='plan ?モード|planモード|plan mode'
 # **改修のたびに語彙を足す**。足さないと「旧条件の写し」しか捕まえられず、**新条件の写しは
-# 全部素通りする**（実走が H10-H13 で実測）。工程名の列挙（`spec / design / plan` の形）も条件の写し
-PMKEY='profile|humanGates|human-gates|interactive|autonomous|full[^ ]* *×|light|承認者|対話モード|自律モード|プロファイル|機械で止ま|ゲートの実体化|exit code|read-only|主活動|ヒアリング|既存コード|コード探索|方向が複数|選び損な|上流4工程|spec *[/／] *design|spec[・、] *design|実装計画|implementation steps|ExitPlanMode|EnterPlanMode'
+# 全部素通りする**（実走が H10-H13 で実測）。工程名の列挙（`design / architecture / tasks` の形）も条件の写し
+PMKEY='profile|humanGates|human-gates|interactive|autonomous|full[^ ]* *×|light|承認者|対話モード|自律モード|プロファイル|機械で止ま|ゲートの実体化|exit code|read-only|主活動|ヒアリング|既存コード|コード探索|方向が複数|選び損な|上流4工程|design *[/／] *architecture|design[・、] *architecture|実装計画|implementation steps|ExitPlanMode|EnterPlanMode'
 _l9=0
 # `runtime_docs` は `$d/SKILL.md`（`$d` は末尾 `/`）を出すので **`//` を含む**。
 # 潰さないと `sort -u` が別物として残し、二重走査がそのまま生き残る（テストで実測）

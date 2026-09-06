@@ -16,7 +16,7 @@ review を通過した変更を、コミット・PR 作成によって実際に�
 ## 入力
 
 - 着地対象の変更（diff）。
-- 対象フォルダの `requirement.md`（issue 番号等）/ `state.yml`。
+- 対象フォルダの `requirements.md`（issue 番号等）/ `state.yml`。
 
 ## 出力
 
@@ -124,7 +124,7 @@ review を通過した変更を、コミット・PR 作成によって実際に�
 
 ```markdown
 ## 概要
-<何を・なぜ。requirement/spec の要約>
+<何を・なぜ。requirements/design の要約>
 
 ## 変更点
 - <主な変更を箇条書き>

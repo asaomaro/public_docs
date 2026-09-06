@@ -1,12 +1,12 @@
 ---
-name: aidev-10-requirement
-description: ［aidev 標準工程］aidev の requirement（要件定義）工程。進行中の aidev 作業（.aidev/current）に対して要望を整理し requirement.md を作る。「aidev requirement」「requirement 工程」と言われたとき、または aidev-00-start / 前工程から案内されたときに使用する。aidev 作業の無い単発の要件整理では使わない。
+name: aidev-10-requirements
+description: ［aidev 標準工程］aidev の requirements（要件定義）工程。進行中の aidev 作業（.aidev/current）に対して要望を整理し requirements.md を作る。「aidev requirements」「requirements 工程」と言われたとき、または aidev-00-start / 前工程から案内されたときに使用する。aidev 作業の無い単発の要件整理では使わない。
 allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion]
 ---
 
-AI 開発ワークフローの **requirement（要件定義）工程**を実行する。
-開発の起点。ユーザーの要望を整理し「何を・なぜ作るか」を `requirement.md` として確定する。
-実装手段（どう作るか）には踏み込まない（それは spec 以降）。
+AI 開発ワークフローの **requirements（要件定義）工程**を実行する。
+開発の起点。ユーザーの要望を整理し「何を・なぜ作るか」を `requirements.md` として確定する。
+実装手段（どう作るか）には踏み込まない（それは design 以降）。
 
 **開始前に共通プロトコル `../aidev-00-start/protocol.md` を読み、その規約に従うこと。**
 
@@ -23,10 +23,10 @@ AI 開発ワークフローの **requirement（要件定義）工程**を実行�
 
 ## 出力
 
-対象フォルダ（`.aidev/works/<YYYYMMDD-slug>/`）に `requirement.md` を生成する。
+対象フォルダ（`.aidev/works/<YYYYMMDD-slug>/`）に `requirements.md` を生成する。
 
 **`profile: light` の場合**（`state.yml`。protocol.md「11.」）は、この工程が**上流 1 ゲート**を担う。
-`requirement.md` / `spec.md` / `plan.md` / `tasks.md` の **4 つすべてを薄く書き**、承認は `requirement`
+`requirements.md` / `design.md` / `tasks.md` / `tasks.md` の **4 つすべてを薄く書き**、承認は `requirements`
 として 1 回だけ記録する（下記「light の手順」）。
 
 ## 手順
@@ -34,7 +34,7 @@ AI 開発ワークフローの **requirement（要件定義）工程**を実行�
 1. protocol.md「1. 対象作業の特定」に従い、`.aidev/current` から対象フォルダを確定する。
    **`state.yml` の `profile` を確認し、`light` なら下記「light の手順」に分岐する。**
 1.5. **charter の確認**：`.aidev/charter.md` があれば読み、**この work がどの charter ゴールに紐づくかを
-   `requirement.md` に1行書く**（`aidev-util-propose` と同じ錨を、パイプライン本体でも使う）。
+   `requirements.md` に1行書く**（`aidev-util-propose` と同じ錨を、パイプライン本体でも使う）。
    - **どの charter ゴールにも紐づかない場合は、それを明示してユーザーに確認する**。
      charter の更新が必要か、そもそもこの work をやるべきでないかのどちらかで、黙って進めない。
    - `charter.md` が無い PJ ではスキップする（作成を催促しない）。**あれば必須、無ければ不要**。
@@ -49,18 +49,18 @@ AI 開発ワークフローの **requirement（要件定義）工程**を実行�
      決定ツリーを下りながら主要論点を**推奨回答つきで問い詰めて**不確実性を潰す。質問深掘り skill
      （例: `grill-me`）があればそれを優先し、無ければ同等の質問をインラインで行う（PJ資産優先・protocol「2.5」）。
      自明な小タスクは重いのでスキップ。**autonomous では基本スキップ**（対話前提のため）。
-3. `aidev guard requirement` → `aidev event requirement start` を記録してから、
-   下記テンプレートに沿って `requirement.md` を記述する。実装方法は書かない。
+3. `aidev guard requirements` → `aidev event requirements start` を記録してから、
+   下記テンプレートに沿って `requirements.md` を記述する。実装方法は書かない。
 4. **調査不足の自己評価（research 推奨判定）**：**判定条件は protocol.md「4.5」の5条件に従う**
    （ここには写さない——写した結果、条件が片方だけ更新されて**UI の条件が判定側に届かず
    一度も発火しない**状態が実際に起きた）。該当すれば、次の遷移ゲートの選択肢に
    `承認して research(任意) を挟む`（推奨）を加え、推奨理由を添える。
 4.9. **独立点検**（`autonomous` は必須。規約は `protocol-check.md`「(a)」）:
-   `aidev doccheck start requirement --mode <delegated|same_session>` → `report requirement --findings <n>`。
+   `aidev doccheck start requirements --mode <delegated|same_session>` → `report requirements --findings <n>`。
 5. protocol.md「3. 工程終了プロトコル」に従って終了する
-   （提示 → 承認 → `state.yml` 更新 → 次工程 `spec`、または推奨時は `research` へ進むか確認）。
+   （提示 → 承認 → `state.yml` 更新 → 次工程 `design`、または推奨時は `research` へ進むか確認）。
 
-## requirement.md テンプレート
+## requirements.md テンプレート
 
 ```markdown
 # 要件: <タイトル>
@@ -103,7 +103,7 @@ AI 開発ワークフローの **requirement（要件定義）工程**を実行�
 - [ ] AC-I5 既存の操作を妨げないか: <その部品の上のキー・ホイールを既存の経路へ漏らさないか>
 
 ## 未確定事項 / 確認したいこと
-- <あれば。spec で解消する>
+- <あれば。design で解消する>
 ```
 
 ### 書き方の指針
@@ -121,40 +121,40 @@ AI 開発ワークフローの **requirement（要件定義）工程**を実行�
 
 - **受け入れ基準は `完了条件` に一元化し、ストーリーからは ID で参照する。**
   ストーリー側に基準を書き写すと二重管理になる。`完了条件` が単一の真実で、
-  spec の「受け入れ基準との対応」・`tasks.md` の `AC:` 行・test 工程が読む先もここ（ID で対応付けられる）。
+  design の「受け入れ基準との対応」・`tasks.md` の `AC:` 行・test 工程が読む先もここ（ID で対応付けられる）。
   ストーリーに紐づかない基準（非機能・移行・互換性）は `AC` として並べてよい。
   **ID は行頭のチェックボックスの直後に置く**（`- [ ] AC1: …` / `- [ ] AC-I1 …`）——`aidev coverage` が
   被覆率を数える先がこの形で、崩すと基準が**1件も存在しない**ものとして扱われる。
-  ID の文法（`AC` の直後は数字か `-`。`ACL` のように英字が続くものは基準として数えない）は `aidev-30-plan`。
+  ID の文法（`AC` の直後は数字か `-`。`ACL` のように英字が続くものは基準として数えない）は `aidev-30-tasks`。
 
 ## light の手順（`profile: light`）
 
-上流 3 工程（requirement / spec / plan）を**この 1 ゲートに畳む**（protocol.md「11.」）。
-**文書は 4 つとも作る。スタブは作らない**——`plan.md` は test 工程が「テスト方針」を読む先
+上流 3 工程（requirements / design / tasks）を**この 1 ゲートに畳む**（protocol.md「11.」）。
+**文書は 4 つとも作る。スタブは作らない**——`tasks.md` は test 工程が「テスト方針」を読む先
 （`aidev-50-test`）で、空にすると test が検証対象を失う。薄くするのは**節を絞る**ことで実現する。
 
 1. 対象フォルダを確定し、`profile: light` を確認する。
-2. `aidev event requirement start` を記録する。
+2. `aidev event requirements start` を記録する。
 3. 要望をヒアリングする（full より簡略でよい。grilling はしない）。
 4. 次の 4 文書を、**既存テンプレートの必須節だけ**埋めて書く（light 専用テンプレートは無い）。
 
    **必須節・省略可の節は `protocol-light.md` の表に従う**（ここには写さない——写した結果、
-   `requirement.md` の必須節に `目的 / ゴール` が入るかが正典と食い違っていた）。
+   `requirements.md` の必須節に `目的 / ゴール` が入るかが正典と食い違っていた）。
 
 5. protocol.md「3. 工程終了プロトコル」に従って終了する。**段階レビュー（「3.1」）と相性が良い**——
    4 文書を見出し節ごとに提示すれば、1 ゲートでも確認の粒度は落ちない。
-   - **`aidev coverage --strict` を通してから承認する**（plan を畳んでも被覆の検査は畳まない。
-     `aidev-30-plan` の手順6と同じ）。
-   - 承認は `aidev approve requirement tasks_planned=<n> tasks_anchored=<n>`
-     （plan 相当の付加メトリクスもこのゲートで記録する。protocol.md「8.」）。
-   - **次工程は `coding`**（`spec` / `plan` は畳まれているので通らない）。
+   - **`aidev coverage --strict` を通してから承認する**（tasks を畳んでも被覆の検査は畳まない。
+     `aidev-30-tasks` の手順6と同じ）。
+   - 承認は `aidev approve requirements tasks_planned=<n> tasks_anchored=<n>`
+     （tasks 相当の付加メトリクスもこのゲートで記録する。protocol.md「8.」）。
+   - **次工程は `coding`**（`design` / `tasks` は畳まれているので通らない）。
 6. 途中で light の条件を外れたと判断したら（任意工程が必要・影響が広い・共有モジュールに触る等）、
-   **`aidev escalate` で full に昇格**し、通常の requirement → spec → plan を踏み直す
+   **`aidev escalate` で full に昇格**し、通常の requirements → design → tasks を踏み直す
    （省略した節を足すだけで、書き換えは不要）。
 
 ### light で任意工程が必要になったら
 
-research / design が要ると判断した時点で、それは「振る舞い不変・小規模」の前提を外れている。
+research / architecture が要ると判断した時点で、それは「振る舞い不変・小規模」の前提を外れている。
 **任意工程を light のまま実施しない**（`aidev verify` が WARN を出す）。昇格してから実施する。
 
 ## 完了の目安
@@ -165,6 +165,6 @@ research / design が要ると判断した時点で、それは「振る舞い�
 - 完了条件に `AC` の ID が付き、ストーリーから参照できている（ストーリーに紐づかない `AC` があってもよい）。
 - **UI を伴う work では「相互作用の受け入れ基準」が埋まっている**（該当しないなら節ごと省いてある）。
 - `charter.md` があるなら、紐づく charter ゴールが書けている（紐づかないなら確認済み）。
-- 実装の詳細に踏み込んでいない（手段の決定は spec へ送る）。
+- 実装の詳細に踏み込んでいない（手段の決定は design へ送る）。
 - **light の場合**: 4 文書がそろい、`tasks.md` の各タスクに `対象` と `AC` がある（無いなら明示）。
   `aidev coverage --strict` が exit 0。

@@ -1,11 +1,11 @@
 ---
 name: aidev-50-test
-description: ［aidev 標準工程］aidev の test（テスト/検証）工程。進行中の aidev 作業の spec の受け入れ基準を検証し、失敗時は coding へ差し戻す。「aidev test」「test 工程」と言われたとき、または前工程から案内されたときに使用する。aidev 作業の無い単発のテスト依頼では使わない。
+description: ［aidev 標準工程］aidev の test（テスト/検証）工程。進行中の aidev 作業の design の受け入れ基準を検証し、失敗時は coding へ差し戻す。「aidev test」「test 工程」と言われたとき、または前工程から案内されたときに使用する。aidev 作業の無い単発のテスト依頼では使わない。
 allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion, Agent]
 ---
 
 AI 開発ワークフローの **test（テスト / 検証）工程**を実行する。
-実装が spec の受け入れ基準を満たすか検証する。失敗が見つかれば coding 工程へ差し戻す。
+実装が design の受け入れ基準を満たすか検証する。失敗が見つかれば coding 工程へ差し戻す。
 
 **開始前に共通プロトコル `../aidev-00-start/protocol.md` を読み、その規約に従うこと。**
 
@@ -16,7 +16,7 @@ AI 開発ワークフローの **test（テスト / 検証）工程**を実行�
 ## 入力
 
 - 実装コード。
-- 対象フォルダの `spec.md`（受け入れ基準）/ `plan.md`（テスト方針）/ `tasks.md`。
+- 対象フォルダの `design.md`（受け入れ基準）/ `tasks.md`（テスト方針）/ `tasks.md`。
 
 ## 出力
 
@@ -74,7 +74,7 @@ smoke: pass (exit 0)
    `aidev guard test` で前提を検査し、`aidev event test start` を記録する
    （exit≠0＝未充足。目視確認で代替しない。start が無いと所要時間も手戻りも導出できない）。
    - **対象が subtask（state.yml に `parent` あり）か親かを見分ける**（protocol.md「2.8」）。test の範囲が変わるので、subtask なら `protocol-subtask.md` を読む。
-2. `plan.md` のテスト方針と `spec.md` の受け入れ基準に沿って検証する。
+2. `tasks.md` のテスト方針と `design.md` の受け入れ基準に沿って検証する。
    - 自動テストがあれば実行する。無ければ受け入れ基準ごとに確認手順を実施する。
    - 必要なら不足テストを追加する。
    - **subtask の test** は slice 単独で検証可能な範囲に限定する（`protocol-subtask.md`）。
@@ -120,7 +120,7 @@ light の前提が崩れた合図**。coding へ差し戻す前に `aidev escala
 
 ## 完了の目安
 
-- spec の全受け入れ基準に対する検証結果が揃っている（`aidev coverage` の `ac` 列と付き合わせる）。
+- design の全受け入れ基準に対する検証結果が揃っている（`aidev coverage` の `ac` 列と付き合わせる）。
 - `test-result.md` がある。差し戻したラウンドがあるなら「失敗の証跡」に**生の出力**が残っている。
 - **`aidev smoke` が pass（または `none` で対象外と宣言済み）**。テストが緑なだけで合格にしていない。
 - **主張が証拠の範囲を超えていない**（protocol.md「7.」）。検証できなかった範囲は「未検証の穴」に残す。
