@@ -5,7 +5,7 @@ allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion, EnterPlanMode, ExitPla
 ---
 
 AI 開発ワークフローの **tasks（計画 / 作業分解）工程**を実行する。
-design を実装可能な作業単位に分解し、`tasks.md`（方針・順序）と `tasks.md`（チェックリスト）を作る。
+design を実装可能な作業単位に分解し、`tasks.md`（前半に方針・順序、後半にチェックリスト）を作る。
 `tasks.md` のチェックボックスが、以降の進捗の単一の真実となる。
 
 **開始前に共通プロトコル `../aidev-00-start/protocol.md` を読み、その規約に従うこと。**

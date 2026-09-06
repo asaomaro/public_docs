@@ -27,7 +27,7 @@
   | `protocol-check.md` | 「3.3」 | 上流4工程の独立点検（`autonomous` は必須）/ coding のタスク点検 |
   | `protocol-debug.md` | 「10.」末尾 | 同一工程の差し戻しが上限に達した / 点検を繰り返しても直らない（詰まりの原因究明） |
   | `protocol-autonomous.md` | 「10.」 | `mode: autonomous` の work / plan モードに入るか迷ったとき |
-  | `protocol-light.md` | 「11.」 | `profile: light` の work（4文書の必須節・昇格） |
+  | `protocol-light.md` | 「11.」 | `profile: light` の work（3文書の必須節・昇格） |
 - 実行時状態: `.aidev/`（リポジトリ内に生成）
   - `.aidev/current`: 現在作業中の works フォルダ名（ポインタ）
   - `.aidev/works/<YYYYMMDD-slug>/`: 作業単位ごとのフォルダ。成果物と `state.yml` を格納
@@ -228,8 +228,8 @@ backlog は**遅延キュー**で、完了した行を閉じるのは deliver �
   任意工程。こちらは**任意の工程の承認ゲートで選べる「提示モード」**で、成果物 md を生成・変更しない。
 - **進め方**: 成果物を意味のある単位で順に提示し、各単位ごとに要点を述べてユーザーの確認/指摘を受ける。
   粒度は成果物に合わせる:
-  - `requirements.md` / `design.md` / `architecture.md` / `tasks.md` → **見出し節ごと**
-  - `tasks.md` → **タスクごと**
+  - `requirements.md` / `design.md` / `architecture.md` → **見出し節ごと**
+  - `tasks.md` → 前半（方針）は**見出し節ごと**、後半のチェックリストは**タスクごと**
   - `review.md` → **指摘ごと**
   - コード差分（review 等）→ **ファイル/ハンク単位**
 - **終了**: 全単位を提示し終えたら、
@@ -563,7 +563,7 @@ FAIL で止める。手順・分類・渡すもの/渡さないものは `protoc
 
 `state.yml` の `profile`＝**どこまで工程を回すか**（`mode` と直交）。**対象外**（typo・整形＝aidev を通さない）／
 **light**（振る舞いを変えない小規模＝上流 3 工程を requirements の 1 ゲートに畳む。coding 以降は full と同一）／
-**full**。light の条件・4 文書の必須節・昇格（`aidev escalate`。片方向）は `protocol-light.md`。
+**full**。light の条件・3 文書の必須節・昇格（`aidev escalate`。片方向）は `protocol-light.md`。
 
 ## 12. PJ規約の条項（`.aidev/conventions`）と効果検証
 

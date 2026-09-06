@@ -26,7 +26,7 @@ AI 開発ワークフローの **requirements（要件定義）工程**を実行
 対象フォルダ（`.aidev/works/<YYYYMMDD-slug>/`）に `requirements.md` を生成する。
 
 **`profile: light` の場合**（`state.yml`。protocol.md「11.」）は、この工程が**上流 1 ゲート**を担う。
-`requirements.md` / `design.md` / `tasks.md` / `tasks.md` の **4 つすべてを薄く書き**、承認は `requirements`
+`requirements.md` / `design.md` / `tasks.md` の **3 つすべてを薄く書き**、承認は `requirements`
 として 1 回だけ記録する（下記「light の手順」）。
 
 ## 手順
@@ -136,13 +136,13 @@ AI 開発ワークフローの **requirements（要件定義）工程**を実行
 1. 対象フォルダを確定し、`profile: light` を確認する。
 2. `aidev event requirements start` を記録する。
 3. 要望をヒアリングする（full より簡略でよい。grilling はしない）。
-4. 次の 4 文書を、**既存テンプレートの必須節だけ**埋めて書く（light 専用テンプレートは無い）。
+4. 次の 3 文書を、**既存テンプレートの必須節だけ**埋めて書く（light 専用テンプレートは無い）。
 
    **必須節・省略可の節は `protocol-light.md` の表に従う**（ここには写さない——写した結果、
    `requirements.md` の必須節に `目的 / ゴール` が入るかが正典と食い違っていた）。
 
 5. protocol.md「3. 工程終了プロトコル」に従って終了する。**段階レビュー（「3.1」）と相性が良い**——
-   4 文書を見出し節ごとに提示すれば、1 ゲートでも確認の粒度は落ちない。
+   3 文書を見出し節ごとに提示すれば、1 ゲートでも確認の粒度は落ちない。
    - **`aidev coverage --strict` を通してから承認する**（tasks を畳んでも被覆の検査は畳まない。
      `aidev-30-tasks` の手順6と同じ）。
    - 承認は `aidev approve requirements tasks_planned=<n> tasks_anchored=<n>`
@@ -166,5 +166,5 @@ research / architecture が要ると判断した時点で、それは「振る�
 - **UI を伴う work では「相互作用の受け入れ基準」が埋まっている**（該当しないなら節ごと省いてある）。
 - `charter.md` があるなら、紐づく charter ゴールが書けている（紐づかないなら確認済み）。
 - 実装の詳細に踏み込んでいない（手段の決定は design へ送る）。
-- **light の場合**: 4 文書がそろい、`tasks.md` の各タスクに `対象` と `AC` がある（無いなら明示）。
+- **light の場合**: 3 文書がそろい、`tasks.md` の各タスクに `対象` と `AC` がある（無いなら明示）。
   `aidev coverage --strict` が exit 0。

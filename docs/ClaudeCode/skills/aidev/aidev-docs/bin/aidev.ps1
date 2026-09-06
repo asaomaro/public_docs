@@ -47,7 +47,7 @@ $ErrorActionPreference = 'Stop'
 # （git show-ref 等は ref 不在で 1 を返すのが正常系のため）。古い pwsh では通常変数になるだけで無害。
 $PSNativeCommandUseErrorActionPreference = $false
 
-$script:CURRENT_SCHEMA = 11  # schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema 7=起動確認(smoke)の記録検査を導入。schema 8=デバッグ（詰まりの原因究明）の記録検査を導入。schema 9=light の上流4文書の実在検査を導入。schema 10=autonomous の decisions.md と task_check_mode を記録漏れ扱いに。schema 11=autonomous の上流4文書の独立点検(doccheck)の記録を必須に。schema<=2 は legacy 免除
+$script:CURRENT_SCHEMA = 11  # schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema 7=起動確認(smoke)の記録検査を導入。schema 8=デバッグ（詰まりの原因究明）の記録検査を導入。schema 9=light の上流3文書の実在検査を導入。schema 10=autonomous の decisions.md と task_check_mode を記録漏れ扱いに。schema 11=autonomous の上流4文書の独立点検(doccheck)の記録を必須に。schema<=2 は legacy 免除
 $script:STRICT = $false      # verify --strict（記録漏れを致命にする）。doctor 経由では常に false
 $script:PHASES = @('requirements','research','design','architecture','tasks','coding','test','review','walkthrough','deliver','retro')
 $script:Utf8 = New-Object System.Text.UTF8Encoding($false)  # BOM なし
@@ -1866,8 +1866,8 @@ function Dc-Start($rest) {
   AppendEvent $script:WORK $dph 'doccheck' @('stage=start', "phase=$dph", "mode=$dmode", "size=$dsz")
   Write-Output "round: $($dr + 1)/$dmax"
   # tasks の `AC:` 行は tasks.md にしかない（sh 版の注記に理由）
-  if ($dph -ceq 'tasks') { Write-Output "渡すもの: tasks.md（AC: 行は tasks.md にある。上流の元文書は渡さない）" }
-  else { Write-Output "渡すもの: $dph.md だけ（上流の元文書は渡さない。内部一貫性を見るため）" }
+  # 特例は不要（sh 版 dc_start の注記に理由）
+  Write-Output "渡すもの: $dph.md だけ（上流の元文書は渡さない。内部一貫性を見るため）"
   Write-Output "観点: **内部一貫性のみ**——AC の ID 対応漏れ / **AC の入力の出所が文書内で辿れるか** /"
   Write-Output "      目的・ゴールが状態で書けているか / 対象範囲と方針・図と本文の食い違い / 節の欠落・前後の矛盾"
   Write-Output "禁止: **外部ソース・一次資料との照合**（幻覚的な指摘を量産する。一次資料は主エージェントが直読）"

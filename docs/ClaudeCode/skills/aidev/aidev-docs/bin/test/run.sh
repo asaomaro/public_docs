@@ -2265,9 +2265,11 @@ run_au doccheck start design --mode delegated >/dev/null
 run_au doccheck report design --findings 0 >/dev/null
 run_au approve design doc_check_mode=delegated >/dev/null 2>&1
 assert_eq "$?" "0" "approve: 記録があれば手渡しの doc_check_mode を尊重する"
-# tasks の点検には tasks.md も渡す（AC: 行は tasks.md にしかない）
-assert_contains "$(run_au doccheck start tasks --mode delegated)" "渡すもの: tasks.md" \
-  "doccheck start: tasks だけ渡すものが違う（AC: 行の在処に合わせる）"
+# **全工程で同じ 1 文**になった（tasks が 2 ファイルだった頃の特例は統合で消えた）。
+# 「tasks だけ渡すものが違う」を検査していた頃は、特例を削っても部分一致で通る**空振り**だった
+assert_contains "$(run_au doccheck start tasks --mode delegated)" \
+  "渡すもの: tasks.md だけ（上流の元文書は渡さない" \
+  "doccheck start: tasks も他工程と同じ 1 文（特例が消えている）"
 # 失敗時の見出しを stdout に出さない（成功時と同じ1行に見えてしまう）
 run_au doccheck report tasks --findings 0 >/dev/null
 assert_eq "$( ( run_au doccheck report tasks --findings 0 ) 2>/dev/null )" "" \
@@ -2664,6 +2666,36 @@ assert_eq "$("$L9LINT" >/dev/null 2>&1; echo $?)" "0" "lint L9: 全て戻せば�
 # ——テストが「作業ツリーは常にきれい」を前提にしていた
 assert_eq "$(cd "$L9SRC" && git status --porcelain -- aidev-20-design/SKILL.md 2>/dev/null)" "$L9GIT0" \
   "lint L9: ハーネス本体を書き換えていない（前後で git status が変わらない）"
+
+# ---- L10（退役した名前・統合で生まれた重複）----------------------------------
+# **導入時、この自己検査が無かった**ために「A と A」の probe が素通りしたまま緑になった
+# ——`grep -E` の後方参照（`\1`）が効いておらず、検査は在るのに何も見ていなかった。
+# L9 と同じ複製（$TMP/l9skills）の中で、塞いだ形を 1 つずつ突く
+L10F=$TMP/l9skills/aidev-20-design/SKILL.md
+l10probe() { # 名前 追記する本文 期待（caught/clean）
+  cp "$L10F" "$TMP/l10.bak"
+  printf '\n%s\n' "$2" >> "$L10F"
+  _n=$("$L9LINT" 2>&1 | grep -c 'NG: L10') || _n=0
+  cp "$TMP/l10.bak" "$L10F"
+  case "$3" in
+    caught) assert_ne "$_n" "0" "lint L10: $1 を捕まえる" ;;
+    clean)  assert_eq "$_n" "0" "lint L10: $1 を誤検知しない" ;;
+  esac
+}
+assert_eq "$("$L9LINT" >/dev/null 2>&1; echo $?)" "0" "lint L10: 複製そのままでは通る（土台の確認）"
+l10probe "旧工程名 spec" '`aidev doccheck start spec` で spec を初期化する。' caught
+l10probe "旧工程名 requirement" '`requirement` 工程の承認者を確認する。' caught
+l10probe "旧成果物 plan.md" '`plan.md` に方針を書く。' caught
+l10probe "旧成果物 spec.md" '`spec.md` を読んでから書く。' caught
+# **これが穴だった形**。後方参照が効かず、`tasks.md … tasks.md` を素通りさせていた
+l10probe "統合で生まれた同名の並び" '`tasks.md`（方針）と `tasks.md`（一覧）を突き合わせる。' caught
+l10probe "同名の並び（記号区切り）" 'design.md, design.md を比べる。' caught
+# **温存語**。他ツール名・英単語・plan モード族を巻き込むと、検査は使われなくなる
+l10probe "他ツール名 Spec Kit" 'GitHub Spec Kit の spec-kit では tasks.md を使う。' clean
+l10probe "英単語 specification" 'この specification は inspect と respect を含む。' clean
+l10probe "plan モード族" 'plan モードへ入る。planning は plan file に書く。' clean
+l10probe "別名どうしの並び" 'design.md を読み、tasks.md を書く。' clean
+assert_eq "$("$L9LINT" >/dev/null 2>&1; echo $?)" "0" "lint L10: 全て戻せば通る（複製を汚したままにしない）"
 
 echo "== sh ⇔ ps1 パリティ =="
 if [ -n "$PS_HOST" ]; then

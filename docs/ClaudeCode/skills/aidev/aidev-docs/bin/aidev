@@ -33,7 +33,7 @@
 #     start <task-id> --mode <delegated|same_session> [--slug s] / report <task-id> --findings <n> [--slug s]
 #     status [--format table|tsv] [--slug s]   # 件数は approve coding が自動で刻む（手書きしない）
 #   aidev doccheck <start|report|status> ...
-#     上流4文書(requirements/design/architecture/plan)の独立点検を有限化する。start が maxDocCheckRounds を検査
+#     上流4文書(requirements/design/architecture/tasks)の独立点検を有限化する。start が maxDocCheckRounds を検査
 #     start <phase> --mode <delegated|same_session> [--slug s] / report <phase> --findings <n> [--slug s]
 #     status [--format table|tsv] [--slug s]   # 件数は approve <phase> が自動で刻む（手書きしない）
 #   aidev limits [show|set <key> <n>|unset <key>] [--format table|tsv] [--slug <work>]
@@ -86,7 +86,7 @@ need_arg() { # opt残り引数数
   [ "$2" -ge 2 ] || die "$1 には値が必要です"
 }
 
-CURRENT_SCHEMA=11  # 現行スキーマ版。new がこの値を刻む。schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema 7=起動確認(smoke)の記録検査を導入。schema 8=デバッグ（詰まりの原因究明）の記録検査を導入。schema 9=light の上流4文書の実在検査を導入。schema 10=autonomous の decisions.md と タスク点検の実施形態(task_check_mode) を記録漏れ扱いに。schema 11=autonomous の上流4文書の独立点検(doccheck)の記録を必須に。schema<=2 は legacy として subtask 不変条件を免除。
+CURRENT_SCHEMA=11  # 現行スキーマ版。new がこの値を刻む。schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema 7=起動確認(smoke)の記録検査を導入。schema 8=デバッグ（詰まりの原因究明）の記録検査を導入。schema 9=light の上流3文書の実在検査を導入。schema 10=autonomous の decisions.md と タスク点検の実施形態(task_check_mode) を記録漏れ扱いに。schema 11=autonomous の上流4文書の独立点検(doccheck)の記録を必須に。schema<=2 は legacy として subtask 不変条件を免除。
 
 PHASES="requirements research design architecture tasks coding test review walkthrough deliver retro"
 
@@ -1978,10 +1978,7 @@ dc_valid_phase() { # phase
 dc_rounds()  { ck_count "$1" doccheck start  phase "$2"; }
 dc_reports() { ck_count "$1" doccheck report phase "$2"; }
 # その工程の点検ラウンド数 / findings 合計 / 実施形態。DC_ROUNDS / DC_FINDINGS / DC_MODE に入れる
-# 点検に渡す文書の合計バイト数。**tasks は tasks.md の 2 つ**——
-# `dc_start` の出力自身が「渡すもの: tasks.md」と言っているのに tasks.md しか見ておらず、
-# `AC:` 行がある（＝tasks の点検で最も直しやすい）tasks.md だけを直して `report` を打っても
-# 何も言わなかった（実走で実測）
+# 点検に渡す文書のバイト数
 dc_size() { # phase
   # **1 工程 1 ファイル**。tasks が 2 ファイル（方針と一覧）だった頃はここに特例があり、
   # 片方しか見ていなかったので `AC:` 行のあるほうを直しても検知できなかった。統合して特例が消えた
@@ -2062,12 +2059,9 @@ dc_start() {
   _dsz=$(dc_size "$_dph")
   append_event "$_dph" doccheck stage=start "phase=$_dph" "mode=$_dmode" "size=$_dsz"
   printf 'round: %s/%s\n' "$((_dr + 1))" "$_dmax"
-  # tasks 工程の成果物は tasks.md 1 つで、`AC:` 行もその中にある（旧 plan.md と統合済み）
-  if [ "$_dph" = tasks ]; then
-    printf '渡すもの: tasks.md（AC: 行は tasks.md にある。上流の元文書は渡さない）\n'
-  else
-    printf '渡すもの: %s.md だけ（上流の元文書は渡さない。内部一貫性を見るため）\n' "$_dph"
-  fi
+  # **特例は不要**。`tasks` が 2 ファイル（方針と一覧）だった頃は「plan.md と tasks.md を渡す」と
+  # 言い分ける必要があったが、統合したので全工程が同じ 1 文になった
+  printf '渡すもの: %s.md だけ（上流の元文書は渡さない。内部一貫性を見るため）\n' "$_dph"
   printf '観点: **内部一貫性のみ**——AC の ID 対応漏れ / **AC の入力の出所が文書内で辿れるか** /\n'
   printf '      目的・ゴールが状態で書けているか / 対象範囲と方針・図と本文の食い違い / 節の欠落・前後の矛盾\n'
   printf '禁止: **外部ソース・一次資料との照合**（幻覚的な指摘を量産する。一次資料は主エージェントが直読）\n'
@@ -2393,7 +2387,7 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail / 5 stri
       # ここを見ないと、**成果物を1つも作らずに全工程 approve した work が
       # 「deliver 済み・verify OK」になる**。deliver の着地前ゲートが verify なので、
       # SDD の最低限の前提（各工程が成果物を残す）が誰にも守られていなかった。
-      # 親（subtasks を持つ）は tasks.md までで、tasks.md は子が持つ（aidev-30-tasks「4.」）
+      # 親（subtasks を持つ）は design.md までで、tasks.md は子が持つ（aidev-30-tasks「4.」）
       _issub=$(yget "$st" parent)
       _hassub=$(ylist "$st" subtasks)
       if [ "$schema" -ge 5 ] 2>/dev/null; then
@@ -2401,7 +2395,7 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail / 5 stri
       # ので、承認を条件にした下の実在検査が **light では構造的に一度も走らない**。
       # 結果 requirements.md だけ書いた light work が verify OK で着地できていた（2026-09-04 実測）。
       # light の「4つとも作る・スタブは作らない」は散文にしか無く、二層（散文=ソフト /
-      # CLI=ハード）の CLI 側が丸ごと欠けていた。requirements の承認をもって 4 文書を要求する。
+      # CLI=ハード）の CLI 側が丸ごと欠けていた。requirements の承認をもって 3 文書を要求する。
       _vlight=no
       if [ "$schema" -ge 9 ] 2>/dev/null && [ "$(yget "$st" profile)" = light ] \
          && approved_has requirements; then _vlight=yes; fi

@@ -5,7 +5,7 @@ allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion, Agent]
 ---
 
 AI 開発ワークフローの **coding（実装）工程**を実行する。
-tasks / tasks に沿ってコードを書く。`tasks.md` の未チェック項目を 1 つずつ実装し、
+tasks に沿ってコードを書く。`tasks.md` の未チェック項目を 1 つずつ実装し、
 完了したらチェックを付けて進捗を更新する。
 
 **開始前に共通プロトコル `../aidev-00-start/protocol.md` と、PJ 固有のコーディング規約を読むこと。**

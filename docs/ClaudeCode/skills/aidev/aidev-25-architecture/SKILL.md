@@ -1,11 +1,11 @@
 ---
 name: aidev-25-architecture
-description: ［aidev 任意工程］aidev の architecture（詳細設計）工程。design と tasks の間で構造設計を固める。「aidev architecture」「architecture 工程」と言われたとき、または design 終了時に複雑度が高いと検知され推奨されたときに使用する。
+description: ［aidev 任意工程］aidev の architecture（構造設計）工程。design と tasks の間で上位構造を固める。「aidev architecture」「architecture 工程」と言われたとき、または design 終了時に複雑度が高いと検知され推奨されたときに使用する。
 allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion, Agent, EnterPlanMode, ExitPlanMode]
 ---
 
-AI 開発ワークフローの **architecture（詳細設計）工程**（任意）。
-design（何を作るか）と tasks（作業分解）の間で、**構造設計**を固める。
+AI 開発ワークフローの **architecture（構造設計）工程**（任意）。
+design（どう作るか＝実装仕様）と tasks（作業分解）の間で、**上位構造**を固める。
 モジュール分割・インターフェース・データモデル・処理シーケンスなど、tasks で分解する前提となる
 設計を具体化する。
 

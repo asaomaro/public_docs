@@ -369,6 +369,61 @@ done
 if [ "$_l9" -eq 0 ]; then ok "L9 plan モードの判定条件が正典の外に写されていない"
 else ng "L9 plan モードの判定条件の写しが $_l9 ファイル（正典は protocol-autonomous.md「plan モードとの関係」だけ。他所には引き金と参照だけを置く）"; fi
 
+echo "== L10: 退役した名前と、統合で生まれた重複 =="
+# **改修のたびに「置換したつもり」で静かに残る**。工程の改名（2026-09-06）で実際に起きた——
+# `aidev help` のヘッダに旧名 `plan` が残り、`doccheck start plan` を案内するのに実装は弾いた。
+# **L1 は動詞（コマンド名）だけ、L7 は `--フラグ` だけ**を見るので、
+# **位置引数（工程名の列挙）を見る検査が 1 つも無かった**（実走が指摘）。
+# もう 1 つの型は `plan.md` を `tasks.md` に統合したときの「A と A」——
+# 「`tasks.md`（方針）と `tasks.md`（一覧）」のように、**同名が並んで無意味な文**になる。
+# どちらも正規表現 1 本で機械的に出る
+RETIRED='\brequirement\b|\bspec\b|\bplan\.md\b|\brequirement\.md\b|\bspec\.md\b'
+# 温存すべきもの（工程名ではない）: 他ツール名・英単語・plan モード族・デバッグ分類
+RET_OK='Spec Kit|spec-kit|spec_conflict|specif|specia|respect|inspect|aspect|plan ?モード|planモード|plan mode|PlanMode|plan agent|plan file|planner|planning|planned|permission-mode plan|defaultMode|permissionMode'
+# **同名の並び**は工程ごとに展開して書く——`grep -E` の後方参照（`\1`）は POSIX ERE の外で、
+# 環境によっては**黙って何にもマッチしない**（実際、導入時の自己検査を素通りさせた）。
+# 間隔は**バイト数**で数える（`LC_ALL=C`）。`` `tasks.md`（方針）と `tasks.md` `` の
+# 区切りは日本語 5 文字＝15 バイト＋記号なので 30 まで見る。
+DUP=''
+for _n in requirements design architecture tasks; do
+  DUP="${DUP:+$DUP|}$_n\\.md[^A-Za-z0-9]{1,30}$_n\\.md"
+done
+_l10=0
+for _f in $({ runtime_docs
+              printf '%s\n' "$SKILLS"/aidev-*/SKILL.md "$SKILLS"/aidev-docs/*.md \
+                             "$SKILLS"/aidev-docs/bin/README.md "$SKILLS"/aidev-docs/bin/aidev \
+                             "$SKILLS"/aidev-docs/bin/aidev.ps1; } \
+             | sed 's://*:/:g' | LC_ALL=C sort -u); do
+  [ -f "$_f" ] || continue
+  _r=$(grep -nE "$RETIRED" "$_f" 2>/dev/null | grep -vE "$RET_OK") || true
+  # **統合で生まれた同名の並び**（`tasks.md … tasks.md` のように近接して 2 回）
+  # **行ごと**出す（`-o` で断片だけ出していた頃は、免除の登録が原理的にできなかった——
+  # 免除は「断片の部分一致」になるので、理由の分かる語を書くと必ず外れた）
+  _d=$(grep -nE "$DUP" "$_f" 2>/dev/null) || true
+  # **改名の経緯を書く場所は旧名を出してよい**（L5/L9 と同じ形——理由つきで登録した行だけ免除）
+  if [ -n "$_r$_d" ] && [ -f "$ALLOW" ]; then
+    for _lv in _r _d; do
+      eval "_cur=\$$_lv"; [ -n "$_cur" ] || continue
+      _cur=$(printf '%s\n' "$_cur" | while IFS= read -r _hl; do
+        _ok=no
+        while IFS= read -r _al; do
+          case "$_al" in L10:*) ;; *) continue ;; esac
+          case "$_hl" in *"${_al#L10:}"*) _ok=yes; break ;; esac
+        done < "$ALLOW"
+        [ "$_ok" = yes ] || printf '%s\n' "$_hl"
+      done)
+      eval "$_lv=\$_cur"
+    done
+  fi
+  [ -n "$_r$_d" ] || continue
+  _l10=$((_l10 + 1))
+  printf '%s:\n' "${_f#"$SKILLS"/}" >&2
+  [ -n "$_r" ] && printf '%s\n' "$_r" >&2
+  [ -n "$_d" ] && printf '%s\n' "$_d" >&2
+done
+if [ "$_l10" -eq 0 ]; then ok "L10 退役した名前・統合後の同名の並びが残っていない"
+else ng "L10 退役した名前か同名の並びが $_l10 ファイル（改名・統合の取りこぼし。旧名は温存語のみ許す）"; fi
+
 echo "== L8: ハーネス改修の実走記録 =="
 # **「改修のたびに実走を1本通す」は DESIGN「3.5」に書いてあったのに、次の改修で破られた**
 # （doccheck の追加。テストと lint で止めた）。分類 G（散文にしか無い規約）そのものなので、
