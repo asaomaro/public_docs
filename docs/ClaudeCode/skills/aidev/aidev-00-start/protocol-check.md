@@ -72,9 +72,10 @@ coding 工程で、**タスク1件を終えるたびにその差分だけを**�
   止まったら深追いせず `decisions.md` に経緯を残して次のタスクへ進み、判断は 60 review に委ねる。
   いま効いている上限値は **`aidev limits`** で見る（変えるのは `aidev limits set`）。
 - **タスクをまたぐ不変条件は、この点検では原理的に見えない**（射程は 1 タスクの差分。他 PJ で
-  114 件を出した点検が 1 件も拾えず review で 2 度失敗した）。**coding の終盤に 1 回だけ、
-  予約 id `cross`** で「またぐものだけ」を見る——`aidev taskcheck start cross --mode <…>`。
-  渡すのは全タスクの差分。**`task_checks` には数えない**（母集団が違う。`status` に `cross` 行が出る）。
+  114 件を出した点検が 1 件も拾えず review で 2 度失敗した）。**予約 id `cross`** で「またぐものだけ」を
+  見る——`aidev taskcheck start cross --mode <…>`。**打つ時機の正典は `aidev-40-coding` 手順5.5**
+  （ここには写さない。上の発火条件と同じ理由）。`task_checks` / `task_check_findings` / `task_check_mode`
+  の**いずれにも数えない**（母集団が違う。記録は `taskcheck status` の `cross` 行に残る）。
 - **記録は `taskcheck` に集約する**。`start` の前に打ち、結果は `aidev taskcheck report <task-id>
   --findings <n>` で受ける。**件数を手で `approve coding` に渡さない**——`task_checks` /
   `task_check_findings` / `task_check_mode` は approve がこの記録から自動で刻む

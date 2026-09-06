@@ -124,7 +124,7 @@ $script:ROOT = FindRoot
 $_firstArg = if ($args.Count -gt 0) { "$($args[0])" } else { '' }
 if (-not $script:ROOT) {
   if ('help','--help','-h','' -cnotcontains $_firstArg) {
-    Die ".aidev が見つかりません（`mkdir -p .aidev/works` で作る。導入手順は aidev-docs/README.md「別PJへの導入」）"
+    Die ".aidev が見つかりません（mkdir -p .aidev/works で作る。導入手順は aidev-docs/README.md「別PJへの導入」）"
   }
   $script:ROOT = (Get-Location).Path
 }
@@ -704,7 +704,8 @@ function Cmd-Event($rest) {
     $esb = DbgSentBacks $mfe $ph
     $emax = DbgMaxSendBacks $script:WORK
     # **2 回目で方向を問う**（sh 版 cmd_event と同じ理由・同じ文言）
-    if ($esb -ge 2 -and $esb -lt $emax) {
+    # **上限値に依存させない**（sh 版と同じ理由）。maxSendBacks: 2 の PJ で一度も出なかった
+    if ($esb -eq 2) {
       Write-Output "note: $ph の差し戻しが $esb 回目。**この指摘は前ラウンドの修正に由来しないか**を先に問う"
       Write-Output '      Yes なら、直した行だけでなく**同じ不変条件を支える項をすべて列挙して壊してみる**'
       Write-Output '      （散らばった暗黙の連言は、直した項の隣で必ず再発する）'
@@ -833,7 +834,11 @@ function Cmd-Approve($rest) {
   if ($ph -ceq 'review') {
     $rvm = Join-Path $script:WORK 'review.md'
     if (IsFile $rvm) {
-      $rvt = [System.IO.File]::ReadAllText($rvm)
+      # **数えるのは行頭 - [ の指摘行だけ**（protocol.md「8.」。sh 版 cmd_approve と同じ理由）
+      $rvt = ''
+      foreach ($rl in [System.IO.File]::ReadAllLines($rvm)) {
+        if ($rl -match '^\s*- \[') { $rvt += $rl + "`n" }
+      }
       $cvtag = ([regex]::Matches($rvt, '\[conv:[A-Za-z0-9_][A-Za-z0-9_-]*!?\]')).Count
       $cvvio = ([regex]::Matches($rvt, '\[conv:[A-Za-z0-9_][A-Za-z0-9_-]*!\]')).Count
       if ($cvtag -gt 0 -and $cvvio -eq 0) {
@@ -937,6 +942,13 @@ function Cmd-Guard($rest) {
   # B: 親専用工程は subtask で実行不可（subtask の工程は tasks/coding/test/review のみ）
   if ($par -and ('requirements','research','design','architecture','deliver','retro' -ccontains $ph)) {
     [Console]::Error.WriteLine("NG $ph は親 work 専用です（subtask では実行不可。subtask の工程は tasks/coding/test/review）: $($script:SLUG)")
+    exit 2
+  }
+  # **light は上流を requirements 1 ゲートに畳む**（sh 側 cmd_guard と同じ理由・同じ文言）
+  if ((YGet (Join-Path $script:WORK 'state.yml') 'profile') -ceq 'light' -and
+      ('design','tasks','research','architecture' -ccontains $ph)) {
+    [Console]::Error.WriteLine("NG profile=light は上流を requirements 1 ゲートに畳みます（$ph は単独起動しません）: $($script:SLUG)")
+    [Console]::Error.WriteLine("   → 個別に回す必要があるなら light の条件を外れています。aidev escalate で full へ")
     exit 2
   }
   # B': 逆向きも弾く——分割 work の親に coding は無い（sh 側と同じ理由・同じ文言）
@@ -1686,8 +1698,11 @@ function TcTotals($metricsFile) {
   foreach ($l in [System.IO.File]::ReadAllLines($metricsFile)) {
     if ($l -notmatch 'event:\s*taskcheck') { continue }
     if ($l -match 'stage:\s*start') {
-      $mm = [regex]::Match($l, 'mode:\s*([a-z_]+)')
-      if ($mm.Success) { $modes[$mm.Groups[1].Value] = $true }
+      # **mode でも cross を除く**（sh 版 tc_totals と同じ理由）。mixed は「タスクごとに割れていれば」
+      if ($l -notmatch 'task:\s*cross[,}]') {
+        $mm = [regex]::Match($l, 'mode:\s*([a-z_]+)')
+        if ($mm.Success) { $modes[$mm.Groups[1].Value] = $true }
+      }
     } elseif ($l -match 'stage:\s*report') {
       # 数えるのは report まで届いたタスクだけ（sh 版 tc_totals の注記に理由）
       # **予約 id cross は母集団が違う**ので tasks にも findings にも数えない（sh 版と同一）
@@ -2004,7 +2019,10 @@ function Dc-Start($rest) {
   Write-Output "返却形式（これ以外は解釈しない）:"
   Write-Output "  CHECK: <ok|findings>"
   Write-Output "  FINDINGS: <件数>"
-  Write-Output '  - [<must|should|nit>] <指摘> — 根拠: <file:line または 節名>'
+  # **(a) にも条項タグを出す**（sh 側 dc_start と同じ理由・同じ文言）
+  Write-Output '  - [<must|should|nit>] <指摘> — 根拠: <file:line または 節名> [conv:<id>!|<id>|-]'
+  Write-Output '  条項タグは3択: 違反なら **! 付き**（[conv:naming-boolean!]）/ 関係するが違反でないなら ! 無し /'
+  Write-Output '            該当条項が無ければ [conv:-]。**効果検証が数えるのは ! 付きだけ**'
   Write-Output "次: 結果を aidev doccheck report $dph --findings <件数> で記録する（**直す前に打つ**。"
   Write-Output "    直してから打つと、その件数が次のラウンドに寄る）"
 }
@@ -2402,7 +2420,8 @@ function VerifyWork($work) {
         # その出力が残っていなければ、何が落ちていたかを誰も再現できない。有無だけ見る（WARN）
         if (IsFile $trf) {
           $mf6 = Join-Path $work 'metrics.yml'; $sb6=$false
-          if (IsFile $mf6) { foreach ($l in [System.IO.File]::ReadAllLines($mf6)) { if ($l -match 'phase:\s*test,' -and $l -match 'event:\s*sent_back') { $sb6=$true; break } } }
+          # **by: unapprove は数えない**（sh 版 cmd_verify と同じ理由。差し戻しの結果であって原因ではない）
+          if (IsFile $mf6) { foreach ($l in [System.IO.File]::ReadAllLines($mf6)) { if ($l -match 'phase:\s*test,' -and $l -match 'event:\s*sent_back' -and $l -notmatch 'by:\s*unapprove') { $sb6=$true; break } } }
           $fence=$false
           foreach ($l in [System.IO.File]::ReadAllLines($trf)) { if ($l.StartsWith('```')) { $fence=$true; break } }
           if ($sb6 -and -not $fence) {

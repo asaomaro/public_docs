@@ -113,7 +113,10 @@ find_root() {
 ROOT=""
 case "${1:-}" in
   help|--help|-h|'') ;;
-  *) ROOT=$(find_root) || die ".aidev が見つかりません（`mkdir -p .aidev/works` で作る。導入手順は aidev-docs/README.md「別PJへの導入」）" ;;
+  # **二重引用符の中で逆引用符を使わない**。POSIX sh ではコマンド置換になり、
+  # ここでは `mkdir -p .aidev/works` が**実際に実行されて cwd に .aidev/works を作った**
+  # （案内文もその位置から消える）。実走が実測。検査は lint-docs.sh の L13
+  *) ROOT=$(find_root) || die ".aidev が見つかりません（mkdir -p .aidev/works で作る。導入手順は aidev-docs/README.md「別PJへの導入」）" ;;
 esac
 AIDEV="$ROOT/.aidev"
 
@@ -672,7 +675,9 @@ cmd_event() {
     # デバッグ委譲で初めて構造が見えた、と実測した。原因は「同じ不変条件を支える項が
     # 散らばっていて、直した行の隣を一度も変異させていない」こと。
     # デバッグ委譲より軽い 1 ステップとして、**隣を列挙したか**をここで聞く
-    if [ "$_esb" -ge 2 ] 2>/dev/null && [ "$_esb" -lt "$_emax" ] 2>/dev/null; then
+    # **上限値に依存させない**。`_esb < _emax` を条件にしていた頃は、`maxSendBacks: 2` の PJ で
+    # この問いが**一度も出なかった**（実走が実測）。「2 回目で方向を問う」は上限とは別の話
+    if [ "$_esb" -eq 2 ] 2>/dev/null; then
       printf 'note: %s の差し戻しが %s 回目。**この指摘は前ラウンドの修正に由来しないか**を先に問う\n' "$ph" "$_esb"
       printf '      Yes なら、直した行だけでなく**同じ不変条件を支える項をすべて列挙して壊してみる**\n'
       printf '      （散らばった暗黙の連言は、直した項の隣で必ず再発する）\n'
@@ -831,8 +836,13 @@ cmd_approve() {
   if [ "$ph" = review ] && [ -f "$WORK/review.md" ]; then
     # **`[conv:-]` は数えない**（「該当条項が無い」＝違反の候補ですらない）。
     # 先頭に `-` を許すと `[conv:-]` だけの work でも note が出て、消せない助言になる
-    _cvtag=$(grep -oE '\[conv:[A-Za-z0-9_][A-Za-z0-9_-]*!?\]' "$WORK/review.md" 2>/dev/null | grep -c .) || _cvtag=0
-    _cvvio=$(grep -oE '\[conv:[A-Za-z0-9_][A-Za-z0-9_-]*!\]' "$WORK/review.md" 2>/dev/null | grep -c .) || _cvvio=0
+    # **数えるのは行頭 `- [` の指摘行だけ**（protocol.md「8.」）。ファイル全体を見ていた頃は、
+    # 「条項 [conv:x] に該当する指摘は無かった」という**散文 1 行**で note が出た（実走が実測）。
+    # 効果検証側の `cv_count_tags` は最初からこの絞り方をしており、**同じファイルに 2 つの
+    # 食い違う集計器があった**——protocol.md がわざわざ警告している事故を新しい方で再現していた
+    _cvlines=$(grep '^[[:space:]]*- \[' "$WORK/review.md" 2>/dev/null) || _cvlines=""
+    _cvtag=$(printf '%s\n' "$_cvlines" | grep -oE '\[conv:[A-Za-z0-9_][A-Za-z0-9_-]*!?\]' | grep -c .) || _cvtag=0
+    _cvvio=$(printf '%s\n' "$_cvlines" | grep -oE '\[conv:[A-Za-z0-9_][A-Za-z0-9_-]*!\]' | grep -c .) || _cvvio=0
     if [ "$_cvtag" -gt 0 ] && [ "$_cvvio" -eq 0 ]; then
       # 逆引用符は PowerShell の二重引用符文字列でエスケープ文字なので、**パリティを保つため
       # ここでも使わない**（片方だけ ` が消えて出力が割れる）
@@ -981,6 +991,18 @@ cmd_guard() {
     printf '   → 結合起因の差し戻しは**原因の subtask の coding** へ: aidev use %s/<NN-subslug>\n' "$SLUG" >&2
     printf '      → aidev unapprove review → unapprove test → unapprove coding → aidev event coding start\n' >&2
     return 2
+  fi
+  # **light は上流を requirements 1 ゲートに畳む**（`protocol-light.md`）。散文はそう定めていて
+  # `verify` も事後に WARN を出すのに、`guard design` は通り、しかも「忘れずに: aidev event
+  # design start」と**打つよう促していた**（実走が実測）。`protocol.md`「2.10」の
+  # 「判定・不変条件は必ず CLI に置く」の例外になっていたので、入口で止める
+  if [ "$(yget "$WORK/state.yml" profile)" = light ]; then
+    case "$ph" in
+      design|tasks|research|architecture)
+        printf 'NG profile=light は上流を requirements 1 ゲートに畳みます（%s は単独起動しません）: %s\n' "$ph" "$SLUG" >&2
+        printf '   → 個別に回す必要があるなら light の条件を外れています。aidev escalate で full へ\n' >&2
+        return 2 ;;
+    esac
   fi
   case "$ph" in
     requirements) : ;;
@@ -1942,7 +1964,11 @@ tc_totals() { # metrics_file
     | awk '{t+=$1} END{print t+0}') || TC_FINDINGS=0
   case "$TC_FINDINGS" in ''|*[!0-9]*) TC_FINDINGS=0 ;; esac
   # 実施形態は start に刻む。全部同じならその値、混ざっていれば mixed
+  # **mode でも cross を除く**。件数からは除いたのに mode だけ無条件に集めていたため、
+  # per-task が同一形態でも cross だけ形態が違うと `mixed` が刻まれた（実走が実測）。
+  # protocol.md「8.」の mixed は「**タスクごとに**割れていれば」なので、層別変数が汚れる
   _tcm=$(grep 'event:[[:space:]]*taskcheck' "$1" 2>/dev/null | grep 'stage:[[:space:]]*start' \
+    | grep -v 'task:[[:space:]]*cross[,}]' \
     | sed -n 's/.*mode:[[:space:]]*\([a-z_]*\).*/\1/p' | LC_ALL=C sort -u)
   _tcn=$(printf '%s\n' "$_tcm" | grep -c .) || _tcn=0
   if [ "$_tcn" -eq 1 ] 2>/dev/null; then TC_MODE=$_tcm
@@ -2239,7 +2265,12 @@ dc_start() {
   printf '返却形式（これ以外は解釈しない）:\n'
   printf '  CHECK: <ok|findings>\n'
   printf '  FINDINGS: <件数>\n'
-  printf '  - [<must|should|nit>] <指摘> — 根拠: <file:line または 節名>\n'
+  # **(a) にも条項タグを出す**。`protocol-check.md` の「返却形式（固定）」は (a)(b) 共通の節なのに、
+  # 3 択を出していたのは taskcheck 側だけで、**(a) 由来の指摘には構造的にタグが付かなかった**
+  # ——`!` が一度も使われない問題が (a) 側では未解決のままだった（実走が実測）
+  printf '  - [<must|should|nit>] <指摘> — 根拠: <file:line または 節名> [conv:<id>!|<id>|-]\n'
+  printf '  条項タグは3択: 違反なら **! 付き**（[conv:naming-boolean!]）/ 関係するが違反でないなら ! 無し /\n'
+  printf '            該当条項が無ければ [conv:-]。**効果検証が数えるのは ! 付きだけ**\n'
   printf '次: 結果を aidev doccheck report %s --findings <件数> で記録する（**直す前に打つ**。\n' "$_dph"
   printf '    直してから打つと、その件数が次のラウンドに寄る）\n'
   return 0
@@ -2592,8 +2623,15 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail / 5 stri
         # 失敗の生証跡（cc-sdd の RED_PHASE_OUTPUT 相当）。差し戻しがあった=失敗を観測した
         # のに、その出力が残っていなければ「何が落ちていたか」は誰も再現できない。
         # 証跡の質は人の判断なので WARN 止まりで、有無だけを見る（``` のブロック）。
+        # **`by: unapprove` は数えない**（差し戻しの結果であって原因ではない。`dbg_sent_backs` /
+        # `metrics` / `debug status` は最初からこの規則で、ここだけ除外が抜けていた）。
+        # 統合 review から子へ差し戻すと子に `by: unapprove` の sent_back が刻まれるが、
+        # **子では一度も test が落ちていない**（落ちたのは親の統合 test）ので貼れる生出力が無い。
+        # 書いてある解消法（生出力を貼る）に従うと親の出力を子へ写すことになり、
+        # 「8.」の「捏造しない」と正面から衝突する——消せない WARN だった（実走が実測）
         if [ -f "$WORK/test-result.md" ] \
-           && grep -Eq 'phase:[[:space:]]*test,.*event:[[:space:]]*sent_back' "$WORK/metrics.yml" 2>/dev/null \
+           && grep -E 'phase:[[:space:]]*test,.*event:[[:space:]]*sent_back' "$WORK/metrics.yml" 2>/dev/null \
+              | grep -qv 'by:[[:space:]]*unapprove' \
            && ! grep -q '^```' "$WORK/test-result.md"; then
           printf '  WARN test で差し戻しがあったのに test-result.md に失敗の生出力が無い（``` のブロックで残すこと）\n'
         fi

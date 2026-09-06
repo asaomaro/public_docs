@@ -84,8 +84,10 @@ tasks に沿ってコードを書く。`tasks.md` の未チェック項目を 1 
    承認は `aidev approve coding tasks_done=<チェック済みタスク数> unplanned_lookups=<手順3で数えた回数>`
    （protocol.md「3.」「8.」）。探索し直しが 0 なら `unplanned_lookups=0`。
    **点検の 3 キー（`task_checks` / `task_check_findings` / `task_check_mode`）は手で渡さない**
-   ——`taskcheck` の記録から approve が自動で刻む。点検を 1 件も行わなかった work だけ、
+   ——`taskcheck` の記録から approve が自動で刻む。**タスク単位の点検を 1 件も行わなかった work だけ**、
    `task_checks=0` を明示的に記録する（省略すると「測っていない」と区別できない）。
+   **`cross` は 3 キーのどれにも入らない**（母集団が違う）ので、手順5 が 1 件も発火せず 5.5 だけ
+   実施した work は `task_checks=0` を明示する側。記録は `taskcheck status` の `cross` 行に残る。
 
 ## 留意点
 

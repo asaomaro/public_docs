@@ -337,7 +337,7 @@ parent: <親 work の dated 名> # 子が親 work を逆参照（例 20260622-fe
 | 25 | architecture | aidev-25-architecture | 任意 | `architecture.md` | design.md |
 | 30 | tasks | aidev-30-tasks | 標準 | `tasks.md` | design.md（architecture があればそれも） |
 | 40 | coding | aidev-40-coding | 標準 | コード, tasks 更新 | tasks.md |
-| 50 | test | aidev-50-test | 標準 | `test-result.md`（合否・件数・失敗内容・**起動確認**・スキップした検証） | コード |
+| 50 | test | aidev-50-test | 標準 | `test-result.md`（合否・件数・失敗内容・**起動確認**・未検証の穴） | コード |
 | 60 | review | aidev-60-review | 標準 | `review.md`（指摘。→ coding へ差し戻し可）＋任意で `walkthrough.md` | diff |
 | 70 | deliver | aidev-70-deliver | 標準（最終） | コミット / PR | review 通過 |
 | 95 | retro | aidev-95-retro | 任意 | `retro.md`（改善提案） | 作業完了（deliver 済み） |
@@ -503,7 +503,9 @@ review 工程はラウンドごとに追記する（差し戻し後の再レビ�
 
 ### 条項参照タグ（`[conv:…]`）
 
-各指摘に根拠となる**条項の id** を付ける（無ければ `[conv:-]`）。**条項に反している指摘は `[conv:<id>!]`**
+各指摘に根拠となる**条項の id** を付ける（無ければ `[conv:-]`）。**`AGENTS.md` 本体の規約に対する指摘は
+予約 id `agents`**（違反なら `[conv:agents!]`）——`protocol-check.md` は「規約は 3 つとも指す」と定めているのに
+語彙が条項 id と `-` の 2 択で、本体違反が「規約の穴（`conv:-`）」と同じ籠に入っていた（実走が実測）。**条項に反している指摘は `[conv:<id>!]`**
 （`!` 付き）と書き、関係するが違反ではないもの（条項があるから気づけた改善・既存挙動への言及）は `!` を付けない。
 効果検証で仮説と突き合わせるのは `!` 付きだけで、タグ全体は「条項が読まれているか」の傍証に使う
 （`protocol-conventions.md`「タグ件数は効果の指標ではない」）。候補は `aidev convention status` の一覧

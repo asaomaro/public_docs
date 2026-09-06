@@ -2069,11 +2069,49 @@ assert_absent "$(run_rt approve review)" "違反）は 0 件" "approve review: !
 assert_contains "$(run_rt taskcheck start T1 --mode delegated --slug "$(basename "$RTX")" 2>&1)" \
   "条項タグは3択" "返却形式に 3 択が出る（書く側の目に ! が入る）"
 
+# 実走の指摘: `verify` の「失敗の生出力が無い」WARN が `by: unapprove` を除外していなかった。
+# 統合 review から子へ差し戻すと子に `by: unapprove` の sent_back が刻まれるが、**子では一度も
+# test が落ちていない**ので貼れる生出力が無く、規約（捏造しない）に従うほど消せない WARN が残った
+run_rt new vw >/dev/null; RTVW="$RTD/.aidev/works/$(cat "$RTD/.aidev/current")"
+: > "$RTVW/test-result.md"; printf -- '- [ ] T1: x\n      AC: AC1\n      依存: なし\n' > "$RTVW/tasks.md"
+printf '  - { ts: 2026-01-01T00:00:00Z, phase: test, event: sent_back, metrics: { by: unapprove } }\n' >> "$RTVW/metrics.yml"
+assert_absent "$(run_rt verify)" "失敗の生出力が無い" "verify: by: unapprove の差し戻しで生出力を要求しない"
+printf '  - { ts: 2026-01-01T00:01:00Z, phase: test, event: sent_back }\n' >> "$RTVW/metrics.yml"
+assert_contains "$(run_rt verify)" "失敗の生出力が無い" "verify: 本物の差し戻しなら要求する（空振りでない）"
+
+# 実走の指摘: light は上流を requirements 1 ゲートに畳むのに `guard design` が通り、
+# しかも「忘れずに aidev event design start」と**打つよう促していた**（散文だけの規約だった）
+run_rt new lg --light >/dev/null; RTLG="$RTD/.aidev/works/$(cat "$RTD/.aidev/current")"
+: > "$RTLG/requirements.md"; : > "$RTLG/design.md"; printf -- '- [ ] T1: x\n' > "$RTLG/tasks.md"
+for _lgp in design tasks research architecture; do
+  RTLO=$(run_rt guard "$_lgp" 2>&1); RTLR=$?
+  assert_eq "$RTLR" "2" "guard $_lgp: light では単独起動を弾く"
+  assert_contains "$RTLO" "aidev escalate" "guard $_lgp: light では昇格の手段を名指しする"
+done
+run_rt guard coding >/dev/null 2>&1
+assert_eq "$?" "0" "guard coding: light でも coding 以降は通る（light 判定が全部を止めていない）"
+
+# 実走の指摘: 二重引用符の中の逆引用符は POSIX sh のコマンド置換——案内文が消えるうえに
+# **cwd に .aidev/works を作ってしまう**（未導入 PJ で最初に打つ経路）。検査は lint の L13
+RTBQ=$(mktemp -d)
+( cd "$RTBQ" && "$AIDEV_SH" status ) >/dev/null 2>&1
+assert_absent "$(ls -a "$RTBQ")" ".aidev" "die のメッセージが副作用を持たない（逆引用符をコマンド置換しない）"
+assert_contains "$( ( cd "$RTBQ" && "$AIDEV_SH" status ) 2>&1 )" "mkdir -p .aidev/works" \
+  "die のメッセージが打つべきコマンドを消さずに出す"
+rm -rf "$RTBQ"
+
 # H3: 差し戻し 2 回目で「前ラウンドの修正由来か」を問う（上限は止めるだけで方向を変えない）
 run_rt new sb >/dev/null
 assert_absent "$(run_rt event review sent_back)" "前ラウンドの修正" "event sent_back: 1 回目では問わない"
 assert_contains "$(run_rt event review sent_back)" "前ラウンドの修正に由来しないか" "event sent_back: 2 回目で方向を問う"
 assert_contains "$(run_rt event review sent_back)" "同じコンテキストで回し続けない" "event sent_back: 3 回目(上限)は従来どおり委譲を促す"
+# **上限値に依存させない**——`_esb < _emax` を条件にしていた頃は maxSendBacks: 2 の PJ で一度も出なかった
+printf 'maxSendBacks: 2\n' > "$RTD/.aidev/config.yml"
+run_rt new sb2 >/dev/null
+run_rt event review sent_back >/dev/null
+assert_contains "$(run_rt event review sent_back)" "前ラウンドの修正に由来しないか" \
+  "event sent_back: maxSendBacks=2 でも 2 回目の問いは出る"
+rm -f "$RTD/.aidev/config.yml"
 rm -rf "$RTD"
 
 echo "== 監査で見つかった経路（刻印の選び方・家族単位・上限値の端・version-aware）=="
