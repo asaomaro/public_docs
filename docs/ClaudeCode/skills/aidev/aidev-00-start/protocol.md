@@ -26,7 +26,7 @@
   | `protocol-conventions.md` | 「12.」 | PJ規約の条項を起こす / 効果を判定する / PJ ドキュメントへ移送する |
   | `protocol-check.md` | 「3.3」 | 上流4工程の独立点検（`autonomous` は必須）/ coding のタスク点検 |
   | `protocol-debug.md` | 「10.」末尾 | 同一工程の差し戻しが上限に達した / 点検を繰り返しても直らない（詰まりの原因究明） |
-  | `protocol-autonomous.md` | 「10.」 | `mode: autonomous` の work / plan モードを使う（start・spec・design） |
+  | `protocol-autonomous.md` | 「10.」 | `mode: autonomous` の work / plan モードに入るか迷ったとき |
   | `protocol-light.md` | 「11.」 | `profile: light` の work（4文書の必須節・昇格） |
 - 実行時状態: `.aidev/`（リポジトリ内に生成）
   - `.aidev/current`: 現在作業中の works フォルダ名（ポインタ）
@@ -548,8 +548,8 @@ review 工程はラウンドごとに追記する（差し戻し後の再レビ�
 
 `state.yml` の `mode`＝**誰が承認するか**。既定 `interactive`（各ゲートで人間が選ぶ）。`autonomous` は
 夜間自律で PR まで一気通貫——**PR で停止し auto-merge しない**、test を硬ゲートに、`maxSendBacks`（既定 3）を
-超えたら停止、`humanGates` で部分的に人間ゲートを残せる。plan モードは start・spec・design でのみ、
-解除してから書く。詳細は `protocol-autonomous.md`。
+超えたら停止、`humanGates` で部分的に人間ゲートを残せる。plan モードは
+**入る条件も入り方も `protocol-autonomous.md`**（ここに条件を写さない）。
 
 **差し戻しの上限に達したら、回数を止めるだけでなく方向を変える**。同一工程の差し戻しが
 `maxSendBacks` に達したら（`aidev event <工程> sent_back` がその場で促す）、

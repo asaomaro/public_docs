@@ -251,8 +251,10 @@ work 専用の git worktree と `feature/<slug>` ブランチを作り、main tr
   aidev-00-start/      入口 + protocol.md（共通規約のホーム）
   aidev-10-requirement/ … aidev-95-retro/   各工程（番号付きパイプライン）
   aidev-util-propose/ aidev-util-batch/ aidev-util-insights/   ユーティリティ（番号なし・パイプライン外）
-  aidev-docs/          このREADMEとDESIGN（参照専用・skillではない）＋ bin/
+  aidev-docs/          このREADMEとDESIGN（参照専用・skillではない）＋ bin/ + retro/
     bin/               ランタイムガード CLI（aidev=POSIX sh / aidev.ps1=PowerShell・README.md / test/ 同梱）
+      test/flow-runs/  ハーネス改修の実走記録（3 ゲートの証跡。書き方は同ディレクトリの README.md。L8 が検査）
+    retro/             改修の材料として受け取った振り返り（work の公開写し／外部レビュー。README.md に置き方）
 .aidev/                PJ固有の実行時状態（skill ではない）
   config.yml           PJ単位の設定（tracker / lightMaxFiles / smokeCommand（または smokeCommands）/ smokeCommandWindows / smokeTimeoutSec /
                        smokeStaleAfter / maxDebugRounds / maxTaskCheckRounds / maxDocCheckRounds / conventionsDir / conventionsIndex / docsRoots /
