@@ -42,13 +42,13 @@
 `design` / `tasks` で記録すると guard の前提（`requirements.md` / `design.md`）を満たせず NG になるため
 （`requirements` は前提を持たない唯一の上流工程）。理由の詳細は `aidev-docs/DESIGN.md`「2.」。
 
-`approved` に `design` / `tasks` が入らないのは正常（`need_approved` を使うのは walkthrough / deliver /
-retro だけなので影響しない）。metrics 上は **`design` / `tasks` の start が無いこと**が light の指紋になる。
+`approved` に `design` / `tasks` が入らないのは正常（`need_approved` を使うのは deliver / retro だけなので影響しない）。metrics 上は **`design` / `tasks` の start が無いこと**が light の指紋になる。
 
 ### 任意工程
 
-light では **research / architecture / walkthrough を使わない**。必要と判断した時点で light の条件を
+light では **research / architecture を使わない**。必要と判断した時点で light の条件を
 外れているので、**昇格の合図**として扱う。
+**`walkthrough.md`（レビュー補助）も書かない**——light の変更規模なら差分だけで読める。
 
 ### 昇格（light → full）
 

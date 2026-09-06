@@ -29,19 +29,17 @@ flowchart TD
   subgraph OPT["任意工程（末尾5・推奨/指定で差し込み）"]
     research["15 research"]
     architecture["25 architecture"]
-    walkthrough["65 walkthrough"]
   end
 
   req -. 調査不足を検知 .-> research -. design へ .-> design
   design -. 複雑度を検知 .-> architecture -. tasks へ .-> tasks
-  review -. 複雑度を検知 .-> walkthrough -. deliver へ .-> deliver
 
   test -- 失敗 --> coding
   review -- "must/should 指摘" --> coding
   deliver -. 完了後（任意・ユーザー指定） .-> retro["95 retro"]
 
   classDef opt fill:#eef,stroke:#88a,stroke-dasharray:4 3
-  class research,architecture,walkthrough,retro opt
+  class research,architecture,retro opt
 ```
 
 `profile: light`（「11.」）では上流3工程を1ゲートに畳む。成果物は4つとも作り（薄く）、
@@ -247,7 +245,7 @@ flowchart LR
 - **2段階ゲート → 単一3択UX → 4択（段階レビュー追加）**：当初「承認/差し戻し」→「進む/中断」の2段階。
   AskUserQuestion による**単一3択**（承認して次へ / 承認して中断 / 差し戻す）に集約（クリック最小）。
   さらに、ユーザーが md を自力通読する代わりに**主エージェントが成果物を1項目ずつ提示して確認する
-  「段階レビュー」**を4つ目の選択肢として追加（`protocol.md`「3.1」）。walkthrough 工程とは別物
+  「段階レビュー」**を4つ目の選択肢として追加（`protocol.md`「3.1」）。`walkthrough.md`（review の任意成果物）とは別物
   （あちらは deliver 前のコードレビュー補助 md 生成、こちらは任意工程のゲート提示モード）。
 - **番号規約**：skill は **10刻み**（途中挿入に強い）。**末尾0=標準工程 / 末尾5=任意工程**。
   works フォルダは **日付プレフィックス `YYYYMMDD-slug`**（UTC）。当初は単純連番 `001-slug` だったが、
@@ -271,8 +269,9 @@ flowchart LR
 - **全成果物にテンプレ/スキーマ**：requirements/design/plan/tasks/decisions/state を定義済み。
   「下敷きにAIが埋める」方式（厳格スキーマ強制まではしていない）。
 - **任意工程は AI検知＋ゲート推奨**：research は requirements 終了時に調査不足を、architecture は design 終了時に
-  複雑度を、walkthrough は review 終了時に複雑度を検知し、遷移ゲートで推奨（理由付き）。強制せず却下可。
-  retro はユーザー指定起動。
+  複雑度を検知し、遷移ゲートで推奨（理由付き）。強制せず却下可。retro はユーザー指定起動。
+  **`walkthrough.md`（レビュー補助）は同じ検知の形を取るが工程ではない**——review の任意成果物
+  （`aidev-60-review`「レビュー補助」）。工程だった頃の経緯は「2.」。
 - **重い質問深掘り（grilling / `grill-me` 等）は execution mode にせず requirements/design 内の opt-in に置く**：
   質問の重さ（16〜50問規模）は自律性の軸（`mode`）とは別物。「重い・毎回不要・複雑なときだけ効く」は任意工程と
   同じプロファイルなので、requirements/design から **AI推奨で opt-in 起動**する（PJに質問深掘り skill があれば優先、
@@ -525,9 +524,10 @@ flowchart LR
       （特例が 1 つ消える）。**入口ではなく出口で決まる**——承認が取れない道具は使えない。
     - **なぜ 4 回も外したか**——`requirements` を入れるか外すかで 3 往復した根因は
       **`design` という名前**にあった。aidev の `design` は「どう作るか」だが、
-      **GitHub Spec Kit の `design.md` は「requirements and user stories」＝要件**で、
-      aidev の `requirements` に当たる（Spec Kit の `tasks.md`＝aidev の `design`、
-      `tasks.md`＝aidev の `tasks`。Kiro も `requirements` / `architecture` / `tasks`）。
+      **GitHub Spec Kit の `spec.md` は「requirements and user stories」＝要件**で、
+      aidev の `requirements` に当たる（Spec Kit の `plan.md`＝aidev の `design`、
+      Spec Kit の `tasks.md`＝aidev の `tasks`。Kiro は `requirements.md` / `design.md` / `tasks.md` で、
+      Kiro の `design.md` は aidev の `design`＋`architecture` の両方を1枚で担う）。
       **他ツールの語感で読むと「requirements も design も同じ側」に見える**。
       **2026-09-06 に改名した**（既存 work の移行はしない、という判断つき）——
       `requirement`→`requirements` / `spec`→**`design`** / 旧 `design`→**`architecture`** /
@@ -550,6 +550,24 @@ flowchart LR
       4 回とも手元に定義があるのに、読まずに分類を作るか、片方だけ読んだ。
     - `research` の一次根拠は `ExitPlanMode` 側（「gathering information … do NOT use」）へ移した。
       `EnterPlanMode` の WHEN NOT TO USE を根拠にしていた版は残さない——入口と出口で範囲が違う。
+  - **`walkthrough` を工程から外し、`review` の任意成果物にした**（2026-09-06）。
+    - **判定基準は「作業段階か、成果物の形式か」**。walkthrough がやっていたのは
+      「差分の読み方をレビュアーに説明する md を書く」だけで、**前工程と後工程の間に
+      新しい状態を作らない**。工程の定義（成果物と承認者を持つ作業単位）のうち
+      **承認者の側が空**で、遷移ゲートは「やる/やらない」を尋ねるためだけに 1 つ消えていた。
+    - **同じ判断が 3 箇所に散っていた**——`protocol.md`「4.5」に要否の 3 条件、
+      `aidev-60-review` に推奨判定、工程 skill 自身に検知ロジック。分類 A の温床で、
+      実際にこの型で 2 回食い違っている（lint の冒頭コメント参照）。正典を
+      `aidev-60-review`「レビュー補助」1 箇所に畳んだ。
+    - **`walkthrough.md` は残す**。deliver が PR 本文の `## レビューガイド` 節に要約する経路も
+      そのまま。**消したのは工程であって成果物ではない**——ここを混同すると deliver が壊れる。
+    - **統合レビュー工程（`integration-review` 等）は作らなかった**（同日の検討）。
+      分割 work では**親の `test` が統合テスト、親の `review` が統合レビュー**で、
+      `guard test` が「全 subtask が review 承認済み」を機械で要求している
+      （`protocol-subtask.md`）。足りないのは工程ではなく**分量**（統合固有の観点が
+      箇条書き 1 行）だったので、工程数・guard・dispatch・doccheck・verify・metrics の
+      6 面を増やす選択は採らない。**`test` だけ工程を増やさず `review` だけ増やすと
+      対称性が壊れる**、という点も決め手になった。
   - **「工程の間だけ plan モードにして、終わったら戻す」は作れない**（2026-09-06 に裏取り）。
     - **ハーネス側から切り替える口が無い**: フックの JSON 出力にモードを変える項目は無く、
       `PermissionModeChange` 系のイベントも無い（要望 anthropics/claude-code#31579・#14044 は未実装）。
@@ -881,7 +899,7 @@ works/ ノイズや「なめる state.yml が無い」問題は status フィル
   ファイル・同じ抽象に触るか」で決まるが、それは着手前には読み切れない。機械が並列化を提案すると、
   **衝突を作った当人が衝突に気づけない**構図になる（提案の根拠が「作業が溜まっている」でしかないため）。
   そこで **`worktree add` の明示実行だけをトリガ**にし、`aidev-00-start` は選択肢として並べるが
-  **推奨しない**。他の任意工程（research/architecture/walkthrough）が「AI 検知＋推奨」なのと**あえて逆**
+  **推奨しない**。他の任意工程（research/architecture）が「AI 検知＋推奨」なのと**あえて逆**
   にしてある——あちらは外しても手戻りで済むが、こちらは並行させた後で衝突が判明しても巻き戻せない。
 - **`.aidev/current` が worktree ローカルである性質に乗る（INV-1）**：`current` は `.gitignore` 対象＝
   未追跡なので、各 worktree が独立した `current` を持つ。**この一点で「worktree ごとの現在地」が
@@ -1190,7 +1208,7 @@ git が無い環境では検査を省く（判定できないものを FAIL に�
   └─ NO（相互依存・共同検証のみ）
         大きく、漸進レビューで負荷を割れるか？
         ├─ YES                → subtask 分割（1 PR 維持・内部を漸進実装/レビュー。protocol.md「2.8」）
-        └─ NO（不可分）        → 単一サイクル ＋ walkthrough のコミット構成
+        └─ NO（不可分）        → 単一サイクル ＋ 段階的なコミット構成
   ```
 
   - **別 work 層（低結合）**：ドメイン/モジュール境界が綺麗・単独で検証/デリバリ可能・ファイル重複が少ない。
@@ -1201,10 +1219,10 @@ git が無い環境では検査を省く（判定できないものを FAIL に�
   - **subtask 層（高結合・大規模・漸進レビュー可）**：1 PR を保ったまま `works/<親>/<NN>-<subslug>/` に割り、
     各 subtask が tasks→coding→test→review を回す。**tasks 工程で判定**する（requirements/design ではなく、構造が
     見えてから。`aidev-30-tasks` 参照）。実装は schema 3（protocol.md「2.8」）。
-  - **不可分層**：真に割れないときだけ 1 PR にまとめ、**walkthrough** とコミット構成でレビュー負荷を緩和。
+  - **不可分層**：真に割れないときだけ 1 PR にまとめ、**`walkthrough.md`** とコミット構成でレビュー負荷を緩和。
   - **釘刺し（誤適用の防止）**：**振る舞い不変な変更（refactor 等）は単独検証可＝低結合**。subtask に落とさず、
     別 work（先行 PR）にする。先行 PR に切り出せない（新機能を見ないと seam が引けない）場合のみ、同一 work 内の
-    順序付きコミット＋walkthrough で扱う（subtask の重い統合 test/review 機構は不要だから）。
+    順序付きコミット＋`walkthrough.md` で扱う（subtask の重い統合 test/review 機構は不要だから）。
   - autonomous は安全側＝**明確に独立な seam がある時だけ分割、迷えば分けない**（誤分割の統合地獄を回避）。
 
 ## 6. 経緯メモ（実証された学び）

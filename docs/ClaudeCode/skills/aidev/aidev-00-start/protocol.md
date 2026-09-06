@@ -7,7 +7,7 @@
 
 ## 0. 構成と運用方針
 
-- harness 本体（番号付きパイプライン）: `.claude/skills/aidev-00-start/` 〜 `aidev-95-retro/`（任意工程 research/architecture/walkthrough/retro を含む）
+- harness 本体（番号付きパイプライン）: `.claude/skills/aidev-00-start/` 〜 `aidev-95-retro/`（任意工程 research/architecture/retro を含む）
   - パイプライン外ユーティリティ: `aidev-util-propose` / `aidev-util-batch` / `aidev-util-insights`（番号なし・`aidev-util-*` で名前空間を分離）
   - ランタイムガード（skill ではない）: `aidev` CLI（`.claude/skills/aidev-docs/bin/aidev`＝POSIX sh / `.claude/skills/aidev-docs/bin/aidev.ps1`＝Windows PowerShell）。
     state/metrics 更新と前提・不変条件検査の単一経路。詳細は `.claude/skills/aidev-docs/bin/README.md`
@@ -224,8 +224,8 @@ backlog は**遅延キュー**で、完了した行を閉じるのは deliver �
 ゲートを進める対話モード。**既定では全工程の承認ゲートで選択肢として提示する**（interactive のみ。autonomous は
 自動承認のため不要）。4 つ目の枠の扱いは「3.」の差し替え規則に従う。
 
-- **walkthrough 工程（`aidev-65-walkthrough`）とは別物**。あちらは deliver 前のコードレビュー補助 md を生成する
-  任意工程。こちらは**任意の工程の承認ゲートで選べる「提示モード」**で、成果物 md を生成・変更しない。
+- **`walkthrough.md` とは別物**。あちらは review が必要と判断したときに書く**人間の PR レビュー補助 md**
+  （成果物であって工程ではない）。こちらは**任意の工程の承認ゲートで選べる「提示モード」**で、md を生成・変更しない。
 - **進め方**: 成果物を意味のある単位で順に提示し、各単位ごとに要点を述べてユーザーの確認/指摘を受ける。
   粒度は成果物に合わせる:
   - `requirements.md` / `design.md` / `architecture.md` → **見出し節ごと**
@@ -288,12 +288,6 @@ backlog は**遅延キュー**で、完了した行を閉じるのは deliver �
     - アーキテクチャ判断（新規の構造・パターン・責務分割の選択）が必要
     - インターフェース／データモデルが複雑（型・スキーマ・状態遷移の設計に踏み込む）
     - tasks で直接分解するには設計が粗い
-  - walkthrough：review 終了時に次のいずれかを検知したら `承認して walkthrough(任意) を挟む`（推奨）を加える。
-    **この3条件が正典**（`aidev-60-review` / `aidev-65-walkthrough` はここを参照する）。
-    - 差分が大きい（変更ファイル数・行数が多く全体像を掴みにくい）
-    - 複数モジュールを横断する——**architecture の条件1と同じ但し書き**（触ったファイル数では読まない。
-      見るのは責務や依存の向きが跨いでいるか）
-    - 処理フローが複雑（非自明な制御フロー・状態遷移・トリッキーな実装）
   - 検知は推奨に留め、強制しない。ユーザーが却下すれば次の標準工程へ進める。
   - **autonomous モード**では、推奨ではなく**自律的に採否を決定**する（検知したら実施。「10.」参照）。
 
@@ -345,7 +339,6 @@ parent: <親 work の dated 名> # 子が親 work を逆参照（例 20260622-fe
 | 40 | coding | aidev-40-coding | 標準 | コード, tasks 更新 | tasks.md |
 | 50 | test | aidev-50-test | 標準 | `test-result.md`（合否・件数・失敗内容・**起動確認**・スキップした検証） | コード |
 | 60 | review | aidev-60-review | 標準 | レビュー指摘（→ coding へ差し戻し可） | diff |
-| 65 | walkthrough | aidev-65-walkthrough | 任意 | `walkthrough.md`（人間レビュー補助） | review 通過 |
 | 70 | deliver | aidev-70-deliver | 標準（最終） | コミット / PR | review 通過 |
 | 95 | retro | aidev-95-retro | 任意 | `retro.md`（改善提案） | 作業完了（deliver 済み） |
 
@@ -536,13 +529,13 @@ review 工程はラウンドごとに追記する（差し戻し後の再レビ�
 
 - 対象: 構造 / フロー / 関係 / 状態遷移 / 依存 など。
 - 図種は内容に合わせる: `flowchart` / `sequenceDiagram` / `stateDiagram` / `erDiagram` / `classDiagram` / `gantt` 等。
-- **装飾目的では使わない**。図が理解・レビューを助ける時だけ使う（walkthrough の品質原則と同じ）。
+- **装飾目的では使わない**。図が理解・レビューを助ける時だけ使う（`walkthrough.md` の品質原則と同じ）。
 - 工程別の目安（該当すれば）:
   - research: 既存構造・呼び出し関係・影響範囲
   - design: シーケンス・状態遷移・データモデル
   - architecture: アーキテクチャ/コンポーネント・class・sequence・state
   - tasks: タスク依存（順序が複雑な場合）
-  - walkthrough: 処理フロー（review 補助）
+  - review: 処理フロー（`walkthrough.md` を書くとき）
 
 ## 10. 実行モード（interactive / autonomous）
 

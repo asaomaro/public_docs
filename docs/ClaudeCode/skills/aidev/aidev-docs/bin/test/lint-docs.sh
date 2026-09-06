@@ -279,7 +279,13 @@ BUDGET_PROTOCOL=608
 #   **1 段ずれていた**。この読み違いで plan モードの適用工程を 3 往復して誤判定した実績がある。
 #   併せて `plan.md` を `tasks.md` に統合した（Kiro も Spec Kit も tasks は 1 ファイル。
 #   CLI は旧 `plan.md` の中身を一度も読んでいなかった＝存在確認だけだったので機械側は無傷）
-BUDGET_TOTAL=3457
+# 3457 -> 3392: **walkthrough を工程から外した**ぶん（-65）。`aidev-65-walkthrough/SKILL.md`（-90）を
+#   畳み、要否の3条件・テンプレート・品質原則を `aidev-60-review` の「レビュー補助」節（+30）へ移した。
+#   `walkthrough.md` は**成果物としては残る**（deliver が PR 本文に要約する経路もそのまま）。
+#   外した理由は「作業段階ではない」——遷移ゲートを1つ消費して「やる/やらない」を尋ねるだけの
+#   工程で、成果物の**形式**であって段階ではなかった。工程だった頃は protocol.md「4.5」に条件、
+#   `aidev-60-review` に推奨判定、`aidev-65-walkthrough` に検知ロジックと、**同じ判断が3箇所**にあった
+BUDGET_TOTAL=3392
 _p=$(wc -l < "$SKILLS/aidev-00-start/protocol.md")
 _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 [ "$_p" -le "$BUDGET_PROTOCOL" ] && ok "L6 protocol.md が予算内（$_p / $BUDGET_PROTOCOL 行）" \
@@ -377,7 +383,9 @@ echo "== L10: 退役した名前と、統合で生まれた重複 =="
 # もう 1 つの型は `plan.md` を `tasks.md` に統合したときの「A と A」——
 # 「`tasks.md`（方針）と `tasks.md`（一覧）」のように、**同名が並んで無意味な文**になる。
 # どちらも正規表現 1 本で機械的に出る
-RETIRED='\brequirement\b|\bspec\b|\bplan\.md\b|\brequirement\.md\b|\bspec\.md\b'
+# `walkthrough` は**工程としてだけ退役**した（`walkthrough.md` は review の任意成果物として残る）。
+# だから裸の語ではなく、**工程として扱っている形**——skill 名・CLI の動詞の目的語・「〜工程」——を見る
+RETIRED='\brequirement\b|\bspec\b|\bplan\.md\b|\brequirement\.md\b|\bspec\.md\b|aidev-65-walkthrough|(guard|event|approve|unapprove) walkthrough|walkthrough ?工程|walkthrough\(任意\)'
 # 温存すべきもの（工程名ではない）: 他ツール名・英単語・plan モード族・デバッグ分類
 RET_OK='Spec Kit|spec-kit|spec_conflict|specif|specia|respect|inspect|aspect|plan ?モード|planモード|plan mode|PlanMode|plan agent|plan file|planner|planning|planned|permission-mode plan|defaultMode|permissionMode'
 # **同名の並び**は工程ごとに展開して書く——`grep -E` の後方参照（`\1`）は POSIX ERE の外で、

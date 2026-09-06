@@ -44,7 +44,6 @@ PJ非依存の開発ワークフローを、skill 群で制御・進捗管理す
 | 40 | coding | 標準 | 実装、tasks 更新 |
 | 50 | test | 標準 | 受け入れ基準の検証と**起動確認**（test-result.md。失敗は生出力ごと残す） |
 | 60 | review | 標準 | 差分点検（指摘あれば coding へ差し戻し） |
-| 65 | walkthrough | 任意 | 人間レビュー補助の解説（walkthrough.md・mermaid） |
 | 70 | deliver | 標準（最終） | コミット / PR で着地 |
 | 95 | retro | 任意 | 振り返りと改善提案（retro.md） |
 
@@ -161,7 +160,7 @@ deliver 前の `aidev verify`（不変条件）。いずれも exit≠0 なら�
 - **interactive**: 各工程末で人間が承認（上記ゲート）。
 - **autonomous**: 人間ゲートを置かず requirements→…→deliver を自律実行し、**PR を出して停止**（auto-merge しない）。
   夜間に回して朝に PR を一括レビューする使い方。`humanGates`（例 `[design]`）で特定工程だけ人間ゲートを残す**部分自律**も可。
-  安全弁: test は硬いゲート（未通過なら draft PR）／差し戻し回数・予算に上限／成果物・walkthrough を証跡として残す。
+  安全弁: test は硬いゲート（未通過なら draft PR）／差し戻し回数・予算に上限／成果物・`walkthrough.md` を証跡として残す。
   **差し戻しが上限に達したら、そこで止めずに方向を変える**——`aidev debug` が**まっさらなコンテキスト**へ
   原因究明だけを委譲する（試行履歴は渡さない）。デバッグも有限で、尽きたら `stop_for_human` で人を待つ
   （`protocol-debug.md`）。
@@ -216,7 +215,7 @@ deliver 前の `aidev verify`（不変条件）。いずれも exit≠0 なら�
 
 light は**上流3工程（requirements / design / tasks）を1ゲートに畳む**。成果物は4つとも作るが、
 各文書は必須節だけに絞る（`protocol.md`「11.」）。**coding / test / review / deliver は full と完全に同一**で、
-品質ゲートは省かない。任意工程（research / architecture / walkthrough）は light では使わない。
+品質ゲートは省かない。任意工程（research / architecture）は light では使わない。
 
 条件を外れたら `aidev escalate` で **full へ片方向に昇格**する（省略していた節を足すだけ）。
 昇格の合図は「想定外のファイルに触った」「test が落ちた」「review で must が出た」

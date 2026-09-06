@@ -49,7 +49,7 @@ $PSNativeCommandUseErrorActionPreference = $false
 
 $script:CURRENT_SCHEMA = 11  # schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema 7=起動確認(smoke)の記録検査を導入。schema 8=デバッグ（詰まりの原因究明）の記録検査を導入。schema 9=light の上流3文書の実在検査を導入。schema 10=autonomous の decisions.md と task_check_mode を記録漏れ扱いに。schema 11=autonomous の上流4文書の独立点検(doccheck)の記録を必須に。schema<=2 は legacy 免除
 $script:STRICT = $false      # verify --strict（記録漏れを致命にする）。doctor 経由では常に false
-$script:PHASES = @('requirements','research','design','architecture','tasks','coding','test','review','walkthrough','deliver','retro')
+$script:PHASES = @('requirements','research','design','architecture','tasks','coding','test','review','deliver','retro')
 $script:Utf8 = New-Object System.Text.UTF8Encoding($false)  # BOM なし
 
 # 標準出力/標準エラーを UTF-8 固定にする。既定ではコンソールの CP（日本語 Windows なら cp932）で
@@ -860,7 +860,7 @@ function Cmd-Guard($rest) {
   $par = YGet (Join-Path $script:WORK 'state.yml') 'parent'
   if ($par) { $pd = Join-Path (Join-Path $script:AIDEV 'works') $par; if (IsDir $pd) { $script:PARENT_DIR=$pd } }
   # B: 親専用工程は subtask で実行不可（subtask の工程は tasks/coding/test/review のみ）
-  if ($par -and ('requirements','research','design','architecture','walkthrough','deliver','retro' -ccontains $ph)) {
+  if ($par -and ('requirements','research','design','architecture','deliver','retro' -ccontains $ph)) {
     [Console]::Error.WriteLine("NG $ph は親 work 専用です（subtask では実行不可。subtask の工程は tasks/coding/test/review）: $($script:SLUG)")
     exit 2
   }
@@ -894,7 +894,6 @@ function Cmd-Guard($rest) {
       }
     }
     'review'      { needFile 'design.md'; needApproved 'test' }
-    'walkthrough' { needApproved 'review' }
     'deliver'     { needApproved 'review' }
     'retro'       { needApproved 'deliver' }
   }
@@ -2451,7 +2450,7 @@ function LightWarnings($work) {
   $lines = [System.IO.File]::ReadAllLines($mf)
 
   # 任意工程を使った＝「小規模」の前提を外れている（出力順は sh 版のループと同一）
-  foreach ($p in @('research','architecture','walkthrough')) {
+  foreach ($p in @('research','architecture')) {
     foreach ($l in $lines) {
       if ($l -match ("phase:\s*" + $p + ",")) {
         VLine("  WARN profile=light だが任意工程 $p を実施（aidev escalate で full へ）")

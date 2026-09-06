@@ -14,11 +14,12 @@
 
 - **requirements**: 起動時に与えられたタスク指示を requirements とする（対話ヒアリングはしない。
   指示が不十分なら autonomous を中止し interactive を促す）。
-- **任意工程（research/architecture/walkthrough）**: 推奨ではなく**自律的に採否を決める**。
+- **任意工程（research/architecture）**: 推奨ではなく**自律的に採否を決める**。
   発火条件の正典は `protocol.md`「4.5」で、autonomous でもそこを変えない——**条件に当たったら実施、
   当たらなければ実施しない**（「autonomous だから全部やる」ではない。同じ条件から逆の判断が出ないように、
-  ここに独自の既定を置かない）。walkthrough は人間の一括レビューを助ける工程なので、
-  **PR を出す運用なら条件を満たしやすい**、という程度に読む。
+  ここに独自の既定を置かない）。**`walkthrough.md`（レビュー補助）も同じ扱い**——要否は review が
+  自分の条件で決める（`aidev-60-review`）。人間の一括レビューを助ける成果物なので、
+  **PR を出す運用なら書く側に倒れやすい**、という程度に読む。
 - **承認ゲート**: 自動承認（「3.」の autonomous 分岐）。`humanGates` に指定された工程だけは人間に確認
   （**部分自律**。例: `humanGates: [design]` で方向性の誤り＝最大の手戻り源だけ人間が止める）。
 - **終端**: deliver は **PR を作成して停止**する。**auto-merge は禁止**（マージは人間が行う）。
@@ -41,7 +42,7 @@
   デバッグも尽きた（`stop_for_human`）なら**停止し、未解決点を報告して人手に委ねる**
   （test が未通過のままなら deliver は draft PR とする）。
 - **予算/時間上限**: 上限到達で停止・報告（無限ループ防止）。
-- **記録継続**: モードに関わらず state/metrics/各成果物・walkthrough は残す（朝の一括レビューの証跡）。
+- **記録継続**: モードに関わらず state/metrics/各成果物・`walkthrough.md` は残す（朝の一括レビューの証跡）。
 - **逸脱記録**: 自律中の重要判断は decisions.md に残す。
 - **独立点検**: 人間の目が入らないので、上流4文書は `aidev doccheck`、coding の各タスクは
   `aidev taskcheck` で点検を記録する（`protocol-check.md`「3.3」）。記録が無いまま承認すると
@@ -88,7 +89,7 @@ plan モードは Write / Edit を禁じるので、成果物を書くのが仕�
   design と同じ側」と読み違えた事故が実際に起きた。「11.」の表）／**research も (b) で落ちる**
   （`ExitPlanMode` が「gathering information … do NOT use」と名指ししている。**特例は要らない**）／
   coding は実装計画の**実行**で上流の `tasks.md` が承認済み（方針変更は**差し戻し**——metrics に残る）／
-  test・review・walkthrough・deliver・retro は判定・指摘・解説・着地・振り返りで実装計画ではない／
+  test・review・deliver・retro は判定・指摘・着地・振り返りで実装計画ではない／
   **`aidev-00-start` の三層判定**も実装計画ではない（選ぶが `aidev escalate` で選び直せる）。
 - **書く順序**: **plan モードは自前の plan file を持つ**（`ExitPlanMode` は内容を引数に取らず、
   先に書いたファイルから読む）。**探索 → plan file → 承認 → 抜ける → 成果物に清書**の順にする。

@@ -48,7 +48,7 @@ design を実装可能な作業単位に分解し、`tasks.md`（前半に方針
    - **単独で検証・デリバリ可能（低結合）** → そもそも別 work/PR の候補（本 work では割らず、必要なら
      `aidev-util-propose` で別 work 化を提案）。**振る舞い不変な変更（refactor 等）はここ**＝subtask に落とさない。
    - **相互依存で共同検証のみ可（高結合）かつ大規模で漸進レビューの価値がある** → **subtask 分割**（下記4へ）。
-   - **不可分** → 分割せず単一 tasks.md ＋ walkthrough のコミット構成（通常の tasks。5へ）。
+   - **不可分** → 分割せず単一 tasks.md ＋ 段階的なコミット構成（通常の tasks。5へ）。
    - **判定の提示**: interactive は `AskUserQuestion` で分割可否・分割案をユーザーに委譲する。
      autonomous は自律判定する（明確に独立な seam がある時だけ分割。迷えば分けない）。
      小〜中規模で 1 PR に収まるなら subtask 化しない（過剰分割の禁止）。

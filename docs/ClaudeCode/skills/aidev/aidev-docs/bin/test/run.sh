@@ -291,19 +291,19 @@ echo "$H2" | grep -q "aidev event requirements start" && ng "guard: start 済な
 # 打つ側は工程に入る瞬間には思い出さない（event start の促しと同じ型）
 echo "$H1" | grep -q "plan モードへ入ってから" \
   && ok "guard design: plan モードへ入るよう促す（full × interactive）" || ng "guard design: plan モードの促しが出ない"
-# **全 11 工程を前提充足済みで回す**。個別に書いていた頃は
+# **全 10 工程を前提充足済みで回す**。個別に書いていた頃は
 # (1) 前提が足りず exit 2 で終わる**空振り**が 3 本混ざり（`guard review` は `need_approved test` に
 #     落ちて促しに一度も到達していなかった）、
-# (2) `case` に test|walkthrough|deliver|retro を足しても architecture を消しても**緑のまま**だった
+# (2) `case` に test|deliver|retro を足しても architecture を消しても**緑のまま**だった
 #     （実走が変異試験で実測）。**検査が中核を守っていなかった**。
-# 前提を全部揃えてから 11 工程を一巡し、rc=0 であることも確かめる
+# 前提を全部揃えてから 10 工程を一巡し、rc=0 であることも確かめる
 PM_W=$TMP/.aidev/works/20260101-hint
-printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: [requirements, design, architecture, tasks, coding, test, review, walkthrough, deliver]\n' > "$PM_W/state.yml"
+printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: [requirements, design, architecture, tasks, coding, test, review, deliver]\n' > "$PM_W/state.yml"
 : > "$PM_W/design.md"; : > "$PM_W/architecture.md"; : > "$PM_W/tasks.md"
 printf -- '- [ ] T1: x\n' > "$PM_W/tasks.md"
 # 期待値の正典は protocol-autonomous.md「plan モードとの関係」——入るのは design / architecture / tasks
 for _pmc in requirements:no research:no design:yes architecture:yes tasks:yes coding:no \
-            test:no review:no walkthrough:no deliver:no retro:no; do
+            test:no review:no deliver:no retro:no; do
   _pmp=${_pmc%%:*}; _pmw=${_pmc#*:}
   _pmo=$(run_sh guard "$_pmp" 2>&1); _pmr=$?
   assert_eq "$_pmr" "0" "guard $_pmp: 前提が揃っていて rc=0（空振り検査になっていない）"
@@ -529,7 +529,7 @@ run_sub guard coding >/dev/null 2>&1; assert_eq "$?" "2" "guard coding: 親 task
 : > "$SUB/.aidev/works/$SP/01-be/tasks.md"; : > "$SUB/.aidev/works/$SP/01-be/tasks.md"
 run_sub guard coding >/dev/null 2>&1; assert_eq "$?" "0" "guard coding: 子の tasks.md で充足(0)"
 # B: 親専用工程は subtask で実行不可（exit 2）。subtask の工程は tasks/coding/test/review のみ
-for ph in design architecture deliver walkthrough requirements; do
+for ph in design architecture deliver research requirements; do
   run_sub guard "$ph" >/dev/null 2>&1; assert_eq "$?" "2" "B: subtask の guard $ph は親専用で拒否(2)"
 done
 # B: subtask 固有工程(review)は親専用ブロックに掛からない（design.md 継承で充足 0）

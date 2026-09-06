@@ -14,7 +14,7 @@ split 判定の3層決定木（`aidev-docs/DESIGN.md`「5.」）の中段に当�
   親 state.yml の `subtasks` に追記、`activeSubtask` 未設定なら当該子を活性にする。
 - **工程レイヤリング**:
   - **親**: requirements → research → design → architecture → tasks（=split 判定）→ 〔subtask 群〕→ **統合 test →
-    統合 review** → walkthrough → deliver → retro。
+    統合 review** → deliver → retro。
   - **子（subtask）**: **tasks → coding → test → review** の独立サイクル。子は親の design/architecture を継承し
     tasks から始める（子は design/architecture を持たない）。子 tasks は **scope を再決定しない**（割れ目は親 tasks が凍結済み。
     tasks.md 分解と dependsOn 順序付けに限定）。子 test は **単独検証可能な範囲（unit・契約モック）に限定**し、
@@ -40,7 +40,7 @@ split 判定の3層決定木（`aidev-docs/DESIGN.md`「5.」）の中段に当�
   一方 `依存:` の整合（未定義参照・循環）は **各 `tasks.md` の中**で見る（依存は子の中で閉じる）。
 - **小〜中規模 work では使わない**。design＋tasks で 1 PR に収まるなら subtask 化しない（過剰分割の禁止）。
 - **機械的強制（CLI guard）**: 「同じ skill が親/子で走る」ことに起因する誤用は `aidev` CLI が弾く（散文に頼らない）。
-  - **subtask の工程は tasks/coding/test/review のみ**。subtask に対し `requirements/research/design/architecture/walkthrough/
+  - **subtask の工程は tasks/coding/test/review のみ**。subtask に対し `requirements/research/design/architecture/
     deliver/retro` を `aidev guard` すると **exit 2** で拒否される（これらは親 work 専用）。
   - **多段ネスト禁止（単層のみ）**: `aidev new <NN>-<subslug> --parent <親>` の `<親>` が既に subtask なら拒否する
     （doctor のネスト横断・兄弟依存解決・activeSubtask は1段ネスト前提のため）。
