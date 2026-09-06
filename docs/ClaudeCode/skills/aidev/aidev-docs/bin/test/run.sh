@@ -278,6 +278,13 @@ PREV_CURRENT=$(cat "$TMP/.aidev/current")
 echo "20260101-hint" > "$TMP/.aidev/current"
 H1=$(run_sh guard spec 2>&1)
 echo "$H1" | grep -q "aidev event spec start" && ok "guard: 未 start の工程では start を促す" || ng "guard: start の促しが出ない"
+# **余分な引数を黙って捨てない**。捨てていた頃は `aidev guard spec --slug X` が
+# .aidev/current の別 work に対して緑を返していた（工程入口の硬ゲートが打ち間違いを通す形）。
+# sh / ps1 の共有欠陥だったのでパリティテストでは捕まらなかった
+assert_eq "$(run_sh guard spec --slug bogus >/dev/null 2>&1; echo $?)" "1" \
+  "guard: 余分なオプションを弾く（別 work に緑を返さない）"
+assert_eq "$(run_sh guard spec bogus >/dev/null 2>&1; echo $?)" "1" \
+  "guard: 余分な位置引数も弾く"
 H2=$(run_sh guard requirement 2>&1)
 echo "$H2" | grep -q "aidev event requirement start" && ng "guard: start 済なのに促している" || ok "guard: start 済の工程では促さない"
 # **plan モードへ入るよう、該当条件の工程でだけ名指しで促す**。散文に書いてあっても、
@@ -2583,6 +2590,27 @@ l9probe "現行条件を自然語で写す" '   - 有力な案が複数あるな
 l9probe "見出しの表記ゆれ" '   - 有力な案が複数あるなら、**planモードへ入る**（`full` × `interactive` のみ）。'
 l9probe "英語表記" '   - 有力な案が複数あるなら、**plan mode へ入る**（`full` × `interactive` のみ）。'
 l9probe "CLI フラグの綴り" '   - 有力な案が複数あるなら、**plan モードへ入る**（`--human-gates` に挙がっているときだけ）。'
+# **H7（対象ファイル外へ写す）の probe が無かった**ので、「塞いだ」と書いてあるのに
+# `DESIGN.md` と `aidev-docs/README.md` に届いていないことに気付けなかった（実走が実測）。
+# 走査対象の端（実行時文書でない参照文書）を 1 つずつ突く
+l9out() { # 名前 ファイル
+  cp "$2" "$TMP/l9out.bak"
+  printf '\nplan モードへ入るのは `full` × `interactive` のときだけ。\n' >> "$2"
+  _n=$("$L9LINT" 2>&1 | grep -c 'NG: L9') || _n=0
+  cp "$TMP/l9out.bak" "$2"
+  assert_ne "$_n" "0" "lint L9: $1 への写しを捕まえる"
+}
+l9out "DESIGN.md" "$TMP/l9skills/aidev-docs/DESIGN.md"
+l9out "aidev-docs/README.md" "$TMP/l9skills/aidev-docs/README.md"
+l9out "protocol.md" "$TMP/l9skills/aidev-00-start/protocol.md"
+l9out "util skill" "$TMP/l9skills/aidev-util-batch/SKILL.md"
+# **1 件の写しは「1 ファイル」と数える**。`runtime_docs` と SKILL のグロブが重なっていた頃は
+# 同じファイルを 2 回走査し、1 件を「2 ファイル」と出していた
+cp "$TMP/l9skills/aidev-20-spec/SKILL.md" "$TMP/l9cnt.bak"
+printf '\nplan モードへ入るのは `full` × `interactive` のときだけ。\n' >> "$TMP/l9skills/aidev-20-spec/SKILL.md"
+assert_contains "$("$L9LINT" 2>&1 | grep 'NG: L9')" "写しが 1 ファイル" \
+  "lint L9: 同じファイルを二重に数えない"
+cp "$TMP/l9cnt.bak" "$TMP/l9skills/aidev-20-spec/SKILL.md"
 assert_eq "$("$L9LINT" >/dev/null 2>&1; echo $?)" "0" "lint L9: 全て戻せば通る（複製を汚したままにしない）"
 assert_eq "$(cd "$L9SRC" && git status --porcelain -- aidev-20-spec/SKILL.md 2>/dev/null | grep -c .)" "0" \
   "lint L9: ハーネス本体を書き換えていない"

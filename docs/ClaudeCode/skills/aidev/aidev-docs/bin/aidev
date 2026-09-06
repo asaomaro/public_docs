@@ -854,6 +854,12 @@ check_depends() {
 cmd_guard() {
   [ $# -ge 1 ] || die "使用法: aidev guard <phase>"
   ph=$1
+  # **余分な引数を黙って捨てない**。`taskcheck` / `doccheck` / `debug` が `--slug` を取るので、
+  # その癖のまま `aidev guard spec --slug X` と打てる。捨てていた頃は
+  # **`.aidev/current` の別 work に対して緑を返していた**——工程入口の硬ゲートが
+  # 打ち間違いを黙って通す形（実走で実測）。`verify --bogus` は既に exit 1 で弾いている
+  shift
+  [ $# -eq 0 ] || die "guard は phase 以外の引数を取りません: $* （対象 work は .aidev/current。切り替えは aidev use）"
   is_phase "$ph" || die "未知の phase: $ph"
   resolve_work
   GMISS=""; GUNAPP=""

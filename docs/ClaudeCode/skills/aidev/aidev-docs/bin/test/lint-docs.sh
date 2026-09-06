@@ -237,7 +237,15 @@ BUDGET_PROTOCOL=608
 #   **前提の欠落は文面の整合では捕まらないので lint を作れない**——だから
 #   「いつ読み直すか」（移植のとき・ゲートの無い工程を足すとき）を本文に書いた。
 #   検査できないものを検査できるふりで置かない、という DESIGN「2.」の態度の適用でもある
-BUDGET_TOTAL=3434
+# 3434 -> 3438: 前提の書き方が**曖昧で、しかも別の規約と衝突していた**ぶん（実走が実測）。
+#   protocol-autonomous「plan モードとの関係」+4。
+#   (1)「2.10 が『手で同等に』と認めている」だけでは、**手のゲートが「機械で止まる」に
+#      当たるのか当たらないのか**が 2 通りに読めた（正典に決着が無く、DESIGN にしか無かった）
+#      → 判定を 1 つに固定した（`guard <工程>` が exit≠0 で止まるか）
+#   (2) 新しい前提の行だけを読むと「入る」に倒れるが、下の「承認者がいない工程で入ると
+#      **抜けられない**」と衝突する。**新しい行だけを読んだ実行者は入って詰む**
+#      → 見る順（承認者 → 二重ゲート）を明記した
+BUDGET_TOTAL=3438
 _p=$(wc -l < "$SKILLS/aidev-00-start/protocol.md")
 _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 [ "$_p" -le "$BUDGET_PROTOCOL" ] && ok "L6 protocol.md が予算内（$_p / $BUDGET_PROTOCOL 行）" \
@@ -268,12 +276,21 @@ echo "== L9: 判定条件の写しを工程 SKILL に作らない =="
 #   H3/H4 表記ゆれ（`planモード` / `plan mode`）
 #   H7 対象ファイル外へ写す（`aidev-util-*` / `protocol*.md` / `DESIGN.md`）——実際に
 #      `DESIGN.md` と `protocol.md` に旧条件が生き残っていた
-# **見出し語のゆれを吸収し、継続行まで見て、対象を実行時文書ぜんぶに広げる**。
-# 正典（`protocol-autonomous.md` の当該節）だけを除外する
+# **見出し語のゆれを吸収し、継続行まで見て、対象を実行時文書＋参照文書に広げる**。
+# 正典（`protocol-autonomous.md` の当該節）だけを除外する。
+# **`aidev-docs/*.md` を明示的に足すのが要点**——初版は「実行時文書ぜんぶ」に広げたと書きながら
+# `runtime_docs` を使っていたので、**旧条件が実際に残っていた `DESIGN.md` に永久に届かなかった**
+# （`README.md` に残った 2 件も同じ理由で機械に一度も見えていなかった。実走が実測）。
+# **`runtime_docs` と SKILL のグロブは全工程 SKILL で重なる**ので、和集合を取ってから走査する。
+# 重ねたまま回すと同じファイルを 2 回数え、1 件の写しが「2 ファイル」と出た
+# （`runtime_docs` 自身のコメントが同じ罠を警告しているのに、その隣で再発させた）
 PMHEAD='plan ?モード|planモード|plan mode'
-PMKEY='profile|humanGates|human-gates|interactive|autonomous|full[^ ]* *×|light|承認者|対話モード|自律モード|プロファイル'
+PMKEY='profile|humanGates|human-gates|interactive|autonomous|full[^ ]* *×|light|承認者|対話モード|自律モード|プロファイル|機械で止ま|ゲートの実体化|exit code'
 _l9=0
-for _f in $(runtime_docs; printf '%s\n' "$SKILLS"/aidev-*/SKILL.md); do
+# `runtime_docs` は `$d/SKILL.md`（`$d` は末尾 `/`）を出すので **`//` を含む**。
+# 潰さないと `sort -u` が別物として残し、二重走査がそのまま生き残る（テストで実測）
+for _f in $({ runtime_docs; printf '%s\n' "$SKILLS"/aidev-*/SKILL.md "$SKILLS"/aidev-docs/*.md; } \
+             | sed 's://*:/:g' | LC_ALL=C sort -u); do
   [ -f "$_f" ] || continue
   case "$_f" in *protocol-autonomous.md) continue ;; esac  # 正典。ここには条件が在ってよい
   # **見出し行とその継続行**（行頭が空白で始まる後続行）をひとまとまりで見る。
@@ -288,6 +305,20 @@ for _f in $(runtime_docs; printf '%s\n' "$SKILLS"/aidev-*/SKILL.md); do
       inb { print ln ": " buf; inb=0 }
       END { if (inb) print ln ": " buf }
     ' "$_f" | sed 's/protocol-autonomous\.md//g' | grep -E "$PMKEY") || true
+  # **`DESIGN.md` は「なぜその基準にしたか」を書く場所**なので、規則に触れる行が正当に在る。
+  # 全部弾くとノイズになり、全部許すと**旧条件がそこに生き残る**（実際に 3 箇所生き残った）。
+  # L5 と同じ形——**理由つきで登録した行だけ免除する**（`lint-docs.allow` の `L9:` 行）
+  if [ -n "$_hits" ] && [ -f "$ALLOW" ]; then
+    _hits=$(printf '%s\n' "$_hits" | while IFS= read -r _hl; do
+      _ok=no
+      while IFS= read -r _al; do
+        case "$_al" in ''|\#*) continue ;; L9:*) ;; *) continue ;; esac
+        _ap=${_al#L9:}
+        case "$_hl" in *"$_ap"*) _ok=yes; break ;; esac
+      done < "$ALLOW"
+      [ "$_ok" = yes ] || printf '%s\n' "$_hl"
+    done)
+  fi
   [ -n "$_hits" ] || continue
   _l9=$((_l9 + 1))
   printf '%s:\n%s\n' "${_f#"$SKILLS"/}" "$_hits" >&2

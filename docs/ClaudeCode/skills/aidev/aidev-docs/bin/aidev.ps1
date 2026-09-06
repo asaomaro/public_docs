@@ -848,6 +848,9 @@ function Eval-Depends($workDir) {
 # --- guard -------------------------------------------------------------------
 function Cmd-Guard($rest) {
   if ($rest.Count -lt 1) { Die "使用法: aidev guard <phase>" }
+  # 余分な引数を黙って捨てない（sh 版 cmd_guard の注記に理由）。
+  # sh / ps1 の**共有欠陥**だったのでパリティテストでは捕まらなかった
+  if ($rest.Count -gt 1) { Die ("guard は phase 以外の引数を取りません: " + (($rest[1..($rest.Count-1)]) -join ' ') + " （対象 work は .aidev/current。切り替えは aidev use）") }
   $ph=$rest[0]
   if (-not (IsPhase $ph)) { Die "未知の phase: $ph" }
   ResolveWork ''
