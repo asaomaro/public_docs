@@ -180,6 +180,12 @@ function SetOrAppend($file,$key,$newline) {
 }
 
 function IsPhase($p) { return $script:PHASES -ccontains $p }
+# **有効な工程名を出す**（sh 側 die_unknown_phase と対）。退役した工程を打った人が
+# 次に何を打てばよいか分からない、という実走の指摘に対応する
+function DieUnknownPhase($name, $lead, $extra) {
+  if (-not $lead) { $lead = '未知の phase' }
+  Die "${lead}: $name（有効な工程: $($script:PHASES -join  )）$extra"
+}
 
 # Die は exit するので `if (ResolveWork …)` では受からない（sh 版 resolve_work_soft の注記に理由）
 function ResolveWorkSoft($slug) {
@@ -550,7 +556,7 @@ function CvDirRel() {
 function EmitHumanGates($humangates) {
   if ($humangates) {
     $hg = @(($humangates -split '[, ]') | Where-Object { $_ })
-    foreach ($h in $hg) { if (-not (IsPhase $h)) { Die "humanGates に未知の工程: $h" } }
+    foreach ($h in $hg) { if (-not (IsPhase $h)) { DieUnknownPhase $h 'humanGates に未知の工程' } }
     return "humanGates: [" + ($hg -join ', ') + "]`n"
   }
   return "humanGates: []`n"
@@ -680,7 +686,7 @@ function Cmd-New($rest) {
 function Cmd-Event($rest) {
   if ($rest.Count -lt 2) { Die "使用法: aidev event <phase> <start|sent_back> [k=v ...]" }
   $ph=$rest[0]; $ev=$rest[1]; $kvs=@(); if ($rest.Count -gt 2) { $kvs=$rest[2..($rest.Count-1)] }
-  if (-not (IsPhase $ph)) { Die "未知の phase: $ph" }
+  if (-not (IsPhase $ph)) { DieUnknownPhase $ph }
   # approved は approve の役割。event で書くと state.yml が更新されず metrics と乖離する
   if ($ev -ceq 'approved') { Die "approved は aidev approve <phase> で記録すること（event では state.yml が更新されず、metrics と乖離する）" }
   if ('start','sent_back' -cnotcontains $ev) { Die "event は start|sent_back（approved は approve コマンド）" }
@@ -703,7 +709,7 @@ function Cmd-Event($rest) {
 function Cmd-Approve($rest) {
   if ($rest.Count -lt 1) { Die "使用法: aidev approve <phase> [k=v ...]" }
   $ph=$rest[0]; $kvs=@(); if ($rest.Count -gt 1) { $kvs=$rest[1..($rest.Count-1)] }
-  if (-not (IsPhase $ph)) { Die "未知の phase: $ph" }
+  if (-not (IsPhase $ph)) { DieUnknownPhase $ph }
   ResolveWork ''
   $st = Join-Path $script:WORK 'state.yml'
   if (-not (IsFile $st)) { Die "state.yml がありません: $($script:SLUG)" }
@@ -882,7 +888,7 @@ function Cmd-Guard($rest) {
   # sh / ps1 の**共有欠陥**だったのでパリティテストでは捕まらなかった
   if ($rest.Count -gt 1) { Die ("guard は phase 以外の引数を取りません: " + (($rest[1..($rest.Count-1)]) -join ' ') + " （対象 work は .aidev/current。切り替えは aidev use）") }
   $ph=$rest[0]
-  if (-not (IsPhase $ph)) { Die "未知の phase: $ph" }
+  if (-not (IsPhase $ph)) { DieUnknownPhase $ph }
   ResolveWork ''
   $miss=@(); $unapp=@()
   # subtask なら上流成果物(requirements/design/architecture)の継承元として親 work dir を立てる
@@ -1302,7 +1308,7 @@ function Dbg-Start($rest) {
   }
   ResolveWork $dslug
   if (-not $dph) { $dph = YGet (Join-Path $script:WORK 'state.yml') 'current' }
-  if (-not (IsPhase $dph)) { Die "未知の phase: $dph（--phase で指定するか state.yml の current を直す）" }
+  if (-not (IsPhase $dph)) { DieUnknownPhase $dph '' '。--phase で指定するか state.yml の current を直す' }
   $dm = DbgMax
   $dr = DbgRounds (Join-Path $script:WORK 'metrics.yml') $dph
   if ($dr -ge $dm) {
@@ -1346,7 +1352,7 @@ function Dbg-Report($rest) {
   }
   ResolveWork $dslug
   if (-not $dph) { $dph = YGet (Join-Path $script:WORK 'state.yml') 'current' }
-  if (-not (IsPhase $dph)) { Die "未知の phase: $dph" }
+  if (-not (IsPhase $dph)) { DieUnknownPhase $dph }
   $cats = [string]::Join(' ', $script:DBG_CATEGORIES)
   $acts = [string]::Join(' ', $script:DBG_ACTIONS)
   $cons = [string]::Join(' ', $script:DBG_CONFIDENCE)
@@ -2287,7 +2293,7 @@ function VerifyWork($work) {
       if ($sn -ge 5) {
         $issub = YGet $st 'parent'
         $hassub = @(YList $st 'subtasks')
-        # schema 9: light は design/plan を approve しないので、承認を条件にしたこの検査が
+        # schema 9: light は design/tasks を approve しないので、承認を条件にしたこの検査が
         # light では一度も走らなかった（sh 版 verify の注記に理由の全文）。
         $vlight = ($sn -ge 9 -and (YGet $st 'profile') -ceq 'light' -and (ApprovedHas $work 'requirements'))
         foreach ($pf in @(@('requirements','requirements.md'), @('design','design.md'), @('tasks','tasks.md'))) {
@@ -2803,7 +2809,7 @@ function Cmd-Status($rest) {
       if ($activef -and $wdone -ceq 'yes') { continue }
       $next='-'
       if ($wdone -ceq 'no') {
-        # profile: light は design/plan を畳む（承認されないのが正常）。素通しすると next が
+        # profile: light は design/tasks を畳む（承認されないのが正常）。素通しすると next が
         # 永久に design を指し、light では起動しない工程を案内し続けることになる
         $pipe = $script:STD_PIPELINE
         if ((YGet $st 'profile') -ceq 'light') { $pipe = @('requirements','coding','test','review','deliver') }
@@ -3927,7 +3933,7 @@ function Cmd-Unapprove($rest) {
     }
   }
   if (-not $uph) { Die "使用法: aidev unapprove <phase> [--slug <work>]" }
-  if (-not (IsPhase $uph)) { Die "未知の工程: $uph" }
+  if (-not (IsPhase $uph)) { DieUnknownPhase $uph '未知の工程' }
   ResolveWork $uslug
   $st = Join-Path $script:WORK 'state.yml'
   if (-not (ApprovedHas $script:WORK $uph)) { Die "承認されていません: $uph @ $($script:SLUG)" }

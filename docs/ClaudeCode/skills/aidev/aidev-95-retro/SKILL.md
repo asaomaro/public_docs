@@ -37,6 +37,7 @@ AI 開発ワークフローの **retro（振り返り）工程**（任意）。�
 ## 手順
 
 1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定する。
+   `aidev guard retro` で前提を検査し、`aidev event retro start` を記録する（exit≠0＝未充足。start が無いと `verify --strict` が exit 5 で落ち、ts は後から復元できない）。
 2. 作業全体を振り返る。観点:
    - うまくいった点 / うまくいかなかった点
    - 手戻り（差し戻し）の原因と、前段で防げたか

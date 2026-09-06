@@ -338,7 +338,7 @@ parent: <親 work の dated 名> # 子が親 work を逆参照（例 20260622-fe
 | 30 | tasks | aidev-30-tasks | 標準 | `tasks.md` | design.md（architecture があればそれも） |
 | 40 | coding | aidev-40-coding | 標準 | コード, tasks 更新 | tasks.md |
 | 50 | test | aidev-50-test | 標準 | `test-result.md`（合否・件数・失敗内容・**起動確認**・スキップした検証） | コード |
-| 60 | review | aidev-60-review | 標準 | レビュー指摘（→ coding へ差し戻し可） | diff |
+| 60 | review | aidev-60-review | 標準 | `review.md`（指摘。→ coding へ差し戻し可）＋任意で `walkthrough.md` | diff |
 | 70 | deliver | aidev-70-deliver | 標準（最終） | コミット / PR | review 通過 |
 | 95 | retro | aidev-95-retro | 任意 | `retro.md`（改善提案） | 作業完了（deliver 済み） |
 

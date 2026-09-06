@@ -266,7 +266,7 @@ flowchart LR
 - **重い工程の委譲（指示ベース）**：coding/test/review は任意でサブエージェント委譲可。
   特定ツールに依存させず「委譲する」意図で記述し、各エージェントが自機構で実現（無ければインライン）。
   **承認ゲート・遷移・state はサブに委譲不可＝必ず主エージェント**（サブは対話的承認ができない）。
-- **全成果物にテンプレ/スキーマ**：requirements/design/plan/tasks/decisions/state を定義済み。
+- **全成果物にテンプレ/スキーマ**：requirements/design/architecture/tasks/decisions/state を定義済み。
   「下敷きにAIが埋める」方式（厳格スキーマ強制まではしていない）。
 - **任意工程は AI検知＋ゲート推奨**：research は requirements 終了時に調査不足を、architecture は design 終了時に
   複雑度を検知し、遷移ゲートで推奨（理由付き）。強制せず却下可。retro はユーザー指定起動。

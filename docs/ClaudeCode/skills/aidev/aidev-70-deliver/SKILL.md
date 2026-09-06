@@ -96,8 +96,12 @@ review を通過した変更を、コミット・PR 作成によって実際に�
      入って初めて効くため、この順でないと素通りする）:
 
      ```
-     台帳の同期（手順 3.5）→ 変更規模の計測 → aidev approve deliver → aidev verify → コミット → push/PR
+     台帳の同期（手順 3.5）→ 変更規模の計測 → aidev approve deliver → aidev verify
+       → git add -A → コミット → push/PR
      ```
+     **`git add -A` はコミットの直前にもう一度打つ**。計測時のステージは `approve deliver` より前で、
+     その後に CLI が `state.yml` / `metrics.yml` を書くので、打ち直さないと**この工程の記録だけが
+     未コミットで残る**——上で避けよと言っているその状態になる（実走で実測）。
    - **変更規模の計測**（protocol.md「8.」）: `aidev approve deliver` の直前に、着地する**実装**の規模を
      `git add -A && git diff --cached --stat HEAD -- . ':!.aidev'` で計測する（**先にステージする**——`git diff` は未追跡ファイルを見ないので、新しく足したファイルが規模から丸ごと落ちる）。**工程成果物（`.aidev/` 配下）は規模に含めない**
      （含めると実装の規模が水増しされ、work 間の比較が壊れる）。
@@ -130,7 +134,7 @@ review を通過した変更を、コミット・PR 作成によって実際に�
 - <主な変更を箇条書き>
 
 ## レビューガイド
-<walkthrough.md があれば重要ポイント・リスクを3〜5行で要約。詳細は walkthrough.md を参照（リンク）>
+<walkthrough.md があれば重要ポイント・リスクを3〜5行で要約。詳細は walkthrough.md を参照（リンク）。無ければ節ごと省く>
 
 ## テスト
 <test 工程の結果（passed/failed）。draft の場合は未解決点。

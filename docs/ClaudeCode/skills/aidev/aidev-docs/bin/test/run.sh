@@ -2725,6 +2725,33 @@ l10probe "plan モード族" 'plan モードへ入る。planning は plan file �
 l10probe "別名どうしの並び" 'design.md を読み、tasks.md を書く。' clean
 assert_eq "$("$L9LINT" >/dev/null 2>&1; echo $?)" "0" "lint L10: 全て戻せば通る（複製を汚したままにしない）"
 
+# ---- L11（各工程 SKILL の guard / event start）------------------------------
+# 導入の引き金は `aidev-95-retro` の欠落——**書いてあるとおりに回すと verify --strict が
+# exit 5 で、ts は捏造禁止なので戻れない**。検査が空振りしないことを工程ごとに突く
+l11probe() { # 工程 消す行の断片
+  _l11d=$(printf '%s\n' "$TMP"/l9skills/aidev-*-"$1" | head -n1)
+  cp "$_l11d/SKILL.md" "$TMP/l11.bak"
+  grep -v -- "$2" "$TMP/l11.bak" > "$_l11d/SKILL.md"
+  _n=$("$L9LINT" 2>&1 | grep -c 'NG: L11') || _n=0
+  cp "$TMP/l11.bak" "$_l11d/SKILL.md"
+  assert_ne "$_n" "0" "lint L11: $1 から「$2」を消したら捕まえる"
+}
+assert_eq "$("$L9LINT" >/dev/null 2>&1; echo $?)" "0" "lint L11: 複製そのままでは通る（土台の確認）"
+for _l11p in requirements design tasks coding test review deliver retro research architecture; do
+  l11probe "$_l11p" "aidev guard $_l11p"
+  l11probe "$_l11p" "aidev event $_l11p start"
+done
+assert_eq "$("$L9LINT" >/dev/null 2>&1; echo $?)" "0" "lint L11: 全て戻せば通る（複製を汚したままにしない）"
+
+# ---- 退役した工程名を打ったときに有効集合を示す ------------------------------
+# `未知の phase: walkthrough` だけでは、**降ろした直後に指が覚えている人**が次に何を
+# 打てばよいか分からない（`aidev help` は工程を列挙しない）。実走の指摘
+UPO=$(run_sh guard walkthrough 2>&1); UPO_RC=$?
+assert_eq "$UPO_RC" "1" "guard: 退役した工程名は exit 1"
+assert_contains "$UPO" "有効な工程:" "guard: 未知の phase に有効集合を添える"
+assert_contains "$UPO" "review" "guard: 有効集合の中身が実際の PHASES"
+assert_contains "$(run_sh unapprove walkthrough 2>&1)" "有効な工程:" "unapprove: 未知の工程にも有効集合を添える"
+
 echo "== sh ⇔ ps1 パリティ =="
 if [ -n "$PS_HOST" ]; then
   block_begin parity

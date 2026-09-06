@@ -75,3 +75,5 @@ L10:`tasks.md` と照合する。`tasks.md` がまだ無い時期
 L10:旧 `design.md`（構造）は新 `design.md`（実装仕様）と
 # debug 分類の改名記録。旧分類名を出さないと何を改名したか書けない
 L10:**`spec_conflict` から改名した**
+# 他ツールのスラッシュコマンド名。Codex CLI の `/plan` は aidev の旧工程名ではない
+L10:Codex CLI は `/plan`・Shift+Tab

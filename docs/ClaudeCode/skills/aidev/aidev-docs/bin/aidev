@@ -191,6 +191,12 @@ set_or_append() { # file key newline
 }
 
 is_phase() { for p in $PHASES; do [ "$p" = "$1" ] && return 0; done; return 1; }
+# **有効な工程名を出す**。`未知の phase: walkthrough` だけでは、退役した工程を打った人が
+# 次に何を打てばよいか分からない（`aidev help` は工程を列挙しない）。`doccheck start` の
+# エラーが有効集合と代替手段を出しているのと同じ形に揃える（実走が指摘）
+die_unknown_phase() { # 打たれた名前 [前置き] [補足]
+  die "${2:-未知の phase}: $1（有効な工程: $PHASES）${3:-}"
+}
 
 # --- 最小 YAML 読み取り（フロー形式前提） ------------------------------------------
 # scalar: 'key: value' -> value（前後空白と囲み二重引用符を除去）。
@@ -456,7 +462,7 @@ cv_ready_notice() {
 emit_human_gates() {
   if [ -n "${humangates:-}" ]; then
     _hg=$(printf '%s' "$humangates" | tr ',' ' ')
-    for _h in $_hg; do is_phase "$_h" || die "humanGates に未知の工程: $_h"; done
+    for _h in $_hg; do is_phase "$_h" || die_unknown_phase "$_h" "humanGates に未知の工程"; done
     printf 'humanGates: [%s]\n' "$(printf '%s' "$_hg" | tr -s ' ' | sed 's/^ *//; s/ *$//; s/ /, /g')"
   else
     printf 'humanGates: []\n'
@@ -634,7 +640,7 @@ cmd_new() {
 cmd_event() {
   [ $# -ge 2 ] || die "使用法: aidev event <phase> <start|sent_back> [k=v ...]"
   ph=$1; ev=$2; shift 2
-  is_phase "$ph" || die "未知の phase: $ph"
+  is_phase "$ph" || die_unknown_phase "$ph"
   case "$ev" in
     start|sent_back) ;;
     # `event <phase> approved` は metrics にだけ approved を書き、state.yml の approved は
@@ -666,7 +672,7 @@ cmd_event() {
 cmd_approve() {
   [ $# -ge 1 ] || die "使用法: aidev approve <phase> [k=v ...]"
   ph=$1; shift
-  is_phase "$ph" || die "未知の phase: $ph"
+  is_phase "$ph" || die_unknown_phase "$ph"
   resolve_work
   st="$WORK/state.yml"
   [ -f "$st" ] || die "state.yml がありません: $SLUG"
@@ -895,7 +901,7 @@ cmd_guard() {
   # 打ち間違いを黙って通す形（実走で実測）。`verify --bogus` は既に exit 1 で弾いている
   shift
   [ $# -eq 0 ] || die "guard は phase 以外の引数を取りません: $* （対象 work は .aidev/current。切り替えは aidev use）"
-  is_phase "$ph" || die "未知の phase: $ph"
+  is_phase "$ph" || die_unknown_phase "$ph"
   resolve_work
   GMISS=""; GUNAPP=""
   # subtask なら上流成果物の継承元として親 work dir を立てる（need_file の fallback）
@@ -1432,7 +1438,7 @@ dbg_start() {
   done
   resolve_work "$dslug"
   [ -n "$dph" ] || dph=$(yget "$WORK/state.yml" current)
-  is_phase "$dph" || die "未知の phase: $dph（--phase で指定するか state.yml の current を直す）"
+  is_phase "$dph" || die_unknown_phase "$dph" "" "。--phase で指定するか state.yml の current を直す"
   _dm=$(dbg_max)
   _dr=$(dbg_rounds "$WORK/metrics.yml" "$dph")
   if [ "$_dr" -ge "$_dm" ] 2>/dev/null; then
@@ -1476,7 +1482,7 @@ dbg_report() {
   done
   resolve_work "$dslug"
   [ -n "$dph" ] || dph=$(yget "$WORK/state.yml" current)
-  is_phase "$dph" || die "未知の phase: $dph"
+  is_phase "$dph" || die_unknown_phase "$dph"
   # **必須フィールドを CLI が強制する**（`convention new` の --hypothesis/--baseline と同じ入口ゲート）。
   # 散文の講評だけ返して終わると、何が原因だったのかが後から誰にも読めない
   [ -n "$drc" ]  || die "--root-cause は必須です（何が根本原因だったか。1〜2文）"
@@ -2437,7 +2443,7 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail / 5 stri
       _issub=$(yget "$st" parent)
       _hassub=$(ylist "$st" subtasks)
       if [ "$schema" -ge 5 ] 2>/dev/null; then
-      # schema 9: light は design/plan を approve しない（protocol-light.md「上流 1 ゲートの規約」）
+      # schema 9: light は design/tasks を approve しない（protocol-light.md「上流 1 ゲートの規約」）
       # ので、承認を条件にした下の実在検査が **light では構造的に一度も走らない**。
       # 結果 requirements.md だけ書いた light work が verify OK で着地できていた（2026-09-04 実測）。
       # light の「4つとも作る・スタブは作らない」は散文にしか無く、二層（散文=ソフト /
@@ -2805,7 +2811,7 @@ cmd_unapprove() {
     esac
   done
   [ -n "$uph" ] || die "使用法: aidev unapprove <phase> [--slug <work>]"
-  is_phase "$uph" || die "未知の工程: $uph"
+  is_phase "$uph" || die_unknown_phase "$uph" "未知の工程"
   resolve_work "$uslug"
   st="$WORK/state.yml"
   approved_has "$uph" || die "承認されていません: $uph @ $SLUG"
@@ -3050,7 +3056,7 @@ cmd_status() {
       if [ "$activef" = yes ] && [ "$wdone" = yes ]; then continue; fi
       next=-
       if [ "$wdone" = no ]; then
-        # profile: light は design/plan を畳む（protocol.md「11.」＝承認されないのが正常）。
+        # profile: light は design/tasks を畳む（protocol.md「11.」＝承認されないのが正常）。
         # 素通しすると next が永久に design を指し、20-design 自身が「light では起動しない」と
         # 書いている工程を案内し続けることになる
         _pipe=$STD_PIPELINE

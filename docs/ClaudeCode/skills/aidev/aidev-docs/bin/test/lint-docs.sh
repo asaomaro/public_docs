@@ -291,7 +291,14 @@ BUDGET_PROTOCOL=608
 #   その `.aidev/` をどう作るかが書いていないので、新規 PJ では最初の `aidev` で止まる。
 #   併せて CLI の die メッセージも「リポジトリ内で実行してください」（リポジトリ内なのに出る）から
 #   打つべきコマンドに直した。**導入の入口は 3 行使ってでも実行時側に置く**
-BUDGET_TOTAL=3395
+# 3395 -> 3400: **実走が見つけた「書いてあるとおりにやったら詰む」2 本**を塞いだぶん。
+#   `aidev-95-retro` +2: **10 工程でこの skill にだけ** `guard` / `event start` の行が無く、
+#     書いてあるとおりに回すと `verify --strict` が exit 5。しかも `ts` は捏造禁止なので**戻れない**。
+#     再発防止は L11（全工程 SKILL に両方あるか）。
+#   `aidev-70-deliver` +3: 固定順序が `git add -A`（規模計測）→ `approve deliver` の順で、
+#     approve が書く `state.yml` / `metrics.yml` を**再ステージする指示が無かった**。
+#     同じ節の「記録はコミットの直前に行い、同じコミットに含める」を手順自身が破っていた。
+BUDGET_TOTAL=3400
 _p=$(wc -l < "$SKILLS/aidev-00-start/protocol.md")
 _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 [ "$_p" -le "$BUDGET_PROTOCOL" ] && ok "L6 protocol.md が予算内（$_p / $BUDGET_PROTOCOL 行）" \
@@ -391,7 +398,10 @@ echo "== L10: 退役した名前と、統合で生まれた重複 =="
 # どちらも正規表現 1 本で機械的に出る
 # `walkthrough` は**工程としてだけ退役**した（`walkthrough.md` は review の任意成果物として残る）。
 # だから裸の語ではなく、**工程として扱っている形**——skill 名・CLI の動詞の目的語・「〜工程」——を見る
-RETIRED='\brequirement\b|\bspec\b|\bplan\.md\b|\brequirement\.md\b|\bspec\.md\b|aidev-65-walkthrough|(guard|event|approve|unapprove) walkthrough|walkthrough ?工程|walkthrough\(任意\)'
+# **裸の `plan` も見る**。`design/plan` のような列挙や「plan を approve」の形は `\bplan\.md\b` では
+# 拾えず、実走が 4 箇所（coding の decisions テンプレ・DESIGN・CLI コメント×2）を実測した。
+# plan モード族は `RET_OK` が既に除けているので、**区切り記号と助詞**で絞れば誤検知しない
+RETIRED='\brequirement\b|\bspec\b|\bplan\.md\b|\brequirement\.md\b|\bspec\.md\b|[/／]plan\b|\bplan[/／]|\bplan (を|は|が|の|へ|と|も)|aidev-65-walkthrough|(guard|event|approve|unapprove) walkthrough|walkthrough ?工程|walkthrough\(任意\)'
 # 温存すべきもの（工程名ではない）: 他ツール名・英単語・plan モード族・デバッグ分類
 RET_OK='Spec Kit|spec-kit|specif|specia|respect|inspect|aspect|plan ?モード|planモード|plan mode|PlanMode|plan agent|plan file|planner|planning|planned|permission-mode plan|defaultMode|permissionMode'
 # **同名の並び**は工程ごとに展開して書く——`grep -E` の後方参照（`\1`）は POSIX ERE の外で、
@@ -437,6 +447,24 @@ for _f in $({ runtime_docs
 done
 if [ "$_l10" -eq 0 ]; then ok "L10 退役した名前・統合後の同名の並びが残っていない"
 else ng "L10 退役した名前か同名の並びが $_l10 ファイル（改名・統合の取りこぼし。旧名は温存語のみ許す）"; fi
+
+echo "== L11: 各工程 SKILL が自分の guard と event start を打たせているか =="
+# **`aidev-95-retro` にだけ両方が無く、書いてあるとおりにやると `verify --strict` が exit 5**
+# ——しかも `ts` は後から復元できないので**詰んで戻れない**（実走が実測）。
+# 「工程の入口で guard、記録に start」は protocol.md「1.」の一般則としては書いてあるが、
+# 一般則は**その skill だけを読んで走る実行者**には届かない（同じ理由で他の 9 工程には
+# 明示行がある）。**1 工程でも欠けると、その工程を回した work は必ず記録漏れになる**
+_l11=0
+for _p11 in $(sed -n 's/^PHASES="\(.*\)"$/\1/p' "$SH"); do
+  _d11=$(printf '%s\n' "$SKILLS"/aidev-*-"$_p11" | head -n1)
+  [ -f "$_d11/SKILL.md" ] || { printf '  ? %s: SKILL.md が見つからない（%s）\n' "$_p11" "$_d11" >&2; _l11=$((_l11+1)); continue; }
+  _miss=''
+  grep -q "aidev guard $_p11" "$_d11/SKILL.md" || _miss="$_miss guard"
+  grep -q "aidev event $_p11 start" "$_d11/SKILL.md" || _miss="$_miss event-start"
+  [ -z "$_miss" ] || { printf '  %s:%s\n' "${_d11#"$SKILLS"/}/SKILL.md" "$_miss" >&2; _l11=$((_l11+1)); }
+done
+if [ "$_l11" -eq 0 ]; then ok "L11 全工程の SKILL が自分の guard と event start を明示している"
+else ng "L11 guard か event start を書いていない工程 SKILL が $_l11 件（その工程を回した work は verify --strict で必ず落ち、ts は復元できない）"; fi
 
 echo "== L8: ハーネス改修の実走記録 =="
 # **「改修のたびに実走を1本通す」は DESIGN「3.5」に書いてあったのに、次の改修で破られた**
