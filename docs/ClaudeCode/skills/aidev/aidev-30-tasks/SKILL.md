@@ -1,63 +1,66 @@
 ---
-name: aidev-30-plan
-description: ［aidev 標準工程］aidev の plan（計画/作業分解）工程。進行中の aidev 作業の spec.md から plan.md と tasks.md を作る。「aidev plan」「plan 工程」と言われたとき、または前工程から案内されたときに使用する。aidev 作業の無い単発の計画作成では使わない。
-allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion]
+name: aidev-30-tasks
+description: ［aidev 標準工程］aidev の tasks（計画/作業分解）工程。進行中の aidev 作業の design.md から tasks.md を作る。「aidev tasks」「tasks 工程」と言われたとき、または前工程から案内されたときに使用する。aidev 作業の無い単発の計画作成では使わない。
+allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion, EnterPlanMode, ExitPlanMode]
 ---
 
-AI 開発ワークフローの **plan（計画 / 作業分解）工程**を実行する。
-spec を実装可能な作業単位に分解し、`plan.md`（方針・順序）と `tasks.md`（チェックリスト）を作る。
+AI 開発ワークフローの **tasks（計画 / 作業分解）工程**を実行する。
+design を実装可能な作業単位に分解し、`tasks.md`（前半に方針・順序、後半にチェックリスト）を作る。
 `tasks.md` のチェックボックスが、以降の進捗の単一の真実となる。
 
 **開始前に共通プロトコル `../aidev-00-start/protocol.md` を読み、その規約に従うこと。**
 
 ## 前提
 
-- `spec.md` が存在すること。無ければ実行を中止し、spec 工程を促す。
+- `design.md` が存在すること。無ければ実行を中止し、design 工程を促す。
 - **`profile: light` の work ではこの工程を単独で起動しない**（protocol.md「11.」）。light では
-  `plan.md` / `tasks.md` は requirement の 1 ゲートで既に書かれている。起動されたら実行を中止し、
-  `coding` へ進むか、`aidev escalate` で full に昇格してから plan を踏み直すかを確認する。
+  `tasks.md` は requirements の 1 ゲートで既に書かれている。起動されたら実行を中止し、
+  `coding` へ進むか、`aidev escalate` で full に昇格してから tasks を踏み直すかを確認する。
   なお **light の work は subtask 分割しない**（手順3の split 判定は「大規模で漸進レビューの価値がある」
   ケースを対象とし、light の前提と正反対）。
-- `design.md` があれば**それも前提に含める**（protocol.md「7.」: plan の前提は「spec.md（design があればそれも）」）。
-  design 工程を挟んだ場合、その構造設計を踏まえて分解する。
+- `architecture.md` があれば**それも前提に含める**（protocol.md「7.」: tasks の前提は「design.md（architecture があればそれも）」）。
+  architecture 工程を挟んだ場合、その構造設計を踏まえて分解する。
 
 ## 入力
 
-- 対象フォルダの `spec.md` と、あれば `design.md`（必要に応じて `requirement.md`）。
+- 対象フォルダの `design.md` と、あれば `architecture.md`（必要に応じて `requirements.md`）。
 - あれば `research.md`。特に「実装アンカー」は `tasks.md` の `対象` 欄の出所になる。
 
 ## 出力
 
-対象フォルダに `plan.md` と `tasks.md` を生成する。
+対象フォルダに `tasks.md` を生成する。
 
 ## 手順
 
-1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定。`aidev guard plan` で前提を検査し、
-   `aidev event plan start` を記録する（exit≠0＝未充足。start が無いと所要時間も手戻りも導出できない）。`spec.md` を確認
-   （`design.md` / `research.md` があればそれも読み込む）。
+1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定。`aidev guard tasks` で前提を検査し、
+   `aidev event tasks start` を記録する（exit≠0＝未充足。start が無いと所要時間も手戻りも導出できない）。`design.md` を確認
+   （`architecture.md` / `research.md` があればそれも読み込む）。
+   - **分解の切り方が複数あるなら、`tasks.md` を書く前に plan モードへ入る**（承認を取って
+     から解除して書く）。**条件は `protocol-autonomous.md`**——ここに写さない（`aidev guard tasks` が
+     該当時だけ促す。**subtask は対象外**——切り方は親の tasks が確定済み）。
    - **この work が subtask か親かを見分ける**（state.yml に `parent` があれば subtask）。
-     **subtask の plan は split 判定（手順3）と subtask 生成（手順4）を行わない**。手順5の「scope 凍結の
+     **subtask の tasks は split 判定（手順3）と subtask 生成（手順4）を行わない**。手順5の「scope 凍結の
      tasks.md 分解」だけを実施し、**再分割（subtask の下に subtask を作る）は禁止**（CLI も多段ネストを弾く）。
-     scope は親 plan が確定済み——子 plan は自分の slice の分解と兄弟 subtask への dependsOn 順序付けに限定する。
-2. `spec.md`（と `design.md` があればその構造設計）を読み、実装手順・依存関係・リスクを整理して `plan.md` を書く。
+     scope は親 tasks が確定済み——子 tasks は自分の slice の分解と兄弟 subtask への dependsOn 順序付けに限定する。
+2. `design.md`（と `architecture.md` があればその構造設計）を読み、実装手順・依存関係・リスクを整理して `tasks.md` を書く。
 3. **（親 work のみ）split 判定（subtask 分割の要否）**: `aidev-docs/DESIGN.md`「5.」の3層決定木に従い、この work を
    subtask へ割るか判断する。判定の discriminator は単一原則 **「そのピースは単独で検証・デリバリ可能か」**。
    - **単独で検証・デリバリ可能（低結合）** → そもそも別 work/PR の候補（本 work では割らず、必要なら
      `aidev-util-propose` で別 work 化を提案）。**振る舞い不変な変更（refactor 等）はここ**＝subtask に落とさない。
    - **相互依存で共同検証のみ可（高結合）かつ大規模で漸進レビューの価値がある** → **subtask 分割**（下記4へ）。
-   - **不可分** → 分割せず単一 tasks.md ＋ walkthrough のコミット構成（通常の plan。5へ）。
+   - **不可分** → 分割せず単一 tasks.md ＋ 段階的なコミット構成（通常の tasks。5へ）。
    - **判定の提示**: interactive は `AskUserQuestion` で分割可否・分割案をユーザーに委譲する。
      autonomous は自律判定する（明確に独立な seam がある時だけ分割。迷えば分けない）。
      小〜中規模で 1 PR に収まるなら subtask 化しない（過剰分割の禁止）。
-4. **（subtask 分割する場合のみ）**: 親 plan は「メタ plan」として割れ目（subslug 境界）と producer→consumer の
-   順序を `plan.md` に定義し、各 subtask を `aidev new <NN>-<subslug> --parent <親> [--depends 兄弟名]` で作る
-   （protocol.md「2.8」＋ `protocol-subtask.md` を読む）。**各 subtask の詳細 tasks.md は、その subtask の plan 工程で作る**（親 plan では作らない）。
-   - **子 plan の scope 凍結**: subtask の plan は **scope を再決定してはならない**（割れ目は親 plan が確定済み）。
-     子 plan は自分の slice の tasks.md 分解と、兄弟 subtask への dependsOn 順序付けに限定する。
-   - 子は親の `spec.md`/`design.md` を継承する（guard が親配下を自動 fallback。子に複製しない）。
-5. **（分割しない場合）** spec を独立して検証可能な小さなタスクに分解し、`tasks.md` をチェックリストで作る。
+4. **（subtask 分割する場合のみ）**: 親 tasks は「メタ tasks」として割れ目（subslug 境界）と producer→consumer の
+   順序を `tasks.md` に定義し、各 subtask を `aidev new <NN>-<subslug> --parent <親> [--depends 兄弟名]` で作る
+   （protocol.md「2.8」＋ `protocol-subtask.md` を読む）。**各 subtask の詳細 tasks.md は、その subtask の tasks 工程で作る**（親 tasks では作らない）。
+   - **子 tasks の scope 凍結**: subtask の tasks は **scope を再決定してはならない**（割れ目は親 tasks が確定済み）。
+     子 tasks は自分の slice の tasks.md 分解と、兄弟 subtask への dependsOn 順序付けに限定する。
+   - 子は親の `design.md`/`architecture.md` を継承する（guard が親配下を自動 fallback。子に複製しない）。
+5. **（分割しない場合）** design を独立して検証可能な小さなタスクに分解し、`tasks.md` をチェックリストで作る。
    - 各タスクは coding 工程で 1 つずつ消化できる粒度にする。
-   - **各タスクに `対象` を添える**。`research.md` の「実装アンカー」や `design.md` で位置が特定できている場合、
+   - **各タスクに `対象` を添える**。`research.md` の「実装アンカー」や `architecture.md` で位置が特定できている場合、
      変更・参照の起点を `file:line` またはシンボル名で書き、根拠の項目 ID（`research A1` 等）を併記する。
      coding が探索をやり直さずに済み、差し戻し・再開時の再探索も防げる。
    - **特定できていないタスクは `対象: 未特定` と明示する**（空欄にすると「調査済みで対象なし」と誤読され、
@@ -71,13 +74,13 @@ spec を実装可能な作業単位に分解し、`plan.md`（方針・順序）
      正典は `依存:` 行。
    - **`依存:` と `dependsOn` は別物**。`依存:` は tasks.md 内の**タスク間**、`state.yml` の `dependsOn` は
      **work / subtask 間**（protocol.md「2.7」「2.8」）。混ぜて書かない。
-   - **各タスクに `AC:` を添える**（対応する受け入れ基準が無ければ `AC: なし`）。値は `requirement.md` の
+   - **各タスクに `AC:` を添える**（対応する受け入れ基準が無ければ `AC: なし`）。値は `requirements.md` の
      `完了条件 (受け入れ基準)`（と「相互作用の受け入れ基準」）の **ID** をカンマ区切りで書く（例 `AC: AC1, AC-I1`）。
      「無い」と書ける綴りは **`なし` / `none` / `None` / `NONE` / `-`** のいずれか（`無し` や `N/A` は値として
      扱われ、未定義参照になる）。
-     **AC の本文は書き写さない**——正典は `requirement.md` の1箇所で、ここは ID で参照するだけ。
+     **AC の本文は書き写さない**——正典は `requirements.md` の1箇所で、ここは ID で参照するだけ。
      これで「どの受け入れ基準がタスクに落ちていないか」を `aidev coverage` が機械的に出せる
-     （spec の全範囲が落ちているかの確認を目視に委ねない）。**空欄にしない**——`対象: 未特定` と同じで、
+     （design の全範囲が落ちているかの確認を目視に委ねない）。**空欄にしない**——`対象: 未特定` と同じで、
      書き忘れと「対応する AC が無い」を区別できなくなる。
 6. **`aidev coverage --strict` を通す**（exit≠0＝未解消の gap あり。目視確認で代替しない）。
    落ちるのは 2 種類で、どちらも**この工程で直す**。
@@ -88,32 +91,36 @@ spec を実装可能な作業単位に分解し、`plan.md`（方針・順序）
        → **その旨を明記したタスクを立てる**。`tasks.md` は coding のチェックリストなので、
        coding の承認時に未チェックで残る前提で、`decisions.md` に「消化は test 工程」と1行残す
        （`aidev-40-coding` の完了の目安と形の上で食い違うため、判断の証跡が要る）。
-     - **この work では扱わない** → `requirement.md` の `完了条件` から**行ごと外し**、
+     - **この work では扱わない** → `requirements.md` の `完了条件` から**行ごと外し**、
        `スコープ / 対象外` に理由つきで書く。**移すときはチェックボックスを外すこと**——
        `- [ ] AC3: …` の形のまま移すと、節が変わっても受け入れ基準として数え続ける。
      タスクを持たない `AC` を `完了条件` に残したまま承認しない——それは
      「完了条件を満たさずに完了できる」状態。
 6.5. **独立点検**（`autonomous` は必須。規約は `protocol-check.md`「(a)」）:
-   `aidev doccheck start plan --mode <delegated|same_session>` → `report plan --findings <n>`。
-7. protocol.md「3. 工程終了プロトコル」に従って終了する（次工程: 分割時は最初の subtask の `plan`、
+   `aidev doccheck start tasks --mode <delegated|same_session>` → `report tasks --findings <n>`。
+7. protocol.md「3. 工程終了プロトコル」に従って終了する（次工程: 分割時は最初の subtask の `tasks`、
    非分割時は `coding`）。承認は
-   `aidev approve plan tasks_planned=<tasks.md のタスク総数> tasks_anchored=<対象が特定済みのタスク数>`
+   `aidev approve tasks tasks_planned=<tasks.md のタスク総数> tasks_anchored=<対象が特定済みのタスク数>`
    （protocol.md「3.」「8.」）。`tasks_anchored` は `対象: 未特定` を除いた数——
    coding の `unplanned_lookups` と対になり、アンカー的中率の分母になる。
    **被覆メトリクス（`ac_total` / `ac_covered` / `tasks_no_ac` / `tasks_ac_none`）は CLI が自動で刻む**
    ので手で渡さない（protocol.md「8.」）。ここで刻まれた値が、review 時の値と対になって
-   「spec と実装の乖離（`ac_drift`）」の基準点になる。
+   「design と実装の乖離（`ac_drift`）」の基準点になる。
 
-## plan.md テンプレート
+## tasks.md テンプレート
+
+**1 ファイルにまとめる**（Kiro も GitHub Spec Kit も tasks は 1 ファイル）。
+前半に方針、後半にチェックリストを置く。分けていた頃は、CLI が前半の内容を
+**一度も読んでいない**（存在確認だけ）のに 2 ファイルを要求していた。
 
 ```markdown
-# 計画: <タイトル>
+# タスク: <タイトル>
 
 ## 実装方針
-<spec をどの順序で・どう組み立てるか>
+<design をどの順序で・どう組み立てるか>
 
 ## 作業順序と依存関係
-<依存では表せない順序の理由だけを書く。無ければ「tasks.md の `依存:` に従う」とだけ書く>
+<依存では表せない順序の理由だけを書く。無ければ「下の `依存:` に従う」とだけ書く>
 - <例: 不確実な箇所を先に試す。ここで見立てが外れたら分解をやり直す>
 - <例（subtask 分割時）: `01-be` が `02-fe` の producer。API の形が固まるまで `02-fe` は着手しない>
 
@@ -122,12 +129,15 @@ spec を実装可能な作業単位に分解し、`plan.md`（方針・順序）
 
 ## テスト方針
 - <test 工程で何をどう確認するか>
+
+## タスク
+<下記の書式でチェックリストを置く>
 ```
 
-`plan.md` の「作業順序と依存関係」は**方針の説明**。タスク間の依存の正典は `tasks.md` の `依存:` 行で、
+「作業順序と依存関係」は**方針の説明**。タスク間の依存の正典は下の `依存:` 行で、
 coding はそちらを読む（同じ依存を2箇所に書き分けない）。
 
-## tasks.md テンプレート
+### チェックリストの書式
 
 チェックボックスは**行頭の `- [ ]`** で書く（進捗の単一の真実）。
 `対象` / `依存` / `AC` は次行以降にインデントして添える（チェック行の書式を壊さない）。
@@ -159,12 +169,12 @@ coding はそちらを読む（同じ依存を2箇所に書き分けない）。
 
 ## 完了の目安
 
-- spec の全範囲が tasks に漏れなく落ちている。
+- design の全範囲が tasks に漏れなく落ちている。
 - 各タスクが「1 タスク = 1 つの検証可能な変更」になっている。
 - 各タスクに `対象` がある（特定できないものは `未特定` と明示されている）。
 - 各タスクに `依存:` がある（無いものは `なし` と明示されている）。**存在しないタスク ID を指していない**、
   **循環していない**（A→B→A）。ウェーブラベルを手で書いていない。
 - 各タスクに `AC:` がある（対応が無いものは `なし` と明示されている）。
 - **`aidev coverage --strict` が exit 0**（gap が残っていない）。
-  なお **`spec` 列は gap を生まない**（`spec.md` の対応漏れは exit code を動かさない）。
-  `spec` が `no` の `AC` は spec 工程の書き漏れなので、**表を目で見て拾う**。
+  なお **`design` 列は gap を生まない**（`design.md` の対応漏れは exit code を動かさない）。
+  `design` が `no` の `AC` は design 工程の書き漏れなので、**表を目で見て拾う**。

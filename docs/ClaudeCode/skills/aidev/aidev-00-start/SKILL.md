@@ -1,7 +1,7 @@
 ---
 name: aidev-00-start
 description: ［aidev 入口］aidev ワークフロー（SDD ハーネス）の入口。.aidev/ の作業状況を確認し、どの工程から始めるかをユーザーに確認して案内する。「aidev」「aidev を始めたい」「aidev の続きから」と言われたときに使用する。工程名だけの依頼（レビュー・コミット・テスト等）では使わない。
-allowed-tools: [Bash, Read, Write, AskUserQuestion, EnterPlanMode, ExitPlanMode]
+allowed-tools: [Bash, Read, Write, AskUserQuestion]
 ---
 
 AI 開発ワークフローの入口（ルーター）。
@@ -14,7 +14,7 @@ AI 開発ワークフローの入口（ルーター）。
 
 以下を簡潔に提示する。
 
-- 工程は `requirement → spec → plan → coding → test → review → deliver` の順（推奨デフォルト）。
+- 工程は `requirements → design → tasks → coding → test → review → deliver` の順（推奨デフォルト）。
 - 各工程は **承認ゲート付き**で、自動では次に進まない（承認後に「次へ進むか」を確認する）。
 - 番号順は強制ではなく、差し戻し（例: review → coding）も可能。
 - 作業は `.aidev/works/<YYYYMMDD-slug>/` 単位で管理され、いつでも中断・再開できる。
@@ -55,14 +55,17 @@ AI 開発ワークフローの入口（ルーター）。
 CLI が使えない環境のフォールバック: `cat .aidev/current` / `ls .aidev/works` と各 `state.yml`
 （`current`/`approved`/`dependsOn`）＋ `.aidev/backlog/*.md`（`archive/` 除く）を読んで同等に要約する。
 
-`.aidev/` 自体が無い場合は「新規作業の開始」のみ提示する。
+`.aidev/` 自体が無い場合は**まずここを作る**——`mkdir -p .aidev/works` と、`.aidev/config.yml` に
+最低限 `smokeCommand`（対象が無い PJ は `none`）。作ってから「新規作業の開始」を提示する。
+CLI は `.aidev/` を上方探索するので、無いと**どのコマンドも動かない**（残りの導入手順は
+`aidev-docs/README.md`「別PJへの導入」。`aidev doctor` が未設定をその場で知らせる）。
 
 ## 3. ユーザーへの確認
 
 `AskUserQuestion` ツールで次の選択肢を提示する（`Other` による自由入力も可）。
 非対応エージェントでは同じ選択肢をテキストで提示する。
 **人間がいない起動では確認できない**ので、起動時の指示が指す作業（backlog 項目・チケット・タスク文）を
-そのまま対象とし、選択肢の提示は省く。何を対象にしたかは requirement に書く。
+そのまま対象とし、選択肢の提示は省く。何を対象にしたかは requirements に書く。
 
 - **続きから**：既存の作業を選択 → `aidev use <slug>`（`.aidev/current` を更新。存在しない slug は弾かれる）
   → その工程の skill を案内。CLI 無し環境では `.aidev/current` を手で書く。
@@ -70,7 +73,7 @@ CLI が使えない環境のフォールバック: `cat .aidev/current` / `ls .a
   skill を案内（飛ばすと記録が無関係な work に落ち、誰も検知しない）。
 - **分割 work（subtask）に戻る**：`aidev status --subtasks` で活性の子を確認し、
   `aidev use <親>/<子>`。`.aidev/current` は未追跡なのでセッションをまたぐと消える。
-- **未着手から着手する**：backlog／トラッカーの未着手項目を選び、その内容を requirement として手順 4 へ
+- **未着手から着手する**：backlog／トラッカーの未着手項目を選び、その内容を requirements として手順 4 へ
   （依存 `(needs:…)` が未充足なら警告。`protocol.md`「2.7」）。
   - **選ぶ前に、その項目が本当に未着手か確かめる**（`inflight` の見方は `protocol-backlog.md`）。backlog は**遅れる**——別の作業が結果的に
     閉じていても、行は `[ ]` のまま残りうる。**works の記述ではなくリポジトリの現物**
@@ -78,7 +81,7 @@ CLI が使えない環境のフォールバック: `cat .aidev/current` / `ls .a
   - **backlog 由来なら手順 4 で `--backlog <file>` と `--backlog-item "<掴んだ行の文言>"` を渡す**
     （前者は deliver での消し込みを verify が強制する。後者が無いと `status` の `HELD` が行単位で出せず、
     並行 N 本で「どの行が空いているか」を機械が答えられない）。
-- **新規 requirement を起こす**：手順 4 へ。
+- **新規 requirements を起こす**：手順 4 へ。
 - **並行で始める（worktree・任意）**：進行中の作業を**止めずに**別の作業へ着手したいと
   **ユーザーが望むとき**だけ。`aidev worktree add <slug>` が work 専用の worktree と
   `feature/<slug>` ブランチを作る（work が無ければ内部で `new` まで済ませる）ので、
@@ -113,17 +116,17 @@ CLI が使えない環境のフォールバック: `cat .aidev/current` / `ls .a
      ただし**起動指示が明示的に `--light`（または `--profile light`）を指している**なら、
      それは人間が事前に答えた判定なので light を採る。禁じているのは自分で小さいと
      見立てることであって、`light × autonomous` は成立する組み合わせ（`protocol.md`「11.」）。
-   - 影響範囲が読めないなら **plan モードへ入ってから**判定する（`protocol-autonomous.md`。`aidev new` は書き込みなので
-     **解除してから**実行する）。
+   - 影響範囲が読めないなら**読んで確かめる**（ここは読むだけで、書く対象がまだ無い。
+     plan モードは要らない——判定は `protocol-autonomous.md`）。
    - 迷ったら **full を選ぶ**。light は後から full へ昇格できる（`aidev escalate`）が、逆はできない。
    - **light を選んでも review / test / deliver は full と同一**に通る。省くのは上流の文書の深さと
      承認の往復だけで、品質ゲートは残る。
 
-1. requirement の概要をユーザーに確認し、簡潔な slug を決める（kebab-case、英小文字）。
+1. requirements の概要をユーザーに確認し、簡潔な slug を決める（kebab-case、英小文字）。
 2. **`aidev new <slug>` を実行**して作業を作成する（フォルダ作成・日付プレフィックス採番・
    `state.yml`/`metrics.yml` 初期化・`.aidev/current` 設定・`schema` 刻印を一括で行う）。
    - 実行モード（`protocol.md`「10.」）: 既定 `--mode interactive`。夜間自律で PR まで回すなら
-     `--mode autonomous`（必要なら作成後に `state.yml` の `humanGates` を設定＝部分自律。例 `[spec]`）。
+     `--mode autonomous`（必要なら作成後に `state.yml` の `humanGates` を設定＝部分自律。例 `[design]`）。
    - 実行プロファイル（`protocol.md`「11.」）: 手順 0 が light なら `--light`。**mode とは直交**するので
      `--mode autonomous --light` のような組み合わせも成立する。
    - 外部チケット連携時は `--ticket <ID>`（種類は `.aidev/config.yml` の `tracker`）。
@@ -134,7 +137,7 @@ CLI が使えない環境のフォールバック: `cat .aidev/current` / `ls .a
    - 例: `aidev new user-login --mode interactive --ticket "#42" --depends 20260620-base`
    - 例: `aidev new ifs-preview-race --mode autonomous --backlog hostserver.md`
    - **CLI を持たない環境**では手で同等に行う（`date -u +%Y%m%d` で `<YYYYMMDD>-<slug>` 採番 → `mkdir` →
-     `protocol.md`「6.」に従い `state.yml`（`schema`/`current: requirement`/`approved: []`）と
+     `protocol.md`「6.」に従い `state.yml`（`schema`/`current: requirements`/`approved: []`）と
      `metrics.yml`（`events:`）を作成 → `.aidev/current` 設定）。
 3. **作業ブランチの準備（PJ委譲・任意）**：PJ がブランチ運用の場合に行う（`protocol.md`「2.5」に従う）。
    - PJ にブランチ作成を伴う skill（例: issue＋ブランチ作成 skill）があれば、それを優先して使う。
@@ -143,8 +146,8 @@ CLI が使えない環境のフォールバック: `cat .aidev/current` / `ls .a
    - 既に作業ブランチ上にいる場合は新規作成しない（重複防止）。
    - **`aidev worktree add` で来た場合は不要**——既に `feature/<slug>` の上にいる（重複して切らない）。
    - 成果物（`.aidev/works/...`）も同じブランチに乗せると、後段の PR がきれいになる。
-4. `aidev-10-requirement` 工程の開始を案内する（`profile: light` の場合も同じ——上流 3 工程は
-   requirement 1 ゲートに畳まれ、`aidev-10-requirement` がそのゲートを担う。`protocol.md`「11.」）。
+4. `aidev-10-requirements` 工程の開始を案内する（`profile: light` の場合も同じ——上流 3 工程は
+   requirements 1 ゲートに畳まれ、`aidev-10-requirements` がそのゲートを担う。`protocol.md`「11.」）。
 
 ## 5. 注意
 

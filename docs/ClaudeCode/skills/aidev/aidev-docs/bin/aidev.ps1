@@ -6,7 +6,7 @@
 #
 # 使い方:
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 new <slug> [--mode interactive|autonomous] [--profile full|light] [--light] [--ticket ID] [--depends a,b,#N] [--parent <親work>] [--backlog <file>] [--backlog-item <text>] [--human-gates <list>]
-#     --parent 指定時は親 work 配下に subtask（<NN>-<subslug>・date prefix なし・current=plan）を作る
+#     --parent 指定時は親 work 配下に subtask（<NN>-<subslug>・date prefix なし・current=tasks）を作る
 #     --profile/--light は「どこまで工程を回すか」（protocol.md「11.」）。mode（誰が承認するか）と直交
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 escalate [slug]   # profile を light -> full に昇格（片方向）
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 event <phase> <start|sent_back> [key=value ...]
@@ -47,9 +47,9 @@ $ErrorActionPreference = 'Stop'
 # （git show-ref 等は ref 不在で 1 を返すのが正常系のため）。古い pwsh では通常変数になるだけで無害。
 $PSNativeCommandUseErrorActionPreference = $false
 
-$script:CURRENT_SCHEMA = 11  # schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema 7=起動確認(smoke)の記録検査を導入。schema 8=デバッグ（詰まりの原因究明）の記録検査を導入。schema 9=light の上流4文書の実在検査を導入。schema 10=autonomous の decisions.md と task_check_mode を記録漏れ扱いに。schema 11=autonomous の上流4文書の独立点検(doccheck)の記録を必須に。schema<=2 は legacy 免除
+$script:CURRENT_SCHEMA = 11  # schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema 7=起動確認(smoke)の記録検査を導入。schema 8=デバッグ（詰まりの原因究明）の記録検査を導入。schema 9=light の上流3文書の実在検査を導入。schema 10=autonomous の decisions.md と task_check_mode を記録漏れ扱いに。schema 11=autonomous の上流4文書の独立点検(doccheck)の記録を必須に。schema<=2 は legacy 免除
 $script:STRICT = $false      # verify --strict（記録漏れを致命にする）。doctor 経由では常に false
-$script:PHASES = @('requirement','research','spec','design','plan','coding','test','review','walkthrough','deliver','retro')
+$script:PHASES = @('requirements','research','design','architecture','tasks','coding','test','review','deliver','retro')
 $script:Utf8 = New-Object System.Text.UTF8Encoding($false)  # BOM なし
 
 # 標準出力/標準エラーを UTF-8 固定にする。既定ではコンソールの CP（日本語 Windows なら cp932）で
@@ -124,12 +124,36 @@ $script:ROOT = FindRoot
 $_firstArg = if ($args.Count -gt 0) { "$($args[0])" } else { '' }
 if (-not $script:ROOT) {
   if ('help','--help','-h','' -cnotcontains $_firstArg) {
-    Die ".aidev が見つかりません（リポジトリ内で実行してください）"
+    Die ".aidev が見つかりません（`mkdir -p .aidev/works` で作る。導入手順は aidev-docs/README.md「別PJへの導入」）"
   }
   $script:ROOT = (Get-Location).Path
 }
 $script:AIDEV = Join-Path $script:ROOT '.aidev'
 
+# **`aidev new <slug>` が作るのは `<日付>-<slug>`** なので、打った本人が付けた語では
+# `works/<slug>` に当たらない（sh 側 work_resolve_name と同じ理由・同じ規則）。
+# 曖昧（同じ slug が複数日にある）なら補完しない——黙って別の work を掴ませない
+function WorkResolveHits($slug) {
+  $head = $slug
+  $i = $slug.IndexOf('/')
+  if ($i -ge 0) { $head = $slug.Substring(0, $i) }
+  $root = Join-Path $script:AIDEV 'works'
+  if (-not (IsDir $root)) { return @() }
+  return @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name.EndsWith('-' + $head, [System.StringComparison]::Ordinal) } |
+    ForEach-Object { $_.Name })
+}
+function WorkResolveName($slug) {
+  if (-not $slug) { return $slug }
+  $root = Join-Path $script:AIDEV 'works'
+  if (IsDir (Join-Path $root $slug)) { return $slug }
+  $tail = ''
+  $i = $slug.IndexOf('/')
+  if ($i -ge 0) { $tail = $slug.Substring($i) }
+  $hits = WorkResolveHits $slug
+  if ($hits.Count -eq 1 -and (IsDir (Join-Path $root ($hits[0] + $tail)))) { return ($hits[0] + $tail) }
+  return $slug
+}
 function ResolveWork($slug) {
   # slug は top-level work（dated 名）か subtask のネストパス（<dated>/<NN>-<subslug>）。works/<slug> へ素直に連結する。
   if (-not $slug) { $slug = $env:AIDEV_WORK }
@@ -138,8 +162,13 @@ function ResolveWork($slug) {
     if (-not (IsFile $cur)) { Die "対象作業が不明です（.aidev/current 無し）。new か slug 指定を。" }
     $slug = ([System.IO.File]::ReadAllLines($cur))[0].Trim()
   }
+  $rwsrc = $slug
+  $slug = WorkResolveName $slug
   $script:WORK = Join-Path (Join-Path $script:AIDEV 'works') $slug
-  if (-not (IsDir $script:WORK)) { Die "work が存在しません: $slug" }
+  if (-not (IsDir $script:WORK) -and (WorkResolveHits $rwsrc).Count -gt 1) {
+    Die "slug が複数の work に当たります: $rwsrc（日付つきの名前で指定してください。一覧は aidev list）"
+  }
+  if (-not (IsDir $script:WORK)) { Die "work が存在しません: $slug（一覧は aidev list）" }
   $script:SLUG = $slug
 }
 
@@ -151,6 +180,12 @@ function SetOrAppend($file,$key,$newline) {
 }
 
 function IsPhase($p) { return $script:PHASES -ccontains $p }
+# **有効な工程名を出す**（sh 側 die_unknown_phase と対）。退役した工程を打った人が
+# 次に何を打てばよいか分からない、という実走の指摘に対応する
+function DieUnknownPhase($name, $lead, $extra) {
+  if (-not $lead) { $lead = '未知の phase' }
+  Die "${lead}: $name（有効な工程: $($script:PHASES -join ' ')）$extra"
+}
 
 # Die は exit するので `if (ResolveWork …)` では受からない（sh 版 resolve_work_soft の注記に理由）
 function ResolveWorkSoft($slug) {
@@ -162,6 +197,7 @@ function ResolveWorkSoft($slug) {
     $rs = ((Get-Content -LiteralPath $cur -TotalCount 1) -replace "`r|`n", '').Trim()
   }
   if (-not $rs) { return $false }
+  $rs = WorkResolveName $rs
   $w = Join-Path (Join-Path $script:AIDEV 'works') $rs
   if (-not (IsDir $w)) { return $false }
   $script:WORK = $w; $script:SLUG = $rs
@@ -520,7 +556,7 @@ function CvDirRel() {
 function EmitHumanGates($humangates) {
   if ($humangates) {
     $hg = @(($humangates -split '[, ]') | Where-Object { $_ })
-    foreach ($h in $hg) { if (-not (IsPhase $h)) { Die "humanGates に未知の工程: $h" } }
+    foreach ($h in $hg) { if (-not (IsPhase $h)) { DieUnknownPhase $h 'humanGates に未知の工程' } }
     return "humanGates: [" + ($hg -join ', ') + "]`n"
   }
   return "humanGates: []`n"
@@ -571,7 +607,7 @@ function Cmd-New($rest) {
   # 子は backlog 出自を持たない設計（出自は親が持つ）。受理して黙って捨てない
   if ($parent -and $backlog) { Die "--parent と --backlog は併用できません（backlog 出自は親 work に刻む）" }
   if ($parent) {
-    # --- subtask 生成: 親 work 配下に <slug>(=NN-subslug) で作る（date prefix なし）。current は plan 開始 ---
+    # --- subtask 生成: 親 work 配下に <slug>(=NN-subslug) で作る（date prefix なし）。current は tasks 開始 ---
     $pdir = Join-Path $worksRoot $parent
     if (-not (IsDir $pdir)) { Die "親 work が存在しません: $parent" }
     $pst = Join-Path $pdir 'state.yml'
@@ -593,7 +629,7 @@ function Cmd-New($rest) {
 
     $sb = "schema: $($script:CURRENT_SCHEMA)`nslug: $slug`nparent: $parent`n"
     if ($ticket) { $sb += "ticket: $ticket`n" }
-    $sb += "current: plan`napproved: []`nmode: $mode`nprofile: $profile`n" + (EmitHumanGates $humangates) + "maxSendBacks: 3`ndependsOn: $depsYaml`n"
+    $sb += "current: tasks`napproved: []`nmode: $mode`nprofile: $profile`n" + (EmitHumanGates $humangates) + "maxSendBacks: 3`ndependsOn: $depsYaml`n"
     $sb += "harnessRev: $(HarnessRev)`n"
     WriteText (Join-Path $work 'state.yml') $sb
     WriteText (Join-Path $work 'metrics.yml') "events:`n"
@@ -608,8 +644,13 @@ function Cmd-New($rest) {
       $act = $slug
     }
 
-    # カーソルは活性の子に合わせる（無条件に「今作った子」へ動かすと冗長コピーの定義が破れる）
-    WriteText (Join-Path $script:AIDEV 'current') "$parent/$act`n"
+    # **親 tasks が承認されるまでカーソルは親に置く**（sh 側 new --parent と同じ理由）。
+    # 親工程の途中で子へ動かすと、30-tasks の手順どおりの `approve tasks` が子に落ちる
+    if ((YList $pst 'approved') -ccontains 'tasks') {
+      WriteText (Join-Path $script:AIDEV 'current') "$parent/$act`n"
+    } else {
+      Write-Output "cursor: $parent のまま（親 tasks が未承認。承認したら活性の subtask へ進みます）"
+    }
     Write-Output "created subtask: $work (parent $parent, schema $($script:CURRENT_SCHEMA), mode $mode, profile $profile)"
     return
   }
@@ -628,7 +669,7 @@ function Cmd-New($rest) {
 
   $sb = "schema: $($script:CURRENT_SCHEMA)`nslug: $slug`n"
   if ($ticket) { $sb += "ticket: $ticket`n" }
-  $sb += "current: requirement`napproved: []`nmode: $mode`nprofile: $profile`n" + (EmitHumanGates $humangates) + "maxSendBacks: 3`ndependsOn: $depsYaml`n"
+  $sb += "current: requirements`napproved: []`nmode: $mode`nprofile: $profile`n" + (EmitHumanGates $humangates) + "maxSendBacks: 3`ndependsOn: $depsYaml`n"
   $sb += "harnessRev: $(HarnessRev)`n"
   if ($backlog) { $sb += "backlog: $backlog`n" }
   # どの行を掴んだか（sh 版 cmd_new の注記に理由）
@@ -637,7 +678,7 @@ function Cmd-New($rest) {
   WriteText (Join-Path $work 'metrics.yml') "events:`n"
   WriteText (Join-Path $script:AIDEV 'current') "$name`n"
   Write-Output "created: $work (schema $($script:CURRENT_SCHEMA), mode $mode, profile $profile)"
-  if ($profile -ceq 'light') { Write-Output "note: profile=light。上流3工程は requirement 1ゲートに畳む（protocol.md「11.」）" }
+  if ($profile -ceq 'light') { Write-Output "note: profile=light。上流3工程は requirements 1ゲートに畳む（protocol.md「11.」）" }
   # 選択の帰結を、選択の場に出す（sh 版 cmd_new の注記に理由）
   if ($mode -ceq 'autonomous' -and $profile -cne 'light') {
     Write-Output "note: mode=autonomous。上流4工程は独立点検が必須（aidev doccheck start <phase> --mode <delegated|same_session>）"
@@ -650,7 +691,7 @@ function Cmd-New($rest) {
 function Cmd-Event($rest) {
   if ($rest.Count -lt 2) { Die "使用法: aidev event <phase> <start|sent_back> [k=v ...]" }
   $ph=$rest[0]; $ev=$rest[1]; $kvs=@(); if ($rest.Count -gt 2) { $kvs=$rest[2..($rest.Count-1)] }
-  if (-not (IsPhase $ph)) { Die "未知の phase: $ph" }
+  if (-not (IsPhase $ph)) { DieUnknownPhase $ph }
   # approved は approve の役割。event で書くと state.yml が更新されず metrics と乖離する
   if ($ev -ceq 'approved') { Die "approved は aidev approve <phase> で記録すること（event では state.yml が更新されず、metrics と乖離する）" }
   if ('start','sent_back' -cnotcontains $ev) { Die "event は start|sent_back（approved は approve コマンド）" }
@@ -673,7 +714,7 @@ function Cmd-Event($rest) {
 function Cmd-Approve($rest) {
   if ($rest.Count -lt 1) { Die "使用法: aidev approve <phase> [k=v ...]" }
   $ph=$rest[0]; $kvs=@(); if ($rest.Count -gt 1) { $kvs=$rest[1..($rest.Count-1)] }
-  if (-not (IsPhase $ph)) { Die "未知の phase: $ph" }
+  if (-not (IsPhase $ph)) { DieUnknownPhase $ph }
   ResolveWork ''
   $st = Join-Path $script:WORK 'state.yml'
   if (-not (IsFile $st)) { Die "state.yml がありません: $($script:SLUG)" }
@@ -688,15 +729,19 @@ function Cmd-Approve($rest) {
   }
   ReplaceLine $st 'current' "current: $ph"
 
-  # 被覆の刻印（plan / requirement / review）。手書きの key=value に任せない——
+  # 被覆の刻印（tasks / requirements / review）。手書きの key=value に任せない——
   # harnessRev や schema を new に一本化したのと同じ理由（sh 版 cmd_approve と同一）。
-  if (@('plan','requirement','review') -ccontains $ph) {
+  if (@('tasks','requirements','review') -ccontains $ph) {
     $hasAc = $false
     foreach ($kv in $kvs) { if ($kv -like 'ac_total=*') { $hasAc = $true } }
     # 分割 work の subtask では刻まない。被覆は家族単位の値なので、子ごとに刻むと
     # metrics --all を足し上げたとき分母が subtask 数だけ多重計上される（sh 版と同一）
     $isSub = YGet $st 'parent'
-    if ((-not $hasAc) -and (-not $isSub)) {
+    # **分割 work の親の tasks でも刻まない**（sh 版と同一）。親の tasks 承認時点では子の
+    # tasks.md がまだ無く、ac_covered が構造的に 0 になって ac_drift が負値に張り付く
+    $acCan = $true
+    if ($ph -ceq 'tasks' -and @(YList $st 'subtasks').Count -gt 0) { $acCan = $false }
+    if ((-not $hasAc) -and $acCan -and (-not $isSub)) {
       if (CovAnalyze $script:WORK) {
         $kvs = @($kvs) + @("ac_total=$($script:COV_AC)", "ac_covered=$($script:COV_TASK)",
                            "tasks_no_ac=$($script:COV_TASKS_NOAC)", "tasks_ac_none=$($script:COV_TASKS_ACNONE)")
@@ -792,6 +837,15 @@ function Cmd-Approve($rest) {
   }
 
 
+  # D': 親の tasks 承認でカーソルを活性の subtask へ進める（sh 側と対）。
+  if ($ph -ceq 'tasks' -and -not (YGet $st 'parent')) {
+    $asub = YGet $st 'activeSubtask'
+    if ($asub -and $asub -cne 'done' -and (IsDir (Join-Path $script:WORK $asub))) {
+      WriteText (Join-Path $script:AIDEV 'current') "$($script:SLUG)/$asub`n"
+      Write-Output "cursor: $($script:SLUG)/$asub へ前進（分割 work。最初の subtask の tasks から）"
+    }
+  }
+
   # D: subtask の review 承認でカーソルを前進させる（散文の手動カーソル操作を排除）。
   # 親 subtasks を順に見て review 未承認の最初の子を次の active にする。無ければ done（→親の統合 test へ）。
   if ($ph -ceq 'review') {
@@ -848,40 +902,50 @@ function Eval-Depends($workDir) {
 # --- guard -------------------------------------------------------------------
 function Cmd-Guard($rest) {
   if ($rest.Count -lt 1) { Die "使用法: aidev guard <phase>" }
+  # 余分な引数を黙って捨てない（sh 版 cmd_guard の注記に理由）。
+  # sh / ps1 の**共有欠陥**だったのでパリティテストでは捕まらなかった
+  if ($rest.Count -gt 1) { Die ("guard は phase 以外の引数を取りません: " + (($rest[1..($rest.Count-1)]) -join ' ') + " （対象 work は .aidev/current。切り替えは aidev use）") }
   $ph=$rest[0]
-  if (-not (IsPhase $ph)) { Die "未知の phase: $ph" }
+  if (-not (IsPhase $ph)) { DieUnknownPhase $ph }
   ResolveWork ''
   $miss=@(); $unapp=@()
-  # subtask なら上流成果物(requirement/spec/design)の継承元として親 work dir を立てる
+  # subtask なら上流成果物(requirements/design/architecture)の継承元として親 work dir を立てる
   $script:PARENT_DIR=''
   $par = YGet (Join-Path $script:WORK 'state.yml') 'parent'
   if ($par) { $pd = Join-Path (Join-Path $script:AIDEV 'works') $par; if (IsDir $pd) { $script:PARENT_DIR=$pd } }
-  # B: 親専用工程は subtask で実行不可（subtask の工程は plan/coding/test/review のみ）
-  if ($par -and ('requirement','research','spec','design','walkthrough','deliver','retro' -ccontains $ph)) {
-    [Console]::Error.WriteLine("NG $ph は親 work 専用です（subtask では実行不可。subtask の工程は plan/coding/test/review）: $($script:SLUG)")
+  # B: 親専用工程は subtask で実行不可（subtask の工程は tasks/coding/test/review のみ）
+  if ($par -and ('requirements','research','design','architecture','deliver','retro' -ccontains $ph)) {
+    [Console]::Error.WriteLine("NG $ph は親 work 専用です（subtask では実行不可。subtask の工程は tasks/coding/test/review）: $($script:SLUG)")
+    exit 2
+  }
+  # B': 逆向きも弾く——分割 work の親に coding は無い（sh 側と同じ理由・同じ文言）
+  if (-not $par -and @(YList (Join-Path $script:WORK 'state.yml') 'subtasks').Count -gt 0 -and $ph -ceq 'coding') {
+    [Console]::Error.WriteLine("NG 分割 work の親に coding はありません（実装は subtask が持つ）: $($script:SLUG)")
+    [Console]::Error.WriteLine("   → 結合起因の差し戻しは**原因の subtask の coding** へ: aidev use $($script:SLUG)/<NN-subslug>")
+    [Console]::Error.WriteLine("      → aidev unapprove review → unapprove test → unapprove coding → aidev event coding start")
     exit 2
   }
   function needFile($f) {
     if (IsFile (Join-Path $script:WORK $f)) { return }
-    # 上流成果物(requirement/spec/design)のみ親から継承。plan.md/tasks.md は subtask 固有なので継承しない。
-    if ($script:PARENT_DIR -and ('requirement.md','spec.md','design.md' -ccontains $f) -and (IsFile (Join-Path $script:PARENT_DIR $f))) { return }
+    # 上流成果物(requirements/design/architecture)のみ親から継承。tasks.md は subtask 固有なので継承しない。
+    if ($script:PARENT_DIR -and ('requirements.md','design.md','architecture.md' -ccontains $f) -and (IsFile (Join-Path $script:PARENT_DIR $f))) { return }
     $script:miss += $f
   }
   function needApproved($p) { if (-not (ApprovedHas $script:WORK $p)) { $script:unapp += $p } }
   $script:miss=@(); $script:unapp=@()
   switch -CaseSensitive ($ph) {
-    'requirement' { }
-    'research'    { needFile 'requirement.md' }
-    'spec'        { needFile 'requirement.md' }
-    'design'      { needFile 'spec.md' }
-    'plan'        { needFile 'spec.md' }
-    'coding'      { needFile 'plan.md'; needFile 'tasks.md' }
+    'requirements' { }
+    'research'    { needFile 'requirements.md' }
+    'design'        { needFile 'requirements.md' }
+    'architecture'      { needFile 'design.md' }
+    'tasks'        { needFile 'design.md' }
+    'coding'      { needFile 'tasks.md' }
     'test'        {
-      # 分割 work の親は tasks.md を持たない（各 subtask の plan が作る）。一律に要求すると
-      # 書いてあるとおりに plan を書いた親の統合 test が必ず塞がる
+      # 分割 work の親は tasks.md を持たない（各 subtask の tasks が作る）。一律に要求すると
+      # 書いてあるとおりに tasks を書いた親の統合 test が必ず塞がる
       $subs = @(YList (Join-Path $script:WORK 'state.yml') 'subtasks')
       if ($subs.Count -gt 0) {
-        needFile 'plan.md'
+        needFile 'tasks.md'
         foreach ($sub in $subs) {
           $subAp = @(YList (Join-Path (Join-Path $script:WORK $sub) 'state.yml') 'approved')
           if ($subAp -cnotcontains 'review') { $script:miss += "$sub(未review)" }
@@ -890,8 +954,7 @@ function Cmd-Guard($rest) {
         needFile 'tasks.md'
       }
     }
-    'review'      { needFile 'spec.md'; needApproved 'test' }
-    'walkthrough' { needApproved 'review' }
+    'review'      { needFile 'design.md'; needApproved 'test' }
     'deliver'     { needApproved 'review' }
     'retro'       { needApproved 'deliver' }
   }
@@ -912,9 +975,11 @@ function Cmd-Guard($rest) {
     # 誤って数えるため）。代わりに、まだ必要な場合だけ促す。
     if (NeedsStart $script:WORK $ph) { Write-Output "   → 忘れずに: aidev event $ph start" }
     # plan モードが使える工程でだけ名指しで促す（sh 版 cmd_guard の注記に理由）
-    if ($ph -ceq 'spec' -or $ph -ceq 'design') {
+    if ($ph -ceq 'design' -or $ph -ceq 'architecture' -or $ph -ceq 'tasks') {
       $sf = Join-Path $script:WORK 'state.yml'
-      if ((YGet $sf 'profile') -cne 'light' -and (HasApprover $script:WORK $ph)) {
+      # subtask の tasks は親の tasks が切り方を確定済み（sh 版 cmd_guard の注記に理由）
+      $pmsub = ($ph -ceq 'tasks' -and (YGet $sf 'parent'))
+      if (-not $pmsub -and (YGet $sf 'profile') -cne 'light' -and (HasApprover $script:WORK $ph)) {
         Write-Output "   → 有力案が複数あるなら **plan モードへ入ってから** 書く（承認を取り、解除してから成果物を書く）"
         Write-Output "      抜けた先は承認時に選んだモードで、元のモードには戻らない（protocol-autonomous.md）"
       }
@@ -943,7 +1008,7 @@ function NeedsStart($work, $phase) {
 $script:VCapture = $false; $script:VBuf = @()
 # --- AC カバレッジ / tasks.md の整合（sh 版 cov_* と同一の判定・同一の出力） ----------
 # 出所: spec-kit の `/analyze` の Coverage %。対応付けの正典は tasks.md の `AC:` 行。
-# 本文（AC の文言）は requirement.md にしか置かない（ID で参照するだけ＝二重管理にならない）。
+# 本文（AC の文言）は requirements.md にしか置かない（ID で参照するだけ＝二重管理にならない）。
 #
 # **空白は ASCII だけを空白として扱う**（`[ \t]`。`\s` を使わない）。.NET の `\s` は
 # 全角スペース(U+3000)や NBSP を含むが、sh 側の `[[:space:]]` は C ロケールで ASCII のみ。
@@ -957,9 +1022,9 @@ function CovLines($path) {
   # ReadAllLines は BOM も CRLF も自動で外す（sh 側は cov_lines で同じ正規化を行う）
   return [System.IO.File]::ReadAllLines($path)
 }
-# 行頭パターン `pre` に続く AC の ID を返す。requirement 側（`- [ ] AC1: …`）と
-# spec 側（`- AC1: …`）で**同じ文法**を使う（片方だけコロンを要求すると、
-# テンプレートどおりの `- [ ] AC-I1 開く / 閉じる:` が spec 側で永久に拾えない）。
+# 行頭パターン `pre` に続く AC の ID を返す。requirements 側（`- [ ] AC1: …`）と
+# design 側（`- AC1: …`）で**同じ文法**を使う（片方だけコロンを要求すると、
+# テンプレートどおりの `- [ ] AC-I1 開く / 閉じる:` が design 側で永久に拾えない）。
 function CovPickAc($path, $pre) {
   $r = @()
   foreach ($l in (CovLines $path)) {
@@ -1052,7 +1117,7 @@ function CovGap($kind, $msg) {
   if ($kind -ceq 'struct') { $script:COV_GAPS_S++ } else { $script:COV_GAPS_C++ }
 }
 
-# 被覆は work 全体（親＋全 subtask）で見る。subtask は親の requirement.md を継承するので、
+# 被覆は work 全体（親＋全 subtask）で見る。subtask は親の requirements.md を継承するので、
 # 自分の slice だけを見ると兄弟が担当する AC が必ず「タスクが無い」になり、
 # 誰にも直せない gap が恒久的に残る。着地するのは親1本の PR なので単位も親1本に揃える。
 function CovRoot($work) {
@@ -1078,12 +1143,12 @@ function CovAnalyze($work) {
     if (-not (IsFile (Join-Path $sd.FullName 'state.yml'))) { continue }
     $tf = Join-Path $sd.FullName 'tasks.md'
     if (IsFile $tf) { $files += ,@{ pfx="$($sd.Name)/"; path=$tf } }
-    else { $script:COV_PENDING = $true }   # plan 未実施の subtask がある
+    else { $script:COV_PENDING = $true }   # tasks 未実施の subtask がある
   }
   if ($files.Count -eq 0) { return $false }
 
-  $acs  = @(CovUniq (CovReqAcs (Join-Path $root 'requirement.md')))
-  $sacs = @(CovUniq (CovSpecAcs (Join-Path $root 'spec.md')))
+  $acs  = @(CovUniq (CovReqAcs (Join-Path $root 'requirements.md')))
+  $sacs = @(CovUniq (CovSpecAcs (Join-Path $root 'design.md')))
 
   # 行を集める（子の ID には subslug を前置し、兄弟間の T1 衝突を避ける）
   $rows=@()
@@ -1155,15 +1220,15 @@ function CovAnalyze($work) {
   # 受け入れ基準が1件も無いのは「被覆 100%」ではなく測れていない。素通りさせると、
   # ID を書かなかった work（と light の1ゲート）で唯一の機械的な歯止めが空振りする。
   if ($script:COV_AC -eq 0) {
-    CovGap 'cover' "requirement.md に受け入れ基準が1件もありません（``- [ ] AC1: …`` の形で書きます）"
+    CovGap 'cover' "requirements.md に受け入れ基準が1件もありません（``- [ ] AC1: …`` の形で書きます）"
   }
   return $true
 }
 
 function CovPct($n, $d) { if ($d -le 0) { return 0 }; return [int][math]::Floor($n * 100 / $d) }
 
-# --strict / verify が cover を致命扱いしてよいか。plan 未実施の subtask が残っている間は
-# 「まだ埋まっていない」だけなので致命にしない（最初の subtask の plan が通らなくなる）。
+# --strict / verify が cover を致命扱いしてよいか。tasks 未実施の subtask が残っている間は
+# 「まだ埋まっていない」だけなので致命にしない（最初の subtask の tasks が通らなくなる）。
 function CovCoverEnforced() { return (-not $script:COV_PENDING) }
 
 function Cmd-Coverage($rest) {
@@ -1183,21 +1248,21 @@ function Cmd-Coverage($rest) {
   # 読み取り専用コマンドなので、対象がまだ無い状態は正常な空として 0 で返す
   if (-not (CovAnalyze $script:WORK)) {
     Write-Output "coverage: $($script:SLUG)"
-    Write-Output "note: tasks.md がまだありません（plan 工程で作られます）"
+    Write-Output "note: tasks.md がまだありません（tasks 工程で作られます）"
     exit 0
   }
   Write-Output "coverage: $($script:SLUG)"
   if ($fmt -ceq 'tsv') { foreach ($l in $script:COV_ROWS) { Write-Output $l } }
-  else { foreach ($l in (Fmt-Table (@("ac`tspec`ttasks") + $script:COV_ROWS))) { Write-Output $l } }
+  else { foreach ($l in (Fmt-Table (@("ac`tdesign`ttasks") + $script:COV_ROWS))) { Write-Output $l } }
   foreach ($l in $script:COV_GAPLINES) { Write-Output $l }
   $sp = CovPct $script:COV_SPEC $script:COV_AC
   $tp = CovPct $script:COV_TASK $script:COV_AC
-  Write-Output ("coverage-summary: ac=$($script:COV_AC) spec=$($script:COV_SPEC)/$($script:COV_AC)($sp%)" +
+  Write-Output ("coverage-summary: ac=$($script:COV_AC) design=$($script:COV_SPEC)/$($script:COV_AC)($sp%)" +
                 " tasks=$($script:COV_TASK)/$($script:COV_AC)($tp%) task_rows=$($script:COV_TASKS)" +
                 " no_ac=$($script:COV_TASKS_NOAC) ac_none=$($script:COV_TASKS_ACNONE) gaps=$($script:COV_GAPS)")
   Write-Output "coverage-gaps: struct=$($script:COV_GAPS_S) cover=$($script:COV_GAPS_C)"
   if (-not (CovCoverEnforced)) {
-    Write-Output "note: plan 未実施の subtask があります。cover の gap は全 subtask の plan が済むまで致命にしません"
+    Write-Output "note: tasks 未実施の subtask があります。cover の gap は全 subtask の tasks が済むまで致命にしません"
   }
   if ($strict) {
     $fail = $script:COV_GAPS_S
@@ -1213,7 +1278,7 @@ function Cmd-Coverage($rest) {
 # --- debug（詰まったときの原因究明を有限化する。sh 版 dbg_* / cmd_debug と同一）----------
 # 出所: cc-sdd の kiro-impl の debug subagent。要点は **fresh context**——
 # 失敗した試行の履歴を渡さない（渡すと同じ穴を掘り続ける）。手順は protocol-debug.md。
-$script:DBG_CATEGORIES = @('dependency','environment','config','logic','spec_conflict','test_defect','external')
+$script:DBG_CATEGORIES = @('dependency','environment','config','logic','upstream_conflict','test_defect','external')
 $script:DBG_ACTIONS    = @('retry','block','stop_for_human')
 $script:DBG_CONFIDENCE = @('high','medium','low')
 
@@ -1268,7 +1333,7 @@ function Dbg-Start($rest) {
   }
   ResolveWork $dslug
   if (-not $dph) { $dph = YGet (Join-Path $script:WORK 'state.yml') 'current' }
-  if (-not (IsPhase $dph)) { Die "未知の phase: $dph（--phase で指定するか state.yml の current を直す）" }
+  if (-not (IsPhase $dph)) { DieUnknownPhase $dph '' '。--phase で指定するか state.yml の current を直す' }
   $dm = DbgMax
   $dr = DbgRounds (Join-Path $script:WORK 'metrics.yml') $dph
   if ($dr -ge $dm) {
@@ -1286,7 +1351,7 @@ function Dbg-Start($rest) {
   Write-Output "渡すもの:"
   Write-Output "  - 失敗の生出力（$dw/test-result.md の「失敗の証跡」）"
   Write-Output "  - いまの差分（git diff。コミット前の変更）"
-  Write-Output "  - 対象タスクの行（$dw/tasks.md）と、その AC の本文（requirement.md）"
+  Write-Output "  - 対象タスクの行（$dw/tasks.md）と、その AC の本文（requirements.md）"
   Write-Output "  - review の直近ラウンドの指摘（$dw/review.md）"
   Write-Output "**渡さないもの: これまでの修正の試行履歴**（渡すと同じ穴を掘り続ける。これがこの手順の要）"
   Write-Output "next: aidev debug report --root-cause <t> --category <c> --next-action <a>"
@@ -1302,7 +1367,7 @@ function Dbg-Report($rest) {
       '--category'     { $i++; $dcat=(ArgAt $rest $i '--category') }
       '--next-action'  { $i++; $dact=(ArgAt $rest $i '--next-action') }
       '--confidence'   { $i++; $dconf=(ArgAt $rest $i '--confidence') }
-      '--fix-plan'     { $i++; $dfix=(ArgAt $rest $i '--fix-plan') }
+      '--fix-tasks'     { $i++; $dfix=(ArgAt $rest $i '--fix-tasks') }
       '--verification' { $i++; $dver=(ArgAt $rest $i '--verification') }
       default {
         if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
@@ -1312,7 +1377,7 @@ function Dbg-Report($rest) {
   }
   ResolveWork $dslug
   if (-not $dph) { $dph = YGet (Join-Path $script:WORK 'state.yml') 'current' }
-  if (-not (IsPhase $dph)) { Die "未知の phase: $dph" }
+  if (-not (IsPhase $dph)) { DieUnknownPhase $dph }
   $cats = [string]::Join(' ', $script:DBG_CATEGORIES)
   $acts = [string]::Join(' ', $script:DBG_ACTIONS)
   $cons = [string]::Join(' ', $script:DBG_CONFIDENCE)
@@ -1646,6 +1711,7 @@ function Tc-Start($rest) {
   if (-not $tmode) { Die "--mode は必須（delegated=別コンテキストへ委譲 / same_session=同一セッションで読み直し）。点検が効く理由はコンテキスト分離なので、どちらで行ったかを残さないと効果を測れない" }
   if ($script:TC_MODES -cnotcontains $tmode) { Die "--mode は delegated|same_session" }
   ResolveWork $tslug
+  CheckRejectLight 'タスクの差分点検（taskcheck）'
   if (-not (TcKnownId $tid)) { Die "tasks.md にそのタスクがありません: $tid（打ち間違いか、tasks.md へ足し忘れ。足したなら AC: も書く）" }
   $mf = Join-Path $script:WORK 'metrics.yml'
   $tmax = TcMax
@@ -1766,7 +1832,7 @@ function Cmd-TaskCheck($rest) {
 
 
 # --- doccheck（上流文書の独立点検を有限化する。sh 版 cmd_doccheck の注記に理由）------
-$script:DC_PHASES = @('requirement','spec','design','plan')
+$script:DC_PHASES = @('requirements','design','architecture','tasks')
 function DcMax() {
   $v = YGet (Join-Path $script:AIDEV 'config.yml') 'maxDocCheckRounds'
   if ($v -notmatch '^\d+$') { return 2 }
@@ -1782,16 +1848,12 @@ function DcCount($metricsFile, $stage, $phase) {
   }
   return $c
 }
-# 点検に渡す文書の合計バイト数（sh 版 dc_size の注記に理由。plan は plan.md と tasks.md）
+# 点検に渡す文書の合計バイト数（sh 版 dc_size の注記に理由。tasks は tasks.md）
 function DcSize($phase) {
-  $n = 0
-  $files = @((Join-Path $script:WORK "$phase.md"))
-  if ($phase -ceq 'plan') { $files += (Join-Path $script:WORK 'tasks.md') }
-  foreach ($f in $files) {
-    if (-not (IsFile $f)) { continue }
-    try { $n += [int64](Get-Item -LiteralPath $f).Length } catch { }
-  }
-  return $n
+  # 1 工程 1 ファイル（sh 版 dc_size の注記に理由）
+  $f = Join-Path $script:WORK "$phase.md"
+  if (-not (IsFile $f)) { return 0 }
+  try { return [int64](Get-Item -LiteralPath $f).Length } catch { return 0 }
 }
 # start に report が追いついていない工程（sh 版 dc_unreported と同一）
 function DcUnreported($metricsFile) {
@@ -1828,6 +1890,13 @@ function DcTotals($metricsFile, $phase) {
   elseif ($modes.Keys.Count -gt 1) { $r.mode = 'mixed' }
   return $r
 }
+# **`protocol-check.md` の「`profile: light` では使わない」は散文にしか無かった**（sh 側 check_reject_light と対）。
+function CheckRejectLight($label) {
+  if ((YGet (Join-Path $script:WORK 'state.yml') 'profile') -cne 'light') { return }
+  [Console]::Error.WriteLine("aidev: profile=light では${label}を使いません（往復を減らす趣旨に反する。protocol-check.md）")
+  [Console]::Error.WriteLine("next: 点検が要るなら light の条件を外れています。aidev escalate で full へ昇格してから打つ")
+  exit 2
+}
 function Dc-Start($rest) {
   $dph=''; $dslug=''; $dmode=''
   for ($i=0; $i -lt $rest.Count; $i++) {
@@ -1840,11 +1909,12 @@ function Dc-Start($rest) {
       }
     }
   }
-  if (-not $dph) { Die "使用法: aidev doccheck start <requirement|spec|design|plan> --mode <delegated|same_session> [--slug <work>]" }
+  if (-not $dph) { Die "使用法: aidev doccheck start <requirements|design|architecture|tasks> --mode <delegated|same_session> [--slug <work>]" }
   if (-not (DcValidPhase $dph)) { Die "独立点検の対象は上流4工程だけ: $dph（$($script:DC_PHASES -join ' ')）。coding のタスク点検は aidev taskcheck" }
   if (-not $dmode) { Die "--mode は必須（delegated=別コンテキストへ委譲 / same_session=同一セッションで読み直し）。点検が効く理由はコンテキスト分離なので、どちらで行ったかを残さないと効果を測れない" }
   if ($script:TC_MODES -cnotcontains $dmode) { Die "--mode は delegated|same_session" }
   ResolveWork $dslug
+  CheckRejectLight '文書の独立点検（doccheck）'
   # 前提成果物の不足は exit 2（guard と同じ分類。使い方の誤り=1 と混ぜない）
   if (-not (IsFile (Join-Path $script:WORK "$dph.md"))) {
     [Console]::Error.WriteLine("aidev: 点検する文書がありません: $dph.md（その工程を先に書く）")
@@ -1864,9 +1934,9 @@ function Dc-Start($rest) {
   $dsz = DcSize $dph
   AppendEvent $script:WORK $dph 'doccheck' @('stage=start', "phase=$dph", "mode=$dmode", "size=$dsz")
   Write-Output "round: $($dr + 1)/$dmax"
-  # plan の `AC:` 行は tasks.md にしかない（sh 版の注記に理由）
-  if ($dph -ceq 'plan') { Write-Output "渡すもの: plan.md と tasks.md（AC: 行は tasks.md にある。上流の元文書は渡さない）" }
-  else { Write-Output "渡すもの: $dph.md だけ（上流の元文書は渡さない。内部一貫性を見るため）" }
+  # tasks の `AC:` 行は tasks.md にしかない（sh 版の注記に理由）
+  # 特例は不要（sh 版 dc_start の注記に理由）
+  Write-Output "渡すもの: $dph.md だけ（上流の元文書は渡さない。内部一貫性を見るため）"
   Write-Output "観点: **内部一貫性のみ**——AC の ID 対応漏れ / **AC の入力の出所が文書内で辿れるか** /"
   Write-Output "      目的・ゴールが状態で書けているか / 対象範囲と方針・図と本文の食い違い / 節の欠落・前後の矛盾"
   Write-Output "禁止: **外部ソース・一次資料との照合**（幻覚的な指摘を量産する。一次資料は主エージェントが直読）"
@@ -1913,7 +1983,7 @@ function Dc-Report($rest) {
     if ($ms.Success) { $dsz0 = $ms.Groups[1].Value }
   }
   $dsz1 = DcSize $dph
-  $dsdoc = if ($dph -ceq 'plan') { 'plan.md と tasks.md' } else { "$dph.md" }
+  $dsdoc = "$dph.md"
   AppendEvent $script:WORK $dph 'doccheck' @('stage=report', "phase=$dph", "findings=$df")
   Write-Output "doccheck: $($script:SLUG) / $dph（findings $df）"
   if ($dsz0 -ne '' -and $dsz0 -cne "$dsz1") {
@@ -2248,19 +2318,19 @@ function VerifyWork($work) {
       if ($sn -ge 5) {
         $issub = YGet $st 'parent'
         $hassub = @(YList $st 'subtasks')
-        # schema 9: light は spec/plan を approve しないので、承認を条件にしたこの検査が
+        # schema 9: light は design/tasks を approve しないので、承認を条件にしたこの検査が
         # light では一度も走らなかった（sh 版 verify の注記に理由の全文）。
-        $vlight = ($sn -ge 9 -and (YGet $st 'profile') -ceq 'light' -and (ApprovedHas $work 'requirement'))
-        foreach ($pf in @(@('requirement','requirement.md'), @('spec','spec.md'), @('plan','plan.md'))) {
+        $vlight = ($sn -ge 9 -and (YGet $st 'profile') -ceq 'light' -and (ApprovedHas $work 'requirements'))
+        foreach ($pf in @(@('requirements','requirements.md'), @('design','design.md'), @('tasks','tasks.md'))) {
           if (-not (ApprovedHas $work $pf[0]) -and -not $vlight) { continue }
           if (IsFile (Join-Path $work $pf[1])) { continue }
-          # subtask は親の requirement/spec/design を継承する
+          # subtask は親の requirements/design/architecture を継承する
           if ($issub -and (IsFile (Join-Path (Join-Path (Join-Path $script:AIDEV 'works') $issub) $pf[1]))) { continue }
           $vf += "$($pf[1])欠落($($pf[0])承認済)"
         }
-        # 親（subtasks を持つ）は tasks.md を持たない（各 subtask の plan が作る）
-        if (((ApprovedHas $work 'plan') -or $vlight) -and $hassub.Count -eq 0 -and -not (IsFile (Join-Path $work 'tasks.md'))) {
-          $vf += "tasks.md欠落(plan承認済)"
+        # 親（subtasks を持つ）は tasks.md を持たない（各 subtask の tasks が作る）
+        if (((ApprovedHas $work 'tasks') -or $vlight) -and $hassub.Count -eq 0 -and -not (IsFile (Join-Path $work 'tasks.md'))) {
+          $vf += "tasks.md欠落(tasks承認済)"
         }
       }
       # schema 6: test の成果物と、AC カバレッジ / tasks.md の整合（sh 版と同一）
@@ -2378,7 +2448,7 @@ function VerifyWork($work) {
   # schema 11: autonomous の上流文書は必ず独立点検する（sh 版 verify_work の注記に理由）
   # schema 11 以降だけ（旧 work に出す案は撤回。sh 版 verify_work の注記に理由）
   if ([int]$sn10 -ge 11 -and (YGet $st 'mode') -ceq 'autonomous' -and (YGet $st 'profile') -cne 'light') {
-    foreach ($vdp in @('requirement','spec','design','plan')) {
+    foreach ($vdp in @('requirements','design','architecture','tasks')) {
       if (-not (ApprovedHas $work $vdp)) { continue }
       if (-not (IsFile (Join-Path $work "$vdp.md"))) { continue }
       if (-not (MtLastMetric (Join-Path $work 'metrics.yml') $vdp 'doc_check_mode')) {
@@ -2450,7 +2520,7 @@ function LightWarnings($work) {
   $lines = [System.IO.File]::ReadAllLines($mf)
 
   # 任意工程を使った＝「小規模」の前提を外れている（出力順は sh 版のループと同一）
-  foreach ($p in @('research','design','walkthrough')) {
+  foreach ($p in @('research','architecture')) {
     foreach ($l in $lines) {
       if ($l -match ("phase:\s*" + $p + ",")) {
         VLine("  WARN profile=light だが任意工程 $p を実施（aidev escalate で full へ）")
@@ -2459,11 +2529,17 @@ function LightWarnings($work) {
     }
   }
 
+  # **walkthrough.md も light では書かない**（sh 版と同一）。工程だった頃は上のループが
+  # 拾っていたが、成果物へ降格したときに機械の目だけが外れた
+  if (IsFile (Join-Path $script:WORK 'walkthrough.md')) {
+    VLine("  WARN profile=light だが walkthrough.md がある（light の規模なら差分だけで読める）")
+  }
+
   # 上流を畳んでいない＝light の指紋から外れている（sh 版 light_warnings と同一）
-  foreach ($p in @('spec','plan')) {
+  foreach ($p in @('design','tasks')) {
     foreach ($l in $lines) {
       if ($l -match ("phase:\s*" + $p + ",") -and $l -match 'event:\s*start') {
-        VLine("  WARN profile=light だが $p を個別に起動（light は requirement 1ゲートに畳む）")
+        VLine("  WARN profile=light だが $p を個別に起動（light は requirements 1ゲートに畳む）")
         break
       }
     }
@@ -2549,6 +2625,10 @@ function Cmd-Escalate($rest) {
   if (-not $cur) { $cur = 'full' }   # 未記載 = full（profile 導入前の work）
   if ($cur -ceq 'full')  { Die "既に profile=full です（昇格は片方向。full -> light は不可）: $($script:SLUG)" }
   if ($cur -cne 'light') { Die "未知の profile: $cur" }
+  # **着地後は受けない**（sh 版と同一）。light の逸脱記録が事後に消える
+  if ((YList $st 'approved') -ccontains 'deliver') {
+    Die "deliver 承認済みの work は昇格できません（着地後に profile を変えると light の逸脱記録が消える）: $($script:SLUG)"
+  }
   SetOrAppend $st 'profile' 'profile: full'
   Write-Output "escalated: $($script:SLUG) (light -> full)"
   Write-Output "next: 省略していた節を各文書に足す / decisions.md に経緯を残す /"
@@ -2698,7 +2778,7 @@ function Cmd-Doctor($rest) {
 }
 
 # --- status（読み取り専用・works横断＋backlog未着手） ----------------------------
-$script:STD_PIPELINE = @('requirement','spec','plan','coding','test','review','deliver')
+$script:STD_PIPELINE = @('requirements','design','tasks','coding','test','review','deliver')
 
 # タブ区切り行（先頭にヘッダ含む）を列幅で揃えた行配列に整形（sh の fmt_table と一致）
 function Fmt-Table($rows) {
@@ -2764,10 +2844,10 @@ function Cmd-Status($rest) {
       if ($activef -and $wdone -ceq 'yes') { continue }
       $next='-'
       if ($wdone -ceq 'no') {
-        # profile: light は spec/plan を畳む（承認されないのが正常）。素通しすると next が
-        # 永久に spec を指し、light では起動しない工程を案内し続けることになる
+        # profile: light は design/tasks を畳む（承認されないのが正常）。素通しすると next が
+        # 永久に design を指し、light では起動しない工程を案内し続けることになる
         $pipe = $script:STD_PIPELINE
-        if ((YGet $st 'profile') -ceq 'light') { $pipe = @('requirement','coding','test','review','deliver') }
+        if ((YGet $st 'profile') -ceq 'light') { $pipe = @('requirements','coding','test','review','deliver') }
         foreach ($p in $pipe) { if ($appr -cnotcontains $p) { $next=$p; break } }
       }
       # subtask を持つ親は next を subtask 進捗に差し替える（未完=sub N/M、全完了=統合工程の次）
@@ -3050,13 +3130,13 @@ function Cmd-Metrics($rest) {
       $hd = HrGet $sty 'harnessRevDelivered'
       $sd = '-'
       if ($hd -and $hr -cne '-' -and $hr -cne 'unknown' -and $hd -cne 'unknown') { $sd = if ($hr -ceq $hd) { 'no' } else { 'yes' } }
-      # 受け入れ基準の規模（分母）と、plan から review までの被覆の乖離（sh 版と同一）
+      # 受け入れ基準の規模（分母）と、tasks から review までの被覆の乖離（sh 版と同一）
       # 2点は工程で選ぶ（件数で選ぶと、同じ工程を2回 approve しただけの work が
-      # 「2点ある＝乖離が測れる」に化ける）。基準点=plan|requirement の最初、終点=review の最後
+      # 「2点ある＝乖離が測れる」に化ける）。基準点=tasks|requirements の最初、終点=review の最後
       $cs = @(MtCovStamps $mf)
       $fst = $null; $lst = $null; $acN = '-'
       foreach ($e in $cs) {
-        if (($null -eq $fst) -and (@('plan','requirement') -ccontains $e[0])) { $fst = $e }
+        if (($null -eq $fst) -and (@('tasks','requirements') -ccontains $e[0])) { $fst = $e }
         if ($e[0] -ceq 'review') { $lst = $e }
       }
       if ($cs.Count -gt 0) { $acN = $cs[$cs.Count-1][2] }
@@ -3888,7 +3968,7 @@ function Cmd-Unapprove($rest) {
     }
   }
   if (-not $uph) { Die "使用法: aidev unapprove <phase> [--slug <work>]" }
-  if (-not (IsPhase $uph)) { Die "未知の工程: $uph" }
+  if (-not (IsPhase $uph)) { DieUnknownPhase $uph '未知の工程' }
   ResolveWork $uslug
   $st = Join-Path $script:WORK 'state.yml'
   if (-not (ApprovedHas $script:WORK $uph)) { Die "承認されていません: $uph @ $($script:SLUG)" }

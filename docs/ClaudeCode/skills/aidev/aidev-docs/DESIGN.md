@@ -22,30 +22,28 @@ flowchart TD
 
   subgraph STD["標準工程（末尾0・デフォルトパイプライン）"]
     direction TB
-    req["10 requirement"] --> spec["20 spec"] --> plan["30 plan"]
-    plan --> coding["40 coding"] --> test["50 test"] --> review["60 review"] --> deliver["70 deliver（最終）"]
+    req["10 requirements"] --> design["20 design"] --> tasks["30 tasks"]
+    tasks --> coding["40 coding"] --> test["50 test"] --> review["60 review"] --> deliver["70 deliver（最終）"]
   end
 
   subgraph OPT["任意工程（末尾5・推奨/指定で差し込み）"]
     research["15 research"]
-    design["25 design"]
-    walkthrough["65 walkthrough"]
+    architecture["25 architecture"]
   end
 
-  req -. 調査不足を検知 .-> research -. spec へ .-> spec
-  spec -. 複雑度を検知 .-> design -. plan へ .-> plan
-  review -. 複雑度を検知 .-> walkthrough -. deliver へ .-> deliver
+  req -. 調査不足を検知 .-> research -. design へ .-> design
+  design -. 複雑度を検知 .-> architecture -. tasks へ .-> tasks
 
   test -- 失敗 --> coding
   review -- "must/should 指摘" --> coding
   deliver -. 完了後（任意・ユーザー指定） .-> retro["95 retro"]
 
   classDef opt fill:#eef,stroke:#88a,stroke-dasharray:4 3
-  class research,design,walkthrough,retro opt
+  class research,architecture,retro opt
 ```
 
-`profile: light`（「11.」）では上流3工程を1ゲートに畳む。成果物は4つとも作り（薄く）、
-承認は `requirement` 1件として記録する。coding 以降は full と同一で、任意工程は使わない。
+`profile: light`（「11.」）では上流3工程を1ゲートに畳む。成果物は3つとも作り（薄く）、
+承認は `requirements` 1件として記録する。coding 以降は full と同一で、任意工程は使わない。
 
 ```mermaid
 flowchart TD
@@ -53,9 +51,9 @@ flowchart TD
   lstart -. "typo・コメント・整形" .-> none["aidev を通さない<br/>（直接コミット）"]
   lstart -- "light" --> lgate
 
-  subgraph LG["上流1ゲート（記録は requirement）"]
+  subgraph LG["上流1ゲート（記録は requirements）"]
     direction TB
-    lgate["10 requirement<br/>requirement.md / spec.md<br/>plan.md / tasks.md を薄く書く"]
+    lgate["10 requirements<br/>requirements.md / design.md<br/>tasks.md を薄く書く"]
   end
 
   lgate --> lcoding["40 coding"] --> ltest["50 test"] --> lreview["60 review"] --> ldeliver["70 deliver"]
@@ -111,7 +109,7 @@ flowchart LR
   propose["aidev-util-propose<br/>課題提案・split・重複排除<br/>（charter で縛る）"]
   backlog["issue / バックログ"]
   batch["aidev-util-batch<br/>未処理を autonomous で順次処理（L1）"]
-  pipe["aidev-10..70<br/>requirement → … → deliver"]
+  pipe["aidev-10..70<br/>requirements → … → deliver"]
   pr["PR"]
 
   insights --> propose
@@ -247,7 +245,7 @@ flowchart LR
 - **2段階ゲート → 単一3択UX → 4択（段階レビュー追加）**：当初「承認/差し戻し」→「進む/中断」の2段階。
   AskUserQuestion による**単一3択**（承認して次へ / 承認して中断 / 差し戻す）に集約（クリック最小）。
   さらに、ユーザーが md を自力通読する代わりに**主エージェントが成果物を1項目ずつ提示して確認する
-  「段階レビュー」**を4つ目の選択肢として追加（`protocol.md`「3.1」）。walkthrough 工程とは別物
+  「段階レビュー」**を4つ目の選択肢として追加（`protocol.md`「3.1」）。`walkthrough.md`（review の任意成果物）とは別物
   （あちらは deliver 前のコードレビュー補助 md 生成、こちらは任意工程のゲート提示モード）。
 - **番号規約**：skill は **10刻み**（途中挿入に強い）。**末尾0=標準工程 / 末尾5=任意工程**。
   works フォルダは **日付プレフィックス `YYYYMMDD-slug`**（UTC）。当初は単純連番 `001-slug` だったが、
@@ -268,14 +266,15 @@ flowchart LR
 - **重い工程の委譲（指示ベース）**：coding/test/review は任意でサブエージェント委譲可。
   特定ツールに依存させず「委譲する」意図で記述し、各エージェントが自機構で実現（無ければインライン）。
   **承認ゲート・遷移・state はサブに委譲不可＝必ず主エージェント**（サブは対話的承認ができない）。
-- **全成果物にテンプレ/スキーマ**：requirement/spec/plan/tasks/decisions/state を定義済み。
+- **全成果物にテンプレ/スキーマ**：requirements/design/architecture/tasks/decisions/state を定義済み。
   「下敷きにAIが埋める」方式（厳格スキーマ強制まではしていない）。
-- **任意工程は AI検知＋ゲート推奨**：research は requirement 終了時に調査不足を、design は spec 終了時に
-  複雑度を、walkthrough は review 終了時に複雑度を検知し、遷移ゲートで推奨（理由付き）。強制せず却下可。
-  retro はユーザー指定起動。
-- **重い質問深掘り（grilling / `grill-me` 等）は execution mode にせず requirement/spec 内の opt-in に置く**：
+- **任意工程は AI検知＋ゲート推奨**：research は requirements 終了時に調査不足を、architecture は design 終了時に
+  複雑度を検知し、遷移ゲートで推奨（理由付き）。強制せず却下可。retro はユーザー指定起動。
+  **`walkthrough.md`（レビュー補助）は同じ検知の形を取るが工程ではない**——review の任意成果物
+  （`aidev-60-review`「レビュー補助」）。工程だった頃の経緯は「2.」。
+- **重い質問深掘り（grilling / `grill-me` 等）は execution mode にせず requirements/design 内の opt-in に置く**：
   質問の重さ（16〜50問規模）は自律性の軸（`mode`）とは別物。「重い・毎回不要・複雑なときだけ効く」は任意工程と
-  同じプロファイルなので、requirement/spec から **AI推奨で opt-in 起動**する（PJに質問深掘り skill があれば優先、
+  同じプロファイルなので、requirements/design から **AI推奨で opt-in 起動**する（PJに質問深掘り skill があれば優先、
   無ければ同等の質問をインライン＝PJ資産優先）。**autonomous は対話前提のため基本スキップ**。標準skillに役割で
   参照し特定skillへハード依存しない（移植性）。metrics/state に乗せたくなれば末尾5の任意工程へ昇格する余地は残す。
 - **バッチ駆動（`aidev-util-batch`・非番号ユーティリティ）**：バックログ（チェックリスト）の未処理を
@@ -289,9 +288,9 @@ flowchart LR
   自己給餌ループ: `insights/retro → aidev-util-propose → aidev-util-batch → PR`（両端に人間ゲート）。
 - **実行モード（interactive / autonomous）**：autonomous は「夜セット→朝PR」型。思想は
   **「ゲートを消す」でなく「ゲートを PR（最終レビュー）に集約し、自己チェックを固くする」**。
-  人間ゲートは前（タスク指示=requirement）と後（PRレビュー）に移動し、ループ内からは外す。
-  受け入れるのは主に「方向/spec 誤りの手戻り」（機械的誤りは夜間の self-correction で潰れる）。
-  `humanGates`（例 [spec]）で高レバレッジ工程だけ人間を残す**部分自律**が実用的。
+  人間ゲートは前（タスク指示=requirements）と後（PRレビュー）に移動し、ループ内からは外す。
+  受け入れるのは主に「方向/design 誤りの手戻り」（機械的誤りは夜間の self-correction で潰れる）。
+  `humanGates`（例 [design]）で高レバレッジ工程だけ人間を残す**部分自律**が実用的。
   安全弁必須（test硬ゲート・ループ/予算上限・PRで停止/auto-merge禁止・証跡保存）。
   実行手段（headless/スケジュール）は harness とは別レイヤ。
 
@@ -310,21 +309,21 @@ flowchart LR
   （フィールドの有無自体がバージョンマーカーになる）。詳細は `protocol.md`「11.」。
 
 - **light は「文書を1枚に畳む」のではなく「ゲートを1回に畳む」**：当初は上流3工程を統合した
-  1文書（`brief.md`）案を検討したが、**guard が要求するファイル**（`coding`→plan.md/tasks.md、
-  `review`→spec.md）を満たすために空スタブが2つ必要になり、退けた。理由は3つ。
+  1文書（`brief.md`）案を検討したが、**guard が要求するファイル**（`coding`→tasks.md、
+  `review`→design.md）を満たすために空スタブが2つ必要になり、退けた。理由は3つ。
   (1) 中身のないファイルでゲートを通すのは「欠落は欠落として残す・捏造して埋めない」（`protocol.md`「8.」）
-  という本ハーネスの思想と正面から衝突し、`verify` が「spec.md あり」と誤判定する。
-  (2) **`plan.md` スタブは有害**——test 工程は `plan.md` から「テスト方針」を読む（`aidev-50-test`）ため、
-  空にすると test が検証対象を失う。つまり plan.md には light でも書くべき中身が最初から存在する。
+  という本ハーネスの思想と正面から衝突し、`verify` が「design.md あり」と誤判定する。
+  (2) **`tasks.md` スタブは有害**——test 工程は `tasks.md` から「テスト方針」を読む（`aidev-50-test`）ため、
+  空にすると test が検証対象を失う。つまり tasks.md には light でも書くべき中身が最初から存在する。
   (3) 昇格（light→full）時に `brief.md` が古い記述の残った第3の文書＝孤児になる。
-  結論として **4文書を薄く（必須節のサブセットで）書き、承認を1ゲートにまとめる**形にした。
+  結論として **3文書を薄く（必須節のサブセットで）書き、承認を1ゲートにまとめる**形にした。
   これでスタブ0個・下流 skill の分岐0箇所・新しい成果物名0個・`need_file` の CLI 変更0で成立する。
 
-- **light の上流ゲートは `requirement` として記録する**：`plan` や `spec` として記録する案は guard と
-  衝突する（`plan`→`spec.md`、`spec`→`requirement.md` を要求するため、**まだ書いていない時点で
-  guard を叩くと NG**）。`requirement` は前提を持たない唯一の上流工程で、意味的にも統合文書の主節が
+- **light の上流ゲートは `requirements` として記録する**：`tasks` や `design` として記録する案は guard と
+  衝突する（`tasks`→`design.md`、`design`→`requirements.md` を要求するため、**まだ書いていない時点で
+  guard を叩くと NG**）。`requirements` は前提を持たない唯一の上流工程で、意味的にも統合文書の主節が
   「何を・なぜ」なので自然。3件を同一 ts で記録する案は、工程別所要時間が失われるため退けた
-  （`protocol.md`「8.」）。副作用として **`spec` / `plan` の start が無いこと自体が light の指紋**になる。
+  （`protocol.md`「8.」）。副作用として **`design` / `tasks` の start が無いこと自体が light の指紋**になる。
 
 - **昇格（light→full）は片方向で CLI 経路に集約**：`aidev escalate` を足した。`state.yml` の手編集を
   許すと「どの work がいつ昇格したか」が state だけ見て分からなくなり、この CLI の役割定義
@@ -337,11 +336,11 @@ flowchart LR
   下限を決めないと、中身のない成果物と機械的な承認が量産され（＝「形だけ通す」）、ハーネスへの信頼が
   最も速く壊れる。light を作るとき同時に決めるべきは「どこから使うか」ではなく「**どこまで使わないか**」。
 
-- **requirement にユーザーストーリーを入れ、受け入れ基準は `完了条件` に一元化する**：従来は
+- **requirements にユーザーストーリーを入れ、受け入れ基準は `完了条件` に一元化する**：従来は
   「対象ユーザー／利用シーン」をヒアリング観点に持ちながら**テンプレートに書く節が無く**、聞いた情報が
   落ちていた。ストーリー節を新設して行き先を作った。基準をストーリー側に書き写す案は二重管理に
   なるため退け、**`完了条件` を単一の真実にして `AC` の ID でストーリーから参照する**形にした
-  （spec の「受け入れ基準との対応」と test が読む先は従来どおり `完了条件`＝下流の変更が要らない）。
+  （design の「受け入れ基準との対応」と test が読む先は従来どおり `完了条件`＝下流の変更が要らない）。
   - **「誰」は end user に限らない**（開発者・AI エージェント・CI も actor）。このリポジトリの作業は
     ハーネス自体の改修が多く actor が自明だが、**load-bearing なのは「なぜなら（価値）」の節**なので
     形式は空転しない。actor が自明でも価値の記述は省かない、と明記した。
@@ -349,9 +348,9 @@ flowchart LR
     「◯◯を実装する」＝手段を書かない）。review に「価値適合」観点を足し、
     **基準を満たしても価値に繋がっていない実装**を拾えるようにした。
 
-- **charter をパイプライン本体（requirement）にも読ませる**：`charter.md` は
+- **charter をパイプライン本体（requirements）にも読ませる**：`charter.md` は
   `aidev-util-propose` 専用で、**PJ のゴールと個々の work のゴールが繋がっていなかった**。
-  requirement で「この work がどの charter ゴールに紐づくか」を1行書かせる。
+  requirements で「この work がどの charter ゴールに紐づくか」を1行書かせる。
   実効性を持たせるため**任意参照ではなく「あれば必須、無ければ不要」**とし、
   **どの charter ゴールにも紐づかない場合は黙って進めず確認する**（charter の更新が必要か、
   そもそもこの work をやるべきでないかのどちらか）。`charter.md` が無い PJ では作成を催促しない
@@ -370,7 +369,7 @@ flowchart LR
   - 訂正後: **機械的な予防は Stop フック**（判定は `verify --strict`）が担い、`/goal` は
     「ユーザーが任意で、記録以外の完了条件を置きたいとき」の補助に格下げした。工程を移るたびに
     更新が要る手間もあるため、常用には向かない。
-  - **`requirement.md` の `目的 / ゴール` とは別物**（あちらは永続する成果物、`/goal` はセッション内の
+  - **`requirements.md` の `目的 / ゴール` とは別物**（あちらは永続する成果物、`/goal` はセッション内の
     揮発的ガード）。work のゴールを `/goal` に入れても停止条件として粗すぎて機能しない。`protocol.md`「3.2」。
 
 - **metrics のキーを増やす基準を3条件に定め、トークン消費は記録しないと決めた**：記録コストは
@@ -408,7 +407,7 @@ flowchart LR
   分母を `tasks_done` ではなく `task_checks` にしたのは、点検しなかったタスクを分母に入れると
   **発火条件の良し悪しが指標から消える**ため。指摘の**内容**は `review.md` の専用節に置き、
   件数は metrics に置いた（同じ数を2箇所に書かない）。
-- **タスクの依存を構造化し、ウェーブは導出にした（`aidev-30-plan` / `protocol.md`「2.6」）**：出所は cc-sdd の
+- **タスクの依存を構造化し、ウェーブは導出にした（`aidev-30-tasks` / `protocol.md`「2.6」）**：出所は cc-sdd の
   tasks.md（`P0` / `P1` のウェーブラベル＋依存注釈）。**ラベルは取り込まず、`依存:` 行だけを取り込んだ**。
   - **ウェーブは依存から一意に決まる**（依存を満たした未完タスクの集合）。ラベルを併記すれば**依存との
     二重管理**になり、片方だけ直された瞬間に嘘になる。「本文の在処は常に1箇所」（「12.」の移送規約）と同じ判断。
@@ -422,10 +421,10 @@ flowchart LR
   - 三層が別物であることに注意する。**ウェーブ**＝1 work・1 PR 内のタスク並行、**subtask**（「2.8」）＝1 PR 内の
     漸進実装単位、**worktree**（「2.7」）＝work 単位の並行。粒度も分割の理由も違う。
 - **成果物の独立検証を「工程内の任意ステップ＋ゲートの条件付き選択肢」として入れた**：従来、
-  委譲（「2.6」）は**書く側の負荷分散**にしか使っておらず（research の調査、design の検討、
+  委譲（「2.6」）は**書く側の負荷分散**にしか使っておらず（research の調査、architecture の検討、
   coding/test の実処理）、**書いたものを別コンテキストに検証させる経路が無かった**。
   中身の妥当性を見るのは人間（承認ゲート・段階レビュー）と次工程だけで、`verify` はファイルの
-  有無と不変条件しか見ない。手戻りの最大の源が「方向 / spec 誤り」である以上、
+  有無と不変条件しか見ない。手戻りの最大の源が「方向 / design 誤り」である以上、
   **書いた本人と同じコンテキストからは見えない穴**を埋める層に価値がある。`protocol.md`「3.3」(a)。
   - **ゲートの選択肢は 4 つが上限**（`AskUserQuestion` の制約）で、既に埋まっていた
     （次工程へ / 中断 / 差し戻す / 段階レビュー）。そこで**5 つ目を足すのではなく、上流工程では
@@ -464,11 +463,11 @@ flowchart LR
   適用の可否は「二重ゲートに見合う利得があるか」で決めた。
   - **使う**: (1) `aidev-00-start` の三層判定——影響範囲の調査が必要で、**この時点で aidev のゲートが
     まだ無い＝二重ゲートにならない**ため最も素直に効く。解除後 `aidev new` へ引き渡す。
-    (2) spec / design——有力案が複数あるとき、**文書を書く前に方針の
+    (2) design / architecture——有力案が複数あるとき、**文書を書く前に方針の
     合意が取れる**。承認の対象が「方針」と「文書」で異なるので二重ゲートを許容する。
     (3) ハーネス自体の改修（aidev の対象作業ではない）。
   - **使わない**: research（`ExitPlanMode` が「調査・理解では使うな」と定義。`EnterPlanMode` も純粋な
-    調査は Agent へ回すよう指示＝「2.6」の委譲が既にそれ）／**plan（成果物が完全に重複＝計画を
+    調査は Agent へ回すよう指示＝「2.6」の委譲が既にそれ）／**tasks（成果物が完全に重複＝計画を
     二度書く）**／coding（`tasks.md` が承認済みの計画そのもの。方針変更は差し戻しを使う——差し戻しは
     metrics に残り、plan モードは残らない）／test・review・deliver・retro（実装計画ではない）／
     `profile: light`（承認の往復を減らす趣旨に反する）／承認者のいない工程（`ExitPlanMode` は人間の承認が前提）。
@@ -478,17 +477,97 @@ flowchart LR
     成果物を見出し節ごとに承認するもので、plan モードとは併用しない。
   - **基準を書かずに結論だけ並べたので、2 工程が導出されないまま残った**（2026-09-06 に発覚）。
     ここに「二重ゲートに見合うか」と書いておきながら、実行時文書（`protocol-autonomous.md`）には
-    工程ごとの可否だけを列挙したため、**11 工程のうち requirement と walkthrough が
+    工程ごとの可否だけを列挙したため、**11 工程のうち requirements と walkthrough が
     どちらのリストにも無かった**。さらに `test`・`review`・`deliver`・`retro` の除外理由が
     「実装計画ではない」になっており、**論点がずれていた**——plan モードで禁じられるのは
     Write / Edit だけで、読み取りも `AskUserQuestion` による対話も動く（SDK ドキュメント:
-    「Claude may use `AskUserQuestion` to clarify requirements before finalizing the plan」）。
+    「Claude may use `AskUserQuestion` to clarify requirements before finalizing the tasks」）。
     「実装計画かどうか」は可否の理由にならない。
-    正しい導出は「**plan モードで承認するものが、aidev のゲートが承認するものと違うか**」で、
-    requirement / plan / test / review / walkthrough / deliver / retro は**成果物がその工程の
+    当時そう考えた導出は「plan モードで承認するものが、aidev のゲートが承認するものと違うか」で、
+    requirements / tasks / test / review / walkthrough / deliver / retro は**成果物がその工程の
     判断そのもの**なのでゲートと同じものを承認することになり、二重になる。
     **結論は変わらないが、理由が変わると次に工程が増えたときの判断が変わる**ので実行時文書に基準を置いた。
     教訓は「**列挙は基準の代わりにならない**」——列挙は網羅を検査できないが、基準は導出できる。
+  - **その基準にも前提が 1 つ書かれていなかった**（2026-09-06・外部レビュー）。
+    「同じものを承認するなら二重だから入らない」という結論は、**既存のゲートが機械で止まること**
+    （`guard` の exit code と承認記録）を前提にしている。**止まらないゲートしか無い工程・環境では、
+    plan モードは二重化ではなくゲートの実体化**で、同じ基準から逆の結論が出る。
+    「2.10」が CLI 無しの環境を「手で同等に」と認めている以上、これは移植先の話ではなく
+    **ハーネス自身の想定範囲の内側**で起きる。前提を本文に足した。
+    - **この規約には lint を作れない**。前提の欠落は文面の整合では捕まらないので、
+      L9 のような検査は原理的に書けない。**検査できないものを検査できるふりで置かない**
+      （`--mutations` の自己申告や mtime によるまたがり代用を退けたのと同じ態度）ので、
+      代わりに**いつ読み直すか**——移植のとき、承認ゲートの無い工程を足すとき——を本文に書いた。
+      **「検査が無い」と明示すること自体が、この規約の担保**になる。
+    - 型としては「結論は同じだが理由が違う」の 1 段外側。理由が違うと次の工程で判断が変わるが、
+      **前提が書かれていないと、前提が崩れたときに基準が黙って誤答する**。
+  - **工程の可否を 2 回続けて間違えた（2026-09-06）。原因はどちらも同じ——
+    手元にツール定義があるのに読まず、分類を発明したこと。**
+    - 1 回目: `requirements` の除外理由を「方針と成果物が分離できない」と書いた。
+      これは **`design` / `architecture` にもそのまま当てはまり、区別になっていない**——
+      基準から導いたふりをした後付けのラベルだった。
+    - 2 回目: そこで「**行動計画 vs 仕様**」という分類を作り、`tasks` を外した。**これも逆**。
+      `ExitPlanMode` の定義が「planning the **implementation steps**」なので、
+      **`tasks` 工程と種類が同じことは除外の理由ではなく最も適合する証拠**だった。
+    - 3 回目: 「**入力に既存コードが入る工程**」という物差しを作り、`requirements` を外した。
+      **これも外した**——実走が各 SKILL の「## 入力」節を突き合わせ、`tasks` にはコードが
+      **入っておらず**、`test` / `review` / `walkthrough` / `research` には**入っている**ことを
+      実測した。物差しどおりに当てると**集合が反転する**。
+    - 4 回目: `EnterPlanMode` の WHEN TO USE（「方向が複数あって選び損なうと無駄か」）に据えた。
+      **これも外した**——`EnterPlanMode` は**入口**の話で、**承認を出すのは `ExitPlanMode` だけ**。
+      出口の制約を見ていなかったので `requirements` が入り、`research` は特例で外すことになっていた。
+    - **正解は `ExitPlanMode` の用途規定**——「Only use this tool when the task requires
+      **planning the implementation steps** of a task that requires writing code.
+      For **research** tasks where you're **gathering information** … do NOT use this tool.」
+      基準は「**その工程の成果物が、これから書くコードの実装計画か**」。
+      design / architecture / tasks は ○、`requirements`（何を・なぜ）は ×、**`research` も基準内で落ちる**
+      （特例が 1 つ消える）。**入口ではなく出口で決まる**——承認が取れない道具は使えない。
+    - **なぜ 4 回も外したか**——`requirements` を入れるか外すかで 3 往復した根因は
+      **`design` という名前**にあった。aidev の `design` は「どう作るか」だが、
+      **GitHub Spec Kit の `spec.md` は「requirements and user stories」＝要件**で、
+      aidev の `requirements` に当たる（Spec Kit の `plan.md`＝aidev の `design`、
+      Spec Kit の `tasks.md`＝aidev の `tasks`。Kiro は `requirements.md` / `design.md` / `tasks.md` で、
+      Kiro の `design.md` は aidev の `design`＋`architecture` の両方を1枚で担う）。
+      **他ツールの語感で読むと「requirements も design も同じ側」に見える**。
+      **2026-09-06 に改名した**（既存 work の移行はしない、という判断つき）——
+      `requirement`→`requirements` / `spec`→**`design`** / 旧 `design`→**`architecture`** /
+      `plan`→**`tasks`**。併せて `plan.md` を `tasks.md` に統合した（Kiro も Spec Kit も
+      tasks は 1 ファイル。CLI は旧 `plan.md` の**中身を一度も読んでいなかった**＝存在確認だけ）。
+    - **改名で機械的な置換が 2 種類の穴を作った**（テストが両方捕まえた。記録として残す）:
+      (1) **正規表現リテラルの中の工程名**——`PMHEAD='plan ?モード|…'` の `plan` が `tasks` に
+      化け、**L9 の見出し検出が丸ごと死んだ**（保護パターン `[Pp]lan ?モード` は正規表現の
+      `?` を「省略可」と解釈するのでリテラルの `?` に当たらない）。
+      (2) **工程名に日本語が隣接する箇所**——Python の `\b` は日本語を語構成文字とみなすので、
+      `plan承認済` `requirement承認済` が置換されなかった。
+      **どちらも「置換したつもり」で静かに壊れる**型。改名は必ずテストで受けること。
+    - **参考（採らなかった）**: `EnterPlanMode` の WHEN TO USE を根拠にした版は残さない——
+      入口は広く（「Unclear Requirements」まで含む）、**出口はそれより狭い**ので、
+      入口だけを見ると承認の取れない工程が入る。
+    - **書く順序も決めた**: `ExitPlanMode` は計画の内容を引数に取らず、**先に書いた plan file から読む**。
+      **探索 → plan file → 承認 → 抜ける → 成果物に清書**。成果物を先に書いてから入ると
+      plan file が写しになる——それが「計画を二度書く」の正体で、順序を決めれば起きない。
+    - **教訓**: **道具の可否を決める前に、その道具の定義を読む。しかも入口と出口の両方を。**
+      4 回とも手元に定義があるのに、読まずに分類を作るか、片方だけ読んだ。
+    - `research` の一次根拠は `ExitPlanMode` 側（「gathering information … do NOT use」）へ移した。
+      `EnterPlanMode` の WHEN NOT TO USE を根拠にしていた版は残さない——入口と出口で範囲が違う。
+  - **`walkthrough` を工程から外し、`review` の任意成果物にした**（2026-09-06）。
+    - **判定基準は「作業段階か、成果物の形式か」**。walkthrough がやっていたのは
+      「差分の読み方をレビュアーに説明する md を書く」だけで、**前工程と後工程の間に
+      新しい状態を作らない**。工程の定義（成果物と承認者を持つ作業単位）のうち
+      **承認者の側が空**で、遷移ゲートは「やる/やらない」を尋ねるためだけに 1 つ消えていた。
+    - **同じ判断が 3 箇所に散っていた**——`protocol.md`「4.5」に要否の 3 条件、
+      `aidev-60-review` に推奨判定、工程 skill 自身に検知ロジック。分類 A の温床で、
+      実際にこの型で 2 回食い違っている（lint の冒頭コメント参照）。正典を
+      `aidev-60-review`「レビュー補助」1 箇所に畳んだ。
+    - **`walkthrough.md` は残す**。deliver が PR 本文の `## レビューガイド` 節に要約する経路も
+      そのまま。**消したのは工程であって成果物ではない**——ここを混同すると deliver が壊れる。
+    - **統合レビュー工程（`integration-review` 等）は作らなかった**（同日の検討）。
+      分割 work では**親の `test` が統合テスト、親の `review` が統合レビュー**で、
+      `guard test` が「全 subtask が review 承認済み」を機械で要求している
+      （`protocol-subtask.md`）。足りないのは工程ではなく**分量**（統合固有の観点が
+      箇条書き 1 行）だったので、工程数・guard・dispatch・doccheck・verify・metrics の
+      6 面を増やす選択は採らない。**`test` だけ工程を増やさず `review` だけ増やすと
+      対称性が壊れる**、という点も決め手になった。
   - **「工程の間だけ plan モードにして、終わったら戻す」は作れない**（2026-09-06 に裏取り）。
     - **ハーネス側から切り替える口が無い**: フックの JSON 出力にモードを変える項目は無く、
       `PermissionModeChange` 系のイベントも無い（要望 anthropics/claude-code#31579・#14044 は未実装）。
@@ -500,7 +579,7 @@ flowchart LR
       ここが「散文で書けるか」と「散文どおりに機械が動くか」の境目で、分類 G と同じ形。
     - **戻り先は選べない**: 公式ドキュメントいわく「承認は plan モードを抜け、**承認オプションが
       指すモードへセッションを切り替える**」。直前のモードは復元されない。
-    - 従って「使ってよい」ではなく**「この条件のときは入れ」**と書き、`aidev guard spec|design` が
+    - 従って「使ってよい」ではなく**「この条件のときは入れ」**と書き、`aidev guard design|architecture` が
       該当条件のときだけ促す。**条件の判定は CLI に置く**（「2.5」の規範どおり——
       散文だけに置くと、`light` や `autonomous` で勧めてしまう事故を機械が止められない）。
     - **「plan モード」は製品固有名ではない**ので、`Stop` フックや `AskUserQuestion` と違い
@@ -532,23 +611,23 @@ flowchart LR
 **外部 SDD 実装から取り込んだ層**。spec-kit の `/analyze` は
 `Coverage % (requirements with >=1 task)` を出し、cc-sdd は失敗テストの生出力（`RED_PHASE_OUTPUT`）と
 サブエージェント返答の**厳格なパース**を持っていた。aidev にはどれも無く、
-`aidev-30-plan` の完了の目安「spec の全範囲が tasks に漏れなく落ちている」も、
+`aidev-30-tasks` の完了の目安「design の全範囲が tasks に漏れなく落ちている」も、
 「存在しないタスク ID を指していない・循環していない」も、**散文の第一層に置いたまま**だった。
 どちらも機械的に判定できる性質なので、第二層（CLI）へ上げた（「2.6」の三層モデルに沿った移動）。
 
 - **対応付けの正典は `tasks.md` の `AC:` 継続行**。`対象:` `依存:` と同じ「1か所に構造化して書く」形に
-  揃えた。**AC の本文は `requirement.md` にしか置かない**——ここは ID を参照するだけなので、
+  揃えた。**AC の本文は `requirements.md` にしか置かない**——ここは ID を参照するだけなので、
   「本文の在処は常に1箇所」を破らない。
   - **退けた案**: タスクの本文から `AC1` 等の言及を拾う（新しい欄を作らない）。書式を強制できないため
     「たまたま文中に AC1 と書いた」を対応と誤認し、逆に対応があっても文中に ID が無ければ落ちる。
     **検出器が書き手の気分で変わる指標は、条項の効果測定でまさに失敗した形**（「12.」）。
 - **gap を `struct` と `cover` に分ける**。前者（未定義参照・循環）は機械的に誤りなので `verify` で **FAIL**、
-  後者（被覆の穴）は**人の判断が要る**ので **WARN**。硬いゲートは plan の承認前に打つ
-  `aidev coverage --strict`（exit 4）に置いた——**穴を潰す場所は plan であって deliver ではない**。
+  後者（被覆の穴）は**人の判断が要る**ので **WARN**。硬いゲートは tasks の承認前に打つ
+  `aidev coverage --strict`（exit 4）に置いた——**穴を潰す場所は tasks であって deliver ではない**。
   deliver 直前に硬くすると、直す手段が「タスクを足して工程を巻き戻す」しか無くなる。
 - **`aidev coverage` は追記しない**（spec-kit の `/converge` が tasks.md へ追記するのとは違う）。
-  同じ入力から毎回同じ表を出す純粋な読み取りにしてあるので、plan と review で 2 回打って
-  **数字の差分を「spec と実装の乖離」として読める**。追記式にすると、乖離の記録自体が入力を汚す。
+  同じ入力から毎回同じ表を出す純粋な読み取りにしてあるので、tasks と review で 2 回打って
+  **数字の差分を「design と実装の乖離」として読める**。追記式にすると、乖離の記録自体が入力を汚す。
 - **`test-result.md` の実在検査と「失敗の証跡」**（cc-sdd の `RED_PHASE_OUTPUT` 相当）。
   名前を固定しておきながら実在を検査していなかったので、`schema 6` の FAIL に足した。
   生出力の有無は WARN——**質は測れないが不在は測れる**ので、測れる方だけを機械化した。
@@ -578,26 +657,26 @@ flowchart LR
 `T1` に潰して**正しく書かれた依存を「壊れた参照」に変えて FAIL** させていた。
 `AC` は直後が数字か `-`、`T` は直後が数字で以降は英数と `-` `_`、に締めた。
 
-**被覆は work 全体（親＋全 subtask）で見る**——subtask は親の `requirement.md` を継承するので、
+**被覆は work 全体（親＋全 subtask）で見る**——subtask は親の `requirements.md` を継承するので、
 子1本の slice だけで測ると**兄弟が担当する `AC` が必ず「タスクが無い」になる**。しかも
-`aidev-30-plan` が示す解消手段（対象外へ移す）は兄弟の担当ぶんには使えないので、**誰にも直せない
+`aidev-30-tasks` が示す解消手段（対象外へ移す）は兄弟の担当ぶんには使えないので、**誰にも直せない
 WARN が分割 work のあいだ恒久的に出続ける**（「12.」の straddle で退けたのと同じ形）。
 着地するのが親1本の PR である以上、被覆の単位も親1本に揃えるのが正しい。
 一方 `依存:` の整合は各 `tasks.md` の中で閉じるので、そちらはファイル単位のまま。
-plan 未実施の subtask が残っている間 cover を致命にしないのは、**最初の子の plan が
+tasks 未実施の subtask が残っている間 cover を致命にしないのは、**最初の子の tasks が
 兄弟の担当ぶんまで背負って通らなくなる**ため。
 
 **被覆を metrics に流すときの判断**——`aidev coverage` は読み取り専用の派生値なので、原理的には
 いつでも再計算できる。それでも `approve` が刻むのは、**`tasks.md` が時間とともに変わる**からで、
-「plan で決めた被覆」と「review 時点の被覆」の差＝乖離は、**その2点を当時の値で残さないと後から作れない**。
+「tasks で決めた被覆」と「review 時点の被覆」の差＝乖離は、**その2点を当時の値で残さないと後から作れない**。
 逆に言えば刻むのはこの2点だけでよく、coding など間の工程では刻まない（量が増えるだけで新しい情報が無い）。
 
 - **刻むのは CLI で、手書きの `key=value` に任せない**。`harnessRev` と `schema` を `new` に一本化したのと
   同じ理由——手書きの値は忘れられ、忘れられた work は静かに母集団から漏れる。値は
-  `requirement.md` と `tasks.md` から機械的に出せるので、手書きにする理由が無い。
+  `requirements.md` と `tasks.md` から機械的に出せるので、手書きにする理由が無い。
 - **`ac_total` は「要求側の規模」の分母**。これまで分母は実装側（`files_changed`）と分解側
   （`tasks_planned`）しか無く、`lead_sec` や `reworks` を**要求の大きさで正規化できなかった**。
-- **被覆率そのものを KPI にしない**（`protocol-analysis.md` に明記した）。plan の承認前ゲートで
+- **被覆率そのものを KPI にしない**（`protocol-analysis.md` に明記した）。tasks の承認前ゲートで
   100% が強制されるので値は常に張り付き、**動くのはゲートを迂回したときだけ**。率を目標にすると
   「率を守るために `AC` を書かない」＝分母を減らす方向に力がかかる。これは条項の効果測定で
   一度踏んだ罠（「12.」の「検出器と発生率を分離する」）と同じ形なので、指標としては**差分**
@@ -689,14 +768,17 @@ aidev はループの上限を2つ持っていた（`maxSendBacks` 既定 3・`m
 **分類（`--category`）は cc-sdd の8種をそのまま持ち込まず、7種に組み替えた**。本家の分類は
 `NATIVE_ABI` / `MODULE_FORMAT` のように JS/Electron 寄りで、aidev は言語非依存だから。
 残したのは分類の**目的**——「リポジトリ内の編集で直るか」を判定すること。
-`spec_conflict`（上流へ戻す）と `external`（人の判断が要る）を `retry` にしないのがその判定にあたる。
+`upstream_conflict`（上流へ戻す）と `external`（人の判断が要る）を `retry` にしないのがその判定にあたる。
+**`spec_conflict` から改名した**（2026-09-06）——工程の改名で `spec` が退役したのに分類名だけ残り、
+旧分類名が何を指すのか読めなくなっていた。戻す先は `requirements.md` と `design.md` の**両方**なので、
+`design_conflict` ではなく定義文（「上流へ戻す必要がある」）どおりの語にした。
 
 ## 2.5 タスク管理モデル（works = 実行の正 / backlog = 遅延キュー）
 
 タスクの「管理」がどこに乗るかを、レイヤで分けて捉える（設計の世界観の記録）。
 
 - **実行層 = `works/<slug>/state.yml`（基盤・常在）**：着手した作業の唯一の source of truth。
-  `aidev-00-start` の「新規 requirement」直接フローは backlog なしで完結する**原初フロー**で、常に第一級
+  `aidev-00-start` の「新規 requirements」直接フローは backlog なしで完結する**原初フロー**で、常に第一級
   （backlog 未導入時はこれだけで運用していた）。
 - **intake 層 = backlog（任意・後付け・ローカル既定）**：**遅延／連続実行のためのキュー**。
   抽象的な役割は「autonomous ループが pop する未着手キュー」で、実体はローカル `.aidev/backlog/*.md` でも
@@ -820,7 +902,7 @@ works/ ノイズや「なめる state.yml が無い」問題は status フィル
   ファイル・同じ抽象に触るか」で決まるが、それは着手前には読み切れない。機械が並列化を提案すると、
   **衝突を作った当人が衝突に気づけない**構図になる（提案の根拠が「作業が溜まっている」でしかないため）。
   そこで **`worktree add` の明示実行だけをトリガ**にし、`aidev-00-start` は選択肢として並べるが
-  **推奨しない**。他の任意工程（research/design/walkthrough）が「AI 検知＋推奨」なのと**あえて逆**
+  **推奨しない**。他の任意工程（research/architecture）が「AI 検知＋推奨」なのと**あえて逆**
   にしてある——あちらは外しても手戻りで済むが、こちらは並行させた後で衝突が判明しても巻き戻せない。
 - **`.aidev/current` が worktree ローカルである性質に乗る（INV-1）**：`current` は `.gitignore` 対象＝
   未追跡なので、各 worktree が独立した `current` を持つ。**この一点で「worktree ごとの現在地」が
@@ -897,11 +979,11 @@ works/ ノイズや「なめる state.yml が無い」問題は status フィル
   **検出器が書き手の気分で変わる指標**は、条項の効果測定で一度失敗した形そのもの（「12.」）。
   → `tasks.md` に `AC:` 欄を設け、`対象:` `依存:` と同じ構造化された行にした。
 - **被覆の穴を `verify`（deliver 前）で FAIL にする**：一見「最後の砦」で守れるが、その時点で
-  直す手段は「タスクを足して工程を巻き戻す」しか無い。**穴を潰す場所は plan**。
-  → plan の承認前に打つ `aidev coverage --strict` を硬ゲートにし、`verify` 側は WARN に留めた
+  直す手段は「タスクを足して工程を巻き戻す」しか無い。**穴を潰す場所は tasks**。
+  → tasks の承認前に打つ `aidev coverage --strict` を硬ゲートにし、`verify` 側は WARN に留めた
   （参照の壊れだけは機械的な誤りなので `verify` でも FAIL）。
 - **`aidev coverage` の結果を `tasks.md` に追記する（spec-kit の `/converge` 相当）**：乖離の記録が
-  次回の入力を汚し、2 回目以降の差分が読めなくなる。→ **純粋な読み取り**にして、plan と review で
+  次回の入力を汚し、2 回目以降の差分が読めなくなる。→ **純粋な読み取り**にして、tasks と review で
   2 回打った数字の差分を乖離として読む形にした。
 - **タスク点検の指摘を review のラウンド指摘に混ぜる**：件数指標が1本にまとまって楽に見えるが、
   **母集団が違う**（点検で潰れた欠陥は工程に到達していない）。混ぜると再発パターンの分母が壊れ、
@@ -921,7 +1003,7 @@ works/ ノイズや「なめる state.yml が無い」問題は status フィル
 | **D. 予算の無い増加** | 実行時に読む量は全 work のコストなのに誰も数えていなかった | **L6**。数を書き換えるコミットでしか増やせない |
 | **E. 実行環境の差** | `awk -v` のエスケープ差で **57 件**、POSIX 文字クラスのロケール依存で 2 件、`smoke` の実行シェル差で 1 件。**開発機（mawk・Linux）でもサブエージェントでも原理的に見えない** | **CI のみ**（ubuntu=gawk / windows=cmd.exe・PowerShell 5.1）。加えて `run.sh` が使える awk 実装 × ロケールを突き合わせ、実装が1つなら skip として未検証を申告する |
 | **F. 検証側の欠陥** | テストヘルパ自身が command substitution でサブシェルになり結果が届かない、schema 7/8 の version-aware にテストが無い | 回帰テストの追加のみ（自動化していない。**残る穴**） |
-| **G. 散文にしか無い規約** | 規約は書いてあるが CLI がその経路を一度も通らない。`profile: light` は `spec`/`plan` を approve しないので、承認を条件にした成果物実在検査が **light では構造的に一度も走らず**、`requirement.md` だけの light work が `verify OK` で着地できていた。同型で、`unapprove` が刻む `sent_back` を差し戻し回数と同一視していたため、**規約どおり打った work だけ**数が 3 倍になり、一度も失敗していない工程が `maxSendBacks` の予算を使い切っていた | **実走（フロー実行エージェント）のみ**。lint も CI も「書いてあることの整合」しか見ないので、**書いてある規約が実際に発火するか**は誰も見ていなかった。見つけた分は schema 9 の検査と `by: unapprove` の刻印として第二層へ移した |
+| **G. 散文にしか無い規約** | 規約は書いてあるが CLI がその経路を一度も通らない。`profile: light` は `design`/`tasks` を approve しないので、承認を条件にした成果物実在検査が **light では構造的に一度も走らず**、`requirements.md` だけの light work が `verify OK` で着地できていた。同型で、`unapprove` が刻む `sent_back` を差し戻し回数と同一視していたため、**規約どおり打った work だけ**数が 3 倍になり、一度も失敗していない工程が `maxSendBacks` の予算を使い切っていた | **実走（フロー実行エージェント）のみ**。lint も CI も「書いてあることの整合」しか見ないので、**書いてある規約が実際に発火するか**は誰も見ていなかった。見つけた分は schema 9 の検査と `by: unapprove` の刻印として第二層へ移した |
 
 **なぜ第二層（lint）に上げたか**: A と B は「気をつける」と散文に書いても、そのたびに片側だけ
 更新されてきた。同じ失敗を3回してから機械に渡したので、**この判断自体が「上限は回数を止めるだけで
@@ -1007,7 +1089,7 @@ WARN 止まりで、機械ゲート（`--strict`）でだけ止まる。
 
 **プロトコル内部の非対称（G の別の顔）**: 同じ retro が、`coding` は `autonomous` なら
 全タスクの差分点検が必須なのに、上流4工程の独立検証は「使わない場面: `autonomous` のゲート経路」
-に入っていた、と指摘してきた。**同じ文書が「手戻りの最大の源は方向 / spec 誤り＝上流で最も効く」と
+に入っていた、と指摘してきた。**同じ文書が「手戻りの最大の源は方向 / design 誤り＝上流で最も効く」と
 書いているのに、優先順位が逆**という自己矛盾。しかも 4 つ目のゲートは「条件付きで差し替えてよい」＝
 **AI が差し替えを提案しなければ選択肢に現れない**ので、書いた本人が「点検は要らない」と判断する
 構造になっていた。`maxTaskCheckRounds` と同じで、**規約はあるのに観測点が無い**。
@@ -1067,16 +1149,36 @@ git が無い環境では検査を省く（判定できないものを FAIL に�
 **この 3 つは順序が決まっている**: 3（実走）が 1（文書のずれ）を見つけるので、実走を最後に回すと
 文書の直しがもう一巡する。**実走を先に、直しを後に**。
 
+### 3 ゲートの外にある穴: 環境不足の skip は「緑」に見える
+
+**`aidev.ps1` が構文エラーで 1 行も動かない状態で、テストが `pass=700 fail=0` を出した**
+（2026-09-06。walkthrough 降格の回に実測）。pwsh が無い環境では ps1 関連 270 件が丸ごと
+`skip` になり、**構文エラーすら検査対象にならない**。3 ゲートはどれもこれを見ない
+——lint は文書と CLI 表面の整合、実走は sh だけを歩く、README は人が読む。
+
+- **skip は 0 件でない限り「未検証」であって「合格」ではない**。件数を出しているのは
+  そのためだが、**出しているだけでは読まれない**（現に自分で読み飛ばした）。
+- そこで `run.sh` の NOTE に**「`aidev.ps1` を触ったなら pwsh 無しの緑を信用しない」**を
+  名指しで書いた。skip の可視化を「数」から「次に何をすべきか」へ変える、という
+  `guard` の promptと同じ手当て。
+- **CI は pwsh を持つ**ので最終的には捕まる。だが**着地の判断を CI に預けると、3 ゲートの
+  「着地前に通す」が嘘になる**。ローカルで pwsh を入れる手順を NOTE に置いてあるのは、
+  それを人／エージェントの側で閉じるため。
+
+副産物として、pwsh 有り（`skip=0`）で回して初めて出た検査自身の欠陥が 1 件ある——
+パリティの exit code 比較が **`$(… | sed)` の `$?`**（＝ sed の終了コード）を見ており、
+**sh 側だけ常に 0** を拾っていた。同じ取り違えの注記が同じファイルの上の方にあるのに再発した。
+
 ## 4. 既知の限界・留意点
 
-- **AIの自己検知は不完全**：research/design 推奨は過検知・見逃しがある。だから推奨止まりで強制しない。
+- **AIの自己検知は不完全**：research/architecture 推奨は過検知・見逃しがある。だから推奨止まりで強制しない。
 - **タスク点検は条項の効果判定を保守側にずらす**（「3.3」(b)／`protocol.md`「12.」）：点検で潰れた欠陥は
   review のラウンド指摘に現れないため、`must` 件数だけを見ると条項が効いていないように見える。
   `[conv:…]` タグは点検ログ節にも付くのでタグ集計では漏れないが、**件数指標を使うときは
   `task_check_findings` を併せて読む**必要がある。
 - **サブエージェントの自動委譲は非決定的**：「あれば優先」は確率を上げるが100%保証ではない。
-- **`依存:` の整合は当面 CLI が検査しない**（`aidev-30-plan` / `aidev-40-coding`）：存在しないタスク ID・
-  循環（A→B→A）は、いまは plan の「完了の目安」と coding の判断（差し戻し）という**散文層でしか見ていない**。
+- **`依存:` の整合は当面 CLI が検査しない**（`aidev-30-tasks` / `aidev-40-coding`）：存在しないタスク ID・
+  循環（A→B→A）は、いまは tasks の「完了の目安」と coding の判断（差し戻し）という**散文層でしか見ていない**。
   機械化は「5.」の CLI 案（`aidev tasks` ＋ `verify` の依存検査）に置いてある——**書式が定着してから**
   実装するほうが、書式が動いて作り直すより安い。
 - **並行実行の衝突判定は `対象` の正確さに依存する**：アンカーが外れていれば、衝突は実装後にしか分からない。
@@ -1129,21 +1231,21 @@ git が無い環境では検査を省く（判定できないものを FAIL に�
   └─ NO（相互依存・共同検証のみ）
         大きく、漸進レビューで負荷を割れるか？
         ├─ YES                → subtask 分割（1 PR 維持・内部を漸進実装/レビュー。protocol.md「2.8」）
-        └─ NO（不可分）        → 単一サイクル ＋ walkthrough のコミット構成
+        └─ NO（不可分）        → 単一サイクル ＋ 段階的なコミット構成
   ```
 
   - **別 work 層（低結合）**：ドメイン/モジュール境界が綺麗・単独で検証/デリバリ可能・ファイル重複が少ない。
-    出力は issue/バックログ項目 → `aidev-util-batch` が消化（planner へのボトムアップ入口）。requirement 終了時
-    （必要なら spec 終了時）に AI 検知パターンで「別 work 化」を提案。interactive=人間承認、autonomous=自動判定。
+    出力は issue/バックログ項目 → `aidev-util-batch` が消化（planner へのボトムアップ入口）。requirements 終了時
+    （必要なら design 終了時）に AI 検知パターンで「別 work 化」を提案。interactive=人間承認、autonomous=自動判定。
     「大規模＋高結合」を無理にここへ落とさない。代替策: ①**依存順に分割**（スタックPR）②**分離用リファクタを
     先行 PR** にして継ぎ目を作る。
   - **subtask 層（高結合・大規模・漸進レビュー可）**：1 PR を保ったまま `works/<親>/<NN>-<subslug>/` に割り、
-    各 subtask が plan→coding→test→review を回す。**plan 工程で判定**する（requirement/spec ではなく、構造が
-    見えてから。`aidev-30-plan` 参照）。実装は schema 3（protocol.md「2.8」）。
-  - **不可分層**：真に割れないときだけ 1 PR にまとめ、**walkthrough** とコミット構成でレビュー負荷を緩和。
+    各 subtask が tasks→coding→test→review を回す。**tasks 工程で判定**する（requirements/design ではなく、構造が
+    見えてから。`aidev-30-tasks` 参照）。実装は schema 3（protocol.md「2.8」）。
+  - **不可分層**：真に割れないときだけ 1 PR にまとめ、**`walkthrough.md`** とコミット構成でレビュー負荷を緩和。
   - **釘刺し（誤適用の防止）**：**振る舞い不変な変更（refactor 等）は単独検証可＝低結合**。subtask に落とさず、
     別 work（先行 PR）にする。先行 PR に切り出せない（新機能を見ないと seam が引けない）場合のみ、同一 work 内の
-    順序付きコミット＋walkthrough で扱う（subtask の重い統合 test/review 機構は不要だから）。
+    順序付きコミット＋`walkthrough.md` で扱う（subtask の重い統合 test/review 機構は不要だから）。
   - autonomous は安全側＝**明確に独立な seam がある時だけ分割、迷えば分けない**（誤分割の統合地獄を回避）。
 
 ## 6. 経緯メモ（実証された学び）
@@ -1154,13 +1256,13 @@ git が無い環境では検査を省く（判定できないものを FAIL に�
   開いてもフォーカスが移らない・`Tab` が抜ける・`Enter` で確定しない・確定前に値が入る・ホイールで閉じる、
   が**すべて deliver 後に利用者から指摘された**。追補は**経過時間の 76%・実装行の 47%・コミット 8 本**で
   パイプラインの外にあり、`lead_sec` はその 1/4 しか測っていなかった。規範（WAI-ARIA APG 等）を調べたのは
-  利用者に「一般的ですか？」と聞かれてからで、**spec の前に 10 分読めば済んでいた**。
-  → requirement「相互作用の受け入れ基準」・research「UI の規範」・4.5 の第5条件・deliver「事後記録」の動機。
+  利用者に「一般的ですか？」と聞かれてからで、**design の前に 10 分読めば済んでいた**。
+  → requirements「相互作用の受け入れ基準」・research「UI の規範」・4.5 の第5条件・deliver「事後記録」の動機。
   同 work の D14: review 指摘への修正が**元より重い回帰**（部品が自分の書き込みで閉じる）を生み、単体テストは
   通ったまま実機でしか出なかった → 「修正も同じゲートを通す」の動機。D15: deliver の `event start` を approve
   より後に打って ts が逆転 → 「後から辻褄合わせしない」の動機。
-- **2026-08-01**（backlog の閉じ忘れ）: 5 日前に完了済みの項目を選んで requirement を書きかけた。着手して
+- **2026-08-01**（backlog の閉じ忘れ）: 5 日前に完了済みの項目を選んで requirements を書きかけた。着手して
   初めて分かり、同時に 7 件の閉じ忘れが見つかった → backlog 消し込みの `verify` 強制と `inflight` 列の動機。
 - issue#4 の試走で **review→coding の差し戻し**が発生。原因は「言語同居の副作用（.cmd へ CL 診断、
-  .dds へ RPG 編集機能）を spec 前に調査していなかった」こと。
+  .dds へ RPG 編集機能）を design 前に調査していなかった」こと。
   → この学びが **research 工程（影響範囲調査）追加**の直接の動機。retro があれば体系的に拾える類の改善。

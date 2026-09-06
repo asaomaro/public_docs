@@ -1,11 +1,11 @@
 ---
 name: aidev-50-test
-description: ［aidev 標準工程］aidev の test（テスト/検証）工程。進行中の aidev 作業の spec の受け入れ基準を検証し、失敗時は coding へ差し戻す。「aidev test」「test 工程」と言われたとき、または前工程から案内されたときに使用する。aidev 作業の無い単発のテスト依頼では使わない。
+description: ［aidev 標準工程］aidev の test（テスト/検証）工程。進行中の aidev 作業の design の受け入れ基準を検証し、失敗時は coding へ差し戻す。「aidev test」「test 工程」と言われたとき、または前工程から案内されたときに使用する。aidev 作業の無い単発のテスト依頼では使わない。
 allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion, Agent]
 ---
 
 AI 開発ワークフローの **test（テスト / 検証）工程**を実行する。
-実装が spec の受け入れ基準を満たすか検証する。失敗が見つかれば coding 工程へ差し戻す。
+実装が design の受け入れ基準を満たすか検証する。失敗が見つかれば coding 工程へ差し戻す。
 
 **開始前に共通プロトコル `../aidev-00-start/protocol.md` を読み、その規約に従うこと。**
 
@@ -16,7 +16,7 @@ AI 開発ワークフローの **test（テスト / 検証）工程**を実行�
 ## 入力
 
 - 実装コード。
-- 対象フォルダの `spec.md`（受け入れ基準）/ `plan.md`（テスト方針）/ `tasks.md`。
+- 対象フォルダの `design.md`（受け入れ基準）と `tasks.md`（テスト方針・タスク一覧）。
 
 ## 出力
 
@@ -74,7 +74,7 @@ smoke: pass (exit 0)
    `aidev guard test` で前提を検査し、`aidev event test start` を記録する
    （exit≠0＝未充足。目視確認で代替しない。start が無いと所要時間も手戻りも導出できない）。
    - **対象が subtask（state.yml に `parent` あり）か親かを見分ける**（protocol.md「2.8」）。test の範囲が変わるので、subtask なら `protocol-subtask.md` を読む。
-2. `plan.md` のテスト方針と `spec.md` の受け入れ基準に沿って検証する。
+2. `tasks.md` のテスト方針と `design.md` の受け入れ基準に沿って検証する。
    - 自動テストがあれば実行する。無ければ受け入れ基準ごとに確認手順を実施する。
    - 必要なら不足テストを追加する。
    - **subtask の test** は slice 単独で検証可能な範囲に限定する（`protocol-subtask.md`）。
@@ -108,6 +108,12 @@ smoke: pass (exit 0)
    - **失敗あり** → 失敗内容を指摘としてまとめ、`aidev event test sent_back` を記録のうえ
      coding 工程への差し戻しを提案する（protocol.md「4. 番号と順序」に基づく正当な遷移）。
      coding を**再開する際は `aidev event coding start` を記録する**（さもないと手戻り回数を取りこぼす。protocol.md「3.」「8.」）。
+     - **統合 test（親）の差し戻し先は「原因の subtask の coding」**（`protocol-subtask.md`）。
+       **親に coding 工程は無い**ので、親のまま `event coding start` を打つと親に幽霊の記録が残る
+       （`aidev guard coding` が exit 2 で弾く）。`aidev use <親>/<NN>-<subslug>` →
+       **`aidev unapprove review` → `unapprove test` → `unapprove coding`**（後ろから）→
+       `aidev event coding start`。取り消さないと `approved` に test/coding が残ったまま
+       やり直すことになり、state が実態と食い違う。
      - **同じ工程を `maxSendBacks`（既定 3）回差し戻したら、そこで方向を変える**。`aidev event` が
        `aidev debug start` を促すので、**まっさらなコンテキスト**に原因究明だけを委譲する
        （`protocol-debug.md`）。
@@ -120,7 +126,7 @@ light の前提が崩れた合図**。coding へ差し戻す前に `aidev escala
 
 ## 完了の目安
 
-- spec の全受け入れ基準に対する検証結果が揃っている（`aidev coverage` の `ac` 列と付き合わせる）。
+- design の全受け入れ基準に対する検証結果が揃っている（`aidev coverage` の `ac` 列と付き合わせる）。
 - `test-result.md` がある。差し戻したラウンドがあるなら「失敗の証跡」に**生の出力**が残っている。
 - **`aidev smoke` が pass（または `none` で対象外と宣言済み）**。テストが緑なだけで合格にしていない。
 - **主張が証拠の範囲を超えていない**（protocol.md「7.」）。検証できなかった範囲は「未検証の穴」に残す。

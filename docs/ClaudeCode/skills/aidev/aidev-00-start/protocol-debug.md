@@ -31,7 +31,7 @@
 2. **新しいコンテキスト**（サブエージェント。無ければ新しいセッション）へ、次だけを渡す。
    - 失敗の**生出力**（`test-result.md` の「失敗の証跡」）
    - いまの差分（`git diff`。コミット前の変更）
-   - 対象タスクの行（`tasks.md`）と、その `AC` の本文（`requirement.md`）
+   - 対象タスクの行（`tasks.md`）と、その `AC` の本文（`requirements.md`）
    - review の直近ラウンドの指摘（`review.md`）
    - **渡さない: これまでの修正の試行履歴**
 3. 委譲先は**原因究明だけを行う**（修正はしない）。守ること:
@@ -46,7 +46,7 @@
    aidev debug report --phase coding \
      --root-cause "save() が temp 書き込み中の例外を握りつぶしていた" \
      --category logic --next-action retry --confidence high \
-     --fix-plan "os.replace の前に例外を再送出する" \
+     --fix-tasks "os.replace の前に例外を再送出する" \
      --verification "python3 -m unittest tests.test_storage"
    ```
 
@@ -54,7 +54,7 @@
 
 | 値 | 意味 | 次にすること |
 |---|---|---|
-| `retry` | リポジトリ内の修正で直る | **新しい実装コンテキスト**に `--fix-plan` を渡してやり直す（**同じコンテキストに戻さない**）。再開時は `aidev event <工程> start` を記録する |
+| `retry` | リポジトリ内の修正で直る | **新しい実装コンテキスト**に `--fix-tasks` を渡してやり直す（**同じコンテキストに戻さない**）。再開時は `aidev event <工程> start` を記録する |
 | `block` | このタスクは止める | `decisions.md` の記録を残して次のタスクへ。判断は review 工程に委ねる |
 | `stop_for_human` | リポジトリの外の判断・アクセスが要る | **ここで停止して人に返す**。`autonomous` でも待つ |
 
@@ -68,11 +68,11 @@
 | `environment` | 実行環境・ランタイムの不一致（別のランタイムでは動く） |
 | `config` | エントリポイント・ビルド設定・実行フラグの不足 |
 | `logic` | 実装そのもののバグ |
-| `spec_conflict` | 仕様・設計が技術的に成立しない（上流へ戻す必要がある） |
+| `upstream_conflict` | 要件・仕様が技術的に成立しない（上流へ戻す必要がある） |
 | `test_defect` | テスト側の誤り（実装は正しい） |
 | `external` | リポジトリ外の判断・アクセス・ハードウェアが要る |
 
-`spec_conflict` と `external` は **`retry` にしない**——前者は上流の差し戻し、後者は人の判断が要る。
+`upstream_conflict` と `external` は **`retry` にしない**——前者は上流の差し戻し、後者は人の判断が要る。
 
 ## 上限（ループは必ず有限にする）
 

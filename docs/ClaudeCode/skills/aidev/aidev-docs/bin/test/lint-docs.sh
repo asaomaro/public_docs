@@ -193,7 +193,7 @@ BUDGET_PROTOCOL=608
 #   protocol-autonomous「安全弁」に独立点検 +3（autonomous の必須事項一覧から到達できず、
 #     一覧だけ読んだ実行者は schema 11 の必須記録に辿り着けなかった）
 #   protocol-check「(a)」の起動経路・report のタイミング・対象工程の限定 +5
-#     （起動経路が spec/design だけの古い記述で、requirement/plan の経路が「存在しない」ことになっていた）
+#     （起動経路が design/architecture だけの古い記述で、requirements/plan の経路が「存在しない」ことになっていた）
 #   protocol-analysis に doc_check_* の読み方 +2（刻んだメトリクスの使い道が未定義だった）
 #   aidev-00-start に --backlog-item +2（打たないと status の HELD が行単位で出ない）
 #   各 SKILL の doccheck 行 +3（正典は protocol-check。ここは引き金と打つコマンドだけ）
@@ -201,7 +201,7 @@ BUDGET_PROTOCOL=608
 #   protocol.md「運用方針」に CLI の実体パス +2（各 skill のコマンド例は裸の `aidev` で、
 #     PATH は誰も通していない。`aidev-00-start` を読まずに工程 skill を直接叩く運用——
 #     同じ節が明示的に許している経路——では最初のコマンドで止まっていた）
-#   任意3工程（research / design / walkthrough）の `event <工程> start` は**行を増やさず**
+#   任意3工程（research / architecture / walkthrough）の `event <工程> start` は**行を増やさず**
 #     既存の guard 行を書き換えて足した（打たないと `verify --strict` が exit 5 になる経路）
 # 3412 -> 3417: plan モードの入り方・抜け方を「使ってよい」から**実行できる指示**にしたぶん。
 #   protocol-autonomous「plan モードとの関係」+5（役割だけの言い方では丁寧に計画するだけで
@@ -214,7 +214,7 @@ BUDGET_PROTOCOL=608
 #     条件に含めた——実走が「承認者がいるのに促しを止めている」を実測した）
 # 3422 -> 3426: **判断基準を書いていなかった**ぶん（外部レビューの読み合わせで発覚）。
 #   protocol-autonomous「plan モードとの関係」+4。工程ごとの可否だけが列挙され、
-#   **11 工程のうち requirement と walkthrough が どちらのリストにも無かった**。
+#   **11 工程のうち requirements と walkthrough が どちらのリストにも無かった**。
 #   さらに除外理由の一部が「実装計画ではない」で、**論点がずれていた**——plan モードで
 #   禁じられるのは Write/Edit だけで対話は動くので、それは理由にならない。
 #   本当の基準（「二重ゲートに見合うか」＝承認する対象がゲートと違うか）は DESIGN「2.」に
@@ -223,12 +223,93 @@ BUDGET_PROTOCOL=608
 # 3426 -> 3429: 基準だけでは **11 工程のうち 9 しか導出できなかった**ぶん（実走が実測）。
 #   protocol-autonomous「plan モードとの関係」+3。足りなかったのは 3 点:
 #   (1)「aidev のゲート」が**その工程だけか上流を含むか**が未定義で、素直に読むと
-#      coding が「入る」に化けた（`tasks.md` は plan のゲートが承認済み、と読ませる必要がある）
+#      coding が「入る」に化けた（`tasks.md` は tasks のゲートが承認済み、と読ませる必要がある）
 #   (2) research は**基準の外の規則**（純粋な調査は「2.6」の委譲）なのに、基準から導けるように
-#      並んでいたので spec と同じ形に見えた
+#      並んでいたので design と同じ形に見えた
 #   (3) walkthrough の除外理由が「成果物がその工程の判断そのもの」で、
 #      **説明文書である walkthrough には当てはまっていなかった**（結論は同じだが理由が嘘）
-BUDGET_TOTAL=3429
+# 3429 -> 3434: **基準が前提を 1 つ書いていなかった**ぶん（外部レビューの読み合わせで発覚）。
+#   protocol-autonomous「plan モードとの関係」+5。基準（「二重ゲートに見合うか」）は
+#   **既存のゲートが機械で止まること**を前提にしているが、文面はそれを見ていない。
+#   止まらないゲートしか無い工程・環境では、plan モードは二重化ではなく**ゲートの実体化**で、
+#   同じ基準から逆の結論が出る。「2.10」が CLI 無しの環境を「手で同等に」と認めている以上、
+#   **ハーネス自身の想定範囲の内側で前提が崩れる**。
+#   **前提の欠落は文面の整合では捕まらないので lint を作れない**——だから
+#   「いつ読み直すか」（移植のとき・ゲートの無い工程を足すとき）を本文に書いた。
+#   検査できないものを検査できるふりで置かない、という DESIGN「2.」の態度の適用でもある
+# 3434 -> 3438: 前提の書き方が**曖昧で、しかも別の規約と衝突していた**ぶん（実走が実測）。
+#   protocol-autonomous「plan モードとの関係」+4。
+#   (1)「2.10 が『手で同等に』と認めている」だけでは、**手のゲートが「機械で止まる」に
+#      当たるのか当たらないのか**が 2 通りに読めた（正典に決着が無く、DESIGN にしか無かった）
+#      → 判定を 1 つに固定した（`guard <工程>` が exit≠0 で止まるか）
+#   (2) 新しい前提の行だけを読むと「入る」に倒れるが、下の「承認者がいない工程で入ると
+#      **抜けられない**」と衝突する。**新しい行だけを読んだ実行者は入って詰む**
+#      → 見る順（承認者 → 二重ゲート）を明記した
+# 3438 -> 3449: **除外理由を 2 つとも間違えていた**ぶん（対話で発覚）。
+#   protocol-autonomous +7 / aidev-30-tasks +2 / aidev-00-start -1。
+#   requirements の除外理由「方針と成果物が分離できない」は **design / architecture にもそのまま
+#   当てはまり、区別になっていなかった**（結論に貼った後付けのラベル）。
+#   そこで「行動計画 vs 仕様」という分類を作って tasks を外したが、**これも逆だった**——
+#   `ExitPlanMode` の定義が「planning the **implementation steps**」なので、
+#   tasks 工程と種類が同じことは**除外の理由ではなく最も適合する証拠**。
+#   **手元にツール定義があるのに読まずに分類を発明した**のが両方の原因。
+#   **plan モードの機能と思想を調べ直した**結果、買えるのは「コード探索中の read-only 強制」で、
+#   機能も思想も「触る前にコードを読む」に収束していた（EnterPlanMode: explore the codebase）。
+#   これを (b) に据えると、**requirements は主活動がユーザーへのヒアリング**（入力は
+#   「要望・課題・背景」でコードは「必要に応じて参照してよい」）なので外れる。
+#   一度 EnterPlanMode の "Unclear Requirements" を根拠に入れたが、その例は
+#   「profile して bottleneck を見つける」＝**コード探索でスコープを掴む**話で、
+#   人から要件を聞き出す話ではなかった（引用が不正確だった）。
+#   副産物: research の除外に一次根拠が付いた——EnterPlanMode の WHEN NOT TO USE が
+#   「Pure research/exploration tasks (use the Agent tool instead)」と言っており、
+#   ハーネスの「2.6 の委譲が正」と一致する。「基準の外の規則」ではなくなった。
+#   (b) は aidev-00-start の三層判定を外すためにも要る——(a) だけだと
+#   「二重でないから入ってよい」が言えてしまう（読むだけで書く対象が無いのに）
+# 3449 -> 3450: 基準を **`ExitPlanMode` の用途規定**に据え直したぶん（外部レビューの読み合わせ）。
+#   protocol-autonomous「plan モードとの関係」+1（差し引き）。
+#   `EnterPlanMode`（入口）の WHEN TO USE を基準にしていたが、**承認を出すのは `ExitPlanMode` だけ**で、
+#   そこには「planning the **implementation steps** … For **research** … do NOT use」と書いてある。
+#   出口の制約を見ていなかったので `requirements`（何を・なぜ＝実装計画ではない）が入っていた。
+#   据え直すと **`research` も基準内で落ちる**ので、「基準の外の規則」という特例が 1 つ消える。
+#   併せて **plan file と成果物の書く順序**（探索→plan file→承認→抜ける→清書）を明記した——
+#   逆順だと plan file が写しになり、それが「計画を二度書く」の正体
+# 3450 -> 3457: **工程の改名**（`requirement`→`requirements` / `spec`→`design` /
+#   `design`→`architecture` / `plan`→`tasks`）で語が伸びたぶん。他 SDD ツールと名前の意味を
+#   揃えた——aidev の `spec` は「どう作るか」だが GitHub Spec Kit の `spec.md` は要件で、
+#   **1 段ずれていた**。この読み違いで plan モードの適用工程を 3 往復して誤判定した実績がある。
+#   併せて `plan.md` を `tasks.md` に統合した（Kiro も Spec Kit も tasks は 1 ファイル。
+#   CLI は旧 `plan.md` の中身を一度も読んでいなかった＝存在確認だけだったので機械側は無傷）
+# 3457 -> 3392: **walkthrough を工程から外した**ぶん（-65）。`aidev-65-walkthrough/SKILL.md`（-90）を
+#   畳み、要否の3条件・テンプレート・品質原則を `aidev-60-review` の「レビュー補助」節（+30）へ移した。
+#   `walkthrough.md` は**成果物としては残る**（deliver が PR 本文に要約する経路もそのまま）。
+#   外した理由は「作業段階ではない」——遷移ゲートを1つ消費して「やる/やらない」を尋ねるだけの
+#   工程で、成果物の**形式**であって段階ではなかった。工程だった頃は protocol.md「4.5」に条件、
+#   `aidev-60-review` に推奨判定、`aidev-65-walkthrough` に検知ロジックと、**同じ判断が3箇所**にあった
+# 3392 -> 3395: **ハーネスが 1 コマンドも動かない入口**を実行時文書で塞いだぶん（+3）。
+#   `.aidev/` の作り方は `aidev-docs/README.md`「別PJへの導入」にしか無く、**実行時に読む文書には
+#   無かった**。`aidev-00-start` は「`.aidev/` が無ければ新規作業の開始のみ提示」と書いていたが、
+#   その `.aidev/` をどう作るかが書いていないので、新規 PJ では最初の `aidev` で止まる。
+#   併せて CLI の die メッセージも「リポジトリ内で実行してください」（リポジトリ内なのに出る）から
+#   打つべきコマンドに直した。**導入の入口は 3 行使ってでも実行時側に置く**
+# 3395 -> 3400: **実走が見つけた「書いてあるとおりにやったら詰む」2 本**を塞いだぶん。
+#   `aidev-95-retro` +2: **10 工程でこの skill にだけ** `guard` / `event start` の行が無く、
+#     書いてあるとおりに回すと `verify --strict` が exit 5。しかも `ts` は捏造禁止なので**戻れない**。
+#     再発防止は L11（全工程 SKILL に両方あるか）。
+#   `aidev-70-deliver` +3: 固定順序が `git add -A`（規模計測）→ `approve deliver` の順で、
+#     approve が書く `state.yml` / `metrics.yml` を**再ステージする指示が無かった**。
+#     同じ節の「記録はコミットの直前に行い、同じコミットに含める」を手順自身が破っていた。
+# 3400 -> 3418: **分割 work の実走が見つけた 3 本**を塞いだぶん（+18）。
+#   `aidev-60-review` +12: 統合 review の観点が**箇条書き 1 行**しか無く、他の観点が
+#     「何を・どのコマンドで・どう読むか」まで書いているのに**結合だけ入力が指定されていない**
+#     （実行者が実際に困ったと報告）。開くもの 3 つ（親 tasks.md の契約 / 各子の
+#     test-result.md の「スキップした検証」/ 家族の diff）と、分割 work での `coverage` の
+#     読み替えを明記。**統合レビュー工程を足さない**と決めた以上、ここが薄いままでは
+#     「工程は要らない」の根拠が立たない。
+#   `aidev-50-test` +6: 統合 test（親）の差し戻し先が無く、一般手順どおりに打つと
+#     **親に存在しない coding の記録**が残った。差し戻し順（後ろから unapprove）も明記。
+#     review 側の同じレシピが `unapprove review` だけで、**同じ SKILL 内の別の記述が
+#     禁じている状態**を作っていたので、そちらも 3 段に揃えた。
+BUDGET_TOTAL=3418
 _p=$(wc -l < "$SKILLS/aidev-00-start/protocol.md")
 _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 [ "$_p" -le "$BUDGET_PROTOCOL" ] && ok "L6 protocol.md が予算内（$_p / $BUDGET_PROTOCOL 行）" \
@@ -239,7 +320,7 @@ _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 echo "== L9: 判定条件の写しを工程 SKILL に作らない =="
 # **条件を skill に写した時点で、次の変更での取り残しが予約される**。実際に起きた——
 # `guard` の promote 条件を「mode」から「その工程に承認者がいるか」へ変えたとき、CLI と
-# `protocol-autonomous.md` は直したのに、spec / design の SKILL.md に写した
+# `protocol-autonomous.md` は直したのに、design / architecture の SKILL.md に写した
 # `（full × interactive のみ）` が残り、**部分自律で CLI は促すのに skill は「入るな」と読める**
 # 状態になった（外部レビューが実測）。
 # 規律自体は既にあった——`doccheck` では「正典は protocol-check。ここは引き金と打つコマンドだけ」
@@ -259,32 +340,174 @@ echo "== L9: 判定条件の写しを工程 SKILL に作らない =="
 #   H3/H4 表記ゆれ（`planモード` / `plan mode`）
 #   H7 対象ファイル外へ写す（`aidev-util-*` / `protocol*.md` / `DESIGN.md`）——実際に
 #      `DESIGN.md` と `protocol.md` に旧条件が生き残っていた
-# **見出し語のゆれを吸収し、継続行まで見て、対象を実行時文書ぜんぶに広げる**。
-# 正典（`protocol-autonomous.md` の当該節）だけを除外する
+# **見出し語のゆれを吸収し、継続行まで見て、対象を実行時文書＋参照文書に広げる**。
+# 正典（`protocol-autonomous.md` の当該節）だけを除外する。
+# **`aidev-docs/*.md` を明示的に足すのが要点**——初版は「実行時文書ぜんぶ」に広げたと書きながら
+# `runtime_docs` を使っていたので、**旧条件が実際に残っていた `DESIGN.md` に永久に届かなかった**
+# （`README.md` に残った 2 件も同じ理由で機械に一度も見えていなかった。実走が実測）。
+# **`runtime_docs` と SKILL のグロブは全工程 SKILL で重なる**ので、和集合を取ってから走査する。
+# 重ねたまま回すと同じファイルを 2 回数え、1 件の写しが「2 ファイル」と出た
+# （`runtime_docs` 自身のコメントが同じ罠を警告しているのに、その隣で再発させた）
 PMHEAD='plan ?モード|planモード|plan mode'
-PMKEY='profile|humanGates|human-gates|interactive|autonomous|full[^ ]* *×|light|承認者|対話モード|自律モード|プロファイル'
+# **改修のたびに語彙を足す**。足さないと「旧条件の写し」しか捕まえられず、**新条件の写しは
+# 全部素通りする**（実走が H10-H13 で実測）。工程名の列挙（`design / architecture / tasks` の形）も条件の写し
+PMKEY='profile|humanGates|human-gates|interactive|autonomous|full[^ ]* *×|light|承認者|対話モード|自律モード|プロファイル|機械で止ま|ゲートの実体化|exit code|read-only|主活動|ヒアリング|既存コード|コード探索|方向が複数|選び損な|上流4工程|design *[/／] *architecture|design[・、] *architecture|実装計画|implementation steps|ExitPlanMode|EnterPlanMode'
 _l9=0
-for _f in $(runtime_docs; printf '%s\n' "$SKILLS"/aidev-*/SKILL.md); do
+# `runtime_docs` は `$d/SKILL.md`（`$d` は末尾 `/`）を出すので **`//` を含む**。
+# 潰さないと `sort -u` が別物として残し、二重走査がそのまま生き残る（テストで実測）
+for _f in $({ runtime_docs
+              printf '%s\n' "$SKILLS"/aidev-*/SKILL.md "$SKILLS"/aidev-docs/*.md \
+                             "$SKILLS"/aidev-docs/bin/README.md; } \
+             | sed 's://*:/:g' | LC_ALL=C sort -u); do
   [ -f "$_f" ] || continue
   case "$_f" in *protocol-autonomous.md) continue ;; esac  # 正典。ここには条件が在ってよい
   # **見出し行とその継続行**（行頭が空白で始まる後続行）をひとまとまりで見る。
   # 正典への参照そのものは条件ではない（ファイル名が `autonomous` を含む）ので落とす
   _hits=$(awk -v head="$PMHEAD" '
-      # **見出しより前は切り落とす**。plan モードの可否を縛る条件は見出しの後ろに来るので、
-      # 同じ行の無関係な前置き（`humanGates` で部分的に人間ゲートを残せる。plan モードは…）を拾わない
-      $0 ~ head { inb=1; ln=NR; buf=substr($0, match($0, head)); next }
-      # **継続行は「字下げされていて、新しい箇条書きでも表の行でもない行」**。
-      # 字下げだけで見ると隣の箇条書きや次の表の行まで飲み込んで誤検知した（両方とも実際に踏んだ）
-      inb && /^[ \t]+/ && !/^[ \t]*([-*+|]|[0-9]+\.)/ { buf=buf " " $0; next }
+      function ltrim(x) { sub(/^[ \t]+/, "", x); return x }
+      # **行は丸ごと見る**。見出しより前を切っていた頃は `上流4工程では plan モードへ入る…` の
+      # ように**条件語が見出しより前に来る語順**で素通りした（実走が実測。自己テストは必ず
+      # 見出しを先頭に置いていたので、この語順を原理的に再現できなかった）
+      $0 ~ head { inb=1; ln=NR; buf=$0; ind=length($0) - length(ltrim($0)); next }
+      # **継続行は「空行が来るまで」**。字下げを必須にしていた頃は Markdown の**段落形**の写しが
+      # 1 行目で切れて見えず、`aidev-docs/README.md` の 8 行の写しが素通りした（実走が実測）。
+      # 打ち切るのは**空行**と、**同じ深さ以下の箇条書き・表の行**だけ
+      # （より深い箇条書きは「子」なので取り込む——`DESIGN.md` の `  - **使う**:` 以下がそれ）
+      inb && NF > 0 && (!/^[ \t]*([-*+|]|[0-9]+\.)/ || length($0) - length(ltrim($0)) > ind) {
+        buf=buf " " $0; next }
       inb { print ln ": " buf; inb=0 }
       END { if (inb) print ln ": " buf }
     ' "$_f" | sed 's/protocol-autonomous\.md//g' | grep -E "$PMKEY") || true
+  # **`DESIGN.md` は「なぜその基準にしたか」を書く場所**なので、規則に触れる行が正当に在る。
+  # 全部弾くとノイズになり、全部許すと**旧条件がそこに生き残る**（実際に 3 箇所生き残った）。
+  # L5 と同じ形——**理由つきで登録した行だけ免除する**（`lint-docs.allow` の `L9:` 行）
+  if [ -n "$_hits" ] && [ -f "$ALLOW" ]; then
+    _hits=$(printf '%s\n' "$_hits" | while IFS= read -r _hl; do
+      _ok=no
+      while IFS= read -r _al; do
+        case "$_al" in ''|\#*) continue ;; L9:*) ;; *) continue ;; esac
+        _ap=${_al#L9:}
+        case "$_hl" in *"$_ap"*) _ok=yes; break ;; esac
+      done < "$ALLOW"
+      [ "$_ok" = yes ] || printf '%s\n' "$_hl"
+    done)
+  fi
   [ -n "$_hits" ] || continue
   _l9=$((_l9 + 1))
   printf '%s:\n%s\n' "${_f#"$SKILLS"/}" "$_hits" >&2
 done
 if [ "$_l9" -eq 0 ]; then ok "L9 plan モードの判定条件が正典の外に写されていない"
 else ng "L9 plan モードの判定条件の写しが $_l9 ファイル（正典は protocol-autonomous.md「plan モードとの関係」だけ。他所には引き金と参照だけを置く）"; fi
+
+echo "== L10: 退役した名前と、統合で生まれた重複 =="
+# **改修のたびに「置換したつもり」で静かに残る**。工程の改名（2026-09-06）で実際に起きた——
+# `aidev help` のヘッダに旧名 `plan` が残り、`doccheck start plan` を案内するのに実装は弾いた。
+# **L1 は動詞（コマンド名）だけ、L7 は `--フラグ` だけ**を見るので、
+# **位置引数（工程名の列挙）を見る検査が 1 つも無かった**（実走が指摘）。
+# もう 1 つの型は `plan.md` を `tasks.md` に統合したときの「A と A」——
+# 「`tasks.md`（方針）と `tasks.md`（一覧）」のように、**同名が並んで無意味な文**になる。
+# どちらも正規表現 1 本で機械的に出る
+# `walkthrough` は**工程としてだけ退役**した（`walkthrough.md` は review の任意成果物として残る）。
+# だから裸の語ではなく、**工程として扱っている形**——skill 名・CLI の動詞の目的語・「〜工程」——を見る
+# **裸の `plan` も見る**。`design/plan` のような列挙や「plan を approve」の形は `\bplan\.md\b` では
+# 拾えず、実走が 4 箇所（coding の decisions テンプレ・DESIGN・CLI コメント×2）を実測した。
+# plan モード族は `RET_OK` が既に除けているので、**区切り記号と助詞**で絞れば誤検知しない
+RETIRED='\brequirement\b|\bspec\b|\bplan\.md\b|\brequirement\.md\b|\bspec\.md\b|[/／]plan\b|\bplan[/／]|\bplan (を|は|が|の|へ|と|も)|aidev-65-walkthrough|(guard|event|approve|unapprove) walkthrough|walkthrough ?工程|walkthrough\(任意\)'
+# 温存すべきもの（工程名ではない）: 他ツール名・英単語・plan モード族・デバッグ分類
+RET_OK='Spec Kit|spec-kit|specif|specia|respect|inspect|aspect|plan ?モード|planモード|plan mode|PlanMode|plan agent|plan file|planner|planning|planned|permission-mode plan|defaultMode|permissionMode'
+# **同名の並び**は工程ごとに展開して書く——`grep -E` の後方参照（`\1`）は POSIX ERE の外で、
+# 環境によっては**黙って何にもマッチしない**（実際、導入時の自己検査を素通りさせた）。
+# 間隔は**バイト数**で数える（`LC_ALL=C`）。`` `tasks.md`（方針）と `tasks.md` `` の
+# 区切りは日本語 5 文字＝15 バイト＋記号なので 30 まで見る。
+DUP=''
+for _n in requirements design architecture tasks; do
+  DUP="${DUP:+$DUP|}$_n\\.md[^A-Za-z0-9]{1,30}$_n\\.md"
+done
+_l10=0
+for _f in $({ runtime_docs
+              printf '%s\n' "$SKILLS"/aidev-*/SKILL.md "$SKILLS"/aidev-docs/*.md \
+                             "$SKILLS"/aidev-docs/bin/README.md "$SKILLS"/aidev-docs/bin/aidev \
+                             "$SKILLS"/aidev-docs/bin/aidev.ps1; } \
+             | sed 's://*:/:g' | LC_ALL=C sort -u); do
+  [ -f "$_f" ] || continue
+  _r=$(grep -nE "$RETIRED" "$_f" 2>/dev/null | grep -vE "$RET_OK") || true
+  # **統合で生まれた同名の並び**（`tasks.md … tasks.md` のように近接して 2 回）
+  # **行ごと**出す（`-o` で断片だけ出していた頃は、免除の登録が原理的にできなかった——
+  # 免除は「断片の部分一致」になるので、理由の分かる語を書くと必ず外れた）
+  _d=$(grep -nE "$DUP" "$_f" 2>/dev/null) || true
+  # **改名の経緯を書く場所は旧名を出してよい**（L5/L9 と同じ形——理由つきで登録した行だけ免除）
+  if [ -n "$_r$_d" ] && [ -f "$ALLOW" ]; then
+    for _lv in _r _d; do
+      eval "_cur=\$$_lv"; [ -n "$_cur" ] || continue
+      _cur=$(printf '%s\n' "$_cur" | while IFS= read -r _hl; do
+        _ok=no
+        while IFS= read -r _al; do
+          case "$_al" in L10:*) ;; *) continue ;; esac
+          case "$_hl" in *"${_al#L10:}"*) _ok=yes; break ;; esac
+        done < "$ALLOW"
+        [ "$_ok" = yes ] || printf '%s\n' "$_hl"
+      done)
+      eval "$_lv=\$_cur"
+    done
+  fi
+  [ -n "$_r$_d" ] || continue
+  _l10=$((_l10 + 1))
+  printf '%s:\n' "${_f#"$SKILLS"/}" >&2
+  [ -n "$_r" ] && printf '%s\n' "$_r" >&2
+  [ -n "$_d" ] && printf '%s\n' "$_d" >&2
+done
+if [ "$_l10" -eq 0 ]; then ok "L10 退役した名前・統合後の同名の並びが残っていない"
+else ng "L10 退役した名前か同名の並びが $_l10 ファイル（改名・統合の取りこぼし。旧名は温存語のみ許す）"; fi
+
+echo "== L11: 各工程 SKILL が自分の guard と event start を打たせているか =="
+# **`aidev-95-retro` にだけ両方が無く、書いてあるとおりにやると `verify --strict` が exit 5**
+# ——しかも `ts` は後から復元できないので**詰んで戻れない**（実走が実測）。
+# 「工程の入口で guard、記録に start」は protocol.md「1.」の一般則としては書いてあるが、
+# 一般則は**その skill だけを読んで走る実行者**には届かない（同じ理由で他の 9 工程には
+# 明示行がある）。**1 工程でも欠けると、その工程を回した work は必ず記録漏れになる**
+_l11=0
+for _p11 in $(sed -n 's/^PHASES="\(.*\)"$/\1/p' "$SH"); do
+  _d11=$(printf '%s\n' "$SKILLS"/aidev-*-"$_p11" | head -n1)
+  [ -f "$_d11/SKILL.md" ] || { printf '  ? %s: SKILL.md が見つからない（%s）\n' "$_p11" "$_d11" >&2; _l11=$((_l11+1)); continue; }
+  _miss=''
+  grep -q "aidev guard $_p11" "$_d11/SKILL.md" || _miss="$_miss guard"
+  grep -q "aidev event $_p11 start" "$_d11/SKILL.md" || _miss="$_miss event-start"
+  [ -z "$_miss" ] || { printf '  %s:%s\n' "${_d11#"$SKILLS"/}/SKILL.md" "$_miss" >&2; _l11=$((_l11+1)); }
+done
+if [ "$_l11" -eq 0 ]; then ok "L11 全工程の SKILL が自分の guard と event start を明示している"
+else ng "L11 guard か event start を書いていない工程 SKILL が $_l11 件（その工程を回した work は verify --strict で必ず落ち、ts は復元できない）"; fi
+
+echo "== L12: light の文書数が全所で一致 =="
+# **工程の改名で 4→3 に減ったのに、数詞だけが 6 箇所に取り残された**（実走が実測）。
+# `aidev-10-requirements/SKILL.md` は**同一ファイル内で「3 つ」と「4 つ」に割れて**おり、
+# light の実行者が最初に読む 2 箇所なので「4 つ目は何か」で止まる。
+# 正典は `protocol-light.md` の「成果物は N つとも作る（…）」——**同じ行に列挙がある**ので、
+# 数詞と列挙の実数を突き合わせられる。他所の数詞はこの N と一致していればよい。
+# （初版は「上流N工程…畳む」も見ようとしたが、`[^。]*` はバイト単位で効かず**何も
+#  マッチしない空振り**だった。**照合できない形の検査を置かない**）
+_l12src=$SKILLS/aidev-00-start/protocol-light.md
+_l12line=$(grep -nE '[0-9]+ ?つとも作' "$_l12src" | head -n1)
+if [ -z "$_l12line" ]; then
+  ng "L12 正典（protocol-light.md）に「N つとも作る」の行が無い（検査の前提が崩れている）"
+else
+  _l12n=$(printf '%s' "$_l12line" | grep -oE '[0-9]+ ?つとも作' | grep -oE '[0-9]+')
+  _l12files=$(printf '%s' "$_l12line" | grep -oE '`[a-z][a-z-]*\.md`' | LC_ALL=C sort -u | grep -c '.') || _l12files=0
+  _l12bad=0
+  if [ "$_l12n" != "$_l12files" ]; then
+    printf '  正典の数詞 %s に対し、同じ行の列挙は %s 件\n' "$_l12n" "$_l12files" >&2
+    _l12bad=1
+  fi
+  for _f in $({ runtime_docs
+                printf '%s\n' "$SKILLS"/aidev-docs/README.md "$SKILLS"/aidev-docs/DESIGN.md \
+                               "$SKILLS"/aidev-docs/bin/README.md; } \
+              | sed 's://*:/:g' | LC_ALL=C sort -u); do
+    [ -f "$_f" ] || continue
+    _hit=$(grep -nE '[0-9]+ ?つとも作' "$_f" 2>/dev/null | grep -vE "[^0-9]$_l12n ?つとも作") || true
+    [ -z "$_hit" ] || { printf '%s:\n%s\n' "${_f#"$SKILLS"/}" "$_hit" >&2; _l12bad=$((_l12bad + 1)); }
+  done
+  if [ "$_l12bad" -eq 0 ]; then ok "L12 light の文書数が全所で一致（$_l12n）"
+  else ng "L12 light の文書数が割れている（$_l12bad 箇所。改名で数だけ取り残される型。正典は protocol-light.md の列挙）"; fi
+fi
 
 echo "== L8: ハーネス改修の実走記録 =="
 # **「改修のたびに実走を1本通す」は DESIGN「3.5」に書いてあったのに、次の改修で破られた**

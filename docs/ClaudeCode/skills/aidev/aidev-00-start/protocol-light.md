@@ -28,28 +28,27 @@
 
 ### 上流 1 ゲートの規約
 
-成果物は **4 つとも作る**（`requirement.md` / `spec.md` / `plan.md` / `tasks.md`）。
-**スタブは作らない**（`plan.md` は test が「テスト方針」を読む先なので、空にすると test が検証対象を失う）。
+成果物は **3 つとも作る**（`requirements.md` / `design.md` / `tasks.md`）。
+**スタブは作らない**（`tasks.md` は test が「テスト方針」を読む先なので、空にすると test が検証対象を失う）。
 薄く書くのは各文書の**節を絞る**ことで実現し、light 専用テンプレートは作らない（既存テンプレの部分集合）。
 
 | 文書 | light の必須節 | 省略可 |
 |---|---|---|
-| `requirement.md` | 背景 / 課題、**目的 / ゴール**、完了条件（受け入れ基準） | ユーザーストーリー、スコープ、機能要件、非機能要件 / 制約、未確定事項 |
-| `spec.md` | 設計方針、対象範囲 | I/F・データ構造、振る舞いの詳細、ドメイン固有、エラー処理 |
-| `plan.md` | 作業順序と依存関係、テスト方針 | リスク / 留意点 |
-| `tasks.md` | すべて（`対象` アンカー・`依存`・`AC` 含む） | — |
+| `requirements.md` | 背景 / 課題、**目的 / ゴール**、完了条件（受け入れ基準） | ユーザーストーリー、スコープ、機能要件、非機能要件 / 制約、未確定事項 |
+| `design.md` | 設計方針、対象範囲 | I/F・データ構造、振る舞いの詳細、ドメイン固有、エラー処理 |
+| `tasks.md` | 作業順序と依存関係、テスト方針、タスク一覧（`対象` アンカー・`依存`・`AC` 含む） | リスク / 留意点 |
 
-**記録は `requirement` 1 件**にする（`aidev event requirement start` → `aidev approve requirement`）。
-`spec` / `plan` で記録すると guard の前提（`requirement.md` / `spec.md`）を満たせず NG になるため
-（`requirement` は前提を持たない唯一の上流工程）。理由の詳細は `aidev-docs/DESIGN.md`「2.」。
+**記録は `requirements` 1 件**にする（`aidev event requirements start` → `aidev approve requirements`）。
+`design` / `tasks` で記録すると guard の前提（`requirements.md` / `design.md`）を満たせず NG になるため
+（`requirements` は前提を持たない唯一の上流工程）。理由の詳細は `aidev-docs/DESIGN.md`「2.」。
 
-`approved` に `spec` / `plan` が入らないのは正常（`need_approved` を使うのは walkthrough / deliver /
-retro だけなので影響しない）。metrics 上は **`spec` / `plan` の start が無いこと**が light の指紋になる。
+`approved` に `design` / `tasks` が入らないのは正常（`need_approved` を使うのは deliver / retro だけなので影響しない）。metrics 上は **`design` / `tasks` の start が無いこと**が light の指紋になる。
 
 ### 任意工程
 
-light では **research / design / walkthrough を使わない**。必要と判断した時点で light の条件を
+light では **research / architecture を使わない**。必要と判断した時点で light の条件を
 外れているので、**昇格の合図**として扱う。
+**`walkthrough.md`（レビュー補助）も書かない**——light の変更規模なら差分だけで読める。
 
 ### 昇格（light → full）
 
@@ -59,7 +58,7 @@ light では **research / design / walkthrough を使わない**。必要と判�
 | `test` が落ちた | test |
 | `review` で `must` が出た | review |
 | 変更ファイル数が N を超えた | deliver（`files_changed` で機械検知。`aidev verify` が WARN） |
-| 任意工程（research / design）が必要になった | 任意 |
+| 任意工程（research / architecture）が必要になった | 任意 |
 
 **昇格は片方向**（`full` → `light` は不可）。手順:
 

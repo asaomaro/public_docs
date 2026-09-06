@@ -9,7 +9,7 @@
 # 使い方:
 #   aidev new <slug> [--mode interactive|autonomous] [--profile full|light] [--light] [--ticket ID]
 #                    [--depends a,b,#N] [--parent <親work>] [--backlog <file>] [--backlog-item <text>] [--human-gates <list>]
-#     --parent 指定時は親 work 配下に subtask（<NN>-<subslug>・date prefix なし・current=plan）を作る
+#     --parent 指定時は親 work 配下に subtask（<NN>-<subslug>・date prefix なし・current=tasks）を作る
 #     --backlog は backlog 項目から起こした work に出自を刻む（deliver での消し込みを verify が強制する）
 #     --profile/--light は「どこまで工程を回すか」（protocol.md「11.」）。mode（誰が承認するか）と直交
 #   aidev escalate [slug]                      # profile を light -> full に昇格（片方向。full からは戻せない）
@@ -22,18 +22,18 @@
 #     Stop フック等）から使う想定。light の逸脱 WARN は人間の判断なので strict でも致命にしない
 #   aidev coverage [slug] [--format table|tsv] [--strict]
 #     受け入れ基準(AC)の被覆率と tasks.md の整合（AC 行の欠落・未定義参照・依存の循環）を検査する。
-#     対応付けの正典は tasks.md の `AC:` 行。--strict は gap があれば exit 4（plan の承認前ゲート）
+#     対応付けの正典は tasks.md の `AC:` 行。--strict は gap があれば exit 4（tasks の承認前ゲート）
 #   aidev debug [start|report|status] ...        # 詰まったときの原因究明を有限化する
 #     start  [slug] [--phase p]                  # 新しいコンテキストへ委譲する前に打つ。ラウンド上限(既定2)を検査
 #     report [slug] --root-cause <t> --category <c> --next-action <retry|block|stop_for_human>
-#            [--confidence high|medium|low] [--fix-plan <t>] [--verification <t>]
+#            [--confidence high|medium|low] [--fix-tasks <t>] [--verification <t>]
 #     status [slug] [--format table|tsv]         # 工程ごとの差し戻し数・デバッグ回数・要否
 #   aidev taskcheck <start|report|status> ...
 #     タスク単位の独立点検を有限化する。start が maxTaskCheckRounds を検査し、超えていれば exit 4
 #     start <task-id> --mode <delegated|same_session> [--slug s] / report <task-id> --findings <n> [--slug s]
 #     status [--format table|tsv] [--slug s]   # 件数は approve coding が自動で刻む（手書きしない）
 #   aidev doccheck <start|report|status> ...
-#     上流4文書(requirement/spec/design/plan)の独立点検を有限化する。start が maxDocCheckRounds を検査
+#     上流4文書(requirements/design/architecture/tasks)の独立点検を有限化する。start が maxDocCheckRounds を検査
 #     start <phase> --mode <delegated|same_session> [--slug s] / report <phase> --findings <n> [--slug s]
 #     status [--format table|tsv] [--slug s]   # 件数は approve <phase> が自動で刻む（手書きしない）
 #   aidev limits [show|set <key> <n>|unset <key>] [--format table|tsv] [--slug <work>]
@@ -86,9 +86,9 @@ need_arg() { # opt残り引数数
   [ "$2" -ge 2 ] || die "$1 には値が必要です"
 }
 
-CURRENT_SCHEMA=11  # 現行スキーマ版。new がこの値を刻む。schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema 7=起動確認(smoke)の記録検査を導入。schema 8=デバッグ（詰まりの原因究明）の記録検査を導入。schema 9=light の上流4文書の実在検査を導入。schema 10=autonomous の decisions.md と タスク点検の実施形態(task_check_mode) を記録漏れ扱いに。schema 11=autonomous の上流4文書の独立点検(doccheck)の記録を必須に。schema<=2 は legacy として subtask 不変条件を免除。
+CURRENT_SCHEMA=11  # 現行スキーマ版。new がこの値を刻む。schema 3=subtask 層(subtasks/activeSubtask/parent)導入。schema 4=harnessRev 刻印（効果検証の母集団特定）導入。schema 5=承認済み工程の成果物実在検査を導入。schema 6=AC カバレッジ / tasks.md 整合 / test-result.md の検査を導入。schema 7=起動確認(smoke)の記録検査を導入。schema 8=デバッグ（詰まりの原因究明）の記録検査を導入。schema 9=light の上流3文書の実在検査を導入。schema 10=autonomous の decisions.md と タスク点検の実施形態(task_check_mode) を記録漏れ扱いに。schema 11=autonomous の上流4文書の独立点検(doccheck)の記録を必須に。schema<=2 は legacy として subtask 不変条件を免除。
 
-PHASES="requirement research spec design plan coding test review walkthrough deliver retro"
+PHASES="requirements research design architecture tasks coding test review deliver retro"
 
 die()  { printf 'aidev: %s\n' "$*" >&2; exit 1; }
 warn() { printf 'aidev: %s\n' "$*" >&2; }
@@ -113,10 +113,39 @@ find_root() {
 ROOT=""
 case "${1:-}" in
   help|--help|-h|'') ;;
-  *) ROOT=$(find_root) || die ".aidev が見つかりません（リポジトリ内で実行してください）" ;;
+  *) ROOT=$(find_root) || die ".aidev が見つかりません（`mkdir -p .aidev/works` で作る。導入手順は aidev-docs/README.md「別PJへの導入」）" ;;
 esac
 AIDEV="$ROOT/.aidev"
 
+# **`aidev new <slug>` が作るのは `<日付>-<slug>`** なので、打った本人が付けた語では
+# `works/<slug>` に当たらない。文書は一貫して `<slug>` と書いているのに `aidev use <slug>` が
+# 「work が存在しません」で落ちていた（実走が実測。分類 G——散文と実装の食い違い）。
+# ここで日付前置を 1 回だけ補完する。曖昧（同じ slug が複数日にある）なら補完しない
+# ——黙って別の work を掴ませない
+work_resolve_name() { # slug -> 解決した名前（当たらなければ元の slug をそのまま返す）
+  [ -n "$1" ] || { printf '%s' "$1"; return 0; }
+  if [ -d "$AIDEV/works/$1" ]; then printf '%s' "$1"; return 0; fi
+  _wrh=${1%%/*}; _wrt=''
+  case "$1" in */*) _wrt="/${1#*/}" ;; esac
+  _wrn=0; _wrhit=''
+  for _wrc in "$AIDEV"/works/*-"$_wrh"; do
+    [ -d "$_wrc" ] || continue
+    _wrn=$((_wrn + 1)); _wrhit=$(basename "$_wrc")
+  done
+  if [ "$_wrn" -eq 1 ] && [ -d "$AIDEV/works/$_wrhit$_wrt" ]; then
+    printf '%s' "$_wrhit$_wrt"
+  else
+    printf '%s' "$1"
+  fi
+}
+# **「無い」と「曖昧」を別のメッセージにする**ための双子。`work_resolve_name` は `$()` の中で
+# 走るので、そこで数えた件数は親シェルに返らない（日付違いの同名 work を持つ人に
+# 「存在しません」と嘘の理由が出る）
+work_resolve_count() { # slug -> 日付前置の候補件数
+  _wch=${1%%/*}; _wcn=0
+  for _wcc in "$AIDEV"/works/*-"$_wch"; do [ -d "$_wcc" ] && _wcn=$((_wcn + 1)); done
+  printf '%s' "$_wcn"
+}
 resolve_work() { # [slug]
   # slug は top-level work（dated 名）か subtask のネストパス（<dated>/<NN>-<subslug>）。
   # works/<slug> へ素直に連結するためネストもそのまま解決できる（subtask 層の単一経路）。
@@ -128,8 +157,13 @@ resolve_work() { # [slug]
     [ -f "$AIDEV/current" ] || die "対象作業が不明です（.aidev/current 無し）。aidev new か slug 指定を。"
     slug=$(head -n1 "$AIDEV/current" | tr -d '\r\n')
   fi
+  _rwsrc=$slug
+  slug=$(work_resolve_name "$slug")
   WORK="$AIDEV/works/$slug"
-  [ -d "$WORK" ] || die "work が存在しません: $slug"
+  if [ ! -d "$WORK" ] && [ "$(work_resolve_count "$_rwsrc")" -gt 1 ]; then
+    die "slug が複数の work に当たります: $_rwsrc（日付つきの名前で指定してください。一覧は aidev list）"
+  fi
+  [ -d "$WORK" ] || die "work が存在しません: $slug（一覧は aidev list）"
   SLUG=$slug
 }
 
@@ -145,6 +179,7 @@ resolve_work_soft() { # [slug] -> 0=解決した / 1=解決できない（die �
     _rs=$(head -n1 "$AIDEV/current" | tr -d '\r\n')
   fi
   [ -n "$_rs" ] || return 1
+  _rs=$(work_resolve_name "$_rs")
   [ -d "$AIDEV/works/$_rs" ] || return 1
   WORK="$AIDEV/works/$_rs"; SLUG=$_rs
   return 0
@@ -156,6 +191,12 @@ set_or_append() { # file key newline
 }
 
 is_phase() { for p in $PHASES; do [ "$p" = "$1" ] && return 0; done; return 1; }
+# **有効な工程名を出す**。`未知の phase: walkthrough` だけでは、退役した工程を打った人が
+# 次に何を打てばよいか分からない（`aidev help` は工程を列挙しない）。`doccheck start` の
+# エラーが有効集合と代替手段を出しているのと同じ形に揃える（実走が指摘）
+die_unknown_phase() { # 打たれた名前 [前置き] [補足]
+  die "${2:-未知の phase}: $1（有効な工程: $PHASES）${3:-}"
+}
 
 # --- 最小 YAML 読み取り（フロー形式前提） ------------------------------------------
 # scalar: 'key: value' -> value（前後空白と囲み二重引用符を除去）。
@@ -174,7 +215,7 @@ ylist() {
 approved_has() { ylist "$WORK/state.yml" approved | grep -qw "$1"; }
 # **この工程に人間の承認者がいるか**。`autonomous` でも `humanGates` に挙がっている工程には
 # いる（`protocol-autonomous.md`「部分自律」）。「autonomous なら一律いない」で判定していた頃は、
-# `humanGates: [spec]` で回している work——他 PJ の retro が実績として報告している構成——で
+# `humanGates: [design]` で回している work——他 PJ の retro が実績として報告している構成——で
 # **承認者がいるのに承認前提の促しを止めていた**（実走で実測）。
 # なお `humanGates` は `new` が書くだけで**どこからも読まれていなかった**（書いて忘れられた設定）
 has_approver() { # phase
@@ -421,7 +462,7 @@ cv_ready_notice() {
 emit_human_gates() {
   if [ -n "${humangates:-}" ]; then
     _hg=$(printf '%s' "$humangates" | tr ',' ' ')
-    for _h in $_hg; do is_phase "$_h" || die "humanGates に未知の工程: $_h"; done
+    for _h in $_hg; do is_phase "$_h" || die_unknown_phase "$_h" "humanGates に未知の工程"; done
     printf 'humanGates: [%s]\n' "$(printf '%s' "$_hg" | tr -s ' ' | sed 's/^ *//; s/ *$//; s/ /, /g')"
   else
     printf 'humanGates: []\n'
@@ -480,7 +521,7 @@ cmd_new() {
     die "--parent と --backlog は併用できません（backlog 出自は親 work に刻む）"
   fi
   if [ -n "$parent" ]; then
-    # --- subtask 生成: 親 work 配下に <slug>(=NN-subslug) で作る（date prefix なし）。current は plan 開始 ---
+    # --- subtask 生成: 親 work 配下に <slug>(=NN-subslug) で作る（date prefix なし）。current は tasks 開始 ---
     pdir="$AIDEV/works/$parent"
     [ -d "$pdir" ] || die "親 work が存在しません: $parent"
     [ -f "$pdir/state.yml" ] || die "親 state.yml がありません: $parent"
@@ -506,7 +547,7 @@ cmd_new() {
       printf 'slug: %s\n' "$slug"
       printf 'parent: %s\n' "$parent"
       [ -n "$ticket" ] && printf 'ticket: %s\n' "$ticket"
-      printf 'current: plan\n'
+      printf 'current: tasks\n'
       printf 'approved: []\n'
       printf 'mode: %s\n' "$mode"
       printf 'profile: %s\n' "$profile"
@@ -532,11 +573,20 @@ cmd_new() {
       act=$slug
     fi
 
-    # カーソルは**活性の子**に合わせる。無条件に「今作った子」へ動かすと、親 plan で子を
-    # まとめて起こしたとき（30-plan の手順どおり）activeSubtask=先頭 / current=最後 になり、
+    # カーソルは**活性の子**に合わせる。無条件に「今作った子」へ動かすと、親 tasks で子を
+    # まとめて起こしたとき（30-tasks の手順どおり）activeSubtask=先頭 / current=最後 になり、
     # 「冗長コピー」の定義（protocol.md「6.」）が生成直後から破れる。しかも current の指す先は
     # 兄弟依存で塞がっていることが多く、そのまま工程に入ると exit 3 になる
-    printf '%s/%s\n' "$parent" "$act" > "$AIDEV/current"
+    # **親 tasks が承認されるまでカーソルは親に置く**。`protocol-subtask.md`「カーソル」は
+    # 「親工程中は `<親>`」と定めているのに、生成時に無条件で子へ動かしていた。
+    # `aidev-30-tasks` の手順どおり子を起こしてから `approve tasks` を打つと**親ではなく子が
+    # 承認され**、`unapprove` しても metrics の `approved` は追記式なので消えない
+    # ——その子は以後ずっと `verify --strict` が exit 5（ts は捏造禁止なので回復手段が無い）。
+    # 実走が実測した、**書いてあるとおりにやると詰む**経路
+    case " $(ylist "$pst" approved) " in
+      *" tasks "*) printf '%s/%s\n' "$parent" "$act" > "$AIDEV/current" ;;
+      *) printf 'cursor: %s のまま（親 tasks が未承認。承認したら活性の subtask へ進みます）\n' "$parent" ;;
+    esac
     printf 'created subtask: %s (parent %s, schema %s, mode %s, profile %s)\n' "$WORK" "$parent" "$CURRENT_SCHEMA" "$mode" "$profile"
     return 0
   fi
@@ -557,7 +607,7 @@ cmd_new() {
     printf 'schema: %s\n' "$CURRENT_SCHEMA"
     printf 'slug: %s\n' "$slug"
     [ -n "$ticket" ] && printf 'ticket: %s\n' "$ticket"
-    printf 'current: requirement\n'
+    printf 'current: requirements\n'
     printf 'approved: []\n'
     printf 'mode: %s\n' "$mode"
     printf 'profile: %s\n' "$profile"
@@ -578,7 +628,7 @@ cmd_new() {
   printf '%s\n' "$name" > "$AIDEV/current"
   printf 'created: %s (schema %s, mode %s, profile %s)\n' "$WORK" "$CURRENT_SCHEMA" "$mode" "$profile"
   if [ "$profile" = light ]; then
-    printf 'note: profile=light。上流3工程は requirement 1ゲートに畳む（protocol.md「11.」）\n'
+    printf 'note: profile=light。上流3工程は requirements 1ゲートに畳む（protocol.md「11.」）\n'
   fi
   # **選択の帰結を、選択の場に出す**。autonomous を選んだ時点で上流4工程の独立点検が必須になるのに、
   # それは protocol-check.md「(a)」を読まないと分からなかった——付録は「該当する状況のときだけ読む」
@@ -599,7 +649,7 @@ cmd_new() {
 cmd_event() {
   [ $# -ge 2 ] || die "使用法: aidev event <phase> <start|sent_back> [k=v ...]"
   ph=$1; ev=$2; shift 2
-  is_phase "$ph" || die "未知の phase: $ph"
+  is_phase "$ph" || die_unknown_phase "$ph"
   case "$ev" in
     start|sent_back) ;;
     # `event <phase> approved` は metrics にだけ approved を書き、state.yml の approved は
@@ -631,7 +681,7 @@ cmd_event() {
 cmd_approve() {
   [ $# -ge 1 ] || die "使用法: aidev approve <phase> [k=v ...]"
   ph=$1; shift
-  is_phase "$ph" || die "未知の phase: $ph"
+  is_phase "$ph" || die_unknown_phase "$ph"
   resolve_work
   st="$WORK/state.yml"
   [ -f "$st" ] || die "state.yml がありません: $SLUG"
@@ -649,12 +699,12 @@ cmd_approve() {
   fi
   replace_line "$st" current "current: $ph"
 
-  # 被覆の刻印（plan / requirement / review）。**手書きの key=value に任せない**——
+  # 被覆の刻印（tasks / requirements / review）。**手書きの key=value に任せない**——
   # `harnessRev` や `schema` を new に一本化したのと同じ理由で、手書きの値は忘れられ、
   # 忘れられた work は静かに母集団から漏れる。ここは既存ファイルから機械的に出せる。
-  # 刻む工程を3つに絞るのは、「plan（または light の requirement）で決めた被覆」と
+  # 刻む工程を3つに絞るのは、「tasks（または light の requirements）で決めた被覆」と
   # 「review 時点の被覆」の**2点**があれば乖離が読めるから（間を刻んでも量が増えるだけ）。
-  # tasks.md がまだ無い工程（full の requirement・分割 work の親 plan）は刻まない。
+  # tasks.md がまだ無い工程（full の requirements・分割 work の親 tasks）は刻まない。
   # 実施形態は enum。タイポ（deligated 等）を通すと層別が静かに壊れる
   # **手渡しの `*_check_mode` は CLI の記録と突き合わせる**。突き合わせないと、
   # 点検を一度も打たずに `approve <phase> doc_check_mode=delegated` と書くだけで
@@ -738,7 +788,7 @@ cmd_approve() {
     fi
   fi
   case "$ph" in
-    plan|requirement|review)
+    tasks|requirements|review)
       # 明示指定があれば尊重する（機械値で上書きしない）。判定は**引数ごとの先頭一致**——
       # 全引数を連結した文字列に部分一致を掛けると、`note=see ac_total=5` のような値でも
       # 分岐が変わり、ps1 側（先頭一致）と食い違う
@@ -746,7 +796,15 @@ cmd_approve() {
       for _akv in "$@"; do case "$_akv" in ac_total=*) _achas=yes ;; esac; done
       # 分割 work の subtask では刻まない。被覆は**家族単位**（親＋全 subtask）の値なので、
       # 子ごとに刻むと `metrics --all` を足し上げたとき分母が subtask 数だけ多重計上される
-      if [ "$_achas" = no ] && [ -z "$(yget "$WORK/state.yml" parent)" ] && cov_analyze; then
+      # **分割 work の親の tasks でも刻まない**。親の tasks 承認時点では子の `tasks.md` が
+      # まだ存在しない（存在させられない）ので、刻まれる `ac_covered` は構造的に必ず 0 で、
+      # `ac_drift`（= review 時の gap − tasks 時の gap）が **-(全 AC 数) に張り付く**。
+      # 定義は「tasks 以降に**増えた** gap」なので負値の読み方が無い（実走が実測）。
+      # 測れないものを 0 と書かない——刻まなければ `metrics` は `-`（測定不能）を出す
+      _accan=yes
+      [ "$ph" = tasks ] && [ -n "$(ylist "$WORK/state.yml" subtasks)" ] && _accan=no
+      if [ "$_achas" = no ] && [ "$_accan" = yes ] \
+         && [ -z "$(yget "$WORK/state.yml" parent)" ] && cov_analyze; then
         set -- "$@" "ac_total=$COV_AC" "ac_covered=$COV_TASK" \
                     "tasks_no_ac=$COV_TASKS_NOAC" "tasks_ac_none=$COV_TASKS_ACNONE"
       fi ;;
@@ -770,6 +828,16 @@ cmd_approve() {
     hv_ready_notice
   fi
 
+
+  # D': 親の tasks 承認でカーソルを活性の subtask へ進める。`new --parent` が親工程中は
+  # カーソルを動かさなくなったぶん、**進める役をここが引き受ける**（手で `use` を打たせない）。
+  if [ "$ph" = tasks ] && [ -z "$(yget "$st" parent)" ]; then
+    _asub=$(yget "$st" activeSubtask)
+    if [ -n "$_asub" ] && [ "$_asub" != done ] && [ -d "$WORK/$_asub" ]; then
+      printf '%s\n' "$SLUG/$_asub" > "$AIDEV/current"
+      printf 'cursor: %s へ前進（分割 work。最初の subtask の tasks から）\n' "$SLUG/$_asub"
+    fi
+  fi
 
   # D: subtask の review 承認でカーソルを前進させる（散文の手動カーソル操作を排除）。
   # 親 subtasks を順に見て review 未承認の最初の子を次の active にする。無ければ done（→親の統合 test へ）。
@@ -796,11 +864,11 @@ cmd_approve() {
 }
 
 # --- コマンド: guard ----------------------------------------------------------
-# subtask は上流成果物(requirement/spec/design)のみ親から継承する。plan.md/tasks.md は subtask 固有なので継承しない。
+# subtask は上流成果物(requirements/design/architecture)のみ親から継承する。tasks.md は subtask 固有なので継承しない。
 need_file() {
   [ -f "$WORK/$1" ] && return 0
   case "$1" in
-    requirement.md|spec.md|design.md) [ -n "${PARENT_DIR:-}" ] && [ -f "$PARENT_DIR/$1" ] && return 0 ;;
+    requirements.md|design.md|architecture.md) [ -n "${PARENT_DIR:-}" ] && [ -f "$PARENT_DIR/$1" ] && return 0 ;;
   esac
   GMISS="$GMISS $1"; return 1
 }
@@ -854,33 +922,50 @@ check_depends() {
 cmd_guard() {
   [ $# -ge 1 ] || die "使用法: aidev guard <phase>"
   ph=$1
-  is_phase "$ph" || die "未知の phase: $ph"
+  # **余分な引数を黙って捨てない**。`taskcheck` / `doccheck` / `debug` が `--slug` を取るので、
+  # その癖のまま `aidev guard design --slug X` と打てる。捨てていた頃は
+  # **`.aidev/current` の別 work に対して緑を返していた**——工程入口の硬ゲートが
+  # 打ち間違いを黙って通す形（実走で実測）。`verify --bogus` は既に exit 1 で弾いている
+  shift
+  [ $# -eq 0 ] || die "guard は phase 以外の引数を取りません: $* （対象 work は .aidev/current。切り替えは aidev use）"
+  is_phase "$ph" || die_unknown_phase "$ph"
   resolve_work
   GMISS=""; GUNAPP=""
   # subtask なら上流成果物の継承元として親 work dir を立てる（need_file の fallback）
   PARENT_DIR=""
   _par=$(yget "$WORK/state.yml" parent)
   [ -n "$_par" ] && [ -d "$AIDEV/works/$_par" ] && PARENT_DIR="$AIDEV/works/$_par"
-  # B: 親専用工程は subtask で実行不可（subtask の工程は plan/coding/test/review のみ）
+  # B: 親専用工程は subtask で実行不可（subtask の工程は tasks/coding/test/review のみ）
   if [ -n "$_par" ]; then
     case "$ph" in
-      requirement|research|spec|design|walkthrough|deliver|retro)
-        printf 'NG %s は親 work 専用です（subtask では実行不可。subtask の工程は plan/coding/test/review）: %s\n' "$ph" "$SLUG" >&2
+      requirements|research|design|architecture|deliver|retro)
+        printf 'NG %s は親 work 専用です（subtask では実行不可。subtask の工程は tasks/coding/test/review）: %s\n' "$ph" "$SLUG" >&2
         return 2 ;;
     esac
   fi
+  # B': 逆向きも弾く——**分割 work の親に coding は無い**（`protocol-subtask.md` の工程
+  # レイヤリング: 親は tasks →〔subtask 群〕→ 統合 test → 統合 review → deliver → retro）。
+  # 子で親専用工程を叩くと exit 2 になるのに、この向きは素通りで、統合 test が落ちたときに
+  # `aidev-50-test`「4.」の一般手順どおり `event coding start` を打つと**親に幽霊の coding**が
+  # 記録された（実走が実測。`metrics --phases` に出るが誰も直せない）
+  if [ -z "$_par" ] && [ -n "$(ylist "$WORK/state.yml" subtasks)" ] && [ "$ph" = coding ]; then
+    printf 'NG 分割 work の親に coding はありません（実装は subtask が持つ）: %s\n' "$SLUG" >&2
+    printf '   → 結合起因の差し戻しは**原因の subtask の coding** へ: aidev use %s/<NN-subslug>\n' "$SLUG" >&2
+    printf '      → aidev unapprove review → unapprove test → unapprove coding → aidev event coding start\n' >&2
+    return 2
+  fi
   case "$ph" in
-    requirement) : ;;
-    research|spec) need_file requirement.md || : ;;
-    design) need_file spec.md || : ;;
-    plan) need_file spec.md || : ;;  # tasks.md は plan の産物なので前提にしない
-    coding) need_file plan.md || : ; need_file tasks.md || : ;;
-    # 分割 work の親は tasks.md を持たない（各 subtask の plan が作る。aidev-30-plan「4.」）。
-    # ここを一律に要求すると、書いてあるとおりに plan を書いた親の統合 test が必ず塞がる。
-    # 親の前提は「plan.md があり、全 subtask が review 承認済み」
+    requirements) : ;;
+    research|design) need_file requirements.md || : ;;
+    architecture) need_file design.md || : ;;
+    tasks) need_file design.md || : ;;  # tasks.md は tasks の産物なので前提にしない
+    coding) need_file tasks.md || : ;;
+    # 分割 work の親は tasks.md を持たない（各 subtask の tasks が作る。aidev-30-tasks「4.」）。
+    # ここを一律に要求すると、書いてあるとおりに tasks を書いた親の統合 test が必ず塞がる。
+    # 親の前提は「tasks.md があり、全 subtask が review 承認済み」
     test)
       if [ -n "$(ylist "$WORK/state.yml" subtasks)" ]; then
-        need_file plan.md || :
+        need_file tasks.md || :
         for _s in $(ylist "$WORK/state.yml" subtasks); do
           case " $(ylist "$WORK/$_s/state.yml" approved) " in
             *" review "*) ;;
@@ -892,8 +977,8 @@ cmd_guard() {
       fi ;;
     # 60-review の前提「test 工程を通過していること」に経路を与える。
     # 宣言だけで検査が無いと、protocol.md「2.」の「前提工程の承認を機械的に検査する」が嘘になる
-    review) need_file spec.md || : ; need_approved test || : ;;
-    walkthrough|deliver) need_approved review || : ;;
+    review) need_file design.md || : ; need_approved test || : ;;
+    deliver) need_approved review || : ;;
     retro) need_approved deliver || : ;;
   esac
   check_depends
@@ -912,7 +997,7 @@ cmd_guard() {
       printf '   → 忘れずに: aidev event %s start\n' "$ph"
     fi
     # **plan モードが使える工程でだけ、名指しで促す**。散文（`protocol-autonomous.md`）に
-    # 「spec・design では使ってよい」と書いてあっても、**打つ側は工程に入る瞬間には思い出さない**
+    # 「この条件なら入れ」と書いてあっても、**打つ側は工程に入る瞬間には思い出さない**
     # ——`event start` の促しと同じ型で、CLI が散文を肩代わりする。
     # **「方針の合意を取る」のような役割だけの言い方にはしない**——それだと丁寧に計画するだけで
     # **モードは切り替わらない**。plan モードへ入るには明示の命令が要る（`EnterPlanMode` は
@@ -920,13 +1005,21 @@ cmd_guard() {
     # 「plan モード」は Cursor / Copilot にもある**横断的な概念名**で、`Stop` フックや
     # `AskUserQuestion` のような製品固有 API 名とは別物なので、`protocol.md`「2.5」に抵触しない。
     # 持たない環境でのフォールバックは `aidev-docs/README.md` の表。
-    # 条件は散文と同じ **`light` でない spec / design で、その工程に承認者がいるとき**。
+    # 条件は散文と同じ **`light` でない design / architecture / tasks で、その工程に承認者がいるとき**
+    # （subtask の tasks は除く）。ここに至るまで**分類を 4 回発明して 4 回とも外した**（`DESIGN`「2.」）。
+    # 正解は **`ExitPlanMode` の用途規定**——「planning the **implementation steps** of a task that
+    # requires writing code」。**承認を出すのはこのツールだけ**なので、ここが実質の資格条件。
+    # `EnterPlanMode`（入口）の WHEN TO USE を基準にしていた頃は `requirements` が入っていたが、
+    # **出口の制約を見ていなかった**。`requirements`（何を・なぜ）は実装計画ではない。
     # `light` は往復を減らす趣旨に反する。承認者の有無で見るのは、**plan モードを抜けるのが
     # 人間の承認だから**——`autonomous` を一律で外すと `humanGates` の部分自律を取りこぼす。
     # 条件を外すと「使ってはいけない工程で勧める」ことになる
+    _pmsub=no
+    case "$ph" in tasks) [ -n "$(yget "$WORK/state.yml" parent)" ] && _pmsub=yes ;; esac
     case "$ph" in
-      spec|design)
-        if [ "$(yget "$WORK/state.yml" profile)" != light ] && has_approver "$ph"; then
+      design|architecture|tasks)
+        if [ "$_pmsub" = no ] && [ "$(yget "$WORK/state.yml" profile)" != light ] \
+           && has_approver "$ph"; then
           printf '   → 有力案が複数あるなら **plan モードへ入ってから** 書く（承認を取り、解除してから成果物を書く）\n'
           printf '      抜けた先は承認時に選んだモードで、元のモードには戻らない（protocol-autonomous.md）\n'
         fi ;;
@@ -952,12 +1045,12 @@ needs_start() { # phase
 # --- AC カバレッジ / tasks.md の整合 ------------------------------------------
 # 出所: spec-kit の `/analyze` が出す `Coverage % (requirements with >=1 task)`。
 # aidev には「受け入れ基準(AC)が1件もタスクに落ちていない」を機械的に見る手段が無く、
-# plan の完了の目安「spec の全範囲が tasks に漏れなく落ちている」は目視に委ねられていた。
-# 同じ理由で、`aidev-30-plan` が散文で要求している「存在しないタスク ID を指していない・
+# tasks の完了の目安「design の全範囲が tasks に漏れなく落ちている」は目視に委ねられていた。
+# 同じ理由で、`aidev-30-tasks` が散文で要求している「存在しないタスク ID を指していない・
 # 循環していない」も誰も検査していなかった（散文=ソフト層のまま）。ここでハード層に上げる。
 #
 # 対応付けの正典は tasks.md の `AC:` 行（`対象:` `依存:` と同じ継続行の形）。
-# 本文（AC の文言）は requirement.md にしか置かない——ID で参照するだけなので二重管理にならない。
+# 本文（AC の文言）は requirements.md にしか置かない——ID で参照するだけなので二重管理にならない。
 
 # ID の文法（sh/ps1 で同一。ここが唯一の定義）。
 #   AC: `AC` の直後は**数字か `-`**（`AC1` `AC12` `AC-I1`）。`ACL` `ACCESS` のように
@@ -990,9 +1083,9 @@ cov_lines() { # file
 }
 
 # 行頭パターンに続く AC の ID を1行1件で出す。
-# requirement 側（`- [ ] AC1: …`）と spec 側（`- AC1: …`）で**同じ ID 文法**を使う。
+# requirements 側（`- [ ] AC1: …`）と design 側（`- AC1: …`）で**同じ ID 文法**を使う。
 # 片方だけ「ID の直後にコロンが要る」にすると、`- [ ] AC-I1 開く / 閉じる:` という
-# テンプレートどおりの相互作用 AC が spec 側で永久に拾えなくなる。
+# テンプレートどおりの相互作用 AC が design 側で永久に拾えなくなる。
 #
 # **行頭パターンを `-v` で渡さない**。awk は `-v` の値にもエスケープ処理をかけるが、
 # その扱いが実装で割れる——mawk は `\[` をそのまま残し、gawk は `[` に潰して警告を出す。
@@ -1106,7 +1199,7 @@ cov_gap() { _k=$1; shift
 }
 
 # 被覆は **work 全体（親＋全 subtask）** で見る。
-# subtask は親の requirement.md を継承するので、自分の slice だけを見ると
+# subtask は親の requirements.md を継承するので、自分の slice だけを見ると
 # 兄弟が担当する AC が必ず「タスクが無い」になり、**誰にも直せない gap** が恒久的に残る
 # （`DESIGN.md`「12.」の「直せない事実を毎回混ぜると、直せる WARN が埋もれる」に反する）。
 # 着地するのは親1本の PR なので、被覆の単位も親1本に揃えるのが正しい。
@@ -1133,7 +1226,7 @@ cov_analyze() {
     _sn=$(basename "${_sd%/}")
     if [ -f "${_sd}tasks.md" ]; then _cvfiles="${_cvfiles}${_sn}/	${_sd}tasks.md
 "
-    else COV_PENDING=yes; fi   # plan 未実施の subtask がある＝被覆はまだ完成しない
+    else COV_PENDING=yes; fi   # tasks 未実施の subtask がある＝被覆はまだ完成しない
   done
   [ -n "$_cvfiles" ] || return 1
 
@@ -1141,8 +1234,8 @@ cov_analyze() {
   case $- in *f*) _cvglob=off ;; *) _cvglob=on ;; esac
   set -f
 
-  _acs=$(cov_req_acs "$_cvr0/requirement.md" | awk '!seen[$0]++')
-  _sacs=" $(cov_spec_acs "$_cvr0/spec.md" | awk '!seen[$0]++' | tr '\n' ' ') "
+  _acs=$(cov_req_acs "$_cvr0/requirements.md" | awk '!seen[$0]++')
+  _sacs=" $(cov_spec_acs "$_cvr0/design.md" | awk '!seen[$0]++' | tr '\n' ' ') "
 
   # 行を集める（子の ID には subslug を前置し、兄弟間の T1 衝突を避ける）
   _rows=""
@@ -1231,7 +1324,7 @@ cov_analyze() {
     cov_gap struct "依存の循環に含まれるタスク: $_cyc"
   fi
 
-  # AC 側の走査（spec 対応・タスク対応）
+  # AC 側の走査（design 対応・タスク対応）
   for _a in $_acs; do
     [ -n "$_a" ] || continue
     COV_AC=$((COV_AC+1))
@@ -1247,7 +1340,7 @@ cov_analyze() {
   # 受け入れ基準が1件も無いのは「被覆 100%」ではなく**測れていない**。ここを素通りさせると、
   # ID を書かなかった work（と light の1ゲート）で、唯一の機械的な歯止めが空振りする。
   if [ "$COV_AC" -eq 0 ]; then
-    cov_gap cover "requirement.md に受け入れ基準が1件もありません（\`- [ ] AC1: …\` の形で書きます）"
+    cov_gap cover "requirements.md に受け入れ基準が1件もありません（\`- [ ] AC1: …\` の形で書きます）"
   fi
 
   if [ "$_cvglob" = on ]; then set +f; fi
@@ -1260,8 +1353,8 @@ cov_pct() { # 分子 分母
 }
 
 # --strict / verify が cover を致命扱いしてよいか。
-# plan 未実施の subtask が残っている間は「まだ埋まっていない」だけなので、致命にしない
-# （最初の subtask の plan が、兄弟の担当ぶんまで背負って通らなくなる）。
+# tasks 未実施の subtask が残っている間は「まだ埋まっていない」だけなので、致命にしない
+# （最初の subtask の tasks が、兄弟の担当ぶんまで背負って通らなくなる）。
 cov_cover_enforced() { [ "$COV_PENDING" = no ]; }
 
 cmd_coverage() {
@@ -1277,26 +1370,26 @@ cmd_coverage() {
   case "$fmt" in table|tsv) ;; *) die "--format は table|tsv" ;; esac
   resolve_work "$cslug"
   # 読み取り専用コマンドなので、対象がまだ無い状態は**正常な空**として 0 で返す
-  # （`convention status` と同じ扱い。plan 前に打たれてエラー経路を踏ませない）
+  # （`convention status` と同じ扱い。tasks 前に打たれてエラー経路を踏ませない）
   if ! cov_analyze; then
     printf 'coverage: %s\n' "$SLUG"
-    printf 'note: tasks.md がまだありません（plan 工程で作られます）\n'
+    printf 'note: tasks.md がまだありません（tasks 工程で作られます）\n'
     return 0
   fi
   printf 'coverage: %s\n' "$SLUG"
   if [ "$fmt" = tsv ]; then
     printf '%s' "$COV_ROWS"
   else
-    { printf 'ac	spec	tasks\n'; printf '%s' "$COV_ROWS"; } | fmt_table
+    { printf 'ac	design	tasks\n'; printf '%s' "$COV_ROWS"; } | fmt_table
   fi
   if [ -n "$COV_GAPLINES" ]; then printf '%s' "$COV_GAPLINES"; fi
-  printf 'coverage-summary: ac=%s spec=%s/%s(%s%%) tasks=%s/%s(%s%%) task_rows=%s no_ac=%s ac_none=%s gaps=%s\n' \
+  printf 'coverage-summary: ac=%s design=%s/%s(%s%%) tasks=%s/%s(%s%%) task_rows=%s no_ac=%s ac_none=%s gaps=%s\n' \
     "$COV_AC" "$COV_SPEC" "$COV_AC" "$(cov_pct "$COV_SPEC" "$COV_AC")" \
     "$COV_TASK" "$COV_AC" "$(cov_pct "$COV_TASK" "$COV_AC")" \
     "$COV_TASKS" "$COV_TASKS_NOAC" "$COV_TASKS_ACNONE" "$COV_GAPS"
   printf 'coverage-gaps: struct=%s cover=%s\n' "$COV_GAPS_S" "$COV_GAPS_C"
   if ! cov_cover_enforced; then
-    printf 'note: plan 未実施の subtask があります。cover の gap は全 subtask の plan が済むまで致命にしません\n'
+    printf 'note: tasks 未実施の subtask があります。cover の gap は全 subtask の tasks が済むまで致命にしません\n'
   fi
   if [ "$STRICTC" = yes ]; then
     _cvfail=$COV_GAPS_S
@@ -1327,7 +1420,7 @@ cmd_coverage() {
 #   2. ラウンドを数えて**有限化**する（`maxDebugRounds`、既定 2）
 #   3. 返却を構造で受け、**上限に達したのに何もせず着地した work** を verify が捕まえる
 # 手順・渡すもの/渡さないものは `protocol-debug.md`（散文）。
-DBG_CATEGORIES='dependency environment config logic spec_conflict test_defect external'
+DBG_CATEGORIES='dependency environment config logic upstream_conflict test_defect external'
 DBG_ACTIONS='retry block stop_for_human'
 DBG_CONFIDENCE='high medium low'
 
@@ -1383,7 +1476,7 @@ dbg_start() {
   done
   resolve_work "$dslug"
   [ -n "$dph" ] || dph=$(yget "$WORK/state.yml" current)
-  is_phase "$dph" || die "未知の phase: $dph（--phase で指定するか state.yml の current を直す）"
+  is_phase "$dph" || die_unknown_phase "$dph" "" "。--phase で指定するか state.yml の current を直す"
   _dm=$(dbg_max)
   _dr=$(dbg_rounds "$WORK/metrics.yml" "$dph")
   if [ "$_dr" -ge "$_dm" ] 2>/dev/null; then
@@ -1403,7 +1496,7 @@ dbg_start() {
   printf '渡すもの:\n'
   printf '  - 失敗の生出力（%s/test-result.md の「失敗の証跡」）\n' "$_dw"
   printf '  - いまの差分（git diff。コミット前の変更）\n'
-  printf '  - 対象タスクの行（%s/tasks.md）と、その AC の本文（requirement.md）\n' "$_dw"
+  printf '  - 対象タスクの行（%s/tasks.md）と、その AC の本文（requirements.md）\n' "$_dw"
   printf '  - review の直近ラウンドの指摘（%s/review.md）\n' "$_dw"
   printf '**渡さないもの: これまでの修正の試行履歴**（渡すと同じ穴を掘り続ける。これがこの手順の要）\n'
   printf 'next: aidev debug report --root-cause <t> --category <c> --next-action <a>\n'
@@ -1419,7 +1512,7 @@ dbg_report() {
       --category)    need_arg "$1" $#; dcat=$2;  shift 2 ;;
       --next-action) need_arg "$1" $#; dact=$2;  shift 2 ;;
       --confidence)  need_arg "$1" $#; dconf=$2; shift 2 ;;
-      --fix-plan)    need_arg "$1" $#; dfix=$2;  shift 2 ;;
+      --fix-tasks)    need_arg "$1" $#; dfix=$2;  shift 2 ;;
       --verification) need_arg "$1" $#; dver=$2; shift 2 ;;
       -*) die "未知のオプション: $1" ;;
       *) [ -z "$dslug" ] && dslug=$1 || die "slug は1つだけ"; shift ;;
@@ -1427,7 +1520,7 @@ dbg_report() {
   done
   resolve_work "$dslug"
   [ -n "$dph" ] || dph=$(yget "$WORK/state.yml" current)
-  is_phase "$dph" || die "未知の phase: $dph"
+  is_phase "$dph" || die_unknown_phase "$dph"
   # **必須フィールドを CLI が強制する**（`convention new` の --hypothesis/--baseline と同じ入口ゲート）。
   # 散文の講評だけ返して終わると、何が原因だったのかが後から誰にも読めない
   [ -n "$drc" ]  || die "--root-cause は必須です（何が根本原因だったか。1〜2文）"
@@ -1822,6 +1915,7 @@ tc_start() {
   [ -n "$_tmode" ] || die "--mode は必須（delegated=別コンテキストへ委譲 / same_session=同一セッションで読み直し）。点検が効く理由はコンテキスト分離なので、どちらで行ったかを残さないと効果を測れない"
   case " $TC_MODES " in *" $_tmode "*) ;; *) die "--mode は delegated|same_session" ;; esac
   resolve_work "$_tslug"
+  check_reject_light "タスクの差分点検（taskcheck）"
   tc_known_id "$_tid" || die "tasks.md にそのタスクがありません: $_tid（打ち間違いか、tasks.md へ足し忘れ。足したなら AC: も書く）"
   _tmax=$(tc_max)
   _tr=$(tc_rounds "$WORK/metrics.yml" "$_tid")
@@ -1942,15 +2036,15 @@ cmd_taskcheck() {
 
 # --- コマンド: doccheck（上流文書の独立点検を有限化する） ------------------------
 # `protocol-check.md`「3.3」(a) は長く**観測点の無い規約**だった。coding は
-# `mode: autonomous` なら全タスクの差分点検が必須なのに、上流4工程（requirement / spec /
-# design / plan）の独立検証は「使わない場面: autonomous のゲート経路」に入っていた——
-# **同じ文書が「手戻りの最大の源は方向 / spec 誤り＝上流で最も効く」と書いているのに
+# `mode: autonomous` なら全タスクの差分点検が必須なのに、上流4工程（requirements / design /
+# architecture / tasks）の独立検証は「使わない場面: autonomous のゲート経路」に入っていた——
+# **同じ文書が「手戻りの最大の源は方向 / design 誤り＝上流で最も効く」と書いているのに
 # 優先順位が逆**という、プロトコル内部の非対称。他 PJ の retro が「4 工程すべてで
-# 差し替えを提案せず、spec の自己矛盾（同一文書内の 101 行目 vs 347 行目）を素通りさせた」と
+# 差し替えを提案せず、design の自己矛盾（同一文書内の 101 行目 vs 347 行目）を素通りさせた」と
 # 実測で報告してきた。**書いた本人が「点検は要らない」と判断する構造**になっていた。
 #
 # taskcheck と同じ「1ラウンド = 1 コマンド」の形を与え、記録から approve が自動で刻む。
-DC_PHASES='requirement spec design plan'
+DC_PHASES='requirements design architecture tasks'
 
 dc_max() {
   _m=$(yget "$AIDEV/config.yml" maxDocCheckRounds)
@@ -1964,19 +2058,13 @@ dc_valid_phase() { # phase
 dc_rounds()  { ck_count "$1" doccheck start  phase "$2"; }
 dc_reports() { ck_count "$1" doccheck report phase "$2"; }
 # その工程の点検ラウンド数 / findings 合計 / 実施形態。DC_ROUNDS / DC_FINDINGS / DC_MODE に入れる
-# 点検に渡す文書の合計バイト数。**plan は plan.md と tasks.md の 2 つ**——
-# `dc_start` の出力自身が「渡すもの: plan.md と tasks.md」と言っているのに plan.md しか見ておらず、
-# `AC:` 行がある（＝plan の点検で最も直しやすい）tasks.md だけを直して `report` を打っても
-# 何も言わなかった（実走で実測）
+# 点検に渡す文書のバイト数
 dc_size() { # phase
-  _dsn=0
-  for _dsf in "$WORK/$1.md" "$([ "$1" = plan ] && printf '%s' "$WORK/tasks.md")"; do
-    [ -n "$_dsf" ] && [ -f "$_dsf" ] || continue
-    _dsb=$(wc -c < "$_dsf" 2>/dev/null | tr -d ' ') || _dsb=0
-    case "$_dsb" in ''|*[!0-9]*) _dsb=0 ;; esac
-    _dsn=$((_dsn + _dsb))
-  done
-  printf '%s' "$_dsn"
+  # **1 工程 1 ファイル**。tasks が 2 ファイル（方針と一覧）だった頃はここに特例があり、
+  # 片方しか見ていなかったので `AC:` 行のあるほうを直しても検知できなかった。統合して特例が消えた
+  _dsb=$(wc -c < "$WORK/$1.md" 2>/dev/null | tr -d ' ') || _dsb=0
+  case "$_dsb" in ''|*[!0-9]*) _dsb=0 ;; esac
+  printf '%s' "$_dsb"
 }
 
 # `start` に `report` が追いついていない工程（改行区切り）。**`tc_unreported` と同じ式・同じ出口**。
@@ -2015,6 +2103,15 @@ dc_totals() { # metrics_file phase
   return 0
 }
 
+# **`protocol-check.md` の「`profile: light` では使わない」は散文にしか無かった**（実走が実測）。
+# light の趣旨は往復を減らすことなので、点検が要るなら light の条件を外れている
+# ——止めて `aidev escalate` を名指しする（同文書いわく「(a) では昇格の合図でもある」）
+check_reject_light() { # ラベル（WORK は解決済み）
+  [ "$(yget "$WORK/state.yml" profile)" = light ] || return 0
+  printf 'aidev: profile=light では%sを使いません（往復を減らす趣旨に反する。protocol-check.md）\n' "$1" >&2
+  printf 'next: 点検が要るなら light の条件を外れています。aidev escalate で full へ昇格してから打つ\n' >&2
+  exit 2
+}
 dc_start() {
   _dph=""; _dslug=""; _dmode=""
   while [ $# -gt 0 ]; do
@@ -2025,11 +2122,12 @@ dc_start() {
       *) [ -z "$_dph" ] && _dph=$1 || die "工程は1つだけ"; shift ;;
     esac
   done
-  [ -n "$_dph" ] || die "使用法: aidev doccheck start <requirement|spec|design|plan> --mode <delegated|same_session> [--slug <work>]"
+  [ -n "$_dph" ] || die "使用法: aidev doccheck start <requirements|design|architecture|tasks> --mode <delegated|same_session> [--slug <work>]"
   dc_valid_phase "$_dph" || die "独立点検の対象は上流4工程だけ: $_dph（$DC_PHASES）。coding のタスク点検は aidev taskcheck"
   [ -n "$_dmode" ] || die "--mode は必須（delegated=別コンテキストへ委譲 / same_session=同一セッションで読み直し）。点検が効く理由はコンテキスト分離なので、どちらで行ったかを残さないと効果を測れない"
   case " $TC_MODES " in *" $_dmode "*) ;; *) die "--mode は delegated|same_session" ;; esac
   resolve_work "$_dslug"
+  check_reject_light "文書の独立点検（doccheck）"
   # 前提成果物の不足は exit 2（`guard` と同じ分類。使い方の誤り=1 と混ぜない）
   if [ ! -f "$WORK/$_dph.md" ]; then
     printf 'aidev: 点検する文書がありません: %s.md（その工程を先に書く）\n' "$_dph" >&2
@@ -2051,13 +2149,9 @@ dc_start() {
   _dsz=$(dc_size "$_dph")
   append_event "$_dph" doccheck stage=start "phase=$_dph" "mode=$_dmode" "size=$_dsz"
   printf 'round: %s/%s\n' "$((_dr + 1))" "$_dmax"
-  # plan 工程の成果物は plan.md と tasks.md の2つで、`AC:` 行は tasks.md にしかない。
-  # 「plan.md だけ」と言いながら「AC の ID 対応漏れ」を観点に挙げると、構造的に検知できない（実走で判明）
-  if [ "$_dph" = plan ]; then
-    printf '渡すもの: plan.md と tasks.md（AC: 行は tasks.md にある。上流の元文書は渡さない）\n'
-  else
-    printf '渡すもの: %s.md だけ（上流の元文書は渡さない。内部一貫性を見るため）\n' "$_dph"
-  fi
+  # **特例は不要**。`tasks` が 2 ファイル（方針と一覧）だった頃は「plan.md と tasks.md を渡す」と
+  # 言い分ける必要があったが、統合したので全工程が同じ 1 文になった
+  printf '渡すもの: %s.md だけ（上流の元文書は渡さない。内部一貫性を見るため）\n' "$_dph"
   printf '観点: **内部一貫性のみ**——AC の ID 対応漏れ / **AC の入力の出所が文書内で辿れるか** /\n'
   printf '      目的・ゴールが状態で書けているか / 対象範囲と方針・図と本文の食い違い / 節の欠落・前後の矛盾\n'
   printf '禁止: **外部ソース・一次資料との照合**（幻覚的な指摘を量産する。一次資料は主エージェントが直読）\n'
@@ -2103,7 +2197,7 @@ dc_report() {
     | grep 'stage:[[:space:]]*start' | grep "phase:[[:space:]]*$_dph[,}]" \
     | sed -n 's/.*size:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | tail -n1)
   _dsz1=$(dc_size "$_dph")
-  _dsdoc=$_dph.md; [ "$_dph" = plan ] && _dsdoc="plan.md と tasks.md"
+  _dsdoc=$_dph.md
   append_event "$_dph" doccheck stage=report "phase=$_dph" "findings=$_df"
   printf 'doccheck: %s / %s（findings %s）\n' "$SLUG" "$_dph" "$_df"
   if [ -n "$_dsz0" ] && [ "$_dsz0" != "$_dsz1" ] 2>/dev/null; then
@@ -2383,28 +2477,28 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail / 5 stri
       # ここを見ないと、**成果物を1つも作らずに全工程 approve した work が
       # 「deliver 済み・verify OK」になる**。deliver の着地前ゲートが verify なので、
       # SDD の最低限の前提（各工程が成果物を残す）が誰にも守られていなかった。
-      # 親（subtasks を持つ）は plan.md までで、tasks.md は子が持つ（aidev-30-plan「4.」）
+      # 親（subtasks を持つ）は design.md までで、tasks.md は子が持つ（aidev-30-tasks「4.」）
       _issub=$(yget "$st" parent)
       _hassub=$(ylist "$st" subtasks)
       if [ "$schema" -ge 5 ] 2>/dev/null; then
-      # schema 9: light は spec/plan を approve しない（protocol-light.md「上流 1 ゲートの規約」）
+      # schema 9: light は design/tasks を approve しない（protocol-light.md「上流 1 ゲートの規約」）
       # ので、承認を条件にした下の実在検査が **light では構造的に一度も走らない**。
-      # 結果 requirement.md だけ書いた light work が verify OK で着地できていた（2026-09-04 実測）。
+      # 結果 requirements.md だけ書いた light work が verify OK で着地できていた（2026-09-04 実測）。
       # light の「4つとも作る・スタブは作らない」は散文にしか無く、二層（散文=ソフト /
-      # CLI=ハード）の CLI 側が丸ごと欠けていた。requirement の承認をもって 4 文書を要求する。
+      # CLI=ハード）の CLI 側が丸ごと欠けていた。requirements の承認をもって 3 文書を要求する。
       _vlight=no
       if [ "$schema" -ge 9 ] 2>/dev/null && [ "$(yget "$st" profile)" = light ] \
-         && approved_has requirement; then _vlight=yes; fi
-      for _pf in requirement:requirement.md spec:spec.md plan:plan.md; do
+         && approved_has requirements; then _vlight=yes; fi
+      for _pf in requirements:requirements.md design:design.md tasks:tasks.md; do
         _ph=${_pf%%:*}; _pfile=${_pf#*:}
         if ! approved_has "$_ph" && [ "$_vlight" = no ]; then continue; fi
-        # subtask は親の requirement/spec/design を継承する（aidev:need_file と同じ規則）
+        # subtask は親の requirements/design/architecture を継承する（aidev:need_file と同じ規則）
         if [ -f "$WORK/$_pfile" ]; then continue; fi
         if [ -n "$_issub" ] && [ -f "$AIDEV/works/$_issub/$_pfile" ]; then continue; fi
         VF="$VF $_pfile欠落($_ph承認済)"
       done
-      if { approved_has plan || [ "$_vlight" = yes ]; } && [ -z "$_hassub" ] && [ ! -f "$WORK/tasks.md" ]; then
-        VF="$VF tasks.md欠落(plan承認済)"
+      if { approved_has tasks || [ "$_vlight" = yes ]; } && [ -z "$_hassub" ] && [ ! -f "$WORK/tasks.md" ]; then
+        VF="$VF tasks.md欠落(tasks承認済)"
       fi
       fi
       # schema 6: test の成果物と、AC カバレッジ / tasks.md の整合。
@@ -2546,7 +2640,7 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail / 5 stri
   # （直せない事実を毎回混ぜると、直せる WARN がノイズに埋もれる）。
   if [ "$schema" -ge 11 ] 2>/dev/null && [ "$(yget "$st" mode)" = autonomous ] \
      && [ "$(yget "$st" profile)" != light ]; then
-    for _vdp in requirement spec design plan; do
+    for _vdp in requirements design architecture tasks; do
       approved_has "$_vdp" || continue
       [ -f "$WORK/$_vdp.md" ] || continue
       if [ -z "$(mt_last_metric "$WORK/metrics.yml" "$_vdp" doc_check_mode)" ]; then
@@ -2632,18 +2726,24 @@ light_warnings() { # WORK/SLUG は解決済み
   [ -f "$mf" ] || return 0
 
   # 任意工程を使った＝「小規模」の前提を外れている（protocol.md「11.」任意工程）
-  for p in research design walkthrough; do
+  for p in research architecture; do
     if grep -Eq "phase:[[:space:]]*$p," "$mf" 2>/dev/null; then
       printf '  WARN profile=light だが任意工程 %s を実施（aidev escalate で full へ）\n' "$p"
     fi
   done
 
-  # 上流を畳んでいない＝light の指紋（protocol-light.md「metrics 上は spec / plan の start が
+  # **`walkthrough.md` も light では書かない**（`protocol-light.md`）。工程だった頃は
+  # 上のループが拾っていたが、成果物へ降格したときに**機械の目だけが外れた**（実走が実測）
+  if [ -f "$WORK/walkthrough.md" ]; then
+    printf '  WARN profile=light だが walkthrough.md がある（light の規模なら差分だけで読める）\n'
+  fi
+
+  # 上流を畳んでいない＝light の指紋（protocol-light.md「metrics 上は design / tasks の start が
   # 無いこと」）から外れている。定義しておいて機械が見ていないと、light を名乗ったまま
   # full の往復をした work が「light は速い」の母数に入る
-  for p in spec plan; do
+  for p in design tasks; do
     if grep -Eq "phase:[[:space:]]*$p,.*event:[[:space:]]*start" "$mf" 2>/dev/null; then
-      printf '  WARN profile=light だが %s を個別に起動（light は requirement 1ゲートに畳む）\n' "$p"
+      printf '  WARN profile=light だが %s を個別に起動（light は requirements 1ゲートに畳む）\n' "$p"
     fi
   done
 
@@ -2729,6 +2829,12 @@ cmd_escalate() {
     full)  die "既に profile=full です（昇格は片方向。full -> light は不可）: $SLUG" ;;
     *)     die "未知の profile: $cur" ;;
   esac
+  # **着地後は受けない**。deliver 承認済みの work の profile を書き換えると、
+  # `light_warnings` の「light なのに逸脱していた」記録が事後に消え、効果検証の母集団が
+  # 静かに書き換わる（実走が実測）。昇格は「これから full で続ける」ための操作
+  case " $(ylist "$st" approved) " in
+    *" deliver "*) die "deliver 承認済みの work は昇格できません（着地後に profile を変えると light の逸脱記録が消える）: $SLUG" ;;
+  esac
   set_or_append "$st" profile "profile: full"
   printf 'escalated: %s (light -> full)\n' "$SLUG"
   printf 'next: 省略していた節を各文書に足す / decisions.md に経緯を残す /\n'
@@ -2755,7 +2861,7 @@ cmd_unapprove() {
     esac
   done
   [ -n "$uph" ] || die "使用法: aidev unapprove <phase> [--slug <work>]"
-  is_phase "$uph" || die "未知の工程: $uph"
+  is_phase "$uph" || die_unknown_phase "$uph"
   resolve_work "$uslug"
   st="$WORK/state.yml"
   approved_has "$uph" || die "承認されていません: $uph @ $SLUG"
@@ -2944,7 +3050,7 @@ cmd_doctor() {
 }
 
 # --- コマンド: status（読み取り専用・works横断＋backlog未着手） ---------------------
-STD_PIPELINE="requirement spec plan coding test review deliver"
+STD_PIPELINE="requirements design tasks coding test review deliver"
 
 # タブ区切り行（先頭にヘッダ含む）を列幅で揃えて出力
 fmt_table() {
@@ -3000,12 +3106,12 @@ cmd_status() {
       if [ "$activef" = yes ] && [ "$wdone" = yes ]; then continue; fi
       next=-
       if [ "$wdone" = no ]; then
-        # profile: light は spec/plan を畳む（protocol.md「11.」＝承認されないのが正常）。
-        # 素通しすると next が永久に spec を指し、20-spec 自身が「light では起動しない」と
+        # profile: light は design/tasks を畳む（protocol.md「11.」＝承認されないのが正常）。
+        # 素通しすると next が永久に design を指し、20-design 自身が「light では起動しない」と
         # 書いている工程を案内し続けることになる
         _pipe=$STD_PIPELINE
         if [ "$(yget "$st" profile)" = light ]; then
-          _pipe="requirement coding test review deliver"
+          _pipe="requirements coding test review deliver"
         fi
         for p in $_pipe; do
           case " $appr " in *" $p "*) ;; *) next=$p; break ;; esac
@@ -3243,7 +3349,7 @@ END{
 
 # metrics.yml の approved イベントから、被覆の刻印を出現順に "総数 被覆数 AC行欠落数" で出す。
 # 出力: "<phase> <gap> <ac_total>" を出現順に。gap = (総数-被覆数) + AC行欠落数（+ AC が0件なら1）。
-# **`ac_covered` を持たない刻印は捨てる**——`approve plan ac_total=5` のように一部だけ手で
+# **`ac_covered` を持たない刻印は捨てる**——`approve tasks ac_total=5` のように一部だけ手で
 # 渡された行を 0 とみなすと、被覆数 0 として gap を捏造する（乖離が無いのに 5 と出る）。
 # metrics.yml から「その工程の最後の approved 刻印にある key の値」を取る。
 # 追記のみのログなので、最後の刻印が現在の値（差し戻して再承認したら新しい方が正）
@@ -3323,14 +3429,14 @@ cmd_metrics() {
     # ハーネス版で層別できるよう harnessRev / straddle（着手時と着地時で版が違う）を添える。
     # これが無いと insights は state.yml を grep して手で JOIN するしかなかった
     if [ "$phasesf" = no ] && [ -n "$out" ]; then
-      # 受け入れ基準の規模（分母）と、plan から review までの被覆の乖離。
+      # 受け入れ基準の規模（分母）と、tasks から review までの被覆の乖離。
       # 分母がこれまで実装側（files_changed）と分解側（tasks_planned）しか無く、
       # **要求の大きさ**で正規化できなかった（「AC 1件あたりの手戻り」が出せない）。
       # **2点は工程で選ぶ**（件数で選ぶと、同じ工程を2回 approve しただけの work が
       # 「2点ある＝乖離が測れる」に化け、測れないことを 0 と書いてしまう）。
-      # 基準点＝plan（light では requirement）の**最初**、終点＝review の**最後**。
+      # 基準点＝tasks（light では requirements）の**最初**、終点＝review の**最後**。
       _cs=$(mt_cov_stamps "$mf" | sed '/^$/d')
-      _f=$(printf '%s\n' "$_cs" | awk '$1=="plan"||$1=="requirement"{print;exit}')
+      _f=$(printf '%s\n' "$_cs" | awk '$1=="tasks"||$1=="requirements"{print;exit}')
       _l=$(printf '%s\n' "$_cs" | awk '$1=="review"{r=$0} END{if(r!="")print r}')
       _any=$(printf '%s\n' "$_cs" | tail -n1)
       if [ -z "$_any" ]; then _ac=-; else _ac=$(printf '%s' "$_any" | cut -d' ' -f3); fi
@@ -3678,7 +3784,7 @@ wt_changed_files() { # path all_heads
 # 実差分は「もう書いた後」しか見えないので、3 本が同時に上流工程にいる立ち上がり期は
 # 構造的に空になる——`protocol-worktree.md` が「衝突を避ける余地がまだあるうち」と価値を
 # 置いた時間帯がまさにそこだった（実走で overlap=0 → deliver 前に 5 と出た）。
-# 宣言は plan の時点で揃うので、こちらは**その時間帯に効く**。
+# 宣言は tasks の時点で揃うので、こちらは**その時間帯に効く**。
 wt_planned_files() { # path work
   _wpf="$1/.aidev/works/$2/tasks.md"
   [ -f "$_wpf" ] || return 0
