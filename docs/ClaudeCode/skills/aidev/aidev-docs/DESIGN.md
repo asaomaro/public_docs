@@ -42,7 +42,7 @@ flowchart TD
   class research,architecture,retro opt
 ```
 
-`profile: light`（「11.」）では上流3工程を1ゲートに畳む。成果物は4つとも作り（薄く）、
+`profile: light`（「11.」）では上流3工程を1ゲートに畳む。成果物は3つとも作り（薄く）、
 承認は `requirements` 1件として記録する。coding 以降は full と同一で、任意工程は使わない。
 
 ```mermaid

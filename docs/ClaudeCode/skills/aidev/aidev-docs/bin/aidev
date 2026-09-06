@@ -577,7 +577,16 @@ cmd_new() {
     # まとめて起こしたとき（30-tasks の手順どおり）activeSubtask=先頭 / current=最後 になり、
     # 「冗長コピー」の定義（protocol.md「6.」）が生成直後から破れる。しかも current の指す先は
     # 兄弟依存で塞がっていることが多く、そのまま工程に入ると exit 3 になる
-    printf '%s/%s\n' "$parent" "$act" > "$AIDEV/current"
+    # **親 tasks が承認されるまでカーソルは親に置く**。`protocol-subtask.md`「カーソル」は
+    # 「親工程中は `<親>`」と定めているのに、生成時に無条件で子へ動かしていた。
+    # `aidev-30-tasks` の手順どおり子を起こしてから `approve tasks` を打つと**親ではなく子が
+    # 承認され**、`unapprove` しても metrics の `approved` は追記式なので消えない
+    # ——その子は以後ずっと `verify --strict` が exit 5（ts は捏造禁止なので回復手段が無い）。
+    # 実走が実測した、**書いてあるとおりにやると詰む**経路
+    case " $(ylist "$pst" approved) " in
+      *" tasks "*) printf '%s/%s\n' "$parent" "$act" > "$AIDEV/current" ;;
+      *) printf 'cursor: %s のまま（親 tasks が未承認。承認したら活性の subtask へ進みます）\n' "$parent" ;;
+    esac
     printf 'created subtask: %s (parent %s, schema %s, mode %s, profile %s)\n' "$WORK" "$parent" "$CURRENT_SCHEMA" "$mode" "$profile"
     return 0
   fi
@@ -787,7 +796,15 @@ cmd_approve() {
       for _akv in "$@"; do case "$_akv" in ac_total=*) _achas=yes ;; esac; done
       # 分割 work の subtask では刻まない。被覆は**家族単位**（親＋全 subtask）の値なので、
       # 子ごとに刻むと `metrics --all` を足し上げたとき分母が subtask 数だけ多重計上される
-      if [ "$_achas" = no ] && [ -z "$(yget "$WORK/state.yml" parent)" ] && cov_analyze; then
+      # **分割 work の親の tasks でも刻まない**。親の tasks 承認時点では子の `tasks.md` が
+      # まだ存在しない（存在させられない）ので、刻まれる `ac_covered` は構造的に必ず 0 で、
+      # `ac_drift`（= review 時の gap − tasks 時の gap）が **-(全 AC 数) に張り付く**。
+      # 定義は「tasks 以降に**増えた** gap」なので負値の読み方が無い（実走が実測）。
+      # 測れないものを 0 と書かない——刻まなければ `metrics` は `-`（測定不能）を出す
+      _accan=yes
+      [ "$ph" = tasks ] && [ -n "$(ylist "$WORK/state.yml" subtasks)" ] && _accan=no
+      if [ "$_achas" = no ] && [ "$_accan" = yes ] \
+         && [ -z "$(yget "$WORK/state.yml" parent)" ] && cov_analyze; then
         set -- "$@" "ac_total=$COV_AC" "ac_covered=$COV_TASK" \
                     "tasks_no_ac=$COV_TASKS_NOAC" "tasks_ac_none=$COV_TASKS_ACNONE"
       fi ;;
@@ -811,6 +828,16 @@ cmd_approve() {
     hv_ready_notice
   fi
 
+
+  # D': 親の tasks 承認でカーソルを活性の subtask へ進める。`new --parent` が親工程中は
+  # カーソルを動かさなくなったぶん、**進める役をここが引き受ける**（手で `use` を打たせない）。
+  if [ "$ph" = tasks ] && [ -z "$(yget "$st" parent)" ]; then
+    _asub=$(yget "$st" activeSubtask)
+    if [ -n "$_asub" ] && [ "$_asub" != done ] && [ -d "$WORK/$_asub" ]; then
+      printf '%s\n' "$SLUG/$_asub" > "$AIDEV/current"
+      printf 'cursor: %s へ前進（分割 work。最初の subtask の tasks から）\n' "$SLUG/$_asub"
+    fi
+  fi
 
   # D: subtask の review 承認でカーソルを前進させる（散文の手動カーソル操作を排除）。
   # 親 subtasks を順に見て review 未承認の最初の子を次の active にする。無ければ done（→親の統合 test へ）。
@@ -915,6 +942,17 @@ cmd_guard() {
         printf 'NG %s は親 work 専用です（subtask では実行不可。subtask の工程は tasks/coding/test/review）: %s\n' "$ph" "$SLUG" >&2
         return 2 ;;
     esac
+  fi
+  # B': 逆向きも弾く——**分割 work の親に coding は無い**（`protocol-subtask.md` の工程
+  # レイヤリング: 親は tasks →〔subtask 群〕→ 統合 test → 統合 review → deliver → retro）。
+  # 子で親専用工程を叩くと exit 2 になるのに、この向きは素通りで、統合 test が落ちたときに
+  # `aidev-50-test`「4.」の一般手順どおり `event coding start` を打つと**親に幽霊の coding**が
+  # 記録された（実走が実測。`metrics --phases` に出るが誰も直せない）
+  if [ -z "$_par" ] && [ -n "$(ylist "$WORK/state.yml" subtasks)" ] && [ "$ph" = coding ]; then
+    printf 'NG 分割 work の親に coding はありません（実装は subtask が持つ）: %s\n' "$SLUG" >&2
+    printf '   → 結合起因の差し戻しは**原因の subtask の coding** へ: aidev use %s/<NN-subslug>\n' "$SLUG" >&2
+    printf '      → aidev unapprove review → unapprove test → unapprove coding → aidev event coding start\n' >&2
+    return 2
   fi
   case "$ph" in
     requirements) : ;;
@@ -2694,6 +2732,12 @@ light_warnings() { # WORK/SLUG は解決済み
     fi
   done
 
+  # **`walkthrough.md` も light では書かない**（`protocol-light.md`）。工程だった頃は
+  # 上のループが拾っていたが、成果物へ降格したときに**機械の目だけが外れた**（実走が実測）
+  if [ -f "$WORK/walkthrough.md" ]; then
+    printf '  WARN profile=light だが walkthrough.md がある（light の規模なら差分だけで読める）\n'
+  fi
+
   # 上流を畳んでいない＝light の指紋（protocol-light.md「metrics 上は design / tasks の start が
   # 無いこと」）から外れている。定義しておいて機械が見ていないと、light を名乗ったまま
   # full の往復をした work が「light は速い」の母数に入る
@@ -2785,6 +2829,12 @@ cmd_escalate() {
     full)  die "既に profile=full です（昇格は片方向。full -> light は不可）: $SLUG" ;;
     *)     die "未知の profile: $cur" ;;
   esac
+  # **着地後は受けない**。deliver 承認済みの work の profile を書き換えると、
+  # `light_warnings` の「light なのに逸脱していた」記録が事後に消え、効果検証の母集団が
+  # 静かに書き換わる（実走が実測）。昇格は「これから full で続ける」ための操作
+  case " $(ylist "$st" approved) " in
+    *" deliver "*) die "deliver 承認済みの work は昇格できません（着地後に profile を変えると light の逸脱記録が消える）: $SLUG" ;;
+  esac
   set_or_append "$st" profile "profile: full"
   printf 'escalated: %s (light -> full)\n' "$SLUG"
   printf 'next: 省略していた節を各文書に足す / decisions.md に経緯を残す /\n'
@@ -2811,7 +2861,7 @@ cmd_unapprove() {
     esac
   done
   [ -n "$uph" ] || die "使用法: aidev unapprove <phase> [--slug <work>]"
-  is_phase "$uph" || die_unknown_phase "$uph" "未知の工程"
+  is_phase "$uph" || die_unknown_phase "$uph"
   resolve_work "$uslug"
   st="$WORK/state.yml"
   approved_has "$uph" || die "承認されていません: $uph @ $SLUG"

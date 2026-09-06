@@ -130,7 +130,7 @@ AI 開発ワークフローの **requirements（要件定義）工程**を実行
 ## light の手順（`profile: light`）
 
 上流 3 工程（requirements / design / tasks）を**この 1 ゲートに畳む**（protocol.md「11.」）。
-**文書は 4 つとも作る。スタブは作らない**——`tasks.md` は test 工程が「テスト方針」を読む先
+**文書は 3 つとも作る。スタブは作らない**——`tasks.md` は test 工程が「テスト方針」を読む先
 （`aidev-50-test`）で、空にすると test が検証対象を失う。薄くするのは**節を絞る**ことで実現する。
 
 1. 対象フォルダを確定し、`profile: light` を確認する。

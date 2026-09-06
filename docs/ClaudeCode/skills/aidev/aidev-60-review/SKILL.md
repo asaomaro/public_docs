@@ -53,8 +53,17 @@ AI 開発ワークフローの **review（レビュー）工程**を実行する
    - **正確性**: バグ・エッジケースの取りこぼし・異常系。
    - **規約適合**: PJ のコーディング規約・レビュー観点（AGENTS.md や PJ固有 skill があれば優先）。
    - **保守性**: 重複・複雑さ・命名・周辺コードとの一貫性。
-   - **（統合 review のみ）結合**: subtask 間の契約整合・結線・統合 test の通過。単体 review では見えない
-     subtask 横断の不整合を重点的に見る。
+   - **（統合 review のみ）結合**: 単体 review では**原理的に見えない** subtask 横断の不整合だけを見る
+     （子で見たことは繰り返さない——二重化して形骸化する）。開くものは 3 つ:
+     - **親の `tasks.md`**: 割れ目と producer→consumer の契約が書いてある**唯一の場所**。
+       実装がその契約どおりか（引数・戻り値・エラー・呼ぶ順序）。
+     - **各子の `test-result.md` の「スキップした検証」**: 子 test は unit・契約モックに限定されるので、
+       **結合の穴は必ずここに残る**（`protocol-subtask.md`）。親の統合 test で閉じたかを 1 件ずつ照合し、
+       閉じていなければ **must**。
+     - **家族全体の diff**: 責務の重複・抜け、横断規約の破れ。
+     **`aidev coverage` の読み方も変わる**——分割 work では親の tasks 承認時に子の `tasks.md` がまだ
+     無いので、**被覆の基準点を刻まない**（`ac_drift` は `-`）。見るのは「tasks 時と同じ数字か」ではなく
+     **今の gap が 0 か**。
 3. 指摘を重大度（must / should / nit）と**条項参照タグ**付きで一覧化し、`review.md` に当該ラウンドとして
    追記する（フォーマットは protocol.md「8.」）。
    - **条項参照タグ `[conv:<id>]`**: その指摘の根拠となる PJ規約の条項 id を付す。候補は
@@ -76,8 +85,11 @@ AI 開発ワークフローの **review（レビュー）工程**を実行する
      - **`maxSendBacks`（既定 3）に達したら `aidev debug start`**——まっさらなコンテキストに
        原因究明だけを委譲する（`protocol-debug.md`）。同じコンテキストで回し続けない。
      - **統合 review の差し戻し先（protocol.md「2.8」＋ `protocol-subtask.md`）**: 結合起因の指摘は**原因となった subtask の coding** へ
-       戻す。`aidev use <親>/<NN>-<subslug>`（親の `activeSubtask` も同期される）→
-       **`aidev unapprove review`**（完了を取り消す。記録は `sent_back` として残る）→ `aidev event coding start`。これで
+       戻す。**まず親で `aidev event review sent_back`** を打ってから `aidev use <親>/<NN>-<subslug>`
+       （親の `activeSubtask` も同期される）→ **`aidev unapprove review` → `unapprove test` →
+       `unapprove coding`**（上の通常経路と同じく後ろから。`review` だけ取り消すと
+       `approved` に test/coding が残ったまま coding をやり直すことになり、この節が
+       禁じている状態そのものになる）→ `aidev event coding start`。これで
        再 coding→test→review 後の `approve review` が再びカーソルを前進させられる（D と整合）。
        再 split（親 tasks 戻し）は避け、最小手戻りにする。
    - **指摘なし（または nit のみ）** → protocol.md「3. 工程終了プロトコル」に従って終了する。

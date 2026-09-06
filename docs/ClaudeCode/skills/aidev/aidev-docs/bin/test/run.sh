@@ -532,6 +532,14 @@ run_sub guard coding >/dev/null 2>&1; assert_eq "$?" "0" "guard coding: 子の t
 for ph in design architecture deliver research requirements; do
   run_sub guard "$ph" >/dev/null 2>&1; assert_eq "$?" "2" "B: subtask の guard $ph は親専用で拒否(2)"
 done
+# B': 逆向き——**分割 work の親に coding は無い**。子で親専用工程を叩くと exit 2 になるのに
+# この向きは素通りで、統合 test が落ちたとき一般手順どおり打つと親に幽霊の coding が残った
+run_sub_par() { ( cd "$SUB" && "$AIDEV_SH" "$@" ) ; }
+run_sub_par use "$SP" >/dev/null 2>&1
+GPC=$(run_sub_par guard coding 2>&1); GPC_RC=$?
+assert_eq "$GPC_RC" "2" "B': 分割 work の親の guard coding は拒否(2)"
+assert_contains "$GPC" "原因の subtask の coding" "B': 差し戻し先を名指しする（止めるだけにしない）"
+run_sub use "$SP/01-be" >/dev/null 2>&1
 # B: subtask 固有工程(review)は親専用ブロックに掛からない（design.md 継承で充足 0）
 # review の前提は「test 通過」（aidev-60-review「前提」）。順に打つのが実運用の形
 run_sub guard review >/dev/null 2>&1; assert_eq "$?" "2" "B: subtask の guard review は test 未承認なら未充足(2)"
@@ -909,6 +917,15 @@ assert_contains "$F_NEW" "profile full" "new(既定): profile full"
 assert_absent  "$F_NEW" "requirements 1ゲート" "new(既定): light の注意は出さない"
 
 run_lsh new bad --profile medium >/dev/null 2>&1; assert_eq "$?" "1" "不正な --profile は exit 1"
+
+# **light では walkthrough.md も書かない**（protocol-light.md）。工程だった頃は任意工程の
+# ループが拾っていたが、成果物へ降格したときに機械の目だけが外れた（実走が実測）
+: > "$LREPO/.aidev/works/$L_SLUG/walkthrough.md"
+assert_contains "$(run_lsh verify "$L_SLUG")" "walkthrough.md がある" \
+  "verify: light に walkthrough.md があれば WARN"
+rm -f "$LREPO/.aidev/works/$L_SLUG/walkthrough.md"
+assert_absent "$(run_lsh verify "$L_SLUG")" "walkthrough.md がある" \
+  "verify: 消せば WARN も消える（空振りでない）"
 
 # **`protocol-check.md` の「`profile: light` では使わない」は散文にしか無かった**（実走が実測）。
 # light の趣旨は往復を減らすことなので、点検が要るなら light の条件を外れている
@@ -2037,6 +2054,10 @@ assert_eq "$(run_au metrics "$AU_M5" --format tsv | awk -F'\t' '{print $9}')" "0
 mk_work split; AUDP=$AU_D
 SPP=$(cat "$AUD/.aidev/current")
 run_au new 01-a --parent "$SPP" >/dev/null
+# **生成時にカーソルは動かない**（親 tasks が未承認の間は親を指す。実走が見つけた
+# 「手順どおりに打つと親の approve tasks が子に落ちる」への対応）。子で打つなら明示的に移る
+assert_eq "$(cat "$AUD/.aidev/current")" "$SPP" "new --parent: 親 tasks 未承認の間はカーソルを動かさない"
+run_au use "$SPP/01-a" >/dev/null
 printf -- '- [ ] T1: x\n      AC: AC1, AC2\n      依存: なし\n' > "$AUDP/01-a/tasks.md"
 run_au approve tasks >/dev/null
 assert_absent "$(cat "$AUDP/01-a/metrics.yml")" "ac_total" "approve: subtask では被覆を刻まない"
@@ -2048,10 +2069,22 @@ assert_contains "$AUSO" "記録は親" "smoke: 子で打ったら親に刻むこ
 assert_contains "$(cat "$AUDP/metrics.yml")" "event: smoke" "smoke: 記録は家族の根に入る"
 assert_absent "$(cat "$AUDP/01-a/metrics.yml")" "event: smoke" "smoke: 子には刻まない"
 run_au use "$SPP" >/dev/null
-for p in requirements design tasks coding test review deliver; do run_au approve "$p" >/dev/null; done
+run_au approve requirements >/dev/null; run_au approve design >/dev/null
+# **親の approve tasks はカーソルを活性の subtask へ進める**（分割 work の正しい流れ）。
+# ここは smoke の家族単位記録だけを見たいので、親へ戻してから残りを打つ
+run_au approve tasks >/dev/null
+assert_eq "$(cat "$AUD/.aidev/current")" "$SPP/01-a" "approve tasks(親): 活性の subtask へカーソルを進める"
+run_au use "$SPP" >/dev/null
+for p in coding test review deliver; do run_au approve "$p" >/dev/null; done
 AUV=$(run_au verify "$SPP" 2>&1); AUR=$?
 assert_eq "$AUR" "0" "verify: 子で通した smoke が親の deliver ゲートに届く"
 assert_absent "$AUV" "起動確認の記録が無い" "verify: 家族の記録を見るので誤 FAIL しない"
+# **分割 work では被覆の基準点を刻まない**。親の tasks 承認時点で子の tasks.md はまだ無く、
+# 刻めば `ac_covered` が構造的に 0 になり、`ac_drift`（= review 時の gap − tasks 時の gap）が
+# **-(全 AC 数) に張り付く**（実走が実測。「増えた gap」に負値の読み方は無い）。
+# 基準点が無ければ `metrics` は 2 点そろわないものとして `-`＝測定不能を出す
+assert_absent "$(grep 'phase: tasks' "$AUDP/metrics.yml")" "ac_covered" \
+  "approve tasks(親): 分割 work では被覆の基準点を刻まない（ac_drift を捏造しない）"
 
 # smoke に時間上限（常駐コマンドで自律実行が止まらないように）
 if command -v timeout >/dev/null 2>&1; then
@@ -2308,6 +2341,7 @@ DCP=$(cat "$AUD/.aidev/current")
 run_au new dcs --parent "$DCP" --mode autonomous >/dev/null
 DCSD="$AUD/.aidev/works/$DCP/dcs"
 : > "$DCSD/tasks.md"
+run_au use "$DCP/dcs" >/dev/null
 run_au approve tasks >/dev/null
 DCSV=$(run_au verify 2>&1)
 assert_contains "$DCSV" "tasks を autonomous で承認したのに独立点検の記録がありません" \
@@ -2742,6 +2776,20 @@ for _l11p in requirements design tasks coding test review deliver retro research
   l11probe "$_l11p" "aidev event $_l11p start"
 done
 assert_eq "$("$L9LINT" >/dev/null 2>&1; echo $?)" "0" "lint L11: 全て戻せば通る（複製を汚したままにしない）"
+
+# ---- L12（light の文書数）----------------------------------------------------
+# 改名で 4→3 に減ったとき、数詞だけが 6 箇所に取り残された。**割れ方は 2 通り**あるので両方突く
+L12SRC=$TMP/l9skills/aidev-00-start/protocol-light.md
+cp "$L12SRC" "$TMP/l12.bak"
+sed 's/成果物は \*\*3 つとも作る\*\*/成果物は **4 つとも作る**/' "$TMP/l12.bak" > "$L12SRC"
+assert_ne "$("$L9LINT" 2>&1 | grep -c 'NG: L12')" "0" "lint L12: 正典の数詞が同じ行の列挙と食い違えば捕まえる"
+cp "$TMP/l12.bak" "$L12SRC"
+L12O=$TMP/l9skills/aidev-docs/README.md
+cp "$L12O" "$TMP/l12o.bak"
+sed 's/成果物は3つとも作るが/成果物は4つとも作るが/' "$TMP/l12o.bak" > "$L12O"
+assert_ne "$("$L9LINT" 2>&1 | grep -c 'NG: L12')" "0" "lint L12: 他所だけ取り残された数詞を捕まえる"
+cp "$TMP/l12o.bak" "$L12O"
+assert_eq "$("$L9LINT" >/dev/null 2>&1; echo $?)" "0" "lint L12: 全て戻せば通る（複製を汚したままにしない）"
 
 # ---- 退役した工程名を打ったときに有効集合を示す ------------------------------
 # `未知の phase: walkthrough` だけでは、**降ろした直後に指が覚えている人**が次に何を

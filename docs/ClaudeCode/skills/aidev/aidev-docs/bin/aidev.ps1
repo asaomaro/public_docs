@@ -644,8 +644,13 @@ function Cmd-New($rest) {
       $act = $slug
     }
 
-    # カーソルは活性の子に合わせる（無条件に「今作った子」へ動かすと冗長コピーの定義が破れる）
-    WriteText (Join-Path $script:AIDEV 'current') "$parent/$act`n"
+    # **親 tasks が承認されるまでカーソルは親に置く**（sh 側 new --parent と同じ理由）。
+    # 親工程の途中で子へ動かすと、30-tasks の手順どおりの `approve tasks` が子に落ちる
+    if ((YList $pst 'approved') -ccontains 'tasks') {
+      WriteText (Join-Path $script:AIDEV 'current') "$parent/$act`n"
+    } else {
+      Write-Output "cursor: $parent のまま（親 tasks が未承認。承認したら活性の subtask へ進みます）"
+    }
     Write-Output "created subtask: $work (parent $parent, schema $($script:CURRENT_SCHEMA), mode $mode, profile $profile)"
     return
   }
@@ -732,7 +737,11 @@ function Cmd-Approve($rest) {
     # 分割 work の subtask では刻まない。被覆は家族単位の値なので、子ごとに刻むと
     # metrics --all を足し上げたとき分母が subtask 数だけ多重計上される（sh 版と同一）
     $isSub = YGet $st 'parent'
-    if ((-not $hasAc) -and (-not $isSub)) {
+    # **分割 work の親の tasks でも刻まない**（sh 版と同一）。親の tasks 承認時点では子の
+    # tasks.md がまだ無く、ac_covered が構造的に 0 になって ac_drift が負値に張り付く
+    $acCan = $true
+    if ($ph -ceq 'tasks' -and @(YList $st 'subtasks').Count -gt 0) { $acCan = $false }
+    if ((-not $hasAc) -and $acCan -and (-not $isSub)) {
       if (CovAnalyze $script:WORK) {
         $kvs = @($kvs) + @("ac_total=$($script:COV_AC)", "ac_covered=$($script:COV_TASK)",
                            "tasks_no_ac=$($script:COV_TASKS_NOAC)", "tasks_ac_none=$($script:COV_TASKS_ACNONE)")
@@ -828,6 +837,15 @@ function Cmd-Approve($rest) {
   }
 
 
+  # D': 親の tasks 承認でカーソルを活性の subtask へ進める（sh 側と対）。
+  if ($ph -ceq 'tasks' -and -not (YGet $st 'parent')) {
+    $asub = YGet $st 'activeSubtask'
+    if ($asub -and $asub -cne 'done' -and (IsDir (Join-Path $script:WORK $asub))) {
+      WriteText (Join-Path $script:AIDEV 'current') "$($script:SLUG)/$asub`n"
+      Write-Output "cursor: $($script:SLUG)/$asub へ前進（分割 work。最初の subtask の tasks から）"
+    }
+  }
+
   # D: subtask の review 承認でカーソルを前進させる（散文の手動カーソル操作を排除）。
   # 親 subtasks を順に見て review 未承認の最初の子を次の active にする。無ければ done（→親の統合 test へ）。
   if ($ph -ceq 'review') {
@@ -898,6 +916,13 @@ function Cmd-Guard($rest) {
   # B: 親専用工程は subtask で実行不可（subtask の工程は tasks/coding/test/review のみ）
   if ($par -and ('requirements','research','design','architecture','deliver','retro' -ccontains $ph)) {
     [Console]::Error.WriteLine("NG $ph は親 work 専用です（subtask では実行不可。subtask の工程は tasks/coding/test/review）: $($script:SLUG)")
+    exit 2
+  }
+  # B': 逆向きも弾く——分割 work の親に coding は無い（sh 側と同じ理由・同じ文言）
+  if (-not $par -and @(YList (Join-Path $script:WORK 'state.yml') 'subtasks').Count -gt 0 -and $ph -ceq 'coding') {
+    [Console]::Error.WriteLine("NG 分割 work の親に coding はありません（実装は subtask が持つ）: $($script:SLUG)")
+    [Console]::Error.WriteLine("   → 結合起因の差し戻しは**原因の subtask の coding** へ: aidev use $($script:SLUG)/<NN-subslug>")
+    [Console]::Error.WriteLine("      → aidev unapprove review → unapprove test → unapprove coding → aidev event coding start")
     exit 2
   }
   function needFile($f) {
@@ -2504,6 +2529,12 @@ function LightWarnings($work) {
     }
   }
 
+  # **walkthrough.md も light では書かない**（sh 版と同一）。工程だった頃は上のループが
+  # 拾っていたが、成果物へ降格したときに機械の目だけが外れた
+  if (IsFile (Join-Path $script:WORK 'walkthrough.md')) {
+    VLine("  WARN profile=light だが walkthrough.md がある（light の規模なら差分だけで読める）")
+  }
+
   # 上流を畳んでいない＝light の指紋から外れている（sh 版 light_warnings と同一）
   foreach ($p in @('design','tasks')) {
     foreach ($l in $lines) {
@@ -2594,6 +2625,10 @@ function Cmd-Escalate($rest) {
   if (-not $cur) { $cur = 'full' }   # 未記載 = full（profile 導入前の work）
   if ($cur -ceq 'full')  { Die "既に profile=full です（昇格は片方向。full -> light は不可）: $($script:SLUG)" }
   if ($cur -cne 'light') { Die "未知の profile: $cur" }
+  # **着地後は受けない**（sh 版と同一）。light の逸脱記録が事後に消える
+  if ((YList $st 'approved') -ccontains 'deliver') {
+    Die "deliver 承認済みの work は昇格できません（着地後に profile を変えると light の逸脱記録が消える）: $($script:SLUG)"
+  }
   SetOrAppend $st 'profile' 'profile: full'
   Write-Output "escalated: $($script:SLUG) (light -> full)"
   Write-Output "next: 省略していた節を各文書に足す / decisions.md に経緯を残す /"

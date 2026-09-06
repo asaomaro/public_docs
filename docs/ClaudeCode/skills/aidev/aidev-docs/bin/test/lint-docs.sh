@@ -298,7 +298,18 @@ BUDGET_PROTOCOL=608
 #   `aidev-70-deliver` +3: 固定順序が `git add -A`（規模計測）→ `approve deliver` の順で、
 #     approve が書く `state.yml` / `metrics.yml` を**再ステージする指示が無かった**。
 #     同じ節の「記録はコミットの直前に行い、同じコミットに含める」を手順自身が破っていた。
-BUDGET_TOTAL=3400
+# 3400 -> 3418: **分割 work の実走が見つけた 3 本**を塞いだぶん（+18）。
+#   `aidev-60-review` +12: 統合 review の観点が**箇条書き 1 行**しか無く、他の観点が
+#     「何を・どのコマンドで・どう読むか」まで書いているのに**結合だけ入力が指定されていない**
+#     （実行者が実際に困ったと報告）。開くもの 3 つ（親 tasks.md の契約 / 各子の
+#     test-result.md の「スキップした検証」/ 家族の diff）と、分割 work での `coverage` の
+#     読み替えを明記。**統合レビュー工程を足さない**と決めた以上、ここが薄いままでは
+#     「工程は要らない」の根拠が立たない。
+#   `aidev-50-test` +6: 統合 test（親）の差し戻し先が無く、一般手順どおりに打つと
+#     **親に存在しない coding の記録**が残った。差し戻し順（後ろから unapprove）も明記。
+#     review 側の同じレシピが `unapprove review` だけで、**同じ SKILL 内の別の記述が
+#     禁じている状態**を作っていたので、そちらも 3 段に揃えた。
+BUDGET_TOTAL=3418
 _p=$(wc -l < "$SKILLS/aidev-00-start/protocol.md")
 _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 [ "$_p" -le "$BUDGET_PROTOCOL" ] && ok "L6 protocol.md が予算内（$_p / $BUDGET_PROTOCOL 行）" \
@@ -465,6 +476,38 @@ for _p11 in $(sed -n 's/^PHASES="\(.*\)"$/\1/p' "$SH"); do
 done
 if [ "$_l11" -eq 0 ]; then ok "L11 全工程の SKILL が自分の guard と event start を明示している"
 else ng "L11 guard か event start を書いていない工程 SKILL が $_l11 件（その工程を回した work は verify --strict で必ず落ち、ts は復元できない）"; fi
+
+echo "== L12: light の文書数が全所で一致 =="
+# **工程の改名で 4→3 に減ったのに、数詞だけが 6 箇所に取り残された**（実走が実測）。
+# `aidev-10-requirements/SKILL.md` は**同一ファイル内で「3 つ」と「4 つ」に割れて**おり、
+# light の実行者が最初に読む 2 箇所なので「4 つ目は何か」で止まる。
+# 正典は `protocol-light.md` の「成果物は N つとも作る（…）」——**同じ行に列挙がある**ので、
+# 数詞と列挙の実数を突き合わせられる。他所の数詞はこの N と一致していればよい。
+# （初版は「上流N工程…畳む」も見ようとしたが、`[^。]*` はバイト単位で効かず**何も
+#  マッチしない空振り**だった。**照合できない形の検査を置かない**）
+_l12src=$SKILLS/aidev-00-start/protocol-light.md
+_l12line=$(grep -nE '[0-9]+ ?つとも作' "$_l12src" | head -n1)
+if [ -z "$_l12line" ]; then
+  ng "L12 正典（protocol-light.md）に「N つとも作る」の行が無い（検査の前提が崩れている）"
+else
+  _l12n=$(printf '%s' "$_l12line" | grep -oE '[0-9]+ ?つとも作' | grep -oE '[0-9]+')
+  _l12files=$(printf '%s' "$_l12line" | grep -oE '`[a-z][a-z-]*\.md`' | LC_ALL=C sort -u | grep -c '.') || _l12files=0
+  _l12bad=0
+  if [ "$_l12n" != "$_l12files" ]; then
+    printf '  正典の数詞 %s に対し、同じ行の列挙は %s 件\n' "$_l12n" "$_l12files" >&2
+    _l12bad=1
+  fi
+  for _f in $({ runtime_docs
+                printf '%s\n' "$SKILLS"/aidev-docs/README.md "$SKILLS"/aidev-docs/DESIGN.md \
+                               "$SKILLS"/aidev-docs/bin/README.md; } \
+              | sed 's://*:/:g' | LC_ALL=C sort -u); do
+    [ -f "$_f" ] || continue
+    _hit=$(grep -nE '[0-9]+ ?つとも作' "$_f" 2>/dev/null | grep -vE "[^0-9]$_l12n ?つとも作") || true
+    [ -z "$_hit" ] || { printf '%s:\n%s\n' "${_f#"$SKILLS"/}" "$_hit" >&2; _l12bad=$((_l12bad + 1)); }
+  done
+  if [ "$_l12bad" -eq 0 ]; then ok "L12 light の文書数が全所で一致（$_l12n）"
+  else ng "L12 light の文書数が割れている（$_l12bad 箇所。改名で数だけ取り残される型。正典は protocol-light.md の列挙）"; fi
+fi
 
 echo "== L8: ハーネス改修の実走記録 =="
 # **「改修のたびに実走を1本通す」は DESIGN「3.5」に書いてあったのに、次の改修で破られた**

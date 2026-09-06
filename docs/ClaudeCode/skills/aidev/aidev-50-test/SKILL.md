@@ -108,6 +108,12 @@ smoke: pass (exit 0)
    - **失敗あり** → 失敗内容を指摘としてまとめ、`aidev event test sent_back` を記録のうえ
      coding 工程への差し戻しを提案する（protocol.md「4. 番号と順序」に基づく正当な遷移）。
      coding を**再開する際は `aidev event coding start` を記録する**（さもないと手戻り回数を取りこぼす。protocol.md「3.」「8.」）。
+     - **統合 test（親）の差し戻し先は「原因の subtask の coding」**（`protocol-subtask.md`）。
+       **親に coding 工程は無い**ので、親のまま `event coding start` を打つと親に幽霊の記録が残る
+       （`aidev guard coding` が exit 2 で弾く）。`aidev use <親>/<NN>-<subslug>` →
+       **`aidev unapprove review` → `unapprove test` → `unapprove coding`**（後ろから）→
+       `aidev event coding start`。取り消さないと `approved` に test/coding が残ったまま
+       やり直すことになり、state が実態と食い違う。
      - **同じ工程を `maxSendBacks`（既定 3）回差し戻したら、そこで方向を変える**。`aidev event` が
        `aidev debug start` を促すので、**まっさらなコンテキスト**に原因究明だけを委譲する
        （`protocol-debug.md`）。

@@ -213,7 +213,7 @@ deliver 前の `aidev verify`（不変条件）。いずれも exit≠0 なら�
 | **light** | 振る舞い不変・小規模（`lightMaxFiles`（既定 3）ファイル以下・共有モジュールや公開 API に触らない） | `aidev new <slug> --light` |
 | **full** | それ以外 | `aidev new <slug>`（既定） |
 
-light は**上流3工程（requirements / design / tasks）を1ゲートに畳む**。成果物は4つとも作るが、
+light は**上流3工程（requirements / design / tasks）を1ゲートに畳む**。成果物は3つとも作るが、
 各文書は必須節だけに絞る（`protocol.md`「11.」）。**coding / test / review / deliver は full と完全に同一**で、
 品質ゲートは省かない。任意工程（research / architecture）は light では使わない。
 
