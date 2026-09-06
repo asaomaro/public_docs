@@ -295,19 +295,23 @@ echo "$H1" | grep -q "plan モードへ入ってから" \
 # （「方針と成果物が分離できない」＝spec にも当てはまる／「行動計画 vs 仕様」＝ExitPlanMode の
 # 定義が逆／「入力に既存コードが入る」＝plan に無く test/review に有るので集合が反転する）。
 # 正解は EnterPlanMode 自身の WHEN TO USE にあった——**方向が複数あって選び損なうと無駄になるか**
-echo "$H2" | grep -q "plan モードへ入ってから" \
-  && ok "guard requirement: 上流4工程なので促す（スコープの取り方を選ぶ工程）" \
-  || ng "guard requirement: 促しが出ない"
+# **requirement は入らない**。`ExitPlanMode` が「planning the **implementation steps**」に
+# 限定しており、「何を・なぜ」は実装計画ではない。**承認を出すのはこのツールだけ**なので
+# ここが実質の資格条件——`EnterPlanMode`（入口）の広い WHEN TO USE で判定していた頃は入っていた
+assert_eq "$(printf '%s' "$H2" | grep -c 'plan モードへ入ってから')" "0" \
+  "guard requirement: 実装計画ではないので促さない（ExitPlanMode の用途規定）"
 # guard plan は spec.md を前提にする（無いと exit 2 で促しまで到達しない＝空振り検査になる）
 : > "$TMP/.aidev/works/20260101-hint/spec.md"
 assert_ne "$(run_sh guard plan 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
-  "guard plan: 上流4工程なので促す（分解の切り方を選ぶ工程）"
+  "guard plan: 実装手順そのものなので促す（ExitPlanMode の用途規定に文字どおり合致）"
 printf -- '- [ ] T1: x\n' > "$TMP/.aidev/works/20260101-hint/tasks.md"
 : > "$TMP/.aidev/works/20260101-hint/plan.md"
 assert_eq "$(run_sh guard coding 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
-  "guard coding: 上流の tasks.md が方向を固めているので促さない"
+  "guard coding: 実装計画の実行であって計画ではないので促さない"
 assert_eq "$(run_sh guard review 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
-  "guard review: 観測して報告する工程なので促さない（コードは読むが方向を選ばない）"
+  "guard review: 指摘であって実装計画ではないので促さない（コードは読む）"
+assert_eq "$(run_sh guard research 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
+  "guard research: 基準内で落ちる（ExitPlanMode が gathering information を名指しで外す）"
 # **subtask の plan は親が切り方を確定済み**——同じ工程名でも促してはいけない
 printf 'schema: 3\nslug: hint\ncurrent: requirement\napproved: []\nparent: 20260101-order\n' \
   > "$TMP/.aidev/works/20260101-hint/state.yml"
@@ -2739,7 +2743,7 @@ if [ -n "$PS_HOST" ]; then
   ( cd "$PGD" && "$AIDEV_SH" new pgd4 >/dev/null )
   PGD4=$PGD/.aidev/works/$(cat "$PGD/.aidev/current")
   : > "$PGD4/requirement.md"; : > "$PGD4/spec.md"
-  for _pgp in requirement plan coding review; do
+  for _pgp in requirement research plan coding review; do
     PGN_S=$( ( cd "$PGD" && "$AIDEV_SH" guard "$_pgp" ) 2>&1 )
     PGN_P=$( ( cd "$PGD" && run_ps1 "$AIDEV_PS1" guard "$_pgp" ) 2>&1 | tr -d '\r' )
     assert_eq "$PGN_S" "$PGN_P" "パリティ: guard $_pgp（促しの有無）"
@@ -3743,9 +3747,9 @@ YML
   else
     skip 10 "git 不在のため worktree パリティを省略"
   fi
-  block_end parity "266" "parity"
+  block_end parity "267" "parity"
 else
-  skip 252 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
+  skip 253 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
 fi
 
 echo

@@ -265,7 +265,15 @@ BUDGET_PROTOCOL=608
 #   ハーネスの「2.6 の委譲が正」と一致する。「基準の外の規則」ではなくなった。
 #   (b) は aidev-00-start の三層判定を外すためにも要る——(a) だけだと
 #   「二重でないから入ってよい」が言えてしまう（読むだけで書く対象が無いのに）
-BUDGET_TOTAL=3449
+# 3449 -> 3450: 基準を **`ExitPlanMode` の用途規定**に据え直したぶん（外部レビューの読み合わせ）。
+#   protocol-autonomous「plan モードとの関係」+1（差し引き）。
+#   `EnterPlanMode`（入口）の WHEN TO USE を基準にしていたが、**承認を出すのは `ExitPlanMode` だけ**で、
+#   そこには「planning the **implementation steps** … For **research** … do NOT use」と書いてある。
+#   出口の制約を見ていなかったので `requirement`（何を・なぜ＝実装計画ではない）が入っていた。
+#   据え直すと **`research` も基準内で落ちる**ので、「基準の外の規則」という特例が 1 つ消える。
+#   併せて **plan file と成果物の書く順序**（探索→plan file→承認→抜ける→清書）を明記した——
+#   逆順だと plan file が写しになり、それが「計画を二度書く」の正体
+BUDGET_TOTAL=3450
 _p=$(wc -l < "$SKILLS/aidev-00-start/protocol.md")
 _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 [ "$_p" -le "$BUDGET_PROTOCOL" ] && ok "L6 protocol.md が予算内（$_p / $BUDGET_PROTOCOL 行）" \

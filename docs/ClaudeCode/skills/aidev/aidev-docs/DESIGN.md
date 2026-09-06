@@ -514,14 +514,32 @@ flowchart LR
       **これも外した**——実走が各 SKILL の「## 入力」節を突き合わせ、`plan` にはコードが
       **入っておらず**、`test` / `review` / `walkthrough` / `research` には**入っている**ことを
       実測した。物差しどおりに当てると**集合が反転する**。
-    - **正解は発明する必要が無く、`EnterPlanMode` 自身の WHEN TO USE に書いてあった**——
-      「Multiple Valid Approaches」「Architectural Decisions」「User Preferences Matter」、
-      裏返しの WHEN NOT TO USE が「the user has given very specific, detailed instructions」。
-      つまり**方向が複数あって、選び損なうと無駄になるか**。これで 11 工程が導出できる：
-      上流4工程は「何を／どう／どんな構造で／どう分けるか」を**選ぶ**、
-      `test`・`review`・`walkthrough`・`deliver`・`retro` は**観測して報告する**（選ばない。
-      コードを読むかどうかは関係ない）、`coding` は上流が固めている、
-      `aidev-00-start` の三層判定は選ぶが**選び直せる**（`escalate`）。
+    - 4 回目: `EnterPlanMode` の WHEN TO USE（「方向が複数あって選び損なうと無駄か」）に据えた。
+      **これも外した**——`EnterPlanMode` は**入口**の話で、**承認を出すのは `ExitPlanMode` だけ**。
+      出口の制約を見ていなかったので `requirement` が入り、`research` は特例で外すことになっていた。
+    - **正解は `ExitPlanMode` の用途規定**——「Only use this tool when the task requires
+      **planning the implementation steps** of a task that requires writing code.
+      For **research** tasks where you're **gathering information** … do NOT use this tool.」
+      基準は「**その工程の成果物が、これから書くコードの実装計画か**」。
+      spec / design / plan は ○、`requirement`（何を・なぜ）は ×、**`research` も基準内で落ちる**
+      （特例が 1 つ消える）。**入口ではなく出口で決まる**——承認が取れない道具は使えない。
+    - **なぜ 4 回も外したか**——`requirement` を入れるか外すかで 3 往復した根因は
+      **`spec` という名前**にあった。aidev の `spec` は「どう作るか」だが、
+      **GitHub Spec Kit の `spec.md` は「requirements and user stories」＝要件**で、
+      aidev の `requirement` に当たる（Spec Kit の `plan.md`＝aidev の `spec`、
+      `tasks.md`＝aidev の `plan`。Kiro も `requirements` / `design` / `tasks`）。
+      **他ツールの語感で読むと「requirement も spec も同じ側」に見える**。
+      改名は影響が大きい（`plan.md` の意味が反転する／工程名は `metrics.yml`・`guard`・
+      `dependsOn`・subtask 許可リストに**データとして**入っている）ので、
+      **`aidev-docs/README.md` の工程一覧に但し書きを置く**にとどめた。
+    - **参考（採らなかった）**: `EnterPlanMode` の WHEN TO USE を根拠にした版は残さない——
+      入口は広く（「Unclear Requirements」まで含む）、**出口はそれより狭い**ので、
+      入口だけを見ると承認の取れない工程が入る。
+    - **書く順序も決めた**: `ExitPlanMode` は計画の内容を引数に取らず、**先に書いた plan file から読む**。
+      **探索 → plan file → 承認 → 抜ける → 成果物に清書**。成果物を先に書いてから入ると
+      plan file が写しになる——それが「計画を二度書く」の正体で、順序を決めれば起きない。
+    - **教訓**: **道具の可否を決める前に、その道具の定義を読む。しかも入口と出口の両方を。**
+      4 回とも手元に定義があるのに、読まずに分類を作るか、片方だけ読んだ。
     - 副産物: **`research` の除外に一次根拠が付いた**。`EnterPlanMode` の WHEN NOT TO USE が
       「Pure research/exploration tasks (**use the Agent tool instead**)」と言っており、
       ハーネスの「純粋な調査は「2.6」の委譲が正」と一致する。「基準の外の規則」ではなくなった。

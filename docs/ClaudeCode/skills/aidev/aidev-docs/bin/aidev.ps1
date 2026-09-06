@@ -915,7 +915,7 @@ function Cmd-Guard($rest) {
     # 誤って数えるため）。代わりに、まだ必要な場合だけ促す。
     if (NeedsStart $script:WORK $ph) { Write-Output "   → 忘れずに: aidev event $ph start" }
     # plan モードが使える工程でだけ名指しで促す（sh 版 cmd_guard の注記に理由）
-    if ($ph -ceq 'requirement' -or $ph -ceq 'spec' -or $ph -ceq 'design' -or $ph -ceq 'plan') {
+    if ($ph -ceq 'spec' -or $ph -ceq 'design' -or $ph -ceq 'plan') {
       $sf = Join-Path $script:WORK 'state.yml'
       # subtask の plan は親の plan が切り方を確定済み（sh 版 cmd_guard の注記に理由）
       $pmsub = ($ph -ceq 'plan' -and (YGet $sf 'parent'))

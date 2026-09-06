@@ -48,6 +48,13 @@ PJ非依存の開発ワークフローを、skill 群で制御・進捗管理す
 | 70 | deliver | 標準（最終） | コミット / PR で着地 |
 | 95 | retro | 任意 | 振り返りと改善提案（retro.md） |
 
+> **`spec` の意味が他ツールと逆**。aidev の `spec` は「**どう作るか**」（実装仕様）だが、
+> GitHub Spec Kit の `spec.md` は「requirements and user stories」＝**要件**で、
+> aidev の `requirement` に当たる（Spec Kit の `plan.md`＝aidev の `spec`、
+> `tasks.md`＝aidev の `plan`）。Kiro も `requirements` / `design` / `tasks`。
+> **他ツールから来たら 1 段ずれる**——実際、この読み違いで「requirement も spec と同じ側」と
+> 誤判定した事故が起きている（`DESIGN`「2.」）。
+
 標準フロー：`requirement → spec → plan → coding → test → review → deliver`。
 番号末尾 **0=標準 / 5=任意**。番号は推奨順であり強制ではない（差し戻し可）。
 

@@ -926,19 +926,19 @@ cmd_guard() {
     # 「plan モード」は Cursor / Copilot にもある**横断的な概念名**で、`Stop` フックや
     # `AskUserQuestion` のような製品固有 API 名とは別物なので、`protocol.md`「2.5」に抵触しない。
     # 持たない環境でのフォールバックは `aidev-docs/README.md` の表。
-    # 条件は散文と同じ **`light` でない上流4工程で、その工程に承認者がいるとき**（subtask の plan は除く）。
-    # ここに至るまで**分類を 3 回発明して 3 回とも外した**（「方針と成果物が分離できない」
-    # ＝spec にも当てはまり区別にならない／「行動計画 vs 仕様」＝`ExitPlanMode` の定義が逆を言う／
-    # 「入力に既存コードが入る」＝`plan` に無く `test`/`review` に有るので集合が反転する）。
-    # 正解は `EnterPlanMode` 自身の WHEN TO USE にあった——**方向が複数あって選び損なうと無駄になるか**。
-    # **道具の可否を決める前に、その道具の定義を読む**（`DESIGN`「2.」）。
+    # 条件は散文と同じ **`light` でない spec / design / plan で、その工程に承認者がいるとき**
+    # （subtask の plan は除く）。ここに至るまで**分類を 4 回発明して 4 回とも外した**（`DESIGN`「2.」）。
+    # 正解は **`ExitPlanMode` の用途規定**——「planning the **implementation steps** of a task that
+    # requires writing code」。**承認を出すのはこのツールだけ**なので、ここが実質の資格条件。
+    # `EnterPlanMode`（入口）の WHEN TO USE を基準にしていた頃は `requirement` が入っていたが、
+    # **出口の制約を見ていなかった**。`requirement`（何を・なぜ）は実装計画ではない。
     # `light` は往復を減らす趣旨に反する。承認者の有無で見るのは、**plan モードを抜けるのが
     # 人間の承認だから**——`autonomous` を一律で外すと `humanGates` の部分自律を取りこぼす。
     # 条件を外すと「使ってはいけない工程で勧める」ことになる
     _pmsub=no
     case "$ph" in plan) [ -n "$(yget "$WORK/state.yml" parent)" ] && _pmsub=yes ;; esac
     case "$ph" in
-      requirement|spec|design|plan)
+      spec|design|plan)
         if [ "$_pmsub" = no ] && [ "$(yget "$WORK/state.yml" profile)" != light ] \
            && has_approver "$ph"; then
           printf '   → 有力案が複数あるなら **plan モードへ入ってから** 書く（承認を取り、解除してから成果物を書く）\n'
