@@ -117,6 +117,35 @@ case "${1:-}" in
 esac
 AIDEV="$ROOT/.aidev"
 
+# **`aidev new <slug>` が作るのは `<日付>-<slug>`** なので、打った本人が付けた語では
+# `works/<slug>` に当たらない。文書は一貫して `<slug>` と書いているのに `aidev use <slug>` が
+# 「work が存在しません」で落ちていた（実走が実測。分類 G——散文と実装の食い違い）。
+# ここで日付前置を 1 回だけ補完する。曖昧（同じ slug が複数日にある）なら補完しない
+# ——黙って別の work を掴ませない
+work_resolve_name() { # slug -> 解決した名前（当たらなければ元の slug をそのまま返す）
+  [ -n "$1" ] || { printf '%s' "$1"; return 0; }
+  if [ -d "$AIDEV/works/$1" ]; then printf '%s' "$1"; return 0; fi
+  _wrh=${1%%/*}; _wrt=''
+  case "$1" in */*) _wrt="/${1#*/}" ;; esac
+  _wrn=0; _wrhit=''
+  for _wrc in "$AIDEV"/works/*-"$_wrh"; do
+    [ -d "$_wrc" ] || continue
+    _wrn=$((_wrn + 1)); _wrhit=$(basename "$_wrc")
+  done
+  if [ "$_wrn" -eq 1 ] && [ -d "$AIDEV/works/$_wrhit$_wrt" ]; then
+    printf '%s' "$_wrhit$_wrt"
+  else
+    printf '%s' "$1"
+  fi
+}
+# **「無い」と「曖昧」を別のメッセージにする**ための双子。`work_resolve_name` は `$()` の中で
+# 走るので、そこで数えた件数は親シェルに返らない（日付違いの同名 work を持つ人に
+# 「存在しません」と嘘の理由が出る）
+work_resolve_count() { # slug -> 日付前置の候補件数
+  _wch=${1%%/*}; _wcn=0
+  for _wcc in "$AIDEV"/works/*-"$_wch"; do [ -d "$_wcc" ] && _wcn=$((_wcn + 1)); done
+  printf '%s' "$_wcn"
+}
 resolve_work() { # [slug]
   # slug は top-level work（dated 名）か subtask のネストパス（<dated>/<NN>-<subslug>）。
   # works/<slug> へ素直に連結するためネストもそのまま解決できる（subtask 層の単一経路）。
@@ -128,8 +157,13 @@ resolve_work() { # [slug]
     [ -f "$AIDEV/current" ] || die "対象作業が不明です（.aidev/current 無し）。aidev new か slug 指定を。"
     slug=$(head -n1 "$AIDEV/current" | tr -d '\r\n')
   fi
+  _rwsrc=$slug
+  slug=$(work_resolve_name "$slug")
   WORK="$AIDEV/works/$slug"
-  [ -d "$WORK" ] || die "work が存在しません: $slug"
+  if [ ! -d "$WORK" ] && [ "$(work_resolve_count "$_rwsrc")" -gt 1 ]; then
+    die "slug が複数の work に当たります: $_rwsrc（日付つきの名前で指定してください。一覧は aidev list）"
+  fi
+  [ -d "$WORK" ] || die "work が存在しません: $slug（一覧は aidev list）"
   SLUG=$slug
 }
 
@@ -145,6 +179,7 @@ resolve_work_soft() { # [slug] -> 0=解決した / 1=解決できない（die �
     _rs=$(head -n1 "$AIDEV/current" | tr -d '\r\n')
   fi
   [ -n "$_rs" ] || return 1
+  _rs=$(work_resolve_name "$_rs")
   [ -d "$AIDEV/works/$_rs" ] || return 1
   WORK="$AIDEV/works/$_rs"; SLUG=$_rs
   return 0

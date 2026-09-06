@@ -851,6 +851,17 @@ assert_contains "$CU" "current: $CW1" "use: 別の work へ切り替える"
 assert_eq "$(cat "$CLR/.aidev/current")" "$CW1" "use: .aidev/current が実際に書き換わる"
 run_cl use nosuch >/dev/null 2>&1
 assert_eq "$?" "1" "use: 存在しない slug を弾く（手書きの打ち間違い対策）"
+# **`new <slug>` が作るのは `<日付>-<slug>`** なので、打った本人の語では works/<slug> に当たらない。
+# 文書は一貫して `<slug>` と書いているのに `use <slug>` が「work が存在しません」で落ちていた（実走が実測）
+assert_contains "$(run_cl use alpha)" "current: " "use: 日付なしの slug でも当たる（new に渡した語がそのまま使える）"
+assert_eq "$(cat "$CLR/.aidev/current")" "$CW1" "use: 補完先は new が作った dated 名（current は正規名で持つ）"
+# **曖昧なら補完しない**。黙って別の日の同名 work を掴ませない
+mkdir -p "$CLR/.aidev/works/29991231-alpha"
+printf 'schema: 3\nslug: alpha\ncurrent: requirements\napproved: []\n' > "$CLR/.aidev/works/29991231-alpha/state.yml"
+CUA=$(run_cl use alpha 2>&1); CUA_RC=$?
+assert_eq "$CUA_RC" "1" "use: 同じ slug が複数日にあれば弾く"
+assert_contains "$CUA" "複数の work に当たります" "use: 曖昧を「存在しません」と嘘の理由で出さない"
+rm -rf "$CLR/.aidev/works/29991231-alpha"
 
 if [ -n "$PS_HOST" ]; then
   block_begin usebl

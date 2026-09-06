@@ -130,6 +130,30 @@ if (-not $script:ROOT) {
 }
 $script:AIDEV = Join-Path $script:ROOT '.aidev'
 
+# **`aidev new <slug>` が作るのは `<日付>-<slug>`** なので、打った本人が付けた語では
+# `works/<slug>` に当たらない（sh 側 work_resolve_name と同じ理由・同じ規則）。
+# 曖昧（同じ slug が複数日にある）なら補完しない——黙って別の work を掴ませない
+function WorkResolveHits($slug) {
+  $head = $slug
+  $i = $slug.IndexOf('/')
+  if ($i -ge 0) { $head = $slug.Substring(0, $i) }
+  $root = Join-Path $script:AIDEV 'works'
+  if (-not (IsDir $root)) { return @() }
+  return @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name.EndsWith('-' + $head, [System.StringComparison]::Ordinal) } |
+    ForEach-Object { $_.Name })
+}
+function WorkResolveName($slug) {
+  if (-not $slug) { return $slug }
+  $root = Join-Path $script:AIDEV 'works'
+  if (IsDir (Join-Path $root $slug)) { return $slug }
+  $tail = ''
+  $i = $slug.IndexOf('/')
+  if ($i -ge 0) { $tail = $slug.Substring($i) }
+  $hits = WorkResolveHits $slug
+  if ($hits.Count -eq 1 -and (IsDir (Join-Path $root ($hits[0] + $tail)))) { return ($hits[0] + $tail) }
+  return $slug
+}
 function ResolveWork($slug) {
   # slug は top-level work（dated 名）か subtask のネストパス（<dated>/<NN>-<subslug>）。works/<slug> へ素直に連結する。
   if (-not $slug) { $slug = $env:AIDEV_WORK }
@@ -138,8 +162,13 @@ function ResolveWork($slug) {
     if (-not (IsFile $cur)) { Die "対象作業が不明です（.aidev/current 無し）。new か slug 指定を。" }
     $slug = ([System.IO.File]::ReadAllLines($cur))[0].Trim()
   }
+  $rwsrc = $slug
+  $slug = WorkResolveName $slug
   $script:WORK = Join-Path (Join-Path $script:AIDEV 'works') $slug
-  if (-not (IsDir $script:WORK)) { Die "work が存在しません: $slug" }
+  if (-not (IsDir $script:WORK) -and (WorkResolveHits $rwsrc).Count -gt 1) {
+    Die "slug が複数の work に当たります: $rwsrc（日付つきの名前で指定してください。一覧は aidev list）"
+  }
+  if (-not (IsDir $script:WORK)) { Die "work が存在しません: $slug（一覧は aidev list）" }
   $script:SLUG = $slug
 }
 
@@ -162,6 +191,7 @@ function ResolveWorkSoft($slug) {
     $rs = ((Get-Content -LiteralPath $cur -TotalCount 1) -replace "`r|`n", '').Trim()
   }
   if (-not $rs) { return $false }
+  $rs = WorkResolveName $rs
   $w = Join-Path (Join-Path $script:AIDEV 'works') $rs
   if (-not (IsDir $w)) { return $false }
   $script:WORK = $w; $script:SLUG = $rs
