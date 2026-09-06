@@ -1,7 +1,7 @@
 ---
 name: aidev-10-requirement
 description: ［aidev 標準工程］aidev の requirement（要件定義）工程。進行中の aidev 作業（.aidev/current）に対して要望を整理し requirement.md を作る。「aidev requirement」「requirement 工程」と言われたとき、または aidev-00-start / 前工程から案内されたときに使用する。aidev 作業の無い単発の要件整理では使わない。
-allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion]
+allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion, EnterPlanMode, ExitPlanMode]
 ---
 
 AI 開発ワークフローの **requirement（要件定義）工程**を実行する。
@@ -44,6 +44,9 @@ AI 開発ワークフローの **requirement（要件定義）工程**を実行�
    - 完了条件（何が出来たら完成か）
    - **UI（利用者が操作する部品）を作るなら「どう操作するか」も必ず聞く**——下記「相互作用の受け入れ基準」
    - スコープ外（やらないこと）の明示
+   - **スコープの取り方が複数あるなら、`requirement.md` を書く前に plan モードへ入る**（承認を
+     取ってから解除して書く）。**条件は `protocol-autonomous.md`**——ここに写さない
+     （`aidev guard requirement` が該当時だけ促す）。
    - 制約（性能・互換性・PJ のドメイン固有の前提があれば）
    - **複雑・未確定が多く、誤りの手戻りコストが高い場合は「深掘り質問（grilling）」を opt-in で行う**：
      決定ツリーを下りながら主要論点を**推奨回答つきで問い詰めて**不確実性を潰す。質問深掘り skill

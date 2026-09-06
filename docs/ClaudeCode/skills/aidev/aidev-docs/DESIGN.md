@@ -502,6 +502,30 @@ flowchart LR
       **「検査が無い」と明示すること自体が、この規約の担保**になる。
     - 型としては「結論は同じだが理由が違う」の 1 段外側。理由が違うと次の工程で判断が変わるが、
       **前提が書かれていないと、前提が崩れたときに基準が黙って誤答する**。
+  - **工程の可否を 2 回続けて間違えた（2026-09-06）。原因はどちらも同じ——
+    手元にツール定義があるのに読まず、分類を発明したこと。**
+    - 1 回目: `requirement` の除外理由を「方針と成果物が分離できない」と書いた。
+      これは **`spec` / `design` にもそのまま当てはまり、区別になっていない**——
+      基準から導いたふりをした後付けのラベルだった。
+    - 2 回目: そこで「**行動計画 vs 仕様**」という分類を作り、`plan` を外した。**これも逆**。
+      `ExitPlanMode` の定義が「planning the **implementation steps**」なので、
+      **`plan` 工程と種類が同じことは除外の理由ではなく最も適合する証拠**だった。
+    - 3 回目: 「**入力に既存コードが入る工程**」という物差しを作り、`requirement` を外した。
+      **これも外した**——実走が各 SKILL の「## 入力」節を突き合わせ、`plan` にはコードが
+      **入っておらず**、`test` / `review` / `walkthrough` / `research` には**入っている**ことを
+      実測した。物差しどおりに当てると**集合が反転する**。
+    - **正解は発明する必要が無く、`EnterPlanMode` 自身の WHEN TO USE に書いてあった**——
+      「Multiple Valid Approaches」「Architectural Decisions」「User Preferences Matter」、
+      裏返しの WHEN NOT TO USE が「the user has given very specific, detailed instructions」。
+      つまり**方向が複数あって、選び損なうと無駄になるか**。これで 11 工程が導出できる：
+      上流4工程は「何を／どう／どんな構造で／どう分けるか」を**選ぶ**、
+      `test`・`review`・`walkthrough`・`deliver`・`retro` は**観測して報告する**（選ばない。
+      コードを読むかどうかは関係ない）、`coding` は上流が固めている、
+      `aidev-00-start` の三層判定は選ぶが**選び直せる**（`escalate`）。
+    - 副産物: **`research` の除外に一次根拠が付いた**。`EnterPlanMode` の WHEN NOT TO USE が
+      「Pure research/exploration tasks (**use the Agent tool instead**)」と言っており、
+      ハーネスの「純粋な調査は「2.6」の委譲が正」と一致する。「基準の外の規則」ではなくなった。
+    - 教訓: **道具の可否を決める前に、その道具の定義を読む**。3 回とも、読めば 5 分で分かった。
   - **「工程の間だけ plan モードにして、終わったら戻す」は作れない**（2026-09-06 に裏取り）。
     - **ハーネス側から切り替える口が無い**: フックの JSON 出力にモードを変える項目は無く、
       `PermissionModeChange` 系のイベントも無い（要望 anthropics/claude-code#31579・#14044 は未実装）。

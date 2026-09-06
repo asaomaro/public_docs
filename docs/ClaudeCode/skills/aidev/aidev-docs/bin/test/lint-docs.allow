@@ -43,3 +43,9 @@ L9:これは移植先の話ではなく
 L9:has_approver()` に切り出した
 # 委譲案を退けた結論の要約。判定条件ではなく採否の理由
 L9:承認者がいる場面だけの道具
+# 他実装（Codex / Copilot）の plan モードの形。判定条件ではなく可搬性の裏取り
+L9:Copilot は VS Code / Visual Studio の Plan agent
+# 委譲案を退けた理由（子は AskUserQuestion を剥がされる）。判定条件ではなく採否の根拠
+L9:残るのは read-only の一発調査
+# L9 という検査そのものの説明（bin/README の lint 一覧）。条件の写しではなく検査の仕様
+L9:判定キーの有無だけでは足りない

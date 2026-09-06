@@ -1,7 +1,7 @@
 ---
 name: aidev-30-plan
 description: ［aidev 標準工程］aidev の plan（計画/作業分解）工程。進行中の aidev 作業の spec.md から plan.md と tasks.md を作る。「aidev plan」「plan 工程」と言われたとき、または前工程から案内されたときに使用する。aidev 作業の無い単発の計画作成では使わない。
-allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion]
+allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion, EnterPlanMode, ExitPlanMode]
 ---
 
 AI 開発ワークフローの **plan（計画 / 作業分解）工程**を実行する。
@@ -35,6 +35,9 @@ spec を実装可能な作業単位に分解し、`plan.md`（方針・順序）
 1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定。`aidev guard plan` で前提を検査し、
    `aidev event plan start` を記録する（exit≠0＝未充足。start が無いと所要時間も手戻りも導出できない）。`spec.md` を確認
    （`design.md` / `research.md` があればそれも読み込む）。
+   - **分解の切り方が複数あるなら、`plan.md` / `tasks.md` を書く前に plan モードへ入る**（承認を取って
+     から解除して書く）。**条件は `protocol-autonomous.md`**——ここに写さない（`aidev guard plan` が
+     該当時だけ促す。**subtask は対象外**——切り方は親の plan が確定済み）。
    - **この work が subtask か親かを見分ける**（state.yml に `parent` があれば subtask）。
      **subtask の plan は split 判定（手順3）と subtask 生成（手順4）を行わない**。手順5の「scope 凍結の
      tasks.md 分解」だけを実施し、**再分割（subtask の下に subtask を作る）は禁止**（CLI も多段ネストを弾く）。

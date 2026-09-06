@@ -245,7 +245,27 @@ BUDGET_PROTOCOL=608
 #   (2) 新しい前提の行だけを読むと「入る」に倒れるが、下の「承認者がいない工程で入ると
 #      **抜けられない**」と衝突する。**新しい行だけを読んだ実行者は入って詰む**
 #      → 見る順（承認者 → 二重ゲート）を明記した
-BUDGET_TOTAL=3438
+# 3438 -> 3449: **除外理由を 2 つとも間違えていた**ぶん（対話で発覚）。
+#   protocol-autonomous +7 / aidev-30-plan +2 / aidev-00-start -1。
+#   requirement の除外理由「方針と成果物が分離できない」は **spec / design にもそのまま
+#   当てはまり、区別になっていなかった**（結論に貼った後付けのラベル）。
+#   そこで「行動計画 vs 仕様」という分類を作って plan を外したが、**これも逆だった**——
+#   `ExitPlanMode` の定義が「planning the **implementation steps**」なので、
+#   plan 工程と種類が同じことは**除外の理由ではなく最も適合する証拠**。
+#   **手元にツール定義があるのに読まずに分類を発明した**のが両方の原因。
+#   **plan モードの機能と思想を調べ直した**結果、買えるのは「コード探索中の read-only 強制」で、
+#   機能も思想も「触る前にコードを読む」に収束していた（EnterPlanMode: explore the codebase）。
+#   これを (b) に据えると、**requirement は主活動がユーザーへのヒアリング**（入力は
+#   「要望・課題・背景」でコードは「必要に応じて参照してよい」）なので外れる。
+#   一度 EnterPlanMode の "Unclear Requirements" を根拠に入れたが、その例は
+#   「profile して bottleneck を見つける」＝**コード探索でスコープを掴む**話で、
+#   人から要件を聞き出す話ではなかった（引用が不正確だった）。
+#   副産物: research の除外に一次根拠が付いた——EnterPlanMode の WHEN NOT TO USE が
+#   「Pure research/exploration tasks (use the Agent tool instead)」と言っており、
+#   ハーネスの「2.6 の委譲が正」と一致する。「基準の外の規則」ではなくなった。
+#   (b) は aidev-00-start の三層判定を外すためにも要る——(a) だけだと
+#   「二重でないから入ってよい」が言えてしまう（読むだけで書く対象が無いのに）
+BUDGET_TOTAL=3449
 _p=$(wc -l < "$SKILLS/aidev-00-start/protocol.md")
 _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 [ "$_p" -le "$BUDGET_PROTOCOL" ] && ok "L6 protocol.md が予算内（$_p / $BUDGET_PROTOCOL 行）" \
@@ -285,11 +305,15 @@ echo "== L9: 判定条件の写しを工程 SKILL に作らない =="
 # 重ねたまま回すと同じファイルを 2 回数え、1 件の写しが「2 ファイル」と出た
 # （`runtime_docs` 自身のコメントが同じ罠を警告しているのに、その隣で再発させた）
 PMHEAD='plan ?モード|planモード|plan mode'
-PMKEY='profile|humanGates|human-gates|interactive|autonomous|full[^ ]* *×|light|承認者|対話モード|自律モード|プロファイル|機械で止ま|ゲートの実体化|exit code'
+# **改修のたびに語彙を足す**。足さないと「旧条件の写し」しか捕まえられず、**新条件の写しは
+# 全部素通りする**（実走が H10-H13 で実測）。工程名の列挙（`spec / design / plan` の形）も条件の写し
+PMKEY='profile|humanGates|human-gates|interactive|autonomous|full[^ ]* *×|light|承認者|対話モード|自律モード|プロファイル|機械で止ま|ゲートの実体化|exit code|read-only|主活動|ヒアリング|既存コード|コード探索|方向が複数|選び損な|上流4工程|spec *[/／] *design'
 _l9=0
 # `runtime_docs` は `$d/SKILL.md`（`$d` は末尾 `/`）を出すので **`//` を含む**。
 # 潰さないと `sort -u` が別物として残し、二重走査がそのまま生き残る（テストで実測）
-for _f in $({ runtime_docs; printf '%s\n' "$SKILLS"/aidev-*/SKILL.md "$SKILLS"/aidev-docs/*.md; } \
+for _f in $({ runtime_docs
+              printf '%s\n' "$SKILLS"/aidev-*/SKILL.md "$SKILLS"/aidev-docs/*.md \
+                             "$SKILLS"/aidev-docs/bin/README.md; } \
              | sed 's://*:/:g' | LC_ALL=C sort -u); do
   [ -f "$_f" ] || continue
   case "$_f" in *protocol-autonomous.md) continue ;; esac  # 正典。ここには条件が在ってよい
@@ -298,10 +322,17 @@ for _f in $({ runtime_docs; printf '%s\n' "$SKILLS"/aidev-*/SKILL.md "$SKILLS"/a
   _hits=$(awk -v head="$PMHEAD" '
       # **見出しより前は切り落とす**。plan モードの可否を縛る条件は見出しの後ろに来るので、
       # 同じ行の無関係な前置き（`humanGates` で部分的に人間ゲートを残せる。plan モードは…）を拾わない
-      $0 ~ head { inb=1; ln=NR; buf=substr($0, match($0, head)); next }
+      function ltrim(x) { sub(/^[ \t]+/, "", x); return x }
+      $0 ~ head { inb=1; ln=NR; buf=substr($0, match($0, head))
+                  ind=length($0) - length(ltrim($0)); next }
       # **継続行は「字下げされていて、新しい箇条書きでも表の行でもない行」**。
       # 字下げだけで見ると隣の箇条書きや次の表の行まで飲み込んで誤検知した（両方とも実際に踏んだ）
-      inb && /^[ \t]+/ && !/^[ \t]*([-*+|]|[0-9]+\.)/ { buf=buf " " $0; next }
+      # **より深く字下げされた箇条書きは「子」なので取り込む**。打ち切っていた頃は
+      # `- plan モードの扱い` の下にぶら下げた条件が原理的に見えず、`DESIGN.md` の
+      # `  - **使う**:` 以下の列挙もまるごと素通りしていた（実走が H8 で実測）。
+      # 打ち切るのは**同じ深さ以下**の箇条書き・表の行だけ
+      inb && /^[ \t]+/ && (!/^[ \t]*([-*+|]|[0-9]+\.)/ || length($0) - length(ltrim($0)) > ind) {
+        buf=buf " " $0; next }
       inb { print ln ": " buf; inb=0 }
       END { if (inb) print ln ": " buf }
     ' "$_f" | sed 's/protocol-autonomous\.md//g' | grep -E "$PMKEY") || true

@@ -915,9 +915,11 @@ function Cmd-Guard($rest) {
     # 誤って数えるため）。代わりに、まだ必要な場合だけ促す。
     if (NeedsStart $script:WORK $ph) { Write-Output "   → 忘れずに: aidev event $ph start" }
     # plan モードが使える工程でだけ名指しで促す（sh 版 cmd_guard の注記に理由）
-    if ($ph -ceq 'spec' -or $ph -ceq 'design') {
+    if ($ph -ceq 'requirement' -or $ph -ceq 'spec' -or $ph -ceq 'design' -or $ph -ceq 'plan') {
       $sf = Join-Path $script:WORK 'state.yml'
-      if ((YGet $sf 'profile') -cne 'light' -and (HasApprover $script:WORK $ph)) {
+      # subtask の plan は親の plan が切り方を確定済み（sh 版 cmd_guard の注記に理由）
+      $pmsub = ($ph -ceq 'plan' -and (YGet $sf 'parent'))
+      if (-not $pmsub -and (YGet $sf 'profile') -cne 'light' -and (HasApprover $script:WORK $ph)) {
         Write-Output "   → 有力案が複数あるなら **plan モードへ入ってから** 書く（承認を取り、解除してから成果物を書く）"
         Write-Output "      抜けた先は承認時に選んだモードで、元のモードには戻らない（protocol-autonomous.md）"
       }

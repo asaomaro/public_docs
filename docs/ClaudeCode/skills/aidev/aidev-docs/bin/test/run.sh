@@ -291,8 +291,40 @@ echo "$H2" | grep -q "aidev event requirement start" && ng "guard: start 済な�
 # 打つ側は工程に入る瞬間には思い出さない（event start の促しと同じ型）
 echo "$H1" | grep -q "plan モードへ入ってから" \
   && ok "guard spec: plan モードへ入るよう促す（full × interactive）" || ng "guard spec: plan モードの促しが出ない"
+# **入るのは上流4工程**。ここに至るまで分類を 3 回発明して 3 回とも外した
+# （「方針と成果物が分離できない」＝spec にも当てはまる／「行動計画 vs 仕様」＝ExitPlanMode の
+# 定義が逆／「入力に既存コードが入る」＝plan に無く test/review に有るので集合が反転する）。
+# 正解は EnterPlanMode 自身の WHEN TO USE にあった——**方向が複数あって選び損なうと無駄になるか**
 echo "$H2" | grep -q "plan モードへ入ってから" \
-  && ng "guard requirement: 対象外の工程で促している" || ok "guard: spec / design 以外では促さない"
+  && ok "guard requirement: 上流4工程なので促す（スコープの取り方を選ぶ工程）" \
+  || ng "guard requirement: 促しが出ない"
+# guard plan は spec.md を前提にする（無いと exit 2 で促しまで到達しない＝空振り検査になる）
+: > "$TMP/.aidev/works/20260101-hint/spec.md"
+assert_ne "$(run_sh guard plan 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
+  "guard plan: 上流4工程なので促す（分解の切り方を選ぶ工程）"
+printf -- '- [ ] T1: x\n' > "$TMP/.aidev/works/20260101-hint/tasks.md"
+: > "$TMP/.aidev/works/20260101-hint/plan.md"
+assert_eq "$(run_sh guard coding 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
+  "guard coding: 上流の tasks.md が方向を固めているので促さない"
+assert_eq "$(run_sh guard review 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
+  "guard review: 観測して報告する工程なので促さない（コードは読むが方向を選ばない）"
+# **subtask の plan は親が切り方を確定済み**——同じ工程名でも促してはいけない
+printf 'schema: 3\nslug: hint\ncurrent: requirement\napproved: []\nparent: 20260101-order\n' \
+  > "$TMP/.aidev/works/20260101-hint/state.yml"
+assert_eq "$(run_sh guard plan 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
+  "guard plan: subtask では促さない（切り方は親の plan が確定済み）"
+printf 'schema: 3\nslug: hint\ncurrent: requirement\napproved: []\n' \
+  > "$TMP/.aidev/works/20260101-hint/state.yml"
+rm -f "$TMP/.aidev/works/20260101-hint/spec.md" "$TMP/.aidev/works/20260101-hint/tasks.md" \
+      "$TMP/.aidev/works/20260101-hint/plan.md"
+assert_eq "$(run_sh guard coding 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
+  "guard coding: 上流の tasks.md が承認済みなので促さない"
+assert_eq "$(run_sh guard review 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
+  "guard review: 上流で方向が決まっているので促さない"
+rm -f "$TMP/.aidev/works/20260101-hint/spec.md" "$TMP/.aidev/works/20260101-hint/tasks.md" \
+      "$TMP/.aidev/works/20260101-hint/plan.md"
+assert_eq "$(run_sh guard plan 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
+  "guard plan: 成果物が行動計画そのものなので促さない（計画を二度書かない）"
 # **「入れ」と命じる**。「方針を先に固める」のような役割だけの言い方だと、丁寧に計画するだけで
 # モードは切り替わらない（EnterPlanMode は主エージェントのツールなので、明示すれば実際に切り替わる）
 echo "$H1" | grep -q "抜けた先は承認時に選んだモードで、元のモードには戻らない" \
@@ -2604,6 +2636,25 @@ l9out "DESIGN.md" "$TMP/l9skills/aidev-docs/DESIGN.md"
 l9out "aidev-docs/README.md" "$TMP/l9skills/aidev-docs/README.md"
 l9out "protocol.md" "$TMP/l9skills/aidev-00-start/protocol.md"
 l9out "util skill" "$TMP/l9skills/aidev-util-batch/SKILL.md"
+l9out "bin/README.md" "$TMP/l9skills/aidev-docs/bin/README.md"
+# **H8: 字下げした子の箇条書きへ条件を送る**。打ち切っていた頃は原理的に見えず、
+# `DESIGN.md` の `  - **使う**:` 以下の列挙がまるごと素通りしていた（実走が実測）
+cp "$TMP/l9skills/aidev-20-spec/SKILL.md" "$TMP/l9h8.bak"
+printf '\n- plan モードの扱い\n  - 入るのは `full` × `interactive` のときだけ。\n' \
+  >> "$TMP/l9skills/aidev-20-spec/SKILL.md"
+assert_ne "$("$L9LINT" 2>&1 | grep -c 'NG: L9')" "0" \
+  "lint L9: 字下げした子の箇条書きに送った条件を捕まえる"
+cp "$TMP/l9h8.bak" "$TMP/l9skills/aidev-20-spec/SKILL.md"
+# **新条件の語彙**。改修のたびに PMKEY を足さないと「旧条件の写し」しか捕まらない
+for _l9w in '入るのは、入力に既存コードが入る工程だけ。' \
+            '入るのは、コード探索中の read-only 強制が要るときだけ。' \
+            '入らない——主活動がユーザーへのヒアリングだから。' \
+            '入るのは上流4工程だけ。'; do
+  cp "$TMP/l9skills/aidev-20-spec/SKILL.md" "$TMP/l9w.bak"
+  printf '\nplan モードへ%s\n' "$_l9w" >> "$TMP/l9skills/aidev-20-spec/SKILL.md"
+  assert_ne "$("$L9LINT" 2>&1 | grep -c 'NG: L9')" "0" "lint L9: 新条件の語彙を捕まえる（$_l9w）"
+  cp "$TMP/l9w.bak" "$TMP/l9skills/aidev-20-spec/SKILL.md"
+done
 # **1 件の写しは「1 ファイル」と数える**。`runtime_docs` と SKILL のグロブが重なっていた頃は
 # 同じファイルを 2 回走査し、1 件を「2 ファイル」と出していた
 cp "$TMP/l9skills/aidev-20-spec/SKILL.md" "$TMP/l9cnt.bak"
@@ -2683,6 +2734,27 @@ if [ -n "$PS_HOST" ]; then
   PGH2_S=$( ( cd "$PGD" && "$AIDEV_SH" guard design ) 2>&1 )
   PGH2_P=$( ( cd "$PGD" && run_ps1 "$AIDEV_PS1" guard design ) 2>&1 | tr -d '\r' )
   assert_eq "$PGH2_S" "$PGH2_P" "パリティ: guard design（humanGates に無い工程）"
+  # **今回足した工程を ps1 側でも見る**。パリティ検査が `guard spec` だけだった頃は、
+  # `requirement` / `plan` / subtask の分岐が ps1 で壊れても機械が通らなかった（実走が指摘）
+  ( cd "$PGD" && "$AIDEV_SH" new pgd4 >/dev/null )
+  PGD4=$PGD/.aidev/works/$(cat "$PGD/.aidev/current")
+  : > "$PGD4/requirement.md"; : > "$PGD4/spec.md"
+  for _pgp in requirement plan coding review; do
+    PGN_S=$( ( cd "$PGD" && "$AIDEV_SH" guard "$_pgp" ) 2>&1 )
+    PGN_P=$( ( cd "$PGD" && run_ps1 "$AIDEV_PS1" guard "$_pgp" ) 2>&1 | tr -d '\r' )
+    assert_eq "$PGN_S" "$PGN_P" "パリティ: guard $_pgp（促しの有無）"
+  done
+  # subtask の plan は親が切り方を確定済み。sh / ps1 で同じく促さないこと
+  ( cd "$PGD" && "$AIDEV_SH" new pgd5 --parent "$(basename "$PGD4")" >/dev/null ) 2>/dev/null || true
+  PGD5=$PGD/.aidev/works/$(cat "$PGD/.aidev/current")
+  if [ -d "$PGD5" ]; then
+    : > "$PGD5/spec.md" 2>/dev/null || true
+    PGS_S=$( ( cd "$PGD" && "$AIDEV_SH" guard plan ) 2>&1 )
+    PGS_P=$( ( cd "$PGD" && run_ps1 "$AIDEV_PS1" guard plan ) 2>&1 | tr -d '\r' )
+    assert_eq "$PGS_S" "$PGS_P" "パリティ: guard plan（subtask では促さない）"
+  else
+    assert_eq "1" "1" "パリティ: guard plan（subtask 生成できず・skip 相当）"
+  fi
   rm -rf "$PGD"
 
   # 他 PJ の retro（host）が見つけた 3 件の ps1 側。**ここが唯一の検査**（上のブロックと同じ理由）
@@ -3671,9 +3743,9 @@ YML
   else
     skip 10 "git 不在のため worktree パリティを省略"
   fi
-  block_end parity "261" "parity"
+  block_end parity "266" "parity"
 else
-  skip 247 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
+  skip 252 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
 fi
 
 echo
