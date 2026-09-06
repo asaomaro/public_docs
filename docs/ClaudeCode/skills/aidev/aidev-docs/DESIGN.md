@@ -474,6 +474,19 @@ flowchart LR
     `profile: light`（承認の往復を減らす趣旨に反する）／`autonomous`（`ExitPlanMode` は人間の承認が前提）。
   - 「工程内で段階的に確認したい」要求には**段階レビュー**（`protocol.md`「3.1」）が対応する。
     成果物を見出し節ごとに承認するもので、plan モードとは併用しない。
+  - **基準を書かずに結論だけ並べたので、2 工程が導出されないまま残った**（2026-09-06 に発覚）。
+    ここに「二重ゲートに見合うか」と書いておきながら、実行時文書（`protocol-autonomous.md`）には
+    工程ごとの可否だけを列挙したため、**11 工程のうち requirement と walkthrough が
+    どちらのリストにも無かった**。さらに `test`・`review`・`deliver`・`retro` の除外理由が
+    「実装計画ではない」になっており、**論点がずれていた**——plan モードで禁じられるのは
+    Write / Edit だけで、読み取りも `AskUserQuestion` による対話も動く（SDK ドキュメント:
+    「Claude may use `AskUserQuestion` to clarify requirements before finalizing the plan」）。
+    「実装計画かどうか」は可否の理由にならない。
+    正しい導出は「**plan モードで承認するものが、aidev のゲートが承認するものと違うか**」で、
+    requirement / plan / test / review / walkthrough / deliver / retro は**成果物がその工程の
+    判断そのもの**なのでゲートと同じものを承認することになり、二重になる。
+    **結論は変わらないが、理由が変わると次に工程が増えたときの判断が変わる**ので実行時文書に基準を置いた。
+    教訓は「**列挙は基準の代わりにならない**」——列挙は網羅を検査できないが、基準は導出できる。
   - **「工程の間だけ plan モードにして、終わったら戻す」は作れない**（2026-09-06 に裏取り）。
     - **ハーネス側から切り替える口が無い**: フックの JSON 出力にモードを変える項目は無く、
       `PermissionModeChange` 系のイベントも無い（要望 anthropics/claude-code#31579・#14044 は未実装）。

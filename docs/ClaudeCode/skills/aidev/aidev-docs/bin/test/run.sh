@@ -2542,6 +2542,19 @@ echo "== 文書と CLI 表面の整合（lint-docs.sh）=="
 LINTOUT=$("$SELF/lint-docs.sh" 2>&1); LINTRC=$?
 printf '%s\n' "$LINTOUT" | sed 's/^/  | /'
 assert_eq "$LINTRC" "0" "lint-docs: 文書と CLI 表面が整合している"
+# **検査が本当にその欠陥を捕まえるか**を、欠陥を一度戻して確かめる。
+# L9 は「工程 SKILL の plan モード行に判定条件を写さない」を見る検査で、
+# 外部レビューが提案した形（判定キーが本文に出たら WARN）では**今回の欠陥を捕まえられなかった**
+# ——残っていた文言は `full` × `interactive` でキー名を 1 つも含んでいなかったため。値の側も見る
+L9F=$(cd "$SELF/../../.." && pwd)/aidev-20-spec/SKILL.md
+cp "$L9F" "$TMP/l9.bak"
+sed -i.tmp 's/（承認を取ってから解除して書く）/（`full` × `interactive` のみ）/' "$L9F" 2>/dev/null   || sed -i '' 's/（承認を取ってから解除して書く）/（`full` × `interactive` のみ）/' "$L9F"
+rm -f "$L9F.tmp"
+L9OUT=$("$SELF/lint-docs.sh" 2>&1) || true
+cp "$TMP/l9.bak" "$L9F"
+assert_contains "$L9OUT" "NG: L9" "lint L9: 条件の写しを実際に捕まえる（検査が空振りしていない）"
+assert_eq "$("$SELF/lint-docs.sh" >/dev/null 2>&1; echo $?)" "0" \
+  "lint L9: 戻せば通る（フィクスチャを片付けている）"
 
 echo "== sh ⇔ ps1 パリティ =="
 if [ -n "$PS_HOST" ]; then

@@ -212,13 +212,52 @@ BUDGET_PROTOCOL=608
 #     autonomous で工程が完走できなくなる、という一番痛い帰結が書かれていなかった。
 #     併せて「使う／使わない」を「入る／入らない」の命令形に直し、humanGates の部分自律を
 #     条件に含めた——実走が「承認者がいるのに促しを止めている」を実測した）
-BUDGET_TOTAL=3422
+# 3422 -> 3426: **判断基準を書いていなかった**ぶん（外部レビューの読み合わせで発覚）。
+#   protocol-autonomous「plan モードとの関係」+4。工程ごとの可否だけが列挙され、
+#   **11 工程のうち requirement と walkthrough が どちらのリストにも無かった**。
+#   さらに除外理由の一部が「実装計画ではない」で、**論点がずれていた**——plan モードで
+#   禁じられるのは Write/Edit だけで対話は動くので、それは理由にならない。
+#   本当の基準（「二重ゲートに見合うか」＝承認する対象がゲートと違うか）は DESIGN「2.」に
+#   あったが実行時文書に無く、**各工程の可否が基準から導かれていなかった**。
+#   基準を 1 行書けば全工程が導出できるので、列挙を短くしたぶんを差し引いて +4 に収まる
+BUDGET_TOTAL=3426
 _p=$(wc -l < "$SKILLS/aidev-00-start/protocol.md")
 _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 [ "$_p" -le "$BUDGET_PROTOCOL" ] && ok "L6 protocol.md が予算内（$_p / $BUDGET_PROTOCOL 行）" \
   || ng "L6 protocol.md が予算超過（$_p / $BUDGET_PROTOCOL 行）。要約は protocol.md・詳細は付録・理由は DESIGN"
 [ "$_t" -le "$BUDGET_TOTAL" ] && ok "L6 実行時文書の合計が予算内（$_t / $BUDGET_TOTAL 行）" \
   || ng "L6 実行時文書の合計が予算超過（$_t / $BUDGET_TOTAL 行）"
+
+echo "== L9: 判定条件の写しを工程 SKILL に作らない =="
+# **条件を skill に写した時点で、次の変更での取り残しが予約される**。実際に起きた——
+# `guard` の promote 条件を「mode」から「その工程に承認者がいるか」へ変えたとき、CLI と
+# `protocol-autonomous.md` は直したのに、spec / design の SKILL.md に写した
+# `（full × interactive のみ）` が残り、**部分自律で CLI は促すのに skill は「入るな」と読める**
+# 状態になった（外部レビューが実測）。
+# 規律自体は既にあった——`doccheck` では「正典は protocol-check。ここは引き金と打つコマンドだけ」
+# として条件を写していない（上の L6 の内訳コメント）。**規律はあったのに守られなかった**ので、
+# 分類 G と同じ扱いで観測点にする。
+#
+# **検査するのは「plan モードに言及する行が、判定に使う語を抱えていないか」**。
+# 外部レビューは「判定キー（profile / mode / humanGates）が SKILL 本文に出たら WARN」を
+# 提案したが、**それでは今回の欠陥を捕まえられない**——残っていた文言は
+# `full` × `interactive` で、キー名を 1 つも含んでいなかった。値の側も見る必要がある。
+# 対象を「plan モードの行」に絞るのは、`profile: light` 等の**正当な言及**が
+# 工程 SKILL に多数あるため（13 ファイル。全部を弾くと誤検知だらけになる）。
+PMKEY='profile|humanGates|interactive|autonomous|full[^ ]* *×|light'
+_l9=0
+for _f in "$SKILLS"/aidev-[0-9]*/SKILL.md; do
+  [ -f "$_f" ] || continue
+  # **正典への参照そのものは条件ではない**。`protocol-autonomous.md` というファイル名が
+  # `autonomous` を含むので、落としてから判定する（最初の実装がこれで誤検知した）
+  _hits=$(grep -n 'plan モード' "$_f" 2>/dev/null \
+    | sed 's/protocol-autonomous\.md//g' | grep -E "$PMKEY") || true
+  [ -n "$_hits" ] || continue
+  _l9=$((_l9 + 1))
+  printf '%s:\n%s\n' "${_f#"$SKILLS"/}" "$_hits" >&2
+done
+if [ "$_l9" -eq 0 ]; then ok "L9 工程 SKILL の plan モード行が判定条件を写していない"
+else ng "L9 工程 SKILL の plan モード行に判定条件の写しが $_l9 ファイル（正典は protocol-autonomous.md「plan モードとの関係」。skill には引き金だけを置く）"; fi
 
 echo "== L8: ハーネス改修の実走記録 =="
 # **「改修のたびに実走を1本通す」は DESIGN「3.5」に書いてあったのに、次の改修で破られた**
