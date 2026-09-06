@@ -42,6 +42,8 @@ requirements を「どう作るか」の実装仕様に落とす。設計判断�
    - 書き終えたら内部一貫性を別コンテキストへ点検させる（`autonomous` は必須。規約は
      `protocol-check.md`「(a)」）: `aidev doccheck start design --mode <delegated|same_session>`
      → `aidev doccheck report design --findings <n>`。
+   - **`aidev coverage` を打って `design` 列だけ見る**（`--strict` はこの段では判定しない）。
+     書式（行頭 `- AC<id>:`）を外すと `design=0/N`。打たないと tasks 工程まで気づかない。
 5. **複雑度の自己評価（architecture 推奨判定）**：protocol.md「4.5」の architecture の4条件に該当すれば、
    次の遷移ゲートの選択肢に `承認して architecture(任意) を挟む`（推奨）を加え、推奨理由を添える。
 6. protocol.md「3. 工程終了プロトコル」に従って終了する

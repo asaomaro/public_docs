@@ -309,7 +309,16 @@ BUDGET_PROTOCOL=608
 #     **親に存在しない coding の記録**が残った。差し戻し順（後ろから unapprove）も明記。
 #     review 側の同じレシピが `unapprove review` だけで、**同じ SKILL 内の別の記述が
 #     禁じている状態**を作っていたので、そちらも 3 段に揃えた。
-BUDGET_TOTAL=3418
+# 3418 -> 3434: 他 PJ の retro（adapter-claude-code）の提案 4 件を実行時側に置いたぶん（+16）。
+#   `protocol-check` +9: `[conv:<id>!]` の 3 択（**140 件すべて `!` 無し**で書かれ、効果検証の
+#     母集団が構造的に 0 になっていた。定義は「8.」にあるが**書く側の返却形式に現れていなかった**）／
+#     修正は最小差分（上流 3 工程 6 ラウンドとも 2 巡目の指摘の多くが 1 巡目の修正由来）／
+#     予約 id `cross`（**1 タスクの差分では原理的に見えない**不変条件。114 件を出した点検が
+#     1 件も拾えず review で 2 度失敗した）。
+#   `aidev-40-coding` +4 / `aidev-20-design` +2 / `aidev-60-review` +1。
+#   design の +2 は「`coverage` を打って `design` 列だけ見る」——**打てるようにする CLI 修正が対**で、
+#   それまでは tasks.md が無いと表ごと出ず、design.md の書式ミスが 1 工程遅れて発覚していた。
+BUDGET_TOTAL=3434
 _p=$(wc -l < "$SKILLS/aidev-00-start/protocol.md")
 _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 [ "$_p" -le "$BUDGET_PROTOCOL" ] && ok "L6 protocol.md が予算内（$_p / $BUDGET_PROTOCOL 行）" \

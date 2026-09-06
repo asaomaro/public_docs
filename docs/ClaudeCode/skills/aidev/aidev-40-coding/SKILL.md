@@ -72,6 +72,10 @@ tasks に沿ってコードを書く。`tasks.md` の未チェック項目を 1 
      （書式は protocol.md「8.」。無ければ生成する）。
    - `profile: light` では行わない——**`mode` より `profile` が優先**。`light × autonomous` でも
      点検はせず `task_checks=0`。
+5.5. **全タスクを終えたら、タスクをまたぐ不変条件を 1 回だけ点検する**（`protocol-check.md`「(b)」）:
+   `aidev taskcheck start cross --mode <delegated|same_session>` → `report cross --findings <n>`。
+   手順5の射程は**1 タスクの差分**なので、同じ規則を支える判定が複数タスクに散っていると原理的に
+   見えない。タスク単位で見える欠陥は再掲しない。`profile: light` では行わない。
 6. タスク完了ごとに `tasks.md` の該当項目にチェックを付ける（**点検を委譲しても、チェックを書くのは主エージェント**）。
    - **タスクを足したら `AC:` も書く**（`aidev-30-tasks` と同じ書式）。coding 中に増えたタスクだけ `AC:` が
      欠けると、review で打つ `aidev coverage` の gap が増え、乖離の在処が分からなくなる。
