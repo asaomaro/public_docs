@@ -1,7 +1,7 @@
 ---
 name: aidev-25-design
 description: ［aidev 任意工程］aidev の design（詳細設計）工程。spec と plan の間で構造設計を固める。「aidev design」「design 工程」と言われたとき、または spec 終了時に複雑度が高いと検知され推奨されたときに使用する。
-allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion, Agent]
+allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion, Agent, EnterPlanMode, ExitPlanMode]
 ---
 
 AI 開発ワークフローの **design（詳細設計）工程**（任意）。
@@ -47,8 +47,8 @@ spec 終了時に **protocol.md「4.5」の design の4条件**のいずれか�
    - 処理フロー / 状態遷移 / シーケンス（必要なら）
    - 既存アーキテクチャとの整合、横断的関心事（エラー処理・ログ等）
 3. 設計上の選択は理由とともに残す（採用案・退けた代替案）。重い検討は委譲してよい。
-   - 構造の選択肢が複数あるなら plan モードを使ってよい（使える条件は `protocol-autonomous.md`。解除してから書く。
-     `protocol-autonomous.md`）。
+   - 構造の選択肢が複数あるなら、**`design.md` を書く前に plan モードへ入る**（`full` × `interactive` のみ）。
+     構造の承認を取ってから解除して書く。切替は自分で行う（`protocol-autonomous.md`）。
 4. 下記テンプレートに沿って `design.md` を記述する。
    アーキテクチャ/コンポーネント・class・sequence・state は mermaid で図示する（protocol.md「9.」）。
    - 書き終えたら内部一貫性の点検（対象範囲を構造が満たすか・責務分割の漏れと重複・図と本文の整合）を

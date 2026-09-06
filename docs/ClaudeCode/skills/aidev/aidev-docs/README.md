@@ -337,9 +337,14 @@ Claude Code 固有の機構は**すべて任意の高速化層**で、無くて�
 | `Stop` フック | 指示に「終える前に `aidev verify --strict`」を書く |
 | `/goal`（停止前チェック・**ユーザーが打つもの**） | 同じ内容を指示で書く |
 | 組み込みレビューコマンド | ジェネリック手順で自分で見る |
-| plan モード | 「先に方針を提示して承認を得てから書く」を指示で行う |
+| plan モード（**固有ではない**。Codex CLI は `/plan`・Shift+Tab、Copilot は VS Code / Visual Studio の Plan agent。持たない環境向けの行） | 「先に方針を提示して承認を得てから書く」を指示で行う。**入る条件はその工程に承認者がいるとき**——抜けるのが人間の承認なので、いない工程で入ると完走できない（`protocol-autonomous.md`） |
 | `AskUserQuestion`（選択肢UX） | 同じ選択肢をテキストで提示 |
 | サブエージェント委譲（`Agent`） | 各機構、または同一セッションでインライン実行 |
+
+**持っているかは製品単位ではなく「サーフェス単位」で見ること**。同じ Copilot でも
+VS Code / Visual Studio には Plan agent があり、**Copilot CLI には無い**（github/copilot-cli#934 が
+「no explicit plan-only mode」と明記）。この表は「その環境に無いとき何をするか」の一覧なので、
+**製品名ではなく手元のサーフェスで引く**。
 
 Copilot / Codex 等では、各エージェントのルールファイル（`AGENTS.md` /
 `.github/copilot-instructions.md`）に次を書けば第三層の代替になる。

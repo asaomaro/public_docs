@@ -172,6 +172,16 @@ ylist() {
   printf '%s' "$v" | tr ',' ' ' | tr -d '"'
 }
 approved_has() { ylist "$WORK/state.yml" approved | grep -qw "$1"; }
+# **この工程に人間の承認者がいるか**。`autonomous` でも `humanGates` に挙がっている工程には
+# いる（`protocol-autonomous.md`「部分自律」）。「autonomous なら一律いない」で判定していた頃は、
+# `humanGates: [spec]` で回している work——他 PJ の retro が実績として報告している構成——で
+# **承認者がいるのに承認前提の促しを止めていた**（実走で実測）。
+# なお `humanGates` は `new` が書くだけで**どこからも読まれていなかった**（書いて忘れられた設定）
+has_approver() { # phase
+  if [ "$(yget "$WORK/state.yml" mode)" != autonomous ]; then return 0; fi
+  case " $(ylist "$WORK/state.yml" humanGates) " in *" $1 "*) return 0 ;; esac
+  return 1
+}
 
 # 1行を丸ごと差し替え（awk で sed エスケープ事故を回避）
 replace_line() { # file key newline
@@ -901,6 +911,26 @@ cmd_guard() {
     if needs_start "$ph"; then
       printf '   → 忘れずに: aidev event %s start\n' "$ph"
     fi
+    # **plan モードが使える工程でだけ、名指しで促す**。散文（`protocol-autonomous.md`）に
+    # 「spec・design では使ってよい」と書いてあっても、**打つ側は工程に入る瞬間には思い出さない**
+    # ——`event start` の促しと同じ型で、CLI が散文を肩代わりする。
+    # **「方針の合意を取る」のような役割だけの言い方にはしない**——それだと丁寧に計画するだけで
+    # **モードは切り替わらない**。plan モードへ入るには明示の命令が要る（`EnterPlanMode` は
+    # 主エージェントが持つツールで、定義自身が「proactively 使え」と言っている）。
+    # 「plan モード」は Cursor / Copilot にもある**横断的な概念名**で、`Stop` フックや
+    # `AskUserQuestion` のような製品固有 API 名とは別物なので、`protocol.md`「2.5」に抵触しない。
+    # 持たない環境でのフォールバックは `aidev-docs/README.md` の表。
+    # 条件は散文と同じ **`light` でない spec / design で、その工程に承認者がいるとき**。
+    # `light` は往復を減らす趣旨に反する。承認者の有無で見るのは、**plan モードを抜けるのが
+    # 人間の承認だから**——`autonomous` を一律で外すと `humanGates` の部分自律を取りこぼす。
+    # 条件を外すと「使ってはいけない工程で勧める」ことになる
+    case "$ph" in
+      spec|design)
+        if [ "$(yget "$WORK/state.yml" profile)" != light ] && has_approver "$ph"; then
+          printf '   → 有力案が複数あるなら **plan モードへ入ってから** 書く（承認を取り、解除してから成果物を書く）\n'
+          printf '      抜けた先は承認時に選んだモードで、元のモードには戻らない（protocol-autonomous.md）\n'
+        fi ;;
+    esac
   fi
   return $rc
 }

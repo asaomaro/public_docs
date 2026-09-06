@@ -474,6 +474,43 @@ flowchart LR
     `profile: light`（承認の往復を減らす趣旨に反する）／`autonomous`（`ExitPlanMode` は人間の承認が前提）。
   - 「工程内で段階的に確認したい」要求には**段階レビュー**（`protocol.md`「3.1」）が対応する。
     成果物を見出し節ごとに承認するもので、plan モードとは併用しない。
+  - **「工程の間だけ plan モードにして、終わったら戻す」は作れない**（2026-09-06 に裏取り）。
+    - **ハーネス側から切り替える口が無い**: フックの JSON 出力にモードを変える項目は無く、
+      `PermissionModeChange` 系のイベントも無い（要望 anthropics/claude-code#31579・#14044 は未実装）。
+      skill から入る要望（#37446）は **closed as not planned**。`permissions.defaultMode: plan` は
+      **セッション開始時のみ**効き、途中では効かない。
+    - **入れるのはエージェント自身**: `EnterPlanMode` は主エージェントが持つツールで、定義自身が
+      「proactively 使え」と言っている。だから**散文で「入れ」と命じれば実際に切り替わる**——
+      ただし**「方針を先に固める」のような役割だけの言い方では切り替わらない**（丁寧に計画するだけ）。
+      ここが「散文で書けるか」と「散文どおりに機械が動くか」の境目で、分類 G と同じ形。
+    - **戻り先は選べない**: 公式ドキュメントいわく「承認は plan モードを抜け、**承認オプションが
+      指すモードへセッションを切り替える**」。直前のモードは復元されない。
+    - 従って「使ってよい」ではなく**「この条件のときは入れ」**と書き、`aidev guard spec|design` が
+      `full` × `interactive` のときだけ促す。**条件の判定は CLI に置く**（「2.5」の規範どおり——
+      散文だけに置くと、`light` や `autonomous` で勧めてしまう事故を機械が止められない）。
+    - **「plan モード」は製品固有名ではない**ので、`Stop` フックや `AskUserQuestion` と違い
+      CLI の出力に名指しで出してよい。Codex CLI は `/plan`・Shift+Tab で入る read-only の計画状態、
+      Copilot は VS Code / Visual Studio の Plan agent（read-only で探索し、不明点を質問し、
+      承認後に agent mode へ handoff）。**入り方・抜け方の形まで揃っている**。
+      ただし**同じ製品でもサーフェスで割れる**（Copilot CLI には無い。github/copilot-cli#934）ので、
+      `aidev-docs/README.md` の表はサーフェスで引く。
+    - **「承認者がいないと抜けられない」は Claude Code 固有ではない**。Copilot でも
+      microsoft/vscode#312668「Plan-mode restrictions despite agent mode and approved handoff」として
+      現に詰まった報告がある。Codex も `approval_policy: never`（自律）で同じ形になる。
+      **規約として書く価値がある**のはそのため——1 実装の癖ではなく、
+      「read-only 状態を人間の承認で抜ける」という設計に共通する落とし穴。
+    - **条件は「モード」ではなく「その工程に承認者がいるか」**。plan モードを抜けるのが人間の承認
+      だからで、`autonomous` を一律で外すと `humanGates` の部分自律を取りこぼす（実走で実測。
+      `has_approver()` に切り出した）。**承認者がいない工程で入ると抜けられず、工程が完走できない**。
+  - **`permissionMode: plan` のサブエージェントへ委譲する案は、検討して退けた**（2026-09-06）。
+    「工程の間だけ切り替えて元に戻す」を**技術的には満たす**——子だけが read-only になり、
+    親のモードは一度も変わらない。だが公式ドキュメントいわく、サブエージェントからは
+    `AskUserQuestion` / `EnterPlanMode` / `ExitPlanMode` が **`tools` に書いても除去され**、
+    会話履歴も見えない。**plan モードの価値は read-only であることではなく探索中の往復**
+    （要件を詰め直す・「No, keep planning」で差し戻す）なので、委譲した時点でその価値が消える。
+    残るのは read-only の一発調査で、それは「2.6」の委譲として既にある。
+    **「モードが戻る」ために「戻す価値のあるもの」を捨てる形**になるので採らない。
+    結果として、plan モードは**承認者がいる場面だけの道具**という当初の整理に戻る。
 
 ## 2.4 受け入れ基準の被覆（`aidev coverage`）
 
