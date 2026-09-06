@@ -72,6 +72,10 @@ tasks に沿ってコードを書く。`tasks.md` の未チェック項目を 1 
      （書式は protocol.md「8.」。無ければ生成する）。
    - `profile: light` では行わない——**`mode` より `profile` が優先**。`light × autonomous` でも
      点検はせず `task_checks=0`。
+5.5. **全タスクを終えたら、タスクをまたぐ不変条件を 1 回だけ点検する**（`protocol-check.md`「(b)」）:
+   `aidev taskcheck start cross --mode <delegated|same_session>` → `report cross --findings <n>`。
+   手順5の射程は**1 タスクの差分**なので、同じ規則を支える判定が複数タスクに散っていると原理的に
+   見えない。タスク単位で見える欠陥は再掲しない。`profile: light` では行わない。
 6. タスク完了ごとに `tasks.md` の該当項目にチェックを付ける（**点検を委譲しても、チェックを書くのは主エージェント**）。
    - **タスクを足したら `AC:` も書く**（`aidev-30-tasks` と同じ書式）。coding 中に増えたタスクだけ `AC:` が
      欠けると、review で打つ `aidev coverage` の gap が増え、乖離の在処が分からなくなる。
@@ -80,8 +84,10 @@ tasks に沿ってコードを書く。`tasks.md` の未チェック項目を 1 
    承認は `aidev approve coding tasks_done=<チェック済みタスク数> unplanned_lookups=<手順3で数えた回数>`
    （protocol.md「3.」「8.」）。探索し直しが 0 なら `unplanned_lookups=0`。
    **点検の 3 キー（`task_checks` / `task_check_findings` / `task_check_mode`）は手で渡さない**
-   ——`taskcheck` の記録から approve が自動で刻む。点検を 1 件も行わなかった work だけ、
+   ——`taskcheck` の記録から approve が自動で刻む。**タスク単位の点検を 1 件も行わなかった work だけ**、
    `task_checks=0` を明示的に記録する（省略すると「測っていない」と区別できない）。
+   **`cross` は 3 キーのどれにも入らない**（母集団が違う）ので、手順5 が 1 件も発火せず 5.5 だけ
+   実施した work は `task_checks=0` を明示する側。記録は `taskcheck status` の `cross` 行に残る。
 
 ## 留意点
 

@@ -309,7 +309,29 @@ BUDGET_PROTOCOL=608
 #     **親に存在しない coding の記録**が残った。差し戻し順（後ろから unapprove）も明記。
 #     review 側の同じレシピが `unapprove review` だけで、**同じ SKILL 内の別の記述が
 #     禁じている状態**を作っていたので、そちらも 3 段に揃えた。
-BUDGET_TOTAL=3418
+# 3418 -> 3434: 他 PJ の retro（adapter-claude-code）の提案 4 件を実行時側に置いたぶん（+16）。
+#   `protocol-check` +9: `[conv:<id>!]` の 3 択（**140 件すべて `!` 無し**で書かれ、効果検証の
+#     母集団が構造的に 0 になっていた。定義は「8.」にあるが**書く側の返却形式に現れていなかった**）／
+#     修正は最小差分（上流 3 工程 6 ラウンドとも 2 巡目の指摘の多くが 1 巡目の修正由来）／
+#     予約 id `cross`（**1 タスクの差分では原理的に見えない**不変条件。114 件を出した点検が
+#     1 件も拾えず review で 2 度失敗した）。
+#   `aidev-40-coding` +4 / `aidev-20-design` +2 / `aidev-60-review` +1。
+#   design の +2 は「`coverage` を打って `design` 列だけ見る」——**打てるようにする CLI 修正が対**で、
+#   それまでは tasks.md が無いと表ごと出ず、design.md の書式ミスが 1 工程遅れて発覚していた。
+# 3434 -> 3451: **実走 2 本が見つけた「書いてあるとおりにやったら詰む」**を塞いだぶん（+17）。
+#   `aidev-60-review` +8: 統合 review の (2) が**実在しない節名**（`aidev-50-test` のテンプレは
+#     「未検証の穴」）を探させていた／「閉じていなければ must」に逃げ道が無く、**実行では
+#     原理的に閉じられない項目**（「その関数だけを呼ぶか」等）が自動的に must になった／
+#     統合差し戻しで**親の test 承認が陳腐化する**ことに誰も触れていなかった／
+#     2 回目の差し戻しの問いが**どの文書にも無く CLI にしか無かった**（分類 G の逆）。
+#   `protocol.md` +2: `[conv:…]` の語彙が条項 id と `-` の 2 択で、`protocol-check.md` が
+#     「規約は 3 つとも指す」と言う `AGENTS.md` 本体の違反が「規約の穴」と同じ籠に入っていた
+#     → 予約 id `agents`。
+#   `protocol-light.md` +3 / `protocol-subtask.md` +2 / `aidev-40-coding` +2:
+#     昇格の deliver 済み拒否（工程 skill が読むのはこちら）／カーソルの正典が
+#     `new --parent` と親の `approve tasks` に触れていなかった／`cross` だけ実施した work の
+#     `task_checks` の書き方が読めなかった。
+BUDGET_TOTAL=3451
 _p=$(wc -l < "$SKILLS/aidev-00-start/protocol.md")
 _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 [ "$_p" -le "$BUDGET_PROTOCOL" ] && ok "L6 protocol.md が予算内（$_p / $BUDGET_PROTOCOL 行）" \
@@ -508,6 +530,43 @@ else
   if [ "$_l12bad" -eq 0 ]; then ok "L12 light の文書数が全所で一致（$_l12n）"
   else ng "L12 light の文書数が割れている（$_l12bad 箇所。改名で数だけ取り残される型。正典は protocol-light.md の列挙）"; fi
 fi
+
+echo "== L13: sh の二重引用符の中に生の逆引用符が無いか =="
+# **POSIX sh では二重引用符の中の `` ` `` はコマンド置換**。案内文に `mkdir -p .aidev/works` と
+# 書いたつもりが**実際に実行され**、cwd に `.aidev/works` を作り、案内文もその位置から消えた
+# （実走が実測。導入時に最初に打つコマンドで起きるので被害が大きい）。
+# ps1 では逆引用符はエスケープ文字なので**同じ文面でも壊れ方が違う**——パリティ検査も
+# 「両方壊れている」なら通してしまう。単一引用符の中（awk プログラム等）は安全なので、
+# **行をまたぐ単一引用符の状態を追う**。`\` でエスケープされた逆引用符も安全
+_l13=0
+_l13out=$(awk '
+  function count_sq(s,   i, c, n) {
+    n = 0
+    for (i = 1; i <= length(s); i++) {
+      c = substr(s, i, 1)
+      if (c == "\\" ) { i++; continue }
+      if (c == "\047") n++
+    }
+    return n
+  }
+  BEGIN { insq = 0 }
+  {
+    line = $0
+    if (!insq) sub(/^[ \t]*#.*/, "", line)     # 行頭コメントは実行されない
+    # この行を出るときの単一引用符の状態
+    nq = count_sq(line)
+    was = insq
+    if (nq % 2 == 1) insq = !insq
+    if (was) next                              # 行頭が単一引用符の中＝安全
+    # 単一引用符で囲まれた区間を落とす
+    gsub(/\047[^\047]*\047/, "", line)
+    # エスケープ済みの逆引用符は安全
+    gsub(/\\`/, "", line)
+    if (line ~ /`/) printf "  %d: %s\n", NR, substr($0, 1, 100)
+  }' "$SH")
+if [ -n "$_l13out" ]; then printf '%s\n' "$_l13out" >&2; _l13=$(printf '%s\n' "$_l13out" | grep -c .); fi
+if [ "$_l13" -eq 0 ]; then ok "L13 sh の実行される位置に生の逆引用符が無い"
+else ng "L13 二重引用符の中に生の逆引用符が $_l13 行（POSIX sh ではコマンド置換として**実行される**）"; fi
 
 echo "== L8: ハーネス改修の実走記録 =="
 # **「改修のたびに実走を1本通す」は DESIGN「3.5」に書いてあったのに、次の改修で破られた**

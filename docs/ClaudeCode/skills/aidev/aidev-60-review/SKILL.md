@@ -57,17 +57,20 @@ AI 開発ワークフローの **review（レビュー）工程**を実行する
      （子で見たことは繰り返さない——二重化して形骸化する）。開くものは 3 つ:
      - **親の `tasks.md`**: 割れ目と producer→consumer の契約が書いてある**唯一の場所**。
        実装がその契約どおりか（引数・戻り値・エラー・呼ぶ順序）。
-     - **各子の `test-result.md` の「スキップした検証」**: 子 test は unit・契約モックに限定されるので、
-       **結合の穴は必ずここに残る**（`protocol-subtask.md`）。親の統合 test で閉じたかを 1 件ずつ照合し、
-       閉じていなければ **must**。
+     - **各子の `test-result.md` の「未検証の穴」節**（`aidev-50-test` のテンプレの見出し）: 子 test は
+       unit・契約モックに限定されるので、**結合の穴は必ずここに残る**（`protocol-subtask.md`）。
+       1 件ずつ、**親の統合 test で閉じたか / この review の読解で閉じたか**を照合する
+       ——実行では原理的に閉じられない項目（「その関数だけを呼ぶか」等）は読解で閉じてよい。
+       **どちらでも閉じないものが must**。
      - **家族全体の diff**: 責務の重複・抜け、横断規約の破れ。
      **`aidev coverage` の読み方も変わる**——分割 work では親の tasks 承認時に子の `tasks.md` がまだ
      無いので、**被覆の基準点を刻まない**（`ac_drift` は `-`）。見るのは「tasks 時と同じ数字か」ではなく
      **今の gap が 0 か**。
 3. 指摘を重大度（must / should / nit）と**条項参照タグ**付きで一覧化し、`review.md` に当該ラウンドとして
    追記する（フォーマットは protocol.md「8.」）。
-   - **条項参照タグ `[conv:<id>]`**: その指摘の根拠となる PJ規約の条項 id を付す。候補は
-     `aidev convention status` が出す一覧（＝分類の語彙を新しく発明しない）。該当が無ければ **`[conv:-]`**。
+   - **条項参照タグは 3 択**（protocol.md「8.」）: 違反なら **`[conv:<id>!]`**／関係するだけなら `!` 無し／
+     該当条項が無ければ `[conv:-]`。id の候補は `aidev convention status` の一覧（語彙を発明しない）。
+     **効果検証が数えるのは `!` 付きだけ**——付けないとその条項は「一度も破られていない」と読まれる。
    - PJ に条項がまだ無い（`.aidev/conventions/` が空）なら全て `[conv:-]` でよい。それ自体が最初の材料になる。
    - **coding のタスク点検（`protocol-check.md`）で既に直された指摘は再掲しない**。`review.md` の
      「タスク点検ログ」節は読んでよい（同じ箇所が再発していないかの手掛かりになる）が、
@@ -82,8 +85,13 @@ AI 開発ワークフローの **review（レビュー）工程**を実行する
        state が実態と食い違う。取り消しても記録は消えない（`by: unapprove` 付きで残り、
        差し戻し回数には数えない）。
      - そのうえで coding を**再開する際は `aidev event coding start` を記録する**（さもないと手戻り回数を取りこぼす。protocol.md「3.」「8.」）。
+     - **2 回目の差し戻しでは、まず「この指摘は前ラウンドの修正に由来しないか」を問う**。
+       Yes なら直した行だけでなく**同じ不変条件を支える項をすべて列挙して壊してみる**
+       （散らばった暗黙の連言は隣で必ず再発する。`aidev event <工程> sent_back` が促す）。
      - **`maxSendBacks`（既定 3）に達したら `aidev debug start`**——まっさらなコンテキストに
        原因究明だけを委譲する（`protocol-debug.md`）。同じコンテキストで回し続けない。
+     - **親の `test` 承認も取り消す**。統合 review で差し戻すなら親の統合 test はやり直しになる
+       （子の再実装後に結合が変わる）。`aidev unapprove test`（親）→ 子の差し戻し、の順。
      - **統合 review の差し戻し先（protocol.md「2.8」＋ `protocol-subtask.md`）**: 結合起因の指摘は**原因となった subtask の coding** へ
        戻す。**まず親で `aidev event review sent_back`** を打ってから `aidev use <親>/<NN>-<subslug>`
        （親の `activeSubtask` も同期される）→ **`aidev unapprove review` → `unapprove test` →

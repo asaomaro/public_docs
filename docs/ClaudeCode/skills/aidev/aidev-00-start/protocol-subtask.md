@@ -22,6 +22,8 @@ split 判定の3層決定木（`aidev-docs/DESIGN.md`「5.」）の中段に当�
     schema 6 で実在を検査する。親から継承しない——子 test と親統合 test は検証範囲が別なので、
     片方の結果でもう片方を代弁できない）。
 - **カーソル**: `.aidev/current` が親工程中は `<親>`、subtask 実行中は `<親>/<NN>-<subslug>` を指す。
+  **`aidev new <NN> --parent <親>` は親 tasks が未承認の間はカーソルを動かさない**（親工程の途中だから）。
+  親の **`aidev approve tasks` が活性の subtask へ前進**させる。
   `aidev`（event/approve/guard/verify）はこのパスが指す対象（親 or 子）に作用する。
   **subtask の `aidev approve review` でカーソルは自動前進する**（手動操作不要）: 親 `subtasks` の次の未完
   （= `review` 未承認の）子へ `activeSubtask` と `.aidev/current` を進め、全完了なら `activeSubtask=done` にして

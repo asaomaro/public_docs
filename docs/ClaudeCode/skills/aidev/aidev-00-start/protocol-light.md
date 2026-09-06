@@ -46,6 +46,9 @@
 
 ### 任意工程
 
+**`deliver` 承認後は昇格できない**（CLI が exit 1 で弾く）——着地後に `profile` を変えると
+light の逸脱記録が事後に消えるため。
+
 light では **research / architecture を使わない**。必要と判断した時点で light の条件を
 外れているので、**昇格の合図**として扱う。
 **`walkthrough.md`（レビュー補助）も書かない**——light の変更規模なら差分だけで読める。

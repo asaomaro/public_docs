@@ -26,6 +26,8 @@
   足し上げると「別コンテキストが見て 0 件」と「本人が読み直して 0 件」が同じ数字になり、
   効果（「8.」）を横断で測れない。タスクごとに割れていれば approve は `mixed` を刻む。
 - **`profile: light` では使わない**（往復を減らす趣旨に反する）。**`start` を CLI が exit 2 で弾く**ので、止まったら昇格の合図——`aidev escalate` で full にしてから打つ。
+- **指摘の修正は全面改稿ではなく最小の差分で当てる**。上流 3 工程 6 ラウンドとも
+  **2 巡目の指摘の多くが 1 巡目の修正由来**だった（改稿が隣に新しい不整合を作る。他 PJ が実測）。
 
 #### (a) 文書の内部一貫性
 
@@ -69,6 +71,11 @@ coding 工程で、**タスク1件を終えるたびにその差分だけを**�
   exit 4 で止まる（`maxSendBacks`・`maxDebugRounds` と同じく「1ラウンド = 1 コマンド」の形）。
   止まったら深追いせず `decisions.md` に経緯を残して次のタスクへ進み、判断は 60 review に委ねる。
   いま効いている上限値は **`aidev limits`** で見る（変えるのは `aidev limits set`）。
+- **タスクをまたぐ不変条件は、この点検では原理的に見えない**（射程は 1 タスクの差分。他 PJ で
+  114 件を出した点検が 1 件も拾えず review で 2 度失敗した）。**予約 id `cross`** で「またぐものだけ」を
+  見る——`aidev taskcheck start cross --mode <…>`。**打つ時機の正典は `aidev-40-coding` 手順5.5**
+  （ここには写さない。上の発火条件と同じ理由）。`task_checks` / `task_check_findings` / `task_check_mode`
+  の**いずれにも数えない**（母集団が違う。記録は `taskcheck status` の `cross` 行に残る）。
 - **記録は `taskcheck` に集約する**。`start` の前に打ち、結果は `aidev taskcheck report <task-id>
   --findings <n>` で受ける。**件数を手で `approve coding` に渡さない**——`task_checks` /
   `task_check_findings` / `task_check_mode` は approve がこの記録から自動で刻む
@@ -85,9 +92,12 @@ coding 工程で、**タスク1件を終えるたびにその差分だけを**�
 ```
 CHECK: <ok|findings>
 FINDINGS: <件数>
-- [<must|should|nit>] <指摘> — 根拠: <file:line または 節名> [conv:<id>]
+- [<must|should|nit>] <指摘> — 根拠: <file:line または 節名> [conv:<id>!|<id>|-]
 - …
 ```
+
+**条項タグは 3 択**（「8.」）: 違反なら **`!` 付き**（`[conv:naming-boolean!]`）／関係するだけなら `!` 無し／
+該当条項が無ければ `[conv:-]`。**数えるのは `!` 付きだけ**で、選ばないと違反件数が構造的に 0 になる。
 
 - **`CHECK:` と `FINDINGS:` の2行が揃い、件数と `- [` 行の数が一致していること**を確認する。
   一致しなければ**内容を解釈せず、同じ差分でもう一度点検を委譲する**（形式を明示して再依頼する）。

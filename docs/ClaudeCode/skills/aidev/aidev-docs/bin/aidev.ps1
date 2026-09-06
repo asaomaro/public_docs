@@ -124,7 +124,7 @@ $script:ROOT = FindRoot
 $_firstArg = if ($args.Count -gt 0) { "$($args[0])" } else { '' }
 if (-not $script:ROOT) {
   if ('help','--help','-h','' -cnotcontains $_firstArg) {
-    Die ".aidev が見つかりません（`mkdir -p .aidev/works` で作る。導入手順は aidev-docs/README.md「別PJへの導入」）"
+    Die ".aidev が見つかりません（mkdir -p .aidev/works で作る。導入手順は aidev-docs/README.md「別PJへの導入」）"
   }
   $script:ROOT = (Get-Location).Path
 }
@@ -703,6 +703,13 @@ function Cmd-Event($rest) {
     $mfe = Join-Path $script:WORK 'metrics.yml'
     $esb = DbgSentBacks $mfe $ph
     $emax = DbgMaxSendBacks $script:WORK
+    # **2 回目で方向を問う**（sh 版 cmd_event と同じ理由・同じ文言）
+    # **上限値に依存させない**（sh 版と同じ理由）。maxSendBacks: 2 の PJ で一度も出なかった
+    if ($esb -eq 2) {
+      Write-Output "note: $ph の差し戻しが $esb 回目。**この指摘は前ラウンドの修正に由来しないか**を先に問う"
+      Write-Output '      Yes なら、直した行だけでなく**同じ不変条件を支える項をすべて列挙して壊してみる**'
+      Write-Output '      （散らばった暗黙の連言は、直した項の隣で必ず再発する）'
+    }
     if ($esb -ge $emax -and (DbgRounds $mfe $ph) -eq 0) {
       Write-Output "note: $ph の差し戻しが $esb 回（上限 $emax）。**同じコンテキストで回し続けない** —— "
       Write-Output "      aidev debug start --phase $ph で、新しいコンテキストへ原因究明を委譲すること"
@@ -822,6 +829,25 @@ function Cmd-Approve($rest) {
   AppendEvent $script:WORK $ph 'approved' $kvs
   Write-Output "approved: $ph @ $($script:SLUG)"
 
+  # **[conv:<id>!] の ! が実運用で 1 度も使われなかった**（sh 側 cmd_approve と同じ理由・同じ文言）。
+  # [conv:-] は数えない（該当条項が無い＝違反の候補ですらない）。違反 0 件は正常でもありうるので note
+  if ($ph -ceq 'review') {
+    $rvm = Join-Path $script:WORK 'review.md'
+    if (IsFile $rvm) {
+      # **数えるのは行頭 - [ の指摘行だけ**（protocol.md「8.」。sh 版 cmd_approve と同じ理由）
+      $rvt = ''
+      foreach ($rl in [System.IO.File]::ReadAllLines($rvm)) {
+        if ($rl -match '^\s*- \[') { $rvt += $rl + "`n" }
+      }
+      $cvtag = ([regex]::Matches($rvt, '\[conv:[A-Za-z0-9_][A-Za-z0-9_-]*!?\]')).Count
+      $cvvio = ([regex]::Matches($rvt, '\[conv:[A-Za-z0-9_][A-Za-z0-9_-]*!\]')).Count
+      if ($cvtag -gt 0 -and $cvvio -eq 0) {
+        Write-Output "note: 条項 id 付きの指摘が $cvtag 件ありますが `!`（違反）は 0 件です。"
+        Write-Output '      条項に**反している**指摘には [conv:<id>!] を付ける（効果検証が数えるのは ! 付きだけ）'
+      }
+    }
+  }
+
   # deliver 時のハーネス版も刻む。new 時と食い違う work は改修をまたいで走った＝前半を旧版・
   # 後半を新版で回している。どちらかに帰属させると効果が薄まるので母集団から除外する。
   if ($ph -ceq 'deliver') {
@@ -916,6 +942,13 @@ function Cmd-Guard($rest) {
   # B: 親専用工程は subtask で実行不可（subtask の工程は tasks/coding/test/review のみ）
   if ($par -and ('requirements','research','design','architecture','deliver','retro' -ccontains $ph)) {
     [Console]::Error.WriteLine("NG $ph は親 work 専用です（subtask では実行不可。subtask の工程は tasks/coding/test/review）: $($script:SLUG)")
+    exit 2
+  }
+  # **light は上流を requirements 1 ゲートに畳む**（sh 側 cmd_guard と同じ理由・同じ文言）
+  if ((YGet (Join-Path $script:WORK 'state.yml') 'profile') -ceq 'light' -and
+      ('design','tasks','research','architecture' -ccontains $ph)) {
+    [Console]::Error.WriteLine("NG profile=light は上流を requirements 1 ゲートに畳みます（$ph は単独起動しません）: $($script:SLUG)")
+    [Console]::Error.WriteLine("   → 個別に回す必要があるなら light の条件を外れています。aidev escalate で full へ")
     exit 2
   }
   # B': 逆向きも弾く——分割 work の親に coding は無い（sh 側と同じ理由・同じ文言）
@@ -1245,10 +1278,33 @@ function Cmd-Coverage($rest) {
   }
   if ($fmt -cne 'table' -and $fmt -cne 'tsv') { Die "--format は table|tsv" }
   ResolveWork $slug
-  # 読み取り専用コマンドなので、対象がまだ無い状態は正常な空として 0 で返す
+  # 読み取り専用コマンドなので、対象がまだ無い状態は正常な空として 0 で返す。
+  # ただし **design 列だけは出す**（sh 側 cmd_coverage と同じ理由・同じ出力）——
+  # design 工程で打っても表ごと出ないので、design.md の書式ミスが tasks まで見えなかった
   if (-not (CovAnalyze $script:WORK)) {
     Write-Output "coverage: $($script:SLUG)"
-    Write-Output "note: tasks.md がまだありません（tasks 工程で作られます）"
+    Write-Output "note: tasks.md がまだありません（tasks 工程で作られます）。design 列だけ出します"
+    $cvr1 = CovRoot $script:WORK
+    $cvda = @(CovReqAcs (Join-Path $cvr1 'requirements.md')) | Select-Object -Unique
+    if ($cvda.Count -eq 0) {
+      Write-Output "note: requirements.md に受け入れ基準（AC）がありません"
+      exit 0
+    }
+    $cvds = @(CovSpecAcs (Join-Path $cvr1 'design.md')) | Select-Object -Unique
+    $cvdrows = @(); $cvdmiss = @(); $cvdh = 0
+    foreach ($cvid in $cvda) {
+      if ($cvds -ccontains $cvid) { $cvdrows += ($cvid + "`tyes"); $cvdh++ }
+      else { $cvdrows += ($cvid + "`t-"); $cvdmiss += $cvid }
+    }
+    if ($fmt -ceq 'tsv') { foreach ($l in $cvdrows) { Write-Output $l } }
+    else { foreach ($l in (Fmt-Table (@("ac`tdesign") + $cvdrows))) { Write-Output $l } }
+    if ($cvdmiss.Count -gt 0) {
+      Write-Output ("gap(design): design.md に対応行が無い AC: " + ($cvdmiss -join ' '))
+    }
+    Write-Output ("coverage-summary: ac=" + $cvda.Count + " design=" + $cvdh + "/" + $cvda.Count + "(" + (CovPct $cvdh $cvda.Count) + "%)")
+    if ($strict) {
+      Write-Output "note: --strict は tasks.md が揃ってから効きます（この段では判定しません）"
+    }
     exit 0
   }
   Write-Output "coverage: $($script:SLUG)"
@@ -1607,9 +1663,12 @@ function TcMax() {
   $n = [int]$v; if ($n -lt 1) { return 1 }
   return $n
 }
-function TcValidId($id) { return ($id -cmatch '^T[0-9][A-Za-z0-9_-]*$') }
+# **cross は予約 id**（sh 側 tc_valid_id と同じ理由）。タスク点検は 1 タスクの差分しか見ないので、
+# タスクをまたぐ不変条件が構造的に見えない。新しいコマンドは足さず同じ記録経路に通す
+function TcValidId($id) { if ($id -ceq 'cross') { return $true }; return ($id -cmatch '^T[0-9][A-Za-z0-9_-]*$') }
 # tasks.md にそのタスクが実在するか。tasks.md がまだ無ければ判定不能として通す
 function TcKnownId($task) {
+  if ($task -ceq 'cross') { return $true }   # 予約 id（tasks.md には無い）
   $tf = Join-Path $script:WORK 'tasks.md'
   if (-not (IsFile $tf)) { return $true }
   foreach ($r in (CovTaskRows $tf)) { if ($r.id -ceq $task) { return $true } }
@@ -1639,14 +1698,21 @@ function TcTotals($metricsFile) {
   foreach ($l in [System.IO.File]::ReadAllLines($metricsFile)) {
     if ($l -notmatch 'event:\s*taskcheck') { continue }
     if ($l -match 'stage:\s*start') {
-      $mm = [regex]::Match($l, 'mode:\s*([a-z_]+)')
-      if ($mm.Success) { $modes[$mm.Groups[1].Value] = $true }
+      # **mode でも cross を除く**（sh 版 tc_totals と同じ理由）。mixed は「タスクごとに割れていれば」
+      if ($l -notmatch 'task:\s*cross[,}]') {
+        $mm = [regex]::Match($l, 'mode:\s*([a-z_]+)')
+        if ($mm.Success) { $modes[$mm.Groups[1].Value] = $true }
+      }
     } elseif ($l -match 'stage:\s*report') {
       # 数えるのは report まで届いたタスクだけ（sh 版 tc_totals の注記に理由）
+      # **予約 id cross は母集団が違う**ので tasks にも findings にも数えない（sh 版と同一）
       $m = [regex]::Match($l, 'task:\s*([^,}]*)')
-      if ($m.Success) { $tasks[$m.Groups[1].Value.Trim()] = $true }
-      $mf = [regex]::Match($l, 'findings:\s*(\d+)')
-      if ($mf.Success) { $f += [int]$mf.Groups[1].Value }
+      $tn = ''
+      if ($m.Success) { $tn = $m.Groups[1].Value.Trim(); if ($tn -cne 'cross') { $tasks[$tn] = $true } }
+      if ($tn -cne 'cross') {
+        $mf = [regex]::Match($l, 'findings:\s*(\d+)')
+        if ($mf.Success) { $f += [int]$mf.Groups[1].Value }
+      }
     }
   }
   $r.tasks = $tasks.Keys.Count
@@ -1706,8 +1772,8 @@ function Tc-Start($rest) {
       }
     }
   }
-  if (-not $tid) { Die "使用法: aidev taskcheck start <task-id> --mode <delegated|same_session> [--slug <work>]" }
-  if (-not (TcValidId $tid)) { Die "タスク ID の書式が違います: $tid（tasks.md と同じ T<数字> 形式）" }
+  if (-not $tid) { Die "使用法: aidev taskcheck start <task-id|cross> --mode <delegated|same_session> [--slug <work>]" }
+  if (-not (TcValidId $tid)) { Die "タスク ID の書式が違います: $tid（tasks.md と同じ T<数字> 形式、またはタスク横断の予約 id cross）" }
   if (-not $tmode) { Die "--mode は必須（delegated=別コンテキストへ委譲 / same_session=同一セッションで読み直し）。点検が効く理由はコンテキスト分離なので、どちらで行ったかを残さないと効果を測れない" }
   if ($script:TC_MODES -cnotcontains $tmode) { Die "--mode は delegated|same_session" }
   ResolveWork $tslug
@@ -1725,13 +1791,23 @@ function Tc-Start($rest) {
   }
   AppendEvent $script:WORK 'coding' 'taskcheck' @('stage=start', "task=$tid", "mode=$tmode")
   Write-Output "round: $($tr + 1)/$tmax"
-  Write-Output "渡すもの: そのタスクの差分だけ"
-  Write-Output "観点: **正確性・規約適合の2つだけ**（要件適合・価値適合は work 全体の文脈が要るので 60 review）"
+  if ($tid -ceq 'cross') {
+    Write-Output "渡すもの: coding で触った全タスクの差分（1 タスクではなく work 全体）"
+    Write-Output "観点: **タスクをまたぐ不変条件だけ**——同じ規則を支える判定が複数箇所に散っていないか /"
+    Write-Output "      片方だけ直して他方が取り残されていないか / 呼び出し順や早期 return で条件が死んでいないか"
+    Write-Output "      タスク単位で見える欠陥（1 タスクの差分で完結するもの）は**再掲しない**"
+  } else {
+    Write-Output "渡すもの: そのタスクの差分だけ"
+    Write-Output "観点: **正確性・規約適合の2つだけ**（要件適合・価値適合は work 全体の文脈が要るので 60 review）"
+  }
   Write-Output "規約は3つとも見る: AGENTS.md 本体 / 索引に載っている条項 / PJ ドキュメント"
   Write-Output "返却形式（これ以外は解釈しない）:"
   Write-Output "  CHECK: <ok|findings>"
   Write-Output "  FINDINGS: <件数>"
-  Write-Output '  - [<must|should|nit>] <指摘> — 根拠: <file:line または 節名> [conv:<id>]'
+  Write-Output '  - [<must|should|nit>] <指摘> — 根拠: <file:line または 節名> [conv:<id>!|<id>|-]'
+  # **! を選ぶ場面が書く側に一度も現れていなかった**（sh 側と同じ理由・同じ文言）
+  Write-Output '  条項タグは3択: 違反なら **! 付き**（[conv:naming-boolean!]）/ 関係するが違反でないなら ! 無し /'
+  Write-Output '            該当条項が無ければ [conv:-]。**効果検証が数えるのは ! 付きだけ**'
   Write-Output "次: 結果を aidev taskcheck report $tid --findings <件数> で記録する"
 }
 function Tc-Report($rest) {
@@ -1943,7 +2019,10 @@ function Dc-Start($rest) {
   Write-Output "返却形式（これ以外は解釈しない）:"
   Write-Output "  CHECK: <ok|findings>"
   Write-Output "  FINDINGS: <件数>"
-  Write-Output '  - [<must|should|nit>] <指摘> — 根拠: <file:line または 節名>'
+  # **(a) にも条項タグを出す**（sh 側 dc_start と同じ理由・同じ文言）
+  Write-Output '  - [<must|should|nit>] <指摘> — 根拠: <file:line または 節名> [conv:<id>!|<id>|-]'
+  Write-Output '  条項タグは3択: 違反なら **! 付き**（[conv:naming-boolean!]）/ 関係するが違反でないなら ! 無し /'
+  Write-Output '            該当条項が無ければ [conv:-]。**効果検証が数えるのは ! 付きだけ**'
   Write-Output "次: 結果を aidev doccheck report $dph --findings <件数> で記録する（**直す前に打つ**。"
   Write-Output "    直してから打つと、その件数が次のラウンドに寄る）"
 }
@@ -2341,7 +2420,8 @@ function VerifyWork($work) {
         # その出力が残っていなければ、何が落ちていたかを誰も再現できない。有無だけ見る（WARN）
         if (IsFile $trf) {
           $mf6 = Join-Path $work 'metrics.yml'; $sb6=$false
-          if (IsFile $mf6) { foreach ($l in [System.IO.File]::ReadAllLines($mf6)) { if ($l -match 'phase:\s*test,' -and $l -match 'event:\s*sent_back') { $sb6=$true; break } } }
+          # **by: unapprove は数えない**（sh 版 cmd_verify と同じ理由。差し戻しの結果であって原因ではない）
+          if (IsFile $mf6) { foreach ($l in [System.IO.File]::ReadAllLines($mf6)) { if ($l -match 'phase:\s*test,' -and $l -match 'event:\s*sent_back' -and $l -notmatch 'by:\s*unapprove') { $sb6=$true; break } } }
           $fence=$false
           foreach ($l in [System.IO.File]::ReadAllLines($trf)) { if ($l.StartsWith('```')) { $fence=$true; break } }
           if ($sb6 -and -not $fence) {
