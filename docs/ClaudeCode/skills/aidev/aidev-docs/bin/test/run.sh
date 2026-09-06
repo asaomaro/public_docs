@@ -2016,6 +2016,66 @@ assert_contains "$DBV" "test の差し戻しが 3 回（上限 3）だが原因�
 rm -rf "$DBR"
 
 
+echo "== 他 PJ の retro（adapter-claude-code）で足した経路 =="
+# H5: **design 工程で `coverage` を打っても表ごと出なかった**——`tasks.md` が無いと早期 return する。
+# retro は「`design` 列を見よ」と提案したが、その前提が成立していなかった（`design=0/20` は出ない）。
+# design 列は requirements.md と design.md だけで出せるので tasks.md を待つ理由が無い
+RTD=$TMP/rt; mkdir -p "$RTD/.aidev/works"
+run_rt() { ( cd "$RTD" && "$AIDEV_SH" "$@" ) ; }
+run_rt new cov >/dev/null; RTW="$RTD/.aidev/works/$(cat "$RTD/.aidev/current")"
+printf -- '- [ ] AC1: a\n- [ ] AC2: b\n' > "$RTW/requirements.md"
+printf -- '- AC1: x\n' > "$RTW/design.md"
+RTC=$(run_rt coverage)
+assert_contains "$RTC" "design 列だけ出します" "coverage: tasks.md が無くても design 列を出す"
+assert_contains "$RTC" "design=1/2(50%)" "coverage(design のみ): 被覆率が出る"
+assert_contains "$RTC" "gap(design): design.md に対応行が無い AC: AC2" "coverage(design のみ): 欠けた AC を名指しする"
+# **retro が実測した書式ミスそのもの**（`- **AC1**:` と太字で書くと CLI が読めない）
+printf -- '- **AC1**: x\n' > "$RTW/design.md"
+assert_contains "$(run_rt coverage)" "design=0/2(0%)" "coverage(design のみ): 太字の書式ミスが design 工程で見える"
+run_rt coverage --strict >/dev/null 2>&1
+assert_eq "$?" "0" "coverage --strict: tasks.md が無い段では判定しない（読み取り専用の助言）"
+assert_contains "$(run_rt coverage --strict)" "この段では判定しません" "coverage --strict: 判定していないことを言う（黙って 0 を返さない）"
+# AC が 1 件も無ければ表を出さない（空表で「被覆 100%」に見せない）
+: > "$RTW/requirements.md"
+assert_contains "$(run_rt coverage)" "受け入れ基準（AC）がありません" "coverage(design のみ): AC 0 件は表を出さず言う"
+
+# H6: 予約 id `cross`——**タスクの射程では原理的に見えない**不変条件を 1 回だけ見る
+run_rt new cr >/dev/null; RTX="$RTD/.aidev/works/$(cat "$RTD/.aidev/current")"
+printf -- '- [ ] T1: x\n      AC: AC1\n      依存: なし\n' > "$RTX/tasks.md"
+run_rt taskcheck start bogus --mode delegated >/dev/null 2>&1
+assert_eq "$?" "1" "taskcheck: 予約 id 以外の非 T<数字> は弾く（cross を通しても書式検査は緩めない）"
+RTS=$(run_rt taskcheck start cross --mode delegated)
+assert_contains "$RTS" "タスクをまたぐ不変条件だけ" "taskcheck cross: 観点がタスク単位と別（同じ文言を出さない）"
+assert_absent "$RTS" "そのタスクの差分だけ" "taskcheck cross: タスク単位の渡し方を出さない"
+run_rt taskcheck report cross --findings 3 >/dev/null
+run_rt taskcheck start T1 --mode delegated >/dev/null
+run_rt taskcheck report T1 --findings 2 >/dev/null
+RTT=$(run_rt taskcheck status)
+assert_contains "$RTT" "cross" "taskcheck status: cross の行は出る（記録は残す）"
+assert_contains "$RTT" "tasks=1 findings=2" "taskcheck status: cross を task_checks/findings に数えない（母集団が違う）"
+run_rt approve coding >/dev/null
+assert_contains "$(grep 'phase: coding' "$RTX/metrics.yml" | tail -n1)" "task_checks: 1" "approve coding: 刻印にも cross を混ぜない"
+
+# H1: `[conv:<id>!]` の `!` が実運用で 1 度も使われなかった（他 PJ で 140/140）
+run_rt new cv >/dev/null; RTV="$RTD/.aidev/works/$(cat "$RTD/.aidev/current")"
+printf -- '- [nit][conv:-] y\n' > "$RTV/review.md"
+assert_absent "$(run_rt approve review)" "違反）は 0 件" "approve review: [conv:-] だけなら note を出さない（消せない助言を作らない）"
+run_rt unapprove review >/dev/null
+printf -- '- [must][conv:naming-boolean] x\n- [nit][conv:-] y\n' > "$RTV/review.md"
+assert_contains "$(run_rt approve review)" "条項 id 付きの指摘が 1 件" "approve review: id 付きなのに ! が 0 件なら note"
+run_rt unapprove review >/dev/null
+printf -- '- [must][conv:naming-boolean!] x\n' > "$RTV/review.md"
+assert_absent "$(run_rt approve review)" "違反）は 0 件" "approve review: ! が付いていれば黙る（空振りでない）"
+assert_contains "$(run_rt taskcheck start T1 --mode delegated --slug "$(basename "$RTX")" 2>&1)" \
+  "条項タグは3択" "返却形式に 3 択が出る（書く側の目に ! が入る）"
+
+# H3: 差し戻し 2 回目で「前ラウンドの修正由来か」を問う（上限は止めるだけで方向を変えない）
+run_rt new sb >/dev/null
+assert_absent "$(run_rt event review sent_back)" "前ラウンドの修正" "event sent_back: 1 回目では問わない"
+assert_contains "$(run_rt event review sent_back)" "前ラウンドの修正に由来しないか" "event sent_back: 2 回目で方向を問う"
+assert_contains "$(run_rt event review sent_back)" "同じコンテキストで回し続けない" "event sent_back: 3 回目(上限)は従来どおり委譲を促す"
+rm -rf "$RTD"
+
 echo "== 監査で見つかった経路（刻印の選び方・家族単位・上限値の端・version-aware）=="
 AUD=$(mktemp -d); mkdir -p "$AUD/.aidev/backlog"
 run_au() { ( cd "$AUD" && "$AIDEV_SH" "$@" ); }
