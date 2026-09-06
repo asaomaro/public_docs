@@ -2993,7 +2993,11 @@ EOF
   assert_eq "$PAS_SH" "$PAS_PS" "パリティ: subtask の metrics（被覆も smoke も刻まれない）"
   for pargs in "metrics --all --format tsv" "verify" "smoke"; do
     # shellcheck disable=SC2086
-    PA_SH=$( ( cd "$PAU"  && "$AIDEV_SH" $pargs ) 2>&1 | sed 's/2[0-9-]*T[0-9:]*Z//g' ); PA_SH_RC=$?
+    # **`$(… | sed)` の `$?` は sed の終了コード**——常に 0 を拾い、sh 側だけ exit code の
+    # 検査が空振りしていた（この取り違えは同じファイルの上の方でも注記されているのに再発した。
+    # pwsh を入れて skip=0 で回して初めて出た）。整形は代入を分ける
+    PA_SH_RAW=$( ( cd "$PAU"  && "$AIDEV_SH" $pargs ) 2>&1 ); PA_SH_RC=$?
+    PA_SH=$(printf '%s' "$PA_SH_RAW" | sed 's/2[0-9-]*T[0-9:]*Z//g')
     # shellcheck disable=SC2086
     PA_PS_RAW=$( ( cd "$PAU2" && run_ps1 "$AIDEV_PS1" $pargs ) 2>&1 ); PA_PS_RC=$?
     PA_PS=$(printf '%s' "$PA_PS_RAW" | tr -d '\r' | sed 's/2[0-9-]*T[0-9:]*Z//g')
@@ -3888,5 +3892,5 @@ printf 'RESULT: pass=%s fail=%s skip=%s\n' "$PASS" "$FAIL" "$SKIP"
 # pwsh を入れるだけで埋まる穴を「環境が無い」で放置しないよう、入れ方まで書く。
 # 実際、パリティテストが skip のままだった間に**ps1 側の実バグ2件**（値の無いオプションを
 # 素通り／switch の大文字小文字）と**テスト自身のバグ2件**が緑の裏に隠れていた。
-[ "$SKIP" -gt 0 ] && printf 'NOTE: %s 件のアサートが環境不足で未実行（未検証の穴）。pwsh/git のある環境で再実行して埋めること。\n      パリティだけでなく **sh 単体の検査も一部**が pwsh ブロックの中にある。\n      Linux なら: curl -fsSL -o /tmp/pwsh.tar.gz https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/powershell-7.4.6-linux-x64.tar.gz \\\n                  && mkdir -p /opt/pwsh && tar -xzf /tmp/pwsh.tar.gz -C /opt/pwsh && export PATH=/opt/pwsh:$PATH\n' "$SKIP" >&2
+[ "$SKIP" -gt 0 ] && printf 'NOTE: %s 件のアサートが環境不足で未実行（未検証の穴）。pwsh/git のある環境で再実行して埋めること。\n      パリティだけでなく **sh 単体の検査も一部**が pwsh ブロックの中にある。\n      **aidev.ps1 を触ったなら pwsh 無しの緑を信用しない**——構文エラーで 1 行も動かない状態でも\n      ここは pass=... fail=0 と出る（実際にそうなった。DESIGN「3.5」の偽の緑）。\n      Linux なら: curl -fsSL -o /tmp/pwsh.tar.gz https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/powershell-7.4.6-linux-x64.tar.gz \\\n                  && mkdir -p /opt/pwsh && tar -xzf /tmp/pwsh.tar.gz -C /opt/pwsh && export PATH=/opt/pwsh:$PATH\n' "$SKIP" >&2
 [ "$FAIL" -eq 0 ]
