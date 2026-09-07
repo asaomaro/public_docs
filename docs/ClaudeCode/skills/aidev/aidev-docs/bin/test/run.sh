@@ -2132,6 +2132,64 @@ assert_contains "$(run_rt event review sent_back)" "前ラウンドの修正に�
 rm -f "$RTD/.aidev/config.yml"
 rm -rf "$RTD"
 
+echo "== 廃止（abandoned）: 着地させないと決めた work を畳む =="
+# **完了は `deliver ∈ approved` の導出**で表せるが、**やめた判断**を書く場所が無かった。
+# 中止した work は `done: no` のまま一覧に残り、`doctor` も評価を続けていた（畳む手段は
+# backlog 側の archive にしか無かった）。効果検証の母集団は deliver 起点なので元から入らない
+ABD=$TMP/abd; mkdir -p "$ABD/.aidev/works"
+run_ab() { ( cd "$ABD" && "$AIDEV_SH" "$@" ) ; }
+run_ab new keep >/dev/null; AB_KEEP=$(cat "$ABD/.aidev/current")
+run_ab new drop >/dev/null; AB_DROP=$(cat "$ABD/.aidev/current")
+run_ab new land >/dev/null; AB_LAND=$(cat "$ABD/.aidev/current")
+sed -i.bak 's/^approved: \[\]/approved: [requirements, design, tasks, coding, test, review, deliver]/' \
+  "$ABD/.aidev/works/$AB_LAND/state.yml" && rm -f "$ABD/.aidev/works/$AB_LAND/state.yml.bak"
+
+# **理由は必須**——なぜやめたかが残らないと、同じ判断を次の work でもう一度することになる
+ABO=$(run_ab abandon "$AB_DROP" 2>&1); ABR=$?
+assert_eq "$ABR" "1" "abandon: --reason 無しは弾く"
+assert_contains "$ABO" "--reason は必須" "abandon: 理由が要る理由を言う"
+# **着地済みは廃止できない**（完了は導出、廃止は判断。別の状態）
+ABO=$(run_ab abandon "$AB_LAND" --reason x 2>&1); ABR=$?
+assert_eq "$ABR" "1" "abandon: deliver 承認済みは弾く"
+assert_contains "$ABO" "着地しています" "abandon: 完了と廃止を混ぜない"
+# state.yml の 1 行に収まらない文字は弾く（フロー形式のパーサを壊さない）
+run_ab abandon "$AB_DROP" --reason "a, b" >/dev/null 2>&1
+assert_eq "$?" "1" "abandon: --reason のカンマを弾く（state.yml の1行に収める）"
+
+ABO=$(run_ab abandon "$AB_DROP" --reason "上流の要件が取り下げ")
+assert_contains "$ABO" "abandoned: $AB_DROP" "abandon: 廃止できる"
+assert_contains "$(cat "$ABD/.aidev/works/$AB_DROP/state.yml")" "status: abandoned" "abandon: state.yml に刻む"
+assert_contains "$(cat "$ABD/.aidev/works/$AB_DROP/state.yml")" "abandonedReason: 上流の要件が取り下げ" \
+  "abandon: 理由も state.yml に残る（後から読める）"
+assert_contains "$(cat "$ABD/.aidev/works/$AB_DROP/metrics.yml")" "event: abandoned" "abandon: metrics にも刻む"
+run_ab abandon "$AB_DROP" --reason y >/dev/null 2>&1
+assert_eq "$?" "1" "abandon: 二重廃止を弾く（冪等ではなく明示的に拒否）"
+
+# **既定は完了・廃止を隠し、隠した件数を見出しに出す**（見えなくするのではなく数えて見えるように）
+ABS=$(run_ab status)
+assert_contains "$ABS" "WORKS (1 / 完了・廃止 2 件は非表示" "status: 既定で完了と廃止を隠し件数を言う"
+assert_contains "$ABS" "$AB_KEEP" "status: 進行中は出す"
+assert_absent  "$ABS" "$AB_DROP" "status: 廃止は既定で出さない"
+assert_absent  "$ABS" "$AB_LAND" "status: 完了は既定で出さない"
+# --all では 3 値の state 列で見分けられる（done: no のままだと廃止が「進行中」に見える）
+ABA=$(run_ab status --all --format tsv)
+assert_contains "$ABA" "$AB_DROP	-	interactive	requirements	requirements	abandoned" "status --all: 廃止は abandoned"
+assert_contains "$ABA" "$AB_LAND	-	interactive	requirements	-	done" "status --all: 完了は done"
+assert_contains "$ABA" "$AB_KEEP	-	interactive	requirements	requirements	active" "status --all: 進行中は active"
+
+# **doctor も検査対象外にし、件数を出す**（着地させないものに記録漏れを言い続けても直す人がいない）
+ABDO=$(run_ab doctor)
+assert_contains "$ABDO" "廃止(検査対象外)=1" "doctor: 廃止を数えて見えるようにする"
+assert_absent  "$ABDO" "- $AB_DROP" "doctor: 廃止 work は検査しない"
+assert_contains "$ABDO" "- $AB_KEEP" "doctor: 進行中は検査する（空振りでない）"
+
+# --undo で戻せる（state.yml の手編集を避け、単一の検証済み経路に集約する）
+run_ab abandon "$AB_KEEP" --undo >/dev/null 2>&1
+assert_eq "$?" "1" "abandon --undo: 廃止していない work は弾く"
+assert_contains "$(run_ab abandon "$AB_DROP" --undo)" "revived: $AB_DROP" "abandon --undo: 戻せる"
+assert_contains "$(run_ab status)" "$AB_DROP" "abandon --undo: 既定表示に戻る"
+rm -rf "$ABD"
+
 echo "== 監査で見つかった経路（刻印の選び方・家族単位・上限値の端・version-aware）=="
 AUD=$(mktemp -d); mkdir -p "$AUD/.aidev/backlog"
 run_au() { ( cd "$AUD" && "$AIDEV_SH" "$@" ); }
