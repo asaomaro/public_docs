@@ -13,6 +13,7 @@
 #     --backlog は backlog 項目から起こした work に出自を刻む（deliver での消し込みを verify が強制する）
 #     --profile/--light は「どこまで工程を回すか」（protocol.md「11.」）。mode（誰が承認するか）と直交
 #   aidev escalate [slug]                      # profile を light -> full に昇格（片方向。full からは戻せない）
+#   aidev abandon [slug] --reason <理由>       # 着地させないと決めた work を廃止（status/doctor の既定から外れる。--undo で戻す）
 #   aidev event <phase> <start|sent_back> [key=value ...]     # approved は approve が刻む
 #   aidev approve <phase> [key=value ...]      # approved 追記 + current 更新 + approved イベント
 #   aidev unapprove <phase> [--slug <work>]    # 差し戻しで後工程の承認を取り消す（記録は消さない）
@@ -55,7 +56,7 @@
 #   aidev convention defer   <id> --verify-after <n> --note <text>  # 判定を先送り（母集団の必要件数を積み増す。理由必須）
 #   aidev convention promote <id> --to <path#anchor>    # 本文を PJ docs へ移した後、tombstone 化して退避
 #   aidev convention status [--format table|tsv] [--members <id>]  # 条項の一覧。--members は母集団の work 一覧（分母と分子を同じ集合で見る）
-#   aidev status [--format table|tsv] [--active] [--subtasks]  # works横断＋backlog未着手の状況サマリ（読み取り専用）。--active は deliver 済みを隠す
+#   aidev status [--format table|tsv] [--all] [--subtasks]  # works横断＋backlog未着手の状況サマリ（読み取り専用）。既定は完了・廃止を隠す（--all で全部。--active は既定の別名）
 #   aidev metrics [slug] [--all] [--phases] [--format table|tsv]  # metrics.yml から派生指標を集計（読み取り専用）。--all は全 work を対象にする（列の増減はしない）（版で層別する）
 #   aidev harness new <id> --hypothesis <text> --baseline <text> [--source <p>] [--verify-after <n>]
 #     ハーネス改修の仮説を .aidev/harness/ に登録する（introduced_rev に今の版を刻む）。条項と同じ入口・出口ゲート
@@ -149,6 +150,42 @@ work_resolve_count() { # slug -> 日付前置の候補件数
   for _wcc in "$AIDEV"/works/*-"$_wch"; do [ -d "$_wcc" ] && _wcn=$((_wcn + 1)); done
   printf '%s' "$_wcn"
 }
+# **廃止した work では工程を進めさせない**。`abandon` が `status` の既定表示から外すだけだった
+# 頃は、「一覧に出ないのに作業は進む」という一番まずい組み合わせになった（実走が実測）。
+# 止めるのは**状態を進める 3 つ**（guard / event / approve）だけで、`status` / `verify` /
+# `metrics` / `abandon --undo` のような読み取り・復帰の経路は塞がない
+# 差し戻しの理由が残る先。review はラウンド指摘、test は失敗の生出力（`protocol.md`「8.」）
+sb_artifact() { # phase -> ファイル名（無ければ空）
+  case "$1" in review) printf 'review.md' ;; test) printf 'test-result.md' ;; esac
+}
+# **バイト数ではなく「印」の数を数える**。バイト数だと、test 側でテンプレの smoke 節を
+# 書いただけでも増えてしまい、失敗の証跡と区別できない（`aidev-50-test` のテンプレは
+# smoke の生出力に ``` を要求するので、「失敗が発生していない」と書いた文書でも
+# ``` の有無だけの検査は常に通っていた——実質 no-op だった。実走が実測）
+sb_marks() { # phase -> 印の数（review=ラウンド指摘の行数 / test=``` の行数）
+  _sbf=$(sb_artifact "$1"); [ -n "$_sbf" ] || { printf '0'; return 0; }
+  [ -f "$WORK/$_sbf" ] || { printf '0'; return 0; }
+  case "$1" in
+    review) _sbn=$(grep -Ec '^[[:space:]]*- \[(must|should)\]' "$WORK/$_sbf") || _sbn=0 ;;
+    test)   _sbn=$(grep -c '^[[:space:]]*```' "$WORK/$_sbf") || _sbn=0 ;;
+    *)      _sbn=0 ;;
+  esac
+  case "$_sbn" in ''|*[!0-9]*) _sbn=0 ;; esac
+  printf '%s' "$_sbn"
+}
+# **そのラウンドで実際に書いたか**を見る。中身の有無（指摘行 / ``` ブロック）だけでは
+# **2 ラウンド目以降が素通り**する——前ラウンドの指摘行が残っているから（実走が実測）。
+# しかも test 側は `aidev-50-test` のテンプレが smoke の生出力に ``` を要求するので、
+# 「失敗が発生していない」と書いた test-result.md でも常に通っていた（実質 no-op）。
+# 直前の `event <工程> start` が刻んだ大きさと比べる（`doccheck` の size drift と同じ手）
+sb_marks_at_start() { # phase -> 直前の start が刻んだ marks（無ければ空）
+  grep "phase:[[:space:]]*$1,.*event:[[:space:]]*start" "$WORK/metrics.yml" 2>/dev/null | tail -n1 \
+    | sed -n 's/.*[{,][[:space:]]*marks:[[:space:]]*\([0-9][0-9]*\).*/\1/p'
+}
+die_if_abandoned() { # コマンド名（WORK は解決済み）
+  [ "$(yget "$WORK/state.yml" status)" = abandoned ] || return 0
+  die "廃止した work では $1 を実行できません: $SLUG（再開するなら aidev abandon $SLUG --undo）"
+}
 resolve_work() { # [slug]
   # slug は top-level work（dated 名）か subtask のネストパス（<dated>/<NN>-<subslug>）。
   # works/<slug> へ素直に連結するためネストもそのまま解決できる（subtask 層の単一経路）。
@@ -164,9 +201,9 @@ resolve_work() { # [slug]
   slug=$(work_resolve_name "$slug")
   WORK="$AIDEV/works/$slug"
   if [ ! -d "$WORK" ] && [ "$(work_resolve_count "$_rwsrc")" -gt 1 ]; then
-    die "slug が複数の work に当たります: $_rwsrc（日付つきの名前で指定してください。一覧は aidev list）"
+    die "slug が複数の work に当たります: $_rwsrc（日付つきの名前で指定してください。一覧は aidev status --all）"
   fi
-  [ -d "$WORK" ] || die "work が存在しません: $slug（一覧は aidev list）"
+  [ -d "$WORK" ] || die "work が存在しません: $slug（一覧は aidev status --all）"
   SLUG=$slug
 }
 
@@ -247,7 +284,23 @@ build_entry() { # phase event [key=value ...]
   ph=$1; ev=$2; shift 2
   m=""
   for kv in "$@"; do
+    # **`k=v` の形を入口で検査する**。していなかった頃は `aidev approve review --slug foo` が
+    # exit 0 で通り、`metrics: { --slug: --slug, foo: foo }` という行を書いた（しかも
+    # `--slug` は効かないので `.aidev/current` の**別 work** が承認された）。`guard` は
+    # 余分な引数を弾くのに、**実際に state と metrics を書く側だけ素通し**だった（実走が実測）。
+    # 値の `, { }` も弾く——metrics はフロー形式の 1 行なので、自由文を入れると行が壊れる
+    # （`debug report` と `abandon --reason` は既に同じ理由で弾いている）
+    case "$kv" in
+      *=*) ;;
+      *) die "metrics は key=value の形で渡します: $kv（オプションではありません。対象 work の切り替えは aidev use）" ;;
+    esac
     k=${kv%%=*}; val=${kv#*=}
+    case "$k" in
+      ''|*[!A-Za-z0-9_]*) die "metrics のキーが不正です: $k（英数字と _ のみ）" ;;
+    esac
+    case "$val" in
+      *,*|*\{*|*\}*) die "metrics の値に , { } は使えません: $kv（metrics はフロー形式の1行）" ;;
+    esac
     if [ -z "$m" ]; then m="$k: $val"; else m="$m, $k: $val"; fi
   done
   if [ -n "$m" ]; then
@@ -662,6 +715,45 @@ cmd_event() {
     *) die "event は start|sent_back（approved は approve コマンド）" ;;
   esac
   resolve_work
+  die_if_abandoned event
+  # **差し戻しを記録する、その瞬間に理由の所在を検査する**。`verify` が `review.md` /
+  # `test-result.md` を見るのは**承認時**なので、「差し戻しを記録 → 書く前にセッションが
+  # 切れる」と理由が永久に失われる（metrics に残るのは工程と時刻だけ）。
+  # 「先に書く → 次に記録する」は `aidev-60-review` 手順3→4 と `aidev-50-test` 手順3.5→4 の
+  # **散文の順序**でしかなく、破っても何も起きなかった（`DESIGN`「3.5」の分類 G）
+  # `start` は**そのラウンドの開始時点の大きさ**を刻む（下の sent_back がこれと比べる）
+  if [ "$ev" = start ] && [ -n "$(sb_artifact "$ph")" ]; then
+    set -- "$@" "marks=$(sb_marks "$ph")"
+  fi
+  if [ "$ev" = sent_back ]; then
+    _sb0=$(sb_marks_at_start "$ph")
+    if [ -n "$_sb0" ] && [ "$(sb_marks "$ph")" -le "$_sb0" ] 2>/dev/null; then
+      printf 'NG このラウンドの差し戻しの理由が %s に足されていません: %s\n' "$(sb_artifact "$ph")" "$SLUG" >&2
+      case "$ph" in
+        review) printf '   → 行頭 - [must|should] の指摘行が %s の開始時点（%s 件）から増えていません\n' "$ph" "$_sb0" >&2 ;;
+        test)   printf '   → ``` のブロックが %s の開始時点（%s 行）から増えていません\n' "$ph" "$_sb0" >&2 ;;
+      esac
+      printf '      **今回の**指摘 / 失敗の生出力を追記してから記録する（前ラウンドの記述が残っているだけでは通しません）\n' >&2
+      exit 2
+    fi
+    case "$ph" in
+      review)
+        if ! grep -Eq '^[[:space:]]*- \[(must|should)\]' "$WORK/review.md" 2>/dev/null; then
+          # **`nit` は数えない**。`aidev-60-review` は「指摘なし（または nit のみ）→ 終了」と
+          # 定めているので、nit だけで差し戻すのは工程規約に反する（実走が実測）
+          printf 'NG 差し戻しの理由が review.md にありません: %s\n' "$SLUG" >&2
+          printf '   → 先に当該ラウンドの指摘を書く（行頭 - [must|should] … の形。protocol.md「8.」。nit だけでは差し戻さない）\n' >&2
+          printf '      書いてから aidev event review sent_back を打つ（順序が逆だと理由が残らない）\n' >&2
+          exit 2
+        fi ;;
+      test)
+        if ! grep -q '^[[:space:]]*```' "$WORK/test-result.md" 2>/dev/null; then
+          printf 'NG 差し戻しの理由が test-result.md にありません: %s\n' "$SLUG" >&2
+          printf '   → 先に失敗の生出力を ``` のブロックで貼る（**修正する前に**。直すと出力は消える）\n' >&2
+          exit 2
+        fi ;;
+    esac
+  fi
   append_event "$ph" "$ev" "$@"
   printf 'recorded: %s/%s/%s\n' "$SLUG" "$ph" "$ev"
   # 差し戻しの上限到達を**その瞬間に**知らせる。`maxSendBacks` は長らく state.yml に
@@ -698,6 +790,7 @@ cmd_approve() {
   ph=$1; shift
   is_phase "$ph" || die_unknown_phase "$ph"
   resolve_work
+  die_if_abandoned approve
   st="$WORK/state.yml"
   [ -f "$st" ] || die "state.yml がありません: $SLUG"
 
@@ -968,6 +1061,7 @@ cmd_guard() {
   [ $# -eq 0 ] || die "guard は phase 以外の引数を取りません: $* （対象 work は .aidev/current。切り替えは aidev use）"
   is_phase "$ph" || die_unknown_phase "$ph"
   resolve_work
+  die_if_abandoned guard
   GMISS=""; GUNAPP=""
   # subtask なら上流成果物の継承元として親 work dir を立てる（need_file の fallback）
   PARENT_DIR=""
@@ -2938,6 +3032,55 @@ cmd_verify() {
 # --- コマンド: escalate（profile: light -> full。片方向） -------------------------
 # state.yml の更新を CLI に集約するための経路（この CLI の役割定義。冒頭コメント参照）。
 # 手編集を許すと「どの work がいつ昇格したか」が state だけ見ても分からなくなる。
+# **廃止（abandoned）**——着手したが着地させないと決めた work。`deliver ∈ approved` から導出する
+# 「完了」と違い、これは**判断**なので記録する場所が要る。無かった頃は、中止した work が
+# `done: no` のまま一覧に残り続け、`doctor` も評価を続けていた（畳む手段が backlog 側にしか無かった）。
+# 効果検証の母集団は deliver 起点なので、廃止 work は元から入らない（`cv_pop` は deliver を見る）
+cmd_abandon() {
+  _abslug=""; _abreason=""; _abundo=no
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --reason) need_arg "$1" $#; _abreason=$2; shift 2 ;;
+      --undo) _abundo=yes; shift ;;
+      -*) die "未知のオプション: $1" ;;
+      *) [ -z "$_abslug" ] && _abslug=$1 || die "slug は1つだけ"; shift ;;
+    esac
+  done
+  resolve_work "$_abslug"
+  st="$WORK/state.yml"
+  _abcur=$(yget "$st" status)
+  if [ "$_abundo" = yes ]; then
+    [ "$_abcur" = abandoned ] || die "廃止されていません: $SLUG"
+    replace_line "$st" status "status: active"
+    # **理由の行も落とす**。`protocol.md`「6.」は `abandonedReason` を「status: abandoned のとき必須」と
+    # 定めているので、active が理由を持つのはスキーマ外の状態（実走が実測）
+    _abtmp="$st.tmp.$$"
+    grep -v '^abandonedReason:' "$st" > "$_abtmp" && mv "$_abtmp" "$st"
+    # **復帰もイベントに積む**。`event: abandoned` だけが残ると、イベントログが
+    # 「やめたまま」と嘘をつく（`protocol.md`「8.」の「状態ではなくイベントを積む」）
+    append_event "$(yget "$st" current)" revived
+    printf 'revived: %s（status: active。再開できます）\n' "$SLUG"
+    return 0
+  fi
+  [ "$_abcur" != abandoned ] || die "既に廃止済みです: $SLUG（戻すなら aidev abandon $SLUG --undo）"
+  # **着地済みは廃止できない**。deliver 済み work は「完了」で、やめた判断とは別の状態
+  approved_has deliver && die "deliver 承認済みの work は廃止できません（着地しています）: $SLUG"
+  # **理由は必須**。なぜやめたかが残らないと、同じ判断を次の work でもう一度することになる
+  [ -n "$_abreason" ] || die "--reason は必須（なぜやめたかを残す。例: aidev abandon $SLUG --reason '上流の要件が取り下げ')"
+  case "$_abreason" in *,*|*\{*|*\}*) die "--reason に , { } は使えません（state.yml の1行に収める）" ;; esac
+  set_or_append "$st" status "status: abandoned"
+  set_or_append "$st" abandonedReason "abandonedReason: $_abreason"
+  append_event "$(yget "$st" current)" abandoned
+  # **カーソルを外す**。指したままだと「一覧に出ないのに `.aidev/current` はそこ」という
+  # 中途半端な状態が残る（次のコマンドが黙って廃止 work に当たる）
+  if [ -f "$AIDEV/current" ] && [ "$(head -n1 "$AIDEV/current" | tr -d '\r\n')" = "$SLUG" ]; then
+    rm -f "$AIDEV/current"
+    printf 'cursor: .aidev/current を外しました（aidev status で次の work を選ぶ）\n'
+  fi
+  printf 'abandoned: %s\n' "$SLUG"
+  printf 'note: status/doctor の既定表示から外れます（--all で出ます）。再開するなら aidev abandon %s --undo\n' "$SLUG"
+}
+
 cmd_escalate() {
   resolve_work "${1:-}"
   st="$WORK/state.yml"
@@ -3132,11 +3275,15 @@ cmd_doctor() {
     doctor_backlog; doctor_conventions; doctor_harness; doctor_smoke; doctor_shared; doctor_gitignore; doctor_hrstraddle; doctor_hrsentinel; doctor_branch
     exit 0
   fi
-  total=0; fail=0; legacy=0
+  total=0; fail=0; legacy=0; dab=0
   printf 'doctor: 全 work 横断検査%s\n' "$([ "$DQUIET" = yes ] && printf '（--quiet: OK は省略）' || true)"
   for d in "$AIDEV/works"/*/; do
     [ -d "$d" ] || continue
     WORK=${d%/}; SLUG=$(basename "$WORK")
+    # **廃止した work は検査しない**。着地させないと決めたものに「記録が足りない」と
+    # 言い続けても直す人がいない——鳴り続ける WARN は他の WARN を埋める
+    # （消せない WARN を作らない、という verify の判断と同じ）。子ごと飛ばす
+    if [ "$(yget "$WORK/state.yml" status)" = abandoned ]; then dab=$((dab+1)); continue; fi
     total=$((total+1))
     sc=$(yget "$WORK/state.yml" schema 2>/dev/null || true)
     [ -z "$sc" ] && legacy=$((legacy+1))
@@ -3152,7 +3299,12 @@ cmd_doctor() {
       doctor_one "  - $SLUG"
     done
   done
-  printf 'summary: works=%s fail=%s legacy(免除)=%s\n' "$total" "$fail" "$legacy"
+  # 廃止 work は**数えて見えるようにする**（黙って落とすと「検査した」と誤読される）
+  if [ "$dab" -gt 0 ] 2>/dev/null; then
+    printf 'summary: works=%s fail=%s legacy(免除)=%s 廃止(検査対象外)=%s\n' "$total" "$fail" "$legacy" "$dab"
+  else
+    printf 'summary: works=%s fail=%s legacy(免除)=%s\n' "$total" "$fail" "$legacy"
+  fi
   doctor_backlog
   doctor_conventions
   doctor_harness
@@ -3197,12 +3349,16 @@ subtask_progress() { # work_dir
 }
 
 cmd_status() {
-  fmt=table; subflag=no; activef=no
+  # **既定で「いま手を動かせるもの」だけを出す**。完了（deliver 承認済）と廃止は既定で隠し、
+  # `--all` で出す。`--active` は既定と同じ意味の別名として受け続ける（後方互換）。
+  # 隠した件数は見出しに出す——見えなくするのではなく、数えて見えるようにする（skip 申告と同じ態度）
+  fmt=table; subflag=no; allf=no
   while [ $# -gt 0 ]; do
     case "$1" in
       --format) need_arg "$1" $#; fmt=${2:-}; shift 2 ;;
       --subtasks) subflag=yes; shift ;;
-      --active) activef=yes; shift ;;
+      --all) allf=yes; shift ;;
+      --active) shift ;;
       -*) die "未知のオプション: $1" ;;
       *) die "status は位置引数を取りません: $1" ;;
     esac
@@ -3210,7 +3366,7 @@ cmd_status() {
   case "$fmt" in table|tsv) ;; *) die "--format は table|tsv" ;; esac
 
   # ---- works 収集（rows は型タグ付き: W=work 行 / S=subtask 子行） ----
-  wn=0; wrows=""
+  wn=0; whid=0; wabn=0; wrows=""
   if [ -d "$AIDEV/works" ]; then
     for d in "$AIDEV/works"/*/; do
       [ -d "$d" ] || continue
@@ -3221,8 +3377,20 @@ cmd_status() {
       current=$(yget "$st" current); [ -z "$current" ]  && current=-
       appr=$(ylist "$st" approved)
       case " $appr " in *" deliver "*) wdone=yes ;; *) wdone=no ;; esac
-      # --active: deliver 済みは出さない（100 works で 9 割が done=yes になり、進行中が埋もれる）
-      if [ "$activef" = yes ] && [ "$wdone" = yes ]; then continue; fi
+      wab=no
+      if [ "$(yget "$st" status)" = abandoned ]; then
+        wab=yes
+        _wabr=$(yget "$st" abandonedReason); [ -n "$_wabr" ] || _wabr=-
+        wabrows="${wabrows:-}$name	$_wabr
+"
+      fi
+      # 表に出すのは 3 値。`done` の yes/no のままだと**廃止 work が「進行中」に見え**、
+      # --all を出す意味が無くなる（隠したものを見に行ったのに見分けが付かない）
+      wstate=active; [ "$wdone" = yes ] && wstate=done; [ "$wab" = yes ] && wstate=abandoned
+      # 既定では完了と廃止を出さない（100 works で 9 割が done=yes になり、進行中が埋もれる）
+      if [ "$allf" = no ] && { [ "$wdone" = yes ] || [ "$wab" = yes ]; }; then
+        whid=$((whid + 1)); [ "$wab" = yes ] && wabn=$((wabn + 1)); continue
+      fi
       next=-
       if [ "$wdone" = no ]; then
         # profile: light は design/tasks を畳む（protocol.md「11.」＝承認されないのが正常）。
@@ -3255,7 +3423,7 @@ cmd_status() {
       for a in $EVAL_ADVISORY; do deps="$deps,$a(advisory)"; done
       deps=${deps#,}; [ -z "$deps" ] && deps=ok
       wn=$((wn+1))
-      wrows="${wrows}W	$name	$ticket	$mode	$current	$next	$wdone	$deps
+      wrows="${wrows}W	$name	$ticket	$mode	$current	$next	$wstate	$deps
 "
       # --subtasks: 親直下に子を列挙（S 行。current=子の工程 / done=子の review 承認）
       if [ "$subflag" = yes ] && [ -n "$sp" ]; then
@@ -3349,10 +3517,16 @@ cmd_status() {
     return 0
   fi
 
-  printf 'WORKS (%s)\n' "$wn"
+  if [ "$whid" -gt 0 ] 2>/dev/null; then
+    # **内訳を出す**。まとめて数えていた頃は「やめた 1 件」の確認に --all が要った
+    # （`doctor` は 廃止(検査対象外)=N と分けている。そちらに揃える）
+    printf 'WORKS (%s / 非表示 %s 件: 完了 %s・廃止 %s。--all で全部)\n' "$wn" "$whid" "$((whid - wabn))" "$wabn"
+  else
+    printf 'WORKS (%s)\n' "$wn"
+  fi
   if [ "$wn" -gt 0 ]; then
     {
-      printf 'work\tticket\tmode\tcurrent\tnext\tdone\tdeps\n'
+      printf 'work\tticket\tmode\tcurrent\tnext\tstate\tdeps\n'
       printf '%s' "$wrows" | while IFS='	' read -r ty a b c e f g h; do
         [ -z "$ty" ] && continue
         if [ "$ty" = W ]; then
@@ -3364,6 +3538,22 @@ cmd_status() {
     } | fmt_table
   fi
   printf '\n'
+  # **どこから再開するか**を名指しする。差し戻し直後は親行の `current` が「親の統合 test」に
+  # 見えるが、実際に手を動かすのは子の coding——`--subtasks` を足さないと分からなかった
+  # （実走が実測。`aidev-00-start` が最初に打たせるのは既定の status）
+  # **廃止の理由は機械で読める場所に出す**。`aidev-00-start` は「status で機械抽出する
+  # （各 state.yml を個別に手読みしない）」と定めているのに、理由だけがその原則の外にあった
+  # （廃止が N 本たまると N 個の state.yml を開くことになる。実走が実測）
+  if [ "$allf" = yes ] && [ -n "${wabrows:-}" ]; then
+    printf '\nABANDONED（やめた理由）\n'
+    printf '%s' "$wabrows" | fmt_table
+  fi
+  if [ -f "$AIDEV/current" ]; then
+    _stc=$(head -n1 "$AIDEV/current" | tr -d '\r\n')
+    if [ -n "$_stc" ] && [ -d "$AIDEV/works/$_stc" ]; then
+      printf 'cursor: %s（%s）\n' "$_stc" "$(yget "$AIDEV/works/$_stc/state.yml" current)"
+    fi
+  fi
   printf 'BACKLOG (未着手 %s 件)\n' "$bn"
   if [ "$bf" -gt 0 ]; then
     { printf 'file\ttodo\tneeds\tinflight\n'; printf '%s' "$brows"; } | fmt_table
@@ -3545,6 +3735,13 @@ cmd_metrics() {
     mf="$wd/metrics.yml"
     [ -f "$mf" ] || mf=/dev/null
     out=$(awk -v name="$name" -v phases="$phasesf" -v PH="$PHASES" "$metrics_awk" "$mf")
+    # **廃止を `delivered: no` に混ぜない**。`insights` は「定量指標は metrics --all で機械集計する」と
+    # 定めているので、混ぜると廃止 work が「着地していない進行中の work」として数えられる
+    # （`status` の done 列を state 列に変えたのと同じ理由。実走が実測）
+    if [ "$phasesf" = no ] && [ -n "$out" ] \
+       && [ "$(yget "$wd/state.yml" status)" = abandoned ]; then
+      out=$(printf '%s' "$out" | awk -F'\t' 'BEGIN{OFS="\t"} { $3="abandoned"; print }')
+    fi
     # ハーネス版で層別できるよう harnessRev / straddle（着手時と着地時で版が違う）を添える。
     # これが無いと insights は state.yml を grep して手で JOIN するしかなかった
     if [ "$phasesf" = no ] && [ -n "$out" ]; then
@@ -3576,7 +3773,7 @@ cmd_metrics() {
   done
 
   if [ "$phasesf" = yes ]; then hdr='work	phase	start	approved	elapsed_sec	rounds'
-  else hdr='work	first_start	delivered	lead_sec	work_sec	reworks	sent_backs	ac	ac_drift	harnessRev	straddle'; fi
+  else hdr='work	first_start	state	lead_sec	work_sec	reworks	sent_backs	ac	ac_drift	harnessRev	straddle'; fi
 
   if [ "$fmt" = tsv ]; then
     printf '%s' "$rows" | sed '/^[[:space:]]*$/d'
@@ -5413,6 +5610,7 @@ case "$cmd" in
   doccheck) cmd_doccheck "$@" ;;
   limits)  cmd_limits "$@" ;;
   escalate) cmd_escalate "$@" ;;
+  abandon) cmd_abandon "$@" ;;
   doctor)  cmd_doctor "$@" ;;
   status)  cmd_status "$@" ;;
   metrics) cmd_metrics "$@" ;;

@@ -79,6 +79,9 @@ AI 開発ワークフローの **review（レビュー）工程**を実行する
 4. 判定に応じて分岐する。
    - **must/should の指摘あり** → `aidev event review sent_back` を記録のうえ coding 工程への
      差し戻しを提案する（protocol.md「4. 番号と順序」に基づく正当な遷移）。
+     **手順3（review.md への追記）を先に済ませること**——`sent_back` は `review.md` に
+     行頭 `- [must|should|nit]` の指摘行が無ければ **exit 2 で止まる**（記録だけ先に打つと、
+     セッションが切れたときに理由が永久に残らない）。
      - **無効になる後工程の承認を `aidev unapprove` で取り消す**（protocol.md「3.」）。
        review → coding なら **`aidev unapprove test` → `aidev unapprove coding` の順**（後ろから）。
        取り消さないと `approved` に test/coding が残ったまま coding をやり直すことになり、
@@ -90,15 +93,18 @@ AI 開発ワークフローの **review（レビュー）工程**を実行する
        （散らばった暗黙の連言は隣で必ず再発する。`aidev event <工程> sent_back` が促す）。
      - **`maxSendBacks`（既定 3）に達したら `aidev debug start`**——まっさらなコンテキストに
        原因究明だけを委譲する（`protocol-debug.md`）。同じコンテキストで回し続けない。
-     - **親の `test` 承認も取り消す**。統合 review で差し戻すなら親の統合 test はやり直しになる
-       （子の再実装後に結合が変わる）。`aidev unapprove test`（親）→ 子の差し戻し、の順。
-     - **統合 review の差し戻し先（protocol.md「2.8」＋ `protocol-subtask.md`）**: 結合起因の指摘は**原因となった subtask の coding** へ
-       戻す。**まず親で `aidev event review sent_back`** を打ってから `aidev use <親>/<NN>-<subslug>`
-       （親の `activeSubtask` も同期される）→ **`aidev unapprove review` → `unapprove test` →
-       `unapprove coding`**（上の通常経路と同じく後ろから。`review` だけ取り消すと
-       `approved` に test/coding が残ったまま coding をやり直すことになり、この節が
-       禁じている状態そのものになる）→ `aidev event coding start`。これで
-       再 coding→test→review 後の `approve review` が再びカーソルを前進させられる（D と整合）。
+     - **統合 review の差し戻し（protocol.md「2.8」＋ `protocol-subtask.md`）**: 結合起因の指摘は
+       **原因となった subtask の coding** へ戻す。**打つ順序はこの 1 本**（途中で切らない）:
+       1. 親で `aidev event review sent_back`
+       2. **親で `aidev unapprove test`**——統合 test は子の再実装でやり直しになる。
+          取り消さないと親の `approved` に古い `test` が残ったまま deliver へ進む
+       3. `aidev use <親>/<NN>-<subslug>`（親の `activeSubtask` も同期される）
+       4. 子で **`aidev unapprove review` → `unapprove test` → `unapprove coding`**（後ろから。
+          `review` だけ取り消すと `approved` に test/coding が残ったまま coding をやり直すことになり、
+          この節が禁じている状態そのものになる）
+       5. 子で `aidev event coding start`
+
+       これで再 coding→test→review 後の `approve review` が再びカーソルを前進させられる（D と整合）。
        再 split（親 tasks 戻し）は避け、最小手戻りにする。
    - **指摘なし（または nit のみ）** → protocol.md「3. 工程終了プロトコル」に従って終了する。
      - **subtask の review** なら `aidev approve review` の時点で CLI がカーソルを自動前進させる

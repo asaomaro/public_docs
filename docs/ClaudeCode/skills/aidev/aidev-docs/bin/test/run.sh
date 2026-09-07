@@ -149,15 +149,18 @@ printf '20260102-beta\n' > "$TMP/.aidev/current"
 run_sh() { ( cd "$TMP" && "$AIDEV_SH" "$@" ); }
 
 echo "== status =="
-ST_TSV=$(run_sh status --format tsv)
-assert_contains "$ST_TSV" "work	20260101-alpha	-	autonomous	deliver	-	yes	ok" "alpha: 完了行(next=-/done=yes/deps=ok)"
-assert_contains "$ST_TSV" "work	20260102-beta	#42	interactive	design	tasks	no	#99(advisory)" "beta: next=tasks/done=no/deps=#99(advisory)（alpha は充足）"
-assert_contains "$ST_TSV" "work	20260103-legacy	-	-	requirements	requirements	no	ok" "legacy: schema無しでも一覧化(next=requirements)"
+# **既定は完了・廃止を隠す**ので、全部見るには --all が要る（3 値の state 列）
+ST_TSV=$(run_sh status --all --format tsv)
+assert_contains "$ST_TSV" "work	20260101-alpha	-	autonomous	deliver	-	done	ok" "alpha: 完了行(next=-/state=done/deps=ok)"
+assert_contains "$ST_TSV" "work	20260102-beta	#42	interactive	design	tasks	active	#99(advisory)" "beta: next=tasks/state=active/deps=#99(advisory)（alpha は充足）"
+assert_contains "$ST_TSV" "work	20260103-legacy	-	-	requirements	requirements	active	ok" "legacy: schema無しでも一覧化(next=requirements)"
 assert_contains "$ST_TSV" "backlog	x.md	2	1	0" "backlog x.md: todo=2/needs=1/inflight=0（刻印付き work 無し）"
 assert_absent  "$ST_TSV" "should-not-count" "archive/ は除外される"
 
-ST_TBL=$(run_sh status)
-assert_contains "$ST_TBL" "WORKS (3)" "table: WORKS 件数"
+ST_TBL=$(run_sh status --all)
+assert_contains "$ST_TBL" "WORKS (3)" "table: WORKS 件数（--all は全部）"
+# **既定は完了を隠し、隠した件数を見出しに出す**（見えなくするのではなく数えて見えるように）
+assert_contains "$(run_sh status)" "WORKS (2 / 非表示 1 件: 完了 1・廃止 0" "table: 既定は完了を隠し、内訳つきで件数を言う"
 assert_contains "$ST_TBL" "BACKLOG (未着手 2 件)" "table: BACKLOG 未着手件数"
 
 echo "== status 異常系 =="
@@ -175,10 +178,11 @@ assert_contains "$(run_sh metrics --all)" "lead_sec  work_sec" "metrics --all: w
 assert_contains "$(run_sh metrics --all)" "harnessRev  straddle" "metrics --all: 表形式の見出しにも出る"
 
 echo "== status --active / doctor --quiet（100 works で読める出力量にする） =="
+# `--active` は既定と同じ意味の別名として受け続ける（後方互換）
 ST_ACT=$(run_sh status --active --format tsv)
 assert_absent "$ST_ACT" "work	20260101-alpha" "status --active: deliver 済みを隠す"
 assert_contains "$ST_ACT" "work	20260102-beta" "status --active: 進行中は出す"
-assert_contains "$(run_sh status --active)" "WORKS (2)" "status --active: 件数も隠した後の数"
+assert_eq "$ST_ACT" "$(run_sh status --format tsv)" "status --active: 既定と同じ（別名として受け続ける）"
 # OK だけの work を1つ足す（alpha/beta は記録漏れ WARN 付きで OK、legacy は SKIP＝どれも「OK だけ」ではない）
 run_sh new clean >/dev/null; CLEANW=$(cat "$TMP/.aidev/current")
 printf '20260102-beta\n' > "$TMP/.aidev/current"
@@ -1725,7 +1729,10 @@ run_cv approve coding >/dev/null; run_cv approve test >/dev/null
 CVV=$(run_cv verify 2>&1)
 assert_contains "$CVV" "test-result.md欠落(test承認済)" "verify: test 承認済みなら test-result.md を要求する"
 printf 'ぜんぶ通った\n' > "$CVD/test-result.md"
-run_cv event test sent_back >/dev/null
+# **この状態は `event test sent_back` からは作れなくなった**（生出力が無ければ exit 2 で止まる）。
+# それでも verify 側の検査は残す必要がある——既存 work の metrics には旧規約で刻まれた
+# sent_back が実在するので、**過去分を読む経路**として直接刻んで検査する
+printf '  - { ts: 2026-01-01T00:00:00Z, phase: test, event: sent_back }\n' >> "$CVD/metrics.yml"
 CVV=$(run_cv verify 2>&1)
 assert_contains "$CVV" "失敗の生出力が無い" "verify: 差し戻しがあったのに失敗の生出力が無ければ WARN"
 printf '```\nFAILED test_x\n```\n' >> "$CVD/test-result.md"
@@ -2008,6 +2015,7 @@ run_db new stuck2 >/dev/null; DBW2=$(cat "$DBR/.aidev/current"); DBD2="$DBR/.aid
 for f in design tasks review test-result; do : > "$DBD2/$f.md"; done
 printf -- '- [ ] AC1: a\n' > "$DBD2/requirements.md"
 printf -- '- [ ] T1: x\n      AC: AC1\n      依存: なし\n' > "$DBD2/tasks.md"
+printf '```\nFAILED\n```\n' > "$DBD2/test-result.md"   # sent_back は理由（生出力）を要求する
 for i in 1 2 3; do run_db event test sent_back >/dev/null; done
 for p in requirements design tasks coding test review deliver; do run_db approve "$p" >/dev/null; done
 DBV=$(run_db verify 2>&1); DBR2=$?
@@ -2069,6 +2077,44 @@ assert_absent "$(run_rt approve review)" "違反）は 0 件" "approve review: !
 assert_contains "$(run_rt taskcheck start T1 --mode delegated --slug "$(basename "$RTX")" 2>&1)" \
   "条項タグは3択" "返却形式に 3 択が出る（書く側の目に ! が入る）"
 
+# 実走の指摘: 差し戻しの理由検査が「中身の有無」だけで、**2 ラウンド目以降は素通り**していた
+# （前ラウンドの指摘行が残っているから）。test 側はテンプレが smoke の生出力に ``` を要求するので、
+# 「失敗が発生していない」と書いた文書でも常に通る**実質 no-op**だった
+run_rt new sb3 >/dev/null
+RTSB2="$RTD/.aidev/works/$(cat "$RTD/.aidev/current")"
+run_rt event review start >/dev/null
+printf -- '- [nit][conv:-] 些細\n' > "$RTSB2/review.md"
+run_rt event review sent_back >/dev/null 2>&1
+assert_eq "$?" "2" "event review sent_back: nit だけでは差し戻さない（工程規約は「nit のみ → 終了」）"
+printf -- '- [must][conv:-] 本物 / 対応: 差し戻す\n' >> "$RTSB2/review.md"
+run_rt event review sent_back >/dev/null 2>&1
+assert_eq "$?" "0" "event review sent_back: must が足されれば通る"
+# **2 ラウンド目**: 前ラウンドの指摘が残っているだけでは通さない
+run_rt event review start >/dev/null
+RTSBO2=$(run_rt event review sent_back 2>&1); assert_eq "$?" "2" \
+  "event review sent_back: 2 ラウンド目に何も足さなければ止まる（前ラウンドの残りで通さない）"
+assert_contains "$RTSBO2" "開始時点（1 件）から増えていません" "event sent_back: 開始時点の件数を言う"
+printf -- '- [should][conv:-] 2巡目 / 対応: 差し戻す\n' >> "$RTSB2/review.md"
+run_rt event review sent_back >/dev/null 2>&1
+assert_eq "$?" "0" "event review sent_back: 2 ラウンド目も追記すれば通る"
+# **test 側**: テンプレの smoke ブロックだけでは通さない（実質 no-op だった経路）
+run_rt event test start >/dev/null
+printf '## 起動確認\n```\nOK\n```\nこのラウンドでは失敗が発生していない。\n' > "$RTSB2/test-result.md"
+run_rt event test start >/dev/null   # smoke を貼った後の開始時点を刻み直す
+run_rt event test sent_back >/dev/null 2>&1
+assert_eq "$?" "2" 'event test sent_back: smoke のフェンスだけでは通さない（テンプレどおりの文書で素通りしていた）'
+printf '## 失敗\n  ```\n  FAILED\n  ```\n' >> "$RTSB2/test-result.md"
+run_rt event test sent_back >/dev/null 2>&1
+assert_eq "$?" "0" 'event test sent_back: 失敗の生出力を足せば通る（インデントしたフェンスも受理する）'
+
+# 実走の指摘: event / approve が未知の引数を黙って metrics キーに変えていた
+run_rt approve review --slug foo >/dev/null 2>&1
+assert_eq "$?" "1" "approve: k=v でない引数を弾く（--slug が metrics キーに化けていた）"
+run_rt event coding start 'note=a, b}' >/dev/null 2>&1
+assert_eq "$?" "1" "event: 値の , { } を弾く（metrics のフロー形式が壊れる）"
+run_rt event coding start 'a b=1' >/dev/null 2>&1
+assert_eq "$?" "1" "event: キーの文字種を検査する"
+
 # 実走の指摘: `verify` の「失敗の生出力が無い」WARN が `by: unapprove` を除外していなかった。
 # 統合 review から子へ差し戻すと子に `by: unapprove` の sent_back が刻まれるが、**子では一度も
 # test が落ちていない**ので貼れる生出力が無く、規約（捏造しない）に従うほど消せない WARN が残った
@@ -2102,17 +2148,87 @@ rm -rf "$RTBQ"
 
 # H3: 差し戻し 2 回目で「前ラウンドの修正由来か」を問う（上限は止めるだけで方向を変えない）
 run_rt new sb >/dev/null
+# **理由が無ければ sent_back は exit 2**（記録の順序を機械で強制した）ので、先に指摘行を置く
+RTSB="$RTD/.aidev/works/$(cat "$RTD/.aidev/current")"
+RTSBO=$(run_rt event review sent_back 2>&1); RTSBR=$?
+assert_eq "$RTSBR" "2" "event review sent_back: review.md に指摘が無ければ止まる"
+assert_contains "$RTSBO" "先に当該ラウンドの指摘を書く" "event review sent_back: 何を先に書くかを言う"
+printf 'このラウンドは指摘なし。\n' > "$RTSB/review.md"
+run_rt event review sent_back >/dev/null 2>&1
+assert_eq "$?" "2" "event review sent_back: 散文だけでは通さない（行頭 - [must|should|nit] を見る）"
+printf -- '- [must][conv:-] src/a.py:3 x / 対応: 差し戻す\n' > "$RTSB/review.md"
 assert_absent "$(run_rt event review sent_back)" "前ラウンドの修正" "event sent_back: 1 回目では問わない"
 assert_contains "$(run_rt event review sent_back)" "前ラウンドの修正に由来しないか" "event sent_back: 2 回目で方向を問う"
 assert_contains "$(run_rt event review sent_back)" "同じコンテキストで回し続けない" "event sent_back: 3 回目(上限)は従来どおり委譲を促す"
 # **上限値に依存させない**——`_esb < _emax` を条件にしていた頃は maxSendBacks: 2 の PJ で一度も出なかった
 printf 'maxSendBacks: 2\n' > "$RTD/.aidev/config.yml"
 run_rt new sb2 >/dev/null
+printf -- '- [must][conv:-] x / 対応: 差し戻す\n' > "$RTD/.aidev/works/$(cat "$RTD/.aidev/current")/review.md"
 run_rt event review sent_back >/dev/null
 assert_contains "$(run_rt event review sent_back)" "前ラウンドの修正に由来しないか" \
   "event sent_back: maxSendBacks=2 でも 2 回目の問いは出る"
 rm -f "$RTD/.aidev/config.yml"
 rm -rf "$RTD"
+
+echo "== 廃止（abandoned）: 着地させないと決めた work を畳む =="
+# **完了は `deliver ∈ approved` の導出**で表せるが、**やめた判断**を書く場所が無かった。
+# 中止した work は `done: no` のまま一覧に残り、`doctor` も評価を続けていた（畳む手段は
+# backlog 側の archive にしか無かった）。効果検証の母集団は deliver 起点なので元から入らない
+ABD=$TMP/abd; mkdir -p "$ABD/.aidev/works"
+run_ab() { ( cd "$ABD" && "$AIDEV_SH" "$@" ) ; }
+run_ab new keep >/dev/null; AB_KEEP=$(cat "$ABD/.aidev/current")
+run_ab new drop >/dev/null; AB_DROP=$(cat "$ABD/.aidev/current")
+run_ab new land >/dev/null; AB_LAND=$(cat "$ABD/.aidev/current")
+sed -i.bak 's/^approved: \[\]/approved: [requirements, design, tasks, coding, test, review, deliver]/' \
+  "$ABD/.aidev/works/$AB_LAND/state.yml" && rm -f "$ABD/.aidev/works/$AB_LAND/state.yml.bak"
+
+# **理由は必須**——なぜやめたかが残らないと、同じ判断を次の work でもう一度することになる
+ABO=$(run_ab abandon "$AB_DROP" 2>&1); ABR=$?
+assert_eq "$ABR" "1" "abandon: --reason 無しは弾く"
+assert_contains "$ABO" "--reason は必須" "abandon: 理由が要る理由を言う"
+# **着地済みは廃止できない**（完了は導出、廃止は判断。別の状態）
+ABO=$(run_ab abandon "$AB_LAND" --reason x 2>&1); ABR=$?
+assert_eq "$ABR" "1" "abandon: deliver 承認済みは弾く"
+assert_contains "$ABO" "着地しています" "abandon: 完了と廃止を混ぜない"
+# state.yml の 1 行に収まらない文字は弾く（フロー形式のパーサを壊さない）
+run_ab abandon "$AB_DROP" --reason "a, b" >/dev/null 2>&1
+assert_eq "$?" "1" "abandon: --reason のカンマを弾く（state.yml の1行に収める）"
+
+ABO=$(run_ab abandon "$AB_DROP" --reason "上流の要件が取り下げ")
+assert_contains "$ABO" "abandoned: $AB_DROP" "abandon: 廃止できる"
+assert_contains "$(cat "$ABD/.aidev/works/$AB_DROP/state.yml")" "status: abandoned" "abandon: state.yml に刻む"
+assert_contains "$(cat "$ABD/.aidev/works/$AB_DROP/state.yml")" "abandonedReason: 上流の要件が取り下げ" \
+  "abandon: 理由も state.yml に残る（後から読める）"
+assert_contains "$(cat "$ABD/.aidev/works/$AB_DROP/metrics.yml")" "event: abandoned" "abandon: metrics にも刻む"
+run_ab abandon "$AB_DROP" --reason y >/dev/null 2>&1
+assert_eq "$?" "1" "abandon: 二重廃止を弾く（冪等ではなく明示的に拒否）"
+
+# **既定は完了・廃止を隠し、隠した件数を見出しに出す**（見えなくするのではなく数えて見えるように）
+ABS=$(run_ab status)
+assert_contains "$ABS" "WORKS (1 / 非表示 2 件: 完了 1・廃止 1" "status: 既定で完了と廃止を隠し、内訳つきで件数を言う"
+assert_contains "$ABS" "$AB_KEEP" "status: 進行中は出す"
+assert_absent  "$ABS" "$AB_DROP" "status: 廃止は既定で出さない"
+# **表に出ないこと**を見る。`cursor:` 行は「いまカーソルがどこか」の事実なので、
+# 完了 work を指していれば出る（それ自体が「着地済みの上に座っている」という有用な情報）
+assert_absent  "$(printf '%s\n' "$ABS" | sed -n '/^WORKS/,/^$/p')" "$AB_LAND" "status: 完了は既定で表に出さない"
+# --all では 3 値の state 列で見分けられる（done: no のままだと廃止が「進行中」に見える）
+ABA=$(run_ab status --all --format tsv)
+assert_contains "$ABA" "$AB_DROP	-	interactive	requirements	requirements	abandoned" "status --all: 廃止は abandoned"
+assert_contains "$ABA" "$AB_LAND	-	interactive	requirements	-	done" "status --all: 完了は done"
+assert_contains "$ABA" "$AB_KEEP	-	interactive	requirements	requirements	active" "status --all: 進行中は active"
+
+# **doctor も検査対象外にし、件数を出す**（着地させないものに記録漏れを言い続けても直す人がいない）
+ABDO=$(run_ab doctor)
+assert_contains "$ABDO" "廃止(検査対象外)=1" "doctor: 廃止を数えて見えるようにする"
+assert_absent  "$ABDO" "- $AB_DROP" "doctor: 廃止 work は検査しない"
+assert_contains "$ABDO" "- $AB_KEEP" "doctor: 進行中は検査する（空振りでない）"
+
+# --undo で戻せる（state.yml の手編集を避け、単一の検証済み経路に集約する）
+run_ab abandon "$AB_KEEP" --undo >/dev/null 2>&1
+assert_eq "$?" "1" "abandon --undo: 廃止していない work は弾く"
+assert_contains "$(run_ab abandon "$AB_DROP" --undo)" "revived: $AB_DROP" "abandon --undo: 戻せる"
+assert_contains "$(run_ab status)" "$AB_DROP" "abandon --undo: 既定表示に戻る"
+rm -rf "$ABD"
 
 echo "== 監査で見つかった経路（刻印の選び方・家族単位・上限値の端・version-aware）=="
 AUD=$(mktemp -d); mkdir -p "$AUD/.aidev/backlog"
@@ -2234,6 +2350,7 @@ assert_eq "$?" "4" "verify: schema 7 からは起動確認の記録を要求す�
 #     一度も失敗していない coding/test が maxSendBacks の予算を使い切る
 mk_work sbq; AU_SBQ=$AU_W
 run_au approve coding >/dev/null; run_au approve test >/dev/null
+printf -- '- [must][conv:-] x / 対応: 差し戻す\n' > "$AU_D/review.md"   # sent_back は理由を要求する
 run_au event review sent_back >/dev/null
 run_au unapprove test >/dev/null; run_au unapprove coding >/dev/null
 AU_SBM=$(cat "$AU_D/metrics.yml")

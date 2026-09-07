@@ -25,7 +25,7 @@ AI 開発ワークフローの入口（ルーター）。
 
 ```sh
 .claude/skills/aidev-docs/bin/aidev status                 # 進行中(works)＋未着手(backlog) を人間可読表で
-# works が多いなら: .claude/skills/aidev-docs/bin/aidev status --active   # deliver 済みを隠す
+# 全部見るなら: .claude/skills/aidev-docs/bin/aidev status --all   # 既定は完了・廃止を隠す
 # 機械処理が必要なら: .claude/skills/aidev-docs/bin/aidev status --format tsv
 # Windows: pwsh .claude/skills/aidev-docs/bin/aidev.ps1 status
 #          （pwsh 無しなら powershell -NoProfile -File ... / Git Bash なら POSIX 版の aidev がそのまま動く）
@@ -33,8 +33,11 @@ AI 開発ワークフローの入口（ルーター）。
 
 出力の読み方:
 
-- **WORKS 表**: `work` / `ticket` / `mode` / `current` / `next`（次工程。`done` なら `-`）/ `done`
-  （`deliver` 承認済か）/ `deps`。`deps` が `ok` 以外（`<slug>(未deliver)` や `#N(advisory)`）の作業は
+- **WORKS 表**: `work` / `ticket` / `mode` / `current` / `next`（次工程。`done` なら `-`）/ `state`
+  （`active` / `done`＝deliver 承認済 / `abandoned`＝廃止）/ `deps`。**既定は `done` と `abandoned` を
+  隠し**、隠した件数を見出しに出す（`--all` で全部。`--active` は既定の別名）。
+  表の下の **`cursor:` 行が「どこから再開するか」**（`.aidev/current` が指す work とその工程）。
+  分割 work の差し戻し直後は親行の `current` と食い違うので、**再開位置は `cursor:` を見る**。`deps` が `ok` 以外（`<slug>(未deliver)` や `#N(advisory)`）の作業は
   依存未充足・要確認＝ `⛔依存待ち（<deps の内容>）` として扱う（`protocol.md`「2.7」）。
 - **BACKLOG 表**: backlog ファイルごとの未着手件数 `todo` と、依存待ち（`(needs:…)`）件数 `needs`。
   これで「進行中（works）＋未着手（backlog）」を1画面で把握できる（ビュー統合。`DESIGN.md`「2.5」）。
@@ -67,6 +70,10 @@ CLI は `.aidev/` を上方探索するので、無いと**どのコマンドも
 **人間がいない起動では確認できない**ので、起動時の指示が指す作業（backlog 項目・チケット・タスク文）を
 そのまま対象とし、選択肢の提示は省く。何を対象にしたかは requirements に書く。
 
+- **やめる**：着地させないと決めたら `aidev abandon <slug> --reason <理由>`。`status`/`doctor` の
+  既定表示から外れ、**廃止した work では `guard`/`event`/`approve` が通らない**（一覧に出ないのに
+  作業が進むのを防ぐ）。**やめた work を探すのは `aidev status --all`**（`ABANDONED` 節に理由が出る）、
+  戻すのは `aidev abandon <slug> --undo`。放置すると一覧に残り続け、doctor も評価を続ける。
 - **続きから**：既存の作業を選択 → `aidev use <slug>`（`.aidev/current` を更新。存在しない slug は弾かれる）
   → その工程の skill を案内。CLI 無し環境では `.aidev/current` を手で書く。
 - **別工程をやり直す（差し戻し）**：作業と工程を選択 → **必ず `aidev use <slug>` してから**当該工程の

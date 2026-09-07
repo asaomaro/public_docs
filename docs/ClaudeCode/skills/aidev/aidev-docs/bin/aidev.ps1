@@ -9,6 +9,7 @@
 #     --parent 指定時は親 work 配下に subtask（<NN>-<subslug>・date prefix なし・current=tasks）を作る
 #     --profile/--light は「どこまで工程を回すか」（protocol.md「11.」）。mode（誰が承認するか）と直交
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 escalate [slug]   # profile を light -> full に昇格（片方向）
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 abandon [slug] --reason <理由>  # 着地させないと決めた work を廃止（--undo で戻す）
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 event <phase> <start|sent_back> [key=value ...]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 approve <phase> [key=value ...]
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 unapprove <phase> [--slug <work>]
@@ -154,6 +155,44 @@ function WorkResolveName($slug) {
   if ($hits.Count -eq 1 -and (IsDir (Join-Path $root ($hits[0] + $tail)))) { return ($hits[0] + $tail) }
   return $slug
 }
+# 差し戻しの理由が残る先と、その「印」の数（sh 側 sb_artifact / sb_marks と同じ理由・同じ判定）。
+# バイト数ではなく印を数える——test 側はテンプレが smoke の生出力に ``` を要求するので、
+# ``` の有無だけでは「失敗が発生していない」と書いた文書でも常に通ってしまう
+function SbArtifact($ph) {
+  if ($ph -ceq 'review') { return 'review.md' }
+  if ($ph -ceq 'test')   { return 'test-result.md' }
+  return ''
+}
+function SbMarks($ph) {
+  $f = SbArtifact $ph
+  if (-not $f) { return 0 }
+  $path = Join-Path $script:WORK $f
+  if (-not (IsFile $path)) { return 0 }
+  $n = 0
+  foreach ($l in [System.IO.File]::ReadAllLines($path)) {
+    # **nit は数えない**（sh 側 sb_marks と同じ判定。nit だけでは差し戻さない）
+    if ($ph -ceq 'review') { if ($l -match '^\s*- \[(must|should)\]') { $n++ } }
+    elseif ($ph -ceq 'test') { if ($l -match '^\s*```') { $n++ } }
+  }
+  return $n
+}
+function SbMarksAtStart($ph) {
+  $mf = Join-Path $script:WORK 'metrics.yml'
+  if (-not (IsFile $mf)) { return '' }
+  $last = ''
+  foreach ($l in [System.IO.File]::ReadAllLines($mf)) {
+    if ($l -match ('phase:\s*' + $ph + ',') -and $l -match 'event:\s*start') {
+      $m = [regex]::Match($l, 'marks:\s*(\d+)')
+      if ($m.Success) { $last = $m.Groups[1].Value } else { $last = '' }
+    }
+  }
+  return $last
+}
+# **廃止した work では工程を進めさせない**（sh 側 die_if_abandoned と同じ理由・同じ文言）
+function DieIfAbandoned($cmd) {
+  if ((YGet (Join-Path $script:WORK 'state.yml') 'status') -cne 'abandoned') { return }
+  Die "廃止した work では $cmd を実行できません: $($script:SLUG)（再開するなら aidev abandon $($script:SLUG) --undo）"
+}
 function ResolveWork($slug) {
   # slug は top-level work（dated 名）か subtask のネストパス（<dated>/<NN>-<subslug>）。works/<slug> へ素直に連結する。
   if (-not $slug) { $slug = $env:AIDEV_WORK }
@@ -166,9 +205,9 @@ function ResolveWork($slug) {
   $slug = WorkResolveName $slug
   $script:WORK = Join-Path (Join-Path $script:AIDEV 'works') $slug
   if (-not (IsDir $script:WORK) -and (WorkResolveHits $rwsrc).Count -gt 1) {
-    Die "slug が複数の work に当たります: $rwsrc（日付つきの名前で指定してください。一覧は aidev list）"
+    Die "slug が複数の work に当たります: $rwsrc（日付つきの名前で指定してください。一覧は aidev status --all）"
   }
-  if (-not (IsDir $script:WORK)) { Die "work が存在しません: $slug（一覧は aidev list）" }
+  if (-not (IsDir $script:WORK)) { Die "work が存在しません: $slug（一覧は aidev status --all）" }
   $script:SLUG = $slug
 }
 
@@ -280,8 +319,13 @@ function EnsureEvents($work) {
 function BuildEntry($phase,$event,$kvs) {
   $m = @()
   foreach ($kv in $kvs) {
+    # **k=v の形を入口で検査する**（sh 側 build_entry と同じ理由・同じ文言）
     $i = $kv.IndexOf('=')
-    if ($i -ge 0) { $k = $kv.Substring(0,$i); $val = $kv.Substring($i+1); $m += "${k}: $val" }
+    if ($i -lt 0) { Die "metrics は key=value の形で渡します: $kv（オプションではありません。対象 work の切り替えは aidev use）" }
+    $k = $kv.Substring(0,$i); $val = $kv.Substring($i+1)
+    if ($k -notmatch '^[A-Za-z0-9_]+$') { Die "metrics のキーが不正です: $k（英数字と _ のみ）" }
+    if ($val -match '[,{}]') { Die "metrics の値に , { } は使えません: $kv（metrics はフロー形式の1行）" }
+    $m += "${k}: $val"
   }
   $base = "{ ts: $(Now), phase: $phase, event: $event"
   if ($m.Count -gt 0) { return "$base, metrics: { $([string]::Join(', ',$m)) } }" }
@@ -696,6 +740,47 @@ function Cmd-Event($rest) {
   if ($ev -ceq 'approved') { Die "approved は aidev approve <phase> で記録すること（event では state.yml が更新されず、metrics と乖離する）" }
   if ('start','sent_back' -cnotcontains $ev) { Die "event は start|sent_back（approved は approve コマンド）" }
   ResolveWork ''
+  DieIfAbandoned 'event'
+  # `start` は**そのラウンドの開始時点の印の数**を刻む（下の sent_back がこれと比べる）
+  if ($ev -ceq 'start' -and (SbArtifact $ph)) { $kvs = @($kvs) + @("marks=$(SbMarks $ph)") }
+  # **差し戻しを記録する、その瞬間に理由の所在を検査する**（sh 側 cmd_event と同じ理由・同じ文言）
+  if ($ev -ceq 'sent_back') {
+    $sb0 = SbMarksAtStart $ph
+    if ($sb0 -ne '' -and (SbMarks $ph) -le [int]$sb0) {
+      [Console]::Error.WriteLine("NG このラウンドの差し戻しの理由が $(SbArtifact $ph) に足されていません: $($script:SLUG)")
+      if ($ph -ceq 'review') {
+        [Console]::Error.WriteLine("   → 行頭 - [must|should] の指摘行が $ph の開始時点（$sb0 件）から増えていません")
+      } else {
+        [Console]::Error.WriteLine("   → ``` のブロックが $ph の開始時点（$sb0 行）から増えていません")
+      }
+      [Console]::Error.WriteLine('      **今回の**指摘 / 失敗の生出力を追記してから記録する（前ラウンドの記述が残っているだけでは通しません）')
+      exit 2
+    }
+    if ($ph -ceq 'review') {
+      $rvm = Join-Path $script:WORK 'review.md'; $hasf = $false
+      if (IsFile $rvm) {
+        foreach ($l in [System.IO.File]::ReadAllLines($rvm)) {
+          if ($l -match '^\s*- \[(must|should)\]') { $hasf = $true; break }
+        }
+      }
+      if (-not $hasf) {
+        [Console]::Error.WriteLine("NG 差し戻しの理由が review.md にありません: $($script:SLUG)")
+        [Console]::Error.WriteLine('   → 先に当該ラウンドの指摘を書く（行頭 - [must|should] … の形。protocol.md「8.」。nit だけでは差し戻さない）')
+        [Console]::Error.WriteLine('      書いてから aidev event review sent_back を打つ（順序が逆だと理由が残らない）')
+        exit 2
+      }
+    } elseif ($ph -ceq 'test') {
+      $trm = Join-Path $script:WORK 'test-result.md'; $hasb = $false
+      if (IsFile $trm) {
+        foreach ($l in [System.IO.File]::ReadAllLines($trm)) { if ($l -match '^\s*```') { $hasb = $true; break } }
+      }
+      if (-not $hasb) {
+        [Console]::Error.WriteLine("NG 差し戻しの理由が test-result.md にありません: $($script:SLUG)")
+        [Console]::Error.WriteLine('   → 先に失敗の生出力を ``` のブロックで貼る（**修正する前に**。直すと出力は消える）')
+        exit 2
+      }
+    }
+  }
   AppendEvent $script:WORK $ph $ev $kvs
   Write-Output "recorded: $($script:SLUG)/$ph/$ev"
   # 差し戻しの上限到達をその瞬間に知らせる（sh 版 cmd_event と同一）
@@ -723,6 +808,7 @@ function Cmd-Approve($rest) {
   $ph=$rest[0]; $kvs=@(); if ($rest.Count -gt 1) { $kvs=$rest[1..($rest.Count-1)] }
   if (-not (IsPhase $ph)) { DieUnknownPhase $ph }
   ResolveWork ''
+  DieIfAbandoned 'approve'
   $st = Join-Path $script:WORK 'state.yml'
   if (-not (IsFile $st)) { Die "state.yml がありません: $($script:SLUG)" }
 
@@ -934,6 +1020,7 @@ function Cmd-Guard($rest) {
   $ph=$rest[0]
   if (-not (IsPhase $ph)) { DieUnknownPhase $ph }
   ResolveWork ''
+  DieIfAbandoned 'guard'
   $miss=@(); $unapp=@()
   # subtask なら上流成果物(requirements/design/architecture)の継承元として親 work dir を立てる
   $script:PARENT_DIR=''
@@ -2697,6 +2784,57 @@ function Cmd-Verify($rest) {
 
 # --- escalate（profile: light -> full。片方向） --------------------------------
 # state.yml の更新を CLI に集約するための経路（sh 版 cmd_escalate と同一）。
+# **廃止（abandoned）**——着手したが着地させないと決めた work（sh 側 cmd_abandon と同じ理由・同じ出力）
+function Cmd-Abandon($rest) {
+  $abslug=''; $abreason=''; $abundo=$false
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch -CaseSensitive ($rest[$i]) {
+      '--reason' { $i++; $abreason=(ArgAt $rest $i '--reason') }
+      '--undo'   { $abundo=$true }
+      default {
+        if ($rest[$i].StartsWith("-")) { Die "未知のオプション: $($rest[$i])" }
+        elseif (-not $abslug) { $abslug=$rest[$i] } else { Die "slug は1つだけ" }
+      }
+    }
+  }
+  ResolveWork $abslug
+  $st = Join-Path $script:WORK 'state.yml'
+  $abcur = YGet $st 'status'
+  if ($abundo) {
+    if ($abcur -cne "abandoned") { Die "廃止されていません: $($script:SLUG)" }
+    ReplaceLine $st 'status' 'status: active'
+    # **理由の行も落とす**／**復帰もイベントに積む**（sh 側 cmd_abandon と同じ理由）
+    $keep = @()
+    foreach ($l in [System.IO.File]::ReadAllLines($st)) { if (-not $l.StartsWith('abandonedReason:')) { $keep += $l } }
+    WriteText $st ([string]::Join("`n", $keep) + "`n")
+    AppendEvent $script:WORK (YGet $st 'current') 'revived' @()
+    Write-Output "revived: $($script:SLUG)（status: active。再開できます）"
+    return
+  }
+  if ($abcur -ceq "abandoned") { Die "既に廃止済みです: $($script:SLUG)（戻すなら aidev abandon $($script:SLUG) --undo）" }
+  if ((YList $st 'approved') -ccontains 'deliver') {
+    Die "deliver 承認済みの work は廃止できません（着地しています）: $($script:SLUG)"
+  }
+  if (-not $abreason) {
+    Die "--reason は必須（なぜやめたかを残す。例: aidev abandon $($script:SLUG) --reason '上流の要件が取り下げ')"
+  }
+  if ($abreason -match '[,{}]') { Die '--reason に , { } は使えません（state.yml の1行に収める）' }
+  SetOrAppend $st 'status' 'status: abandoned'
+  SetOrAppend $st 'abandonedReason' "abandonedReason: $abreason"
+  AppendEvent $script:WORK (YGet $st 'current') 'abandoned' @()
+  # **カーソルを外す**（sh 側と同じ理由）
+  $curf = Join-Path $script:AIDEV 'current'
+  if (IsFile $curf) {
+    $cur0 = ((Get-Content -LiteralPath $curf -TotalCount 1) -replace "`r|`n", '').Trim()
+    if ($cur0 -ceq $script:SLUG) {
+      Remove-Item -LiteralPath $curf -Force
+      Write-Output 'cursor: .aidev/current を外しました（aidev status で次の work を選ぶ）'
+    }
+  }
+  Write-Output "abandoned: $($script:SLUG)"
+  Write-Output "note: status/doctor の既定表示から外れます（--all で出ます）。再開するなら aidev abandon $($script:SLUG) --undo"
+}
+
 function Cmd-Escalate($rest) {
   $slug=''; if ($rest.Count -ge 1) { $slug=$rest[0] }
   ResolveWork $slug
@@ -2825,10 +2963,12 @@ function Cmd-Doctor($rest) {
     Doctor-Backlog; Doctor-Conventions; Doctor-Harness; Doctor-Smoke; Doctor-Shared; Doctor-Gitignore; Doctor-HrStraddle; Doctor-HrSentinel; Doctor-Branch
     exit 0
   }
-  $total=0; $script:DFail=0; $legacy=0
+  $total=0; $script:DFail=0; $legacy=0; $dab=0
   $qn = if ($script:DQuiet) { '（--quiet: OK は省略）' } else { '' }
   Write-Output "doctor: 全 work 横断検査$qn"
   foreach ($d in (Get-ChildItem -LiteralPath $worksDir -Directory | Sort-Object Name)) {
+    # **廃止した work は検査しない**（sh 側 cmd_doctor と同じ理由）。子ごと飛ばす
+    if ((YGet (Join-Path $d.FullName 'state.yml') 'status') -ceq 'abandoned') { $dab++; continue }
     $total++
     $sc = YGet (Join-Path $d.FullName 'state.yml') 'schema'
     if ([string]::IsNullOrEmpty($sc)) { $legacy++ }
@@ -2843,7 +2983,9 @@ function Cmd-Doctor($rest) {
     }
   }
   $fail = $script:DFail
-  Write-Output "summary: works=$total fail=$fail legacy(免除)=$legacy"
+  # 廃止 work は**数えて見えるようにする**（sh 側と同じ）
+  if ($dab -gt 0) { Write-Output "summary: works=$total fail=$fail legacy(免除)=$legacy 廃止(検査対象外)=$dab" }
+  else { Write-Output "summary: works=$total fail=$fail legacy(免除)=$legacy" }
   Doctor-Backlog
   Doctor-Conventions
   Doctor-Harness
@@ -2895,12 +3037,14 @@ function SubtaskProgress($workDir) {
 }
 
 function Cmd-Status($rest) {
-  $fmt='table'; $subflag=$false; $activef=$false
+  # **既定で「いま手を動かせるもの」だけを出す**（sh 側 cmd_status と同じ理由・同じ出力）
+  $fmt='table'; $subflag=$false; $allf=$false; $whid=0; $wabn=0; $wabrows=@()
   for ($i=0; $i -lt $rest.Count; $i++) {
     switch -CaseSensitive ($rest[$i]) {
       '--format'   { $i++; $fmt=(ArgAt $rest $i '--format') }
       '--subtasks' { $subflag=$true }
-      '--active'   { $activef=$true }
+      '--all'      { $allf=$true }
+      '--active'   { }
       default {
         if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
         else { Die "status は位置引数を取りません: $($rest[$i])" }
@@ -2920,8 +3064,17 @@ function Cmd-Status($rest) {
       $current = YGet $st 'current';if (-not $current) { $current='-' }
       $appr = @(YList $st 'approved')
       $wdone = if ($appr -ccontains 'deliver') { 'yes' } else { 'no' }
+      $wab = ((YGet $st 'status') -ceq 'abandoned')
+      if ($wab) {
+        $wabr = YGet $st 'abandonedReason'; if (-not $wabr) { $wabr = '-' }
+        $wabrows += ($d.Name + "`t" + $wabr)
+      }
+      # 表に出すのは 3 値（sh 側と同じ）。done の yes/no のままだと廃止 work が「進行中」に見える
+      $wstate = 'active'
+      if ($wdone -ceq 'yes') { $wstate = 'done' }
+      if ($wab) { $wstate = 'abandoned' }
       # --active: deliver 済みは出さない（sh 版と同一）
-      if ($activef -and $wdone -ceq 'yes') { continue }
+      if ((-not $allf) -and ($wdone -ceq 'yes' -or $wab)) { $whid++; if ($wab) { $wabn++ }; continue }
       $next='-'
       if ($wdone -ceq 'no') {
         # profile: light は design/tasks を畳む（承認されないのが正常）。素通しすると next が
@@ -2943,7 +3096,7 @@ function Cmd-Status($rest) {
       foreach ($a in $script:EvalAdvisory) { $tok += "$a(advisory)" }
       $deps = if ($tok.Count -gt 0) { [string]::Join(',', $tok) } else { 'ok' }
       $wn++
-      $wrows += ("W`t" + $d.Name + "`t" + $ticket + "`t" + $mode + "`t" + $current + "`t" + $next + "`t" + $wdone + "`t" + $deps)
+      $wrows += ("W`t" + $d.Name + "`t" + $ticket + "`t" + $mode + "`t" + $current + "`t" + $next + "`t" + $wstate + "`t" + $deps)
       # --subtasks: 親直下に子を列挙（S 行）
       if ($subflag -and $sp) {
         foreach ($cs in @(YList $st 'subtasks')) {
@@ -3017,9 +3170,11 @@ function Cmd-Status($rest) {
     return
   }
 
-  Write-Output "WORKS ($wn)"
+  # **内訳を出す**（sh 側 cmd_status と同じ。doctor が 廃止(検査対象外)=N と分けているのに揃える）
+  if ($whid -gt 0) { Write-Output "WORKS ($wn / 非表示 $whid 件: 完了 $($whid - $wabn)・廃止 $wabn。--all で全部)" }
+  else { Write-Output "WORKS ($wn)" }
   if ($wn -gt 0) {
-    $disp = @("work`tticket`tmode`tcurrent`tnext`tdone`tdeps")
+    $disp = @("work`tticket`tmode`tcurrent`tnext`tstate`tdeps")
     foreach ($r in $wrows) {
       $c = $r -split "`t"
       if ($c[0] -ceq 'W') { $disp += ($c[1..7] -join "`t") }
@@ -3028,6 +3183,21 @@ function Cmd-Status($rest) {
     foreach ($l in (Fmt-Table $disp)) { Write-Output $l }
   }
   Write-Output ""
+  # **廃止の理由は機械で読める場所に出す**／**どこから再開するかを名指しする**（sh 側 cmd_status と同じ）
+  if ($allf -and $wabrows.Count -gt 0) {
+    Write-Output ""
+    Write-Output "ABANDONED（やめた理由）"
+    foreach ($l in (Fmt-Table $wabrows)) { Write-Output $l }
+  }
+  $curf2 = Join-Path $script:AIDEV 'current'
+  if (IsFile $curf2) {
+    $stc = ((Get-Content -LiteralPath $curf2 -TotalCount 1) -replace "`r|`n", '').Trim()
+    $stcd = Join-Path (Join-Path $script:AIDEV 'works') $stc
+    if ($stc -and (IsDir $stcd)) {
+      $stcp = YGet (Join-Path $stcd 'state.yml') 'current'
+      Write-Output "cursor: $stc（$stcp）"
+    }
+  }
   Write-Output "BACKLOG (未着手 $bn 件)"
   if ($bf -gt 0) { foreach ($l in (Fmt-Table (@("file`ttodo`tneeds`tinflight") + $brows))) { Write-Output $l } }
   # 行単位の保持状況（sh 版 cmd_status の注記に理由）
@@ -3200,6 +3370,8 @@ function Cmd-Metrics($rest) {
     } else {
       $fs = if ($first -ge 0) { $firstts } else { '-' }
       $dv = if ($deliveredFlag) { 'yes' } else { 'no' }
+      # **廃止を delivered: no に混ぜない**（sh 側 cmd_metrics と同じ理由）
+      if ((YGet (Join-Path $wd 'state.yml') 'status') -ceq 'abandoned') { $dv = 'abandoned' }
       $lead = '-'
       if ($deliveredFlag -and $first -ge 0 -and $deliveredE -ge 0) { $lead = $deliveredE-$first }
       # 「手戻り回数」= やり直した回数（工程数で数えると分子が飽和する。sh 版と同一）
@@ -3229,7 +3401,7 @@ function Cmd-Metrics($rest) {
   }
 
   if ($phasesf) { $hdr = "work`tphase`tstart`tapproved`telapsed_sec`trounds" }
-  else          { $hdr = "work`tfirst_start`tdelivered`tlead_sec`twork_sec`treworks`tsent_backs`tac`tac_drift`tharnessRev`tstraddle" }
+  else          { $hdr = "work`tfirst_start`tstate`tlead_sec`twork_sec`treworks`tsent_backs`tac`tac_drift`tharnessRev`tstraddle" }
 
   if ($fmt -ceq 'tsv') { foreach ($r in $rows) { Write-Output $r } }
   else { foreach ($l in (Fmt-Table (@($hdr) + $rows))) { Write-Output $l } }
@@ -4880,6 +5052,7 @@ switch -CaseSensitive ($cmd) {
   'taskcheck' { Cmd-TaskCheck $rest }
   'doccheck' { Cmd-DocCheck $rest }
   'escalate' { Cmd-Escalate $rest }
+  'abandon'  { Cmd-Abandon $rest }
   'doctor'  { Cmd-Doctor $rest }
   'harness' { Cmd-Harness $rest }
   'status'  { Cmd-Status $rest }
