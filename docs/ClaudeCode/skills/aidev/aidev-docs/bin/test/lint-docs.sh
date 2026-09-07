@@ -383,7 +383,13 @@ BUDGET_PROTOCOL=608
 #   節ごと落としたのは「plan モードとの関係」で、代わりに置いた「方針の事前承認」は 26 行。
 #   落ちたのは**製品固有の機構の作法**（入り方・抜け方・plan file・着地モード・サーフェス別の可否）で、
 #   **規律そのもの（方針を先に承認させる）は残っている**。経緯は `DESIGN.md`「2.」へ移した。
-BUDGET_TOTAL=3439
+# 3439 -> 3453: **design 工程の中に「依拠した事実の出所」の点検を足した**ぶん（+14）。
+#   plan モード廃止で落ちたもののうち「**書く前に調べることの強制**」だけは代わりが要る、という判断。
+#   **同じ効き目にはならない**（強制ではなく事後の点検）が、`doccheck design` が
+#   出所の無い断定を突けるようになり、**痕跡が `design.md` に残るので記録には乗る**。
+#   検査は既存の「`AC` の入力の出所が文書内で辿れるか」と同じ型——**内部一貫性の範囲を出ない**
+#   （リポジトリを読みに行かない）ので、`protocol-check.md`「(a)」の枠を広げずに済む。
+BUDGET_TOTAL=3453
 _p=$(wc -l < "$SKILLS/aidev-00-start/protocol.md")
 _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 [ "$_p" -le "$BUDGET_PROTOCOL" ] && ok "L6 protocol.md が予算内（$_p / $BUDGET_PROTOCOL 行）" \
