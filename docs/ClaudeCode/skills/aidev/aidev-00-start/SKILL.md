@@ -25,7 +25,7 @@ AI 開発ワークフローの入口（ルーター）。
 
 ```sh
 .claude/skills/aidev-docs/bin/aidev status                 # 進行中(works)＋未着手(backlog) を人間可読表で
-# works が多いなら: .claude/skills/aidev-docs/bin/aidev status --active   # deliver 済みを隠す
+# 全部見るなら: .claude/skills/aidev-docs/bin/aidev status --all   # 既定は完了・廃止を隠す
 # 機械処理が必要なら: .claude/skills/aidev-docs/bin/aidev status --format tsv
 # Windows: pwsh .claude/skills/aidev-docs/bin/aidev.ps1 status
 #          （pwsh 無しなら powershell -NoProfile -File ... / Git Bash なら POSIX 版の aidev がそのまま動く）
@@ -33,8 +33,11 @@ AI 開発ワークフローの入口（ルーター）。
 
 出力の読み方:
 
-- **WORKS 表**: `work` / `ticket` / `mode` / `current` / `next`（次工程。`done` なら `-`）/ `done`
-  （`deliver` 承認済か）/ `deps`。`deps` が `ok` 以外（`<slug>(未deliver)` や `#N(advisory)`）の作業は
+- **WORKS 表**: `work` / `ticket` / `mode` / `current` / `next`（次工程。`done` なら `-`）/ `state`
+  （`active` / `done`＝deliver 承認済 / `abandoned`＝廃止）/ `deps`。**既定は `done` と `abandoned` を
+  隠し**、隠した件数を見出しに出す（`--all` で全部。`--active` は既定の別名）。
+  表の下の **`cursor:` 行が「どこから再開するか」**（`.aidev/current` が指す work とその工程）。
+  分割 work の差し戻し直後は親行の `current` と食い違うので、**再開位置は `cursor:` を見る**。`deps` が `ok` 以外（`<slug>(未deliver)` や `#N(advisory)`）の作業は
   依存未充足・要確認＝ `⛔依存待ち（<deps の内容>）` として扱う（`protocol.md`「2.7」）。
 - **BACKLOG 表**: backlog ファイルごとの未着手件数 `todo` と、依存待ち（`(needs:…)`）件数 `needs`。
   これで「進行中（works）＋未着手（backlog）」を1画面で把握できる（ビュー統合。`DESIGN.md`「2.5」）。

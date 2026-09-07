@@ -262,10 +262,17 @@ work 専用の git worktree と `feature/<slug>` ブランチを作り、main tr
 ## 中断と再開
 
 - 状態は `.aidev/works/<YYYYMMDD-slug>/state.yml`（`current` / `approved` / `dependsOn`）＋成果物ファイルで管理。
-- どこで止めても、`/aidev-00-start` で現在地が復元され、続きから再開できる（`aidev status`。works が
-  多ければ `--active` で deliver 済みを隠す）。
+- どこで止めても、`/aidev-00-start` で現在地が復元され、続きから再開できる。`aidev status` は
+  **既定で完了・廃止を隠し**（隠した件数は見出しに出す。`--all` で全部）、表の下の **`cursor:` 行が
+  「どこから再開するか」**を名指しする——分割 work の差し戻し直後は親行の `current` と食い違うので、
+  再開位置はここを見る。
 - 複数作業を並行可能。`.aidev/current` が「今どれを触っているか」を指す（`aidev use <slug>` で切替）。
 - 差し戻しで後工程の承認を取り消すときは `aidev unapprove <工程>`（記録は消さず `sent_back` を刻む）。
+  差し戻しは**理由を書いてから記録する**——`aidev event <工程> sent_back` が「このラウンドで
+  `review.md` の指摘行 / `test-result.md` の ``` ブロックが増えたか」を見て、増えていなければ止める。
+- **やめるときは `aidev abandon <slug> --reason <理由>`**（`--undo` で戻る）。`status` / `doctor` の
+  既定表示から外れ、`status --all` の `ABANDONED` 節に理由が出る。**廃止した work では
+  `guard` / `event` / `approve` が通らない**——「一覧に出ないのに作業は進む」を防ぐため。
 
 ## ファイル構成
 

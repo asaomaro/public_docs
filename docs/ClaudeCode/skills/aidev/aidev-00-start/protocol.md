@@ -304,6 +304,8 @@ ticket: <ID または 省略>     # 任意。外部チケット/issue の ID（�
 current: <直近で作業した工程の論理名>
 approved: [<承認済み工程の論理名…>]
 status: active              # 省略可（未記載=active）。abandoned=着手したが着地させないと決めた work。
+                            # **ゲートの 4 択には載せない**——あれは工程を進める判断の枠。やめる判断は
+                            # `aidev abandon` で、入口（`aidev-00-start` 手順3）から選ぶ
                             # 「完了」は approved に deliver が入っているかの導出だが、廃止は**判断**なので明示する。
                             # `aidev abandon <slug> --reason <理由>` が刻み、status/doctor の既定表示から外れる（--all で出る）
 abandonedReason: <理由>      # status: abandoned のとき必須（CLI が --reason を必須にしている）

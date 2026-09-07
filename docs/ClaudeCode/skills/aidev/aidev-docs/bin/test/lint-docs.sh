@@ -340,7 +340,15 @@ BUDGET_PROTOCOL=608
 #   `aidev-60-review` +3 / `aidev-50-test` +2: 差し戻しの**理由を書く前に記録できた**。
 #     `verify` が review.md / test-result.md を見るのは**承認時**なので、記録だけ先に打って
 #     セッションが切れると理由が永久に残らない。順序は散文だけだったので `event sent_back` に降ろした。
-BUDGET_TOTAL=3462
+# 3462 -> 3470: **実走が見つけた「書いてあるとおりにやったら詰む」**を塞いだぶん（+8）。
+#   `aidev-60-review` +5: 統合 review の差し戻し手順が**2 つの箇条書きに割れ**、
+#     「まず〜」で始まる方が正典に読めるのに**親の `unapprove test` が入っていなかった**。
+#     別に覚えていないと親の `approved` に古い `test` が残ったまま deliver へ進む。1 本の順序列に統合。
+#   `aidev-00-start` +2: WORKS 表の凡例が `done` 列のままで `abandoned` が読めず、
+#     `--active` の説明も古かった。**再開位置は `cursor:` 行**を見る、も足した
+#     ——分割 work の差し戻し直後は親行の `current` と食い違う（実走が実測）。
+#   `protocol.md` +1: ゲートの 4 択に「やめる」を**載せない**理由（あれは工程を進める判断の枠）。
+BUDGET_TOTAL=3470
 _p=$(wc -l < "$SKILLS/aidev-00-start/protocol.md")
 _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 [ "$_p" -le "$BUDGET_PROTOCOL" ] && ok "L6 protocol.md が予算内（$_p / $BUDGET_PROTOCOL 行）" \
@@ -569,6 +577,10 @@ _l13out=$(awk '
     if (was) next                              # 行頭が単一引用符の中＝安全
     # 単一引用符で囲まれた区間を落とす
     gsub(/\047[^\047]*\047/, "", line)
+    # **行末コメントも落とす**。`foo() { # …\`x\` … }` のような注記で誤検知した（実測）。
+    # ただし二重引用符が先に現れる行では切らない——`printf "a#b"` の # は文字列の一部で、
+    # そこで切ると**その後ろの本物の逆引用符を見落とす**（誤検知より見落としのほうが高くつく）
+    if (index(line, "\"") == 0) sub(/[ \t]#.*/, "", line)
     # エスケープ済みの逆引用符は安全
     gsub(/\\`/, "", line)
     if (line ~ /`/) printf "  %d: %s\n", NR, substr($0, 1, 100)
