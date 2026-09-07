@@ -2884,6 +2884,18 @@ echo "== 文書と CLI 表面の整合（lint-docs.sh）=="
 LINTOUT=$("$SELF/lint-docs.sh" 2>&1); LINTRC=$?
 printf '%s\n' "$LINTOUT" | sed 's/^/  | /'
 assert_eq "$LINTRC" "0" "lint-docs: 文書と CLI 表面が整合している"
+# **同じ lint を UTF-8 ロケールでも回す**。正規表現の `{n,m}` やブラケット式は
+# **ロケールで文字数／バイト数の意味が変わる**ので、手元（C）で緑・CI（UTF-8）で赤、が起きる。
+# 実際に起きた——`tasks.md … tasks.md` の間隔を「バイト数で数える」と書きながら `LC_ALL=C` を
+# `sort` にしか掛けておらず、UTF-8 では日本語 13 文字の間隔まで拾って無関係な行を退役扱いにした。
+# **CI だけが捕まえられる状態だったので、ここで前倒しする**（`\1` が POSIX ERE の外なのと同じ型）
+if locale -a 2>/dev/null | grep -qiE '^(C\.UTF-8|en_US\.utf8|C\.utf8)$'; then
+  _lu=$(locale -a 2>/dev/null | grep -iE '^(C\.UTF-8|C\.utf8|en_US\.utf8)$' | head -n1)
+  LC_ALL=$_lu "$SELF/lint-docs.sh" >/dev/null 2>&1
+  assert_eq "$?" "0" "lint-docs: UTF-8 ロケールでも同じ結果になる（ロケール依存の正規表現を作らない）"
+else
+  skip 1 "UTF-8 ロケールが無いため lint のロケール差検査を省略"
+fi
 # **検査が本当にその欠陥を捕まえるか**を、欠陥を一度戻して確かめる。
 # L9 は「工程 SKILL の方針事前承認の行に判定条件を写さない」を見る検査で、
 # （2026-09-07 に主題を plan モードから付け替えた。**失敗の型は主題に依らない**ので検査は残した）

@@ -531,6 +531,11 @@ RET_OK='Spec Kit|spec-kit|specif|specia|respect|inspect|aspect|plan agent|plan f
 # 環境によっては**黙って何にもマッチしない**（実際、導入時の自己検査を素通りさせた）。
 # 間隔は**バイト数**で数える（`LC_ALL=C`）。`` `tasks.md`（方針）と `tasks.md` `` の
 # 区切りは日本語 5 文字＝15 バイト＋記号なので 30 まで見る。
+# **`LC_ALL=C` は `grep` 自身に掛ける**。長らく `sort` にしか掛かっておらず、
+# 「バイト数で数える」と書いてあるのに**ロケール次第で文字数**になっていた
+# ——手元（C）では通り **CI（UTF-8）だけ赤**という形で出た。`{1,30}` が 30 文字を見れば
+# 日本語 13 文字（37 バイト）の間隔まで拾い、**無関係な行を退役扱いにする**。
+# `\1` が POSIX ERE の外なのと同じ「環境で意味が変わる」型なので、ここも明示で固定する。
 DUP=''
 for _n in requirements design architecture tasks; do
   DUP="${DUP:+$DUP|}$_n\\.md[^A-Za-z0-9]{1,30}$_n\\.md"
@@ -546,7 +551,7 @@ for _f in $({ runtime_docs
   # **統合で生まれた同名の並び**（`tasks.md … tasks.md` のように近接して 2 回）
   # **行ごと**出す（`-o` で断片だけ出していた頃は、免除の登録が原理的にできなかった——
   # 免除は「断片の部分一致」になるので、理由の分かる語を書くと必ず外れた）
-  _d=$(grep -nE "$DUP" "$_f" 2>/dev/null) || true
+  _d=$(LC_ALL=C grep -nE "$DUP" "$_f" 2>/dev/null) || true
   # **改名の経緯を書く場所は旧名を出してよい**（L5/L9 と同じ形——理由つきで登録した行だけ免除）
   if [ -n "$_r$_d" ] && [ -f "$ALLOW" ]; then
     for _lv in _r _d; do
