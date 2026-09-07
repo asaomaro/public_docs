@@ -341,11 +341,12 @@ assert_eq "$(run_sh guard tasks 2>&1 | grep -c '成果物を書く前に方針�
   "guard tasks: subtask では促さない（切り方は親の tasks が確定済み）"
 printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: []\n' > "$PM_W/state.yml"
 rm -f "$PM_W/design.md" "$PM_W/architecture.md" "$PM_W/tasks.md" "$PM_W/tasks.md"
-# **採らなかった案の行き先まで言う**。方針だけ承認を取っても、退けた案が残らなければ
-# 後から選び直せない（旧「抜けた先のモード」の検査を、この 2 行目の検査に置き換えた）
-echo "$H1" | grep -q "採らなかった案と理由は decisions.md に残す" \
-  && ok "guard design: 退けた案の行き先も言う（選び直せるようにする）" \
-  || ng "guard design: 採らなかった案の扱いが 無い"
+# **方針の提示先まで言う**。「承認を得る」とだけ言うと、**どこに提示するかが決まらない**
+# （実走が実測——会話で済ませると記録に残らず、廃止した plan モードの欠点をそのまま引き継ぐ）。
+# 旧「抜けた先のモード」の検査を、この 2 行目の検査に置き換えてある
+echo "$H1" | grep -q "decisions.md に書いて提示する" \
+  && ok "guard design: 方針の提示先まで言う（会話だけだと記録に残らない）" \
+  || ng "guard design: 方針の提示先が無い"
 # 条件は散文と同じ full × interactive だけ——light は往復を減らす趣旨に反し、autonomous には承認者がいない
 printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: []\nprofile: light\n' \
   > "$TMP/.aidev/works/20260101-hint/state.yml"

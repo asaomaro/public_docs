@@ -1163,7 +1163,7 @@ cmd_guard() {
         if [ "$_pmsub" = no ] && [ "$(yget "$WORK/state.yml" profile)" != light ] \
            && has_approver "$ph"; then
           printf '   → 有力案が複数あるなら、**成果物を書く前に方針だけを提示して承認を得る**（承認後に書く）\n'
-          printf '      採らなかった案と理由は decisions.md に残す（protocol-autonomous.md）\n'
+          printf '      方針と、採らなかった案・理由を decisions.md に書いて提示する（protocol-autonomous.md）\n'
         fi ;;
     esac
   fi
@@ -2353,6 +2353,12 @@ dc_start() {
   printf '渡すもの: %s.md だけ（上流の元文書は渡さない。内部一貫性を見るため）\n' "$_dph"
   printf '観点: **内部一貫性のみ**——AC の ID 対応漏れ / **AC の入力の出所が文書内で辿れるか** /\n'
   printf '      目的・ゴールが状態で書けているか / 対象範囲と方針・図と本文の食い違い / 節の欠落・前後の矛盾\n'
+  # **工程ごとの観点は、ここで足さないと委譲先に届かない**。`protocol-check.md` に書いただけでは、
+  # `--mode delegated` の点検者が読むのは**この出力**なので、新しい観点は一度も使われない
+  # （実走が実測。`design` の「依拠する既存の事実」を足した回に、その場で起きていた）
+  if [ "$_dph" = design ]; then
+    printf '      + **`依拠する既存の事実` の断定に出所が付いているか**（出所の無い断定・「未確認」とも書いていない断定）\n'
+  fi
   printf '禁止: **外部ソース・一次資料との照合**（幻覚的な指摘を量産する。一次資料は主エージェントが直読）\n'
   printf '返却形式（これ以外は解釈しない）:\n'
   printf '  CHECK: <ok|findings>\n'

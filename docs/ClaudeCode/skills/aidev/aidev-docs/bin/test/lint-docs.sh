@@ -389,7 +389,13 @@ BUDGET_PROTOCOL=608
 #   出所の無い断定を突けるようになり、**痕跡が `design.md` に残るので記録には乗る**。
 #   検査は既存の「`AC` の入力の出所が文書内で辿れるか」と同じ型——**内部一貫性の範囲を出ない**
 #   （リポジトリを読みに行かない）ので、`protocol-check.md`「(a)」の枠を広げずに済む。
-BUDGET_TOTAL=3453
+# 3453 -> 3460: **実走が突いた穴を塞いだ**ぶん（+7）。促しが「承認を得る」としか言わないので
+#   **どこに提示するかが決まらず**、実走は自分で決めて埋めていた（会話で済ませると記録に残らない
+#   ＝廃止した plan モードの欠点をそのまま引き継ぐ）。**提示先を `decisions.md` に決めた**。
+#   併せて「**承認者がいる判定でも返事が返らない**」場合（無人の `autonomous` × `humanGates`）を明記
+#   ——止めずに書いて進み、承認は既存の approve ゲートが受ける（ゲートの意味は変えない）。
+#   design 側は**出所の書式を `tasks.md` の `対象:` に揃え**、「依拠先が無い」ときの書き方を定めた。
+BUDGET_TOTAL=3460
 _p=$(wc -l < "$SKILLS/aidev-00-start/protocol.md")
 _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 [ "$_p" -le "$BUDGET_PROTOCOL" ] && ok "L6 protocol.md が予算内（$_p / $BUDGET_PROTOCOL 行）" \
