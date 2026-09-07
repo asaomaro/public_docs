@@ -70,8 +70,10 @@ CLI は `.aidev/` を上方探索するので、無いと**どのコマンドも
 **人間がいない起動では確認できない**ので、起動時の指示が指す作業（backlog 項目・チケット・タスク文）を
 そのまま対象とし、選択肢の提示は省く。何を対象にしたかは requirements に書く。
 
-- **やめる**：着地させないと決めたら `aidev abandon <slug> --reason <理由>`（`status`/`doctor` の
-  既定表示から外れる。`--undo` で戻る）。**放置すると一覧に残り続け、doctor も評価を続ける**。
+- **やめる**：着地させないと決めたら `aidev abandon <slug> --reason <理由>`。`status`/`doctor` の
+  既定表示から外れ、**廃止した work では `guard`/`event`/`approve` が通らない**（一覧に出ないのに
+  作業が進むのを防ぐ）。**やめた work を探すのは `aidev status --all`**（`ABANDONED` 節に理由が出る）、
+  戻すのは `aidev abandon <slug> --undo`。放置すると一覧に残り続け、doctor も評価を続ける。
 - **続きから**：既存の作業を選択 → `aidev use <slug>`（`.aidev/current` を更新。存在しない slug は弾かれる）
   → その工程の skill を案内。CLI 無し環境では `.aidev/current` を手で書く。
 - **別工程をやり直す（差し戻し）**：作業と工程を選択 → **必ず `aidev use <slug>` してから**当該工程の

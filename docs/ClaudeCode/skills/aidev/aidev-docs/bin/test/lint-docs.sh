@@ -348,7 +348,13 @@ BUDGET_PROTOCOL=608
 #     `--active` の説明も古かった。**再開位置は `cursor:` 行**を見る、も足した
 #     ——分割 work の差し戻し直後は親行の `current` と食い違う（実走が実測）。
 #   `protocol.md` +1: ゲートの 4 択に「やめる」を**載せない**理由（あれは工程を進める判断の枠）。
-BUDGET_TOTAL=3470
+# 3470 -> 3472: 実走 E が見つけた**検査の空振りと導線の欠け**（+2）。
+#   `protocol.md` +1: 何を検査し**何を検査しないか**——`nit` は数えない（review 工程が
+#     「nit のみ → 終了」と定めているのに、ゲートの語彙に nit が入っていた）／機械で見るのは
+#     review と test だけ（上流の差し戻しは人が口頭で指摘するので理由の置き場が無い）。
+#   `aidev-00-start` +1: **やめた work を探す導線**が無かった——`--undo` の存在は書いてあるが、
+#     廃止 work は既定 status に出ないので**slug に辿り着けなかった**（`status --all` を知る人だけが戻れた）。
+BUDGET_TOTAL=3472
 _p=$(wc -l < "$SKILLS/aidev-00-start/protocol.md")
 _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 [ "$_p" -le "$BUDGET_PROTOCOL" ] && ok "L6 protocol.md が予算内（$_p / $BUDGET_PROTOCOL 行）" \
@@ -555,8 +561,14 @@ echo "== L13: sh の二重引用符の中に生の逆引用符が無いか =="
 # ps1 では逆引用符はエスケープ文字なので**同じ文面でも壊れ方が違う**——パリティ検査も
 # 「両方壊れている」なら通してしまう。単一引用符の中（awk プログラム等）は安全なので、
 # **行をまたぐ単一引用符の状態を追う**。`\` でエスケープされた逆引用符も安全
+# **走査対象は `bin/aidev` だけではない**。テストスクリプト自身が同じ罠を踏んだ
+# ——アサートのメッセージ（二重引用符）に ``` を書いて `sh -n` が
+# 「Unterminated quoted string」で落ちた。検査の対象を、この検査を書いた場所まで広げる
 _l13=0
-_l13out=$(awk '
+_l13out=""
+for _l13f in "$SH" "$BIN/test/run.sh" "$BIN/test/lint-docs.sh"; do
+  [ -f "$_l13f" ] || continue
+  _l13one=$(awk '
   function count_sq(s,   i, c, n) {
     n = 0
     for (i = 1; i <= length(s); i++) {
@@ -566,26 +578,44 @@ _l13out=$(awk '
     }
     return n
   }
-  BEGIN { insq = 0 }
+  function last_sq(s,   i, c, p) {
+    p = 0
+    for (i = 1; i <= length(s); i++) {
+      c = substr(s, i, 1)
+      if (c == "\\" ) { i++; continue }
+      if (c == "\047") p = i
+    }
+    return p
+  }
+  BEGIN { insq = 0; hd = "" }
   {
     line = $0
+    # **ヒアドキュメントの中は素通し**（`<<EOF` の中身は実行されない文字列）
+    if (hd != "") { if ($0 ~ ("^[ \t]*" hd "[ \t]*$")) hd = ""; next }
+    if (!insq && match($0, /<<-?[ \t]*[\047"]?[A-Za-z_][A-Za-z0-9_]*[\047"]?/)) {
+      hd = substr($0, RSTART, RLENGTH)
+      sub(/^<<-?[ \t]*/, "", hd); gsub(/[\047"]/, "", hd)
+    }
     if (!insq) sub(/^[ \t]*#.*/, "", line)     # 行頭コメントは実行されない
-    # この行を出るときの単一引用符の状態
-    nq = count_sq(line)
     was = insq
+    nq = count_sq(line)
     if (nq % 2 == 1) insq = !insq
     if (was) next                              # 行頭が単一引用符の中＝安全
     # 単一引用符で囲まれた区間を落とす
     gsub(/\047[^\047]*\047/, "", line)
-    # **行末コメントも落とす**。`foo() { # …\`x\` … }` のような注記で誤検知した（実測）。
-    # ただし二重引用符が先に現れる行では切らない——`printf "a#b"` の # は文字列の一部で、
-    # そこで切ると**その後ろの本物の逆引用符を見落とす**（誤検知より見落としのほうが高くつく）
+    # **行をまたぐ単一引用符**——閉じずに終わる行は、最後の \047 以降が丸ごと文字列
+    if (count_sq(line) % 2 == 1) line = substr(line, 1, last_sq(line) - 1)
+    # 行末コメントも落とす（二重引用符が先に現れる行では切らない。# が文字列の一部でありうる）
     if (index(line, "\"") == 0) sub(/[ \t]#.*/, "", line)
     # エスケープ済みの逆引用符は安全
     gsub(/\\`/, "", line)
     if (line ~ /`/) printf "  %d: %s\n", NR, substr($0, 1, 100)
-  }' "$SH")
-if [ -n "$_l13out" ]; then printf '%s\n' "$_l13out" >&2; _l13=$(printf '%s\n' "$_l13out" | grep -c .); fi
+  }' "$_l13f")
+  [ -z "$_l13one" ] || _l13out="$_l13out${_l13f#"$SKILLS"/}:
+$_l13one
+"
+done
+if [ -n "$_l13out" ]; then printf '%s' "$_l13out" >&2; _l13=$(printf '%s' "$_l13out" | grep -c '^  [0-9]'); fi
 if [ "$_l13" -eq 0 ]; then ok "L13 sh の実行される位置に生の逆引用符が無い"
 else ng "L13 二重引用符の中に生の逆引用符が $_l13 行（POSIX sh ではコマンド置換として**実行される**）"; fi
 

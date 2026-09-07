@@ -170,8 +170,9 @@ function SbMarks($ph) {
   if (-not (IsFile $path)) { return 0 }
   $n = 0
   foreach ($l in [System.IO.File]::ReadAllLines($path)) {
-    if ($ph -ceq 'review') { if ($l -match '^\s*- \[(must|should|nit)\]') { $n++ } }
-    elseif ($ph -ceq 'test') { if ($l.StartsWith('```')) { $n++ } }
+    # **nit は数えない**（sh 側 sb_marks と同じ判定。nit だけでは差し戻さない）
+    if ($ph -ceq 'review') { if ($l -match '^\s*- \[(must|should)\]') { $n++ } }
+    elseif ($ph -ceq 'test') { if ($l -match '^\s*```') { $n++ } }
   }
   return $n
 }
@@ -204,9 +205,9 @@ function ResolveWork($slug) {
   $slug = WorkResolveName $slug
   $script:WORK = Join-Path (Join-Path $script:AIDEV 'works') $slug
   if (-not (IsDir $script:WORK) -and (WorkResolveHits $rwsrc).Count -gt 1) {
-    Die "slug が複数の work に当たります: $rwsrc（日付つきの名前で指定してください。一覧は aidev list）"
+    Die "slug が複数の work に当たります: $rwsrc（日付つきの名前で指定してください。一覧は aidev status --all）"
   }
-  if (-not (IsDir $script:WORK)) { Die "work が存在しません: $slug（一覧は aidev list）" }
+  if (-not (IsDir $script:WORK)) { Die "work が存在しません: $slug（一覧は aidev status --all）" }
   $script:SLUG = $slug
 }
 
@@ -748,7 +749,7 @@ function Cmd-Event($rest) {
     if ($sb0 -ne '' -and (SbMarks $ph) -le [int]$sb0) {
       [Console]::Error.WriteLine("NG このラウンドの差し戻しの理由が $(SbArtifact $ph) に足されていません: $($script:SLUG)")
       if ($ph -ceq 'review') {
-        [Console]::Error.WriteLine("   → 行頭 - [must|should|nit] の指摘行が $ph の開始時点（$sb0 件）から増えていません")
+        [Console]::Error.WriteLine("   → 行頭 - [must|should] の指摘行が $ph の開始時点（$sb0 件）から増えていません")
       } else {
         [Console]::Error.WriteLine("   → ``` のブロックが $ph の開始時点（$sb0 行）から増えていません")
       }
@@ -759,19 +760,19 @@ function Cmd-Event($rest) {
       $rvm = Join-Path $script:WORK 'review.md'; $hasf = $false
       if (IsFile $rvm) {
         foreach ($l in [System.IO.File]::ReadAllLines($rvm)) {
-          if ($l -match '^\s*- \[(must|should|nit)\]') { $hasf = $true; break }
+          if ($l -match '^\s*- \[(must|should)\]') { $hasf = $true; break }
         }
       }
       if (-not $hasf) {
         [Console]::Error.WriteLine("NG 差し戻しの理由が review.md にありません: $($script:SLUG)")
-        [Console]::Error.WriteLine('   → 先に当該ラウンドの指摘を書く（行頭 - [must|should|nit] … の形。protocol.md「8.」）')
+        [Console]::Error.WriteLine('   → 先に当該ラウンドの指摘を書く（行頭 - [must|should] … の形。protocol.md「8.」。nit だけでは差し戻さない）')
         [Console]::Error.WriteLine('      書いてから aidev event review sent_back を打つ（順序が逆だと理由が残らない）')
         exit 2
       }
     } elseif ($ph -ceq 'test') {
       $trm = Join-Path $script:WORK 'test-result.md'; $hasb = $false
       if (IsFile $trm) {
-        foreach ($l in [System.IO.File]::ReadAllLines($trm)) { if ($l.StartsWith('```')) { $hasb = $true; break } }
+        foreach ($l in [System.IO.File]::ReadAllLines($trm)) { if ($l -match '^\s*```') { $hasb = $true; break } }
       }
       if (-not $hasb) {
         [Console]::Error.WriteLine("NG 差し戻しの理由が test-result.md にありません: $($script:SLUG)")
@@ -3037,7 +3038,7 @@ function SubtaskProgress($workDir) {
 
 function Cmd-Status($rest) {
   # **既定で「いま手を動かせるもの」だけを出す**（sh 側 cmd_status と同じ理由・同じ出力）
-  $fmt='table'; $subflag=$false; $allf=$false; $whid=0; $wabrows=@()
+  $fmt='table'; $subflag=$false; $allf=$false; $whid=0; $wabn=0; $wabrows=@()
   for ($i=0; $i -lt $rest.Count; $i++) {
     switch -CaseSensitive ($rest[$i]) {
       '--format'   { $i++; $fmt=(ArgAt $rest $i '--format') }
@@ -3073,7 +3074,7 @@ function Cmd-Status($rest) {
       if ($wdone -ceq 'yes') { $wstate = 'done' }
       if ($wab) { $wstate = 'abandoned' }
       # --active: deliver 済みは出さない（sh 版と同一）
-      if ((-not $allf) -and ($wdone -ceq 'yes' -or $wab)) { $whid++; continue }
+      if ((-not $allf) -and ($wdone -ceq 'yes' -or $wab)) { $whid++; if ($wab) { $wabn++ }; continue }
       $next='-'
       if ($wdone -ceq 'no') {
         # profile: light は design/tasks を畳む（承認されないのが正常）。素通しすると next が
@@ -3169,7 +3170,8 @@ function Cmd-Status($rest) {
     return
   }
 
-  if ($whid -gt 0) { Write-Output "WORKS ($wn / 完了・廃止 $whid 件は非表示。--all で全部)" }
+  # **内訳を出す**（sh 側 cmd_status と同じ。doctor が 廃止(検査対象外)=N と分けているのに揃える）
+  if ($whid -gt 0) { Write-Output "WORKS ($wn / 非表示 $whid 件: 完了 $($whid - $wabn)・廃止 $wabn。--all で全部)" }
   else { Write-Output "WORKS ($wn)" }
   if ($wn -gt 0) {
     $disp = @("work`tticket`tmode`tcurrent`tnext`tstate`tdeps")

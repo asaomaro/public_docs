@@ -160,7 +160,7 @@ assert_absent  "$ST_TSV" "should-not-count" "archive/ は除外される"
 ST_TBL=$(run_sh status --all)
 assert_contains "$ST_TBL" "WORKS (3)" "table: WORKS 件数（--all は全部）"
 # **既定は完了を隠し、隠した件数を見出しに出す**（見えなくするのではなく数えて見えるように）
-assert_contains "$(run_sh status)" "WORKS (2 / 完了・廃止 1 件は非表示" "table: 既定は完了を隠して件数を言う"
+assert_contains "$(run_sh status)" "WORKS (2 / 非表示 1 件: 完了 1・廃止 0" "table: 既定は完了を隠し、内訳つきで件数を言う"
 assert_contains "$ST_TBL" "BACKLOG (未着手 2 件)" "table: BACKLOG 未着手件数"
 
 echo "== status 異常系 =="
@@ -2077,6 +2077,44 @@ assert_absent "$(run_rt approve review)" "違反）は 0 件" "approve review: !
 assert_contains "$(run_rt taskcheck start T1 --mode delegated --slug "$(basename "$RTX")" 2>&1)" \
   "条項タグは3択" "返却形式に 3 択が出る（書く側の目に ! が入る）"
 
+# 実走の指摘: 差し戻しの理由検査が「中身の有無」だけで、**2 ラウンド目以降は素通り**していた
+# （前ラウンドの指摘行が残っているから）。test 側はテンプレが smoke の生出力に ``` を要求するので、
+# 「失敗が発生していない」と書いた文書でも常に通る**実質 no-op**だった
+run_rt new sb3 >/dev/null
+RTSB2="$RTD/.aidev/works/$(cat "$RTD/.aidev/current")"
+run_rt event review start >/dev/null
+printf -- '- [nit][conv:-] 些細\n' > "$RTSB2/review.md"
+run_rt event review sent_back >/dev/null 2>&1
+assert_eq "$?" "2" "event review sent_back: nit だけでは差し戻さない（工程規約は「nit のみ → 終了」）"
+printf -- '- [must][conv:-] 本物 / 対応: 差し戻す\n' >> "$RTSB2/review.md"
+run_rt event review sent_back >/dev/null 2>&1
+assert_eq "$?" "0" "event review sent_back: must が足されれば通る"
+# **2 ラウンド目**: 前ラウンドの指摘が残っているだけでは通さない
+run_rt event review start >/dev/null
+RTSBO2=$(run_rt event review sent_back 2>&1); assert_eq "$?" "2" \
+  "event review sent_back: 2 ラウンド目に何も足さなければ止まる（前ラウンドの残りで通さない）"
+assert_contains "$RTSBO2" "開始時点（1 件）から増えていません" "event sent_back: 開始時点の件数を言う"
+printf -- '- [should][conv:-] 2巡目 / 対応: 差し戻す\n' >> "$RTSB2/review.md"
+run_rt event review sent_back >/dev/null 2>&1
+assert_eq "$?" "0" "event review sent_back: 2 ラウンド目も追記すれば通る"
+# **test 側**: テンプレの smoke ブロックだけでは通さない（実質 no-op だった経路）
+run_rt event test start >/dev/null
+printf '## 起動確認\n```\nOK\n```\nこのラウンドでは失敗が発生していない。\n' > "$RTSB2/test-result.md"
+run_rt event test start >/dev/null   # smoke を貼った後の開始時点を刻み直す
+run_rt event test sent_back >/dev/null 2>&1
+assert_eq "$?" "2" 'event test sent_back: smoke のフェンスだけでは通さない（テンプレどおりの文書で素通りしていた）'
+printf '## 失敗\n  ```\n  FAILED\n  ```\n' >> "$RTSB2/test-result.md"
+run_rt event test sent_back >/dev/null 2>&1
+assert_eq "$?" "0" 'event test sent_back: 失敗の生出力を足せば通る（インデントしたフェンスも受理する）'
+
+# 実走の指摘: event / approve が未知の引数を黙って metrics キーに変えていた
+run_rt approve review --slug foo >/dev/null 2>&1
+assert_eq "$?" "1" "approve: k=v でない引数を弾く（--slug が metrics キーに化けていた）"
+run_rt event coding start 'note=a, b}' >/dev/null 2>&1
+assert_eq "$?" "1" "event: 値の , { } を弾く（metrics のフロー形式が壊れる）"
+run_rt event coding start 'a b=1' >/dev/null 2>&1
+assert_eq "$?" "1" "event: キーの文字種を検査する"
+
 # 実走の指摘: `verify` の「失敗の生出力が無い」WARN が `by: unapprove` を除外していなかった。
 # 統合 review から子へ差し戻すと子に `by: unapprove` の sent_back が刻まれるが、**子では一度も
 # test が落ちていない**ので貼れる生出力が無く、規約（捏造しない）に従うほど消せない WARN が残った
@@ -2167,10 +2205,12 @@ assert_eq "$?" "1" "abandon: 二重廃止を弾く（冪等ではなく明示的
 
 # **既定は完了・廃止を隠し、隠した件数を見出しに出す**（見えなくするのではなく数えて見えるように）
 ABS=$(run_ab status)
-assert_contains "$ABS" "WORKS (1 / 完了・廃止 2 件は非表示" "status: 既定で完了と廃止を隠し件数を言う"
+assert_contains "$ABS" "WORKS (1 / 非表示 2 件: 完了 1・廃止 1" "status: 既定で完了と廃止を隠し、内訳つきで件数を言う"
 assert_contains "$ABS" "$AB_KEEP" "status: 進行中は出す"
 assert_absent  "$ABS" "$AB_DROP" "status: 廃止は既定で出さない"
-assert_absent  "$ABS" "$AB_LAND" "status: 完了は既定で出さない"
+# **表に出ないこと**を見る。`cursor:` 行は「いまカーソルがどこか」の事実なので、
+# 完了 work を指していれば出る（それ自体が「着地済みの上に座っている」という有用な情報）
+assert_absent  "$(printf '%s\n' "$ABS" | sed -n '/^WORKS/,/^$/p')" "$AB_LAND" "status: 完了は既定で表に出さない"
 # --all では 3 値の state 列で見分けられる（done: no のままだと廃止が「進行中」に見える）
 ABA=$(run_ab status --all --format tsv)
 assert_contains "$ABA" "$AB_DROP	-	interactive	requirements	requirements	abandoned" "status --all: 廃止は abandoned"
