@@ -79,3 +79,9 @@ L10:**`spec_conflict` から改名した**
 L10:Codex CLI は `/plan`・Shift+Tab
 # 3ゲートの射程の記述。判定条件の写しではなく「サブエージェントには渡らない」という事実
 L9:第三層（環境の機能）に触れる規約はこのゲートでは検証できない
+# 他社の入口（スラッシュコマンド `/plan`）に触れる行。`[/／]plan` は aidev の退役名
+# `design/plan` の列挙を捕るための形なので、他社の話をしている行だけ 1 本ずつ免除する
+# （`RET_OK` に足すと行全体が免除され、同じ行の `spec.md` / `plan.md` まで見逃す）
+L10:Codex CLI は人が `/plan`・Shift+Tab で切り替えるだけで
+L10:| Codex CLI | `/plan`・Shift+Tab（Plan → Pair → Execute）
+L10:| Copilot CLI | Shift+Tab・`/plan`／起動時

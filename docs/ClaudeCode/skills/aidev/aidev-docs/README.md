@@ -381,21 +381,25 @@ Claude Code 固有の機構は**すべて任意の高速化層**で、無くて�
 
 ### plan モードは「あるか」ではなく「**誰が入れるか**」で引く
 
-2026-09-07 に調べ直した。**plan モード自体は 3 製品ともある**——以前ここには
+2026-09-07 に調べ直した。**plan モード自体はどれにもある**（下の表のほか Cursor にもある）——以前ここには
 「Copilot CLI には無い（github/copilot-cli#934）」と書いてあったが、**その #934 は close され、
 Copilot CLI は 2026-01 に plan モードを載せた**。分かれるのは**エージェント自身に入口があるか**で、
 第一層は散文なので、入口が無いサーフェスでは「plan モードへ入れ」という指示が**そもそも実行できない**。
 
 | サーフェス | 入口 | **エージェント自身が入れるか** |
 |---|---|---|
-| Claude Code | `EnterPlanMode` / Shift+Tab | **入れる**（主エージェントのみ。サブエージェントには渡されない＝実測） |
+| Claude Code の**主エージェント** | `EnterPlanMode` / Shift+Tab / `/plan` | **入れる**（実測） |
+| Claude Code の**サブエージェント** | 無し | **入れない**。`EnterPlanMode` / `ExitPlanMode` が渡されない（実測）——**同じ製品でも行が分かれる**ので、製品名で引くと必ず読み違える |
 | Codex CLI | `/plan`・Shift+Tab（Plan → Pair → Execute） | **入れない**。要望 openai/codex#11180 は OPEN のまま（#12738 は重複として close） |
-| Copilot CLI | Shift+Tab・`/plan`／起動時 `--plan --mode autopilot`・`COPILOT_PLAN_THEN_AUTOPILOT` | **入れない**。ただし**ハーネスが起動時に強制できる**——ただし**セッション単位**で、aidev の判定は工程単位なので粒度が合わない |
+| Copilot CLI | Shift+Tab・`/plan`／起動時 `--plan --mode autopilot`・`COPILOT_PLAN_THEN_AUTOPILOT` | **入れない**。ただし**ハーネスが起動時に強制できる**——ただしそれは**セッション単位**の指定で、aidev の判定は工程単位なので粒度が合わない |
 | Copilot（VS Code / Visual Studio） | モードピッカーの Plan agent | **入れない**。しかも**人が切り替えてもエージェントに伝わらない**不具合が複数 OPEN（microsoft/vscode#312668 ほか） |
 
-**入口が無いサーフェスでは、上の表のフォールバックは劣化版ではなく本命**。とくに Copilot（IDE）は
-「人に切り替えてもらう」経路自体が当てにならないので、**指示で方針承認を挟むほうを既定にする**。
-なお**製品単位ではなくサーフェス単位で引く**のは変わらない——同じ Copilot でも CLI と IDE で入口が違う。
+この表は**事実の一覧**で、**入口が無いときにどう振る舞うかの規則は書かない**——正典は
+`protocol-autonomous.md`「plan モードとの関係」の 1 箇所（`README.md`「plan モードに入る条件の正典は…」）。
+一度ここに規則を書いたら**正典と強さが食い違った**（正典は「従えなくても失敗ではない」、
+ここは「既定にする」）ので、独立監査の指摘で事実だけに戻した。
+**製品単位ではなくサーフェス単位で引く**のは変わらない——同じ Copilot でも CLI と IDE で入口が違い、
+**同じ Claude Code でも主エージェントとサブエージェントで割れる**。
 
 Copilot / Codex 等では、各エージェントのルールファイル（`AGENTS.md` /
 `.github/copilot-instructions.md`）に次を書けば第三層の代替になる。

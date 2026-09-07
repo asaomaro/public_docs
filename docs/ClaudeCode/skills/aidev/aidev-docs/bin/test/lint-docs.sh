@@ -373,7 +373,12 @@ BUDGET_PROTOCOL=608
 #   Claude Code だけ**——他は人が切り替える。第一層は散文なので、入口が無いサーフェスでは
 #   「plan モードへ入れ」が**実行不能**になり、`guard` の促しは**人への依頼文**に変わる。
 #   サーフェス別の一覧は `aidev-docs/README.md`（予算外）に置き、正典には**基準の読み替え方**だけ書く。
-BUDGET_TOTAL=3491
+# 3491 -> 3492: **実走がこの改修の穴を突いた**ぶん（+1）。入口の無い実行主体を
+#   「Codex CLI・Copilot」とだけ書いたら、**サブエージェントが自分を該当と読み取れなかった**
+#   ——`README.md` のサーフェス表で Claude Code 行の判定が「入れる」だったため、
+#   **表の判定列だけ見て「自分の話ではない」と閉じかけた**（実走が実測して報告した）。
+#   分かれ目は製品ではなく**実行主体**なので、表も主エージェント／サブエージェントの 2 行に割った。
+BUDGET_TOTAL=3492
 _p=$(wc -l < "$SKILLS/aidev-00-start/protocol.md")
 _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 [ "$_p" -le "$BUDGET_PROTOCOL" ] && ok "L6 protocol.md が予算内（$_p / $BUDGET_PROTOCOL 行）" \
@@ -415,7 +420,10 @@ echo "== L9: 判定条件の写しを工程 SKILL に作らない =="
 PMHEAD='plan ?モード|planモード|plan mode'
 # **改修のたびに語彙を足す**。足さないと「旧条件の写し」しか捕まえられず、**新条件の写しは
 # 全部素通りする**（実走が H10-H13 で実測）。工程名の列挙（`design / architecture / tasks` の形）も条件の写し
-PMKEY='profile|humanGates|human-gates|interactive|autonomous|full[^ ]* *×|light|承認者|対話モード|自律モード|プロファイル|機械で止ま|ゲートの実体化|exit code|read-only|主活動|ヒアリング|既存コード|コード探索|方向が複数|選び損な|上流4工程|design *[/／] *architecture|design[・、] *architecture|実装計画|implementation steps|ExitPlanMode|EnterPlanMode'
+# **軸を変えたら、その軸の語彙も足す**。「入口が無ければ**承認を挟む**／促しは**人への依頼文**」を
+# 入れた回、語彙を足さなかったので**新しい軸の写しが 1 件も捕まらなかった**（独立監査が
+# 工程 SKILL に写しを仕込んで実証した。上のコメントが警告している形をその場で再発させた）
+PMKEY='profile|humanGates|human-gates|interactive|autonomous|full[^ ]* *×|light|承認者|対話モード|自律モード|プロファイル|機械で止ま|ゲートの実体化|exit code|read-only|主活動|ヒアリング|既存コード|コード探索|方向が複数|選び損な|上流4工程|design *[/／] *architecture|design[・、] *architecture|実装計画|implementation steps|ExitPlanMode|EnterPlanMode|承認を挟|人への依頼'
 _l9=0
 # `runtime_docs` は `$d/SKILL.md`（`$d` は末尾 `/`）を出すので **`//` を含む**。
 # 潰さないと `sort -u` が別物として残し、二重走査がそのまま生き残る（テストで実測）
@@ -478,9 +486,11 @@ echo "== L10: 退役した名前と、統合で生まれた重複 =="
 # plan モード族は `RET_OK` が既に除けているので、**区切り記号と助詞**で絞れば誤検知しない
 RETIRED='\brequirement\b|\bspec\b|\bplan\.md\b|\brequirement\.md\b|\bspec\.md\b|[/／]plan\b|\bplan[/／]|\bplan (を|は|が|の|へ|と|も)|aidev-65-walkthrough|(guard|event|approve|unapprove) walkthrough|walkthrough ?工程|walkthrough\(任意\)'
 # 温存すべきもの（工程名ではない）: 他ツール名・英単語・plan モード族・デバッグ分類
-# **他エージェントのスラッシュコマンド `/plan`** も温存する（Codex CLI・Copilot CLI の入口）。
-# `[/／]plan` は aidev の `design/plan` 列挙を捕るための形なので、**逆引用符付きの形に限って**除く
-RET_OK='Spec Kit|spec-kit|specif|specia|respect|inspect|aspect|plan ?モード|planモード|plan mode|PlanMode|plan agent|plan file|planner|planning|planned|permission-mode plan|defaultMode|permissionMode|`/plan`'
+# **他社の `/plan` を `RET_OK` に足してはいけない**（一度足して独立監査が穴を実証した）。
+# `RET_OK` は**行全体**への `grep -vE` なので、`` `/plan` `` を含む行は**同じ行の `spec.md` /
+# `plan.md` まで丸ごと免除**される——改名の経緯を語る行は必ずこの形になり得るので実害がある。
+# 他社の入口に触れる行は `lint-docs.allow` の `L10:` に**理由つきで 1 行ずつ**登録する
+RET_OK='Spec Kit|spec-kit|specif|specia|respect|inspect|aspect|plan ?モード|planモード|plan mode|PlanMode|plan agent|plan file|planner|planning|planned|permission-mode plan|defaultMode|permissionMode'
 # **同名の並び**は工程ごとに展開して書く——`grep -E` の後方参照（`\1`）は POSIX ERE の外で、
 # 環境によっては**黙って何にもマッチしない**（実際、導入時の自己検査を素通りさせた）。
 # 間隔は**バイト数**で数える（`LC_ALL=C`）。`` `tasks.md`（方針）と `tasks.md` `` の
