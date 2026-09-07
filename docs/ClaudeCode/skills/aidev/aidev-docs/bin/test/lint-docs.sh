@@ -354,7 +354,14 @@ BUDGET_PROTOCOL=608
 #     review と test だけ（上流の差し戻しは人が口頭で指摘するので理由の置き場が無い）。
 #   `aidev-00-start` +1: **やめた work を探す導線**が無かった——`--undo` の存在は書いてあるが、
 #     廃止 work は既定 status に出ないので**slug に辿り着けなかった**（`status --all` を知る人だけが戻れた）。
-BUDGET_TOTAL=3472
+# 3472 -> 3481: **plan モードの切り替えを初めて実測した**ぶん（+9）。
+#   これまで検査していたのは `guard` の**促し文が出るか**だけで、**実際に切り替わるか**は
+#   一度も試していなかった——サブエージェントには `EnterPlanMode` / `ExitPlanMode` が渡されず、
+#   CLI からはモードを観測できないので、**主エージェント自身で歩くしか経路が無い**。
+#   歩いてみて 3 つ出た: (1) 入った先に**別の 5 段の手順書**が注入され、工程の手順と競合する
+#   （文書に一言も無かった）／(2) `allowed-tools` にあっても**遅延読み込みで即座に呼べない**
+#   環境がある／(3) 抜けた先は編集可能状態（元のモードではない、は既知だが実測で確認）。
+BUDGET_TOTAL=3481
 _p=$(wc -l < "$SKILLS/aidev-00-start/protocol.md")
 _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 [ "$_p" -le "$BUDGET_PROTOCOL" ] && ok "L6 protocol.md が予算内（$_p / $BUDGET_PROTOCOL 行）" \
