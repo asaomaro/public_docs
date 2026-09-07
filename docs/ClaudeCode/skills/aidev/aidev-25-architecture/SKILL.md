@@ -1,7 +1,7 @@
 ---
 name: aidev-25-architecture
 description: ［aidev 任意工程］aidev の architecture（構造設計）工程。design と tasks の間で上位構造を固める。「aidev architecture」「architecture 工程」と言われたとき、または design 終了時に複雑度が高いと検知され推奨されたときに使用する。
-allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion, Agent, EnterPlanMode, ExitPlanMode]
+allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion, Agent]
 ---
 
 AI 開発ワークフローの **architecture（構造設計）工程**（任意）。
@@ -47,8 +47,8 @@ design 終了時に **protocol.md「4.5」の architecture の4条件**のいず
    - 処理フロー / 状態遷移 / シーケンス（必要なら）
    - 既存アーキテクチャとの整合、横断的関心事（エラー処理・ログ等）
 3. 設計上の選択は理由とともに残す（採用案・退けた代替案）。重い検討は委譲してよい。
-   - 構造の選択肢が複数あるなら、**`architecture.md` を書く前に plan モードへ入る**（承認を取ってから解除して書く）。
-     **入る条件は `protocol-autonomous.md`**——ここに写さない（`aidev guard architecture` が該当時だけ促す）。
+   - 構造の選択肢が複数あるなら、**`architecture.md` を書く前に方針だけを提示して承認を得る**（承認後に書く）。
+     **条件は `protocol-autonomous.md`**——ここに写さない（`aidev guard architecture` が該当時だけ促す）。
 4. 下記テンプレートに沿って `architecture.md` を記述する。
    アーキテクチャ/コンポーネント・class・sequence・state は mermaid で図示する（protocol.md「9.」）。
    - 書き終えたら内部一貫性の点検（対象範囲を構造が満たすか・責務分割の漏れと重複・図と本文の整合）を

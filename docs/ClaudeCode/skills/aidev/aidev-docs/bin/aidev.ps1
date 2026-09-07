@@ -1094,14 +1094,15 @@ function Cmd-Guard($rest) {
     # start を自動記録はしない（skill 側の event start と二重になり、手戻り回数を
     # 誤って数えるため）。代わりに、まだ必要な場合だけ促す。
     if (NeedsStart $script:WORK $ph) { Write-Output "   → 忘れずに: aidev event $ph start" }
-    # plan モードが使える工程でだけ名指しで促す（sh 版 cmd_guard の注記に理由）
+    # 方針の事前承認が要る工程でだけ促す（sh 版 cmd_guard の注記に理由。
+    # かつては plan モードへ入るよう促していたが 2026-09-07 に廃止した）
     if ($ph -ceq 'design' -or $ph -ceq 'architecture' -or $ph -ceq 'tasks') {
       $sf = Join-Path $script:WORK 'state.yml'
       # subtask の tasks は親の tasks が切り方を確定済み（sh 版 cmd_guard の注記に理由）
-      $pmsub = ($ph -ceq 'tasks' -and (YGet $sf 'parent'))
-      if (-not $pmsub -and (YGet $sf 'profile') -cne 'light' -and (HasApprover $script:WORK $ph)) {
-        Write-Output "   → 有力案が複数あるなら **plan モードへ入ってから** 書く（承認を取り、解除してから成果物を書く）"
-        Write-Output "      抜けた先は承認時に選んだモードで、元のモードには戻らない（protocol-autonomous.md）"
+      $ppsub = ($ph -ceq 'tasks' -and (YGet $sf 'parent'))
+      if (-not $ppsub -and (YGet $sf 'profile') -cne 'light' -and (HasApprover $script:WORK $ph)) {
+        Write-Output "   → 有力案が複数あるなら、**成果物を書く前に方針だけを提示して承認を得る**（承認後に書く）"
+        Write-Output "      方針と、採らなかった案・理由を decisions.md に書いて提示する（protocol-autonomous.md）"
       }
     }
   }
@@ -2102,6 +2103,10 @@ function Dc-Start($rest) {
   Write-Output "渡すもの: $dph.md だけ（上流の元文書は渡さない。内部一貫性を見るため）"
   Write-Output "観点: **内部一貫性のみ**——AC の ID 対応漏れ / **AC の入力の出所が文書内で辿れるか** /"
   Write-Output "      目的・ゴールが状態で書けているか / 対象範囲と方針・図と本文の食い違い / 節の欠落・前後の矛盾"
+  # 工程ごとの観点はここで足さないと委譲先に届かない（sh 版 dc_start の注記に理由）
+  if ($dph -ceq 'design') {
+    Write-Output "      + **``依拠する既存の事実`` の断定に出所が付いているか**（出所の無い断定・「未確認」とも書いていない断定）"
+  }
   Write-Output "禁止: **外部ソース・一次資料との照合**（幻覚的な指摘を量産する。一次資料は主エージェントが直読）"
   Write-Output "返却形式（これ以外は解釈しない）:"
   Write-Output "  CHECK: <ok|findings>"

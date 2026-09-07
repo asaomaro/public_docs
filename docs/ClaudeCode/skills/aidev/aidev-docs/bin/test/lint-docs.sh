@@ -149,6 +149,15 @@ echo "== L5: 実行時文書をまたぐ重複文 =="
 # 「本文の在処は常に1箇所」の機械化。**意図的な再掲は下の許可リストに理由つきで登録する**
 # （skip 件数の申告と同じ考え方——見えなくするのではなく、数えて見えるようにする）
 ALLOW=$SELF/lint-docs.allow
+# **CR を落としてから読む**。Windows のチェックアウト（`core.autocrlf`）ではこの免除ファイルが
+# CRLF になり、`read -r` が拾う 1 行は末尾に CR が付く。免除パターンにも CR が混ざるので
+# **どの行にも部分一致せず、免除が 1 本残らず死ぬ**——Windows の CI だけが L5 / L9 / L10 で
+# 全件赤になり、しかも「退役名が残っている」という**もっともらしい嘘の指摘**として出ていた
+# （2026-09-06 から main で 4 回連続赤。原因がこれと分かるまで手が付いていなかった）。
+# 検査の土台なので、ここで一度だけ正規化して以降はその複製を読む
+ALLOW_RAW=$ALLOW
+ALLOW=$SELF/.allowlf
+tr -d '\r' < "$ALLOW_RAW" > "$ALLOW"
 grep -v '^#\|^$' "$ALLOW" > "$SELF/.l5allow"
 runtime_docs | while read -r f; do
   # frontmatter（`---` で挟まれた先頭ブロック）は除く。`allowed-tools:` の行は
@@ -182,7 +191,7 @@ EOF2
 "
 done < "$SELF/.l5dup"
 if [ "$_dupn" -eq 0 ]; then ok "L5 実行時文書をまたぐ未登録の重複文が無い"
-else ng "L5 実行時文書をまたぐ重複文が $_dupn 件（正典を1つに決めて参照にするか、理由つきで $(basename "$ALLOW") に登録する）"; printf '%s' "$_dupout" >&2; fi
+else ng "L5 実行時文書をまたぐ重複文が $_dupn 件（正典を1つに決めて参照にするか、理由つきで $(basename "$ALLOW_RAW") に登録する）"; printf '%s' "$_dupout" >&2; fi
 rm -f "$SELF/.l5" "$SELF/.l5dup" "$SELF/.l5allow"
 
 echo "== L6: 実行時に読む量の予算 =="
@@ -354,7 +363,48 @@ BUDGET_PROTOCOL=608
 #     review と test だけ（上流の差し戻しは人が口頭で指摘するので理由の置き場が無い）。
 #   `aidev-00-start` +1: **やめた work を探す導線**が無かった——`--undo` の存在は書いてあるが、
 #     廃止 work は既定 status に出ないので**slug に辿り着けなかった**（`status --all` を知る人だけが戻れた）。
-BUDGET_TOTAL=3472
+# 3472 -> 3481: **plan モードの切り替えを初めて実測した**ぶん（+9）。
+#   これまで検査していたのは `guard` の**促し文が出るか**だけで、**実際に切り替わるか**は
+#   一度も試していなかった——サブエージェントには `EnterPlanMode` / `ExitPlanMode` が渡されず、
+#   CLI からはモードを観測できないので、**主エージェント自身で歩くしか経路が無い**。
+#   歩いてみて 3 つ出た: (1) 入った先に**別の 5 段の手順書**が注入され、工程の手順と競合する
+#   （文書に一言も無かった）／(2) `allowed-tools` にあっても**遅延読み込みで即座に呼べない**
+#   環境がある／(3) 抜けた先は編集可能状態（元のモードではない、は既知だが実測で確認）。
+# 3481 -> 3488: **承認オプションを変えて 2 本目を歩いた**ぶん（+7）。測りたかったのは
+#   「抜けた先が選択肢で変わるか」だったが、**それは測れないことが分かった**——`ExitPlanMode` の
+#   出口メッセージは承認オプションに関わらず同一で、**抜けた側からモードを観測する手段が無い**。
+#   代わりに書けるのは「抜けたら真っ先に成果物を 1 つ書く（そこが唯一の観測点）」だけ。
+#   併せて **plan file が work 単位ではなくセッション単位**だと分かった——2 本目で入ったとき
+#   **1 本目の下書きが残ったまま「追記せよ」と促された**。混ざったまま承認を求めると、
+#   承認者は別 work の設計を読むことになる。→「入ったら全面的に書き換える」を明記。
+# 3488 -> 3491: **他エージェントで同じ散文が効くかを調べた**ぶん（+3、`protocol-autonomous.md`）。
+#   plan モード自体は Codex CLI にも Copilot にもあるが、**エージェント自身に入口があるのは
+#   Claude Code だけ**——他は人が切り替える。第一層は散文なので、入口が無いサーフェスでは
+#   「plan モードへ入れ」が**実行不能**になり、`guard` の促しは**人への依頼文**に変わる。
+#   サーフェス別の一覧は `aidev-docs/README.md`（予算外）に置き、正典には**基準の読み替え方**だけ書く。
+# 3491 -> 3492: **実走がこの改修の穴を突いた**ぶん（+1）。入口の無い実行主体を
+#   「Codex CLI・Copilot」とだけ書いたら、**サブエージェントが自分を該当と読み取れなかった**
+#   ——`README.md` のサーフェス表で Claude Code 行の判定が「入れる」だったため、
+#   **表の判定列だけ見て「自分の話ではない」と閉じかけた**（実走が実測して報告した）。
+#   分かれ目は製品ではなく**実行主体**なので、表も主エージェント／サブエージェントの 2 行に割った。
+# 3492 -> 3439: **plan モード対応の廃止**（-53、`protocol-autonomous.md`）。**予算は下げる**
+#   ——上げるときだけ理由を書いて据え置くと、減った分が次の追加の隠れ枠になり、予算が効かなくなる。
+#   節ごと落としたのは「plan モードとの関係」で、代わりに置いた「方針の事前承認」は 26 行。
+#   落ちたのは**製品固有の機構の作法**（入り方・抜け方・plan file・着地モード・サーフェス別の可否）で、
+#   **規律そのもの（方針を先に承認させる）は残っている**。経緯は `DESIGN.md`「2.」へ移した。
+# 3439 -> 3453: **design 工程の中に「依拠した事実の出所」の点検を足した**ぶん（+14）。
+#   plan モード廃止で落ちたもののうち「**書く前に調べることの強制**」だけは代わりが要る、という判断。
+#   **同じ効き目にはならない**（強制ではなく事後の点検）が、`doccheck design` が
+#   出所の無い断定を突けるようになり、**痕跡が `design.md` に残るので記録には乗る**。
+#   検査は既存の「`AC` の入力の出所が文書内で辿れるか」と同じ型——**内部一貫性の範囲を出ない**
+#   （リポジトリを読みに行かない）ので、`protocol-check.md`「(a)」の枠を広げずに済む。
+# 3453 -> 3460: **実走が突いた穴を塞いだ**ぶん（+7）。促しが「承認を得る」としか言わないので
+#   **どこに提示するかが決まらず**、実走は自分で決めて埋めていた（会話で済ませると記録に残らない
+#   ＝廃止した plan モードの欠点をそのまま引き継ぐ）。**提示先を `decisions.md` に決めた**。
+#   併せて「**承認者がいる判定でも返事が返らない**」場合（無人の `autonomous` × `humanGates`）を明記
+#   ——止めずに書いて進み、承認は既存の approve ゲートが受ける（ゲートの意味は変えない）。
+#   design 側は**出所の書式を `tasks.md` の `対象:` に揃え**、「依拠先が無い」ときの書き方を定めた。
+BUDGET_TOTAL=3460
 _p=$(wc -l < "$SKILLS/aidev-00-start/protocol.md")
 _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 [ "$_p" -le "$BUDGET_PROTOCOL" ] && ok "L6 protocol.md が予算内（$_p / $BUDGET_PROTOCOL 行）" \
@@ -393,10 +443,16 @@ echo "== L9: 判定条件の写しを工程 SKILL に作らない =="
 # **`runtime_docs` と SKILL のグロブは全工程 SKILL で重なる**ので、和集合を取ってから走査する。
 # 重ねたまま回すと同じファイルを 2 回数え、1 件の写しが「2 ファイル」と出た
 # （`runtime_docs` 自身のコメントが同じ罠を警告しているのに、その隣で再発させた）
-PMHEAD='plan ?モード|planモード|plan mode'
+# **2026-09-07 に主題を付け替えた**。plan モード対応の廃止で見張る対象は無くなったが、
+# 「**判定条件の正典は 1 箇所・他所には引き金と参照だけ**」という規律も、それが 5 回破られた
+# 事実も、主題に依らない。新しい主題は**方針の事前承認**（`protocol-autonomous.md` の同名節）
+PMHEAD='方針の事前承認|方針だけを提示|方針を提示して承認|成果物を書く前に方針|方針を先に承認|方針の合意を先に|方針を先に固め|方針だけ承認'
 # **改修のたびに語彙を足す**。足さないと「旧条件の写し」しか捕まえられず、**新条件の写しは
 # 全部素通りする**（実走が H10-H13 で実測）。工程名の列挙（`design / architecture / tasks` の形）も条件の写し
-PMKEY='profile|humanGates|human-gates|interactive|autonomous|full[^ ]* *×|light|承認者|対話モード|自律モード|プロファイル|機械で止ま|ゲートの実体化|exit code|read-only|主活動|ヒアリング|既存コード|コード探索|方向が複数|選び損な|上流4工程|design *[/／] *architecture|design[・、] *architecture|実装計画|implementation steps|ExitPlanMode|EnterPlanMode'
+# **軸を変えたら、その軸の語彙も足す**。「入口が無ければ**承認を挟む**／促しは**人への依頼文**」を
+# 入れた回、語彙を足さなかったので**新しい軸の写しが 1 件も捕まらなかった**（独立監査が
+# 工程 SKILL に写しを仕込んで実証した。上のコメントが警告している形をその場で再発させた）
+PMKEY='profile|humanGates|human-gates|interactive|autonomous|full[^ ]* *×|light|承認者|対話モード|自律モード|プロファイル|機械で止ま|ゲートの実体化|exit code|read-only|主活動|ヒアリング|既存コード|コード探索|方向が複数|選び損な|上流4工程|design *[/／] *architecture|design[・、] *architecture|複数の案から選ぶ|選ぶ余地|承認を挟|人への依頼'
 _l9=0
 # `runtime_docs` は `$d/SKILL.md`（`$d` は末尾 `/`）を出すので **`//` を含む**。
 # 潰さないと `sort -u` が別物として残し、二重走査がそのまま生き残る（テストで実測）
@@ -407,8 +463,12 @@ for _f in $({ runtime_docs
   [ -f "$_f" ] || continue
   case "$_f" in *protocol-autonomous.md) continue ;; esac  # 正典。ここには条件が在ってよい
   # **見出し行とその継続行**（行頭が空白で始まる後続行）をひとまとまりで見る。
-  # 正典への参照そのものは条件ではない（ファイル名が `autonomous` を含む）ので落とす
-  _hits=$(awk -v head="$PMHEAD" '
+  # 正典への参照そのものは条件ではない（ファイル名が `autonomous` を含む）ので落とす。
+  # **節名の引用も参照**——`「方針の事前承認」が正典` と書いた行まで写し扱いになり、
+  # 巨大な表のセルを丸ごと免除する羽目になっていた（独立監査が実測）。落としてから判定する
+  # **落とすのは awk の前**。後ろで落としていた頃は、**参照の行が見出しとして block を開き**、
+  # 中身の `light` / `profile` を拾って写し扱いになった（巨大な表のセルがそれで引っかかった）
+  _hits=$(sed 's/protocol-autonomous\.md//g; s/「方針の事前承認」//g' "$_f" | awk -v head="$PMHEAD" '
       function ltrim(x) { sub(/^[ \t]+/, "", x); return x }
       # **行は丸ごと見る**。見出しより前を切っていた頃は `上流4工程では plan モードへ入る…` の
       # ように**条件語が見出しより前に来る語順**で素通りした（実走が実測。自己テストは必ず
@@ -422,7 +482,7 @@ for _f in $({ runtime_docs
         buf=buf " " $0; next }
       inb { print ln ": " buf; inb=0 }
       END { if (inb) print ln ": " buf }
-    ' "$_f" | sed 's/protocol-autonomous\.md//g' | grep -E "$PMKEY") || true
+    ' | grep -E "$PMKEY") || true
   # **`DESIGN.md` は「なぜその基準にしたか」を書く場所**なので、規則に触れる行が正当に在る。
   # 全部弾くとノイズになり、全部許すと**旧条件がそこに生き残る**（実際に 3 箇所生き残った）。
   # L5 と同じ形——**理由つきで登録した行だけ免除する**（`lint-docs.allow` の `L9:` 行）
@@ -441,8 +501,8 @@ for _f in $({ runtime_docs
   _l9=$((_l9 + 1))
   printf '%s:\n%s\n' "${_f#"$SKILLS"/}" "$_hits" >&2
 done
-if [ "$_l9" -eq 0 ]; then ok "L9 plan モードの判定条件が正典の外に写されていない"
-else ng "L9 plan モードの判定条件の写しが $_l9 ファイル（正典は protocol-autonomous.md「plan モードとの関係」だけ。他所には引き金と参照だけを置く）"; fi
+if [ "$_l9" -eq 0 ]; then ok "L9 方針の事前承認の判定条件が正典の外に写されていない"
+else ng "L9 方針の事前承認の判定条件の写しが $_l9 ファイル（正典は protocol-autonomous.md「方針の事前承認」だけ。他所には引き金と参照だけを置く）"; fi
 
 echo "== L10: 退役した名前と、統合で生まれた重複 =="
 # **改修のたびに「置換したつもり」で静かに残る**。工程の改名（2026-09-06）で実際に起きた——
@@ -457,13 +517,34 @@ echo "== L10: 退役した名前と、統合で生まれた重複 =="
 # **裸の `plan` も見る**。`design/plan` のような列挙や「plan を approve」の形は `\bplan\.md\b` では
 # 拾えず、実走が 4 箇所（coding の decisions テンプレ・DESIGN・CLI コメント×2）を実測した。
 # plan モード族は `RET_OK` が既に除けているので、**区切り記号と助詞**で絞れば誤検知しない
-RETIRED='\brequirement\b|\bspec\b|\bplan\.md\b|\brequirement\.md\b|\bspec\.md\b|[/／]plan\b|\bplan[/／]|\bplan (を|は|が|の|へ|と|も)|aidev-65-walkthrough|(guard|event|approve|unapprove) walkthrough|walkthrough ?工程|walkthrough\(任意\)'
-# 温存すべきもの（工程名ではない）: 他ツール名・英単語・plan モード族・デバッグ分類
-RET_OK='Spec Kit|spec-kit|specif|specia|respect|inspect|aspect|plan ?モード|planモード|plan mode|PlanMode|plan agent|plan file|planner|planning|planned|permission-mode plan|defaultMode|permissionMode'
+# **plan モード対応も退役した**（2026-09-07）。ただし裸の語は経緯を語る行に正当に出るので、
+# **助詞のゆれ（へ／に）まで見る**——`へ` だけ見ていた初版は `plan モードに入れ` を素通りさせた。
+# **フロントマターを触らずに本文でツールを呼び戻す形**（`EnterPlanMode` を呼ぶ）も見る
+# ——どちらも独立監査が仕込んで実測した。
+# **多バイト文字にブラケット式を使わない**——`[へに]` と書いた初版は、`LANG` が空（C ロケール）だと
+# **文字集合ではなくバイト集合**として解釈され、`plan モードへ入` すら一致しなくなった
+# （それまで鳴っていた形が黙って素通りした。`\1` が POSIX ERE の外なのと同じ型の罠）。交替で書く
+# **「入れ」と命じる形**と **`allowed-tools` の `PlanMode`** に限って見張る
+# （`walkthrough` を工程として扱う形だけ見るのと同じ絞り方）
+RETIRED='\brequirement\b|\bspec\b|\bplan\.md\b|\brequirement\.md\b|\bspec\.md\b|[/／]plan\b|\bplan[/／]|\bplan (を|は|が|の|へ|と|も)|aidev-65-walkthrough|(guard|event|approve|unapprove) walkthrough|walkthrough ?工程|walkthrough\(任意\)|plan ?モード(へ|に)入|planモード(へ|に)入|allowed-tools:.*PlanMode|(Enter|Exit)PlanMode. ?を ?(呼|使)'
+# 温存すべきもの（工程名ではない）: 他ツール名・英単語・デバッグ分類。
+# **plan モード族はここから外した**（2026-09-07 の廃止）——入れたままだと、上で足した
+# 「入れ」と命じる形も `allowed-tools` の `PlanMode` も**行ごと免除されて一度も鳴らない**
+# （実際、足した直後に仕込んで確かめたら鳴らなかった。`RET_OK` は行全体への `grep -vE`）
+# **他社の `/plan` を `RET_OK` に足してはいけない**（一度足して独立監査が穴を実証した）。
+# `RET_OK` は**行全体**への `grep -vE` なので、`` `/plan` `` を含む行は**同じ行の `spec.md` /
+# `plan.md` まで丸ごと免除**される——改名の経緯を語る行は必ずこの形になり得るので実害がある。
+# 他社の入口に触れる行は `lint-docs.allow` の `L10:` に**理由つきで 1 行ずつ**登録する
+RET_OK='Spec Kit|spec-kit|specif|specia|respect|inspect|aspect|plan agent|plan file|planner|planning|planned|permission-mode plan|defaultMode|permissionMode'
 # **同名の並び**は工程ごとに展開して書く——`grep -E` の後方参照（`\1`）は POSIX ERE の外で、
 # 環境によっては**黙って何にもマッチしない**（実際、導入時の自己検査を素通りさせた）。
 # 間隔は**バイト数**で数える（`LC_ALL=C`）。`` `tasks.md`（方針）と `tasks.md` `` の
 # 区切りは日本語 5 文字＝15 バイト＋記号なので 30 まで見る。
+# **`LC_ALL=C` は `grep` 自身に掛ける**。長らく `sort` にしか掛かっておらず、
+# 「バイト数で数える」と書いてあるのに**ロケール次第で文字数**になっていた
+# ——手元（C）では通り **CI（UTF-8）だけ赤**という形で出た。`{1,30}` が 30 文字を見れば
+# 日本語 13 文字（37 バイト）の間隔まで拾い、**無関係な行を退役扱いにする**。
+# `\1` が POSIX ERE の外なのと同じ「環境で意味が変わる」型なので、ここも明示で固定する。
 DUP=''
 for _n in requirements design architecture tasks; do
   DUP="${DUP:+$DUP|}$_n\\.md[^A-Za-z0-9]{1,30}$_n\\.md"
@@ -479,7 +560,7 @@ for _f in $({ runtime_docs
   # **統合で生まれた同名の並び**（`tasks.md … tasks.md` のように近接して 2 回）
   # **行ごと**出す（`-o` で断片だけ出していた頃は、免除の登録が原理的にできなかった——
   # 免除は「断片の部分一致」になるので、理由の分かる語を書くと必ず外れた）
-  _d=$(grep -nE "$DUP" "$_f" 2>/dev/null) || true
+  _d=$(LC_ALL=C grep -nE "$DUP" "$_f" 2>/dev/null) || true
   # **改名の経緯を書く場所は旧名を出してよい**（L5/L9 と同じ形——理由つきで登録した行だけ免除）
   if [ -n "$_r$_d" ] && [ -f "$ALLOW" ]; then
     for _lv in _r _d; do
@@ -682,6 +763,7 @@ else
   fi
 fi
 
+rm -f "$SELF/.allowlf"
 echo
 printf 'LINT: pass=%s fail=%s\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

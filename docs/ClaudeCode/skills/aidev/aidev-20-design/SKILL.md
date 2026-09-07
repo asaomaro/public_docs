@@ -1,7 +1,7 @@
 ---
 name: aidev-20-design
 description: ［aidev 標準工程］aidev の design（仕様策定）工程。進行中の aidev 作業の requirements.md を実装仕様 design.md に落とす。「aidev design」「design 工程」と言われたとき、または前工程から案内されたときに使用する。aidev 作業の無い単発の仕様書作成では使わない。
-allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion, Agent, EnterPlanMode, ExitPlanMode]
+allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion, Agent]
 ---
 
 AI 開発ワークフローの **design（仕様策定）工程**を実行する。
@@ -32,8 +32,8 @@ requirements を「どう作るか」の実装仕様に落とす。設計判断�
    `aidev guard design` で前提を検査し、`aidev event design start` を記録する
    （exit≠0＝未充足。目視確認で代替しない。start が無いと所要時間も手戻りも導出できない）。
 2. `requirements.md` を読み、完了条件を満たす実装方針を検討する。
-   - 有力な案が複数あるなら、**`design.md` を書く前に plan モードへ入る**（承認を取ってから解除して書く）。
-     **入る条件は `protocol-autonomous.md`**——ここに写さない（`aidev guard design` が該当時だけ促す）。
+   - 有力な案が複数あるなら、**`design.md` を書く前に方針だけを提示して承認を得る**（承認後に書く）。
+     **条件は `protocol-autonomous.md`**——ここに写さない（`aidev guard design` が該当時だけ促す）。
 3. 設計判断を行う。PJ のドメイン固有の論点（PJ ルールに記載があれば、それに従う）は明示的に扱う。
    - 設計選択が多いなら深掘り質問（grilling）を opt-in で行う（PJ の質問深掘り skill があれば優先。
      小規模と autonomous ではスキップ）。
@@ -63,6 +63,12 @@ requirements を「どう作るか」の実装仕様に落とす。設計判断�
 ## 対象範囲
 - 変更/追加するモジュール・ファイル
 
+## 依拠する既存の事実
+- <この設計が前提にしている既存の挙動・構造と、**確かめた場所**（`file:line` またはシンボル名。
+  書式は tasks.md の `対象:` と同じ）>
+（**推測で断定しない**。確かめていないものは「未確認」と書く。**依拠する既存の実装が無いなら
+`該当なし` と、そう言える根拠**——探した範囲——を書く。**節ごと省かない**。`doccheck` は出所の無い断定を指摘する）
+
 ## インターフェース / データ構造
 - <API・関数シグネチャ・設定スキーマ・データ形式など>
 
@@ -85,8 +91,15 @@ requirements を「どう作るか」の実装仕様に落とす。設計判断�
 **各 AC には「その入力がどこから来るか」を書く**。`coverage` は ID の対応しか見ないので、
 入力の出所の欠落は機械では拾えない（他 PJ の retro が実測——出所の無い AC が coding まで素通りした）。
 
+**設計が前提にしている既存の事実にも、確かめた場所を書く**。**書く前に調べたかどうかは機械から見えないが、
+出所の無い断定は文書の中で見える**——`doccheck design` がそこを突く（`protocol-check.md`「(a)」）。
+2026-09-07 まではここを plan モードが「書く前に探索する段」として強制していた。**同じ効き目は無い**
+（強制ではなく事後の点検）が、**痕跡が `design.md` に残るぶん記録には乗る**（`DESIGN.md`「2.」）。
+
 ## 完了の目安
 
 - requirements の全完了条件に対し、実現方法が design 上で説明できる。
   **各 AC の入力の出所が design 内で辿れる**（辿れないなら design の穴か requirements への差し戻し）。
+- **依拠する既存の事実に出所が付いている**（付かないものは「未確認」、依拠先が無いなら
+  `該当なし` と探した範囲が明記され、判断が要るなら `decisions.md` に残っている）。
 - tasks 工程で作業分解できる粒度まで設計が具体化している。
