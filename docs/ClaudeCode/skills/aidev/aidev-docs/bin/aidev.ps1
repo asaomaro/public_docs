@@ -1094,14 +1094,15 @@ function Cmd-Guard($rest) {
     # start を自動記録はしない（skill 側の event start と二重になり、手戻り回数を
     # 誤って数えるため）。代わりに、まだ必要な場合だけ促す。
     if (NeedsStart $script:WORK $ph) { Write-Output "   → 忘れずに: aidev event $ph start" }
-    # plan モードが使える工程でだけ名指しで促す（sh 版 cmd_guard の注記に理由）
+    # 方針の事前承認が要る工程でだけ促す（sh 版 cmd_guard の注記に理由。
+    # かつては plan モードへ入るよう促していたが 2026-09-07 に廃止した）
     if ($ph -ceq 'design' -or $ph -ceq 'architecture' -or $ph -ceq 'tasks') {
       $sf = Join-Path $script:WORK 'state.yml'
       # subtask の tasks は親の tasks が切り方を確定済み（sh 版 cmd_guard の注記に理由）
       $pmsub = ($ph -ceq 'tasks' -and (YGet $sf 'parent'))
       if (-not $pmsub -and (YGet $sf 'profile') -cne 'light' -and (HasApprover $script:WORK $ph)) {
-        Write-Output "   → 有力案が複数あるなら **plan モードへ入ってから** 書く（承認を取り、解除してから成果物を書く）"
-        Write-Output "      抜けた先は承認時に選んだモードで、元のモードには戻らない（protocol-autonomous.md）"
+        Write-Output "   → 有力案が複数あるなら、**成果物を書く前に方針だけを提示して承認を得る**（承認後に書く）"
+        Write-Output "      採らなかった案と理由は decisions.md に残す（protocol-autonomous.md）"
       }
     }
   }

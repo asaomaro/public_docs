@@ -304,10 +304,13 @@ assert_eq "$(run_sh guard design bogus >/dev/null 2>&1; echo $?)" "1" \
   "guard: 余分な位置引数も弾く"
 H2=$(run_sh guard requirements 2>&1)
 echo "$H2" | grep -q "aidev event requirements start" && ng "guard: start 済なのに促している" || ok "guard: start 済の工程では促さない"
-# **plan モードへ入るよう、該当条件の工程でだけ名指しで促す**。散文に書いてあっても、
-# 打つ側は工程に入る瞬間には思い出さない（event start の促しと同じ型）
-echo "$H1" | grep -q "plan モードへ入ってから" \
-  && ok "guard design: plan モードへ入るよう促す（full × interactive）" || ng "guard design: plan モードの促しが出ない"
+# **成果物を書く前に方針だけ承認を得るよう、該当条件の工程でだけ促す**。散文に書いてあっても、
+# 打つ側は工程に入る瞬間には思い出さない（event start の促しと同じ型）。
+# **2026-09-07 まではここが「plan モードへ入れ」だった**——判定（工程・light・承認者）は
+# そのままで、促す中身だけ製品固有の機構に依存しない言い方へ替えた（`DESIGN`「2.」）。
+# **だから下の検査は文字列だけ差し替えて全部残す**（振る舞いは変わっていない）
+echo "$H1" | grep -q "成果物を書く前に方針だけを提示" \
+  && ok "guard design: 方針の事前承認を促す（full × interactive）" || ng "guard design: 方針の事前承認の促しが出ない"
 # **全 10 工程を前提充足済みで回す**。個別に書いていた頃は
 # (1) 前提が足りず exit 2 で終わる**空振り**が 3 本混ざり（`guard review` は `need_approved test` に
 #     落ちて促しに一度も到達していなかった）、
@@ -318,62 +321,62 @@ PM_W=$TMP/.aidev/works/20260101-hint
 printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: [requirements, design, architecture, tasks, coding, test, review, deliver]\n' > "$PM_W/state.yml"
 : > "$PM_W/design.md"; : > "$PM_W/architecture.md"; : > "$PM_W/tasks.md"
 printf -- '- [ ] T1: x\n' > "$PM_W/tasks.md"
-# 期待値の正典は protocol-autonomous.md「plan モードとの関係」——入るのは design / architecture / tasks
+# 期待値の正典は protocol-autonomous.md「方針の事前承認」——対象は design / architecture / tasks
 for _pmc in requirements:no research:no design:yes architecture:yes tasks:yes coding:no \
             test:no review:no deliver:no retro:no; do
   _pmp=${_pmc%%:*}; _pmw=${_pmc#*:}
   _pmo=$(run_sh guard "$_pmp" 2>&1); _pmr=$?
   assert_eq "$_pmr" "0" "guard $_pmp: 前提が揃っていて rc=0（空振り検査になっていない）"
-  _pmg=$(printf '%s' "$_pmo" | grep -c 'plan モードへ入ってから') || _pmg=0
+  _pmg=$(printf '%s' "$_pmo" | grep -c '成果物を書く前に方針だけを提示') || _pmg=0
   if [ "$_pmw" = yes ]; then
-    assert_ne "$_pmg" "0" "guard $_pmp: 促す（成果物が実装計画）"
+    assert_ne "$_pmg" "0" "guard $_pmp: 促す（成果物が複数の案から選ぶもの）"
   else
-    assert_eq "$_pmg" "0" "guard $_pmp: 促さない（成果物が実装計画ではない）"
+    assert_eq "$_pmg" "0" "guard $_pmp: 促さない（選ぶ工程ではない）"
   fi
 done
 # **subtask の tasks は親が切り方を確定済み**——同じ工程名でも促してはいけない
 printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: []\nparent: 20260101-order\n' \
   > "$PM_W/state.yml"
-assert_eq "$(run_sh guard tasks 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
+assert_eq "$(run_sh guard tasks 2>&1 | grep -c '成果物を書く前に方針だけを提示')" "0" \
   "guard tasks: subtask では促さない（切り方は親の tasks が確定済み）"
 printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: []\n' > "$PM_W/state.yml"
 rm -f "$PM_W/design.md" "$PM_W/architecture.md" "$PM_W/tasks.md" "$PM_W/tasks.md"
-# **「入れ」と命じる**。「方針を先に固める」のような役割だけの言い方だと、丁寧に計画するだけで
-# モードは切り替わらない（EnterPlanMode は主エージェントのツールなので、明示すれば実際に切り替わる）
-echo "$H1" | grep -q "抜けた先は承認時に選んだモードで、元のモードには戻らない" \
-  && ok "guard design: 戻り先が選べないことも言う（工程の間だけ入れて戻す、は作れない）" \
-  || ng "guard design: 抜けた先の説明が無い"
+# **採らなかった案の行き先まで言う**。方針だけ承認を取っても、退けた案が残らなければ
+# 後から選び直せない（旧「抜けた先のモード」の検査を、この 2 行目の検査に置き換えた）
+echo "$H1" | grep -q "採らなかった案と理由は decisions.md に残す" \
+  && ok "guard design: 退けた案の行き先も言う（選び直せるようにする）" \
+  || ng "guard design: 採らなかった案の扱いが 無い"
 # 条件は散文と同じ full × interactive だけ——light は往復を減らす趣旨に反し、autonomous には承認者がいない
 printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: []\nprofile: light\n' \
   > "$TMP/.aidev/works/20260101-hint/state.yml"
-assert_eq "$(run_sh guard design 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
+assert_eq "$(run_sh guard design 2>&1 | grep -c '成果物を書く前に方針だけを提示')" "0" \
   "guard design: light では促さない（往復を減らす趣旨に反する）"
 printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: []\nmode: autonomous\n' \
   > "$TMP/.aidev/works/20260101-hint/state.yml"
-assert_eq "$(run_sh guard design 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
+assert_eq "$(run_sh guard design 2>&1 | grep -c '成果物を書く前に方針だけを提示')" "0" \
   "guard design: autonomous では促さない（承認者がいない）"
 # **見るのは mode ではなく「その工程に承認者がいるか」**。`humanGates` の部分自律には承認者がいる。
 # `mode != autonomous` で判定していた頃は、他 PJ の retro が実績として報告している構成で
 # 承認者がいるのに促しを止めていた（実走で実測）
 printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: []\nmode: autonomous\nhumanGates: [design]\n' \
   > "$TMP/.aidev/works/20260101-hint/state.yml"
-assert_eq "$(run_sh guard design 2>&1 | grep -c 'plan モードへ入ってから')" "1" \
+assert_eq "$(run_sh guard design 2>&1 | grep -c '成果物を書く前に方針だけを提示')" "1" \
   "guard design: humanGates に挙がっていれば autonomous でも促す（承認者がいる）"
-assert_eq "$(run_sh guard architecture 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
+assert_eq "$(run_sh guard architecture 2>&1 | grep -c '成果物を書く前に方針だけを提示')" "0" \
   "guard architecture: humanGates に無い工程は promote しない（工程ごとに見る）"
-# **見るのは「この工程に承認者がいるか」で、mode そのものではない**。plan モードを抜けるのが
-# 人間の承認だから。`autonomous` を一律で外していた頃は、`humanGates: [design]` の部分自律——
+# **見るのは「この工程に承認者がいるか」で、mode そのものではない**。承認を出すのが
+# 人間だから。`autonomous` を一律で外していた頃は、`humanGates: [design]` の部分自律——
 # 他 PJ の retro が実績として報告している構成——で**承認者がいるのに促しを止めていた**（実走で実測）
 printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: []\nmode: autonomous\nhumanGates: [design]\n' \
   > "$TMP/.aidev/works/20260101-hint/state.yml"
-assert_eq "$(run_sh guard design 2>&1 | grep -c 'plan モードへ入ってから')" "1" \
+assert_eq "$(run_sh guard design 2>&1 | grep -c '成果物を書く前に方針だけを提示')" "1" \
   "guard design: autonomous でも humanGates にあれば促す（部分自律）"
-assert_eq "$(run_sh guard architecture 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
+assert_eq "$(run_sh guard architecture 2>&1 | grep -c '成果物を書く前に方針だけを提示')" "0" \
   "guard architecture: humanGates に無い工程は autonomous のまま促さない"
 # light は承認者の有無と無関係に外す（往復を減らす趣旨に反する）
 printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: []\nmode: autonomous\nhumanGates: [design]\nprofile: light\n' \
   > "$TMP/.aidev/works/20260101-hint/state.yml"
-assert_eq "$(run_sh guard design 2>&1 | grep -c 'plan モードへ入ってから')" "0" \
+assert_eq "$(run_sh guard design 2>&1 | grep -c '成果物を書く前に方針だけを提示')" "0" \
   "guard design: humanGates があっても light なら促さない"
 rm -rf "$TMP/.aidev/works/20260101-hint"
 printf '%s\n' "$PREV_CURRENT" > "$TMP/.aidev/current"
@@ -2870,7 +2873,8 @@ LINTOUT=$("$SELF/lint-docs.sh" 2>&1); LINTRC=$?
 printf '%s\n' "$LINTOUT" | sed 's/^/  | /'
 assert_eq "$LINTRC" "0" "lint-docs: 文書と CLI 表面が整合している"
 # **検査が本当にその欠陥を捕まえるか**を、欠陥を一度戻して確かめる。
-# L9 は「工程 SKILL の plan モード行に判定条件を写さない」を見る検査で、
+# L9 は「工程 SKILL の方針事前承認の行に判定条件を写さない」を見る検査で、
+# （2026-09-07 に主題を plan モードから付け替えた。**失敗の型は主題に依らない**ので検査は残した）
 # 外部レビューが提案した形（判定キーが本文に出たら WARN）では**今回の欠陥を捕まえられなかった**
 # ——残っていた文言は `full` × `interactive` でキー名を 1 つも含んでいなかったため。値の側も見る
 # **ハーネス本体は書き換えない**。初版は正典ファイルを in-place で汚して cp で戻していたが、
@@ -2893,7 +2897,7 @@ tgt,orig,to=sys.argv[1],sys.argv[2],sys.argv[3]
 s=io.open(orig,encoding='utf-8').read()
 lines=s.split('\n')
 for i,l in enumerate(lines):
-    if 'plan モードへ入る' in l:
+    if '方針だけを提示して承認を得る' in l:
         j=i+1
         while j<len(lines) and lines[j].startswith('     '): j+=1
         lines[i:j]=io.open(to,encoding='utf-8').read().split('\n')
@@ -2904,19 +2908,19 @@ PYEOF
   cp "$L9SRC/aidev-20-design/SKILL.md" "$L9F"
   assert_ne "$_n" "0" "lint L9: $1 を捕まえる"
 }
-l9probe "条件をそのまま写す" '   - 有力な案が複数あるなら、**`design.md` を書く前に plan モードへ入る**（`full` × `interactive` のみ）。'
-l9probe "条件を継続行へ送る" '   - 有力な案が複数あるなら、**`design.md` を書く前に plan モードへ入る**。
-     入るのは `full` × `interactive` のときだけ。'
-l9probe "現行条件を自然語で写す" '   - 有力な案が複数あるなら、**plan モードへ入る**（その工程に承認者がいるときだけ）。'
-l9probe "見出しの表記ゆれ" '   - 有力な案が複数あるなら、**planモードへ入る**（`full` × `interactive` のみ）。'
-l9probe "英語表記" '   - 有力な案が複数あるなら、**plan mode へ入る**（`full` × `interactive` のみ）。'
-l9probe "CLI フラグの綴り" '   - 有力な案が複数あるなら、**plan モードへ入る**（`--human-gates` に挙がっているときだけ）。'
+l9probe "条件をそのまま写す" '   - 有力な案が複数あるなら、**`design.md` を書く前に方針だけを提示して承認を得る**（`full` × `interactive` のみ）。'
+l9probe "条件を継続行へ送る" '   - 有力な案が複数あるなら、**`design.md` を書く前に方針だけを提示して承認を得る**。
+     行うのは `full` × `interactive` のときだけ。'
+l9probe "現行条件を自然語で写す" '   - 有力な案が複数あるなら、**方針を提示して承認を得る**（その工程に承認者がいるときだけ）。'
+l9probe "見出しの表記ゆれ" '   - 有力な案が複数あるなら、**成果物を書く前に方針だけ固める**（`full` × `interactive` のみ）。'
+l9probe "節名で書く" '   - 有力な案が複数あるなら **方針の事前承認**を行う（`profile: light` では行わない）。'
+l9probe "CLI フラグの綴り" '   - 有力な案が複数あるなら、**方針を提示して承認を得る**（`--human-gates` に挙がっているときだけ）。'
 # **H7（対象ファイル外へ写す）の probe が無かった**ので、「塞いだ」と書いてあるのに
 # `DESIGN.md` と `aidev-docs/README.md` に届いていないことに気付けなかった（実走が実測）。
 # 走査対象の端（実行時文書でない参照文書）を 1 つずつ突く
 l9out() { # 名前 ファイル
   cp "$2" "$TMP/l9out.bak"
-  printf '\nplan モードへ入るのは `full` × `interactive` のときだけ。\n' >> "$2"
+  printf '\n方針の事前承認を行うのは `full` × `interactive` のときだけ。\n' >> "$2"
   _n=$("$L9LINT" 2>&1 | grep -c 'NG: L9') || _n=0
   cp "$TMP/l9out.bak" "$2"
   assert_ne "$_n" "0" "lint L9: $1 への写しを捕まえる"
@@ -2929,25 +2933,25 @@ l9out "bin/README.md" "$TMP/l9skills/aidev-docs/bin/README.md"
 # **H8: 字下げした子の箇条書きへ条件を送る**。打ち切っていた頃は原理的に見えず、
 # `DESIGN.md` の `  - **使う**:` 以下の列挙がまるごと素通りしていた（実走が実測）
 cp "$TMP/l9skills/aidev-20-design/SKILL.md" "$TMP/l9h8.bak"
-printf '\n- plan モードの扱い\n  - 入るのは `full` × `interactive` のときだけ。\n' \
+printf '\n- 方針の事前承認の扱い\n  - 行うのは `full` × `interactive` のときだけ。\n' \
   >> "$TMP/l9skills/aidev-20-design/SKILL.md"
 assert_ne "$("$L9LINT" 2>&1 | grep -c 'NG: L9')" "0" \
   "lint L9: 字下げした子の箇条書きに送った条件を捕まえる"
 cp "$TMP/l9h8.bak" "$TMP/l9skills/aidev-20-design/SKILL.md"
 # **新条件の語彙**。改修のたびに PMKEY を足さないと「旧条件の写し」しか捕まらない
-for _l9w in '入るのは、入力に既存コードが入る工程だけ。' \
-            '入るのは、コード探索中の read-only 強制が要るときだけ。' \
-            '入らない——主活動がユーザーへのヒアリングだから。' \
-            '入るのは上流4工程だけ。'; do
+for _l9w in 'を行うのは、入力に既存コードが入る工程だけ。' \
+            'を行うのは、成果物に選ぶ余地があるときだけ。' \
+            'は行わない——主活動がユーザーへのヒアリングだから。' \
+            'を行うのは上流4工程だけ。'; do
   cp "$TMP/l9skills/aidev-20-design/SKILL.md" "$TMP/l9w.bak"
-  printf '\nplan モードへ%s\n' "$_l9w" >> "$TMP/l9skills/aidev-20-design/SKILL.md"
+  printf '\n方針の事前承認%s\n' "$_l9w" >> "$TMP/l9skills/aidev-20-design/SKILL.md"
   assert_ne "$("$L9LINT" 2>&1 | grep -c 'NG: L9')" "0" "lint L9: 新条件の語彙を捕まえる（$_l9w）"
   cp "$TMP/l9w.bak" "$TMP/l9skills/aidev-20-design/SKILL.md"
 done
 # **1 件の写しは「1 ファイル」と数える**。`runtime_docs` と SKILL のグロブが重なっていた頃は
 # 同じファイルを 2 回走査し、1 件を「2 ファイル」と出していた
 cp "$TMP/l9skills/aidev-20-design/SKILL.md" "$TMP/l9cnt.bak"
-printf '\nplan モードへ入るのは `full` × `interactive` のときだけ。\n' >> "$TMP/l9skills/aidev-20-design/SKILL.md"
+printf '\n方針の事前承認を行うのは `full` × `interactive` のときだけ。\n' >> "$TMP/l9skills/aidev-20-design/SKILL.md"
 assert_contains "$("$L9LINT" 2>&1 | grep 'NG: L9')" "写しが 1 ファイル" \
   "lint L9: 同じファイルを二重に数えない"
 cp "$TMP/l9cnt.bak" "$TMP/l9skills/aidev-20-design/SKILL.md"
@@ -2980,10 +2984,18 @@ l10probe "旧成果物 spec.md" '`spec.md` を読んでから書く。' caught
 # **これが穴だった形**。後方参照が効かず、`tasks.md … tasks.md` を素通りさせていた
 l10probe "統合で生まれた同名の並び" '`tasks.md`（方針）と `tasks.md`（一覧）を突き合わせる。' caught
 l10probe "同名の並び（記号区切り）" 'design.md, design.md を比べる。' caught
-# **温存語**。他ツール名・英単語・plan モード族を巻き込むと、検査は使われなくなる
+# **退役した plan モード対応**（2026-09-07）。裸の語は経緯を語る行に正当に出るので、
+# **「入れ」と命じる形**と **`allowed-tools` の `PlanMode`** だけを見張る。
+# **`RET_OK` に `plan ?モード` を残したままだと、この 2 形は行ごと免除されて一度も鳴らない**
+# ——実際そうなっていたのを、足した直後に仕込んで気付いた。だから両方を probe で固定する
+l10probe "退役: plan モードへ入れと命じる" 'plan モードへ入ってから design.md を書く。' caught
+l10probe "退役: 表記ゆれ（planモード）" 'planモードへ入る。' caught
+l10probe "退役: allowed-tools に残る" 'allowed-tools: [Bash, Read, EnterPlanMode, ExitPlanMode]' caught
+# **温存語**。他ツール名・英単語を巻き込むと、検査は使われなくなる。
+# plan モードも**経緯を語る形**（命令形でない言及）は鳴らしてはいけない
 l10probe "他ツール名 Spec Kit" 'GitHub Spec Kit の spec-kit では tasks.md を使う。' clean
 l10probe "英単語 specification" 'この specification は inspect と respect を含む。' clean
-l10probe "plan モード族" 'plan モードへ入る。planning は plan file に書く。' clean
+l10probe "plan モードの経緯を語る行" 'plan モード対応は 2026-09-07 に廃止した。planning は plan file に書く。' clean
 l10probe "別名どうしの並び" 'design.md を読み、tasks.md を書く。' clean
 assert_eq "$("$L9LINT" >/dev/null 2>&1; echo $?)" "0" "lint L10: 全て戻せば通る（複製を汚したままにしない）"
 
@@ -3067,23 +3079,23 @@ if [ -n "$PS_HOST" ]; then
     "パリティ: ps1 の approve も上流の点検メトリクスを自動で刻む（report まで届いた分）"
   rm -rf "$PDC"
 
-  # guard の plan モード促し。**ps1 側はここが唯一の検査**（sh 側のテストは ps1 を通らない）
+  # guard の方針事前承認の促し。**ps1 側はここが唯一の検査**（sh 側のテストは ps1 を通らない）
   PGD=$(mktemp -d); mkdir -p "$PGD/.aidev/works"
   ( cd "$PGD" && "$AIDEV_SH" new pgd >/dev/null )
   PGDD="$PGD/.aidev/works/$(cat "$PGD/.aidev/current")"
   : > "$PGDD/requirements.md"
   PGD_S=$( ( cd "$PGD" && "$AIDEV_SH" guard design ) 2>&1 )
   PGD_P=$( ( cd "$PGD" && run_ps1 "$AIDEV_PS1" guard design ) 2>&1 | tr -d '\r' )
-  assert_eq "$PGD_S" "$PGD_P" "パリティ: guard design（plan モードの促し）"
-  assert_contains "$PGD_P" "plan モードへ入ってから" \
-    "パリティ: ps1 guard も plan モードへ入るよう促す"
+  assert_eq "$PGD_S" "$PGD_P" "パリティ: guard design（方針の事前承認の促し）"
+  assert_contains "$PGD_P" "成果物を書く前に方針だけを提示" \
+    "パリティ: ps1 guard も方針の事前承認を促す"
   # 条件（light / autonomous では出さない）も両実装で揃っていること
   ( cd "$PGD" && "$AIDEV_SH" new pgdl --light >/dev/null )
   : > "$PGD/.aidev/works/$(cat "$PGD/.aidev/current")/requirements.md"
   PGL_S=$( ( cd "$PGD" && "$AIDEV_SH" guard design ) 2>&1 )
   PGL_P=$( ( cd "$PGD" && run_ps1 "$AIDEV_PS1" guard design ) 2>&1 | tr -d '\r' )
   assert_eq "$PGL_S" "$PGL_P" "パリティ: guard design（light では促さない）"
-  assert_eq "$(printf '%s' "$PGL_P" | grep -c 'plan モードへ入ってから')" "0" \
+  assert_eq "$(printf '%s' "$PGL_P" | grep -c '成果物を書く前に方針だけを提示')" "0" \
     "パリティ: ps1 も light では促さない"
   # 承認者の有無で見る（humanGates の部分自律）。sh 側と同じ判定になっていること
   ( cd "$PGD" && "$AIDEV_SH" new pgdh --mode autonomous --human-gates design >/dev/null )
@@ -3091,7 +3103,7 @@ if [ -n "$PS_HOST" ]; then
   PGH_S=$( ( cd "$PGD" && "$AIDEV_SH" guard design ) 2>&1 )
   PGH_P=$( ( cd "$PGD" && run_ps1 "$AIDEV_PS1" guard design ) 2>&1 | tr -d '\r' )
   assert_eq "$PGH_S" "$PGH_P" "パリティ: guard design（humanGates の部分自律）"
-  assert_contains "$PGH_P" "plan モードへ入ってから" \
+  assert_contains "$PGH_P" "成果物を書く前に方針だけを提示" \
     "パリティ: ps1 も humanGates に挙がっていれば autonomous で促す"
   PGH2_S=$( ( cd "$PGD" && "$AIDEV_SH" guard architecture ) 2>&1 )
   PGH2_P=$( ( cd "$PGD" && run_ps1 "$AIDEV_PS1" guard architecture ) 2>&1 | tr -d '\r' )

@@ -1,7 +1,7 @@
 ---
 name: aidev-30-tasks
 description: ［aidev 標準工程］aidev の tasks（計画/作業分解）工程。進行中の aidev 作業の design.md から tasks.md を作る。「aidev tasks」「tasks 工程」と言われたとき、または前工程から案内されたときに使用する。aidev 作業の無い単発の計画作成では使わない。
-allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion, EnterPlanMode, ExitPlanMode]
+allowed-tools: [Bash, Read, Write, Edit, AskUserQuestion]
 ---
 
 AI 開発ワークフローの **tasks（計画 / 作業分解）工程**を実行する。
@@ -35,8 +35,8 @@ design を実装可能な作業単位に分解し、`tasks.md`（前半に方針
 1. protocol.md「1. 対象作業の特定」に従い対象フォルダを確定。`aidev guard tasks` で前提を検査し、
    `aidev event tasks start` を記録する（exit≠0＝未充足。start が無いと所要時間も手戻りも導出できない）。`design.md` を確認
    （`architecture.md` / `research.md` があればそれも読み込む）。
-   - **分解の切り方が複数あるなら、`tasks.md` を書く前に plan モードへ入る**（承認を取って
-     から解除して書く）。**条件は `protocol-autonomous.md`**——ここに写さない（`aidev guard tasks` が
+   - **分解の切り方が複数あるなら、`tasks.md` を書く前に方針だけを提示して承認を得る**（承認後に書く）。
+     **条件は `protocol-autonomous.md`**——ここに写さない（`aidev guard tasks` が
      該当時だけ促す。**subtask は対象外**——切り方は親の tasks が確定済み）。
    - **この work が subtask か親かを見分ける**（state.yml に `parent` があれば subtask）。
      **subtask の tasks は split 判定（手順3）と subtask 生成（手順4）を行わない**。手順5の「scope 凍結の

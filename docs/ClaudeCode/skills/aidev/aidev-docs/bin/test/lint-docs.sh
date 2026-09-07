@@ -378,7 +378,12 @@ BUDGET_PROTOCOL=608
 #   ——`README.md` のサーフェス表で Claude Code 行の判定が「入れる」だったため、
 #   **表の判定列だけ見て「自分の話ではない」と閉じかけた**（実走が実測して報告した）。
 #   分かれ目は製品ではなく**実行主体**なので、表も主エージェント／サブエージェントの 2 行に割った。
-BUDGET_TOTAL=3492
+# 3492 -> 3439: **plan モード対応の廃止**（-53、`protocol-autonomous.md`）。**予算は下げる**
+#   ——上げるときだけ理由を書いて据え置くと、減った分が次の追加の隠れ枠になり、予算が効かなくなる。
+#   節ごと落としたのは「plan モードとの関係」で、代わりに置いた「方針の事前承認」は 26 行。
+#   落ちたのは**製品固有の機構の作法**（入り方・抜け方・plan file・着地モード・サーフェス別の可否）で、
+#   **規律そのもの（方針を先に承認させる）は残っている**。経緯は `DESIGN.md`「2.」へ移した。
+BUDGET_TOTAL=3439
 _p=$(wc -l < "$SKILLS/aidev-00-start/protocol.md")
 _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 [ "$_p" -le "$BUDGET_PROTOCOL" ] && ok "L6 protocol.md が予算内（$_p / $BUDGET_PROTOCOL 行）" \
@@ -417,13 +422,16 @@ echo "== L9: 判定条件の写しを工程 SKILL に作らない =="
 # **`runtime_docs` と SKILL のグロブは全工程 SKILL で重なる**ので、和集合を取ってから走査する。
 # 重ねたまま回すと同じファイルを 2 回数え、1 件の写しが「2 ファイル」と出た
 # （`runtime_docs` 自身のコメントが同じ罠を警告しているのに、その隣で再発させた）
-PMHEAD='plan ?モード|planモード|plan mode'
+# **2026-09-07 に主題を付け替えた**。plan モード対応の廃止で見張る対象は無くなったが、
+# 「**判定条件の正典は 1 箇所・他所には引き金と参照だけ**」という規律も、それが 5 回破られた
+# 事実も、主題に依らない。新しい主題は**方針の事前承認**（`protocol-autonomous.md` の同名節）
+PMHEAD='方針の事前承認|方針だけを提示|方針を提示して承認|成果物を書く前に方針'
 # **改修のたびに語彙を足す**。足さないと「旧条件の写し」しか捕まえられず、**新条件の写しは
 # 全部素通りする**（実走が H10-H13 で実測）。工程名の列挙（`design / architecture / tasks` の形）も条件の写し
 # **軸を変えたら、その軸の語彙も足す**。「入口が無ければ**承認を挟む**／促しは**人への依頼文**」を
 # 入れた回、語彙を足さなかったので**新しい軸の写しが 1 件も捕まらなかった**（独立監査が
 # 工程 SKILL に写しを仕込んで実証した。上のコメントが警告している形をその場で再発させた）
-PMKEY='profile|humanGates|human-gates|interactive|autonomous|full[^ ]* *×|light|承認者|対話モード|自律モード|プロファイル|機械で止ま|ゲートの実体化|exit code|read-only|主活動|ヒアリング|既存コード|コード探索|方向が複数|選び損な|上流4工程|design *[/／] *architecture|design[・、] *architecture|実装計画|implementation steps|ExitPlanMode|EnterPlanMode|承認を挟|人への依頼'
+PMKEY='profile|humanGates|human-gates|interactive|autonomous|full[^ ]* *×|light|承認者|対話モード|自律モード|プロファイル|機械で止ま|ゲートの実体化|exit code|read-only|主活動|ヒアリング|既存コード|コード探索|方向が複数|選び損な|上流4工程|design *[/／] *architecture|design[・、] *architecture|複数の案から選ぶ|選ぶ余地|承認を挟|人への依頼'
 _l9=0
 # `runtime_docs` は `$d/SKILL.md`（`$d` は末尾 `/`）を出すので **`//` を含む**。
 # 潰さないと `sort -u` が別物として残し、二重走査がそのまま生き残る（テストで実測）
@@ -468,8 +476,8 @@ for _f in $({ runtime_docs
   _l9=$((_l9 + 1))
   printf '%s:\n%s\n' "${_f#"$SKILLS"/}" "$_hits" >&2
 done
-if [ "$_l9" -eq 0 ]; then ok "L9 plan モードの判定条件が正典の外に写されていない"
-else ng "L9 plan モードの判定条件の写しが $_l9 ファイル（正典は protocol-autonomous.md「plan モードとの関係」だけ。他所には引き金と参照だけを置く）"; fi
+if [ "$_l9" -eq 0 ]; then ok "L9 方針の事前承認の判定条件が正典の外に写されていない"
+else ng "L9 方針の事前承認の判定条件の写しが $_l9 ファイル（正典は protocol-autonomous.md「方針の事前承認」だけ。他所には引き金と参照だけを置く）"; fi
 
 echo "== L10: 退役した名前と、統合で生まれた重複 =="
 # **改修のたびに「置換したつもり」で静かに残る**。工程の改名（2026-09-06）で実際に起きた——
@@ -484,13 +492,19 @@ echo "== L10: 退役した名前と、統合で生まれた重複 =="
 # **裸の `plan` も見る**。`design/plan` のような列挙や「plan を approve」の形は `\bplan\.md\b` では
 # 拾えず、実走が 4 箇所（coding の decisions テンプレ・DESIGN・CLI コメント×2）を実測した。
 # plan モード族は `RET_OK` が既に除けているので、**区切り記号と助詞**で絞れば誤検知しない
-RETIRED='\brequirement\b|\bspec\b|\bplan\.md\b|\brequirement\.md\b|\bspec\.md\b|[/／]plan\b|\bplan[/／]|\bplan (を|は|が|の|へ|と|も)|aidev-65-walkthrough|(guard|event|approve|unapprove) walkthrough|walkthrough ?工程|walkthrough\(任意\)'
-# 温存すべきもの（工程名ではない）: 他ツール名・英単語・plan モード族・デバッグ分類
+# **plan モード対応も退役した**（2026-09-07）。ただし裸の語は経緯を語る行に正当に出るので、
+# **「入れ」と命じる形**と **`allowed-tools` の `PlanMode`** に限って見張る
+# （`walkthrough` を工程として扱う形だけ見るのと同じ絞り方）
+RETIRED='\brequirement\b|\bspec\b|\bplan\.md\b|\brequirement\.md\b|\bspec\.md\b|[/／]plan\b|\bplan[/／]|\bplan (を|は|が|の|へ|と|も)|aidev-65-walkthrough|(guard|event|approve|unapprove) walkthrough|walkthrough ?工程|walkthrough\(任意\)|plan ?モードへ入|planモードへ入|allowed-tools:.*PlanMode'
+# 温存すべきもの（工程名ではない）: 他ツール名・英単語・デバッグ分類。
+# **plan モード族はここから外した**（2026-09-07 の廃止）——入れたままだと、上で足した
+# 「入れ」と命じる形も `allowed-tools` の `PlanMode` も**行ごと免除されて一度も鳴らない**
+# （実際、足した直後に仕込んで確かめたら鳴らなかった。`RET_OK` は行全体への `grep -vE`）
 # **他社の `/plan` を `RET_OK` に足してはいけない**（一度足して独立監査が穴を実証した）。
 # `RET_OK` は**行全体**への `grep -vE` なので、`` `/plan` `` を含む行は**同じ行の `spec.md` /
 # `plan.md` まで丸ごと免除**される——改名の経緯を語る行は必ずこの形になり得るので実害がある。
 # 他社の入口に触れる行は `lint-docs.allow` の `L10:` に**理由つきで 1 行ずつ**登録する
-RET_OK='Spec Kit|spec-kit|specif|specia|respect|inspect|aspect|plan ?モード|planモード|plan mode|PlanMode|plan agent|plan file|planner|planning|planned|permission-mode plan|defaultMode|permissionMode'
+RET_OK='Spec Kit|spec-kit|specif|specia|respect|inspect|aspect|plan agent|plan file|planner|planning|planned|permission-mode plan|defaultMode|permissionMode'
 # **同名の並び**は工程ごとに展開して書く——`grep -E` の後方参照（`\1`）は POSIX ERE の外で、
 # 環境によっては**黙って何にもマッチしない**（実際、導入時の自己検査を素通りさせた）。
 # 間隔は**バイト数**で数える（`LC_ALL=C`）。`` `tasks.md`（方針）と `tasks.md` `` の
