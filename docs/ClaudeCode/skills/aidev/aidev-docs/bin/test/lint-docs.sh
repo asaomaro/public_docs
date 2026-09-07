@@ -437,7 +437,7 @@ echo "== L9: 判定条件の写しを工程 SKILL に作らない =="
 # **2026-09-07 に主題を付け替えた**。plan モード対応の廃止で見張る対象は無くなったが、
 # 「**判定条件の正典は 1 箇所・他所には引き金と参照だけ**」という規律も、それが 5 回破られた
 # 事実も、主題に依らない。新しい主題は**方針の事前承認**（`protocol-autonomous.md` の同名節）
-PMHEAD='方針の事前承認|方針だけを提示|方針を提示して承認|成果物を書く前に方針'
+PMHEAD='方針の事前承認|方針だけを提示|方針を提示して承認|成果物を書く前に方針|方針を先に承認|方針の合意を先に|方針を先に固め|方針だけ承認'
 # **改修のたびに語彙を足す**。足さないと「旧条件の写し」しか捕まえられず、**新条件の写しは
 # 全部素通りする**（実走が H10-H13 で実測）。工程名の列挙（`design / architecture / tasks` の形）も条件の写し
 # **軸を変えたら、その軸の語彙も足す**。「入口が無ければ**承認を挟む**／促しは**人への依頼文**」を
@@ -454,8 +454,12 @@ for _f in $({ runtime_docs
   [ -f "$_f" ] || continue
   case "$_f" in *protocol-autonomous.md) continue ;; esac  # 正典。ここには条件が在ってよい
   # **見出し行とその継続行**（行頭が空白で始まる後続行）をひとまとまりで見る。
-  # 正典への参照そのものは条件ではない（ファイル名が `autonomous` を含む）ので落とす
-  _hits=$(awk -v head="$PMHEAD" '
+  # 正典への参照そのものは条件ではない（ファイル名が `autonomous` を含む）ので落とす。
+  # **節名の引用も参照**——`「方針の事前承認」が正典` と書いた行まで写し扱いになり、
+  # 巨大な表のセルを丸ごと免除する羽目になっていた（独立監査が実測）。落としてから判定する
+  # **落とすのは awk の前**。後ろで落としていた頃は、**参照の行が見出しとして block を開き**、
+  # 中身の `light` / `profile` を拾って写し扱いになった（巨大な表のセルがそれで引っかかった）
+  _hits=$(sed 's/protocol-autonomous\.md//g; s/「方針の事前承認」//g' "$_f" | awk -v head="$PMHEAD" '
       function ltrim(x) { sub(/^[ \t]+/, "", x); return x }
       # **行は丸ごと見る**。見出しより前を切っていた頃は `上流4工程では plan モードへ入る…` の
       # ように**条件語が見出しより前に来る語順**で素通りした（実走が実測。自己テストは必ず
@@ -469,7 +473,7 @@ for _f in $({ runtime_docs
         buf=buf " " $0; next }
       inb { print ln ": " buf; inb=0 }
       END { if (inb) print ln ": " buf }
-    ' "$_f" | sed 's/protocol-autonomous\.md//g' | grep -E "$PMKEY") || true
+    ' | grep -E "$PMKEY") || true
   # **`DESIGN.md` は「なぜその基準にしたか」を書く場所**なので、規則に触れる行が正当に在る。
   # 全部弾くとノイズになり、全部許すと**旧条件がそこに生き残る**（実際に 3 箇所生き残った）。
   # L5 と同じ形——**理由つきで登録した行だけ免除する**（`lint-docs.allow` の `L9:` 行）
@@ -505,9 +509,15 @@ echo "== L10: 退役した名前と、統合で生まれた重複 =="
 # 拾えず、実走が 4 箇所（coding の decisions テンプレ・DESIGN・CLI コメント×2）を実測した。
 # plan モード族は `RET_OK` が既に除けているので、**区切り記号と助詞**で絞れば誤検知しない
 # **plan モード対応も退役した**（2026-09-07）。ただし裸の語は経緯を語る行に正当に出るので、
+# **助詞のゆれ（へ／に）まで見る**——`へ` だけ見ていた初版は `plan モードに入れ` を素通りさせた。
+# **フロントマターを触らずに本文でツールを呼び戻す形**（`EnterPlanMode` を呼ぶ）も見る
+# ——どちらも独立監査が仕込んで実測した。
+# **多バイト文字にブラケット式を使わない**——`[へに]` と書いた初版は、`LANG` が空（C ロケール）だと
+# **文字集合ではなくバイト集合**として解釈され、`plan モードへ入` すら一致しなくなった
+# （それまで鳴っていた形が黙って素通りした。`\1` が POSIX ERE の外なのと同じ型の罠）。交替で書く
 # **「入れ」と命じる形**と **`allowed-tools` の `PlanMode`** に限って見張る
 # （`walkthrough` を工程として扱う形だけ見るのと同じ絞り方）
-RETIRED='\brequirement\b|\bspec\b|\bplan\.md\b|\brequirement\.md\b|\bspec\.md\b|[/／]plan\b|\bplan[/／]|\bplan (を|は|が|の|へ|と|も)|aidev-65-walkthrough|(guard|event|approve|unapprove) walkthrough|walkthrough ?工程|walkthrough\(任意\)|plan ?モードへ入|planモードへ入|allowed-tools:.*PlanMode'
+RETIRED='\brequirement\b|\bspec\b|\bplan\.md\b|\brequirement\.md\b|\bspec\.md\b|[/／]plan\b|\bplan[/／]|\bplan (を|は|が|の|へ|と|も)|aidev-65-walkthrough|(guard|event|approve|unapprove) walkthrough|walkthrough ?工程|walkthrough\(任意\)|plan ?モード(へ|に)入|planモード(へ|に)入|allowed-tools:.*PlanMode|(Enter|Exit)PlanMode. ?を ?(呼|使)'
 # 温存すべきもの（工程名ではない）: 他ツール名・英単語・デバッグ分類。
 # **plan モード族はここから外した**（2026-09-07 の廃止）——入れたままだと、上で足した
 # 「入れ」と命じる形も `allowed-tools` の `PlanMode` も**行ごと免除されて一度も鳴らない**

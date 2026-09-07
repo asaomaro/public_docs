@@ -1099,8 +1099,8 @@ function Cmd-Guard($rest) {
     if ($ph -ceq 'design' -or $ph -ceq 'architecture' -or $ph -ceq 'tasks') {
       $sf = Join-Path $script:WORK 'state.yml'
       # subtask の tasks は親の tasks が切り方を確定済み（sh 版 cmd_guard の注記に理由）
-      $pmsub = ($ph -ceq 'tasks' -and (YGet $sf 'parent'))
-      if (-not $pmsub -and (YGet $sf 'profile') -cne 'light' -and (HasApprover $script:WORK $ph)) {
+      $ppsub = ($ph -ceq 'tasks' -and (YGet $sf 'parent'))
+      if (-not $ppsub -and (YGet $sf 'profile') -cne 'light' -and (HasApprover $script:WORK $ph)) {
         Write-Output "   → 有力案が複数あるなら、**成果物を書く前に方針だけを提示して承認を得る**（承認後に書く）"
         Write-Output "      方針と、採らなかった案・理由を decisions.md に書いて提示する（protocol-autonomous.md）"
       }

@@ -26,7 +26,7 @@
   | `protocol-conventions.md` | 「12.」 | PJ規約の条項を起こす / 効果を判定する / PJ ドキュメントへ移送する |
   | `protocol-check.md` | 「3.3」 | 上流4工程の独立点検（`autonomous` は必須）/ coding のタスク点検 |
   | `protocol-debug.md` | 「10.」末尾 | 同一工程の差し戻しが上限に達した / 点検を繰り返しても直らない（詰まりの原因究明） |
-  | `protocol-autonomous.md` | 「10.」 | `mode: autonomous` の work / 方針を先に承認させるか迷ったとき |
+  | `protocol-autonomous.md` | 「10.」 | `mode: autonomous` の work / 方針の承認順で迷ったとき / 書き込みが塞がるモードで呼ばれたとき |
   | `protocol-light.md` | 「11.」 | `profile: light` の work（3文書の必須節・昇格） |
 - 実行時状態: `.aidev/`（リポジトリ内に生成）
   - `.aidev/current`: 現在作業中の works フォルダ名（ポインタ）

@@ -1156,11 +1156,11 @@ cmd_guard() {
     # 拠り所にしていたが、その拠り所ごと無くなった（`DESIGN`「2.」に経緯）。
     # 承認者の有無で見るのは**承認を出すのが人間だから**——`autonomous` を一律で外すと
     # `humanGates` の部分自律を取りこぼす（`has_approver()`）。
-    _pmsub=no
-    case "$ph" in tasks) [ -n "$(yget "$WORK/state.yml" parent)" ] && _pmsub=yes ;; esac
+    _ppsub=no
+    case "$ph" in tasks) [ -n "$(yget "$WORK/state.yml" parent)" ] && _ppsub=yes ;; esac
     case "$ph" in
       design|architecture|tasks)
-        if [ "$_pmsub" = no ] && [ "$(yget "$WORK/state.yml" profile)" != light ] \
+        if [ "$_ppsub" = no ] && [ "$(yget "$WORK/state.yml" profile)" != light ] \
            && has_approver "$ph"; then
           printf '   → 有力案が複数あるなら、**成果物を書く前に方針だけを提示して承認を得る**（承認後に書く）\n'
           printf '      方針と、採らなかった案・理由を decisions.md に書いて提示する（protocol-autonomous.md）\n'

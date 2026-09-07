@@ -2446,7 +2446,10 @@ rm -f "$AUD/.aidev/config.yml"
 
 # ps1 が Windows PowerShell 5.1 で動くか（構文レベル）。**pwsh 7 では通るのに 5.1 で落ちる**
 # 構文は CI の winps ジョブだけが赤くなり、手元では一生気づかない。安いので静的に見張る
-AU_PS51=$(grep -vE '^[[:space:]]*#' aidev.ps1 \
+# **パスは絶対で渡す**。`aidev.ps1` と相対で書いていた頃は、この時点の cwd が `bin/` ではないので
+# 毎回 `grep: aidev.ps1: No such file or directory` になり、`AU_PS51` が必ず空＝**一度もファイルを
+# 見ずに pass** していた（独立監査が実測。偽の緑の 1 例）
+AU_PS51=$(grep -vE '^[[:space:]]*#' "$AIDEV_PS1" \
   | grep -nE -- '-Stable|Split-Path[^|]*-LeafBase|Join-String|-AsByteStream|-AsHashtable' || :)
 assert_eq "$AU_PS51" "" "aidev.ps1: PowerShell 6+ でしか無い構文を使っていない（5.1 の CI が落ちる）"
 
@@ -2493,6 +2496,14 @@ run_au doccheck start design >/dev/null 2>&1
 assert_eq "$?" "1" "doccheck start: --mode は必須（実施形態が残らないと効果を測れない）"
 run_au doccheck start requirements --mode delegated >/dev/null 2>&1
 assert_eq "$?" "0" "doccheck start: 文書があれば通る（requirements.md は mk_work が作る）"
+# **工程ごとの観点が `start` の出力に載ること**。`protocol-check.md` に書いただけでは
+# `--mode delegated` の点検者に届かない（読むのはこの出力なので、観点は一度も使われない）。
+# 実走が実測した「在るのに効かない」型なので、出る／出ないの両方を固定する
+: > "$AU_D/design.md"
+assert_contains "$(run_au doccheck start design --mode delegated 2>&1)" "依拠する既存の事実" \
+  "doccheck start design: 工程固有の観点が出力に載る（委譲先に届く）"
+assert_eq "$(run_au doccheck start requirements --mode delegated 2>&1 | grep -c '依拠する既存の事実')" "0" \
+  "doccheck start requirements: design 固有の観点は出さない（工程で出し分ける）"
 rm -f "$AU_D/architecture.md"
 run_au doccheck start architecture --mode delegated >/dev/null 2>&1
 assert_eq "$?" "2" "doccheck start: 対象 md が無ければ exit 2（前提成果物の不足。使い方の誤り=1 と分ける）"
@@ -2916,6 +2927,10 @@ l9probe "現行条件を自然語で写す" '   - 有力な案が複数あるな
 l9probe "見出しの表記ゆれ" '   - 有力な案が複数あるなら、**成果物を書く前に方針だけ固める**（`full` × `interactive` のみ）。'
 l9probe "節名で書く" '   - 有力な案が複数あるなら **方針の事前承認**を行う（`profile: light` では行わない）。'
 l9probe "CLI フラグの綴り" '   - 有力な案が複数あるなら、**方針を提示して承認を得る**（`--human-gates` に挙がっているときだけ）。'
+# **正典自身の言い回しでも捕まること**。`README` の「方針を先に承認させる」、正典の
+# 「方針の合意を先に取る」で写しても素通りしていた（独立監査が実測）
+l9probe "正典の言い回し（承認させる）" '   - **方針を先に承認させる**のは `humanGates` に挙がっている工程だけ。'
+l9probe "正典の言い回し（合意を先に）" '   - **方針の合意を先に取る**のは `profile: light` を除く工程だけ。'
 # **H7（対象ファイル外へ写す）の probe が無かった**ので、「塞いだ」と書いてあるのに
 # `DESIGN.md` と `aidev-docs/README.md` に届いていないことに気付けなかった（実走が実測）。
 # 走査対象の端（実行時文書でない参照文書）を 1 つずつ突く
@@ -2992,6 +3007,13 @@ l10probe "同名の並び（記号区切り）" 'design.md, design.md を比べ�
 l10probe "退役: plan モードへ入れと命じる" 'plan モードへ入ってから design.md を書く。' caught
 l10probe "退役: 表記ゆれ（planモード）" 'planモードへ入る。' caught
 l10probe "退役: allowed-tools に残る" 'allowed-tools: [Bash, Read, EnterPlanMode, ExitPlanMode]' caught
+# **助詞は「へ」だけではない**。`へ` しか見ていなかった初版は、いちばん自然な `に入る` を
+# 素通りさせた（独立監査が実測）。しかも `[へに]` と書き直したら、`LANG` が空の環境では
+# **バイト集合**になって `へ` 版まで鳴らなくなった。交替で書き、両方を probe で固定する
+l10probe "退役: 助詞「に」（plan モードに入る）" 'plan モードに入ってから design.md を書く。' caught
+l10probe "退役: 助詞「に」＋表記ゆれ" 'planモードに入れ。' caught
+# **フロントマターを触らずに本文で呼び戻す形**。`allowed-tools` だけ見ていると素通りする
+l10probe "退役: 本文で EnterPlanMode を呼ぶ" 'design では `EnterPlanMode` を呼んでから書くこと。' caught
 # **温存語**。他ツール名・英単語を巻き込むと、検査は使われなくなる。
 # plan モードも**経緯を語る形**（命令形でない言及）は鳴らしてはいけない
 l10probe "他ツール名 Spec Kit" 'GitHub Spec Kit の spec-kit では tasks.md を使う。' clean
@@ -3070,6 +3092,22 @@ if [ -n "$PS_HOST" ]; then
   PDC_S=$( ( cd "$PDC" && "$AIDEV_SH" doccheck status --format tsv ) )
   PDC_P=$( ( cd "$PDC" && run_ps1 "$AIDEV_PS1" doccheck status --format tsv ) | tr -d '\r' )
   assert_eq "$PDC_S" "$PDC_P" "パリティ: doccheck status --format tsv"
+  # **`doccheck start` の標準出力そのもののパリティ**。ここまで metrics しか見ておらず、
+  # 出力は捨てていた——ps1 側は逆引用符のエスケープに依存する行なので、**ずれても機械が黙る**
+  # （独立監査が実測）。`guard` の促しと同じ扱いに揃える
+  PDO=$(mktemp -d); mkdir -p "$PDO/.aidev/works"
+  ( cd "$PDO" && "$AIDEV_SH" new pdo >/dev/null ); PDOD="$PDO/.aidev/works/$(cat "$PDO/.aidev/current")"
+  : > "$PDOD/design.md"
+  PDO_S=$( ( cd "$PDO" && "$AIDEV_SH" doccheck start design --mode delegated ) 2>&1 )
+  ( cd "$PDO" && "$AIDEV_SH" doccheck report design --findings 0 ) >/dev/null 2>&1
+  PDO_P=$( ( cd "$PDO" && run_ps1 "$AIDEV_PS1" doccheck start design --mode delegated ) 2>&1 | tr -d '\r' )
+  # **`round:` は行番号ではなく行内容で除く**。`sed '1d'` にしていた頃は、
+  # round 行が 1 行目とは限らず**別の行を消して round のずれをそのまま比べていた**
+  assert_eq "$(printf '%s' "$PDO_S" | grep -v '^round: ')" "$(printf '%s' "$PDO_P" | grep -v '^round: ')" \
+    "パリティ: doccheck start design の出力（round 行は回数が違うので除く）"
+  assert_contains "$PDO_P" "依拠する既存の事実" \
+    "パリティ: ps1 も design 固有の観点を出す"
+  rm -rf "$PDO"
   ( cd "$PDC" && run_ps1 "$AIDEV_PS1" doccheck start design --mode delegated ) >/dev/null 2>&1
   ( cd "$PDC" && run_ps1 "$AIDEV_PS1" doccheck start design --mode delegated ) >/dev/null 2>&1
   assert_eq "$?" "4" "パリティ: ps1 も maxDocCheckRounds で exit 4"
@@ -4122,9 +4160,9 @@ YML
   else
     skip 10 "git 不在のため worktree パリティを省略"
   fi
-  block_end parity "267" "parity"
+  block_end parity "269" "parity"
 else
-  skip 253 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
+  skip 255 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
 fi
 
 echo
