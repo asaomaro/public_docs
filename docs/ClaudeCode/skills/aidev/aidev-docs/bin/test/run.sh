@@ -2896,6 +2896,18 @@ if locale -a 2>/dev/null | grep -qiE '^(C\.UTF-8|en_US\.utf8|C\.utf8)$'; then
 else
   skip 1 "UTF-8 ロケールが無いため lint のロケール差検査を省略"
 fi
+# **免除ファイルが CRLF でも同じ結果になること**。Windows のチェックアウトでは `lint-docs.allow` が
+# CRLF になり、`read -r` の拾う行に CR が残る。免除パターンにも CR が混ざるので**どの行にも
+# 部分一致せず、免除が 1 本残らず死ぬ**——`L5` / `L9` / `L10` が全件赤になり、しかも
+# 「退役名が残っている」という**もっともらしい嘘の指摘**として出る。
+# **main が 2026-09-06 から 4 回連続で赤だったのがこれ**で、Windows の CI しか捕まえられなかった。
+# ハーネス本体は汚さず、複製の中で CRLF を再現する
+CRLFDIR=$TMP/crlfskills
+rm -rf "$CRLFDIR"; cp -r "$(cd "$SELF/../../.." && pwd)" "$CRLFDIR"
+awk '{ printf "%s\r\n", $0 }' "$SELF/lint-docs.allow" > "$CRLFDIR/aidev-docs/bin/test/lint-docs.allow"
+"$CRLFDIR/aidev-docs/bin/test/lint-docs.sh" >/dev/null 2>&1
+assert_eq "$?" "0" "lint-docs: lint-docs.allow が CRLF でも免除が効く（Windows のチェックアウト）"
+rm -rf "$CRLFDIR"
 # **検査が本当にその欠陥を捕まえるか**を、欠陥を一度戻して確かめる。
 # L9 は「工程 SKILL の方針事前承認の行に判定条件を写さない」を見る検査で、
 # （2026-09-07 に主題を plan モードから付け替えた。**失敗の型は主題に依らない**ので検査は残した）

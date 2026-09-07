@@ -149,6 +149,15 @@ echo "== L5: 実行時文書をまたぐ重複文 =="
 # 「本文の在処は常に1箇所」の機械化。**意図的な再掲は下の許可リストに理由つきで登録する**
 # （skip 件数の申告と同じ考え方——見えなくするのではなく、数えて見えるようにする）
 ALLOW=$SELF/lint-docs.allow
+# **CR を落としてから読む**。Windows のチェックアウト（`core.autocrlf`）ではこの免除ファイルが
+# CRLF になり、`read -r` が拾う 1 行は末尾に CR が付く。免除パターンにも CR が混ざるので
+# **どの行にも部分一致せず、免除が 1 本残らず死ぬ**——Windows の CI だけが L5 / L9 / L10 で
+# 全件赤になり、しかも「退役名が残っている」という**もっともらしい嘘の指摘**として出ていた
+# （2026-09-06 から main で 4 回連続赤。原因がこれと分かるまで手が付いていなかった）。
+# 検査の土台なので、ここで一度だけ正規化して以降はその複製を読む
+ALLOW_RAW=$ALLOW
+ALLOW=$SELF/.allowlf
+tr -d '\r' < "$ALLOW_RAW" > "$ALLOW"
 grep -v '^#\|^$' "$ALLOW" > "$SELF/.l5allow"
 runtime_docs | while read -r f; do
   # frontmatter（`---` で挟まれた先頭ブロック）は除く。`allowed-tools:` の行は
@@ -182,7 +191,7 @@ EOF2
 "
 done < "$SELF/.l5dup"
 if [ "$_dupn" -eq 0 ]; then ok "L5 実行時文書をまたぐ未登録の重複文が無い"
-else ng "L5 実行時文書をまたぐ重複文が $_dupn 件（正典を1つに決めて参照にするか、理由つきで $(basename "$ALLOW") に登録する）"; printf '%s' "$_dupout" >&2; fi
+else ng "L5 実行時文書をまたぐ重複文が $_dupn 件（正典を1つに決めて参照にするか、理由つきで $(basename "$ALLOW_RAW") に登録する）"; printf '%s' "$_dupout" >&2; fi
 rm -f "$SELF/.l5" "$SELF/.l5dup" "$SELF/.l5allow"
 
 echo "== L6: 実行時に読む量の予算 =="
@@ -754,6 +763,7 @@ else
   fi
 fi
 
+rm -f "$SELF/.allowlf"
 echo
 printf 'LINT: pass=%s fail=%s\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
