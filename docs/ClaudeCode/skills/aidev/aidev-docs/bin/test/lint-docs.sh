@@ -368,7 +368,12 @@ BUDGET_PROTOCOL=608
 #   併せて **plan file が work 単位ではなくセッション単位**だと分かった——2 本目で入ったとき
 #   **1 本目の下書きが残ったまま「追記せよ」と促された**。混ざったまま承認を求めると、
 #   承認者は別 work の設計を読むことになる。→「入ったら全面的に書き換える」を明記。
-BUDGET_TOTAL=3488
+# 3488 -> 3491: **他エージェントで同じ散文が効くかを調べた**ぶん（+3、`protocol-autonomous.md`）。
+#   plan モード自体は Codex CLI にも Copilot にもあるが、**エージェント自身に入口があるのは
+#   Claude Code だけ**——他は人が切り替える。第一層は散文なので、入口が無いサーフェスでは
+#   「plan モードへ入れ」が**実行不能**になり、`guard` の促しは**人への依頼文**に変わる。
+#   サーフェス別の一覧は `aidev-docs/README.md`（予算外）に置き、正典には**基準の読み替え方**だけ書く。
+BUDGET_TOTAL=3491
 _p=$(wc -l < "$SKILLS/aidev-00-start/protocol.md")
 _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 [ "$_p" -le "$BUDGET_PROTOCOL" ] && ok "L6 protocol.md が予算内（$_p / $BUDGET_PROTOCOL 行）" \
@@ -473,7 +478,9 @@ echo "== L10: 退役した名前と、統合で生まれた重複 =="
 # plan モード族は `RET_OK` が既に除けているので、**区切り記号と助詞**で絞れば誤検知しない
 RETIRED='\brequirement\b|\bspec\b|\bplan\.md\b|\brequirement\.md\b|\bspec\.md\b|[/／]plan\b|\bplan[/／]|\bplan (を|は|が|の|へ|と|も)|aidev-65-walkthrough|(guard|event|approve|unapprove) walkthrough|walkthrough ?工程|walkthrough\(任意\)'
 # 温存すべきもの（工程名ではない）: 他ツール名・英単語・plan モード族・デバッグ分類
-RET_OK='Spec Kit|spec-kit|specif|specia|respect|inspect|aspect|plan ?モード|planモード|plan mode|PlanMode|plan agent|plan file|planner|planning|planned|permission-mode plan|defaultMode|permissionMode'
+# **他エージェントのスラッシュコマンド `/plan`** も温存する（Codex CLI・Copilot CLI の入口）。
+# `[/／]plan` は aidev の `design/plan` 列挙を捕るための形なので、**逆引用符付きの形に限って**除く
+RET_OK='Spec Kit|spec-kit|specif|specia|respect|inspect|aspect|plan ?モード|planモード|plan mode|PlanMode|plan agent|plan file|planner|planning|planned|permission-mode plan|defaultMode|permissionMode|`/plan`'
 # **同名の並び**は工程ごとに展開して書く——`grep -E` の後方参照（`\1`）は POSIX ERE の外で、
 # 環境によっては**黙って何にもマッチしない**（実際、導入時の自己検査を素通りさせた）。
 # 間隔は**バイト数**で数える（`LC_ALL=C`）。`` `tasks.md`（方針）と `tasks.md` `` の

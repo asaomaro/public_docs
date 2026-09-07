@@ -9,6 +9,12 @@ BIN="$SELF/.."
 AIDEV_SH="$BIN/aidev"
 AIDEV_PS1="$BIN/aidev.ps1"
 
+# **スイートは生の git HEAD を読む**。`harness_rev` は「aidev-* の tree hash」なので、
+# 回している最中にコミットすると **sh 側と ps1 側で別の版が刻まれ**、`straddle` 列のパリティが
+# 落ちる——コードの欠陥ではなく、またがりの**正しい判定**である。実際に一度そう落ちた。
+# 促し文だけだと守られないので観測点にする: 開始時と終了時の HEAD を比べ、動いていたら名指しする。
+HEAD0=$(git -C "$SELF" rev-parse HEAD 2>/dev/null) || HEAD0=""
+
 # ps1 を走らせるホストを決める。pwsh は Windows に標準搭載ではないため、素の Windows では
 # Windows PowerShell 5.1（powershell.exe）へフォールバックする。ここを pwsh 決め打ちにすると
 # ps1 が「対象 OS で一度も検証されないまま緑」になる(#32 と同じ穴)。
@@ -4108,4 +4114,6 @@ printf 'RESULT: pass=%s fail=%s skip=%s\n' "$PASS" "$FAIL" "$SKIP"
 # 実際、パリティテストが skip のままだった間に**ps1 側の実バグ2件**（値の無いオプションを
 # 素通り／switch の大文字小文字）と**テスト自身のバグ2件**が緑の裏に隠れていた。
 [ "$SKIP" -gt 0 ] && printf 'NOTE: %s 件のアサートが環境不足で未実行（未検証の穴）。pwsh/git のある環境で再実行して埋めること。\n      パリティだけでなく **sh 単体の検査も一部**が pwsh ブロックの中にある。\n      **aidev.ps1 を触ったなら pwsh 無しの緑を信用しない**——構文エラーで 1 行も動かない状態でも\n      ここは pass=... fail=0 と出る（実際にそうなった。DESIGN「3.5」の偽の緑）。\n      Linux なら: curl -fsSL -o /tmp/pwsh.tar.gz https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/powershell-7.4.6-linux-x64.tar.gz \\\n                  && mkdir -p /opt/pwsh && tar -xzf /tmp/pwsh.tar.gz -C /opt/pwsh && export PATH=/opt/pwsh:$PATH\n' "$SKIP" >&2
+HEAD1=$(git -C "$SELF" rev-parse HEAD 2>/dev/null) || HEAD1=""
+[ -n "$HEAD0" ] && [ "$HEAD0" != "$HEAD1" ] && printf 'NOTE: 実行中に git HEAD が動いた（%s -> %s）。harnessRev / straddle 絡みの失敗は\n      それが原因の可能性が高い（またがりの正しい判定）。**回している間はコミットしない**。\n' "$(printf '%s' "$HEAD0" | cut -c1-12)" "$(printf '%s' "$HEAD1" | cut -c1-12)" >&2
 [ "$FAIL" -eq 0 ]
