@@ -46,6 +46,9 @@
 #   aidev use [<slug>]                         # 継続する作業を切り替える（引数なしで現在値を表示）
 #   aidev backlog new <name> --kind standing|split|topic [--parent <p>] [--priority <n>]
 #     frontmatter 付きで backlog ファイルを起こす（kind 欠落を構造的に防ぐ）
+#   aidev backlog add <file> "<item>" [--source <path>]
+#     既存 backlog に `- [ ]` を1行足す（retro の「製品 / コード」提案を落とす口）。
+#     --source は出典のパス（その retro.md 等。**リポジトリルートからの相対**で書く）
 #   aidev backlog archive [<file>...] [--force]  # 消化しきった backlog を archive/ へ退避（mv のみ・git は触らない）
 #   aidev backlog compact [<file>...]          # [x] 行（と継続行）を archive/<name>-done.md へ移す（無指定は standing 全部）。verify はそこも見る
 #   aidev convention new <id> --hypothesis <text> --baseline <text> [--scope <text>] [--source <path>] [--verify-after <n>]
@@ -414,6 +417,22 @@ cv_id() { # 生の id -> 安全な id（パス成分とスラッシュを落と�
   _i=$(basename -- "$1" .md)
   case "$_i" in ''|.|..) die "id が不正です: $1" ;; esac
   printf '%s' "$_i"
+}
+
+# 指摘 1 件を**論理行**にして出す。行頭 `- [` の行と、その**字下げした継続行**をつなぐ。
+# **折り返した指摘の 2 行目に置いたタグが完全に素通りしていた**（実走が実測）——
+# `- [` の行だけを見ていたので、`_cvtag` も `cv_count_tags` も同じ穴を持ち、
+# **効果検証の母集団が黙って欠ける**。すぐ下のコメントが警告している害の、別経路だった。
+# **散文は拾わない**——`- [` で始まる塊の中しか見ないので、
+# 「条項 [conv:x] に該当する指摘は無かった」のような地の文は入らない（`- [` 限定にした経緯）
+cv_finding_lines() { # file...
+  awk '
+    /^[ \t]*- \[/ { if (buf != "") print buf; buf = $0; next }
+    buf != "" && $0 ~ /^[ \t]+[^ \t]/ { buf = buf " " $0; next }
+    buf != "" { print buf; buf = "" }
+    END { if (buf != "") print buf }
+  ' "$@" 2>/dev/null || true
+  return 0
 }
 
 cv_find() { # id -> パスを出力（active 優先、無ければ archive）。見つからなければ 1
@@ -933,7 +952,7 @@ cmd_approve() {
     # 「条項 [conv:x] に該当する指摘は無かった」という**散文 1 行**で note が出た（実走が実測）。
     # 効果検証側の `cv_count_tags` は最初からこの絞り方をしており、**同じファイルに 2 つの
     # 食い違う集計器があった**——protocol.md がわざわざ警告している事故を新しい方で再現していた
-    _cvlines=$(grep '^[[:space:]]*- \[' "$WORK/review.md" 2>/dev/null) || _cvlines=""
+    _cvlines=$(cv_finding_lines "$WORK/review.md")
     _cvtag=$(printf '%s\n' "$_cvlines" | grep -oE '\[conv:[A-Za-z0-9_][A-Za-z0-9_-]*!?\]' | grep -c .) || _cvtag=0
     _cvvio=$(printf '%s\n' "$_cvlines" | grep -oE '\[conv:[A-Za-z0-9_][A-Za-z0-9_-]*!\]' | grep -c .) || _cvvio=0
     if [ "$_cvtag" -gt 0 ] && [ "$_cvvio" -eq 0 ]; then
@@ -941,6 +960,27 @@ cmd_approve() {
       # ここでも使わない**（片方だけ ` が消えて出力が割れる）
       printf 'note: 条項 id 付きの指摘が %s 件ありますが !（違反）は 0 件です。\n' "$_cvtag"
       printf '      条項に**反している**指摘には [conv:<id>!] を付ける（効果検証が数えるのは ! 付きだけ）\n'
+    fi
+    # **実在しない id を名指しする**。skill は「語彙を発明しない」と書いているが検査が無く、
+    # 他 PJ が `AGENTS.md` を指すつもりの造語を 3 件書いて**静かに通った**（retro が実測）。
+    # 効果検証はどの条項にも入らない指摘を数えないので、**母集団が黙って欠ける**のが害。
+    # 正しくは `[conv:-]`（該当条項が無い）なので、それを促す。**止めない**——
+    # 記録の分類の誤りであって、成果物の不備ではない
+    # **id の形は広く拾ってから実在を見る**。`[A-Za-z0-9_-]` の形しか見ていなかった頃は、
+    # **`[conv:AGENTS.md!]`（retro 当事者が実際に書いた形）が WARN も note も出さずに素通り**した
+    # ——「語彙を発明しない」を破る書き方ほど id の形も外れるので、**厳しい形だけ見ると
+    # いちばん見たいものが見えない**（独立監査が実測）。`]` までを一旦拾い、実在判定に回す
+    _cvbad=""
+    for _cvi in $(printf '%s\n' "$_cvlines" | grep -oE '\[conv:[^]]*\]' \
+                  | sed 's/^\[conv://; s/!\]$//; s/\]$//' | sort -u); do
+      [ -n "$_cvi" ] && [ "$_cvi" != "-" ] || continue
+      cv_find "$_cvi" >/dev/null 2>&1 || _cvbad="$_cvbad $_cvi"
+    done
+    if [ -n "$_cvbad" ]; then
+      printf 'WARN 実在しない条項 id が review.md にあります:%s\n' "$_cvbad"
+      printf '     一覧は aidev convention status。該当条項が無い指摘は [conv:-] と書く\n'
+      printf '     本当に条項にすべきなら aidev convention new <id> で起こしてから id を付ける\n'
+      printf '     （効果検証はこの指摘をどの条項にも数えないので、母集団が黙って欠ける）\n'
     fi
   fi
 
@@ -2526,6 +2566,7 @@ smoke_decl_of() { # file
     inblk {
       if (match($0, /^[ \t]+-[ \t]+/)) { s = substr($0, RLENGTH + 1); sub(/[ \t]+$/, "", s); if (s != "") print "N:" s; next }
       if ($0 ~ /^[ \t]*$/) next
+      if ($0 ~ /^[ \t]*#/) next
       inblk = 0
     }
   ' "$1" 2>/dev/null || true
@@ -2538,6 +2579,10 @@ smoke_cmds() {
     inblk {
       if (match($0, /^[ \t]+-[ \t]+/)) { s = substr($0, RLENGTH + 1); sub(/[ \t]+$/, "", s); if (s != "") print s; next }
       if ($0 ~ /^[ \t]*$/) next
+      # **コメント行でリストを閉じない**。閉じていた頃は 2 本設定して 1 本しか走らず、しかも
+      # 本数が 1 なので `smoke` も `doctor` も `1` と言う——**2 本目が黙って消えるのに無徴候**
+      # だった（他 PJ の retro が実測。「本数を出す」だけでは塞がらない側の欠陥）
+      if ($0 ~ /^[ \t]*#/) next
       inblk = 0
     }
   ' "$AIDEV/config.yml" 2>/dev/null || true
@@ -2662,6 +2707,14 @@ cmd_smoke() {
   WORK=$_sw; SLUG=$_ssl
   if [ "$_sn" -gt 1 ]; then printf 'smoke: %s (exit %s, %s 本)\n' "$_srr" "$_src" "$_sn"
   else printf 'smoke: %s (exit %s)\n' "$_srr" "$_src"; fi
+  # **設定したのに走らなかった本数を smoke 自身が言う**。`doctor` だけが言っていた頃は、
+  # **GO/NO-GO のゲートは smoke の側**なのに「2 本書いたつもりで 1 本しか走っていない」が
+  # ゲートの出力から見えなかった（独立監査が実測。他 PJ の retro が求めたのはこの位置）
+  _sorph=$(smoke_orphan_lines)
+  if [ "$_sorph" -gt 0 ]; then
+    printf 'WARN smokeCommands: ブロックの外に `- ` 行が %s 本あります: **走っていません**\n' "$_sorph" >&2
+    printf '     字下げを `smokeCommands:` の直下に揃える（間に別のキーを挟むとそこで切れる）\n' >&2
+  fi
   [ "$_srr" = pass ] || return 4
   return 0
 }
@@ -3600,7 +3653,7 @@ function epoch(ts,   y,mo,d,h,mi,s){
   h=substr(ts,12,2)+0; mi=substr(ts,15,2)+0; s=substr(ts,18,2)+0
   return dse(y,mo,d)*86400 + h*3600 + mi*60 + s
 }
-BEGIN{ first=-1; delivered_e=-1; delivered_flag=0; sback=0 }
+BEGIN{ first=-1; delivered_e=-1; delivered_flag=0; sback=0; prev=-1; idle=0; if(IDLE+0<=0) IDLE=1800 }
 /event:/{
   ts=""; ph=""; ev=""
   if(match($0,/ts:[ ]*[^,}]+/)){ ts=substr($0,RSTART+3,RLENGTH-3); gsub(/[ ]/,"",ts) }
@@ -3608,6 +3661,12 @@ BEGIN{ first=-1; delivered_e=-1; delivered_flag=0; sback=0 }
   if(match($0,/event:[ ]*[A-Za-z_]+/)){ ev=substr($0,RSTART+6,RLENGTH-6); gsub(/[ ]/,"",ev) }
   if(ph=="" || ev=="") next
   e=epoch(ts)
+  # **イベントが 1 件も無い区間**を足す。`work_sec` は工程の start→approved を足すので、
+  # 工程の**中**で 8 時間離席しても丸ごと入る（他 PJ が実測。work_sec が実作業の 2 倍以上になった）。
+  # ここで出すのは「**イベントが無かった時間**」だけで、**作業していたかは分からない**——
+  # だから `work_sec` から引かない。列を足すだけなら捏造にならない。
+  # 逆行する差（記録を後から補完した分）は数えない
+  if(e>=0){ if(prev>=0 && e-prev>IDLE) idle+=e-prev; if(e>prev) prev=e }
   if(ev=="start"){
     scount[ph]++
     if(e>=0){ if(first<0||e<first){first=e; firstts=ts}
@@ -3656,7 +3715,7 @@ END{
     # 「手戻り回数」（protocol-analysis.md「1.」）＝ **やり直した回数**。工程数で数えると
     # 上限が工程数で飽和し、「規模あたりの手戻り」の分子が頭打ちになる
     rw=0; for(p in scount) if(scount[p]>=2) rw+=scount[p]-1
-    printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", name, fs, dv, lead, work, rw, sback+0
+    printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", name, fs, dv, lead, work, idle+0, rw, sback+0
   }
 }'
 
@@ -3777,7 +3836,7 @@ cmd_metrics() {
   done
 
   if [ "$phasesf" = yes ]; then hdr='work	phase	start	approved	elapsed_sec	rounds'
-  else hdr='work	first_start	state	lead_sec	work_sec	reworks	sent_backs	ac	ac_drift	harnessRev	straddle'; fi
+  else hdr='work	first_start	state	lead_sec	work_sec	idle_sec	reworks	sent_backs	ac	ac_drift	harnessRev	straddle'; fi
 
   if [ "$fmt" = tsv ]; then
     printf '%s' "$rows" | sed '/^[[:space:]]*$/d'
@@ -4332,13 +4391,14 @@ cmd_use() {
 # **積む/退避する**だけを持たせる。消し込み（[x] 化と根拠の併記）は行の同定と文面の判断が
 # 要るので CLI にしない（verify は [x] 行とその継続行に slug があるかだけを見る。protocol「2.9」）。
 cmd_backlog() {
-  [ $# -ge 1 ] || die "使用法: aidev backlog <new|archive|compact> ..."
+  [ $# -ge 1 ] || die "使用法: aidev backlog <new|add|archive|compact> ..."
   sub=$1; shift
   case "$sub" in
     new)     bl_new "$@" ;;
+    add)     bl_add "$@" ;;
     archive) bl_do_archive "$@" ;;
     compact) bl_compact "$@" ;;
-    *) die "未知の backlog サブコマンド: $sub（new|archive|compact）" ;;
+    *) die "未知の backlog サブコマンド: $sub（new|add|archive|compact）" ;;
   esac
 }
 
@@ -4424,6 +4484,72 @@ bl_new() {
     printf '%s\n' '<!-- 項目は行頭の `- [ ]` で書く（見出しに書くと aidev status の未着手件数から漏れる） -->'
   } > "$f"
   printf 'created: .aidev/backlog/%s.md (kind %s)\n' "$name" "$kind"
+}
+
+# 既存の backlog ファイルに項目を 1 行足す。**retro の「製品 / コード」提案が次の work に
+# 届かない**のを塞ぐための口——口が `new|archive|compact` しか無かった頃は、
+# 「既存ファイルに 1 行足す」だけのために手で開くしかなく、実際に**予告された欠陥が
+# backlog に入らないまま次の呼び出し元で再発した**（他 PJ の retro が実測）。
+# 条項が `aidev convention new` で機械的に起票されるのと同じ扱いにする。
+# **`- [ ]` で書く**（見出しに書くと `aidev status` の未着手件数から漏れる）
+bl_add() {
+  blf=""; bltext=""; blsrc=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --source) need_arg "$1" $#; blsrc=${2:-}; shift 2 ;;
+      -*) die "未知のオプション: $1" ;;
+      *) if [ -z "$blf" ]; then blf=$1
+         elif [ -z "$bltext" ]; then bltext=$1
+         else die "引数は <file> と \"<item>\" の 2 つだけ"; fi; shift ;;
+    esac
+  done
+  [ -n "$blf" ] && [ -n "$bltext" ] \
+    || die "使用法: aidev backlog add <file> \"<item>\" [--source <path>]"
+  blf=$(basename "$blf" .md)
+  blp="$AIDEV/backlog/$blf.md"
+  # **無ければ作らない**。`new` は kind を必須にしており、`add` が黙って作ると
+  # kind の無いファイルが生まれる（宣言の欠落が常態化していた経緯があるので繰り返さない）
+  [ -f "$blp" ] || die "backlog がありません: .aidev/backlog/$blf.md（先に aidev backlog new）"
+  # **改行はリテラルで書く**。`$(printf '\n')` はコマンド置換が末尾改行を落として空文字になり、
+  # パターンが `**` になって**何にでも一致する**（この検査を入れた直後に踏んだ）
+  case "$bltext" in
+    *"
+"*) die "項目は 1 行で書く（改行を含められない）" ;;
+  esac
+  # **`--source` も 1 行に限る**。項目だけ検査していた頃は、ここに改行を渡すと
+  # **1 回の add で未着手が 2 件増えた**（偽の項目を注入できた。独立監査が実測）
+  case "$blsrc" in
+    *"
+"*) die "--source は 1 行で書く（改行を含められない）" ;;
+  esac
+  # **未消化の項目とだけ突き合わせる**。ファイル全体への部分一致で見ていた頃は、
+  # (1) 既存項目の**部分文字列**（`ある穴` に対する `穴`）、(2) frontmatter の `backlog: <name>`、
+  # (3) **消し込み済み `- [x]` の文言**——のどれでも拒否した（独立監査が実測）。
+  # とくに (3) は「同じ穴が再発したので再度起票する」経路をそのまま塞ぐ
+  if awk -v t="$bltext" '
+        /^[ \t]*- \[ \][ \t]+/ {
+          s = $0; sub(/^[ \t]*- \[ \][ \t]+/, "", s)
+          sub(/（出典: [^）]*）[ \t]*$/, "", s); sub(/[ \t]+$/, "", s)
+          if (s == t) { found = 1 }
+        }
+        END { exit found ? 0 : 1 }
+      ' "$blp" 2>/dev/null; then
+    printf 'note: 同じ項目が既にあります: .aidev/backlog/%s.md\n' "$blf"
+    return 0
+  fi
+  # **末尾に改行が無ければ先に足す**。足さずに追記していた頃は**直前の行に連結**され、
+  # 既存項目の文言も壊れたうえ、新しい項目が `aidev status` の未着手件数に乗らなかった
+  # ——**この機能が塞ごうとしている事故そのもの**を、無徴候で再現していた（独立監査が実測）。
+  # backlog は手編集もされるので、末尾改行の有無を前提にできない
+  if [ -s "$blp" ] && [ "$(tail -c 1 "$blp" | od -An -c | tr -d ' ')" != '\n' ]; then
+    printf '\n' >> "$blp"
+  fi
+  if [ -n "$blsrc" ]; then
+    printf -- '- [ ] %s（出典: %s）\n' "$bltext" "$blsrc" >> "$blp"
+  else
+    printf -- '- [ ] %s\n' "$bltext" >> "$blp"
+  fi
+  printf 'added: .aidev/backlog/%s.md\n' "$blf"
 }
 
 bl_do_archive() {
@@ -4781,7 +4907,8 @@ cv_count_tags() { # work_dir id any|viol
     viol) _pat="\[conv:$2!\]" ;;
     *)    _pat="\[conv:$2!\]\|\[conv:$2\]" ;;
   esac
-  find "$1" -name review.md -exec grep -h '^[[:space:]]*- \[' {} + 2>/dev/null \
+  # **同じ絞り方をする**（2 つの集計器が食い違うのは protocol.md がわざわざ警告している事故）
+  find "$1" -name review.md 2>/dev/null | while IFS= read -r _cvf; do cv_finding_lines "$_cvf"; done \
     | grep -o "$_pat" | wc -l | tr -d ' '
 }
 
@@ -5535,6 +5662,12 @@ smoke_orphan_lines() {
     inblk {
       if (match($0, /^[ \t]+-[ \t]+/)) next
       if ($0 ~ /^[ \t]*$/) next
+      # **コメント行でリストを閉じない**（smoke_cmds と同じ規則）。ここだけ漏らすと
+      # doctor が「ブロックの外に `- ` 行が N 本ある」と `commands=N`（全部読めている）を
+      # **同じ出力で同時に言う**——利用者には直しようが無い、消せない WARN になる
+      # （実走が実測。3 箇所直して 4 箇所目を落としていた。ps1 側には入っていたので
+      #  sh/ps1 の非対称にもなっていた）
+      if ($0 ~ /^[ \t]*#/) next
       inblk = 0
     }
     !inblk && match($0, /^[ \t]+-[ \t]+/) { n++ }

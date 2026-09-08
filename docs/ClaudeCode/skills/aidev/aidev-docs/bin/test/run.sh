@@ -183,10 +183,13 @@ echo "== metrics =="
 MT=$(run_sh metrics --all --format tsv)
 # `lead_sec` は**暦の上の時間**（離席ぶんが乗る）、`work_sec` は工程の elapsed 合計。
 # 並べて出さないと「実作業に近い時間」と読み分けられない（retro が実測: lead の 60% が待ち時間だった）
-assert_contains "$MT" "20260101-alpha	2026-01-01T00:00:00Z	yes	10800	3900	1	1" "alpha: lead=10800 / work_sec=3900 / reworks=1 / sent_backs=1"
+# `idle_sec` はイベントが 1 件も無かった区間の合計（既定 30 分超）。この fixture では
+# 01:05→02:00（3300）と 02:00→03:00（3600）の 2 区間で 6900。00:30→01:00 は**ちょうど 1800** なので
+# 数えない（境界は「超えたら」）。**`work_sec` からは引かない**——引くと実作業時間を名乗ることになる
+assert_contains "$MT" "20260101-alpha	2026-01-01T00:00:00Z	yes	10800	3900	6900	1	1" "alpha: lead=10800 / work_sec=3900 / reworks=1 / sent_backs=1"
 assert_contains "$MT" "20260103-legacy	-	no	-	0	0" "legacy: metrics空でも 0/-"
 # ハーネス版で層別する材料（harnessRev / straddle）。無いと insights は state.yml を grep して手で JOIN していた
-assert_contains "$MT" "20260101-alpha	2026-01-01T00:00:00Z	yes	10800	3900	1	1	-	-" "metrics --all: harnessRev/straddle 列（刻印なしは -/-）"
+assert_contains "$MT" "20260101-alpha	2026-01-01T00:00:00Z	yes	10800	3900	6900	1	1	-	-" "metrics --all: harnessRev/straddle 列（刻印なしは -/-）"
 assert_contains "$(run_sh metrics --all)" "lead_sec  work_sec" "metrics --all: work_sec も表の見出しに出る"
 assert_contains "$(run_sh metrics --all)" "harnessRev  straddle" "metrics --all: 表形式の見出しにも出る"
 
@@ -1888,7 +1891,7 @@ assert_contains "$(cat "$MTD/metrics.yml")" "nit: 0, ac_total: 3, ac_covered: 3,
 
 MTOUT=$(run_mt metrics)
 assert_contains "$MTOUT" "ac  ac_drift" "metrics: ac / ac_drift 列を出す"
-assert_eq "$(run_mt metrics --format tsv | awk -F'\t' '{print $8, $9}')" "3 1" "metrics: 要求の規模(3)と tasks 以降に増えた gap(1)"
+assert_eq "$(run_mt metrics --format tsv | awk -F'\t' '{print $9, $10}')" "3 1" "metrics: 要求の規模(3)と tasks 以降に増えた gap(1)"
 
 # 明示指定は機械値で上書きしない
 run_mt new mstamp2 >/dev/null; MTW2=$(cat "$MTR/.aidev/current"); MTD2="$MTR/.aidev/works/$MTW2"
@@ -2270,16 +2273,16 @@ assert_contains "$(cat "$AUD2/metrics.yml")" "metrics: { ac_total: 9 }" "approve
 
 # ac_covered を持たない刻印は乖離の計算から捨てる（0 とみなすと乖離を捏造する）
 run_au approve review >/dev/null
-assert_eq "$(run_au metrics "$AU_M1B" --format tsv | awk -F'\t' '{print $9}')" "-" \
+assert_eq "$(run_au metrics "$AU_M1B" --format tsv | awk -F'\t' '{print $10}')" "-" \
   "metrics: ac_total だけ手で渡した刻印は ac_drift に使わない（乖離を捏造しない）"
 
 # 同じ工程を2回 approve しても「2点ある」ことにしない（測れないことを 0 と書かない）
 mk_work m5; AUD3=$AU_D; AU_M5=$AU_W
 run_au approve tasks >/dev/null; run_au approve tasks >/dev/null
-assert_eq "$(run_au metrics "$AU_M5" --format tsv 2>/dev/null | awk -F'\t' '{print $9}')" "-" \
+assert_eq "$(run_au metrics "$AU_M5" --format tsv 2>/dev/null | awk -F'\t' '{print $10}')" "-" \
   "metrics: 同じ工程の二重 approve を 2 点と数えない（tasks と review で選ぶ）"
 run_au approve review >/dev/null
-assert_eq "$(run_au metrics "$AU_M5" --format tsv | awk -F'\t' '{print $9}')" "0" "metrics: tasks と review がそろえば測れる"
+assert_eq "$(run_au metrics "$AU_M5" --format tsv | awk -F'\t' '{print $10}')" "0" "metrics: tasks と review がそろえば測れる"
 
 # 分割 work: 子では刻まない（家族単位の値を子ごとに刻むと分母が多重計上される）
 mk_work split; AUDP=$AU_D
@@ -2373,7 +2376,7 @@ run_au unapprove test >/dev/null; run_au unapprove coding >/dev/null
 AU_SBM=$(cat "$AU_D/metrics.yml")
 assert_contains "$AU_SBM" "phase: test, event: sent_back, metrics: { by: unapprove }" \
   "unapprove: 取り消しは by: unapprove 付きで刻む（記録は消さない）"
-assert_eq "$(run_au metrics "$AU_SBQ" --format tsv | awk -F'\t' '{print $7}')" "1" \
+assert_eq "$(run_au metrics "$AU_SBQ" --format tsv | awk -F'\t' '{print $8}')" "1" \
   "metrics: sent_backs は unapprove 由来を数えない（規約を守った work だけ数が増えない）"
 assert_eq "$(run_au debug status --format tsv 2>/dev/null | awk -F'\t' '$1=="coding"{print "leaked"}')" "" \
   "debug status: 一度も失敗していない coding が上流の取り消しで予算を消費しない（行ごと出ない）"
@@ -2438,6 +2441,28 @@ AU_SM=$(run_au smoke 2>&1)
 assert_contains "$AU_SM" "smoke: pass (exit 0, 2 本)" "smoke: smokeCommands の全部を走らせる"
 assert_contains "$(cat "$AU_D/metrics.yml")" "commands: 2" \
   "smoke: 何本走ったかを刻む（pass が成果物のどこを通ったのか後から分かる）"
+# **ブロック内のコメントでリストを閉じない**。閉じていた頃は 2 本設定して 1 本しか走らず、
+# しかも本数が 1 なので `smoke` も `doctor` も 1 と言う——**2 本目が黙って消えるのに無徴候**
+# だった（他 PJ の retro が実測。retro は「本数を出せ」と提案したが、本数は元から出ており、
+# **本当の原因はパーサ側**だった。報告された対処ではなく症状を再現して直した 1 例）
+printf 'smokeCommands:\n  - exit 0\n  # コメント\n  - exit 0\n' > "$AUD/.aidev/config.yml"
+assert_contains "$(run_au smoke 2>&1)" "smoke: pass (exit 0, 2 本)" \
+  "smoke: smokeCommands のブロック内コメントでリストを閉じない"
+assert_contains "$(run_au doctor 2>&1)" "commands=2" \
+  "doctor: 同じ数え方をする（コメントで 1 本に減らない）"
+# **同じ出力で自己矛盾しない**。`smoke_orphan_lines` にだけコメント行スキップが漏れていた頃は、
+# 「ブロックの外に `- ` 行が 2 本ある（黙って無視されます）」と `commands=2`（全部読めている）を
+# **同時に**言った——利用者には直しようが無い、消せない WARN（実走が実測）
+assert_eq "$(run_au doctor 2>&1 | grep -c 'ブロックの外に')" "0" \
+  "doctor: コメント入りの正しい config で「外に - 行がある」と言わない"
+# **GO/NO-GO のゲートは smoke の側**。`doctor` だけが言っていた頃は、
+# 「2 本書いたつもりで 1 本しか走っていない」がゲートの出力から見えなかった（独立監査が実測）
+printf 'smokeCommands:\n  - exit 0\n  - exit 0\nlightMaxFiles: 3\n  - orphan\n' > "$AUD/.aidev/config.yml"
+assert_contains "$(run_au smoke 2>&1)" "ブロックの外に" \
+  "smoke: 設定したのに走らなかった行を smoke 自身が言う"
+printf 'smokeCommands:\n  - exit 0\n  # コメント\n  - exit 0\n' > "$AUD/.aidev/config.yml"
+assert_eq "$(run_au smoke 2>&1 | grep -c 'ブロックの外に')" "0" \
+  "smoke: 正しい config では孤児行を言わない"
 printf 'smokeCommands:\n  - exit 0\n  - exit 3\n  - exit 0\n' > "$AUD/.aidev/config.yml"
 run_au smoke >/dev/null 2>&1; assert_eq "$?" "4" "smoke: 1 本でも落ちれば fail"
 assert_contains "$(cat "$AU_D/metrics.yml")" "failed_index: 2" \
@@ -2452,6 +2477,93 @@ rm -f "$AUD/.aidev/config.yml"
 AU_PS51=$(grep -vE '^[[:space:]]*#' "$AIDEV_PS1" \
   | grep -nE -- '-Stable|Split-Path[^|]*-LeafBase|Join-String|-AsByteStream|-AsHashtable' || :)
 assert_eq "$AU_PS51" "" "aidev.ps1: PowerShell 6+ でしか無い構文を使っていない（5.1 の CI が落ちる）"
+
+# (11b) 他 PJ の retro（server）で足した 3 つ——いずれも「無いと静かに壊れる」型
+# **H1: 実在しない条項 id を名指しする。** skill は「語彙を発明しない」と書いているが検査が無く、
+# 造語の id が静かに通っていた（効果検証はどの条項にも数えないので**母集団が黙って欠ける**）
+mk_work cvid
+printf -- '- [must] x [conv:bogus!] 造語\n- [should] y [conv:-]\n' > "$AU_D/review.md"
+: > "$AU_D/test-result.md"
+AU_CV=$(run_au approve review 2>&1)
+assert_contains "$AU_CV" "WARN 実在しない条項 id" "approve review: 実在しない conv id を名指しする"
+assert_contains "$AU_CV" "bogus" "approve review: どの id かを出す"
+assert_eq "$(printf '%s' "$AU_CV" | grep -c 'WARN 実在しない')" "1" \
+  "approve review: [conv:-] は実在しない扱いにしない"
+# **折り返した指摘の 2 行目に置いたタグも拾う**。`- [` の行だけ見ていた頃は**完全に素通り**した
+# （実走が実測。「母集団が黙って欠ける」と自分で書いた害の、別経路だった）。
+# **地の文は拾わない**——`- [` の塊の中だけを見る（散文 1 行で鳴った過去の事故の再発防止）
+printf -- '- [must] 折り返した指摘の 1 行目\n      2 行目のタグ [conv:wrapped!]\n\n条項 [conv:prose] に該当する指摘は無かった\n' > "$AU_D/review.md"
+run_au unapprove review >/dev/null 2>&1
+AU_CVW=$(run_au approve review 2>&1)
+assert_contains "$AU_CVW" "wrapped" "approve review: 折り返した 2 行目のタグも見る"
+assert_eq "$(printf '%s' "$AU_CVW" | grep -c 'prose')" "0" \
+  "approve review: 指摘ではない地の文のタグは拾わない"
+# **id の形が厳しいと、いちばん見たいものが見えない**。`[A-Za-z0-9_-]` だけ見ていた頃は
+# `[conv:AGENTS.md!]`（retro 当事者が実際に書いた形）が素通りした——「語彙を発明しない」を
+# 破る書き方ほど id の形も外れる（独立監査が実測）
+printf -- '- [must] a [conv:AGENTS.md!]\n- [should] b [conv:命名規約!]\n- [nit] c [conv:-]\n' > "$AU_D/review.md"
+run_au unapprove review >/dev/null 2>&1
+AU_CVF=$(run_au approve review 2>&1)
+assert_contains "$AU_CVF" "AGENTS.md" "approve review: ドット入りの id も実在判定に回す"
+assert_contains "$AU_CVF" "命名規約" "approve review: 非 ASCII の id も実在判定に回す"
+# 実在する条項なら鳴らない（誤検知で使われなくなるのを防ぐ）
+run_au convention new real-one --hypothesis h --baseline b >/dev/null 2>&1
+printf -- '- [must] x [conv:real-one!] 実在\n' > "$AU_D/review.md"
+run_au unapprove review >/dev/null 2>&1
+assert_eq "$(run_au approve review 2>&1 | grep -c 'WARN 実在しない')" "0" \
+  "approve review: 実在する条項では鳴らない"
+# **H3: 既存 backlog に 1 行足す口。** 無かったので retro の提案が次の work に届かなかった
+run_au backlog new bl1 --kind standing >/dev/null 2>&1
+assert_contains "$(run_au backlog add bl1 'ある穴' --source r.md 2>&1)" "added:" \
+  "backlog add: 既存ファイルに 1 行足す"
+assert_contains "$(cat "$AUD/.aidev/backlog/bl1.md")" "- [ ] ある穴（出典: r.md）" \
+  "backlog add: --source を添えて - [ ] で書く（status の未着手に乗る形）"
+assert_contains "$(run_au backlog add bl1 'ある穴' 2>&1)" "同じ項目が既にあります" \
+  "backlog add: 同じ項目を二重に積まない"
+run_au backlog add nosuch 'x' >/dev/null 2>&1
+assert_ne "$?" "0" "backlog add: 無いファイルには足さない（kind の無いファイルを作らない）"
+# **末尾に改行が無いファイルへの追記**。足さずに繋いでいた頃は直前の行に連結し、
+# 既存項目の文言まで壊れたうえ、新項目が未着手件数に乗らなかった——**この機能が塞ごうとしている
+# 事故そのもの**を無徴候で再現していた（独立監査が実測）。backlog は手編集もされる
+printf -- '- [ ] 末尾改行なし' > "$AUD/.aidev/backlog/bl1.md"
+run_au backlog add bl1 '連結されない' >/dev/null 2>&1
+assert_contains "$(cat "$AUD/.aidev/backlog/bl1.md")" "改行なし
+- [ ] 連結されない" "backlog add: 末尾に改行が無くても行を連結しない"
+# **重複判定は未消化の項目の本文と完全一致で見る**。ファイル全体の部分一致で見ていた頃は、
+# 既存項目の部分文字列・frontmatter の `backlog: <name>`・**消し込み済み `- [x]` の文言**まで
+# 拒否した（独立監査が実測）。とくに最後は「同じ穴が再発したので再起票する」経路を塞ぐ
+printf -- '- [ ] ある穴\n- [x] キャッシュ層を分離する\n' > "$AUD/.aidev/backlog/bl1.md"
+assert_contains "$(run_au backlog add bl1 '穴' 2>&1)" "added:" "backlog add: 部分文字列では重複としない"
+assert_contains "$(run_au backlog add bl1 'キャッシュ層' 2>&1)" "added:" \
+  "backlog add: 消し込み済み [x] の文言は重複としない（再起票を塞がない）"
+assert_contains "$(run_au backlog add bl1 'ある穴' 2>&1)" "同じ項目が既にあります" \
+  "backlog add: 未消化の項目と完全一致なら弾く"
+# **`--source` も 1 行に限る**。項目だけ見ていた頃は 1 回の add で未着手が 2 件増えた（偽項目の注入）
+run_au backlog add bl1 'y' --source "$(printf 'a\n- [ ] 偽')" >/dev/null 2>&1
+assert_ne "$?" "0" "backlog add: --source に改行を入れて偽の項目を注入できない"
+# **H4: イベントが 1 件も無い区間。** work_sec は工程の中の離席をそのまま含む
+mk_work idle
+cat > "$AU_D/metrics.yml" <<'IDLEEOF'
+- { ts: 2026-01-01T00:00:00Z, phase: requirements, event: start }
+- { ts: 2026-01-01T00:10:00Z, phase: requirements, event: approved }
+- { ts: 2026-01-01T09:00:00Z, phase: coding, event: start }
+- { ts: 2026-01-01T09:20:00Z, phase: coding, event: approved }
+IDLEEOF
+AU_ID=$(run_au metrics "$AU_W" --format tsv 2>&1)
+assert_eq "$(printf '%s' "$AU_ID" | cut -f6)" "31800" \
+  "metrics: idle_sec に「イベントが無かった区間」を出す（8h50m）"
+assert_eq "$(printf '%s' "$AU_ID" | cut -f5)" "1800" \
+  "metrics: work_sec からは引かない（引くと実作業時間を名乗ることになる）"
+# **逆行する差は数えない**。記録を後から補完すると ts が前後するので、`prev` を戻すと
+# 負の区間や二重計上が出る（他 PJ が T10〜T13 を後から復元した実例がある）
+cat > "$AU_D/metrics.yml" <<'IDLEBACK'
+- { ts: 2026-01-01T09:00:00Z, phase: coding, event: start }
+- { ts: 2026-01-01T00:00:00Z, phase: requirements, event: start }
+- { ts: 2026-01-01T09:10:00Z, phase: coding, event: approved }
+IDLEBACK
+assert_eq "$(run_au metrics "$AU_W" --format tsv 2>&1 | cut -f6)" "0" \
+  "metrics: ts が逆行しても idle を作らない（記録の後追い補完で壊れない）"
+assert_contains "$(run_au metrics "$AU_W" 2>&1)" "idle_sec" "metrics: 表の見出しにも出る"
 
 # (12) taskcheck: 散文にしか無かった上限を CLI が止める
 mk_work tc
@@ -3106,6 +3218,45 @@ if [ -n "$PS_HOST" ]; then
 
   # doccheck のパリティ。**ps1 側は他のどのテストからも通らない**ので、ここが唯一の検査になる
   # （taskcheck を入れたときは ps1 の enum 検証が抜けていて、緑のまま気づかなかった）
+  # **新設した 4 つを ps1 でも通す**。sh 側だけ検査していた頃は、この diff 自身が繰り返し
+  # 反省している「sh/ps1 の共有欠陥・非対称」を作れる状態だった（独立監査が指摘）。
+  # 実際 `smoke_orphan_lines` は sh だけ直し漏れ、ps1 との非対称になっていた
+  PNW=$(mktemp -d); mkdir -p "$PNW/.aidev/works"
+  ( cd "$PNW" && "$AIDEV_SH" new pnw >/dev/null )
+  PNWD="$PNW/.aidev/works/$(cat "$PNW/.aidev/current")"
+  for f in requirements design tasks test-result; do : > "$PNWD/$f.md"; done
+  # (1) conv id の実在検査（折り返し・ドット入り・[conv:-] を含む）
+  printf -- '- [must] a [conv:AGENTS.md!]\n      2 行目 [conv:wrapped!]\n- [nit] c [conv:-]\n' > "$PNWD/review.md"
+  PN_S=$( ( cd "$PNW" && "$AIDEV_SH" approve review ) 2>&1 )
+  ( cd "$PNW" && "$AIDEV_SH" unapprove review ) >/dev/null 2>&1
+  PN_P=$( ( cd "$PNW" && run_ps1 "$AIDEV_PS1" approve review ) 2>&1 | tr -d '\r' )
+  assert_eq "$PN_S" "$PN_P" "パリティ: approve review の conv id 検査（折り返し・ドット入り）"
+  # (2) backlog add（重複・末尾改行・--source）
+  ( cd "$PNW" && "$AIDEV_SH" backlog new bl --kind standing ) >/dev/null 2>&1
+  printf -- '- [ ] 既存項目\n- [x] 済んだ項目' > "$PNW/.aidev/backlog/bl.md"
+  PB_S=$( ( cd "$PNW" && "$AIDEV_SH" backlog add bl '既存項目' ) 2>&1 )
+  PB_P=$( ( cd "$PNW" && run_ps1 "$AIDEV_PS1" backlog add bl '既存項目' ) 2>&1 | tr -d '\r' )
+  assert_eq "$PB_S" "$PB_P" "パリティ: backlog add（未消化と完全一致なら弾く）"
+  ( cd "$PNW" && run_ps1 "$AIDEV_PS1" backlog add bl '済んだ項目' ) >/dev/null 2>&1
+  assert_contains "$(cat "$PNW/.aidev/backlog/bl.md")" "済んだ項目
+- [ ] 済んだ項目" "パリティ: ps1 も [x] を重複としない／末尾改行を補う"
+  # (3) metrics の idle_sec
+  cat > "$PNWD/metrics.yml" <<'PNIDLE'
+- { ts: 2026-01-01T00:00:00Z, phase: requirements, event: start }
+- { ts: 2026-01-01T00:10:00Z, phase: requirements, event: approved }
+- { ts: 2026-01-01T09:00:00Z, phase: coding, event: start }
+- { ts: 2026-01-01T09:20:00Z, phase: coding, event: approved }
+PNIDLE
+  PM_S=$( ( cd "$PNW" && "$AIDEV_SH" metrics --all --format tsv ) 2>&1 )
+  PM_P=$( ( cd "$PNW" && run_ps1 "$AIDEV_PS1" metrics --all --format tsv ) 2>&1 | tr -d '\r' )
+  assert_eq "$PM_S" "$PM_P" "パリティ: metrics の idle_sec"
+  # (4) smokeCommands のコメント行と孤児行
+  printf 'smokeCommands:\n  - exit 0\n  # c\n  - exit 0\nlightMaxFiles: 3\n  - orphan\n' > "$PNW/.aidev/config.yml"
+  PS_S=$( ( cd "$PNW" && "$AIDEV_SH" smoke ) 2>&1 )
+  PS_P=$( ( cd "$PNW" && run_ps1 "$AIDEV_PS1" smoke ) 2>&1 | tr -d '\r' )
+  assert_eq "$PS_S" "$PS_P" "パリティ: smoke（コメント行を飛ばし、孤児行を言う）"
+  rm -rf "$PNW"
+
   PDC=$(mktemp -d); mkdir -p "$PDC/.aidev/works"
   ( cd "$PDC" && "$AIDEV_SH" new pdc >/dev/null )
   PDCD="$PDC/.aidev/works/$(cat "$PDC/.aidev/current")"
@@ -4184,9 +4335,9 @@ YML
   else
     skip 10 "git 不在のため worktree パリティを省略"
   fi
-  block_end parity "269" "parity"
+  block_end parity "274" "parity"
 else
-  skip 255 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
+  skip 260 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
 fi
 
 echo

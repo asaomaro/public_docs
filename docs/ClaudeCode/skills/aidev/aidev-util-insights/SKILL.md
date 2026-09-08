@@ -97,6 +97,11 @@ per-work の `retro` が「その作業1件」を振り返るのに対し、こ�
 2. **定量指標は `aidev metrics --all`（必要に応じ `--phases`/`--format tsv`）で機械集計**し、テキスト材料
    （review.md / decisions.md / retro.md）は読んで突き合わせる。重い場合は works 単位の読み取りを委譲する。
    （記録ドリフト＝metrics/review 欠落は `aidev doctor --quiet` で機械検出できる。legacy work は免除される。）
+   - **`lead_sec` / `work_sec` を works で並べる前に `idle_sec` を見る**（`protocol.md`「8.」）。
+     `work_sec` は工程の中の空白もそのまま含むので、**空白の大きい work が「重い work」に化ける**
+     ——他 PJ で 8 時間 40 分の空白により `work_sec` が実作業の 2 倍以上になり、
+     **その work を「最長」として並べた比較が丸ごと怪しくなった**。**引き算はしない**
+     （観測できるのは「イベントが無かった」ことだけ）。並べるなら `idle_sec` を併記する。
 3. **縦断分析＝過去に入れた改善の効果検証**（新しい提案より先に回す）。
 
    **(a) PJ規約の条項**（`protocol.md`「12.」／詳細は `protocol-conventions.md`）:

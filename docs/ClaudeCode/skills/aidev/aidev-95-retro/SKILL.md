@@ -57,7 +57,14 @@ AI 開発ワークフローの **retro（振り返り）工程**（任意）。�
    - ※対象はこの works のみ（複数作業を横断した再発分析は retro の範囲外。別途行う）。
      **条項の効果判定も retro の範囲外**——1件では母集団にならない（`aidev-util-insights` が行う）。
 4. 学びと 3 の観察を**改善提案**に変換し、3カテゴリに仕分ける。
-   - **製品 / コード**: 残課題・技術的負債 → 新 issue 化の候補
+   - **製品 / コード**: 残課題・技術的負債 → 新 issue 化の候補。
+     **`aidev backlog add <file> "<item>" --source <この retro.md>` で backlog に落とし、
+     同じコミットに含める**——条項が `aidev convention new` で機械的に起票されるのと同じ扱いにする。
+     **`<file>` は提案が向かう先の backlog**（`aidev status` の BACKLOG に出る名前）。
+     **無ければ `aidev backlog new <name> --kind standing` で先に起こす**（`add` は作らない——
+     kind の無いファイルを生まないため。rc=1 でそう案内する）。`--source` は**リポジトリルートからの相対**。
+     散文の提案のままにすると**次の work に届かない**（他 PJ が「同じ穴は次の呼び出し元でも開く」と
+     予告したのに backlog へ入らず、**予告どおり再発した**実測がある）。
    - **PJ プロセス / 規約**: コーディング規約・レビュー観点の追補 → **`.aidev/conventions/` の条項**として起こす
      （protocol.md「12.」＋ `protocol-conventions.md`）。**AGENTS.md 本体には書かない**——PJ が所有する
      ファイルで、aidev を使わない人も編集するため。触れるのは索引ブロック（`<!-- aidev:conventions -->`）
