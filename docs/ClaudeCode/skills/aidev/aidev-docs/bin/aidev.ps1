@@ -443,6 +443,21 @@ function CvId($id) {
   return $i
 }
 
+# 指摘 1 件を論理行にする（sh 版 cv_finding_lines と同じ規則・同じ理由）。
+# `- [` の行と、その字下げした継続行をつなぐ。折り返した 2 行目のタグが素通りしていた
+function CvFindingLines($path) {
+  $out = @(); $buf = ''
+  if (-not (IsFile $path)) { return $out }
+  foreach ($l in [System.IO.File]::ReadAllLines($path)) {
+    $l = "$l".TrimEnd("`r")
+    if ($l -match '^\s*- \[') { if ($buf) { $out += $buf }; $buf = $l; continue }
+    if ($buf -and $l -match '^[ \t]+\S') { $buf = $buf + ' ' + $l; continue }
+    if ($buf) { $out += $buf; $buf = '' }
+  }
+  if ($buf) { $out += $buf }
+  return $out
+}
+
 function CvFind($id) {  # active 優先、無ければ archive。見つからなければ ''
   $d = CvDir
   $i = CvId $id
@@ -921,15 +936,26 @@ function Cmd-Approve($rest) {
     $rvm = Join-Path $script:WORK 'review.md'
     if (IsFile $rvm) {
       # **数えるのは行頭 - [ の指摘行だけ**（protocol.md「8.」。sh 版 cmd_approve と同じ理由）
-      $rvt = ''
-      foreach ($rl in [System.IO.File]::ReadAllLines($rvm)) {
-        if ($rl -match '^\s*- \[') { $rvt += $rl + "`n" }
-      }
+      $rvt = ((CvFindingLines $rvm) -join "`n")
       $cvtag = ([regex]::Matches($rvt, '\[conv:[A-Za-z0-9_][A-Za-z0-9_-]*!?\]')).Count
       $cvvio = ([regex]::Matches($rvt, '\[conv:[A-Za-z0-9_][A-Za-z0-9_-]*!\]')).Count
       if ($cvtag -gt 0 -and $cvvio -eq 0) {
         Write-Output "note: 条項 id 付きの指摘が $cvtag 件ありますが `!`（違反）は 0 件です。"
         Write-Output '      条項に**反している**指摘には [conv:<id>!] を付ける（効果検証が数えるのは ! 付きだけ）'
+      }
+      # 実在しない id を名指しする（sh 版 cmd_approve の注記に理由）
+      # id の形は広く拾ってから実在を見る（sh 版 cmd_approve の注記に理由）
+      $cvbad = @()
+      foreach ($m in [regex]::Matches($rvt, '\[conv:([^\]]*)\]')) {
+        $cid = ($m.Groups[1].Value -replace '!$', '')
+        if (-not $cid -or $cid -ceq '-') { continue }
+        if ($cvbad -notcontains $cid -and -not (CvFind $cid)) { $cvbad += $cid }
+      }
+      if ($cvbad.Count -gt 0) {
+        Write-Output ("WARN 実在しない条項 id が review.md にあります: " + ($cvbad -join ' '))
+        Write-Output '     一覧は aidev convention status。該当条項が無い指摘は [conv:-] と書く'
+        Write-Output '     本当に条項にすべきなら aidev convention new <id> で起こしてから id を付ける'
+        Write-Output '     （効果検証はこの指摘をどの条項にも数えないので、母集団が黙って欠ける）'
       }
     }
   }
@@ -1657,6 +1683,7 @@ function SmokeDeclOf($path) {
       $m = [regex]::Match($l, '^[ \t]+-[ \t]+')
       if ($m.Success) { $v = $l.Substring($m.Length).TrimEnd(); if ($v) { $out += ('N:' + $v) }; continue }
       if ($l -match '^[ \t]*$') { continue }
+      if ($l -match '^[ \t]*#') { continue }
       $inblk = $false
     }
   }
@@ -1675,6 +1702,7 @@ function SmokeOrphanLines() {
     if ($inblk) {
       if ($isitem) { continue }
       if ($l -match '^[ \t]*$') { continue }
+      if ($l -match '^[ \t]*#') { continue }
       $inblk = $false
     }
     if ((-not $inblk) -and $isitem) { $n++ }
@@ -1706,6 +1734,8 @@ function SmokeCmds() {
     if (-not $inblk) { continue }
     if ($l -match '^[ \t]+-[ \t]+(.*)$') { $v = $Matches[1].TrimEnd(); if ($v) { $out += $v }; continue }
     if ($l -match '^[ \t]*$') { continue }
+    # コメント行でリストを閉じない（sh 版 smoke_cmds の注記に理由）
+    if ($l -match '^[ \t]*#') { continue }
     $inblk = $false
   }
   return $out
@@ -2448,6 +2478,14 @@ function Cmd-Smoke($rest) {
   }
   if ($sn -gt 1) { Write-Output "smoke: $srr (exit $src, $sn 本)" }
   else { Write-Output "smoke: $srr (exit $src)" }
+  # 設定したのに走らなかった本数を smoke 自身が言う（sh 版 cmd_smoke の注記に理由）
+  $sorph = SmokeOrphanLines
+  if ($sorph -gt 0) {
+    # **`Write-Error` は使わない**——装飾と接頭辞が付いて sh の出力とバイト単位で割れる。
+    # 素の stderr へ書く（このファイルの Die / Warn と同じ形）
+    [Console]::Error.WriteLine("WARN smokeCommands: ブロックの外に ``- `` 行が $sorph 本あります: **走っていません**")
+    [Console]::Error.WriteLine('     字下げを `smokeCommands:` の直下に揃える（間に別のキーを挟むとそこで切れる）')
+  }
   if ($srr -cne 'pass') { exit 4 }
   exit 0
 }
@@ -3319,6 +3357,7 @@ function Cmd-Metrics($rest) {
     if ((Split-Path $wdParent -Leaf) -cne 'works') { $name = "$(Split-Path $wdParent -Leaf)/$name" }
     $mf = Join-Path $wd 'metrics.yml'
     $first=-1; $firstts='-'; $deliveredFlag=$false; $deliveredE=-1; $sback=0
+    $prevE=-1; $idle=0; $IDLE_SEC=1800
     $scount=@{}; $laststart=@{}; $laststartTs=@{}; $appat=@{}; $appatTs=@{}
     # ラウンドごとの開始と合計（sh 版の openat/elsum/firststart_ts と同一）
     $openat=@{}; $elsum=@{}; $firstStartTs=@{}
@@ -3331,6 +3370,11 @@ function Cmd-Metrics($rest) {
         if ($line -match 'event:\s*([A-Za-z_]+)'){ $ev = $Matches[1] }
         if (-not $ph -or -not $ev) { continue }
         $e = Mt-Epoch $ts
+        # イベントが 1 件も無い区間を足す（sh 版 metrics_awk の注記に理由）
+        if ($e -ge 0) {
+          if ($prevE -ge 0 -and ($e - $prevE) -gt $IDLE_SEC) { $idle += $e - $prevE }
+          if ($e -gt $prevE) { $prevE = $e }
+        }
         if ($ev -ceq 'start') {
           if ($scount.ContainsKey($ph)) { $scount[$ph]++ } else { $scount[$ph]=1 }
           if ($e -ge 0) {
@@ -3401,12 +3445,12 @@ function Cmd-Metrics($rest) {
       if (($null -eq $fst) -or ($null -eq $lst)) { $acD = '-' }
       else { $acD = $lst[1] - $fst[1] }
       $work = 0; foreach ($k in $elsum.Keys) { $work += $elsum[$k] }
-      $rows += ($name + "`t" + $fs + "`t" + $dv + "`t" + $lead + "`t" + $work + "`t" + $rw + "`t" + $sback + "`t" + $acN + "`t" + $acD + "`t" + $hr + "`t" + $sd)
+      $rows += ($name + "`t" + $fs + "`t" + $dv + "`t" + $lead + "`t" + $work + "`t" + $idle + "`t" + $rw + "`t" + $sback + "`t" + $acN + "`t" + $acD + "`t" + $hr + "`t" + $sd)
     }
   }
 
   if ($phasesf) { $hdr = "work`tphase`tstart`tapproved`telapsed_sec`trounds" }
-  else          { $hdr = "work`tfirst_start`tstate`tlead_sec`twork_sec`treworks`tsent_backs`tac`tac_drift`tharnessRev`tstraddle" }
+  else          { $hdr = "work`tfirst_start`tstate`tlead_sec`twork_sec`tidle_sec`treworks`tsent_backs`tac`tac_drift`tharnessRev`tstraddle" }
 
   if ($fmt -ceq 'tsv') { foreach ($r in $rows) { Write-Output $r } }
   else { foreach ($l in (Fmt-Table (@($hdr) + $rows))) { Write-Output $l } }
@@ -4250,14 +4294,15 @@ function Cmd-Unapprove($rest) {
 
 # --- backlog（積む/退避する。消し込みは判断の仕事なので CLI に持たせない） -----------
 function Cmd-Backlog($rest) {
-  if ($rest.Count -lt 1) { Die "使用法: aidev backlog <new|archive|compact> ..." }
+  if ($rest.Count -lt 1) { Die "使用法: aidev backlog <new|add|archive|compact> ..." }
   $sub = $rest[0]
   $sr = @(); if ($rest.Count -gt 1) { $sr = $rest[1..($rest.Count-1)] }
   switch -CaseSensitive ($sub) {
     'new'     { Bl-New $sr }
+    'add'     { Bl-Add $sr }
     'archive' { Bl-DoArchive $sr }
     'compact' { Bl-Compact $sr }
-    default   { Die "未知の backlog サブコマンド: $sub（new|archive|compact）" }
+    default   { Die "未知の backlog サブコマンド: $sub（new|add|archive|compact）" }
   }
 }
 
@@ -4342,6 +4387,37 @@ function Bl-New($rest) {
   $sb += "<!-- 項目は行頭の ``- [ ]`` で書く（見出しに書くと aidev status の未着手件数から漏れる） -->`n"
   WriteText $f $sb
   Write-Output "created: .aidev/backlog/$name.md (kind $kind)"
+}
+
+# 既存の backlog に項目を 1 行足す（sh 版 bl_add の注記に理由）
+function Bl-Add($rest) {
+  $blf = ''; $bltext = ''; $blsrc = ''
+  for ($i = 0; $i -lt $rest.Count; $i++) {
+    $a = $rest[$i]
+    if ($a -ceq '--source') { if ($i + 1 -ge $rest.Count) { Die "--source には値が必要です" }; $blsrc = $rest[$i+1]; $i++; continue }
+    if ($a -like '-*') { Die "未知のオプション: $a" }
+    if (-not $blf) { $blf = $a } elseif (-not $bltext) { $bltext = $a } else { Die '引数は <file> と "<item>" の 2 つだけ' }
+  }
+  if (-not $blf -or -not $bltext) { Die '使用法: aidev backlog add <file> "<item>" [--source <path>]' }
+  $blf = [System.IO.Path]::GetFileNameWithoutExtension($blf)
+  $blp = Join-Path (Join-Path $script:AIDEV 'backlog') "$blf.md"
+  if (-not (IsFile $blp)) { Die "backlog がありません: .aidev/backlog/$blf.md（先に aidev backlog new）" }
+  if ($bltext -match "[`r`n]") { Die '項目は 1 行で書く（改行を含められない）' }
+  if ($blsrc -match "[`r`n]") { Die '--source は 1 行で書く（改行を含められない）' }
+  # 未消化の項目とだけ突き合わせる（sh 版 bl_add の注記に理由）
+  foreach ($l in [System.IO.File]::ReadAllLines($blp)) {
+    $t = "$l".TrimEnd("`r")
+    if ($t -notmatch '^[ \t]*- \[ \][ \t]+') { continue }
+    $t = $t -replace '^[ \t]*- \[ \][ \t]+', ''
+    $t = ($t -replace '（出典: [^）]*）[ \t]*$', '').TrimEnd()
+    if ($t -ceq $bltext) { Write-Output "note: 同じ項目が既にあります: .aidev/backlog/$blf.md"; return }
+  }
+  # 末尾に改行が無ければ先に足す（sh 版 bl_add の注記に理由）
+  $cur = [System.IO.File]::ReadAllText($blp)
+  if ($cur.Length -gt 0 -and -not $cur.EndsWith("`n")) { AppendText $blp "`n" }
+  $line = if ($blsrc) { "- [ ] $bltext（出典: $blsrc）" } else { "- [ ] $bltext" }
+  AppendText $blp ($line + "`n")
+  Write-Output "added: .aidev/backlog/$blf.md"
 }
 
 function Bl-DoArchive($rest) {
@@ -4631,8 +4707,8 @@ function CvCountTags($workDir, $id, $mode) {
   $plain = "[conv:$id]"; $viol = "[conv:$id!]"
   $n = 0
   foreach ($rv in @(Get-ChildItem -LiteralPath $workDir -Recurse -File -Filter review.md -ErrorAction SilentlyContinue)) {
-    foreach ($l in [System.IO.File]::ReadAllLines($rv.FullName)) {
-      if ($l -notmatch '^\s*- \[') { continue }
+    # 同じ絞り方をする（2 つの集計器が食い違うのは protocol.md が警告している事故）
+    foreach ($l in @(CvFindingLines $rv.FullName)) {
       $ix = 0
       while (($ix = $l.IndexOf($viol, $ix, [StringComparison]::Ordinal)) -ge 0) { $n++; $ix += $viol.Length }
       if ($mode -cne 'viol') {
