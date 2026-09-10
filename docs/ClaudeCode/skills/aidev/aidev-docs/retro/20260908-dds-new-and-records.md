@@ -1,5 +1,5 @@
 <!-- 出典: as400-coding-helper / .aidev/works/20260908-dds-new-and-records/retro.md
-     コミット d254aa5（本文は同一。この 3 行のみ公開時に付与） -->
+     コミット 7a5a3ea（本文は同一。この 3 行のみ公開時に付与） -->
 
 # 振り返り: DDS を一から作れるようにする（新規作成とレコード様式）
 
@@ -157,36 +157,19 @@ AI は**レビューしながら直す**ので、記録は後追いになり `co
 - 案 (b): 0 秒の工程ブロックを `verify` が WARN で知らせ、retro が読めるようにする
   （直さずに「読めない」と分かるだけでも足りる）。
 
-**2. `lead_sec` に人待ちが混ざる**
-
-この work は 23.4 時間のうち **19.7 時間が walkthrough ゲートでの人待ち**だった。
-work 間で `lead` を比べるとき、この列だけでは判断できない。
-新しいハーネス（`~/.claude/skills/aidev-*`）には `idle_sec` があるので、
-**この PJ の CLI にも入れる**のが素直（引かずに列を足すだけ、という但し書きも含めて）。
-
-**3. 承認ゲートは CLI が守れない**
+**2. 承認ゲートは CLI が守れない**
 
 `approve` は「人が承認したか」を知らないので、飛ばしても通る（実際に一度飛ばした）。
 完全には塞げないが、**`interactive` の work で `approve` を打つとき、
 直前に `AskUserQuestion` 相当が無ければ注意を出す**程度は考えられる。
 少なくとも**そういう限界がある**ことを protocol に明示したい。
 
-**4. skill ツリーが 2 つあり、毎工程で読み替えている（この work でいちばん効いた摩擦）**
-
-呼び出された skill は `~/.claude/skills/aidev-*`（新: `requirements` / `design` / `tasks`、
-`aidev coverage` / `smoke` / `taskcheck` / `convention` / `backlog` を前提）だが、
-この PJ は `.claude/skills/aidev-*`（旧: `requirement` / `spec` / `plan`）で、
-**CLI にそれらのコマンドが無い**。
-
-- 実害: **5 工程で skill を 2 つ読み**、どちらに従うかを毎回決めた。
-  新しい側が指示する `aidev coverage --strict` / `aidev smoke` / `taskcheck` は
-  **1 つも実行できない**（`unapprove` も無く、state.yml を手編集した）。
-- 案: **どちらのツリーが効くかを 1 か所で決める**（PJ 内に `aidev-*` があればそちらを正典とする、等）。
-  または**この PJ のハーネスを新しい版へ上げる**——`test-result.md` / `smoke` / `coverage` /
-  `conventions` はいずれも、今回まさに手で代替したものばかりだった。
+> **2026-09-10 追記**: 当初あった提案「`lead_sec` に `idle_sec` を足す」「skill ツリーが
+> 2 つある問題の一本化」は、ハーネスが `~/.claude/skills/aidev-*`（新版）に一本化され
+> `idle_sec` も標準搭載されたため**解決済み**。本文から除去した。
 
 ## 次のアクション
 
 - 上記「製品 / コード」2 件を backlog に追加（この retro と同じコミットで）。
 - 「PJ プロセス / 規約」A〜D は **AGENTS.md への追補案**。採否は人が決める。
-- 「ハーネス自体」1〜4 は提案のみ。とくに **4 は他の work でも毎回起きる**ので優先度が高い。
+- 「ハーネス自体」1〜2 は提案のみ。
