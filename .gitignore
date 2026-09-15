@@ -38,3 +38,6 @@ next-env.d.ts
 # python
 __pycache__/
 *.pyc
+
+# aidev ハーネス（current は worktree ローカルなので追跡しない）
+.aidev/current

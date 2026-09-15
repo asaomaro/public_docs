@@ -1,0 +1,4 @@
+# aidev ハーネス設定（このリポジトリ用）
+# smokeCommand: 起動確認（GO/NO-GO）。この PJ の実行可能な表面は aidev CLI なので、
+#               CLI が起動することを確認する。テスト本体は test 工程で run.sh を回す。
+smokeCommand: sh docs/ClaudeCode/skills/aidev/aidev-docs/bin/aidev help

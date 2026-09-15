@@ -1,0 +1,10 @@
+schema: 11
+slug: pr-review-html
+current: requirements
+approved: []
+mode: interactive
+profile: full
+humanGates: []
+maxSendBacks: 3
+dependsOn: []
+harnessRev: 8edfc354c955
