@@ -810,10 +810,10 @@ class BundleFormatTest(unittest.TestCase):
         text = dr.bundle_text({}, [], False, None)
         self.assertEqual(dr.parse_bundle(text + "\n\n  "), dr.parse_bundle(text))
 
-    def test_load_path_escapes_ampersand(self):
-        # & はファイル名に入りうる。弾くのは行き過ぎなので、属性値として退避する。
-        html = dr.render_html({}, [], None, "t", load_src="a&b.dreview")
-        self.assertIn('<script src="a&amp;b.dreview"></script>', html)
+    def test_render_html_has_no_load_hook(self):
+        # 焼き込みの口ごと落としたことを固定する（引数が復活したら落ちる）。
+        import inspect
+        self.assertNotIn("load_src", inspect.signature(dr.render_html).parameters)
 
     def test_deterministic(self):
         p = self.payload()
@@ -912,17 +912,23 @@ class ViewCommandTest(unittest.TestCase):
         self.assertIn("window.DiffReviewRich", html)
         self.assertIn('"files": []', html)
 
-    def test_no_script_src_unless_asked(self):
-        _code, html, _err = cli(self.repo, "view")
-        self.assertNotIn("<script src=", html,
-                         "既定で外部ファイルを読む形にしてはいけない（他人のバンドルが実行される）")
-        _code, loaded, err = cli(self.repo, "view", "--load", "rev.dreview")
-        self.assertIn('<script src="rev.dreview"></script>', loaded)
-        self.assertIn("実行されます", err, "焼き込んだら警告を出すこと")
+    def test_never_loads_an_external_file(self):
+        """生成物は**どのファイルも自動では読まない**（decisions.md D9）。
 
-    def test_load_path_is_checked(self):
-        code, _out, err = cli(self.repo, "view", "--load", 'a" onerror="x')
-        self.assertEqual(code, 1)
+        ビューアが特定のバンドルをファイル名で指すと、配ったあと
+        「このビューアはどれを見ているのか」がファイル名任せになり決定的でなくなる。
+        `<script src>` は実行も伴うので、口ごと持たない。
+        """
+        for args in (["view"], ["view", "--readonly"],
+                     ["html", "--repo", "."], ["html", "--repo", ".", "--readonly"]):
+            _code, html, _err = cli(self.repo, *args)
+            skeleton = html.split('<script type="application/json" id="diff-data">')[0]
+            self.assertNotIn("<script src=", skeleton, repr(args))
+            self.assertNotIn("__BUNDLE_SRC__", html, repr(args))
+
+    def test_load_option_is_gone(self):
+        code, _out, err = cli(self.repo, "view", "--load", "x.dreview")
+        self.assertEqual(code, 2, "argparse が知らない引数として弾くこと")
         self.assertIn("--load", err)
 
 

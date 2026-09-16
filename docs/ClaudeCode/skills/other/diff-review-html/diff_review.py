@@ -39,7 +39,7 @@ BUNDLE_SUFFIX = ";\n"
 BUNDLE_EXT = ".dreview"
 
 # テンプレートの差し込み口。`render_html` はこの 5 つを 1 回の走査で置き換える。
-PLACEHOLDER_RE = re.compile(r"__(?:TITLE|STYLE|UI_JS|APP_JS|RICH_JS|BUNDLE_SRC|DIFF_DATA|REVIEW_DATA)__")
+PLACEHOLDER_RE = re.compile(r"__(?:TITLE|STYLE|UI_JS|APP_JS|RICH_JS|DIFF_DATA|REVIEW_DATA)__")
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 
 # git が「空のツリー」に与えている固定のハッシュ。最初のコミットの差分を取るときに親の代わりに使う。
@@ -788,7 +788,7 @@ def strip_write_ui(page, readonly):
     return (RW_BLOCK_RE if readonly else RW_MARK_RE).sub("", page)
 
 
-def render_html(target, files, review, title, readonly=False, force_rich=False, load_src=None):
+def render_html(target, files, review, title, readonly=False, force_rich=False):
     # **プレースホルダ置換より前に**印を処理する。素のテンプレートに対して印を探すので、
     # 差分の中に "<!-- rw:begin -->" という文字列があっても影響しない。
     page = read_template("page.html")
@@ -807,21 +807,12 @@ def render_html(target, files, review, title, readonly=False, force_rich=False, 
             die("テンプレート %s に '</script' が含まれています（埋め込むと壊れます）" % name, EXIT_USAGE)
     diff_data = {"target": target, "files": files, "rich_enabled": bool(has_rich),
                  "readonly": bool(readonly), "embedded": bool(files)}
-    # `--load` を指定したときだけ <script src> を焼き込む。既定では焼き込まない
-    # （他人から受け取ったバンドルをビューアが勝手に実行する形を作らないため。decisions D3）。
-    bundle_src = ""
-    if load_src:
-        if '"' in load_src or "<" in load_src or ">" in load_src:
-            die("--load のパスに \" < > は使えません: %r" % load_src, EXIT_USAGE)
-        # & は属性値として正しく退避する（ファイル名に入りうる文字なので弾くのは行き過ぎ）
-        bundle_src = '<script src="%s"></script>' % load_src.replace("&", "&amp;")
     replacements = {
         "__TITLE__": title,
         "__STYLE__": style,
         "__UI_JS__": ui,
         "__APP_JS__": app,
         "__RICH_JS__": rich_js,
-        "__BUNDLE_SRC__": bundle_src,
         "__DIFF_DATA__": json_for_script_block(diff_data),
         "__REVIEW_DATA__": json_for_script_block(review) if review is not None else "null",
     }
@@ -866,21 +857,18 @@ def cmd_bundle(args):
 def cmd_view(args):
     """差分を持たないビューアだけを出す（T4）。
 
+    **どのバンドルも自動では読まない**（decisions.md D9）。ビューアがファイル名で特定の
+    バンドルを指すと、配ったあと「このビューアはどれを見ているのか」がファイル名任せになり、
+    決定的でなくなる。中身は開いたときに人が選ぶか、ホストが渡す。
+
     `rich.js` は**常に積む**——ビューアは何を開くか事前に分からないため
     （`html` の「対象が無ければ積まない」とは前提が違う。research.md F5）。
     """
     empty_target = {"source": "none", "range": None, "base_commit": None,
                     "diff_digest": None, "files": []}
     title = args.title or "差分レビュー（ビューア）"
-    html = render_html(empty_target, [], None, title,
-                       readonly=args.readonly, force_rich=True, load_src=args.load)
-    if args.load:
-        # 黙って便利にしない。焼き込んだ瞬間に「そのファイルは実行される」ことを伝える。
-        sys.stderr.write(
-            "警告: %s を <script src> で読み込むビューアを作りました。\n"
-            "      このファイルは開いた時点で**実行されます**。信頼できるバンドルだけを指してください。\n"
-            % args.load)
-    write_out(html, args.out)
+    write_out(render_html(empty_target, [], None, title,
+                          readonly=args.readonly, force_rich=True), args.out)
     return EXIT_OK
 
 
@@ -1080,9 +1068,6 @@ def build_parser():
     p_bundle.set_defaults(func=cmd_bundle)
 
     p_view = sub.add_parser("view", help="差分を持たないビューアだけを出す")
-    p_view.add_argument("--load", metavar="<bundle%s>" % BUNDLE_EXT,
-                        help="このバンドルを <script src> で読み込むビューアにする"
-                             "（**そのファイルは実行されます**。既定では焼き込みません）")
     p_view.add_argument("--readonly", action="store_true",
                         help="参照専用（コメント入力・提出・JSON 入出力の導線を積まない）")
     p_view.add_argument("--title", help="画面の見出し")

@@ -1960,9 +1960,12 @@
 
   function initialSource(embedded) {
     // 取り込み口の優先順（design §2）:
-    //   口①  window.__DIFF_REVIEW_BUNDLE__（<script src> で焼き込んだビューア / ホストの注入）
+    //   口①  window.__DIFF_REVIEW_BUNDLE__（**ホストが注入したときだけ**）
     //   口②  埋め込みの #diff-data（html サブコマンドの出力）
     // どちらも無ければ「ファイルを開いてください」を出す（白い画面にしない）。
+    //
+    // 生成物がこの変数を自分で埋めることは無い（decisions.md D9 で <script src> の焼き込みを
+    // やめた）。埋まっているのは、VSCode 拡張のようなホストが自分で書いたときだけ。
     var injected = window.__DIFF_REVIEW_BUNDLE__;
     if (injected && typeof injected === "object") { return { kind: "bundle", data: injected }; }
     if (embedded) { return { kind: "embedded", data: embedded }; }
@@ -1995,7 +1998,7 @@
           files: initial.data.files,
           rich_enabled: !!initial.data.rich_enabled,
           readonly: viewerReadonly
-        }, "script src");
+        }, "ホスト（注入）");
         if (initial.data.review) { embeddedReview = initial.data.review; }
       }
     } else if (initial.kind === "embedded") {
