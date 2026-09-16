@@ -22,3 +22,4 @@ events:
   - { ts: 2026-09-16T09:58:32Z, phase: review, event: approved, metrics: { ac_total: 20, ac_covered: 20, tasks_no_ac: 0, tasks_ac_none: 0 } }
   - { ts: 2026-09-16T09:58:32Z, phase: deliver, event: start }
   - { ts: 2026-09-16T09:59:11Z, phase: test, event: smoke, metrics: { result: pass, exit_code: 0, commands: 3 } }
+  - { ts: 2026-09-16T09:59:45Z, phase: deliver, event: approved }
