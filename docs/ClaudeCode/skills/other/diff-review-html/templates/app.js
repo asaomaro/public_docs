@@ -1931,6 +1931,22 @@
       });
     }
 
+    // ホスト（エディタ拡張・親フレーム）からの差し替え。**実行を伴わない**——
+    // 受け取るのは構造化されたデータで、文字列を評価する経路はここに無い。
+    // 埋め込みだけだと、ホストは中身を変えるたびに HTML を組み立て直す（＝再読み込み）ことになり、
+    // スクロール位置と現在行が失われる。その一点のためにこの口を持つ。
+    //
+    // file:// では origin が opaque で送り主を検査できないので、**形で検査する**（research.md R2）。
+    // 関係の無いメッセージは黙って無視する（ホストは自分の用事でも postMessage を使う）。
+    window.addEventListener("message", function (event) {
+      var data = event.data;
+      if (!data || typeof data !== "object") { return; }
+      var bundle = data.schema === BUNDLE_SCHEMA ? data
+        : (data.type === "diff-review/bundle" ? data.bundle : null);
+      if (!bundle) { return; }
+      adoptBundle(bundle, "ホスト");
+    });
+
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("dragover", function (event) { event.preventDefault(); });
     document.addEventListener("drop", function (event) {
@@ -1948,13 +1964,13 @@
   }
 
   function initialSource(embedded, embeddedBundle) {
-    // 取り込み口は **2 つだけ**（decisions.md D10）:
+    // **起動時**の取り込み口（decisions.md D10 / D11）:
     //   埋め込み  … #bundle-data（バンドルをそのまま） / #diff-data（html サブコマンドの出力）
-    //   手動      … ファイル選択・ドラッグ＆ドロップ（起動後）
-    // どちらの埋め込みも無ければ「ファイルを開いてください」を出す（白い画面にしない）。
+    // どちらも無ければ「ファイルを開いてください」を出す（白い画面にしない）。
     //
-    // **実行を伴う口も、外部ファイルを読む口も、外から押し込める口も持たない。**
-    // 何が表示されるかは「この HTML の中身」と「人が選んだファイル」だけで決まる。
+    // **起動後**は、人がファイルを選ぶか、ホストが postMessage で渡すかのどちらか。
+    // **外部ファイルを読む口は持たない**——`<script src>` は file:// で唯一動く手段だが、
+    // どのバンドルを読むのかがファイル名任せになり、そのファイルを実行することにもなる。
     if (embeddedBundle) { return { kind: "bundle", data: embeddedBundle }; }
     if (embedded) { return { kind: "embedded", data: embedded }; }
     return { kind: "none", data: null };

@@ -922,16 +922,17 @@ class ViewCommandTest(unittest.TestCase):
             self.assertIn('<script type="application/json" id="bundle-data"></script>', html,
                           repr(args))
 
-    def test_no_push_intake_remains(self):
-        """外から押し込める口を持たない（D10）。
+    def test_intake_is_limited_to_the_three_agreed_paths(self):
+        """取り込み口は 3 つだけ（D10 / D11）——手動・埋め込み・ホストの postMessage。
 
-        `postMessage` の受け口と、生成物が読むグローバル変数の**両方**を落とした。
-        表示されるものは「この HTML の中身」と「人が選んだファイル」だけで決まる。
+        持たないのは **外部ファイルを読む口**（`<script src>`）と、
+        **生成物がグローバル変数を読む経路**。前者は「どのバンドルを読むのか」が
+        ファイル名任せになり、実行も伴う。
         """
         _code, html, _err = cli(self.repo, "view")
         skeleton = html.split('<script type="application/json" id="bundle-data">')[0]
         app = (SKILL_DIR / "templates" / "app.js").read_text(encoding="utf-8")
-        self.assertNotIn('addEventListener("message"', app, "postMessage の受け口を持たない")
+        self.assertIn('addEventListener("message"', app, "ホストからの差し替えは受ける")
         # グローバル変数は **読まない**。app.js に残ってよいのは、手で開いた .dreview の
         # 前置きを剥がすための文字列定数 1 か所だけ。
         lines = [ln for ln in app.splitlines() if "__DIFF_REVIEW_BUNDLE__" in ln]
