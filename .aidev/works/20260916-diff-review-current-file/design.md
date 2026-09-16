@@ -11,8 +11,8 @@
 セクション」（一般的な scrollspy の手法）。スクロールのたびに毎回計算すると重いので、
 `requestAnimationFrame` で 1 フレームに 1 回へまとめる。
 
-ハイライトの対象は、`.tree-ux-polish` 系の work で `#filelist` のフラット `<a>` /
-ツリー `.tree-item.tree-file` の両方に**既に `data-path` 属性が付いている**（前 work の実装）ので、
+ハイライトの対象は、前 work（20260916-diff-review-ux-polish）で `#filelist` のフラット `<a>` /
+ツリー `.tree-item.tree-file` の両方に**既に `data-path` 属性が付いている**ので、
 それをそのままセレクタに使う。新しい属性は増やさない。
 
 ## 対象範囲
@@ -36,3 +36,18 @@
   ファイル一覧側にも使う（属性名の一貫性）。
 - `focusInPlace` が同じ `getBoundingClientRect()` ベースの可視判定を既に持っている
   （車輪の再発明をしない）。
+
+## AC ごとの実現方法
+
+- AC1: `currentFileSection()` の幾何計算＋ `applyCurrentFileHighlight()` が `data-current="true"` を付ける。
+- AC2: `applyCurrentFileHighlight()` は呼ばれるたびに既存の `[data-current="true"]` を全部外してから
+  1 件だけ付け直すので、常に高々 1 件になる。
+- AC3: ハイライトの対象は `#filelist` 内の `[data-path]` セレクタで、フラット `<a>` / ツリー
+  `.tree-item.tree-file` のどちらにも同じコードが対応する。
+- AC4: `nav.querySelector('[data-path="..."]')` が見つからなければ何もしない（例外を投げない）。
+- AC5: `applyCurrentFileHighlight` 系のコードは `readonly` を参照しない（既存の検索/確認済みと同じ方針）。
+- AC6: `renderAll()` が `renderFiles()`（`.file` を作る）のあとにもう一度 `applyCurrentFileHighlight()`
+  を呼ぶ。
+- AC7: `gotoFile()` が `scrollIntoView`/`focus()` の直後に同期的に呼ぶ（scroll イベントを待たない）。
+- AC8: `data-current` と `data-viewed` は別々の CSS ルールで、互いを上書きしない。
+- AC9: 新規の `addEventListener` は `scroll`（既存要素向け）だけで、`keydown` は増やさない。
