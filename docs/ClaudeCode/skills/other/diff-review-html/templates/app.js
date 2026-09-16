@@ -694,7 +694,8 @@
         richButton.addEventListener("click", function () { toggleView(section, file); });
         actions.appendChild(richButton);
       }
-      if (!file.binary && file.expand && !file.expand.truncated) {
+      var hasGap = gapsOf(file).some(function (gap) { return !!gap; });
+      if (!file.binary && file.expand && !file.expand.truncated && hasGap) {
         var allButton = el("button", { type: "button", class: "expand-all", text: "すべて展開" });
         allButton.addEventListener("click", function () { expandAll(section, file); });
         actions.appendChild(allButton);
@@ -764,6 +765,10 @@
     var gaps = gapsOf(file);
     var state = expandState[file.path] || (expandState[file.path] = {});
     gaps.forEach(function (gap, i) {
+      // **gapsOf は「隙間なし」を null で返す**（ハンクが 1 行目から始まるとき等）。
+      // 飛ばさないと例外で抜けてしまい、**このファイルの展開が丸ごと起きない**——
+      // ボタンを押しても何も起きない、という形で壊れる（実測で検出）。
+      if (!gap) { return; }
       state[i] = { top: gap.end - gap.start + 1, bottom: 0 };
     });
     section.setAttribute("data-collapsed", "false");
@@ -787,15 +792,25 @@
     }
   }
 
-  function hunkRange(hunk) {
-    // そのハンクが新側で占める行番号の範囲（削除だけのハンクは空になる）
+  function expandSide(file) {
+    return (file && file.expand && file.expand.side === "old") ? "old" : "new";
+  }
+
+  function hunkRange(hunk, side) {
+    // そのハンクが**展開データと同じ側**で占める行番号の範囲。
+    // 新側で固定すると、削除されたファイル（新側の行番号が無い）で範囲が空になり、
+    // 「ファイル全体がまだ出ていない」と誤判定して**同じ行をもう一度並べてしまう**（実測で検出）。
+    var key = side === "old" ? "old" : "new";
     var first = null, last = null;
     (hunk.lines || []).forEach(function (line) {
-      if (line.new === null || line.new === undefined) { return; }
-      if (first === null) { first = line.new; }
-      last = line.new;
+      if (line[key] === null || line[key] === undefined) { return; }
+      if (first === null) { first = line[key]; }
+      last = line[key];
     });
-    if (first === null) { return { start: hunk.new_start, end: hunk.new_start - 1 }; }
+    if (first === null) {
+      var start = side === "old" ? hunk.old_start : hunk.new_start;
+      return { start: start, end: start - 1 };
+    }
     return { start: first, end: last };
   }
 
@@ -803,10 +818,11 @@
     // ハンクとハンクの間・前後の「見えていない範囲」を出す
     if (!file.expand || file.expand.truncated || !file.expand.count) { return []; }
     var total = file.expand.count;
+    var side = expandSide(file);
     var gaps = [];
     var cursor = 1;
     (file.hunks || []).forEach(function (hunk) {
-      var range = hunkRange(hunk);
+      var range = hunkRange(hunk, side);
       if (range.start > cursor) { gaps.push({ start: cursor, end: range.start - 1 }); }
       else { gaps.push(null); }
       cursor = Math.max(cursor, range.end + 1);
@@ -917,8 +933,11 @@
   function appendContext(body, file, no) {
     var data = expandLine(file, no);
     if (!data) { return; }
+    // 行番号は**展開データと同じ側**に置く。新側で固定すると、削除されたファイルで
+    // 「旧側の行番号を新側に書いた行」ができ、同じ番号が削除行と文脈行の両方に現れる。
+    var old = expandSide(file) === "old" ? no : null;
     var line = {
-      kind: "ctx", old: null, new: no,
+      kind: "ctx", old: old, new: old === null ? no : null,
       text: data.text === null ? null : data.text,
       tokens: data.tokens
     };
@@ -934,10 +953,9 @@
     if (line.tokens) { return line.tokens; }
     var ex = file && file.expand;
     if (!ex || !ex.tokens) { return null; }
-    var side = line.kind === "del" ? "old" : "new";
-    if (ex.side !== side) { return null; }
-    var number = line.kind === "del" ? line.old : line.new;
-    if (!number) { return null; }
+    // 行がどちら側の番号を持っているかで引く（削除されたファイルの文脈行は旧側）
+    var number = ex.side === "old" ? line.old : line.new;
+    if (number === null || number === undefined) { return null; }
     return ex.tokens[number - 1] || null;
   }
 
@@ -957,9 +975,11 @@
   }
 
   function renderRow(file, line, expanded) {
-    var side = line.kind === "del" ? "LEFT" : "RIGHT";
-    var number = line.kind === "del" ? line.old : line.new;
-    var key = rowKey(file.path, side, number);
+    // 位置づけの規則は anchorOf 1 本に寄せる（unified と split で食い違わせない）
+    var anchor = anchorOf(line);
+    var side = anchor ? anchor.side : (line.kind === "del" ? "LEFT" : "RIGHT");
+    var number = anchor ? anchor.number : null;
+    var key = anchor ? rowKey(file.path, side, number) : null;
     var mark = line.kind === "add" ? "+" : (line.kind === "del" ? "-" : " ");
 
     // 参照専用では**作らない**（隠さない）。DOM に無ければ、開発者ツールで戻すこともできない。
@@ -1028,13 +1048,17 @@
   }
 
   function anchorOf(line) {
-    // コメントの位置づけは **unified とまったく同じ規則**にする。
-    // ここがずれると、同じ指摘が表示形式を変えた瞬間に「位置不明」へ落ちる。
+    // コメントの位置づけの**唯一の規則**。unified も split も、生成側の検証もここに従う。
+    //   削除行            → LEFT + 旧側の行番号
+    //   追加行・文脈行    → RIGHT + 新側の行番号
+    //   旧側しか番号が無い文脈行（削除されたファイルの展開） → LEFT + 旧側の行番号
     if (!line) { return null; }
-    var side = line.kind === "del" ? "LEFT" : "RIGHT";
-    var number = line.kind === "del" ? line.old : line.new;
-    if (number === null || number === undefined) { return null; }
-    return { side: side, number: number };
+    if (line.kind === "del") {
+      return (line.old === null || line.old === undefined) ? null : { side: "LEFT", number: line.old };
+    }
+    if (line.new !== null && line.new !== undefined) { return { side: "RIGHT", number: line.new }; }
+    if (line.old !== null && line.old !== undefined) { return { side: "LEFT", number: line.old }; }
+    return null;
   }
 
   function cellAnchor(line, side) {

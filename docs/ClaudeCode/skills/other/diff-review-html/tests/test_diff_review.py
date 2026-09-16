@@ -16,10 +16,15 @@ import unittest
 from pathlib import Path
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
+TESTS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SKILL_DIR))
+# 隣の補助モジュールも、**どの起動の仕方でも**読めるようにする
+# （`discover -s tests` は自動で通すが、`python3 -m unittest tests.…` は通さない）。
+sys.path.insert(0, str(TESTS_DIR))
 
 import diff_review as dr  # noqa: E402  （パスを通してから読み込む）
 import richdiff      # noqa: E402
+import fixture_repo  # noqa: E402  （画面の受け入れ確認に使う固定入力を作る）
 
 SCRIPT = SKILL_DIR / "diff_review.py"
 
@@ -1039,3 +1044,75 @@ class SourceSelectionTest(unittest.TestCase):
         self.assertEqual(code, 1, "黙って別の差分を出してはいけない")
         self.assertEqual(out, "")
         self.assertIn("まだ実装していません", err)
+
+
+# --------------------------------------------------------------------------
+# 画面の受け入れ確認に使う固定入力（tests/fixture_repo.py）が、
+# **検査の前提を実際に含んでいる**こと。
+#
+# 作業ツリーの差分を入力にしていたら、リポジトリの状態で検査が通ったり落ちたりした
+# （スレッドが 150 件作れない / 展開ボタンが無い / ツリーのディレクトリが無い）。
+# 前提は入力側で作り、その入力が前提を満たしていることをここで固定する。
+# --------------------------------------------------------------------------
+
+class FixtureRepoTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.repo = Path(cls.tmp.name) / "fixture"
+        fixture_repo.build(str(cls.repo))
+        _target, cls.files = dr.collect_diff(str(cls.repo), "staged", None, 3)
+        cls.by_path = {f["path"]: f for f in cls.files}
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def test_has_the_awkward_shapes(self):
+        paths = set(self.by_path)
+        self.assertGreaterEqual(len(paths), 6, paths)
+        statuses = {f["status"] for f in self.files}
+        self.assertIn("A", statuses, "新規ファイルが要る")
+        self.assertIn("D", statuses, "削除ファイルが要る")
+        self.assertIn("M", statuses, "変更ファイルが要る")
+        depths = {p.split("/")[0] for p in paths}
+        self.assertGreaterEqual(len(depths), 2, "ツリー表示の検査には 2 つ以上の親が要る: %s" % depths)
+
+    def test_first_hunk_at_line_one_with_a_later_gap(self):
+        """**ここが壊れていた**——先頭行から始まるハンクを持ち、後ろにも隙間があるファイル。
+
+        `gapsOf` が「隙間なし」を null で返す位置で、`expandAll` が例外を投げて
+        **ファイルの展開が丸ごと起きなかった**。入力にこの形が無いと、検査が素通りする。
+        """
+        entry = self.by_path["src/core/engine.py"]
+        self.assertFalse(entry["expand"]["truncated"], "展開データが要る")
+        first = entry["hunks"][0]
+        starts_at_one = any(l["new"] == 1 for l in first["lines"])
+        self.assertTrue(starts_at_one, "最初のハンクが 1 行目から始まること: %s" % first["header"])
+        last_new = max(l["new"] for h in entry["hunks"] for l in h["lines"] if l["new"])
+        self.assertLess(last_new, entry["expand"]["count"],
+                        "最後のハンクより後ろにも行が残っていること（＝後ろにも隙間）")
+
+    def test_deleted_file_expands_on_the_old_side(self):
+        entry = self.by_path["src/api/legacy.py"]
+        self.assertEqual(entry["status"], "D")
+        self.assertEqual(entry["expand"]["side"], "old",
+                         "削除ファイルの展開データは旧側。画面もこの側に従う")
+
+    def test_has_replacements_for_split_pairing(self):
+        entry = self.by_path["src/core/util.py"]
+        kinds = [l["kind"] for h in entry["hunks"] for l in h["lines"]]
+        self.assertIn("add", kinds)
+        self.assertIn("del", kinds)
+
+    def test_has_rich_targets(self):
+        rich = {p for p, f in self.by_path.items() if f.get("rich")}
+        self.assertTrue(any(p.endswith(".md") for p in rich), rich)
+        self.assertTrue(any(p.endswith(".csv") for p in rich), rich)
+
+    def test_fixture_is_deterministic(self):
+        """同じ手順で作ったリポジトリからは、同じ差分が出る（検査が揺れない）。"""
+        other = Path(self.tmp.name) / "fixture2"
+        fixture_repo.build(str(other))
+        _t, files = dr.collect_diff(str(other), "staged", None, 3)
+        self.assertEqual(dr.dumps_canonical(files), dr.dumps_canonical(self.files))

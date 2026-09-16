@@ -305,6 +305,7 @@ rich は**生成時に作られる**（ブラウザに解析器を積まない�
 | `<skill>/richdiff.py` | rich diff の生成（CSV / Markdown / mermaid / HTML / PDF） |
 | `<skill>/templates/` | 画面の素材（`page.html` / `style.css` / `ui.js` / `app.js` / `rich.js`） |
 | `<skill>/tests/test_diff_review.py` | `python3 -m unittest` で回るテスト |
+| `<skill>/tests/fixture_repo.py` | 画面の確認に使う**固定の入力**を作る（新規 / 削除 / 置き換え / 隙間 / rich を含む git リポジトリ）。`python3 tests/fixture_repo.py <出力先>` |
 
 ## エディタ拡張から使う（土台）
 

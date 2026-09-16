@@ -1,0 +1,10 @@
+schema: 11
+slug: diff-review-authoring
+current: requirements
+approved: [requirements]
+mode: autonomous
+profile: full
+humanGates: []
+maxSendBacks: 3
+dependsOn: [20260916-diff-review-bundle]
+harnessRev: 8edfc354c955
