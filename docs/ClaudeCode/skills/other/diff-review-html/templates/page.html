@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__ — diff review</title>
+<style>__STYLE__</style>
+</head>
+<body>
+<a class="skip" href="#files">差分へ移動</a>
+
+<header class="topbar">
+  <div class="titles">
+    <h1 id="page-title">__TITLE__</h1>
+    <p class="meta" id="meta"></p>
+  </div>
+  <div class="actions">
+    <button type="button" id="btn-submit-open">レビューを提出</button>
+    <button type="button" id="btn-export-open">JSON を書き出す</button>
+    <label class="filebtn" for="file-import">JSON を読み込む</label>
+    <input type="file" id="file-import" accept=".json,application/json" hidden>
+    <button type="button" id="btn-help-open" aria-expanded="false" aria-controls="help">キー操作</button>
+  </div>
+</header>
+
+<div id="banners" role="status" aria-live="polite"></div>
+
+<section id="help" class="panel" hidden aria-label="キー操作">
+  <h2>キー操作</h2>
+  <table>
+    <tbody>
+      <tr><th><kbd>j</kbd> / <kbd>k</kbd></th><td>差分の行を移動（<kbd>↓</kbd> / <kbd>↑</kbd> も同じ）</td></tr>
+      <tr><th><kbd>c</kbd> / <kbd>Enter</kbd></th><td>その行にコメントを書く</td></tr>
+      <tr><th><kbd>Esc</kbd></th><td>コメント欄を閉じる（書きかけは残る）</td></tr>
+      <tr><th><kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>Enter</kbd></th><td>コメントを確定（未提出として溜める）</td></tr>
+      <tr><th><kbd>f</kbd></th><td>そのファイルの折りたたみを切り替え</td></tr>
+      <tr><th><kbd>r</kbd></th><td>レビューの提出パネルを開く</td></tr>
+      <tr><th><kbd>?</kbd></th><td>この一覧を開閉</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="submit-panel" class="panel" hidden aria-label="レビューの提出">
+  <h2>レビューを提出する</h2>
+  <p class="hint" id="pending-count"></p>
+  <fieldset>
+    <legend>判定</legend>
+    <label><input type="radio" name="review-state" value="COMMENTED" checked> コメントのみ</label>
+    <label><input type="radio" name="review-state" value="APPROVED"> 承認する</label>
+    <label><input type="radio" name="review-state" value="CHANGES_REQUESTED"> 修正を求める</label>
+  </fieldset>
+  <label class="block" for="review-body">サマリ</label>
+  <textarea id="review-body" rows="4" placeholder="レビュー全体のコメント"></textarea>
+  <div class="row-actions">
+    <button type="button" id="btn-submit-do">提出する</button>
+    <button type="button" id="btn-submit-discard">未提出のコメントを破棄</button>
+    <button type="button" id="btn-submit-close">閉じる</button>
+  </div>
+</section>
+
+<section id="export-panel" class="panel" hidden aria-label="JSON の書き出し">
+  <h2>レビュー記録を書き出す</h2>
+  <p class="hint">ダウンロードするか、下の内容をコピーしてファイルに貼り付けてください。</p>
+  <div class="row-actions">
+    <button type="button" id="btn-download">ダウンロード</button>
+    <button type="button" id="btn-export-close">閉じる</button>
+  </div>
+  <textarea id="export-text" rows="16" readonly></textarea>
+</section>
+
+<main>
+  <nav id="filelist" aria-label="変更ファイル一覧"></nav>
+
+  <section id="overall" aria-label="全体へのコメント">
+    <div class="section-head">
+      <h2>全体へのコメント</h2>
+      <button type="button" class="comment-open" data-scope="overall" aria-expanded="false">コメントする</button>
+    </div>
+    <div class="threads" data-threads="overall"></div>
+    <div class="composer-slot" data-composer="overall"></div>
+  </section>
+
+  <section id="files"></section>
+</main>
+
+<script type="application/json" id="diff-data">__DIFF_DATA__</script>
+<script type="application/json" id="review-data">__REVIEW_DATA__</script>
+<script>__APP_JS__</script>
+</body>
+</html>
