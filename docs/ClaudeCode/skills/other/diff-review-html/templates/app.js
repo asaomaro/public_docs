@@ -483,6 +483,40 @@
     section.setAttribute("tabindex", "-1");
     section.scrollIntoView({ block: "start" });
     section.focus();
+    // スクロールのイベントを待たず、クリックした直後にハイライトを移す（要件 AC7）。
+    applyCurrentFileHighlight();
+  }
+
+  // -------------------------------------------------- いま表示中のファイルの追跡
+
+  // 「画面の上部にあるファイル」＝ 中央ペインの上端を、その上端が最後に過ぎたセクション
+  // （scrollspy の定石。focusInPlace と同じ getBoundingClientRect ベースの幾何計算）。
+  function currentFileSection() {
+    var pane = document.getElementById("pane-center");
+    if (!pane) { return null; }
+    var sections = pane.querySelectorAll(".file");
+    if (!sections.length) { return null; }
+    var line = pane.getBoundingClientRect().top + 1;
+    var current = sections[0];
+    for (var i = 0; i < sections.length; i += 1) {
+      if (sections[i].getBoundingClientRect().top <= line) { current = sections[i]; }
+      else { break; }   // .file は文書順＝画面の上から下の順に並ぶので、そこで打ち切ってよい
+    }
+    return current;
+  }
+
+  function applyCurrentFileHighlight() {
+    var nav = document.getElementById("filelist");
+    if (!nav) { return; }
+    Array.prototype.forEach.call(nav.querySelectorAll('[data-current="true"]'), function (entry) {
+      entry.removeAttribute("data-current");
+    });
+    var section = currentFileSection();
+    var path = section ? section.getAttribute("data-path") : null;
+    if (!path) { return; }
+    // 検索で絞り込まれて一覧に出ていなければ、静かに何もつけない（要件 AC4）。
+    var entry = nav.querySelector('[data-path="' + cssEscape(path) + '"]');
+    if (entry) { entry.setAttribute("data-current", "true"); }
   }
 
   function statsSpan(file) {
@@ -532,6 +566,12 @@
   }
 
   function renderFileList() {
+    renderFileListBody();
+    // 描き直すたびに一覧の DOM が作り直されるので、ハイライトも都度つけ直す。
+    applyCurrentFileHighlight();
+  }
+
+  function renderFileListBody() {
     var nav = document.getElementById("filelist");
     clear(nav);
     nav.removeAttribute("role");
@@ -2073,6 +2113,9 @@
     renderFiles();
     renderThreads();
     UI.syncTopbarHeight();
+    // renderFileList() の時点では .file がまだ無いので、renderFiles() の後にもう一度
+    // （読み込み直後・スクロール前でも先頭のファイルがハイライトされる。要件 AC6）。
+    applyCurrentFileHighlight();
   }
 
   function wire() {
@@ -2138,6 +2181,22 @@
     // ツリーのキー操作は**ここで 1 回だけ**張る（描き直しのたびに張ると重なる）
     var filelist = document.getElementById("filelist");
     if (filelist) { filelist.addEventListener("keydown", onTreeKeyDown); }
+
+    // 中央ペインのスクロールで「いま表示中のファイル」のハイライトを更新する。
+    // scroll は 1 回のドラッグ/ホイールで何度も飛んでくるので、requestAnimationFrame で
+    // 1 フレームに 1 回へまとめる（persist() を毎回叩かないのと同じ考え方）。
+    var centerPane = document.getElementById("pane-center");
+    if (centerPane) {
+      var currentFileTicking = false;
+      centerPane.addEventListener("scroll", function () {
+        if (currentFileTicking) { return; }
+        currentFileTicking = true;
+        window.requestAnimationFrame(function () {
+          applyCurrentFileHighlight();
+          currentFileTicking = false;
+        });
+      });
+    }
 
     var searchInput = document.getElementById("file-search");
     if (searchInput) {

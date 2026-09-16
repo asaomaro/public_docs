@@ -605,6 +605,17 @@ textarea {
 #filelist a[data-viewed="true"] .path-text,
 .tree-item[data-viewed="true"] .tree-name { text-decoration: line-through; color: var(--muted); }
 
+/* 中央ペインにいま表示中のファイル（フラット・ツリー共通）。「確認済み」（打ち消し線）と同時に
+   成立してよいので、別の見た目（背景＋左の accent バー）にして重ねられるようにする。
+   背景は既存の :hover/:focus-visible と同じ var(--bg) を使う——一覧の既定の背景が
+   var(--surface) なので、ここを var(--surface) のままにすると色が変わって見えない
+   （自己レビューで実測して発見）。 */
+#filelist a[data-current="true"],
+.tree-item[data-current="true"] {
+  background: var(--bg);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
 /* -------------------------------------------------------------- ファイルヘッダー */
 
 .file-head .path-text {
