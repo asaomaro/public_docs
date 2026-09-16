@@ -912,6 +912,33 @@ class ViewCommandTest(unittest.TestCase):
         self.assertIn("window.DiffReviewRich", html)
         self.assertIn('"files": []', html)
 
+    def test_host_embed_slot_is_present_and_empty(self):
+        """ホストが HTML を組み立てて渡すための口（decisions.md D10）。
+
+        **常に空**で出す。生成側が中身を入れることは無いので、決定論も壊れない。
+        """
+        for args in (["view"], ["view", "--readonly"], ["html", "--repo", "."]):
+            _code, html, _err = cli(self.repo, *args)
+            self.assertIn('<script type="application/json" id="bundle-data"></script>', html,
+                          repr(args))
+
+    def test_no_push_intake_remains(self):
+        """外から押し込める口を持たない（D10）。
+
+        `postMessage` の受け口と、生成物が読むグローバル変数の**両方**を落とした。
+        表示されるものは「この HTML の中身」と「人が選んだファイル」だけで決まる。
+        """
+        _code, html, _err = cli(self.repo, "view")
+        skeleton = html.split('<script type="application/json" id="bundle-data">')[0]
+        app = (SKILL_DIR / "templates" / "app.js").read_text(encoding="utf-8")
+        self.assertNotIn('addEventListener("message"', app, "postMessage の受け口を持たない")
+        # グローバル変数は **読まない**。app.js に残ってよいのは、手で開いた .dreview の
+        # 前置きを剥がすための文字列定数 1 か所だけ。
+        lines = [ln for ln in app.splitlines() if "__DIFF_REVIEW_BUNDLE__" in ln]
+        self.assertEqual(len(lines), 1, lines)
+        self.assertIn("var BUNDLE_PREFIX =", lines[0])
+        self.assertNotIn("<script src=", skeleton)
+
     def test_never_loads_an_external_file(self):
         """生成物は**どのファイルも自動では読まない**（decisions.md D9）。
 

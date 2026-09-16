@@ -12,8 +12,8 @@ flowchart TB
   CLI -->|"html（現行）"| H1["全部入り HTML<br/>差分 ＋ 画面 ＋ 指摘"]
   CLI -->|"bundle（新規）"| B["バンドル 1 ファイル<br/>rev-abc.dreview"]
   CLI -->|"view（新規）"| V["ビューアだけの HTML<br/>差分を持たない"]
-  B -->|"口①/口③: ホストが読んで渡す"| EXT["VSCode 拡張"] --> V
-  B -->|"口④: ファイルを開く（実行なし）"| V
+  B -->|"埋め込み: ホストが読んで HTML に書き込む"| EXT["VSCode 拡張"] --> V
+  B -->|"手動: ファイルを開く（実行なし）"| V
   B -->|"CLI: check / list（JS を実行せず JSON として）"| CLI
   H1 -.->|"--readonly"| RO["参照専用 HTML<br/>書き込みの導線を積まない"]
   V -.->|"--readonly"| RO
@@ -52,24 +52,25 @@ window.__DIFF_REVIEW_BUNDLE__ = {
 
 ## 2. ビューアの取り込み口（F1・F3・AC4〜AC7）
 
-**4 つ。どれも「検証してから使う」**。
+> 当初は 4 つ（グローバル変数 / 埋め込み / `postMessage` / ファイルを開く）だった。
+> **deliver 後に 2 系統へ絞った**（D9 で `<script src>`、D10 で押し込み型を撤去）。
 
-| # | 口 | 誰が使う | 実行 |
+**2 系統。どちらも「検証してから使う」**。
+
+| 系統 | 口 | 誰が使う | 実行 |
 |---|---|---|---|
-| ① | `window.__DIFF_REVIEW_BUNDLE__` が既に定義済み | **ホストが自分で書いたときだけ** | しない（生成物はこの変数を埋めない） |
-| ② | 埋め込みの `#diff-data` / `#review-data` | 現行の `html` 出力 | しない |
-| ③ | `postMessage`（形で検査） | VSCode 拡張・親フレーム | しない |
-| ④ | ファイル選択 / D&D | 人間 | しない |
+| **埋め込み** | `#diff-data` / `#review-data` | `html` サブコマンドの出力 | しない |
+| **埋め込み** | `#bundle-data`（`view` の出力に空で入っている） | ホストが組み立てた HTML | しない |
+| **手動** | ファイル選択 / ドラッグ＆ドロップ | 人間 | しない |
 
-起動時は ① → ② の順で見て、どちらも無ければ **④ の案内を出す**（白い画面にしない）。
-③ はいつ来てもよい（起動後でも差し替わる）。
+起動時は `#bundle-data` → `#diff-data` の順に見て、どちらも空なら **手動の案内を出す**
+（白い画面にしない）。**開いたあとに外から差し替わることは無い。**
 
 ```
 boot()
-  bundle = window.__DIFF_REVIEW_BUNDLE__ ?? embedded()
+  bundle = embedded("bundle-data") ?? embedded("diff-data")
   if bundle: adoptBundle(bundle)
   else:      showOpenPrompt()        ← 「バンドルを開いてください」＋ ファイル選択 / D&D
-  listen("message", …)               ← 形が合えば adoptBundle
 ```
 
 ### `adoptBundle(bundle, source)`
@@ -185,9 +186,8 @@ boot()
 - AC2: `parse_bundle` → `target` / `files` / `review` が生成時と同じ。往復でバイト一致を検査する。
 - AC3: `check` がバンドルを受け、`validate_bundle`（外側）＋既存 `validate`（内側）で検証する。
 - AC4: `view` サブコマンド。`files: []` のビューア。**`rich.js` を常に積む**（research F5）。
-- AC5: ホストからの経路は 2 本——`postMessage`（口③）と `window.__DIFF_REVIEW_BUNDLE__` の注入（口①）。
-  **どちらも生成物がファイルを読みに行かない**。口①はホストが流し込む HTML に自分で書く形なので、
-  起動時から中身が出る（案内が一瞬見えない）。
+- AC5: ホストからの経路は **埋め込み 1 本**——`view` の出力にある空の `#bundle-data` に
+  バンドルを書き込む（D10）。生成物はファイルを読みに行かず、外から押し込まれることも無い。
 - AC6: `<input type="file">` と D&D（既存の JSON 読み込みと同じ経路を、バンドルにも広げる）。
 - AC7: `validateBundle` が理由を返し、バナーに出す。**いまの表示は壊さない**。
 - AC8: `--from` ＋ `--rev`。既存フラグは別名として残す。

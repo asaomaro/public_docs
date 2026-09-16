@@ -25,7 +25,7 @@
 
   var BUNDLE_SCHEMA = "diff-review-bundle/1";
 
-  // **差し替わり得る**。起動時は埋め込み / ホストの注入から、あとからバンドルを開いても入れ替わる。
+  // **差し替わり得る**。起動時は埋め込みから、あとから手でバンドルを開いても入れ替わる。
   // モジュール先頭で確定させると、読み込んだのに前の差分が出たままになる（design §2）。
   var diffData = { target: {}, files: [], rich_enabled: false, readonly: false };
   var target = {};
@@ -1931,17 +1931,6 @@
       });
     }
 
-    // 口③: ホスト（VSCode 拡張・親フレーム）からの受け取り。**実行を伴わない**。
-    // file:// では origin が opaque で送り主を検査できないので、**形で検査する**（research.md R2）。
-    window.addEventListener("message", function (event) {
-      var data = event.data;
-      if (!data || typeof data !== "object") { return; }
-      var bundle = data.schema === BUNDLE_SCHEMA ? data
-        : (data.type === "diff-review/bundle" ? data.bundle : null);
-      if (!bundle) { return; }          // 関係の無いメッセージは黙って無視する
-      adoptBundle(bundle, "ホスト");
-    });
-
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("dragover", function (event) { event.preventDefault(); });
     document.addEventListener("drop", function (event) {
@@ -1958,16 +1947,15 @@
     });
   }
 
-  function initialSource(embedded) {
-    // 取り込み口の優先順（design §2）:
-    //   口①  window.__DIFF_REVIEW_BUNDLE__（**ホストが注入したときだけ**）
-    //   口②  埋め込みの #diff-data（html サブコマンドの出力）
-    // どちらも無ければ「ファイルを開いてください」を出す（白い画面にしない）。
+  function initialSource(embedded, embeddedBundle) {
+    // 取り込み口は **2 つだけ**（decisions.md D10）:
+    //   埋め込み  … #bundle-data（バンドルをそのまま） / #diff-data（html サブコマンドの出力）
+    //   手動      … ファイル選択・ドラッグ＆ドロップ（起動後）
+    // どちらの埋め込みも無ければ「ファイルを開いてください」を出す（白い画面にしない）。
     //
-    // 生成物がこの変数を自分で埋めることは無い（decisions.md D9 で <script src> の焼き込みを
-    // やめた）。埋まっているのは、VSCode 拡張のようなホストが自分で書いたときだけ。
-    var injected = window.__DIFF_REVIEW_BUNDLE__;
-    if (injected && typeof injected === "object") { return { kind: "bundle", data: injected }; }
+    // **実行を伴う口も、外部ファイルを読む口も、外から押し込める口も持たない。**
+    // 何が表示されるかは「この HTML の中身」と「人が選んだファイル」だけで決まる。
+    if (embeddedBundle) { return { kind: "bundle", data: embeddedBundle }; }
     if (embedded) { return { kind: "embedded", data: embedded }; }
     return { kind: "none", data: null };
   }
@@ -1981,7 +1969,10 @@
     // 埋め込みの JSON は**1 回だけ**読む。2 回 parse すると、大きな差分（実測 1.9MB で 1 回 6.4ms）で
     // 起動が二重に待たされる。
     var embedded = readEmbedded("diff-data");
-    var initial = initialSource(embedded);
+    // ホスト（VSCode 拡張など）が流し込む HTML にバンドルを**そのまま**書き込む口。
+    // 中身が空なら無視されるので、生成物は常に空で出す（決定論を壊さない）。
+    var embeddedBundle = readEmbedded("bundle-data");
+    var initial = initialSource(embedded, embeddedBundle);
     var embeddedReview = readEmbedded("review-data");
     // 参照専用かどうかは**ビューアの性質**なので、常に埋め込みの設定から取る
     // （開いたバンドルによって読み書きできたりできなかったりしては混乱する）。
@@ -1991,14 +1982,14 @@
       var problems = validateBundle(initial.data);
       if (problems.length) {
         applyDiffData({ target: {}, files: [], rich_enabled: false, readonly: viewerReadonly }, null);
-        banner("読み込んだバンドルが壊れています: " + problems.join(" / "), []);
+        banner("埋め込まれたバンドルが壊れています: " + problems.join(" / "), []);
       } else {
         applyDiffData({
           target: initial.data.target,
           files: initial.data.files,
           rich_enabled: !!initial.data.rich_enabled,
           readonly: viewerReadonly
-        }, "ホスト（注入）");
+        }, "埋め込み（バンドル）");
         if (initial.data.review) { embeddedReview = initial.data.review; }
       }
     } else if (initial.kind === "embedded") {
