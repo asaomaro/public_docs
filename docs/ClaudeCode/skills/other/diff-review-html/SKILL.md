@@ -30,6 +30,7 @@ py -3 diff_review.py <サブコマンド> ...       # Windows（python でも可
 | **差分ファイルを出す**（差分 ＋ 指摘を 1 ファイルに。画面は含まない） | `bundle` |
 | **ビューアを出す**（画面だけ。差分は開いて読み込む） | `view` |
 | **JSON を作る**（AI が指摘を書くための雛形） | `template` |
+| **指摘を書く**（AI / 人が記録に足す） | `comment` / `resolve` / `submit` |
 | **読む・検証する**（記録でもバンドルでも） | `check` / `list` |
 
 ### 差分の取得元（すべてのサブコマンド共通）
@@ -169,6 +170,87 @@ python3 <skill>/diff_review.py html --repo . --import review.json --out review.h
 - **説明**（指摘ではない注記）は `kind: "note"`。提出されず、未解決にも数えない（`severity` は付けない）。
 - 判定を添えるなら `reviews` に 1 件足し、そのコメントの `review_id` にその `id` を書く。
 
+### 2b. 指摘を書く（AI がレビューする場合・推奨）
+
+**`threads` を手で組み立てなくてよい。** `id` の採番も形の規則も script が面倒を見る。
+
+```sh
+# 行への指摘（重大度つき）
+python3 <skill>/diff_review.py comment rev-abc.dreview \
+        --path src/parse.py --line 120 --severity must --body "空文字のとき例外になります"
+
+# 削除された行への指摘
+python3 <skill>/diff_review.py comment rev-abc.dreview \
+        --path src/old.py --line 8 --side LEFT --body "これを消した理由は？"
+
+# ファイル単位 / 差分全体（--line を省く / --path も省く）
+python3 <skill>/diff_review.py comment rev-abc.dreview --path src/parse.py --body "…"
+python3 <skill>/diff_review.py comment rev-abc.dreview --body "全体として…"
+
+# 説明コメント（提出されず、未解決にも数えない）
+python3 <skill>/diff_review.py comment rev-abc.dreview \
+        --path src/parse.py --line 30 --note --body "ここは意図的に残しています"
+
+# 返信（返信への返信も同じ。--reply-to t1 はそのスレッドの最後のコメントへ）
+python3 <skill>/diff_review.py comment rev-abc.dreview --reply-to t1 --body "直しました"
+python3 <skill>/diff_review.py comment rev-abc.dreview --reply-to t1:c1 --body "c1 への返信"
+
+# 解決 / 提出
+python3 <skill>/diff_review.py resolve rev-abc.dreview --thread t1
+python3 <skill>/diff_review.py submit  rev-abc.dreview --state CHANGES_REQUESTED --body "まとめ"
+```
+
+**長い本文は引数に押し込まない**——`--body-file <FILE>`、または `--body-file -` で標準入力から。
+
+#### 存在しない行には書けない
+
+`--line` を指定すると、**その位置が差分に実在するかを確かめてから**書く。
+無ければ**何も書かずに**終了コード 3 で落ち、**そのファイルで指摘できる位置**を出す。
+
+```
+$ … comment rev-abc.dreview --path src/core/util.py --line 999 --body "…"
+NG（1 件。何も書き込んでいません）
+  src/core/util.py:999 (RIGHT) はこの差分に存在しません
+    このファイルで指摘できる位置: RIGHT 1-40 / LEFT 10-12, 21
+```
+
+**バンドル（`.dreview`）を渡せば、リポジトリが手元になくても確かめられる**（差分を持っているため）。
+記録 JSON を渡すときは `--repo`（と必要なら `--from` / `--rev`）が要る。
+
+#### `--side` の既定は **RIGHT**（規約）
+
+`LEFT` は削除行、`RIGHT` は追加行と文脈行。省略したときは——
+
+- 片側にしか無ければ**その側**に決まる（削除ファイルの行なら `LEFT`）
+- **両側にある場合（その行が書き換えられたとき）は `RIGHT`**
+
+最後のものは推測ではなく**決めごと**です（GitHub の REST も既定は `RIGHT`）。
+変更前の行を指したいときは `--side LEFT` を明示してください。
+
+#### まとめて足す
+
+20 件の指摘に 20 回プロセスを起こさなくてよい。**1 件でも駄目なら 1 件も書き込まない。**
+
+```sh
+python3 <skill>/diff_review.py comment rev-abc.dreview --batch findings.json
+```
+
+```json
+[
+  {"path": "src/a.py", "line": 12, "severity": "must", "body": "空文字で落ちます"},
+  {"path": "src/a.py", "line": 8, "side": "LEFT", "body": "消したのは意図的ですか"},
+  {"path": "src/a.py", "line": 30, "note": true, "body": "ここは意図的に残しています"},
+  {"reply_to": "t1", "body": "直しました"}
+]
+```
+
+キーは引数名から `--` を取って `-` を `_` にしたもの（`path` / `line` / `side` / `body` /
+`severity` / `note` / `reply_to` / `author`）。**知らないキーは落とします**（綴り違いを握り潰さない）。
+失敗したときは**全件ぶんまとめて**理由が出るので、1 往復で直せます。
+
+> `--batch` の中で、同じ実行の中で作ったスレッドには返信できません
+> （書く前に全件を検証するため）。返信は別の実行にしてください。
+
 ### 3. JSON を読む（AI が修正する場合）
 
 `check` と `list` は**記録 JSON でもバンドルでも**受ける（拡張子ではなく中身で判別する）。
@@ -176,6 +258,7 @@ python3 <skill>/diff_review.py html --repo . --import review.json --out review.h
 ```sh
 python3 <skill>/diff_review.py check review.json                 # 構造・参照・値域を検証
 python3 <skill>/diff_review.py check rev-abc.dreview             # バンドルも同じコマンドで
+python3 <skill>/diff_review.py check rev-abc.dreview --anchors   # 指摘の位置が実在するかも見る
 python3 <skill>/diff_review.py list  review.json                 # 未解決の指摘だけを一覧に
 python3 <skill>/diff_review.py list  review.json --severity must  # must だけ（should,nit,none も指定可）
 python3 <skill>/diff_review.py list  review.json --notes          # 作者の説明コメントも出す
@@ -185,6 +268,7 @@ python3 <skill>/diff_review.py list  review.json --all            # 解決済み
 
 `list` の出力（`path:line` と本文）をそのまま修正の作業リストにできる。
 **直したら `resolved` を立てるのではなく、人間に返す**——解決の判断はレビューした側が行う。
+直した報告は `comment --reply-to <スレッド> --body "直しました"` で同じスレッドに残せる。
 
 ## 画面でできること
 

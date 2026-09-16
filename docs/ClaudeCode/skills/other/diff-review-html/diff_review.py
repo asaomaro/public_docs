@@ -565,6 +565,126 @@ def empty_review(target):
     return {"schema": SCHEMA, "target": target, "reviews": [], "threads": []}
 
 
+# --------------------------------------------------------------------------
+# 指摘できる位置（T1）
+#
+#   **画面 `templates/app.js` の `anchorOf` と同じ規則**。片方だけ直すと、
+#   script が「書ける」と言った位置に画面が入れ物を用意しない——指摘が黙って
+#   「位置不明」欄へ落ちる、という気づきにくい壊れ方をする。
+#   test 工程で、ここが出す位置と画面が実際に出す位置の一致を検査している（research F3）。
+# --------------------------------------------------------------------------
+
+def anchor_of(line):
+    """差分の 1 行が持つ位置 `(side, 行番号)`。持たない行は None。
+
+    削除行            → LEFT ＋ 旧側の行番号
+    追加行・文脈行    → RIGHT ＋ 新側の行番号
+    旧側しか番号が無い文脈行（削除されたファイルの展開） → LEFT ＋ 旧側の行番号
+    """
+    if line.get("kind") == "del":
+        old = line.get("old")
+        return ("LEFT", old) if old is not None else None
+    new = line.get("new")
+    if new is not None:
+        return ("RIGHT", new)
+    old = line.get("old")
+    if old is not None:
+        return ("LEFT", old)
+    return None
+
+
+def valid_anchors(entry):
+    """そのファイルで指摘できる `(side, 行番号)` の集合。
+
+    ハンクに出ている行 ＋ **展開して出せる行**（展開データがあるとき）。
+    展開行は文脈行なので、展開データと同じ側に番号が乗る。
+    """
+    out = set()
+    for hunk in entry.get("hunks") or []:
+        for line in hunk.get("lines") or []:
+            anchor = anchor_of(line)
+            if anchor:
+                out.add(anchor)
+    expand = entry.get("expand") or {}
+    count = expand.get("count")
+    if count and not expand.get("truncated"):
+        side = "LEFT" if expand.get("side") == "old" else "RIGHT"
+        for no in range(1, count + 1):
+            out.add((side, no))
+    return out
+
+
+def resolve_side(anchors, line, side):
+    """`--side` を省いたときにどちら側へ付けるか。
+
+    片側しか無ければそれに決まる。**両側あるときは RIGHT**——置き換えられた行では
+    両側が有効になり（実測 10/297）、そこで落とすと「書き換えた行に指摘できない」という
+    いちばん困る形になる。推測ではなく**規約**として決める（GitHub の REST も既定は RIGHT）。
+    """
+    if side:
+        return side
+    if ("RIGHT", line) in anchors:
+        return "RIGHT"
+    if ("LEFT", line) in anchors:
+        return "LEFT"
+    return "RIGHT"          # どちらも無いときは既定のまま進め、呼び出し側が「無い」と報告する
+
+
+def format_ranges(numbers):
+    """行番号の集合を `1-40, 55, 60-62` の形に畳む。
+
+    40 行のファイルで 40 個並べても読めない。手がかりは**読める形**でなければ意味がない。
+    """
+    numbers = sorted(numbers)
+    if not numbers:
+        return "なし"
+    parts = []
+    start = prev = numbers[0]
+    for no in numbers[1:]:
+        if no == prev + 1:
+            prev = no
+            continue
+        parts.append("%d" % start if start == prev else "%d-%d" % (start, prev))
+        start = prev = no
+    parts.append("%d" % start if start == prev else "%d-%d" % (start, prev))
+    return ", ".join(parts)
+
+
+def path_problem(files, path):
+    """そのファイルが差分に無ければ理由を返す。問題なければ None。
+
+    打ち間違いが多いので、**差分にあるファイル名**を必ず添える。
+    """
+    known = sorted(entry["path"] for entry in files)
+    if path in known:
+        return None
+    return ("%s はこの差分に含まれていません\n    差分にあるファイル: %s"
+            % (path, ", ".join(known) if known else "なし"))
+
+
+def anchor_problem(files, path, line, side):
+    """位置が差分に無ければ、**手がかりつきの理由**を返す。問題なければ None。
+
+    「駄目」だけでは直しようがないので、そのファイルで指摘できる位置を必ず添える。
+    """
+    trouble = path_problem(files, path)
+    if trouble:
+        return trouble
+    by_path = {entry["path"]: entry for entry in files}
+    entry = by_path[path]
+    anchors = valid_anchors(entry)
+    if (side, line) in anchors:
+        return None
+    rights = format_ranges(n for s, n in anchors if s == "RIGHT")
+    lefts = format_ranges(n for s, n in anchors if s == "LEFT")
+    detail = "%s:%d (%s) はこの差分に存在しません" % (path, line, side)
+    if entry.get("binary"):
+        return detail + "\n    このファイルはバイナリです（行ではなくファイル単位でコメントできます）"
+    if (("RIGHT" if side == "LEFT" else "LEFT"), line) in anchors:
+        detail += "\n    （%d 行目は反対の側にならあります。--side を付けてください）" % line
+    return detail + "\n    このファイルで指摘できる位置: RIGHT %s / LEFT %s" % (rights, lefts)
+
+
 def migrate(review):
     """`diff-review/1` を `/2` として扱えるようにする（読むだけ。書き出しは常に /2）。
 
@@ -913,14 +1033,34 @@ def read_record(path):
     return review, "バンドル"
 
 
+def anchor_problems(review, files):
+    """記録の中の全スレッドについて、位置が差分に実在するかを見る（T9）。"""
+    problems = []
+    for thread in review.get("threads") or []:
+        path, line = thread.get("path"), thread.get("line")
+        if path is None:
+            continue                      # 差分全体へのコメントは位置を持たない
+        if line is None:
+            trouble = path_problem(files, path)      # ファイル単位でもパスは実在すべき
+        else:
+            trouble = anchor_problem(files, path, line, thread.get("side") or "RIGHT")
+        if trouble:
+            problems.append("threads[%s]: %s" % (thread.get("id"), trouble))
+    return problems
+
+
 def cmd_check(args):
-    review, label = read_record(args.path)
+    record = load_record(args.path)
+    review, label = record.review, ("バンドル" if record.is_bundle else "レビュー記録")
     problems = validate(review)
     if args.repo_given:
         target, _files = collect_diff(args.repo, args.source, args.rev, args.context,
                                       expand_max_lines=0, rich=False)
         for note in identity_mismatch(review, target):
             sys.stderr.write("警告: %s\n" % note)
+    if args.anchors:
+        # 位置の実在まで見る。**既定では見ない**——既存の呼び出しの意味を変えないため。
+        problems = problems + anchor_problems(review, diff_files_for(record, args))
     if problems:
         sys.stderr.write("NG %s（%d 件）\n" % (args.path, len(problems)))
         for problem in problems:
@@ -975,6 +1115,342 @@ def cmd_list(args):
             write_out("    %s\n" % line, None)
         if row["replies"]:
             write_out("    （返信 %d 件）\n" % row["replies"], None)
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------
+# 記録に書き足す（T3 / T4）
+# --------------------------------------------------------------------------
+
+def next_id(prefix, existing):
+    """`t1` `t2` … の続きを採る。**入力が同じなら同じ id** になる（決定論）。"""
+    biggest = 0
+    for value in existing:
+        text = str(value or "")
+        if text.startswith(prefix) and text[len(prefix):].isdigit():
+            biggest = max(biggest, int(text[len(prefix):]))
+    return "%s%d" % (prefix, biggest + 1)
+
+
+def new_comment(review, thread, author, body, severity, in_reply_to):
+    return {
+        "id": next_id("c", [c.get("id") for c in thread.get("comments") or []]),
+        "review_id": None,
+        "author": author,
+        "body": body,
+        "severity": severity,
+        "in_reply_to": in_reply_to,
+    }
+
+
+def new_thread(review, kind, path, line, side, author, body, severity):
+    thread = {
+        "id": next_id("t", [t.get("id") for t in review.get("threads") or []]),
+        "kind": kind,
+        "path": path,
+        "line": line,
+        "side": side,
+        "start_line": None,
+        "start_side": None,
+        "resolved": False,
+        "comments": [],
+    }
+    thread["comments"].append(new_comment(review, thread, author, body, severity, None))
+    return thread
+
+
+def find_thread(review, thread_id):
+    for thread in review.get("threads") or []:
+        if thread.get("id") == thread_id:
+            return thread
+    return None
+
+
+class Record(object):
+    """記録 JSON でもバンドルでも同じように触れるようにする入れ物（T4）。
+
+    **入力が何だったかを覚えていて、同じ種類で書き戻す**。バンドルを渡したのに
+    記録 JSON が返ると、後続の処理（ビューアへ渡す等）が繋がらない。
+    """
+
+    def __init__(self, path, review, bundle=None):
+        self.path = path
+        self.review = review
+        self.bundle = bundle          # バンドルなら中身。記録 JSON なら None
+
+    @property
+    def is_bundle(self):
+        return self.bundle is not None
+
+    def files(self):
+        """アンカー検証に使う差分。バンドルなら**自分の中にある**（git が要らない）。"""
+        return self.bundle.get("files") if self.is_bundle else None
+
+    def text(self):
+        if self.is_bundle:
+            merged = dict(self.bundle, review=self.review)
+            return bundle_text(merged["target"], merged["files"],
+                               merged.get("rich_enabled"), merged["review"])
+        return dumps_canonical(self.review)
+
+
+def load_record(path):
+    """記録 JSON / バンドルのどちらでも読む。**中身で判別**する（拡張子に頼らない）。"""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read()
+    except OSError as exc:
+        die("読み込めません: %s" % exc, EXIT_USAGE)
+    if looks_like_bundle(text):
+        bundle = load_bundle(path)
+        problems = validate_bundle(bundle)
+        if problems:
+            die("バンドルが不正です:\n" + "\n".join("  " + p for p in problems), EXIT_INVALID)
+        review = bundle.get("review") or empty_review(bundle.get("target") or {})
+        return Record(path, migrate(review), bundle)
+    return Record(path, load_json(path), None)
+
+
+def save_record(record, out):
+    """**全部通ってから 1 回だけ**書く。書く前に必ず既存 validate() を通す。"""
+    problems = validate(record.review)
+    if problems:
+        die("書き込みません（組み立てた記録が不正です）:\n"
+            + "\n".join("  " + p for p in problems), EXIT_INVALID)
+    if out == "-":
+        write_out(record.text(), None)
+    else:
+        write_out(record.text(), out or record.path)
+
+
+def diff_files_for(record, args):
+    """アンカー検証に使う差分を用意する。
+
+    バンドルなら中身をそのまま（research F6 で git と一致することを実測）。
+    記録 JSON のときだけ git から取る。
+    """
+    files = record.files()
+    if files is not None:
+        return files
+    if not getattr(args, "repo_given", False) and not getattr(args, "from_source", None):
+        die("この記録には差分が入っていないので、位置を確かめられません。\n"
+            "  --repo <リポジトリ> を付けるか、バンドル（%s）を渡してください" % BUNDLE_EXT,
+            EXIT_USAGE)
+    _target, files = collect_diff(args.repo, args.source, args.rev, args.context,
+                                  expand_max_lines=args.expand_max_lines,
+                                  rich=False)
+    return files
+
+
+# --------------------------------------------------------------------------
+# comment / resolve / submit（T5〜T8）
+# --------------------------------------------------------------------------
+
+BATCH_KEYS = ("path", "line", "side", "body", "severity", "note", "reply_to", "author")
+
+
+def read_body(text, path):
+    """本文は引数・ファイル・標準入力のどれからでも受ける（長い本文を引数に押し込まない）。"""
+    if text is not None and path is not None:
+        die("--body と --body-file は同時に使えません", EXIT_USAGE)
+    if path is not None:
+        if path == "-":
+            return sys.stdin.read()
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return f.read()
+        except OSError as exc:
+            die("本文を読めません: %s" % exc, EXIT_USAGE)
+    return text
+
+
+def spec_problems(spec, record, files, index=None):
+    """1 件ぶんの指定を検証し、問題の一覧を返す（**書く前に**全部見る）。"""
+    where = "" if index is None else "[%d] " % (index + 1)
+    problems = []
+
+    unknown = sorted(set(spec) - set(BATCH_KEYS))
+    if unknown:
+        problems.append("%s知らないキー: %s（使えるのは %s）"
+                        % (where, ", ".join(unknown), ", ".join(BATCH_KEYS)))
+
+    body = spec.get("body")
+    if not body or not str(body).strip():
+        problems.append("%s本文が空です" % where)
+
+    is_note = bool(spec.get("note"))
+    severity = spec.get("severity")
+    reply_to = spec.get("reply_to")
+
+    if is_note and severity:
+        problems.append("%s説明コメント（note）に重大度は付けられません" % where)
+    if severity and severity not in SEVERITIES:
+        problems.append("%s重大度は %s のいずれかです（実際: %r）"
+                        % (where, " / ".join(SEVERITIES), severity))
+    if reply_to and (spec.get("path") or spec.get("line") or spec.get("side")):
+        problems.append("%s返信に位置は指定できません（位置はスレッドが持っています）" % where)
+
+    if reply_to:
+        thread_id = str(reply_to).split(":")[0]
+        thread = find_thread(record.review, thread_id)
+        if thread is None:
+            known = [t.get("id") for t in record.review.get("threads") or []]
+            problems.append("%sスレッド %s がありません（あるのは: %s）"
+                            % (where, thread_id, ", ".join(known) if known else "なし"))
+        elif ":" in str(reply_to):
+            comment_id = str(reply_to).split(":", 1)[1]
+            if not any(c.get("id") == comment_id for c in thread.get("comments") or []):
+                problems.append("%sスレッド %s に %s というコメントはありません"
+                                % (where, thread_id, comment_id))
+        return problems
+
+    line = spec.get("line")
+    path = spec.get("path")
+    if line is not None and not path:
+        problems.append("%s--line を使うなら --path も要ります" % where)
+    if path:
+        # **行を指定しないファイル単位のコメントでも、そのファイルが差分にあるかは見る。**
+        # 見ないと、差分に無いファイルへのコメントが素通りして画面で「位置不明」に落ちる
+        # ——行の指定が無いだけで、穴としては同じ。
+        if files is None:
+            problems.append("%s位置を確かめる差分がありません" % where)
+        elif line is None:
+            trouble = path_problem(files, path)
+            if trouble:
+                problems.append("%s%s" % (where, trouble))
+        else:
+            anchors = valid_anchors(next((e for e in files if e["path"] == path), {}))
+            side = resolve_side(anchors, line, spec.get("side"))
+            trouble = anchor_problem(files, path, line, side)
+            if trouble:
+                problems.append("%s%s" % (where, trouble))
+    return problems
+
+
+def apply_spec(record, spec, files, default_author):
+    """検証済みの 1 件を記録へ足す。**ここでは検証しない**（済んでいる前提）。"""
+    author = spec.get("author") or default_author
+    body = str(spec["body"])
+    reply_to = spec.get("reply_to")
+    if reply_to:
+        thread_id = str(reply_to).split(":")[0]
+        thread = find_thread(record.review, thread_id)
+        comments = thread.get("comments") or []
+        if ":" in str(reply_to):
+            parent = str(reply_to).split(":", 1)[1]
+        else:
+            parent = comments[-1].get("id") if comments else None
+        severity = None if thread.get("kind") == "note" else spec.get("severity")
+        thread.setdefault("comments", []).append(
+            new_comment(record.review, thread, author, body, severity, parent))
+        return thread["id"]
+
+    path = spec.get("path")
+    line = spec.get("line")
+    side = None
+    if line is not None:
+        anchors = valid_anchors(next((e for e in files if e["path"] == path), {}))
+        side = resolve_side(anchors, line, spec.get("side"))
+    kind = "note" if spec.get("note") else "review"
+    severity = None if kind == "note" else spec.get("severity")
+    thread = new_thread(record.review, kind, path, line, side, author, body, severity)
+    record.review.setdefault("threads", []).append(thread)
+    return thread["id"]
+
+
+def load_batch(path):
+    text = sys.stdin.read() if path == "-" else None
+    if text is None:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                text = f.read()
+        except OSError as exc:
+            die("--batch を読めません: %s" % exc, EXIT_USAGE)
+    try:
+        specs = json.loads(text)
+    except json.JSONDecodeError as exc:
+        die("--batch が JSON として読めません: %s" % exc, EXIT_INVALID)
+    if not isinstance(specs, list):
+        die("--batch は JSON の配列です（実際: %s）" % type(specs).__name__, EXIT_USAGE)
+    return specs
+
+
+def cmd_comment(args):
+    record = load_record(args.path)
+    if args.batch:
+        specs = load_batch(args.batch)
+        if not specs:
+            die("--batch が空です", EXIT_USAGE)
+    else:
+        body = read_body(args.body, args.body_file)
+        spec = {"body": body}
+        for key, value in (("path", args.target_path), ("line", args.line), ("side", args.side),
+                           ("severity", args.severity), ("reply_to", args.reply_to),
+                           ("author", args.author)):
+            if value is not None:
+                spec[key] = value
+        if args.note:
+            spec["note"] = True
+        specs = [spec]
+
+    # 行だけでなく**パスの指定があるなら**差分が要る（ファイル単位も実在を見るため）
+    needs_diff = any(s.get("path") for s in specs if isinstance(s, dict))
+    files = diff_files_for(record, args) if needs_diff else (record.files() or [])
+
+    # **全件を先に見る**。1 件でも駄目なら 1 件も書かない（research R2 / R5）。
+    problems = []
+    for index, spec in enumerate(specs):
+        if not isinstance(spec, dict):
+            problems.append("[%d] オブジェクトではありません" % (index + 1))
+            continue
+        problems.extend(spec_problems(spec, record, files,
+                                      index if len(specs) > 1 else None))
+    if problems:
+        sys.stderr.write("NG（%d 件。何も書き込んでいません）\n" % len(problems))
+        for problem in problems:
+            sys.stderr.write("  %s\n" % problem)
+        return EXIT_INVALID
+
+    added = [apply_spec(record, spec, files, args.author or "ai") for spec in specs]
+    save_record(record, args.out)
+    sys.stderr.write("追加しました: %s\n" % ", ".join(added))
+    return EXIT_OK
+
+
+def cmd_resolve(args):
+    record = load_record(args.path)
+    thread = find_thread(record.review, args.thread)
+    if thread is None:
+        known = [t.get("id") for t in record.review.get("threads") or []]
+        die("スレッド %s がありません（あるのは: %s）"
+            % (args.thread, ", ".join(known) if known else "なし"), EXIT_INVALID)
+    if thread.get("kind") == "note":
+        die("説明コメント（note）は解決の対象ではありません: %s" % args.thread, EXIT_USAGE)
+    thread["resolved"] = not args.undo
+    save_record(record, args.out)
+    sys.stderr.write("%s を%sにしました\n" % (args.thread, "未解決" if args.undo else "解決"))
+    return EXIT_OK
+
+
+def cmd_submit(args):
+    record = load_record(args.path)
+    review = record.review
+    body = read_body(args.body, args.body_file) or ""
+    review_id = next_id("r", [r.get("id") for r in review.get("reviews") or []])
+    review.setdefault("reviews", []).append(
+        {"id": review_id, "author": args.author or "ai", "state": args.state, "body": body})
+    # 未提出の**指摘**だけを紐づける。説明（note）は提出の対象ではない（記録の規則）。
+    attached = 0
+    for thread in review.get("threads") or []:
+        if thread.get("kind") == "note":
+            continue
+        for comment in thread.get("comments") or []:
+            if comment.get("review_id") is None:
+                comment["review_id"] = review_id
+                attached += 1
+    save_record(record, args.out)
+    sys.stderr.write("%s として提出しました（%s / コメント %d 件）\n"
+                     % (review_id, args.state, attached))
     return EXIT_OK
 
 
@@ -1081,8 +1557,52 @@ def build_parser():
 
     p_check = sub.add_parser("check", help="レビュー記録 JSON / バンドルを検証する")
     p_check.add_argument("path", metavar="<review.json | bundle%s>" % BUNDLE_EXT)
+    p_check.add_argument("--anchors", action="store_true",
+                         help="指摘の位置が差分に実在するかも見る"
+                              "（バンドルなら中の差分で。記録 JSON なら --repo が要る）")
     add_source_options(p_check)
     p_check.set_defaults(func=cmd_check)
+
+    p_comment = sub.add_parser("comment", help="指摘 / 説明 / 返信を記録に足す")
+    p_comment.add_argument("path", metavar="<review.json | bundle%s>" % BUNDLE_EXT)
+    p_comment.add_argument("--path", dest="target_path", metavar="<FILE>",
+                           help="指摘するファイル（省くと差分全体へのコメント）")
+    p_comment.add_argument("--line", type=int, metavar="<N>",
+                           help="指摘する行（省くとファイル単位のコメント）")
+    p_comment.add_argument("--side", choices=SIDES,
+                           help="LEFT=削除行 / RIGHT=追加・文脈行（省くと RIGHT を優先）")
+    p_comment.add_argument("--body", metavar="<TEXT>", help="本文")
+    p_comment.add_argument("--body-file", dest="body_file", metavar="<FILE|->",
+                           help="本文をファイル（- で標準入力）から読む")
+    p_comment.add_argument("--severity", choices=SEVERITIES, help="重大度（指摘のときだけ）")
+    p_comment.add_argument("--note", action="store_true",
+                           help="説明コメントにする（提出されず、未解決にも数えない）")
+    p_comment.add_argument("--reply-to", dest="reply_to", metavar="<t1[:c1]>",
+                           help="返信先。コメントを省くとそのスレッドの最後のコメントへ")
+    p_comment.add_argument("--author", metavar="<NAME>", help="書き手（既定: ai）")
+    p_comment.add_argument("--batch", metavar="<FILE|->",
+                           help="まとめて足す（JSON の配列。1 件でも駄目なら 1 件も書かない）")
+    p_comment.add_argument("--out", metavar="<FILE|->",
+                           help="出力先（既定: 入力を上書き。- で標準出力）")
+    add_source_options(p_comment)
+    p_comment.set_defaults(func=cmd_comment)
+
+    p_resolve = sub.add_parser("resolve", help="スレッドを解決 / 未解決にする")
+    p_resolve.add_argument("path", metavar="<review.json | bundle%s>" % BUNDLE_EXT)
+    p_resolve.add_argument("--thread", required=True, metavar="<t1>")
+    p_resolve.add_argument("--undo", action="store_true", help="未解決に戻す")
+    p_resolve.add_argument("--out", metavar="<FILE|->", help="出力先（既定: 入力を上書き）")
+    p_resolve.set_defaults(func=cmd_resolve)
+
+    p_submit = sub.add_parser("submit", help="判定とサマリを足し、未提出の指摘を紐づける")
+    p_submit.add_argument("path", metavar="<review.json | bundle%s>" % BUNDLE_EXT)
+    p_submit.add_argument("--state", required=True, choices=REVIEW_STATES)
+    p_submit.add_argument("--body", metavar="<TEXT>", help="サマリ")
+    p_submit.add_argument("--body-file", dest="body_file", metavar="<FILE|->",
+                          help="サマリをファイル（- で標準入力）から読む")
+    p_submit.add_argument("--author", metavar="<NAME>", help="書き手（既定: ai）")
+    p_submit.add_argument("--out", metavar="<FILE|->", help="出力先（既定: 入力を上書き）")
+    p_submit.set_defaults(func=cmd_submit)
 
     p_list = sub.add_parser("list", help="未解決の指摘を一覧にする（記録でもバンドルでも）")
     p_list.add_argument("path", metavar="<review.json | bundle%s>" % BUNDLE_EXT)

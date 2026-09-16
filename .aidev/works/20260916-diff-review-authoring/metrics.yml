@@ -6,3 +6,21 @@ events:
   - { ts: 2026-09-16T11:42:57Z, phase: research, event: start }
   - { ts: 2026-09-16T11:54:29Z, phase: test, event: smoke, metrics: { result: pass, exit_code: 0, commands: 3 } }
   - { ts: 2026-09-16T13:29:01Z, phase: test, event: smoke, metrics: { result: pass, exit_code: 0, commands: 3 } }
+  - { ts: 2026-09-16T13:43:53Z, phase: research, event: approved }
+  - { ts: 2026-09-16T13:43:54Z, phase: design, event: start }
+  - { ts: 2026-09-16T13:45:03Z, phase: design, event: doccheck, metrics: { stage: start, phase: design, mode: same_session, size: 10494 } }
+  - { ts: 2026-09-16T13:45:34Z, phase: design, event: doccheck, metrics: { stage: report, phase: design, findings: 3 } }
+  - { ts: 2026-09-16T13:45:34Z, phase: design, event: approved, metrics: { doc_check_rounds: 1, doc_check_findings: 3, doc_check_mode: same_session } }
+  - { ts: 2026-09-16T13:45:34Z, phase: tasks, event: start }
+  - { ts: 2026-09-16T13:46:34Z, phase: tasks, event: doccheck, metrics: { stage: start, phase: tasks, mode: same_session, size: 7824 } }
+  - { ts: 2026-09-16T13:46:34Z, phase: tasks, event: doccheck, metrics: { stage: report, phase: tasks, findings: 1 } }
+  - { ts: 2026-09-16T13:46:35Z, phase: tasks, event: approved, metrics: { doc_check_rounds: 1, doc_check_findings: 1, doc_check_mode: same_session, ac_total: 16, ac_covered: 16, tasks_no_ac: 0, tasks_ac_none: 0 } }
+  - { ts: 2026-09-16T13:46:35Z, phase: coding, event: start }
+  - { ts: 2026-09-16T13:53:18Z, phase: coding, event: approved }
+  - { ts: 2026-09-16T13:53:18Z, phase: test, event: start, metrics: { marks: 0 } }
+  - { ts: 2026-09-16T13:54:10Z, phase: test, event: smoke, metrics: { result: pass, exit_code: 0, commands: 3 } }
+  - { ts: 2026-09-16T13:55:25Z, phase: test, event: approved }
+  - { ts: 2026-09-16T13:55:25Z, phase: review, event: start, metrics: { marks: 0 } }
+  - { ts: 2026-09-16T13:58:17Z, phase: test, event: smoke, metrics: { result: pass, exit_code: 0, commands: 3 } }
+  - { ts: 2026-09-16T14:00:02Z, phase: review, event: approved, metrics: { ac_total: 16, ac_covered: 16, tasks_no_ac: 0, tasks_ac_none: 0 } }
+  - { ts: 2026-09-16T14:00:02Z, phase: deliver, event: start }

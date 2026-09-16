@@ -1116,3 +1116,454 @@ class FixtureRepoTest(unittest.TestCase):
         fixture_repo.build(str(other))
         _t, files = dr.collect_diff(str(other), "staged", None, 3)
         self.assertEqual(dr.dumps_canonical(files), dr.dumps_canonical(self.files))
+
+
+# --------------------------------------------------------------------------
+# 指摘を「書く」側（20260916-diff-review-authoring）
+# --------------------------------------------------------------------------
+
+class AnchorRuleTest(unittest.TestCase):
+    """指摘できる位置の規則。**画面 app.js の anchorOf と同じでなければならない**。
+
+    画面との一致そのものはブラウザが要るので test 工程で測る（research F3 の 307/307）。
+    ここで固定するのは規則の中身——どの行がどちら側の位置を持つか。
+    """
+
+    def test_anchor_of_each_kind(self):
+        self.assertEqual(dr.anchor_of({"kind": "del", "old": 5, "new": None}), ("LEFT", 5))
+        self.assertEqual(dr.anchor_of({"kind": "add", "old": None, "new": 7}), ("RIGHT", 7))
+        self.assertEqual(dr.anchor_of({"kind": "ctx", "old": 5, "new": 7}), ("RIGHT", 7))
+        # 旧側しか番号が無い文脈行（削除されたファイルの展開）
+        self.assertEqual(dr.anchor_of({"kind": "ctx", "old": 9, "new": None}), ("LEFT", 9))
+        self.assertIsNone(dr.anchor_of({"kind": "ctx", "old": None, "new": None}))
+
+    def test_expand_side_decides_where_expanded_lines_land(self):
+        entry = {"hunks": [], "expand": {"count": 3, "side": "old", "truncated": False}}
+        self.assertEqual(dr.valid_anchors(entry), {("LEFT", 1), ("LEFT", 2), ("LEFT", 3)})
+        entry["expand"]["side"] = "new"
+        self.assertEqual(dr.valid_anchors(entry), {("RIGHT", 1), ("RIGHT", 2), ("RIGHT", 3)})
+
+    def test_truncated_expand_offers_nothing_extra(self):
+        entry = {"hunks": [], "expand": {"count": 9999, "side": "new", "truncated": True}}
+        self.assertEqual(dr.valid_anchors(entry), set())
+
+    def test_side_defaults_to_right_when_both_exist(self):
+        # 置き換えられた行では両側が有効になる（実測 10/297）。既定は RIGHT——**規約**。
+        anchors = {("LEFT", 12), ("RIGHT", 12), ("LEFT", 20)}
+        self.assertEqual(dr.resolve_side(anchors, 12, None), "RIGHT")
+        self.assertEqual(dr.resolve_side(anchors, 20, None), "LEFT")
+        self.assertEqual(dr.resolve_side(anchors, 12, "LEFT"), "LEFT", "明示が優先される")
+
+    def test_ranges_are_folded_for_reading(self):
+        self.assertEqual(dr.format_ranges([1, 2, 3, 5, 9, 10, 11, 20]), "1-3, 5, 9-11, 20")
+        self.assertEqual(dr.format_ranges([]), "なし")
+
+
+class AuthoringTest(unittest.TestCase):
+    """`comment` / `resolve` / `submit`。入力は固定のリポジトリ（tests/fixture_repo.py）。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.src = Path(cls.tmp.name) / "fixture"
+        fixture_repo.build(str(cls.src))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def setUp(self):
+        self.work = tempfile.TemporaryDirectory()
+        self.addCleanup(self.work.cleanup)
+        self.dir = Path(self.work.name)
+        code, out, err = cli(self.src, "bundle", "--repo", ".", "--from", "staged")
+        self.assertEqual(code, 0, err)
+        self.bundle = self.dir / ("b" + dr.BUNDLE_EXT)
+        self.bundle.write_text(out, encoding="utf-8", newline="\n")
+
+    def run_cli(self, *args):
+        return cli(self.dir, *args)
+
+    def record(self):
+        return dr.parse_bundle(self.bundle.read_text(encoding="utf-8"))["review"]
+
+    # ---------------------------------------------------------------- 足す
+
+    def test_adds_a_review_comment(self):
+        code, _out, err = self.run_cli("comment", self.bundle.name,
+                                       "--path", "src/core/util.py", "--line", "12",
+                                       "--severity", "must", "--body", "空文字で落ちます")
+        self.assertEqual(code, 0, err)
+        thread = self.record()["threads"][0]
+        self.assertEqual((thread["kind"], thread["path"], thread["line"], thread["side"]),
+                         ("review", "src/core/util.py", 12, "RIGHT"))
+        self.assertEqual(thread["comments"][0]["severity"], "must")
+        self.assertIsNone(thread["comments"][0]["review_id"], "提出するまでは未提出")
+
+    def test_adds_a_note(self):
+        code, _out, err = self.run_cli("comment", self.bundle.name,
+                                       "--path", "src/api/router.py", "--note",
+                                       "--body", "意図的にこの形にしています")
+        self.assertEqual(code, 0, err)
+        thread = self.record()["threads"][0]
+        self.assertEqual(thread["kind"], "note")
+        self.assertIsNone(thread["comments"][0]["severity"])
+        self.assertIsNone(thread["comments"][0]["review_id"])
+
+    def test_replies_and_replies_to_replies(self):
+        self.run_cli("comment", self.bundle.name, "--path", "src/core/util.py",
+                     "--line", "12", "--body", "元の指摘")
+        self.run_cli("comment", self.bundle.name, "--reply-to", "t1",
+                     "--body", "直しました", "--author", "human")
+        code, _out, err = self.run_cli("comment", self.bundle.name, "--reply-to", "t1",
+                                       "--body", "確認しました")
+        self.assertEqual(code, 0, err)
+        comments = self.record()["threads"][0]["comments"]
+        self.assertEqual([(c["id"], c["in_reply_to"]) for c in comments],
+                         [("c1", None), ("c2", "c1"), ("c3", "c2")],
+                         "返信の既定は**その時点の最後のコメント**")
+
+    def test_reply_to_a_specific_comment(self):
+        self.run_cli("comment", self.bundle.name, "--path", "src/core/util.py",
+                     "--line", "12", "--body", "元")
+        self.run_cli("comment", self.bundle.name, "--reply-to", "t1", "--body", "返信1")
+        self.run_cli("comment", self.bundle.name, "--reply-to", "t1:c1", "--body", "c1 への返信")
+        comments = self.record()["threads"][0]["comments"]
+        self.assertEqual(comments[2]["in_reply_to"], "c1")
+
+    def test_ids_continue_from_what_is_there(self):
+        for line in (12, 13, 14):
+            self.run_cli("comment", self.bundle.name, "--path", "src/core/util.py",
+                         "--line", str(line), "--body", "x")
+        self.assertEqual([t["id"] for t in self.record()["threads"]], ["t1", "t2", "t3"])
+
+    def test_file_and_overall_scopes(self):
+        self.run_cli("comment", self.bundle.name, "--path", "src/core/util.py", "--body", "ファイル")
+        self.run_cli("comment", self.bundle.name, "--body", "全体")
+        threads = self.record()["threads"]
+        scopes = {(t["path"], t["line"], t["side"]) for t in threads}
+        self.assertIn(("src/core/util.py", None, None), scopes)
+        self.assertIn((None, None, None), scopes)
+
+    # ------------------------------------------------------------ 位置の検証
+
+    def test_rejects_a_line_that_is_not_in_the_diff(self):
+        before = self.bundle.read_bytes()
+        code, out, err = self.run_cli("comment", self.bundle.name,
+                                      "--path", "src/core/util.py", "--line", "999",
+                                      "--body", "x")
+        self.assertEqual(code, 3)
+        self.assertEqual(out, "")
+        self.assertIn("存在しません", err)
+        self.assertIn("指摘できる位置", err, "手がかりを出すこと（「駄目」だけでは直せない）")
+        self.assertEqual(self.bundle.read_bytes(), before, "**1 バイトも変えない**")
+
+    def test_rejects_a_file_that_is_not_in_the_diff(self):
+        code, _out, err = self.run_cli("comment", self.bundle.name,
+                                       "--path", "nope.py", "--line", "1", "--body", "x")
+        self.assertEqual(code, 3)
+        self.assertIn("差分にあるファイル", err, "打ち間違いに気づけるよう候補を出す")
+
+    def test_rejects_a_missing_file_even_without_a_line(self):
+        """**ファイル単位のコメントでもパスの実在を見る。**
+
+        見ないと、差分に無いファイルへのコメントが素通りして画面で「位置不明」に落ちる
+        ——行の指定が無いだけで、穴としては行の場合と同じ。
+        """
+        before = self.bundle.read_bytes()
+        code, _out, err = self.run_cli("comment", self.bundle.name,
+                                       "--path", "totally/made/up.py", "--body", "x")
+        self.assertEqual(code, 3)
+        self.assertIn("差分に含まれていません", err)
+        self.assertEqual(self.bundle.read_bytes(), before)
+
+    def test_hints_the_other_side_when_that_is_where_the_line_lives(self):
+        # 削除ファイルの行は LEFT にしかない。RIGHT を明示したら「反対側にある」と伝える。
+        code, _out, err = self.run_cli("comment", self.bundle.name,
+                                       "--path", "src/api/legacy.py", "--line", "3",
+                                       "--side", "RIGHT", "--body", "x")
+        self.assertEqual(code, 3)
+        self.assertIn("反対の側", err)
+
+    def test_side_is_resolved_when_omitted(self):
+        # 削除ファイルには LEFT しか無いので、省略しても LEFT に決まる
+        code, _out, err = self.run_cli("comment", self.bundle.name,
+                                       "--path", "src/api/legacy.py", "--line", "3",
+                                       "--body", "消してよいか")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.record()["threads"][0]["side"], "LEFT")
+
+    def test_record_json_needs_a_repo_to_check_anchors(self):
+        code, out, _err = cli(self.src, "template", "--repo", ".", "--from", "staged")
+        path = self.dir / "r.json"
+        path.write_text(out, encoding="utf-8", newline="\n")
+        code, _out, err = self.run_cli("comment", "r.json",
+                                       "--path", "src/core/util.py", "--line", "12", "--body", "x")
+        self.assertEqual(code, 1)
+        self.assertIn("--repo", err)
+
+    # ------------------------------------------------------- 排他な指定を弾く
+
+    def test_rejects_contradictory_options(self):
+        cases = [
+            (["--note", "--severity", "must", "--path", "src/core/util.py",
+              "--line", "12", "--body", "x"], "重大度は付けられません"),
+            (["--reply-to", "t1", "--path", "src/core/util.py", "--body", "x"], "位置は指定できません"),
+            (["--path", "src/core/util.py", "--line", "12", "--body", "   "], "本文が空"),
+            (["--reply-to", "t9", "--body", "x"], "がありません"),
+        ]
+        for args, needle in cases:
+            code, _out, err = self.run_cli("comment", self.bundle.name, *args)
+            self.assertEqual(code, 3, args)
+            self.assertIn(needle, err, args)
+
+    def test_line_without_path_is_rejected(self):
+        code, _out, err = self.run_cli("comment", self.bundle.name, "--line", "12", "--body", "x")
+        self.assertEqual(code, 3)
+        self.assertIn("--path", err)
+
+    # ------------------------------------------------------------- 本文の受け口
+
+    def test_body_from_file_and_stdin(self):
+        body = "複数行の本文。\n2 行目に `</script>` が入る。\n"
+        (self.dir / "body.txt").write_text(body, encoding="utf-8", newline="\n")
+        self.run_cli("comment", self.bundle.name, "--path", "src/core/util.py",
+                     "--line", "12", "--body-file", "body.txt")
+        self.assertEqual(self.record()["threads"][0]["comments"][0]["body"], body)
+
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT), "comment", self.bundle.name,
+             "--path", "src/core/util.py", "--line", "13", "--body-file", "-"],
+            cwd=str(self.dir), input=body.encode("utf-8"),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode("utf-8", "replace"))
+        self.assertEqual(self.record()["threads"][1]["comments"][0]["body"], body)
+
+    def test_body_and_body_file_together_are_rejected(self):
+        code, _out, err = self.run_cli("comment", self.bundle.name, "--path", "src/core/util.py",
+                                       "--line", "12", "--body", "a", "--body-file", "b.txt")
+        self.assertEqual(code, 1)
+        self.assertIn("同時に使えません", err)
+
+    # ------------------------------------------------------- resolve / submit
+
+    def test_resolve_and_undo(self):
+        self.run_cli("comment", self.bundle.name, "--path", "src/core/util.py",
+                     "--line", "12", "--body", "x")
+        self.run_cli("resolve", self.bundle.name, "--thread", "t1")
+        self.assertTrue(self.record()["threads"][0]["resolved"])
+        self.run_cli("resolve", self.bundle.name, "--thread", "t1", "--undo")
+        self.assertFalse(self.record()["threads"][0]["resolved"])
+
+    def test_resolve_refuses_a_note(self):
+        self.run_cli("comment", self.bundle.name, "--path", "src/api/router.py",
+                     "--note", "--body", "説明")
+        code, _out, err = self.run_cli("resolve", self.bundle.name, "--thread", "t1")
+        self.assertEqual(code, 1)
+        self.assertIn("解決の対象ではありません", err)
+
+    def test_submit_attaches_pending_review_comments_only(self):
+        self.run_cli("comment", self.bundle.name, "--path", "src/core/util.py",
+                     "--line", "12", "--severity", "must", "--body", "指摘")
+        self.run_cli("comment", self.bundle.name, "--reply-to", "t1", "--body", "返信")
+        self.run_cli("comment", self.bundle.name, "--path", "src/api/router.py",
+                     "--note", "--body", "説明")
+        code, _out, err = self.run_cli("submit", self.bundle.name,
+                                       "--state", "CHANGES_REQUESTED", "--body", "まとめ")
+        self.assertEqual(code, 0, err)
+        record = self.record()
+        self.assertEqual(record["reviews"][0]["state"], "CHANGES_REQUESTED")
+        review_thread = [t for t in record["threads"] if t["kind"] == "review"][0]
+        note_thread = [t for t in record["threads"] if t["kind"] == "note"][0]
+        self.assertTrue(all(c["review_id"] == "r1" for c in review_thread["comments"]))
+        self.assertIsNone(note_thread["comments"][0]["review_id"],
+                          "説明は提出の対象ではない")
+        self.assertEqual(dr.validate(record), [])
+
+
+class BatchAuthoringTest(unittest.TestCase):
+    """まとめて足す。**1 件でも駄目なら 1 件も書かない**が要。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.src = Path(cls.tmp.name) / "fixture"
+        fixture_repo.build(str(cls.src))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def setUp(self):
+        self.work = tempfile.TemporaryDirectory()
+        self.addCleanup(self.work.cleanup)
+        self.dir = Path(self.work.name)
+        _code, out, _err = cli(self.src, "bundle", "--repo", ".", "--from", "staged")
+        self.bundle = self.dir / ("b" + dr.BUNDLE_EXT)
+        self.bundle.write_text(out, encoding="utf-8", newline="\n")
+
+    def batch(self, specs):
+        path = self.dir / "batch.json"
+        path.write_text(json.dumps(specs, ensure_ascii=False), encoding="utf-8", newline="\n")
+        return cli(self.dir, "comment", self.bundle.name, "--batch", "batch.json")
+
+    def record(self):
+        return dr.parse_bundle(self.bundle.read_text(encoding="utf-8"))["review"]
+
+    def test_all_or_nothing(self):
+        before = self.bundle.read_bytes()
+        code, _out, err = self.batch([
+            {"path": "src/core/util.py", "line": 5, "body": "これは通る"},
+            {"path": "src/core/util.py", "line": 999, "body": "行が無い"},
+            {"path": "nope.py", "line": 1, "body": "ファイルが無い"},
+            {"body": "綴り違い", "typo": 1},
+        ])
+        self.assertEqual(code, 3)
+        self.assertEqual(self.bundle.read_bytes(), before, "**1 件も書かない**")
+        # 1 件目で止めず、**全件ぶん**報告する（AI が 1 往復で直せるように）
+        self.assertIn("[2]", err)
+        self.assertIn("[3]", err)
+        self.assertIn("[4]", err)
+        self.assertIn("知らないキー", err)
+
+    def test_writes_everything_when_all_are_good(self):
+        code, _out, err = self.batch([
+            {"path": "src/core/util.py", "line": 5, "severity": "nit", "body": "命名"},
+            {"path": "src/api/legacy.py", "line": 3, "side": "LEFT", "body": "消した理由"},
+            {"note": True, "path": "src/api/router.py", "body": "新規です"},
+            {"body": "全体へ"},
+        ])
+        self.assertEqual(code, 0, err)
+        record = self.record()
+        self.assertEqual(len(record["threads"]), 4)
+        self.assertEqual(dr.validate(record), [])
+
+    def test_batch_can_reply_to_a_thread_added_earlier_in_the_same_run(self):
+        # 同じ実行の中で作ったスレッドには**返信できない**（検証は書く前に全件やるため）。
+        # 黙って落とさず、理由が出ること。
+        code, _out, err = self.batch([
+            {"path": "src/core/util.py", "line": 5, "body": "元"},
+            {"reply_to": "t1", "body": "同じ実行の中での返信"},
+        ])
+        self.assertEqual(code, 3)
+        self.assertIn("t1 がありません", err)
+
+    def test_batch_must_be_a_list(self):
+        path = self.dir / "batch.json"
+        path.write_text('{"path": "a"}', encoding="utf-8", newline="\n")
+        code, _out, err = cli(self.dir, "comment", self.bundle.name, "--batch", "batch.json")
+        self.assertEqual(code, 1)
+        self.assertIn("配列", err)
+
+
+class AuthoringOutputTest(unittest.TestCase):
+    """入力の種類を保つこと・決定論・書いたあと check が通ること。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.src = Path(cls.tmp.name) / "fixture"
+        fixture_repo.build(str(cls.src))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def setUp(self):
+        self.work = tempfile.TemporaryDirectory()
+        self.addCleanup(self.work.cleanup)
+        self.dir = Path(self.work.name)
+
+    def make_bundle(self, name="b" + dr.BUNDLE_EXT):
+        _code, out, _err = cli(self.src, "bundle", "--repo", ".", "--from", "staged")
+        path = self.dir / name
+        path.write_text(out, encoding="utf-8", newline="\n")
+        return path
+
+    def test_a_bundle_stays_a_bundle(self):
+        path = self.make_bundle()
+        cli(self.dir, "comment", path.name, "--path", "src/core/util.py",
+            "--line", "12", "--body", "x")
+        text = path.read_text(encoding="utf-8")
+        self.assertTrue(dr.looks_like_bundle(text), "バンドルを渡したらバンドルで返す")
+        bundle = dr.parse_bundle(text)
+        self.assertEqual(len(bundle["files"]), 7, "差分は残っている")
+        self.assertEqual(len(bundle["review"]["threads"]), 1)
+
+    def test_a_record_stays_a_record(self):
+        _code, out, _err = cli(self.src, "template", "--repo", ".", "--from", "staged")
+        path = self.dir / "r.json"
+        path.write_text(out, encoding="utf-8", newline="\n")
+        cli(self.dir, "comment", "r.json", "--repo", str(self.src), "--from", "staged",
+            "--path", "src/core/util.py", "--line", "12", "--body", "x")
+        text = path.read_text(encoding="utf-8")
+        self.assertFalse(dr.looks_like_bundle(text))
+        self.assertEqual(json.loads(text)["schema"], dr.SCHEMA)
+
+    def test_out_to_another_file_and_stdout(self):
+        path = self.make_bundle()
+        before = path.read_bytes()
+        code, _out, err = cli(self.dir, "comment", path.name, "--path", "src/core/util.py",
+                              "--line", "12", "--body", "x", "--out", "other" + dr.BUNDLE_EXT)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(path.read_bytes(), before, "--out を指定したら入力は変えない")
+        self.assertTrue((self.dir / ("other" + dr.BUNDLE_EXT)).exists())
+
+        code, out, err = cli(self.dir, "comment", path.name, "--path", "src/core/util.py",
+                             "--line", "12", "--body", "x", "--out", "-")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(dr.looks_like_bundle(out))
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_deterministic(self):
+        first, second = self.make_bundle("a" + dr.BUNDLE_EXT), self.make_bundle("b" + dr.BUNDLE_EXT)
+        for path in (first, second):
+            cli(self.dir, "comment", path.name, "--path", "src/core/util.py",
+                "--line", "12", "--severity", "must", "--body", "同じ本文")
+        self.assertEqual(first.read_bytes(), second.read_bytes())
+
+    def test_check_passes_after_writing(self):
+        path = self.make_bundle()
+        cli(self.dir, "comment", path.name, "--path", "src/core/util.py",
+            "--line", "12", "--severity", "must", "--body", "x")
+        cli(self.dir, "comment", path.name, "--reply-to", "t1", "--body", "返信")
+        cli(self.dir, "submit", path.name, "--state", "APPROVED", "--body", "よいです")
+        code, out, err = cli(self.dir, "check", path.name, "--anchors")
+        self.assertEqual(code, 0, err + out)
+
+    def test_check_anchors_catches_a_file_level_comment_on_a_missing_file(self):
+        path = self.make_bundle()
+        bundle = dr.parse_bundle(path.read_text(encoding="utf-8"))
+        bundle["review"] = dr.empty_review(bundle["target"])
+        bundle["review"]["threads"] = [{
+            "id": "t1", "kind": "review", "path": "gone/away.py", "line": None,
+            "side": None, "start_line": None, "start_side": None, "resolved": False,
+            "comments": [{"id": "c1", "review_id": None, "author": "ai",
+                          "body": "差分に無いファイルへのファイル単位コメント",
+                          "severity": None, "in_reply_to": None}],
+        }]
+        path.write_text(dr.bundle_text(bundle["target"], bundle["files"],
+                                       bundle["rich_enabled"], bundle["review"]),
+                        encoding="utf-8", newline="\n")
+        code, _out, err = cli(self.dir, "check", path.name, "--anchors")
+        self.assertEqual(code, 3)
+        self.assertIn("差分に含まれていません", err)
+
+    def test_check_anchors_catches_a_bad_line(self):
+        path = self.make_bundle()
+        bundle = dr.parse_bundle(path.read_text(encoding="utf-8"))
+        bundle["review"] = dr.empty_review(bundle["target"])
+        bundle["review"]["threads"] = [{
+            "id": "t1", "kind": "review", "path": "src/core/util.py", "line": 9999,
+            "side": "RIGHT", "start_line": None, "start_side": None, "resolved": False,
+            "comments": [{"id": "c1", "review_id": None, "author": "ai",
+                          "body": "手で書いた（行が無い）", "severity": None, "in_reply_to": None}],
+        }]
+        path.write_text(dr.bundle_text(bundle["target"], bundle["files"],
+                                       bundle["rich_enabled"], bundle["review"]),
+                        encoding="utf-8", newline="\n")
+        code, _out, _err = cli(self.dir, "check", path.name)
+        self.assertEqual(code, 0, "既定では位置を見ない（既存の意味を変えない）")
+        code, _out, err = cli(self.dir, "check", path.name, "--anchors")
+        self.assertEqual(code, 3, "--anchors なら捕まえる")
+        self.assertIn("存在しません", err)
