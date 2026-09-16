@@ -24,3 +24,4 @@ events:
   - { ts: 2026-09-16T06:35:26Z, phase: deliver, event: start }
   - { ts: 2026-09-16T06:35:26Z, phase: tasks, event: doccheck, metrics: { stage: start, phase: tasks, mode: same_session, size: 8678 } }
   - { ts: 2026-09-16T06:35:32Z, phase: test, event: smoke, metrics: { result: pass, exit_code: 0, commands: 3 } }
+  - { ts: 2026-09-16T06:36:07Z, phase: deliver, event: approved }
