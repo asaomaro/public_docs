@@ -750,3 +750,258 @@ class MarkdownProgressTest(unittest.TestCase):
         for line in ("``` これは終わらないフェンスに見える行", "   ```x y z", "```"):
             nodes = richdiff.markdown_nodes("段落\n\n%s\n" % line)
             self.assertIsInstance(nodes, list)
+
+
+# --------------------------------------------------------------------------
+# バンドルとビューアの分離（20260916-diff-review-bundle）
+# --------------------------------------------------------------------------
+
+def node_available():
+    """`node` が使えるか。無い環境で全体を落とさないため、該当テストだけ skip する。"""
+    try:
+        subprocess.run(["node", "--version"], stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, check=True)
+        return True
+    except (OSError, subprocess.CalledProcessError):
+        return False
+
+
+class BundleFormatTest(unittest.TestCase):
+    """バンドルは「JS としても JSON としても」読めること（research.md F2 の形を固定する）。"""
+
+    def payload(self):
+        return {
+            "target": {"source": "unstaged", "range": None, "base_commit": None,
+                       "diff_digest": "d" * 40, "files": []},
+            "files": [{"path": "a.txt", "text": "行区切り と 段落区切り</script>"}],
+        }
+
+    def test_round_trip(self):
+        p = self.payload()
+        text = dr.bundle_text(p["target"], p["files"], False, None)
+        back = dr.parse_bundle(text)
+        self.assertEqual(back, dr.bundle_object(p["target"], p["files"], False, None))
+        self.assertEqual(back["files"][0]["text"], p["files"][0]["text"],
+                         "退避した文字が元に戻ること")
+
+    def test_js_line_terminators_are_escaped(self):
+        # U+2028 / U+2029 は JS では行終端文字。生で置くと古いエンジンで構文エラーになる。
+        text = dr.bundle_text({}, [{"t": "a b c"}], False, None)
+        self.assertNotIn(" ", text)
+        self.assertNotIn(" ", text)
+        self.assertIn("\\u2028", text)
+
+    def test_fixed_prefix_and_suffix(self):
+        text = dr.bundle_text({}, [], False, None)
+        self.assertTrue(text.startswith(dr.BUNDLE_PREFIX))
+        self.assertTrue(text.endswith(dr.BUNDLE_SUFFIX))
+        self.assertTrue(dr.looks_like_bundle(text))
+        self.assertFalse(dr.looks_like_bundle('{"schema": "diff-review/2"}'))
+
+    def test_rejects_things_that_are_not_bundles(self):
+        for bad in ('{"schema": "diff-review/2"}', "", "window.OTHER = {};\n",
+                    dr.BUNDLE_PREFIX + "{}"):          # 末尾の ; が無い
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                dr.parse_bundle(bad)
+
+    def test_tolerates_trailing_whitespace(self):
+        # エディタが末尾に改行を足すことがある。**画面側と同じ寛容さ**にしておかないと、
+        # ビューアでは開けるのに check が落ちる（利用者には理由が分からない）。
+        text = dr.bundle_text({}, [], False, None)
+        self.assertEqual(dr.parse_bundle(text + "\n\n  "), dr.parse_bundle(text))
+
+    def test_load_path_escapes_ampersand(self):
+        # & はファイル名に入りうる。弾くのは行き過ぎなので、属性値として退避する。
+        html = dr.render_html({}, [], None, "t", load_src="a&b.dreview")
+        self.assertIn('<script src="a&amp;b.dreview"></script>', html)
+
+    def test_deterministic(self):
+        p = self.payload()
+        a = dr.bundle_text(p["target"], p["files"], True, None)
+        b = dr.bundle_text(p["target"], p["files"], True, None)
+        self.assertEqual(a, b)
+
+    @unittest.skipUnless(node_available(), "node が無い環境では確かめられない")
+    def test_node_reads_it_without_executing(self):
+        # VSCode 拡張と同じ実行系（Node）から、**JS を実行せずに**読めること。
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = Path(tmp.name) / ("bundle" + dr.BUNDLE_EXT)
+        p = self.payload()
+        path.write_text(dr.bundle_text(p["target"], p["files"], False, None),
+                        encoding="utf-8", newline="\n")
+        script = (
+            "const fs=require('fs');"
+            "const PRE=%r;const SUF=';\\n';"
+            "const raw=fs.readFileSync(process.argv[1],'utf8');"
+            "if(!raw.startsWith(PRE)||!raw.endsWith(SUF))throw new Error('shape');"
+            "const o=JSON.parse(raw.slice(PRE.length,-SUF.length));"
+            "process.stdout.write(o.files[0].text);"
+        ) % dr.BUNDLE_PREFIX
+        out = subprocess.run(["node", "-e", script, str(path)],
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.assertEqual(out.returncode, 0, out.stderr.decode("utf-8", "replace"))
+        self.assertEqual(out.stdout.decode("utf-8"), p["files"][0]["text"])
+
+
+class BundleCommandTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = make_repo(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_bundle_holds_diff_and_review(self):
+        _code, tmpl, _err = cli(self.repo, "template", "--repo", ".")
+        record = json.loads(tmpl)
+        record["threads"] = [{
+            "id": "t1", "kind": "review", "path": "big.py", "line": 1, "side": "RIGHT",
+            "start_line": None, "start_side": None, "resolved": False,
+            "comments": [{"id": "c1", "review_id": None, "author": "ai",
+                          "body": "指摘", "severity": "must", "in_reply_to": None}],
+        }]
+        (self.repo / "r.json").write_text(dr.dumps_canonical(record), encoding="utf-8")
+        code, out, err = cli(self.repo, "bundle", "--repo", ".", "--import", "r.json")
+        self.assertEqual(code, 0, err)
+        bundle = dr.parse_bundle(out)
+        self.assertEqual(bundle["schema"], dr.BUNDLE_SCHEMA)
+        self.assertTrue(bundle["files"], "差分が入っていること")
+        self.assertEqual(bundle["review"]["threads"][0]["comments"][0]["severity"], "must")
+        self.assertEqual(dr.validate_bundle(bundle), [])
+
+    def test_check_and_list_accept_a_bundle(self):
+        _code, out, _err = cli(self.repo, "bundle", "--repo", ".")
+        (self.repo / ("b" + dr.BUNDLE_EXT)).write_text(out, encoding="utf-8", newline="\n")
+        code, text, err = cli(self.repo, "check", "b" + dr.BUNDLE_EXT)
+        self.assertEqual(code, 0, err)
+        self.assertIn("バンドル", text)
+        code, text, err = cli(self.repo, "list", "b" + dr.BUNDLE_EXT)
+        self.assertEqual(code, 0, err)
+
+    def test_check_rejects_a_broken_bundle(self):
+        (self.repo / "bad.dreview").write_text(
+            dr.BUNDLE_PREFIX + '{"schema": "other/1"}' + dr.BUNDLE_SUFFIX,
+            encoding="utf-8", newline="\n")
+        code, _out, err = cli(self.repo, "check", "bad.dreview")
+        self.assertEqual(code, 3)
+        self.assertIn("schema", err)
+
+    def test_name_does_not_decide_the_format(self):
+        # 中身で判別する。拡張子を変えられても動く。
+        _code, out, _err = cli(self.repo, "bundle", "--repo", ".")
+        (self.repo / "weird.txt").write_text(out, encoding="utf-8", newline="\n")
+        code, text, err = cli(self.repo, "check", "weird.txt")
+        self.assertEqual(code, 0, err)
+        self.assertIn("バンドル", text)
+
+
+class ViewCommandTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = make_repo(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_viewer_has_no_diff_but_has_rich(self):
+        code, html, err = cli(self.repo, "view")
+        self.assertEqual(code, 0, err)
+        self.assertIn('id="open-prompt"', html)
+        # ビューアは何を開くか事前に分からないので rich を**常に**積む（research.md F5）
+        self.assertIn("window.DiffReviewRich", html)
+        self.assertIn('"files": []', html)
+
+    def test_no_script_src_unless_asked(self):
+        _code, html, _err = cli(self.repo, "view")
+        self.assertNotIn("<script src=", html,
+                         "既定で外部ファイルを読む形にしてはいけない（他人のバンドルが実行される）")
+        _code, loaded, err = cli(self.repo, "view", "--load", "rev.dreview")
+        self.assertIn('<script src="rev.dreview"></script>', loaded)
+        self.assertIn("実行されます", err, "焼き込んだら警告を出すこと")
+
+    def test_load_path_is_checked(self):
+        code, _out, err = cli(self.repo, "view", "--load", 'a" onerror="x')
+        self.assertEqual(code, 1)
+        self.assertIn("--load", err)
+
+
+class ReadonlyTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = make_repo(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    WRITE_UI = ('id="btn-submit-open"', 'id="btn-export-open"', 'id="btn-start-review"',
+                'id="submit-panel"', 'id="export-panel"', 'class="comment-open"')
+
+    def skeleton(self, html):
+        """埋め込んだ差分の中身と、ページの骨格を分ける（差分に何が入っていても影響されない）。"""
+        return html.split('<script type="application/json" id="diff-data">')[0]
+
+    def test_write_ui_is_not_shipped(self):
+        _code, html, _err = cli(self.repo, "html", "--repo", ".", "--readonly")
+        skeleton = self.skeleton(html)
+        for needle in self.WRITE_UI:
+            self.assertNotIn(needle, skeleton, needle)
+        self.assertIn('"readonly": true', html)
+
+    def test_normal_output_still_has_it(self):
+        _code, html, _err = cli(self.repo, "html", "--repo", ".")
+        skeleton = self.skeleton(html)
+        for needle in self.WRITE_UI:
+            self.assertIn(needle, skeleton, needle)
+        self.assertIn('"readonly": false', html)
+
+    def test_build_markers_never_reach_the_output(self):
+        for extra in ([], ["--readonly"]):
+            _code, html, _err = cli(self.repo, "html", "--repo", ".", *extra)
+            self.assertNotIn("rw:begin", self.skeleton(html), repr(extra))
+            self.assertNotIn("rw:end", self.skeleton(html), repr(extra))
+
+    def test_reading_features_survive(self):
+        _code, html, _err = cli(self.repo, "html", "--repo", ".", "--readonly")
+        skeleton = self.skeleton(html)
+        for needle in ('id="btn-split"', 'id="btn-tree"', 'id="btn-theme"',
+                       'id="commentlist"', 'id="pane-left"', 'id="pane-right"'):
+            self.assertIn(needle, skeleton, needle)
+
+
+class SourceSelectionTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = make_repo(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_from_matches_the_old_flags(self):
+        pairs = [(["--from", "unstaged"], []),
+                 (["--from", "staged"], ["--staged"]),
+                 (["--from", "range", "--rev", "HEAD~1..HEAD"], ["--range", "HEAD~1..HEAD"]),
+                 (["--from", "commit", "--rev", "HEAD"], ["--commit", "HEAD"])]
+        for new, old in pairs:
+            _c1, a, e1 = cli(self.repo, "template", "--repo", ".", *new)
+            _c2, b, e2 = cli(self.repo, "template", "--repo", ".", *old)
+            self.assertEqual(a, b, "%r と %r が同じ差分を指すこと（%s %s）" % (new, old, e1, e2))
+
+    def test_mixing_old_and_new_is_rejected(self):
+        code, _out, err = cli(self.repo, "template", "--repo", ".", "--from", "staged", "--staged")
+        self.assertEqual(code, 1)
+        self.assertIn("同時に指定できません", err)
+
+    def test_rev_is_required_and_restricted(self):
+        code, _out, err = cli(self.repo, "template", "--repo", ".", "--from", "range")
+        self.assertEqual(code, 1)
+        self.assertIn("--rev", err)
+        code, _out, err = cli(self.repo, "template", "--repo", ".", "--from", "staged", "--rev", "x")
+        self.assertEqual(code, 1)
+        self.assertIn("--rev", err)
+
+    def test_github_pr_is_declared_not_yet(self):
+        code, out, err = cli(self.repo, "html", "--repo", ".", "--from", "github-pr")
+        self.assertEqual(code, 1, "黙って別の差分を出してはいけない")
+        self.assertEqual(out, "")
+        self.assertIn("まだ実装していません", err)

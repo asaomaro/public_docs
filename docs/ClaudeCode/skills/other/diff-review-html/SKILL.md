@@ -1,6 +1,6 @@
 ---
 name: diff-review-html
-description: ローカルの git 差分（未ステージ / ステージ済み / コミット間）を、GitHub の PR 画面のように読める単一HTMLにして出力する。ファイル一覧（左・ツリー/フラット）・差分（中央・unified/split 切り替え）・コメント一覧（右）の3ペインで、左右はD&Dで幅を変えられ畳める。ライト/ダーク/OS追従のテーマ切り替え、シンタックスハイライト、CSV/TSV・Markdown（mermaid・alert記法）・HTML・PDF の rich diff、前後の行を押した分だけ広げる段階展開つき。画面では行・ファイル・全体の3階層にコメントし、must/should/nit の重大度、コメントごとの返信、解決、提出（Approve / Request changes / Comment）、レビュー対象外の説明コメントまで行え、その記録をJSONで書き出し／読み込みできる。AIが書いた指摘のJSONを埋め込んだHTMLを作ることも、人間が書いた指摘のJSONをAIが読んで修正することもできる。「差分をHTMLで見たい」「差分レビューの画面を作って」「レビュー用のHTMLを生成して」「レビュー結果をJSONで受け渡したい」「レビュー記録のJSONを読み込んで」と言われたときに使用する。GitHubのPRそのものへの投稿や取得は行わない。
+description: ローカルの git 差分（未ステージ / ステージ済み / コミット間）を、GitHub の PR 画面のように読める単一HTMLにして出力する。差分と指摘を1ファイルにまとめたバンドル（.dreview）と、それを開くビューアHTMLに分けて出すこともでき、エディタ拡張の土台になる。配布用に書き込み機能を積まない参照専用HTMLも出せる。ファイル一覧（左・ツリー/フラット）・差分（中央・unified/split 切り替え）・コメント一覧（右）の3ペインで、左右はD&Dで幅を変えられ畳める。ライト/ダーク/OS追従のテーマ切り替え、シンタックスハイライト、CSV/TSV・Markdown（mermaid・alert記法）・HTML・PDF の rich diff、前後の行を押した分だけ広げる段階展開つき。画面では行・ファイル・全体の3階層にコメントし、must/should/nit の重大度、コメントごとの返信、解決、提出（Approve / Request changes / Comment）、レビュー対象外の説明コメントまで行え、その記録をJSONで書き出し／読み込みできる。AIが書いた指摘のJSONを埋め込んだHTMLを作ることも、人間が書いた指摘のJSONをAIが読んで修正することもできる。「差分をHTMLで見たい」「差分レビューの画面を作って」「レビュー用のHTMLを生成して」「レビュー結果をJSONで受け渡したい」「レビュー記録のJSONを読み込んで」「差分をファイルに切り出して」「レビュー用のビューアを作って」「読むだけのHTMLを配りたい」と言われたときに使用する。GitHubのPRそのものへの投稿や取得は行わない。
 allowed-tools: [Bash, Read]
 ---
 
@@ -22,13 +22,28 @@ py -3 diff_review.py <サブコマンド> ...       # Windows（python でも可
 
 以下、この skill のディレクトリを `<skill>` と書く（`<skill>/diff_review.py`）。
 
-## 3 つの機能
+## サブコマンド
 
 | したいこと | サブコマンド |
 |---|---|
-| **HTML を出す**（差分を読む画面を作る） | `html` |
+| **HTML を出す**（差分 ＋ 画面 ＋ 指摘を 1 枚に） | `html` |
+| **差分ファイルを出す**（差分 ＋ 指摘を 1 ファイルに。画面は含まない） | `bundle` |
+| **ビューアを出す**（画面だけ。差分は開いて読み込む） | `view` |
 | **JSON を作る**（AI が指摘を書くための雛形） | `template` |
-| **JSON を読む**（検証する / 未解決の指摘を一覧にする） | `check` / `list` |
+| **読む・検証する**（記録でもバンドルでも） | `check` / `list` |
+
+### 差分の取得元（すべてのサブコマンド共通）
+
+```sh
+--from unstaged      # 未コミットの変更（既定）
+--from staged        # ステージ済みの変更
+--from range  --rev main..HEAD
+--from commit --rev 3d6624e
+--from github-pr     # まだ未対応（黙って別の差分を出さず、理由を出して落ちる）
+```
+
+従来のフラグ（`--unstaged` / `--staged` / `--range A..B` / `--commit C`）も**そのまま使える**。
+ただし `--from` との**併用はできない**（同じことを 2 通りで書けるので、矛盾として落とす）。
 
 ### 1. HTML を出す
 
@@ -37,12 +52,15 @@ py -3 diff_review.py <サブコマンド> ...       # Windows（python でも可
 python3 <skill>/diff_review.py html --repo . --out review.html
 
 # ステージ済み / コミット間 / 特定のコミット
-python3 <skill>/diff_review.py html --repo . --staged            --out review.html
-python3 <skill>/diff_review.py html --repo . --range main..HEAD  --out review.html
-python3 <skill>/diff_review.py html --repo . --commit 3d6624e    --out review.html
+python3 <skill>/diff_review.py html --repo . --from staged                  --out review.html
+python3 <skill>/diff_review.py html --repo . --from range  --rev main..HEAD --out review.html
+python3 <skill>/diff_review.py html --repo . --from commit --rev 3d6624e    --out review.html
 
 # AI が書いた指摘を埋め込んで渡す
 python3 <skill>/diff_review.py html --repo . --import review.json --out review.html
+
+# 配布用（読むだけ。コメント入力・提出・JSON 入出力を積まない）
+python3 <skill>/diff_review.py html --repo . --import review.json --readonly --out share.html
 ```
 
 `--out` を省くと標準出力へ出る。`--context N` で前後の文脈行数、`--title` で見出しを変えられる。
@@ -54,6 +72,53 @@ python3 <skill>/diff_review.py html --repo . --import review.json --out review.h
 |---|---|---|
 | `--expand-max-lines N` | 2000 | 画面で前後を展開するために全文を埋める上限（行数）。**超えるファイルは展開できない**（画面に理由が出る）。`0` で展開データを一切埋めない（いちばん軽い）。**ハイライトは影響を受けない**——差分行にしか乗らないので軽い |
 | `--rich auto\|off` | auto | `off` にすると CSV/Markdown/HTML/PDF の rich diff を作らない。**auto でも対象が 1 件も無ければ描画コードは埋め込まれない** |
+
+### 1b. 差分ファイル（バンドル）とビューアに分ける
+
+**1 枚の HTML に焼き固める代わりに、「中身」と「画面」を分けられる。**
+エディタ拡張のように「ファイルを開くとビューアが立ち上がる」形の土台になる。
+
+```sh
+# 中身: 差分 ＋ 指摘を 1 ファイルに（拡張子 .dreview）
+python3 <skill>/diff_review.py bundle --repo . --from range --rev main..HEAD \
+        --import review.json --out rev-abc.dreview
+
+# 画面: ビューアだけ（差分を持たない）。開いて .dreview を選ぶ
+python3 <skill>/diff_review.py view --out viewer.html
+
+# 画面 ＋ 焼き込み: そのバンドルを最初から読むビューア（※下の注意）
+python3 <skill>/diff_review.py view --load rev-abc.dreview --out viewer.html
+```
+
+**バンドルの中身**は、代入文 1 行に包んだ正規形 JSON。
+
+```js
+window.__DIFF_REVIEW_BUNDLE__ = {
+  "schema": "diff-review-bundle/1",
+  "target": { … }, "files": [ … ], "rich_enabled": true,
+  "review": { "schema": "diff-review/2", … }   // 指摘。無ければ null
+};
+```
+
+前置き `window.__DIFF_REVIEW_BUNDLE__ = ` と後置き `;\n` は**固定**なので、
+**JS を実行せずに JSON としても読める**（Python・Node の両方で検査している）。
+
+**ビューアがバンドルを受け取る口は 4 つ**:
+
+| 口 | 誰が使う | バンドルを実行するか |
+|---|---|---|
+| `window.__DIFF_REVIEW_BUNDLE__` が定義済み | `--load` で焼き込んだビューア / ホストの注入 | **する** |
+| 埋め込み（`html` の出力） | 通常の 1 枚 HTML | しない |
+| `postMessage` | エディタ拡張・親フレーム | しない |
+| ファイル選択 / ドラッグ＆ドロップ | 人間 | しない |
+
+> [!WARNING]
+> **`--load` で焼き込むと、そのバンドルは開いた時点で実行されます。**
+> `file://` では `fetch` も `XMLHttpRequest` も使えず、隣のファイルを読む手段が
+> `<script src>` しかないためです（実測）。他人から受け取った `.dreview` を
+> 焼き込んだビューアで開くのは、**他人の HTML を開くのと同じ危険度**です。
+> だから **既定では焼き込みません**。自分で作ったバンドルを自分で見るときだけ使ってください。
+> 他人から受け取ったものは、**「ファイルを開く」から読み込んでください**（実行されません）。
 
 ### 2. JSON を作る（AI がレビューする場合）
 
@@ -94,8 +159,11 @@ python3 <skill>/diff_review.py html --repo . --import review.json --out review.h
 
 ### 3. JSON を読む（AI が修正する場合）
 
+`check` と `list` は**記録 JSON でもバンドルでも**受ける（拡張子ではなく中身で判別する）。
+
 ```sh
 python3 <skill>/diff_review.py check review.json                 # 構造・参照・値域を検証
+python3 <skill>/diff_review.py check rev-abc.dreview             # バンドルも同じコマンドで
 python3 <skill>/diff_review.py list  review.json                 # 未解決の指摘だけを一覧に
 python3 <skill>/diff_review.py list  review.json --severity must  # must だけ（should,nit,none も指定可）
 python3 <skill>/diff_review.py list  review.json --notes          # 作者の説明コメントも出す
@@ -187,8 +255,12 @@ rich は**生成時に作られる**（ブラウザに解析器を積まない�
 - **下書きの自動保存はブラウザ依存**。`file://` の localStorage を塞ぐブラウザ（Firefox 等）では
   保存されない。その場合は画面にその旨が出る。**提出済みの記録は JSON に書き出して保存すること**
   （書き出しだけが確実な永続化）。
-- **隣に置いた JSON を自動では読めない**。`file://` ではページから他のファイルを読めないため、
-  読み込みは「ファイル選択 / ドラッグ＆ドロップ」か、生成時の `--import` に限る。
+- **`file://` では `fetch` / `XHR` / モジュール import が使えない**（実測）。
+  隣のファイルを読む手段は `<script src>` だけで、それは**そのファイルを実行する**。
+  だから既定では読まない。読み込みは「ファイル選択 / ドラッグ＆ドロップ」（実行なし）、
+  生成時の `--import`、または明示的な `--load`（実行あり）に限る。
+- **参照専用は容量を減らすためのものではない**。減るのは HTML の該当部分だけ（数百バイト）で、
+  画面のコード自体は残る。目的は「**書き換えて再配布されない**」こと。
 - **split は行単位の対応まで**。「行のどこが変わったか」の語単位ハイライトは持たない。
 - **split で前後を展開した行は、片側の行番号が空になる**。展開用の全文は片側しか持たないため
   （本文は両側に同じものを出す。文脈行は定義上どちらの側でも同じ内容）。
@@ -218,6 +290,21 @@ rich は**生成時に作られる**（ブラウザに解析器を積まない�
 | `<skill>/richdiff.py` | rich diff の生成（CSV / Markdown / mermaid / HTML / PDF） |
 | `<skill>/templates/` | 画面の素材（`page.html` / `style.css` / `ui.js` / `app.js` / `rich.js`） |
 | `<skill>/tests/test_diff_review.py` | `python3 -m unittest` で回るテスト |
+
+## エディタ拡張から使う（土台）
+
+この skill は拡張そのものを持たない。**拡張が守ればよいことだけ**を決めてある。
+
+| 拡張がやること | 備考 |
+|---|---|
+| `.dreview` を読み、前後を剥がして `JSON.parse` する | **実行しない**。Node で検査済み |
+| `view --readonly` で作ったビューア HTML を webview に流す | 差分を持たないので使い回せる |
+| バンドルを `postMessage` で渡す（または `window.__DIFF_REVIEW_BUNDLE__` を注入） | 前者は実行を伴わない |
+| CSP を付けるなら `<script` を `<script nonce="…"` に置換する | 1 か所の置換で済む形にしてある |
+
+> **未検証**: VSCode の webview が CSP 無しで inline script を実行するかは、
+> この skill の開発環境（VSCode 無し）では確かめていない。
+> 上の契約は「どちらに転んでも拡張側の 1 行で済む」ようにしてあるが、**実機で確かめること**。
 
 ## 終了コード
 

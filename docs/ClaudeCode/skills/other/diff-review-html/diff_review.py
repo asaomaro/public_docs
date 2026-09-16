@@ -29,8 +29,17 @@ SCHEMA = "diff-review/2"
 SCHEMA_LEGACY = "diff-review/1"
 SCHEMAS = (SCHEMA, SCHEMA_LEGACY)
 
+# バンドル（差分 ＋ 記録を 1 ファイルに）。
+# 前後を固定しているのは、**JS を実行せずに JSON として読める**ようにするため
+# （research.md F2 で Python / Node / ブラウザの 3 者から実測）。
+BUNDLE_SCHEMA = "diff-review-bundle/1"
+BUNDLE_GLOBAL = "window.__DIFF_REVIEW_BUNDLE__"
+BUNDLE_PREFIX = BUNDLE_GLOBAL + " = "
+BUNDLE_SUFFIX = ";\n"
+BUNDLE_EXT = ".dreview"
+
 # テンプレートの差し込み口。`render_html` はこの 5 つを 1 回の走査で置き換える。
-PLACEHOLDER_RE = re.compile(r"__(?:TITLE|STYLE|UI_JS|APP_JS|RICH_JS|DIFF_DATA|REVIEW_DATA)__")
+PLACEHOLDER_RE = re.compile(r"__(?:TITLE|STYLE|UI_JS|APP_JS|RICH_JS|BUNDLE_SRC|DIFF_DATA|REVIEW_DATA)__")
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 
 # git が「空のツリー」に与えている固定のハッシュ。最初のコミットの差分を取るときに親の代わりに使う。
@@ -70,6 +79,87 @@ def json_for_script_block(obj):
     JSON の文字列中では "<" を \\u003c と書けるので、すべての "<" を退避する。
     """
     return dumps_canonical(obj).replace("<", "\\u003c")
+
+
+def js_safe(text):
+    """JS のソースに置いても壊れない形へ。
+
+    U+2028 / U+2029 は **JS では行終端文字**で、ES2019 より前のエンジンでは文字列リテラルの
+    中に生で置けない。JSON としては `\\u2028` と書いても同じ文字なので、退避しても意味は変わらない。
+    """
+    return text.replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
+
+
+def bundle_object(target, files, rich_enabled, review):
+    """バンドルの中身（辞書）。`review` は `diff-review/2` の記録**そのもの**を入れる。
+
+    記録を内側にそのまま持つのは、**検証を 1 本で済ませる**ため（design §1）。
+    バンドル用の検証と記録用の検証が分かれると、片方だけ直す事故が起きる。
+    """
+    return {
+        "schema": BUNDLE_SCHEMA,
+        "target": target,
+        "files": files,
+        "rich_enabled": bool(rich_enabled),
+        "review": review,
+    }
+
+
+def bundle_text(target, files, rich_enabled, review):
+    """バンドル 1 ファイルの中身（文字列）。JS としても JSON としても読める。"""
+    body = dumps_canonical(bundle_object(target, files, rich_enabled, review)).rstrip("\n")
+    return BUNDLE_PREFIX + js_safe(body) + BUNDLE_SUFFIX
+
+
+def parse_bundle(text):
+    """バンドルの文字列から中身を取り出す。**JS は実行しない**。
+
+    前後が合わなければその場で弾く。合わなければ JSON としても読めないので、
+    「実行しないと読めない形」が紛れ込む余地が無い。
+    """
+    # 末尾の空白は許す（エディタが改行を足すことがある）。画面側 parseBundleText と同じ寛容さ。
+    trimmed = text.rstrip()
+    if not trimmed.startswith(BUNDLE_PREFIX) or not trimmed.endswith(";"):
+        raise ValueError("バンドルの形ではありません（%s… で始まり ; で終わる必要があります）"
+                         % BUNDLE_PREFIX.strip())
+    return json.loads(trimmed[len(BUNDLE_PREFIX):-1])
+
+
+def validate_bundle(bundle):
+    """バンドルの構造を検査する。内側の記録は既存の `validate()` へ委譲する。"""
+    problems = []
+    if not isinstance(bundle, dict):
+        return ["$: オブジェクトではありません"]
+    if bundle.get("schema") != BUNDLE_SCHEMA:
+        problems.append("$.schema: 既知のバンドルではありません（期待: %s、実際: %r）"
+                        % (BUNDLE_SCHEMA, bundle.get("schema")))
+    if not isinstance(bundle.get("target"), dict):
+        problems.append("$.target: オブジェクトが必要です")
+    if not isinstance(bundle.get("files"), list):
+        problems.append("$.files: 配列が必要です")
+    review = bundle.get("review")
+    if review is not None:
+        problems.extend("$.review%s" % p[1:] for p in validate(migrate(review)))
+    return problems
+
+
+def load_bundle(path):
+    """バンドルを読む（実行しない）。内側の記録は `migrate` を通す。"""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            bundle = parse_bundle(f.read())
+    except OSError as exc:
+        die("読み込めません: %s" % exc, EXIT_USAGE)
+    except (ValueError, json.JSONDecodeError) as exc:
+        die("バンドルとして読めません（%s）: %s" % (path, exc), EXIT_INVALID)
+    if bundle.get("review") is not None:
+        bundle["review"] = migrate(bundle["review"])
+    return bundle
+
+
+def looks_like_bundle(text):
+    """中身で判別する（拡張子に頼らない——名前を変えられても動く）。"""
+    return text.lstrip().startswith(BUNDLE_PREFIX)
 
 
 def write_out(text, out_path=None):
@@ -684,26 +774,54 @@ def read_template(name):
         die("テンプレートが読めません: %s" % exc, EXIT_USAGE)
 
 
-def render_html(target, files, review, title):
+RW_BLOCK_RE = re.compile(r"[ \t]*<!-- rw:begin -->.*?<!-- rw:end -->[ \t]*\n?", re.S)
+RW_MARK_RE = re.compile(r"[ \t]*<!-- rw:(?:begin|end) -->[ \t]*\n?")
+
+
+def strip_write_ui(page, readonly):
+    """`rw:` の印を処理する。
+
+    - 参照専用: 印で囲まれた**中身ごと**落とす。隠すだけだと開発者ツールで戻せてしまうので、
+      配布物として「読むだけ」を名乗るなら出力に入れない。
+    - 通常: **印そのものだけ**落とす。生成物に組み立て用の印を残さない。
+    """
+    return (RW_BLOCK_RE if readonly else RW_MARK_RE).sub("", page)
+
+
+def render_html(target, files, review, title, readonly=False, force_rich=False, load_src=None):
+    # **プレースホルダ置換より前に**印を処理する。素のテンプレートに対して印を探すので、
+    # 差分の中に "<!-- rw:begin -->" という文字列があっても影響しない。
     page = read_template("page.html")
+    page = strip_write_ui(page, readonly)
     style = read_template("style.css")
     app = read_template("app.js")
     # ui.js は rich.js と違って**常に**積む。ペイン・テーマ・設定の記憶は差分の中身に依らない。
     ui = read_template("ui.js")
     # rich の描画コードは**対象があるときだけ**積む（decisions.md D4）。
     # 解析は生成時に済ませてあるので、画面側に積むのは「構造を描く」数十行だけ。
-    has_rich = any(f.get("rich") for f in files)
+    # ビューア（`view`）は何を開くか事前に分からないので、rich を**常に**積む（research.md F5）。
+    has_rich = force_rich or any(f.get("rich") for f in files)
     rich_js = read_template("rich.js") if has_rich else ""
     for name, text in (("style.css", style), ("ui.js", ui), ("app.js", app), ("rich.js", rich_js)):
         if "</script" in text:
             die("テンプレート %s に '</script' が含まれています（埋め込むと壊れます）" % name, EXIT_USAGE)
-    diff_data = {"target": target, "files": files, "rich_enabled": bool(has_rich)}
+    diff_data = {"target": target, "files": files, "rich_enabled": bool(has_rich),
+                 "readonly": bool(readonly), "embedded": bool(files)}
+    # `--load` を指定したときだけ <script src> を焼き込む。既定では焼き込まない
+    # （他人から受け取ったバンドルをビューアが勝手に実行する形を作らないため。decisions D3）。
+    bundle_src = ""
+    if load_src:
+        if '"' in load_src or "<" in load_src or ">" in load_src:
+            die("--load のパスに \" < > は使えません: %r" % load_src, EXIT_USAGE)
+        # & は属性値として正しく退避する（ファイル名に入りうる文字なので弾くのは行き過ぎ）
+        bundle_src = '<script src="%s"></script>' % load_src.replace("&", "&amp;")
     replacements = {
         "__TITLE__": title,
         "__STYLE__": style,
         "__UI_JS__": ui,
         "__APP_JS__": app,
         "__RICH_JS__": rich_js,
+        "__BUNDLE_SRC__": bundle_src,
         "__DIFF_DATA__": json_for_script_block(diff_data),
         "__REVIEW_DATA__": json_for_script_block(review) if review is not None else "null",
     }
@@ -717,16 +835,52 @@ def render_html(target, files, review, title):
 def cmd_html(args):
     target, files = collect_diff(args.repo, args.source, args.rev, args.context,
                                  expand_max_lines=args.expand_max_lines, rich=(args.rich != "off"))
-    review = None
-    if args.import_path:
-        review = load_json(args.import_path)
-        problems = validate(review)
-        if problems:
-            die("レビュー記録が不正です（埋め込みません）:\n" + "\n".join("  " + p for p in problems), EXIT_INVALID)
-        for note in identity_mismatch(review, target):
-            sys.stderr.write("警告: %s\n" % note)
+    review = load_review_for_embedding(args.import_path, target) if args.import_path else None
     title = args.title or default_title(target)
-    write_out(render_html(target, files, review, title), args.out)
+    write_out(render_html(target, files, review, title, readonly=args.readonly), args.out)
+    return EXIT_OK
+
+
+def load_review_for_embedding(path, target):
+    """`--import` で渡された記録を読み、検証し、対象のずれを警告する（html / bundle で共用）。"""
+    review = load_json(path)
+    problems = validate(review)
+    if problems:
+        die("レビュー記録が不正です（埋め込みません）:\n"
+            + "\n".join("  " + p for p in problems), EXIT_INVALID)
+    for note in identity_mismatch(review, target):
+        sys.stderr.write("警告: %s\n" % note)
+    return review
+
+
+def cmd_bundle(args):
+    """差分と記録を 1 ファイルに（T3）。ビューアはこれを開く。"""
+    target, files = collect_diff(args.repo, args.source, args.rev, args.context,
+                                 expand_max_lines=args.expand_max_lines, rich=(args.rich != "off"))
+    review = load_review_for_embedding(args.import_path, target) if args.import_path else None
+    rich_enabled = any(f.get("rich") for f in files)
+    write_out(bundle_text(target, files, rich_enabled, review), args.out)
+    return EXIT_OK
+
+
+def cmd_view(args):
+    """差分を持たないビューアだけを出す（T4）。
+
+    `rich.js` は**常に積む**——ビューアは何を開くか事前に分からないため
+    （`html` の「対象が無ければ積まない」とは前提が違う。research.md F5）。
+    """
+    empty_target = {"source": "none", "range": None, "base_commit": None,
+                    "diff_digest": None, "files": []}
+    title = args.title or "差分レビュー（ビューア）"
+    html = render_html(empty_target, [], None, title,
+                       readonly=args.readonly, force_rich=True, load_src=args.load)
+    if args.load:
+        # 黙って便利にしない。焼き込んだ瞬間に「そのファイルは実行される」ことを伝える。
+        sys.stderr.write(
+            "警告: %s を <script src> で読み込むビューアを作りました。\n"
+            "      このファイルは開いた時点で**実行されます**。信頼できるバンドルだけを指してください。\n"
+            % args.load)
+    write_out(html, args.out)
     return EXIT_OK
 
 
@@ -746,8 +900,33 @@ def cmd_template(args):
     return EXIT_OK
 
 
+def read_record(path):
+    """記録 JSON でもバンドルでも、**中の記録**を返す（拡張子ではなく中身で判別する）。
+
+    返り値は (記録, ラベル)。バンドルに記録が入っていなければ空の記録を作って返す。
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read()
+    except OSError as exc:
+        die("読み込めません: %s" % exc, EXIT_USAGE)
+    if not looks_like_bundle(text):
+        return load_json(path), "レビュー記録"
+    bundle = load_bundle(path)
+    problems = validate_bundle(bundle)
+    if problems:
+        sys.stderr.write("NG %s（バンドル %d 件）\n" % (path, len(problems)))
+        for problem in problems:
+            sys.stderr.write("  %s\n" % problem)
+        raise SystemExit(EXIT_INVALID)
+    review = bundle.get("review")
+    if review is None:
+        review = empty_review(bundle.get("target") or {})
+    return review, "バンドル"
+
+
 def cmd_check(args):
-    review = load_json(args.path)
+    review, label = read_record(args.path)
     problems = validate(review)
     if args.repo_given:
         target, _files = collect_diff(args.repo, args.source, args.rev, args.context,
@@ -761,13 +940,13 @@ def cmd_check(args):
         return EXIT_INVALID
     threads = review.get("threads") or []
     unresolved = sum(1 for t in threads if not t.get("resolved"))
-    sys.stdout.write("OK %s（レビュー %d 件 / スレッド %d 件 / 未解決 %d 件）\n"
-                     % (args.path, len(review.get("reviews") or []), len(threads), unresolved))
+    sys.stdout.write("OK %s［%s］（レビュー %d 件 / スレッド %d 件 / 未解決 %d 件）\n"
+                     % (args.path, label, len(review.get("reviews") or []), len(threads), unresolved))
     return EXIT_OK
 
 
 def cmd_list(args):
-    review = load_json(args.path)
+    review, _label = read_record(args.path)
     problems = validate(review)
     if problems:
         sys.stderr.write("NG %s（%d 件）: check サブコマンドで詳細を見てください\n" % (args.path, len(problems)))
@@ -815,12 +994,22 @@ def cmd_list(args):
 # 入口
 # --------------------------------------------------------------------------
 
+SOURCES = ("unstaged", "staged", "range", "commit", "github-pr")
+SOURCES_NOT_YET = {"github-pr": "GitHub の PR からの取得はまだ実装していません"}
+
+
 def add_source_options(parser, required_repo_flag=False):
+    # 取得元は **--from ひとつの軸**。機能が増えてもフラグが増えない形にする。
+    parser.add_argument("--from", dest="from_source", choices=SOURCES, metavar="<元>",
+                        help="差分の取得元: %s（既定: unstaged）" % " | ".join(SOURCES))
+    parser.add_argument("--rev", metavar="<SPEC>",
+                        help="--from range / commit のときの指定（例 main..HEAD / 3d6624e）")
+    # 以下は従来からのフラグ。**同じことを 2 通りで書けるので、併用は矛盾として弾く**。
     group = parser.add_mutually_exclusive_group()
-    group.add_argument("--unstaged", action="store_true", help="未ステージの変更（既定）")
-    group.add_argument("--staged", action="store_true", help="ステージ済みの変更")
-    group.add_argument("--range", dest="range_spec", metavar="<A>..<B>", help="コミット間の差分")
-    group.add_argument("--commit", metavar="<C>", help="そのコミットが入れた差分")
+    group.add_argument("--unstaged", action="store_true", help="（別名）--from unstaged")
+    group.add_argument("--staged", action="store_true", help="（別名）--from staged")
+    group.add_argument("--range", dest="range_spec", metavar="<A>..<B>", help="（別名）--from range --rev <A>..<B>")
+    group.add_argument("--commit", metavar="<C>", help="（別名）--from commit --rev <C>")
     parser.add_argument("--repo", default=".", help="対象リポジトリ（既定: カレント）")
     parser.add_argument("--context", type=int, default=3, help="前後に出す文脈行数（既定: 3）")
     parser.add_argument("--expand-max-lines", type=int, default=DEFAULT_EXPAND_MAX_LINES,
@@ -832,14 +1021,38 @@ def add_source_options(parser, required_repo_flag=False):
 
 
 def normalize_source(args):
-    if args.staged:
-        args.source, args.rev = "staged", None
-    elif args.range_spec:
-        args.source, args.rev = "range", args.range_spec
-    elif args.commit:
-        args.source, args.rev = "commit", args.commit
-    else:
-        args.source, args.rev = "unstaged", None
+    """`--from` と従来フラグを 1 つの `(source, rev)` にまとめる。
+
+    **両方が指定されたら落とす**——どちらかを黙って優先すると、
+    「指定したはずの差分と違うものが出た」という気づきにくい事故になる。
+    """
+    legacy = None
+    if getattr(args, "staged", False):
+        legacy = ("staged", None)
+    elif getattr(args, "range_spec", None):
+        legacy = ("range", args.range_spec)
+    elif getattr(args, "commit", None):
+        legacy = ("commit", args.commit)
+    elif getattr(args, "unstaged", False):
+        legacy = ("unstaged", None)
+
+    chosen = getattr(args, "from_source", None)
+    rev = getattr(args, "rev", None)
+    if chosen and legacy:
+        die("--from と従来のフラグ（--unstaged / --staged / --range / --commit）は"
+            "同時に指定できません。どちらか一方にしてください", EXIT_USAGE)
+    if chosen:
+        if chosen in SOURCES_NOT_YET:
+            die("%s（--from %s）" % (SOURCES_NOT_YET[chosen], chosen), EXIT_USAGE)
+        if chosen in ("range", "commit") and not rev:
+            die("--from %s には --rev <SPEC> が要ります" % chosen, EXIT_USAGE)
+        if chosen not in ("range", "commit") and rev:
+            die("--rev は --from range / commit のときだけ使えます", EXIT_USAGE)
+        args.source, args.rev = chosen, rev
+        return args
+    if rev and not legacy:
+        die("--rev は --from range / commit と一緒に使ってください", EXIT_USAGE)
+    args.source, args.rev = legacy or ("unstaged", None)
     return args
 
 
@@ -854,21 +1067,40 @@ def build_parser():
     p_html.add_argument("--title", help="画面の見出し")
     p_html.add_argument("--import", dest="import_path", metavar="<review.json>",
                         help="既存のレビュー記録を埋め込む")
+    p_html.add_argument("--readonly", action="store_true",
+                        help="参照専用（コメント入力・提出・JSON 入出力の導線を積まない）")
     p_html.add_argument("--out", metavar="<FILE>", help="出力先（既定: 標準出力）")
     p_html.set_defaults(func=cmd_html)
+
+    p_bundle = sub.add_parser("bundle", help="差分と指摘を 1 ファイル（%s）にまとめる" % BUNDLE_EXT)
+    add_source_options(p_bundle)
+    p_bundle.add_argument("--import", dest="import_path", metavar="<review.json>",
+                          help="既存のレビュー記録を同梱する")
+    p_bundle.add_argument("--out", metavar="<FILE>", help="出力先（既定: 標準出力）")
+    p_bundle.set_defaults(func=cmd_bundle)
+
+    p_view = sub.add_parser("view", help="差分を持たないビューアだけを出す")
+    p_view.add_argument("--load", metavar="<bundle%s>" % BUNDLE_EXT,
+                        help="このバンドルを <script src> で読み込むビューアにする"
+                             "（**そのファイルは実行されます**。既定では焼き込みません）")
+    p_view.add_argument("--readonly", action="store_true",
+                        help="参照専用（コメント入力・提出・JSON 入出力の導線を積まない）")
+    p_view.add_argument("--title", help="画面の見出し")
+    p_view.add_argument("--out", metavar="<FILE>", help="出力先（既定: 標準出力）")
+    p_view.set_defaults(func=cmd_view)
 
     p_tmpl = sub.add_parser("template", help="空のレビュー記録（雛形）を出す")
     add_source_options(p_tmpl)
     p_tmpl.add_argument("--out", metavar="<FILE>", help="出力先（既定: 標準出力）")
     p_tmpl.set_defaults(func=cmd_template)
 
-    p_check = sub.add_parser("check", help="レビュー記録 JSON を検証する")
-    p_check.add_argument("path", metavar="<review.json>")
+    p_check = sub.add_parser("check", help="レビュー記録 JSON / バンドルを検証する")
+    p_check.add_argument("path", metavar="<review.json | bundle%s>" % BUNDLE_EXT)
     add_source_options(p_check)
     p_check.set_defaults(func=cmd_check)
 
-    p_list = sub.add_parser("list", help="未解決の指摘を一覧にする")
-    p_list.add_argument("path", metavar="<review.json>")
+    p_list = sub.add_parser("list", help="未解決の指摘を一覧にする（記録でもバンドルでも）")
+    p_list.add_argument("path", metavar="<review.json | bundle%s>" % BUNDLE_EXT)
     p_list.add_argument("--all", action="store_true", help="解決済みも出す")
     p_list.add_argument("--severity", metavar="must,should,nit,none",
                         help="重大度で絞る（カンマ区切り。none は重大度なし）")

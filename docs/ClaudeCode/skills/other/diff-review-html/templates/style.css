@@ -130,7 +130,7 @@ body {
 .meta { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
-button, .filebtn {
+button {
   font: inherit;
   color: var(--fg);
   background: var(--bg);
@@ -139,12 +139,11 @@ button, .filebtn {
   padding: 4px 10px;
   cursor: pointer;
 }
-button:hover, .filebtn:hover { border-color: var(--accent); }
-button:focus-visible, .filebtn:focus-within, [tabindex]:focus-visible {
+button:hover { border-color: var(--accent); }
+button:focus-visible, [tabindex]:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
-.filebtn { display: inline-block; }
 
 /* ------------------------------------------------------------ 3 ペイン */
 

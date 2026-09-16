@@ -23,10 +23,15 @@
   var THREAD_KINDS = ["review", "note"];     // note = 作者の説明（提出されない）
   var SEVERITIES = ["must", "should", "nit"];
 
-  var diffData = readEmbedded("diff-data");
-  var embeddedReview = readEmbedded("review-data");
-  var target = diffData.target || {};
-  var storageKey = STORAGE_KEY_PREFIX + (target.diff_digest || "unknown");
+  var BUNDLE_SCHEMA = "diff-review-bundle/1";
+
+  // **差し替わり得る**。起動時は埋め込み / ホストの注入から、あとからバンドルを開いても入れ替わる。
+  // モジュール先頭で確定させると、読み込んだのに前の差分が出たままになる（design §2）。
+  var diffData = { target: {}, files: [], rich_enabled: false, readonly: false };
+  var target = {};
+  var storageKey = STORAGE_KEY_PREFIX + "unknown";
+  var readonly = false;
+  var bundleSource = null;      // どこから来たか（画面の meta 行に出す）
 
   var state = { reviews: [], threads: [] };
   var drafts = {};
@@ -43,6 +48,72 @@
     togglePane: function () {},
     syncTopbarHeight: function () {}
   };
+
+  // ------------------------------------------------- 差分の差し替え（バンドル）
+
+  function applyDiffData(data, source) {
+    diffData = data;
+    target = data.target || {};
+    readonly = !!data.readonly;
+    bundleSource = source || null;
+    storageKey = STORAGE_KEY_PREFIX + (target.diff_digest || "unknown");
+    // **画面の中だけの状態は全部作り直す**。取りこぼすと前の差分の展開や折りたたみが残る。
+    viewModes = {};
+    expandState = {};
+    collapsed = {};
+    treeOpen = {};
+    currentRow = null;
+    state = { reviews: [], threads: [] };
+    drafts = {};
+    seq = 0;
+    dirty = false;
+  }
+
+  function validateBundle(bundle) {
+    // 送り主は検査できない（file:// の origin は opaque）。**形で検査する**（research.md R2）。
+    var problems = [];
+    if (!bundle || typeof bundle !== "object" || Array.isArray(bundle)) {
+      return ["オブジェクトではありません"];
+    }
+    if (bundle.schema !== BUNDLE_SCHEMA) {
+      problems.push("バンドルではありません（期待: " + BUNDLE_SCHEMA + " / 実際: " + String(bundle.schema) + "）");
+    }
+    if (!bundle.target || typeof bundle.target !== "object") { problems.push("target がありません"); }
+    if (!Array.isArray(bundle.files)) { problems.push("files が配列ではありません"); }
+    if (bundle.review !== null && bundle.review !== undefined) {
+      problems = problems.concat(validateRecord(bundle.review).map(function (p) { return "review: " + p; }));
+    }
+    return problems;
+  }
+
+  function adoptBundle(bundle, source) {
+    var problems = validateBundle(bundle);
+    if (problems.length) {
+      // **いまの表示を壊さない**。読めなかったものに引きずられて画面を空にしない（要件 F6b）。
+      banner("開けませんでした（" + (source || "不明") + "）: " + problems.join(" / "), [], "load");
+      return false;
+    }
+    applyDiffData({
+      target: bundle.target,
+      files: bundle.files,
+      rich_enabled: !!bundle.rich_enabled,
+      readonly: readonly           // 参照専用かどうかは**ビューア側の性質**。バンドルでは変えない
+    }, source);
+    if (bundle.review) { adoptRecord(bundle.review, null); }   // adoptRecord が /1 の欠けも補う
+    persist();
+    renderAll();
+    focusFirstRow();
+    banner("読み込みました（" + (source || "不明") + "）: " + (bundle.files || []).length + " ファイル", [], "load");
+    return true;
+  }
+
+  function focusFirstRow() {
+    // 読み込んだのにフォーカスがボタンに残っていると、キーボードの現在位置が置き去りになる。
+    var first = document.querySelector("#files .row[data-key]");
+    if (first) { setCurrentRow(first); first.focus(); return; }
+    var files = document.getElementById("files");
+    if (files) { files.setAttribute("tabindex", "-1"); files.focus(); }
+  }
 
   // ---------------------------------------------------------------- utilities
 
@@ -174,9 +245,15 @@
 
   // --------------------------------------------------------------- バナー
 
-  function banner(message, buttons) {
-    // 呼び出し元の最後で高さを取り直す（バナーが増えると .shell の基準が変わる）
-    var box = el("div", { class: "banner" }, [el("div", { text: message })]);
+  function banner(message, buttons, key) {
+    // 同じ種類のバナー（key つき）は**置き換える**。ファイルを開くたびに積み上がると、
+    // 画面の上半分がバナーで埋まって差分が見えなくなる。
+    if (key) {
+      var old = document.querySelector('#banners [data-banner="' + cssEscape(key) + '"]');
+      if (old && old.parentNode) { old.parentNode.removeChild(old); }
+    }
+    var box = el("div", { class: "banner", "data-banner": key || null },
+                [el("div", { text: message })]);
     if (buttons && buttons.length) {
       var actions = el("div", { class: "row-actions" }, buttons.map(function (spec) {
         var button = el("button", { type: "button", text: spec.label });
@@ -336,7 +413,7 @@
   function importRecord(record, source) {
     var problems = validateRecord(record);
     if (problems.length) {
-      banner("読み込めませんでした（" + source + "）: " + problems.join(" / "), []);
+      banner("読み込めませんでした（" + source + "）: " + problems.join(" / "), [], "load");
       return false;
     }
     adoptRecord(record, null);
@@ -360,6 +437,8 @@
     if (target.base_commit) { parts.push("base " + String(target.base_commit).slice(0, 7)); }
     if (target.diff_digest) { parts.push("diff " + String(target.diff_digest).slice(0, 7)); }
     parts.push((diffData.files || []).length + " ファイル");
+    if (bundleSource) { parts.push("← " + bundleSource); }
+    if (readonly) { parts.push("参照専用"); }
     document.getElementById("meta").textContent = parts.join(" ・ ");
   }
 
@@ -620,18 +699,20 @@
         allButton.addEventListener("click", function () { expandAll(section, file); });
         actions.appendChild(allButton);
       }
-      var commentButton = el("button", {
-        type: "button",
-        class: "comment-open",
-        "data-scope": "file",
-        "data-path": file.path,
-        "aria-expanded": "false",
-        text: "ファイルにコメント"
-      });
-      commentButton.addEventListener("click", function () {
-        toggleComposer(fileKey(file.path), commentButton, { path: file.path, line: null, side: null });
-      });
-      actions.appendChild(commentButton);
+      if (!readonly) {
+        var commentButton = el("button", {
+          type: "button",
+          class: "comment-open",
+          "data-scope": "file",
+          "data-path": file.path,
+          "aria-expanded": "false",
+          text: "ファイルにコメント"
+        });
+        commentButton.addEventListener("click", function () {
+          toggleComposer(fileKey(file.path), commentButton, { path: file.path, line: null, side: null });
+        });
+        actions.appendChild(commentButton);
+      }
 
       section.appendChild(el("div", { class: "file-head" }, [
         el("div", { class: "path" }, [toggle]),
@@ -881,17 +962,21 @@
     var key = rowKey(file.path, side, number);
     var mark = line.kind === "add" ? "+" : (line.kind === "del" ? "-" : " ");
 
-    var button = el("button", {
-      type: "button",
-      class: "comment-open",
-      "aria-expanded": "false",
-      "aria-label": "この行にコメントする",
-      text: "+"
-    });
-    button.addEventListener("click", function (event) {
-      event.stopPropagation();
-      toggleComposer(key, button, { path: file.path, line: number, side: side });
-    });
+    // 参照専用では**作らない**（隠さない）。DOM に無ければ、開発者ツールで戻すこともできない。
+    var button = null;
+    if (!readonly) {
+      button = el("button", {
+        type: "button",
+        class: "comment-open",
+        "aria-expanded": "false",
+        "aria-label": "この行にコメントする",
+        text: "+"
+      });
+      button.addEventListener("click", function (event) {
+        event.stopPropagation();
+        toggleComposer(key, button, { path: file.path, line: number, side: side });
+      });
+    }
 
     var row = el("div", {
       class: expanded ? "row expanded" : "row",
@@ -902,7 +987,7 @@
       el("div", { class: "line" }, [
         el("span", { class: "gutter", text: line.old === null || line.old === undefined ? "" : String(line.old) }),
         el("span", { class: "gutter", text: line.new === null || line.new === undefined ? "" : String(line.new) }),
-        button,
+        button,                                  // 参照専用では null（el が落とす）
         el("span", { class: "mark", text: mark }),
         codeCell(file, line)
       ])
@@ -977,7 +1062,7 @@
       el("span", { class: "mark", text: mark })
     ]);
     var anchor = cellAnchor(line, side);
-    if (anchor) {
+    if (anchor && !readonly) {
       var button = el("button", {
         type: "button",
         class: "comment-open",
@@ -1120,7 +1205,7 @@
       // 説明は「解決する」ものではないので、解決ボタンを出さない（decisions.md D9）
       head.appendChild(document.createTextNode(" "));
       head.appendChild(el("span", { class: "badge badge-note", text: "説明" }));
-    } else {
+    } else if (!readonly) {
       var resolveButton = el("button", {
         type: "button",
         text: thread.resolved ? "未解決に戻す" : "解決にする"
@@ -1161,6 +1246,8 @@
     }
     var node = el("div", { class: "comment", "data-comment": comment.id },
                  [who, el("div", { class: "body", text: comment.body })]);
+
+    if (readonly) { return node; }    // 参照専用では返信・取り消し・入力欄を作らない
 
     // **返信はコメント 1 件ごと**（返信への返信も同じ経路で、親はその返信になる）
     var replyKey = "reply:" + thread.id + ":" + comment.id;
@@ -1539,19 +1626,44 @@
     dirty = false;
   }
 
+  var BUNDLE_PREFIX = "window.__DIFF_REVIEW_BUNDLE__ = ";
+  var BUNDLE_SUFFIX = ";\n";
+
+  function parseBundleText(text) {
+    // **実行しない**。前後の固定を確かめて剥がし、JSON として読むだけ（research.md F2）。
+    // 末尾の空白は許す（エディタが改行を足すことがある）。生成側 parse_bundle と同じ寛容さ。
+    var trimmed = text.replace(/\s+$/, "");
+    if (trimmed.slice(0, BUNDLE_PREFIX.length) !== BUNDLE_PREFIX) { return null; }
+    if (trimmed.charAt(trimmed.length - 1) !== ";") { return null; }
+    return JSON.parse(trimmed.slice(BUNDLE_PREFIX.length, trimmed.length - 1));
+  }
+
   function readFile(file) {
     var reader = new FileReader();
     reader.onload = function () {
+      var text = String(reader.result);
+      var trimmed = text.replace(/^\uFEFF/, "");
+      if (trimmed.slice(0, BUNDLE_PREFIX.length) === BUNDLE_PREFIX) {
+        var bundle;
+        try {
+          bundle = parseBundleText(trimmed);
+        } catch (err) {
+          banner("バンドルとして読めません（" + file.name + "）: " + err.message, [], "load");
+          return;
+        }
+        adoptBundle(bundle, file.name);
+        return;
+      }
       var record;
       try {
-        record = JSON.parse(String(reader.result));
+        record = JSON.parse(trimmed);
       } catch (err) {
-        banner("JSON として読めません: " + err.message, []);
+        banner("JSON としてもバンドルとしても読めません（" + file.name + "）: " + err.message, [], "load");
         return;
       }
       importRecord(record, file.name);
     };
-    reader.onerror = function () { banner("ファイルを読めませんでした。", []); };
+    reader.onerror = function () { banner("ファイルを読めませんでした。", [], "load"); };
     reader.readAsText(file, "utf-8");
   }
 
@@ -1638,6 +1750,7 @@
     var key = event.key;
     if (key === "j" || key === "ArrowDown") { event.preventDefault(); moveRow(1); return; }
     if (key === "k" || key === "ArrowUp") { event.preventDefault(); moveRow(-1); return; }
+    if (readonly && (key === "c" || key === "Enter" || key === "r")) { return; }
     if (key === "c" || key === "Enter") {
       // Enter は**差分の行にフォーカスがあるときだけ**扱う。ページ全体で横取りすると、
       // ボタンを Enter で押せなくなる（ブラウザ標準の操作を奪う＝AC-I5 違反）。
@@ -1725,6 +1838,7 @@
 
   function renderAll() {
     renderMeta();
+    showOpenPrompt(!(diffData.files || []).length);
     renderFileList();
     renderFiles();
     renderThreads();
@@ -1732,16 +1846,22 @@
   }
 
   function wire() {
-    document.getElementById("btn-submit-open").addEventListener("click", function () {
-      var panel = document.getElementById("submit-panel");
-      showPanel("submit-panel", panel.hidden);
-      updatePendingCount();
-    });
-    document.getElementById("btn-submit-do").addEventListener("click", submitReview);
-    document.getElementById("btn-submit-discard").addEventListener("click", discardPending);
-    document.getElementById("btn-submit-close").addEventListener("click", function () {
-      showPanel("submit-panel", false);
-    });
+    // 書き込みの導線は、参照専用では**そもそも HTML に無い**（生成時に切り落としてある）。
+    // だから「あれば繋ぐ」形で書く。存在を前提にすると、参照専用で起動時に例外が出て
+    // 読む機能まで巻き添えで死ぬ。
+    var submitOpen = document.getElementById("btn-submit-open");
+    if (submitOpen) {
+      submitOpen.addEventListener("click", function () {
+        var panel = document.getElementById("submit-panel");
+        showPanel("submit-panel", panel.hidden);
+        updatePendingCount();
+      });
+      document.getElementById("btn-submit-do").addEventListener("click", submitReview);
+      document.getElementById("btn-submit-discard").addEventListener("click", discardPending);
+      document.getElementById("btn-submit-close").addEventListener("click", function () {
+        showPanel("submit-panel", false);
+      });
+    }
     var startButton = document.getElementById("btn-start-review");
     if (startButton) {
       startButton.addEventListener("click", function () {
@@ -1749,16 +1869,24 @@
         else { showPanel("submit-panel", false); }
       });
     }
-    document.getElementById("btn-export-open").addEventListener("click", openExport);
-    document.getElementById("btn-export-close").addEventListener("click", function () {
-      showPanel("export-panel", false);
-    });
-    document.getElementById("btn-download").addEventListener("click", download);
+    var exportOpen = document.getElementById("btn-export-open");
+    if (exportOpen) {
+      exportOpen.addEventListener("click", openExport);
+      document.getElementById("btn-export-close").addEventListener("click", function () {
+        showPanel("export-panel", false);
+      });
+      document.getElementById("btn-download").addEventListener("click", download);
+    }
     document.getElementById("btn-help-open").addEventListener("click", function () {
       var help = document.getElementById("help");
       showPanel("help", help.hidden);
       this.setAttribute("aria-expanded", help.hidden ? "false" : "true");
     });
+    // `<label for>` はキーボードで到達できない（`Tab` が止まらない）。**ボタンにして繋ぐ**。
+    var openButton = document.getElementById("btn-open-file");
+    if (openButton) {
+      openButton.addEventListener("click", function () { document.getElementById("file-import").click(); });
+    }
     document.getElementById("file-import").addEventListener("change", function (event) {
       if (event.target.files && event.target.files[0]) { readFile(event.target.files[0]); }
       event.target.value = "";
@@ -1783,9 +1911,11 @@
     wireCommentList();
 
     var overallButton = document.querySelector('#overall .comment-open');
-    overallButton.addEventListener("click", function () {
-      toggleComposer("overall", overallButton, { path: null, line: null, side: null });
-    });
+    if (overallButton) {
+      overallButton.addEventListener("click", function () {
+        toggleComposer("overall", overallButton, { path: null, line: null, side: null });
+      });
+    }
 
     // 冒頭の「差分へ移動」も**フォーカスを運ぶ**。リンクだけではスクロールするだけで、
     // キーボードの現在位置がページ先頭に残る（research.md F7 と同じ落とし穴）。
@@ -1800,6 +1930,17 @@
         first.focus();
       });
     }
+
+    // 口③: ホスト（VSCode 拡張・親フレーム）からの受け取り。**実行を伴わない**。
+    // file:// では origin が opaque で送り主を検査できないので、**形で検査する**（research.md R2）。
+    window.addEventListener("message", function (event) {
+      var data = event.data;
+      if (!data || typeof data !== "object") { return; }
+      var bundle = data.schema === BUNDLE_SCHEMA ? data
+        : (data.type === "diff-review/bundle" ? data.bundle : null);
+      if (!bundle) { return; }          // 関係の無いメッセージは黙って無視する
+      adoptBundle(bundle, "ホスト");
+    });
 
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("dragover", function (event) { event.preventDefault(); });
@@ -1817,7 +1958,52 @@
     });
   }
 
+  function initialSource(embedded) {
+    // 取り込み口の優先順（design §2）:
+    //   口①  window.__DIFF_REVIEW_BUNDLE__（<script src> で焼き込んだビューア / ホストの注入）
+    //   口②  埋め込みの #diff-data（html サブコマンドの出力）
+    // どちらも無ければ「ファイルを開いてください」を出す（白い画面にしない）。
+    var injected = window.__DIFF_REVIEW_BUNDLE__;
+    if (injected && typeof injected === "object") { return { kind: "bundle", data: injected }; }
+    if (embedded) { return { kind: "embedded", data: embedded }; }
+    return { kind: "none", data: null };
+  }
+
+  function showOpenPrompt(show) {
+    var prompt = document.getElementById("open-prompt");
+    if (prompt) { prompt.hidden = !show; }
+  }
+
   function boot() {
+    // 埋め込みの JSON は**1 回だけ**読む。2 回 parse すると、大きな差分（実測 1.9MB で 1 回 6.4ms）で
+    // 起動が二重に待たされる。
+    var embedded = readEmbedded("diff-data");
+    var initial = initialSource(embedded);
+    var embeddedReview = readEmbedded("review-data");
+    // 参照専用かどうかは**ビューアの性質**なので、常に埋め込みの設定から取る
+    // （開いたバンドルによって読み書きできたりできなかったりしては混乱する）。
+    var viewerReadonly = !!(embedded || {}).readonly;
+
+    if (initial.kind === "bundle") {
+      var problems = validateBundle(initial.data);
+      if (problems.length) {
+        applyDiffData({ target: {}, files: [], rich_enabled: false, readonly: viewerReadonly }, null);
+        banner("読み込んだバンドルが壊れています: " + problems.join(" / "), []);
+      } else {
+        applyDiffData({
+          target: initial.data.target,
+          files: initial.data.files,
+          rich_enabled: !!initial.data.rich_enabled,
+          readonly: viewerReadonly
+        }, "script src");
+        if (initial.data.review) { embeddedReview = initial.data.review; }
+      }
+    } else if (initial.kind === "embedded") {
+      applyDiffData(initial.data, "埋め込み");
+    } else {
+      applyDiffData({ target: {}, files: [], rich_enabled: false, readonly: viewerReadonly }, null);
+    }
+
     var saved = restore();
     if (!storageOk) {
       banner("このブラウザでは下書きを保存できません（file:// の制限）。書き出し・読み込みは使えます。", []);
