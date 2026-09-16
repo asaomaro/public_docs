@@ -35,6 +35,15 @@
   var storageOk = true;
   var currentRow = null;
 
+  // 画面の設定は ui.js が持つ（レビュー記録の JSON には入らない＝AC15）。
+  // ui.js が読めていない不測の事態でも画面が死なないよう、既定値で動く形にしておく。
+  var UI = window.DiffReviewUI || {
+    pref: function (name, value) { return arguments.length === 1 ? null : value; },
+    init: function () {},
+    togglePane: function () {},
+    syncTopbarHeight: function () {}
+  };
+
   // ---------------------------------------------------------------- utilities
 
   function readEmbedded(id) {
@@ -109,7 +118,6 @@
       thread.comments.forEach(function (comment, j) { commentMap[comment.id] = "c" + (j + 1); });
       return {
         id: "t" + (index + 1),
-        kind: thread.kind === "note" ? "note" : "review",
         kind: thread.kind === "note" ? "note" : "review",   // /1 には kind が無いので review を補う
         path: thread.path === undefined ? null : thread.path,
         line: thread.line === undefined ? null : thread.line,
@@ -167,6 +175,7 @@
   // --------------------------------------------------------------- バナー
 
   function banner(message, buttons) {
+    // 呼び出し元の最後で高さを取り直す（バナーが増えると .shell の基準が変わる）
     var box = el("div", { class: "banner" }, [el("div", { text: message })]);
     if (buttons && buttons.length) {
       var actions = el("div", { class: "row-actions" }, buttons.map(function (spec) {
@@ -354,13 +363,41 @@
     document.getElementById("meta").textContent = parts.join(" ・ ");
   }
 
+  function treeMode() { return UI.pref("filetree") === "on"; }
+
+  function gotoFile(index) {
+    // **移動には必ず focus() を伴う**。リンクだけではスクロールしてもフォーカスが動かず、
+    // キーボードの現在位置が置き去りになる（research.md F7 で実測）。
+    var section = document.getElementById("file-" + index);
+    if (!section) { return; }
+    section.setAttribute("tabindex", "-1");
+    section.scrollIntoView({ block: "start" });
+    section.focus();
+  }
+
+  function statsSpan(file) {
+    return el("span", { class: "tree-stat" }, [
+      el("span", { class: "stat-add", text: "+" + file.additions }),
+      document.createTextNode(" "),
+      el("span", { class: "stat-del", text: "-" + file.deletions })
+    ]);
+  }
+
   function renderFileList() {
     var nav = document.getElementById("filelist");
     clear(nav);
+    nav.removeAttribute("role");
+    nav.removeAttribute("aria-label");
+    var button = document.getElementById("btn-tree");
+    if (button) {
+      button.setAttribute("aria-pressed", treeMode() ? "true" : "false");
+      button.textContent = treeMode() ? "フラット" : "ツリー";
+    }
     if (!(diffData.files || []).length) {
       nav.appendChild(el("p", { class: "empty", text: "変更ファイルなし" }));
       return;
     }
+    if (treeMode()) { renderFileTree(nav); return; }
     (diffData.files || []).forEach(function (file, index) {
       var link = el("a", { href: "#file-" + index }, [
         el("span", { text: file.path }),
@@ -370,8 +407,149 @@
           el("span", { class: "stat-del", text: "-" + file.deletions })
         ])
       ]);
+      link.addEventListener("click", function (event) {
+        event.preventDefault();
+        gotoFile(index);
+      });
       nav.appendChild(link);
     });
+  }
+
+  // -------------------------------------------------------------- ツリー表示
+
+  function buildTree(files) {
+    var root = { name: "", dirs: {}, order: [], files: [] };
+    files.forEach(function (file, index) {
+      var parts = String(file.path).split("/");
+      var leaf = parts.pop();
+      var node = root;
+      parts.forEach(function (part) {
+        if (!node.dirs[part]) {
+          node.dirs[part] = { name: part, dirs: {}, order: [], files: [] };
+          node.order.push(part);
+        }
+        node = node.dirs[part];
+      });
+      node.files.push({ name: leaf, file: file, index: index });
+    });
+    return collapseSingles(root);
+  }
+
+  function collapseSingles(node) {
+    // 子がディレクトリ 1 つだけなら、その名前を連結して 1 行にまとめる（decisions.md D10）。
+    // 畳まないと docs/ClaudeCode/skills/other/... がファイルまで 5 段になり、構造が読めない。
+    node.order.forEach(function (name) { collapseSingles(node.dirs[name]); });
+    while (node.order.length === 1 && !node.files.length) {
+      var only = node.dirs[node.order[0]];
+      node.name = node.name ? node.name + "/" + only.name : only.name;
+      node.dirs = only.dirs;
+      node.order = only.order;
+      node.files = only.files;
+    }
+    return node;
+  }
+
+  function renderFileTree(nav) {
+    nav.setAttribute("role", "tree");
+    nav.setAttribute("aria-label", "変更ファイル");
+    var root = buildTree(diffData.files || []);
+    appendTreeChildren(nav, root, "");
+    var first = nav.querySelector('[role="treeitem"]');
+    if (first) { first.setAttribute("tabindex", "0"); }   // ローミング: 木の中で 1 つだけ
+    // キーの受け口は wire() で 1 回だけ張る。ここで張ると描き直すたびに重なる。
+  }
+
+  function appendTreeChildren(host, node, prefix) {
+    node.order.forEach(function (name) {
+      var dir = node.dirs[name];
+      var path = (prefix ? prefix + "/" : "") + dir.name;
+      var open = treeOpen[path] !== false;
+      var item = el("div", {
+        role: "treeitem",
+        class: "tree-item tree-dir",
+        tabindex: "-1",
+        "aria-expanded": open ? "true" : "false"
+      }, [
+        el("span", { class: "tree-twisty", text: open ? "▾" : "▸" }),
+        el("span", { class: "tree-name", text: dir.name })
+      ]);
+      var group = el("div", { role: "group", class: "tree-group" });
+      appendTreeChildren(group, dir, path);
+      item.addEventListener("click", function () { toggleTreeDir(item, path); });
+      host.appendChild(item);
+      host.appendChild(group);
+    });
+    node.files.forEach(function (entry) {
+      var item = el("div", {
+        role: "treeitem",
+        class: "tree-item tree-file",
+        tabindex: "-1",
+        "data-index": entry.index
+      }, [
+        el("span", { class: "tree-twisty", text: "" }),
+        el("span", { class: "tree-name", text: entry.name }),
+        statsSpan(entry.file)
+      ]);
+      item.addEventListener("click", function () { gotoFile(entry.index); });
+      host.appendChild(item);
+    });
+  }
+
+  var treeOpen = {};    // ディレクトリのパス -> 開いているか（画面の中だけの状態。保存しない）
+
+  function toggleTreeDir(item, path) {
+    var open = item.getAttribute("aria-expanded") !== "true";
+    item.setAttribute("aria-expanded", open ? "true" : "false");
+    item.querySelector(".tree-twisty").textContent = open ? "▾" : "▸";
+    treeOpen[path] = open;
+  }
+
+  function visibleTreeItems() {
+    var nav = document.getElementById("filelist");
+    return Array.prototype.filter.call(
+      nav.querySelectorAll('[role="treeitem"]'),
+      function (item) { return item.offsetParent !== null || item.getClientRects().length; }
+    );
+  }
+
+  function focusTreeItem(item) {
+    var nav = document.getElementById("filelist");
+    Array.prototype.forEach.call(nav.querySelectorAll('[role="treeitem"]'), function (other) {
+      other.setAttribute("tabindex", "-1");
+    });
+    item.setAttribute("tabindex", "0");
+    item.focus();
+  }
+
+  function onTreeKeyDown(event) {
+    var item = event.target;
+    if (!item || !item.getAttribute || item.getAttribute("role") !== "treeitem") { return; }
+    var items = visibleTreeItems();
+    var index = items.indexOf(item);
+    var key = event.key;
+    var isDir = item.classList.contains("tree-dir");
+
+    if (key === "ArrowDown") { if (index + 1 < items.length) { focusTreeItem(items[index + 1]); } }
+    else if (key === "ArrowUp") { if (index > 0) { focusTreeItem(items[index - 1]); } }
+    else if (key === "Home") { if (items.length) { focusTreeItem(items[0]); } }
+    else if (key === "End") { if (items.length) { focusTreeItem(items[items.length - 1]); } }
+    else if (key === "ArrowRight") {
+      if (isDir && item.getAttribute("aria-expanded") === "false") { item.click(); }
+      else if (isDir && index + 1 < items.length) { focusTreeItem(items[index + 1]); }
+    } else if (key === "ArrowLeft") {
+      if (isDir && item.getAttribute("aria-expanded") === "true") { item.click(); }
+      else {
+        // 親へ戻る: 自分を含む group の直前にある treeitem
+        var group = item.parentNode;
+        var parent = group && group.getAttribute && group.getAttribute("role") === "group"
+          ? group.previousElementSibling : null;
+        if (parent && parent.getAttribute("role") === "treeitem") { focusTreeItem(parent); }
+      }
+    } else if (key === "Enter" || key === " " || key === "Spacebar") {
+      item.click();
+      if (isDir) { focusTreeItem(item); }
+    } else { return; }
+    event.preventDefault();
   }
 
   function lineCount(file) {
@@ -382,6 +560,7 @@
 
   var viewModes = {};      // path -> "rich" | "source"
   var expandState = {};    // path -> { gapIndex: {top: 件数, bottom: 件数} }
+  var collapsed = {};      // path -> 畳んでいるか（未設定なら行数から決める）
 
   function viewMode(file) {
     if (!file.rich || !window.DiffReviewRich) { return "source"; }
@@ -399,7 +578,10 @@
       return;
     }
     (diffData.files || []).forEach(function (file, index) {
-      var big = lineCount(file) > LAZY_LINE_LIMIT;
+      // 既定は「大きいファイルは畳む」。ただし一度開いたら、表示形式を切り替えても開いたまま。
+      var big = collapsed[file.path] === undefined
+        ? lineCount(file) > LAZY_LINE_LIMIT
+        : collapsed[file.path];
       var section = el("section", {
         class: "file",
         id: "file-" + index,
@@ -473,11 +655,12 @@
   }
 
   function toggleFile(section, file) {
-    var collapsed = section.getAttribute("data-collapsed") === "true";
+    var wasCollapsed = section.getAttribute("data-collapsed") === "true";
     var body = section.querySelector(".file-body");
-    if (collapsed && !body.childNodes.length) { fillFileBody(body, file); }
-    section.setAttribute("data-collapsed", collapsed ? "false" : "true");
-    section.querySelector(".file-toggle").setAttribute("aria-expanded", collapsed ? "true" : "false");
+    if (wasCollapsed && !body.childNodes.length) { fillFileBody(body, file); }
+    section.setAttribute("data-collapsed", wasCollapsed ? "false" : "true");
+    section.querySelector(".file-toggle").setAttribute("aria-expanded", wasCollapsed ? "true" : "false");
+    collapsed[file.path] = !wasCollapsed;
     renderThreads();
   }
 
@@ -504,6 +687,7 @@
     });
     section.setAttribute("data-collapsed", "false");
     section.querySelector(".file-toggle").setAttribute("aria-expanded", "true");
+    collapsed[file.path] = false;
     // **フォーカスを落とさない**（AC-I4）。描き直しで行のノードが作り直されるので、
     // 元いた行を指し直し、見つからなければ押したボタンへ戻す。
     var currentKey = currentRow && currentRow.getAttribute ? currentRow.getAttribute("data-key") : null;
@@ -576,11 +760,18 @@
         "このファイルは " + file.expand.count + " 行あるため、前後の展開データを持っていません"
         + "（生成時に --expand-max-lines を上げてください）" }));
     }
+    var split = splitMode();
     var gaps = gapsOf(file);
     file.hunks.forEach(function (hunk, index) {
       renderGap(body, file, gaps[index], index);
       body.appendChild(el("div", { class: "hunk-head", text: hunk.header }));
-      hunk.lines.forEach(function (line) { body.appendChild(renderRow(file, line)); });
+      if (split) {
+        pairLines(hunk.lines).forEach(function (pair) {
+          body.appendChild(renderRowSplit(file, pair.left, pair.right, false));
+        });
+      } else {
+        hunk.lines.forEach(function (line) { body.appendChild(renderRow(file, line)); });
+      }
     });
     renderGap(body, file, gaps[file.hunks.length], file.hunks.length);
   }
@@ -645,11 +836,15 @@
   function appendContext(body, file, no) {
     var data = expandLine(file, no);
     if (!data) { return; }
-    body.appendChild(renderRow(file, {
+    var line = {
       kind: "ctx", old: null, new: no,
       text: data.text === null ? null : data.text,
       tokens: data.tokens
-    }, true));
+    };
+    // split でも文脈行は**両側に同じ本文**を出す（decisions.md D9）。展開データは片側しか
+    // 持たないので、知らない側の行番号は空になる。片側を空行にすると「削除された行」に見えて嘘になる。
+    body.appendChild(splitMode() ? renderRowSplit(file, line, line, true)
+                                 : renderRow(file, line, true));
   }
 
   function tokensFor(file, line) {
@@ -719,6 +914,145 @@
   }
 
 
+  // ------------------------------------------------------------- split 表示
+
+  function splitMode() { return UI.pref("split") === "on"; }
+
+  function pairLines(lines) {
+    // 削除の連なりと追加の連なりを溜め、文脈行と終端で吐き出す（research.md F8 で実測）。
+    // 左右の件数・順序は元の行列と一致し、行番号はそれぞれ単調増加になる。
+    var rows = [];
+    var dels = [];
+    var adds = [];
+    function flush() {
+      var n = Math.max(dels.length, adds.length);
+      for (var k = 0; k < n; k += 1) {
+        rows.push({ left: dels[k] || null, right: adds[k] || null });
+      }
+      dels = [];
+      adds = [];
+    }
+    (lines || []).forEach(function (line) {
+      if (line.kind === "del") { dels.push(line); return; }
+      if (line.kind === "add") { adds.push(line); return; }
+      flush();
+      rows.push({ left: line, right: line });
+    });
+    flush();
+    return rows;
+  }
+
+  function anchorOf(line) {
+    // コメントの位置づけは **unified とまったく同じ規則**にする。
+    // ここがずれると、同じ指摘が表示形式を変えた瞬間に「位置不明」へ落ちる。
+    if (!line) { return null; }
+    var side = line.kind === "del" ? "LEFT" : "RIGHT";
+    var number = line.kind === "del" ? line.old : line.new;
+    if (number === null || number === undefined) { return null; }
+    return { side: side, number: number };
+  }
+
+  function cellAnchor(line, side) {
+    // 左のセルが位置を持つのは削除行のときだけ。文脈行は左右が同じ行なので、
+    // unified と同じく**右（新側）**に 1 つだけ位置を持たせる。
+    var anchor = anchorOf(line);
+    if (!anchor || anchor.side !== side) { return null; }
+    return anchor;
+  }
+
+  function splitCell(file, line, side, expanded) {
+    var cls = "cell cell-" + (side === "LEFT" ? "left" : "right");
+    if (!line) {
+      return el("div", { class: cls, "data-kind": "none" }, [
+        el("span", { class: "gutter", text: "" }),
+        el("span", { class: "mark", text: "" }),
+        el("span", { class: "code", text: "" })
+      ]);
+    }
+    var number = side === "LEFT" ? line.old : line.new;
+    var kind = expanded ? "ctx" : line.kind;
+    var mark = line.kind === "add" ? "+" : (line.kind === "del" ? "-" : " ");
+    var cell = el("div", { class: cls, "data-kind": kind }, [
+      el("span", { class: "gutter", text: number === null || number === undefined ? "" : String(number) }),
+      el("span", { class: "mark", text: mark })
+    ]);
+    var anchor = cellAnchor(line, side);
+    if (anchor) {
+      var button = el("button", {
+        type: "button",
+        class: "comment-open",
+        "aria-expanded": "false",
+        "aria-label": (side === "LEFT" ? "変更前" : "変更後") + "のこの行にコメントする",
+        text: "+"
+      });
+      var key = rowKey(file.path, anchor.side, anchor.number);
+      button.addEventListener("click", function (event) {
+        event.stopPropagation();
+        toggleComposer(key, button, { path: file.path, line: anchor.number, side: anchor.side });
+      });
+      cell.appendChild(button);
+    }
+    cell.appendChild(codeCell(file, line));
+    return cell;
+  }
+
+  function splitSlots(file, line, side, labelled) {
+    // コメントの入れ物は**位置を持つ側にだけ**用意する（鍵は unified と同じ line:path:SIDE:n）。
+    // こうしておけば slotFor() は鍵で引くだけなので変更が要らない（decisions.md D2）。
+    var anchor = cellAnchor(line, side);
+    if (!anchor) { return null; }
+    var key = rowKey(file.path, anchor.side, anchor.number);
+    var children = [];
+    if (labelled) {
+      children.push(el("div", { class: "slot-side", text: side === "LEFT" ? "変更前" : "変更後" }));
+    }
+    children.push(el("div", { class: "threads", "data-threads": key }));
+    children.push(el("div", { class: "composer-slot", "data-composer": key }));
+    return el("div", { class: "slots", "data-side": side }, children);
+  }
+
+  function renderRowSplit(file, left, right, expanded) {
+    // 現在行は**1 行に 1 つ**。右（新側）を優先し、右が無ければ左を使う（decisions.md D2）。
+    var anchor = anchorOf(right) || anchorOf(left);
+    var key = anchor ? rowKey(file.path, anchor.side, anchor.number) : null;
+    var row = el("div", {
+      class: expanded ? "row split expanded" : "row split",
+      "data-kind": (right && right.kind) || (left && left.kind) || "ctx",
+      "data-key": key,
+      tabindex: "-1"
+    }, [
+      splitCell(file, left, "LEFT", expanded),
+      splitCell(file, right, "RIGHT", expanded)
+    ]);
+    row.addEventListener("focus", function () { setCurrentRow(row); });
+    // 左右の両方が位置を持つとき（削除 ＋ 追加の組）だけ、どちら側かの見出しを添える。
+    var both = !!(cellAnchor(left, "LEFT") && cellAnchor(right, "RIGHT"));
+    var leftSlots = splitSlots(file, left, "LEFT", both);
+    if (leftSlots) { row.appendChild(leftSlots); }
+    var rightSlots = splitSlots(file, right, "RIGHT", both);
+    if (rightSlots) { row.appendChild(rightSlots); }
+    return row;
+  }
+
+  function toggleSplit() {
+    UI.pref("split", splitMode() ? "off" : "on");
+    var button = document.getElementById("btn-split");
+    if (button) {
+      button.setAttribute("aria-pressed", splitMode() ? "true" : "false");
+      button.textContent = splitMode() ? "unified 表示" : "split 表示";
+    }
+    // **現在行を指し直す**（指さないと切り離されたノードが残り、キー操作が黙って効かなくなる）
+    var currentKey = currentRow && currentRow.getAttribute ? currentRow.getAttribute("data-key") : null;
+    renderFiles();
+    renderThreads();
+    var again = currentKey
+      ? document.querySelector('.row[data-key="' + cssEscape(currentKey) + '"]')
+      : null;
+    setCurrentRow(again);
+    if (again) { again.focus(); }
+    else if (button) { button.focus(); }
+  }
+
   // ------------------------------------------------------- コメントの描画
 
   function anchorKeyOf(thread) {
@@ -736,6 +1070,7 @@
       slot.appendChild(renderThread(thread));
     });
     renderOrphans(orphans);
+    renderCommentList();
     updatePendingCount();
   }
 
@@ -801,6 +1136,8 @@
     var node = el("div", {
       class: isNote ? "thread thread-note" : "thread",
       "data-kind": thread.kind || "review",
+      "data-thread": thread.id,
+      tabindex: "-1",              // コメント一覧から飛んできたフォーカスの行き先（AC-I4）
       "data-resolved": thread.resolved ? "true" : "false"
     }, [el("div", { class: "thread-head" }, [head, actions])]);
 
@@ -849,6 +1186,129 @@
     }
     persist();
     renderThreads();
+  }
+
+  // ------------------------------------------------------------ コメント一覧
+
+  function clFilters() {
+    return {
+      unresolved: UI.pref("cl-unresolved") === "on",
+      severity: UI.pref("cl-severity") || "",
+      notes: UI.pref("cl-notes") !== "off"
+    };
+  }
+
+  function threadSeverity(thread) {
+    // スレッドの重大度＝最初のコメントのもの（返信で重大度は付けない）
+    var first = thread.comments && thread.comments[0];
+    return (first && first.severity) || null;
+  }
+
+  function clMatches(thread, filters) {
+    var isNote = thread.kind === "note";
+    if (isNote && !filters.notes) { return false; }
+    if (filters.unresolved && (thread.resolved || isNote)) { return false; }
+    if (filters.severity) {
+      var sev = threadSeverity(thread);
+      if (filters.severity === "none") { return sev === null; }
+      if (sev !== filters.severity) { return false; }
+    }
+    return true;
+  }
+
+  function clSummary(thread) {
+    var first = thread.comments && thread.comments[0];
+    var body = (first && first.body) || "";
+    body = body.replace(/\s+/g, " ").trim();
+    return body.length > 80 ? body.slice(0, 80) + "…" : body;
+  }
+
+  function renderCommentList() {
+    var host = document.getElementById("commentlist");
+    if (!host) { return; }
+    clear(host);
+    var filters = clFilters();
+    var all = state.threads.slice().sort(threadOrder);
+    var shown = all.filter(function (thread) { return clMatches(thread, filters); });
+
+    var count = document.getElementById("cl-count");
+    if (count) {
+      count.textContent = all.length
+        ? "表示 " + shown.length + " 件 / 全 " + all.length + " 件"
+        : "指摘はまだありません";
+    }
+    if (!shown.length) {
+      host.appendChild(el("p", { class: "empty", text: all.length ? "この条件に合う指摘はありません" : "指摘はまだありません" }));
+      return;
+    }
+    shown.forEach(function (thread) {
+      host.appendChild(clItem(thread));
+    });
+  }
+
+  function clItem(thread) {
+    var isNote = thread.kind === "note";
+    var sev = threadSeverity(thread);
+    var tags = el("span", { class: "cl-tags" });
+    if (sev) { tags.appendChild(el("span", { class: "badge sev-" + sev, text: sev })); }
+    var stateClass = isNote ? "cl-state-note" : (thread.resolved ? "cl-state-resolved" : "cl-state-open");
+    var stateText = isNote ? "説明" : (thread.resolved ? "解決済み" : "未解決");
+    tags.appendChild(el("span", { class: stateClass, text: stateText }));
+    if (thread.comments.length > 1) {
+      tags.appendChild(el("span", { class: "cl-state-open", text: "返信 " + (thread.comments.length - 1) }));
+    }
+
+    var button = el("button", { type: "button", class: "cl-item" }, [
+      el("span", { class: "cl-where", text: locationLabel(thread) }),
+      tags,
+      el("span", { class: "cl-body", text: clSummary(thread) })
+    ]);
+    button.addEventListener("click", function () { gotoThread(thread); });
+    return button;
+  }
+
+  function gotoThread(thread) {
+    // 1) 折りたたみ中のファイルにあるなら先に開く（開かないと行が存在しない）
+    if (thread.path !== null && thread.path !== undefined) {
+      var section = document.querySelector('.file[data-path="' + cssEscape(thread.path) + '"]');
+      if (section && section.getAttribute("data-collapsed") === "true") {
+        var file = (diffData.files || []).filter(function (f) { return f.path === thread.path; })[0];
+        if (file) { toggleFile(section, file); }
+      }
+    }
+    // 2) スレッドの DOM を探して、そこへスクロール ＋ **フォーカスを移す**（research.md F7）
+    var node = document.querySelector('.thread[data-thread="' + cssEscape(thread.id) + '"]');
+    if (!node) { return; }
+    node.scrollIntoView({ block: "center" });
+    node.focus();
+    // 3) 行に紐づくなら現在行も更新する（j / k をそのまま続けられるように）
+    var row = node.closest ? node.closest(".row") : null;
+    if (row) { setCurrentRow(row); }
+  }
+
+  function wireCommentList() {
+    var map = [
+      ["cl-unresolved", "cl-unresolved", "checkbox"],
+      ["cl-severity", "cl-severity", "select"],
+      ["cl-notes", "cl-notes", "checkbox"]
+    ];
+    map.forEach(function (entry) {
+      var node = document.getElementById(entry[0]);
+      if (!node) { return; }
+      if (entry[2] === "checkbox") {
+        node.checked = UI.pref(entry[1]) === "on";
+        node.addEventListener("change", function () {
+          UI.pref(entry[1], node.checked ? "on" : "off");
+          renderCommentList();
+        });
+      } else {
+        node.value = UI.pref(entry[1]) || "";
+        node.addEventListener("change", function () {
+          UI.pref(entry[1], node.value);
+          renderCommentList();
+        });
+      }
+    });
   }
 
   // ------------------------------------------------------------- 入力欄
@@ -1101,6 +1561,7 @@
     var panel = document.getElementById(id);
     if (!panel) { return; }
     panel.hidden = !show;
+    UI.syncTopbarHeight();   // .shell の高さは「画面 − トップバーとパネル」なので測り直す
   }
 
   // --------------------------------------------------------- キーボード
@@ -1128,6 +1589,29 @@
     next.scrollIntoView({ block: "nearest" });
   }
 
+  function focusPane(which) {
+    var pane = document.getElementById("pane-" + which);
+    if (!pane) { return; }
+    UI.openPane(which);
+    // そのペインで**いちばん使う操作**へ直に入る。入り口が入れ子だと、着いてから
+    // もう何度も Tab を押すことになり、移動した意味が薄れる。
+    // **順に**探す。セレクタをカンマで並べると「文書順で最初のもの」が返るので、
+    // 望んだ優先順位にならない（絞り込みの入力がコメントの項目より前にあるため）。
+    var wanted = which === "left"
+      ? ['[role="treeitem"][tabindex="0"]', "#filelist a", "#btn-tree"]
+      : [".cl-item", "#cl-unresolved"];
+    var target = null;
+    for (var i = 0; i < wanted.length && !target; i += 1) {
+      target = pane.querySelector(wanted[i]);
+    }
+    if (!target) {
+      pane.setAttribute("tabindex", "-1");
+      target = pane;
+    }
+    target.scrollIntoView({ block: "nearest" });
+    target.focus();
+  }
+
   function currentSection() {
     // 現在行が生きていればそこから、そうでなければフォーカス位置から「いま見ているファイル」を引く。
     if (currentRow && currentRow.isConnected) { return currentRow.closest(".file"); }
@@ -1147,6 +1631,9 @@
     // ここを外すと、コメント本文に "c" や "f" を打った瞬間に画面が動く。
     if (isTyping(event)) { return; }
     if (event.ctrlKey || event.metaKey || event.altKey) { return; }
+    // ツリーや境界が**もう処理したキー**をここで二重に扱わない。
+    // これが無いと、ツリーの ↑ ↓ が同時に差分の行送りを起こす。
+    if (event.defaultPrevented) { return; }
 
     var key = event.key;
     if (key === "j" || key === "ArrowDown") { event.preventDefault(); moveRow(1); return; }
@@ -1181,6 +1668,19 @@
       }
       return;
     }
+    if (key === "s") {
+      event.preventDefault();
+      toggleSplit();
+      return;
+    }
+    // [ / ] は**そのペインへ移動**。畳む・戻すは Shift 併用（{ / }）とトップバーのボタン、境界の Enter。
+    // 移動を優先するのは、畳む操作には他に 2 つ経路があるのに対し、
+    // 差分の奥からコメント一覧へ**移る**手段が Tab しか無く、行の数だけ Tab を押す羽目になるため
+    // （実測: Tab 60 回でも届かない）。
+    if (key === "[") { event.preventDefault(); focusPane("left"); return; }
+    if (key === "]") { event.preventDefault(); focusPane("right"); return; }
+    if (key === "{") { event.preventDefault(); UI.togglePane("left"); return; }
+    if (key === "}") { event.preventDefault(); UI.togglePane("right"); return; }
     if (key === "t") {
       var richSection = currentSection();
       var viewButton = richSection && richSection.querySelector(".view-toggle");
@@ -1228,6 +1728,7 @@
     renderFileList();
     renderFiles();
     renderThreads();
+    UI.syncTopbarHeight();
   }
 
   function wire() {
@@ -1262,10 +1763,43 @@
       if (event.target.files && event.target.files[0]) { readFile(event.target.files[0]); }
       event.target.value = "";
     });
+    var splitButton = document.getElementById("btn-split");
+    if (splitButton) {
+      splitButton.setAttribute("aria-pressed", splitMode() ? "true" : "false");
+      splitButton.textContent = splitMode() ? "unified 表示" : "split 表示";
+      splitButton.addEventListener("click", toggleSplit);
+    }
+    var treeButton = document.getElementById("btn-tree");
+    if (treeButton) {
+      treeButton.addEventListener("click", function () {
+        UI.pref("filetree", treeMode() ? "off" : "on");
+        renderFileList();
+        treeButton.focus();
+      });
+    }
+    // ツリーのキー操作は**ここで 1 回だけ**張る（描き直しのたびに張ると重なる）
+    var filelist = document.getElementById("filelist");
+    if (filelist) { filelist.addEventListener("keydown", onTreeKeyDown); }
+    wireCommentList();
+
     var overallButton = document.querySelector('#overall .comment-open');
     overallButton.addEventListener("click", function () {
       toggleComposer("overall", overallButton, { path: null, line: null, side: null });
     });
+
+    // 冒頭の「差分へ移動」も**フォーカスを運ぶ**。リンクだけではスクロールするだけで、
+    // キーボードの現在位置がページ先頭に残る（research.md F7 と同じ落とし穴）。
+    var skip = document.querySelector("a.skip");
+    if (skip) {
+      skip.addEventListener("click", function (event) {
+        event.preventDefault();
+        var files = document.getElementById("files");
+        var first = files.querySelector(".row[data-key]") || files;
+        first.setAttribute("tabindex", "-1");
+        first.scrollIntoView({ block: "start" });
+        first.focus();
+      });
+    }
 
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("dragover", function (event) { event.preventDefault(); });
@@ -1306,6 +1840,7 @@
       adoptRecord(embeddedReview, null);
       checkIdentity(embeddedReview).forEach(function (note) { banner(note, []); });
     }
+    UI.init();
     wire();
     renderAll();
   }

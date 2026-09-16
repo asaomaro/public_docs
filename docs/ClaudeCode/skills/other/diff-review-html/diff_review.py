@@ -30,7 +30,7 @@ SCHEMA_LEGACY = "diff-review/1"
 SCHEMAS = (SCHEMA, SCHEMA_LEGACY)
 
 # テンプレートの差し込み口。`render_html` はこの 5 つを 1 回の走査で置き換える。
-PLACEHOLDER_RE = re.compile(r"__(?:TITLE|STYLE|APP_JS|RICH_JS|DIFF_DATA|REVIEW_DATA)__")
+PLACEHOLDER_RE = re.compile(r"__(?:TITLE|STYLE|UI_JS|APP_JS|RICH_JS|DIFF_DATA|REVIEW_DATA)__")
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 
 # git が「空のツリー」に与えている固定のハッシュ。最初のコミットの差分を取るときに親の代わりに使う。
@@ -688,17 +688,20 @@ def render_html(target, files, review, title):
     page = read_template("page.html")
     style = read_template("style.css")
     app = read_template("app.js")
+    # ui.js は rich.js と違って**常に**積む。ペイン・テーマ・設定の記憶は差分の中身に依らない。
+    ui = read_template("ui.js")
     # rich の描画コードは**対象があるときだけ**積む（decisions.md D4）。
     # 解析は生成時に済ませてあるので、画面側に積むのは「構造を描く」数十行だけ。
     has_rich = any(f.get("rich") for f in files)
     rich_js = read_template("rich.js") if has_rich else ""
-    for name, text in (("style.css", style), ("app.js", app), ("rich.js", rich_js)):
+    for name, text in (("style.css", style), ("ui.js", ui), ("app.js", app), ("rich.js", rich_js)):
         if "</script" in text:
             die("テンプレート %s に '</script' が含まれています（埋め込むと壊れます）" % name, EXIT_USAGE)
     diff_data = {"target": target, "files": files, "rich_enabled": bool(has_rich)}
     replacements = {
         "__TITLE__": title,
         "__STYLE__": style,
+        "__UI_JS__": ui,
         "__APP_JS__": app,
         "__RICH_JS__": rich_js,
         "__DIFF_DATA__": json_for_script_block(diff_data),

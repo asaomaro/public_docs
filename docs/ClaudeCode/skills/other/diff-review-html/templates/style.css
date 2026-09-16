@@ -1,57 +1,101 @@
 /* diff-review-html の画面スタイル。外部フォント・外部 CSS は読み込まない（オフライン完結）。
-   色は CSS 変数で定義し、ダークはメディアクエリで上書きする。 */
+
+   色の持ち方（decisions.md D3）:
+     明の値は --x、暗の値は --d-x として **隣に並べて 1 か所**に書く。
+     暗への「割り当て」だけが 2 か所にある——OS 追従用（メディアクエリ）と、
+     手動で暗にしたとき用（[data-theme="dark"]）。この 2 ブロックは**同じ宣言列**でなければならず、
+     ずれたら tests/test_diff_review.py の ThemeCssTest が落ちる。
+
+   data-theme: 属性なし = OS に従う / "light" = 明るく固定 / "dark" = 暗く固定。 */
 
 :root {
-  --bg: #ffffff;
-  --fg: #1f2328;
-  --muted: #59636e;
-  --line: #d1d9e0;
-  --surface: #f6f8fa;
-  --accent: #0969da;
-  --add-bg: #e6ffec;
-  --add-gutter: #ccffd8;
-  --del-bg: #ffebe9;
-  --del-gutter: #ffd7d5;
-  --warn-bg: #fff8c5;
-  --warn-line: #d4a72c;
-  --pending: #9a6700;
-  --resolved: #1a7f37;
+  color-scheme: light;
+  --bg: #ffffff;           --d-bg: #0d1117;
+  --fg: #1f2328;           --d-fg: #e6edf3;
+  --muted: #59636e;        --d-muted: #9198a1;
+  --line: #d1d9e0;         --d-line: #3d444d;
+  --surface: #f6f8fa;      --d-surface: #151b23;
+  --accent: #0969da;       --d-accent: #4493f8;
+  --add-bg: #e6ffec;       --d-add-bg: #12261e;
+  --add-gutter: #ccffd8;   --d-add-gutter: #1b4721;
+  --del-bg: #ffebe9;       --d-del-bg: #25171c;
+  --del-gutter: #ffd7d5;   --d-del-gutter: #542426;
+  --warn-bg: #fff8c5;      --d-warn-bg: #2b2412;
+  --warn-line: #d4a72c;    --d-warn-line: #9e6a03;
+  --pending: #9a6700;      --d-pending: #d4a72c;
+  --resolved: #1a7f37;     --d-resolved: #3fb950;
+  --tok-com: #6e7781;      --d-tok-com: #8b949e;
+  --tok-str: #0a3069;      --d-tok-str: #a5d6ff;
+  --tok-kw: #cf222e;       --d-tok-kw: #ff7b72;
+  --tok-num: #0550ae;      --d-tok-num: #79c0ff;
+  --sev-must: #cf222e;     --d-sev-must: #ff7b72;
+  --sev-should: #9a6700;   --d-sev-should: #d4a72c;
+  --sev-nit: #59636e;      --d-sev-nit: #9198a1;
+  --note: #8250df;         --d-note: #d2a8ff;
+  --danger: #cf222e;       --d-danger: #ff7b72;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono", monospace;
-  --tok-com: #6e7781;
-  --tok-str: #0a3069;
-  --tok-kw: #cf222e;
-  --tok-num: #0550ae;
-  --sev-must: #cf222e;
-  --sev-should: #9a6700;
-  --sev-nit: #59636e;
-  --note: #8250df;
 }
 
+/* OS がダーク。ただし「明るくする」と選ばれていたら降りる */
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0d1117;
-    --fg: #e6edf3;
-    --muted: #9198a1;
-    --line: #3d444d;
-    --surface: #151b23;
-    --accent: #4493f8;
-    --add-bg: #12261e;
-    --add-gutter: #1b4721;
-    --del-bg: #25171c;
-    --del-gutter: #542426;
-    --warn-bg: #2b2412;
-    --warn-line: #9e6a03;
-    --pending: #d4a72c;
-    --resolved: #3fb950;
-    --tok-com: #8b949e;
-    --tok-str: #a5d6ff;
-    --tok-kw: #ff7b72;
-    --tok-num: #79c0ff;
-    --sev-must: #ff7b72;
-    --sev-should: #d4a72c;
-    --sev-nit: #9198a1;
-    --note: #d2a8ff;
+  :root:not([data-theme="light"]) {
+    /* dark-assign:begin */
+    color-scheme: dark;
+    --bg: var(--d-bg);
+    --fg: var(--d-fg);
+    --muted: var(--d-muted);
+    --line: var(--d-line);
+    --surface: var(--d-surface);
+    --accent: var(--d-accent);
+    --add-bg: var(--d-add-bg);
+    --add-gutter: var(--d-add-gutter);
+    --del-bg: var(--d-del-bg);
+    --del-gutter: var(--d-del-gutter);
+    --warn-bg: var(--d-warn-bg);
+    --warn-line: var(--d-warn-line);
+    --pending: var(--d-pending);
+    --resolved: var(--d-resolved);
+    --tok-com: var(--d-tok-com);
+    --tok-str: var(--d-tok-str);
+    --tok-kw: var(--d-tok-kw);
+    --tok-num: var(--d-tok-num);
+    --sev-must: var(--d-sev-must);
+    --sev-should: var(--d-sev-should);
+    --sev-nit: var(--d-sev-nit);
+    --note: var(--d-note);
+    --danger: var(--d-danger);
+    /* dark-assign:end */
   }
+}
+
+/* OS が明るくても暗くする */
+:root[data-theme="dark"] {
+  /* dark-assign:begin */
+  color-scheme: dark;
+  --bg: var(--d-bg);
+  --fg: var(--d-fg);
+  --muted: var(--d-muted);
+  --line: var(--d-line);
+  --surface: var(--d-surface);
+  --accent: var(--d-accent);
+  --add-bg: var(--d-add-bg);
+  --add-gutter: var(--d-add-gutter);
+  --del-bg: var(--d-del-bg);
+  --del-gutter: var(--d-del-gutter);
+  --warn-bg: var(--d-warn-bg);
+  --warn-line: var(--d-warn-line);
+  --pending: var(--d-pending);
+  --resolved: var(--d-resolved);
+  --tok-com: var(--d-tok-com);
+  --tok-str: var(--d-tok-str);
+  --tok-kw: var(--d-tok-kw);
+  --tok-num: var(--d-tok-num);
+  --sev-must: var(--d-sev-must);
+  --sev-should: var(--d-sev-should);
+  --sev-nit: var(--d-sev-nit);
+  --note: var(--d-note);
+  --danger: var(--d-danger);
+  /* dark-assign:end */
 }
 
 * { box-sizing: border-box; }
@@ -102,7 +146,83 @@ button:focus-visible, .filebtn:focus-within, [tabindex]:focus-visible {
 }
 .filebtn { display: inline-block; }
 
-main { padding: 16px; display: grid; gap: 16px; }
+/* ------------------------------------------------------------ 3 ペイン */
+
+/* 幅はドラッグで**インラインの custom property** に入る（ui.js）。
+   だから「畳む」を `--left: 0` と書いてはいけない——インライン宣言に負けて黙って効かない
+   （research.md F3 で実測）。畳む側は grid-template-columns そのものを宣言する。 */
+.shell {
+  display: grid;
+  grid-template-columns: var(--left, 260px) 6px minmax(0, 1fr) 6px var(--right, 320px);
+  align-items: stretch;
+  height: calc(100vh - var(--topbar-h, 56px));
+  min-height: 320px;
+}
+.shell[data-left="collapsed"] {
+  grid-template-columns: 0 6px minmax(0, 1fr) 6px var(--right, 320px);
+}
+.shell[data-right="collapsed"] {
+  grid-template-columns: var(--left, 260px) 6px minmax(0, 1fr) 6px 0;
+}
+.shell[data-left="collapsed"][data-right="collapsed"] {
+  grid-template-columns: 0 6px minmax(0, 1fr) 6px 0;
+}
+
+.pane { overflow: auto; min-width: 0; }
+.pane-left, .pane-right { background: var(--surface); border-color: var(--line); }
+.pane-left { border-right: 1px solid var(--line); }
+.pane-right { border-left: 1px solid var(--line); }
+.pane-center {
+  padding: 16px;
+  display: grid;
+  /* 明示しないと暗黙の列が max-content で決まり、`white-space: nowrap` の見出しなどが
+     ペインの幅を押し広げてページごと横スクロールする。 */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  align-content: start;
+}
+/* 畳んだら境界線も消す。box-sizing: border-box なので、線が残ると幅 0 にならず 1px 残る。 */
+.shell[data-left="collapsed"] .pane-left,
+.shell[data-right="collapsed"] .pane-right { visibility: hidden; border: none; }
+
+.pane-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  z-index: 1;
+}
+.pane-head h2 { font-size: 13px; margin: 0; color: var(--muted); }
+
+.sep {
+  background: var(--line);
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+}
+.sep:hover { background: var(--accent); }
+.sep:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; background: var(--accent); }
+
+/* 狭い画面では 3 列を積む。境界は意味を失うので消す（research.md F10 で実測） */
+@media (max-width: 900px) {
+  .shell,
+  .shell[data-left="collapsed"],
+  .shell[data-right="collapsed"],
+  .shell[data-left="collapsed"][data-right="collapsed"] {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+  }
+  .sep { display: none; }
+  .pane { overflow: visible; }
+  .pane-left, .pane-right { border: none; border-bottom: 1px solid var(--line); max-height: 40vh; overflow: auto; }
+  .shell[data-left="collapsed"] .pane-left,
+  .shell[data-right="collapsed"] .pane-right { display: none; }
+}
 
 #banners:empty { display: none; }
 .banner {
@@ -151,7 +271,6 @@ textarea {
 .row-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 .hint { color: var(--muted); font-size: 12px; margin: 0 0 8px; }
 
-#filelist { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 #filelist a {
   display: flex;
   justify-content: space-between;
@@ -164,9 +283,10 @@ textarea {
   font-size: 12px;
 }
 #filelist a:last-child { border-bottom: none; }
-#filelist a:hover { background: var(--surface); }
+#filelist a:hover, #filelist a:focus-visible { background: var(--bg); }
+#filelist .empty { padding: 8px 12px; }
 .stat-add { color: var(--resolved); }
-.stat-del { color: #cf222e; }
+.stat-del { color: var(--danger); }
 
 .section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .section-head h2 { font-size: 14px; margin: 0; }
@@ -339,3 +459,98 @@ textarea {
 .pdf-line { padding: 0 6px; white-space: pre-wrap; }
 .pdf-add { background: var(--add-bg); }
 .pdf-del { background: var(--del-bg); }
+
+/* --------------------------------------------------------------- split 表示 */
+
+/* 1 組（削除と追加の対）が 1 つの .row。現在行は 1 行 1 つでないと j/k が壊れるので、
+   行は分けずにセルを 2 つ持たせる（decisions.md D2）。 */
+.row.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  /* 色は**セルごと**に付ける。行に付いたままだと、削除だけの行でコメント欄の背景まで赤くなる。 */
+  background: transparent;
+}
+.row.split .cell {
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+  border-right: 1px solid var(--line);
+}
+.row.split .cell-right { border-right: none; }
+.row.split .cell[data-kind="add"] { background: var(--add-bg); }
+.row.split .cell[data-kind="del"] { background: var(--del-bg); }
+.row.split .cell[data-kind="add"] .gutter { background: var(--add-gutter); }
+.row.split .cell[data-kind="del"] .gutter { background: var(--del-gutter); }
+.row.split .cell[data-kind="none"] { background: var(--surface); }
+.row.split .cell .gutter { flex: 0 0 auto; width: 44px; text-align: right; padding: 0 6px; color: var(--muted); user-select: none; }
+.row.split .cell .mark { flex: 0 0 auto; width: 14px; text-align: center; color: var(--muted); }
+.row.split .cell .code { flex: 1 1 auto; white-space: pre-wrap; word-break: break-word; padding-right: 8px; }
+.row.split .cell .comment-open { flex: 0 0 auto; visibility: hidden; border-radius: 4px; padding: 0 6px; line-height: 1.4; }
+.row.split:hover .comment-open,
+.row.split:focus-within .comment-open,
+.row.split[data-current="true"] .comment-open { visibility: visible; }
+/* コメントの入れ物は**両列にまたがる**。半分の幅だと入力欄が書きにくい。 */
+.row.split .slots { grid-column: 1 / -1; }
+.row.split .slots:empty { display: none; }
+.slot-side {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 2px 12px;
+  font-family: var(--mono);
+}
+
+/* ------------------------------------------------------------ ファイルツリー */
+
+#filelist[role="tree"] { padding: 4px 0; font-family: var(--mono); font-size: 12px; }
+.tree-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  cursor: pointer;
+  color: var(--fg);
+}
+.tree-item:hover { background: var(--bg); }
+.tree-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.tree-twisty { flex: 0 0 auto; width: 12px; text-align: center; color: var(--muted); }
+.tree-name { flex: 1 1 auto; word-break: break-all; }
+.tree-stat { flex: 0 0 auto; white-space: nowrap; }
+.tree-dir > .tree-name { font-weight: 600; }
+.tree-group { margin: 0; padding: 0; }
+.tree-item[aria-expanded="false"] + .tree-group { display: none; }
+
+/* -------------------------------------------------------------- コメント一覧 */
+
+.cl-filters {
+  display: grid;
+  gap: 4px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.cl-filters select { font: inherit; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 1px 4px; }
+.cl-filters .hint { margin: 2px 0 0; }
+#commentlist { display: grid; gap: 6px; padding: 8px; }
+.cl-item {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: var(--bg);
+  font: inherit;
+}
+.cl-item:hover { border-color: var(--accent); }
+.cl-where { font-family: var(--mono); font-size: 11px; color: var(--muted); word-break: break-all; }
+.cl-tags { display: flex; gap: 6px; flex-wrap: wrap; font-size: 11px; }
+.cl-body { font-size: 12px; word-break: break-word; }
+.cl-state-open { color: var(--pending); }
+.cl-state-resolved { color: var(--resolved); }
+.cl-state-note { color: var(--note); }
+#commentlist .empty { padding: 4px 4px; font-size: 12px; }
+
+/* 移動してきたスレッドを一瞬だけ目立たせる（どこへ飛んだかを見失わないため） */
+.thread:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.file:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

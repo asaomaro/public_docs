@@ -153,6 +153,15 @@ def markdown_nodes(text):
             nodes.append(lst)
             continue
         block, i = _take_while(lines, i, lambda s: bool(s.strip()) and not _starts_block(s))
+        if not block:
+            # どの分岐にも当たらず、しかも `_starts_block` には見える行。
+            # 例: ```` ```gantt ```` のように**行の途中にフェンス記号がある行**は
+            # フェンスの正規表現（行全体がフェンスであること）には当たらないが、
+            # `_starts_block` には当たるので、この `_take_while` が 0 行を返す。
+            # ここで進めないと i が動かず**無限ループ**になる（生成が永久に終わらない）。
+            # 1 行を段落として消費して必ず前へ進める。
+            block = [lines[i]]
+            i += 1
         nodes.append(["p", {}, _inline(" ".join(s.strip() for s in block))])
     return nodes
 

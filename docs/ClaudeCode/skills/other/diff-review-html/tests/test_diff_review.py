@@ -612,3 +612,141 @@ class SchemaV2Test(unittest.TestCase):
 
         _code, only_nit, _err = cli(self.repo, "list", "review.json", "--severity", "nit")
         self.assertNotIn("直して", only_nit, "must の指摘は nit の絞り込みに出ない")
+
+
+# --------------------------------------------------------------------------
+# 3 ペイン・split・ツリー・テーマ（20260916-diff-review-layout）
+# --------------------------------------------------------------------------
+
+class LayoutBundlingTest(unittest.TestCase):
+    """画面の形を担う ui.js が**常に**積まれること。
+
+    rich.js は「対象があるときだけ」だが、ui.js はペイン・テーマ・設定の記憶を持つので
+    差分の中身に依らず要る。落ちると 3 ペインが一切動かない。
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = make_repo(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_ui_js_is_always_embedded(self):
+        for extra in ([], ["--rich", "off"], ["--expand-max-lines", "0", "--rich", "off"]):
+            _code, html, _err = cli(self.repo, "html", "--repo", ".", *extra)
+            self.assertNotIn("__UI_JS__", html, "差し込み口が残っている: %r" % extra)
+            self.assertIn("window.DiffReviewUI", html, "ui.js が積まれていない: %r" % extra)
+
+    def test_three_panes_exist_in_page(self):
+        _code, html, _err = cli(self.repo, "html", "--repo", ".")
+        for needle in ('id="pane-left"', 'id="pane-center"', 'id="pane-right"',
+                       'id="sep-left"', 'id="sep-right"', 'role="separator"',
+                       'id="btn-split"', 'id="btn-tree"', 'id="btn-theme"',
+                       'id="btn-pane-left"', 'id="btn-pane-right"', 'id="commentlist"'):
+            self.assertIn(needle, html, needle)
+
+    def test_theme_is_restored_before_body_renders(self):
+        # 復元が本文より後だと一瞬明るく光る。head の中にあることを位置で確かめる。
+        _code, html, _err = cli(self.repo, "html", "--repo", ".")
+        self.assertLess(html.index(theme_storage_key()), html.index("<body>"))
+
+    def test_head_script_and_ui_js_agree_on_the_key(self):
+        # 復元は page.html の中に**直書き**してある（ui.js より先に走る必要があるため）。
+        # ui.js 側の接頭辞を変えたときに、片方だけ直して黙ってすれ違うのを防ぐ。
+        page = (SKILL_DIR / "templates" / "page.html").read_text(encoding="utf-8")
+        self.assertIn('"%s"' % theme_storage_key(), page)
+
+
+    def test_ui_prefs_never_reach_the_record(self):
+        # 画面の設定はレビュー記録に混ざらない（AC15）。生成側が書き出す JSON で確かめる。
+        _code, out, _err = cli(self.repo, "template", "--repo", ".")
+        record = json.loads(out)
+        text = dr.dumps_canonical(record)
+        for key in dr_ui_pref_names():
+            self.assertNotIn('"%s"' % key, text, key)
+        self.assertEqual(dr.validate(record), [])
+
+
+def theme_storage_key():
+    """テーマの保存キー。`ui.js` の接頭辞から組み立てる（page.html との突き合わせ用）。"""
+    source = (SKILL_DIR / "templates" / "ui.js").read_text(encoding="utf-8")
+    prefix = source.split('var PREFIX = "', 1)[1].split('"', 1)[0]
+    return prefix + "theme"
+
+
+def dr_ui_pref_names():
+    """ui.js が localStorage へ書く設定名。テンプレートから読み取る（二重管理を避ける）。"""
+    source = (SKILL_DIR / "templates" / "ui.js").read_text(encoding="utf-8")
+    block = source.split("var DEFAULTS = {", 1)[1].split("};", 1)[0]
+    names = []
+    for line in block.splitlines():
+        line = line.strip()
+        if not line or line.startswith("//"):
+            continue
+        key = line.split(":", 1)[0].strip().strip('"')
+        if key:
+            names.append(key)
+    assert names, "DEFAULTS を読み取れていない"
+    return names
+
+
+class ThemeCssTest(unittest.TestCase):
+    """暗い配色の「割り当て」が 2 か所にある（decisions.md D3）。ずれを機械的に潰す。
+
+    片方にだけ色を足すと、OS 追従では暗いのに手動ダークでは明るいまま、という
+    目で追いにくい食い違いになる。ここで固定しておく。
+    """
+
+    def blocks(self):
+        css = (SKILL_DIR / "templates" / "style.css").read_text(encoding="utf-8")
+        parts = css.split("/* dark-assign:begin */")[1:]
+        return [part.split("/* dark-assign:end */")[0] for part in parts]
+
+    def normalized(self, block):
+        return tuple(line.strip() for line in block.splitlines() if line.strip())
+
+    def test_two_dark_blocks_are_identical(self):
+        blocks = self.blocks()
+        self.assertEqual(len(blocks), 2, "暗い配色の割り当てブロックは 2 つのはず")
+        self.assertEqual(self.normalized(blocks[0]), self.normalized(blocks[1]),
+                         "OS 追従用と手動ダーク用の宣言がずれている")
+
+    def test_every_dark_value_is_assigned(self):
+        css = (SKILL_DIR / "templates" / "style.css").read_text(encoding="utf-8")
+        root = css.split(":root {", 1)[1].split("}", 1)[0]
+        defined = set()
+        for line in root.splitlines():
+            for chunk in line.split(";"):
+                chunk = chunk.strip()
+                if chunk.startswith("--d-"):
+                    defined.add(chunk.split(":", 1)[0].strip())
+        self.assertTrue(defined, "--d-* が見つからない")
+        assigned = set()
+        for line in self.blocks()[0].splitlines():
+            if "var(--d-" in line:
+                assigned.add("--d-" + line.split("var(--d-", 1)[1].split(")", 1)[0])
+        self.assertEqual(defined, assigned,
+                         "定義した暗い色が割り当てられていない（または逆）: %s"
+                         % sorted(defined ^ assigned))
+
+
+class MarkdownProgressTest(unittest.TestCase):
+    """フェンス記号を**行の途中に**含む行で markdown_nodes が止まらないこと。
+
+    ```` ```gantt ```` のような行はフェンスの正規表現（行全体がフェンス）には当たらないが
+    「ブロックの始まり」には見えるため、段落の取り込みが 0 行になって位置が進まず、
+    **生成が永久に終わらなかった**（この work で実測して修正）。
+    """
+
+    def test_inline_fence_marker_does_not_hang(self):
+        text = "前の段落\n\n```` ```gantt ```` は ````` ```mermaid ````` の中の話\n\n次の段落\n"
+        nodes = richdiff.markdown_nodes(text)
+        self.assertEqual(len(nodes), 3)
+        joined = json.dumps(nodes, ensure_ascii=False)
+        self.assertIn("gantt", joined, "取りこぼさず段落として残ること")
+
+    def test_bare_fence_marker_line_does_not_hang(self):
+        for line in ("``` これは終わらないフェンスに見える行", "   ```x y z", "```"):
+            nodes = richdiff.markdown_nodes("段落\n\n%s\n" % line)
+            self.assertIsInstance(nodes, list)
