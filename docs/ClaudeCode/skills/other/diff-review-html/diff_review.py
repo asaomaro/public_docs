@@ -22,10 +22,15 @@ import subprocess
 import sys
 from pathlib import Path
 
-SCHEMA = "diff-review/1"
+import highlight
+import richdiff
+
+SCHEMA = "diff-review/2"
+SCHEMA_LEGACY = "diff-review/1"
+SCHEMAS = (SCHEMA, SCHEMA_LEGACY)
 
 # テンプレートの差し込み口。`render_html` はこの 5 つを 1 回の走査で置き換える。
-PLACEHOLDER_RE = re.compile(r"__(?:TITLE|STYLE|APP_JS|DIFF_DATA|REVIEW_DATA)__")
+PLACEHOLDER_RE = re.compile(r"__(?:TITLE|STYLE|APP_JS|RICH_JS|DIFF_DATA|REVIEW_DATA)__")
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 
 # git が「空のツリー」に与えている固定のハッシュ。最初のコミットの差分を取るときに親の代わりに使う。
@@ -38,6 +43,9 @@ EXIT_INVALID = 3
 
 REVIEW_STATES = ("APPROVED", "CHANGES_REQUESTED", "COMMENTED")
 SIDES = ("LEFT", "RIGHT")
+THREAD_KINDS = ("review", "note")          # note = 作者の説明（提出されない・未解決に数えない）
+SEVERITIES = ("must", "should", "nit")     # None は「重大度なし」
+DEFAULT_EXPAND_MAX_LINES = 2000
 
 
 # --------------------------------------------------------------------------
@@ -268,7 +276,99 @@ def parse_hunk_header(header):
         die("ハンクヘッダを解釈できません: %s" % header, EXIT_GIT)
 
 
-def collect_diff(repo, source, rev, context):
+def git_try(repo, args):
+    """失敗を許す git 呼び出し（ファイルが片側に無い場合など）。無ければ None。"""
+    cmd = ["git", "-C", str(repo), "-c", "core.quotepath=false"] + list(args)
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    if proc.returncode != 0:
+        return None
+    return proc.stdout
+
+
+def side_bytes(repo, source, rev, entry, side):
+    """その側のファイル全文をバイト列で取る（T1）。無ければ None。
+
+    どの版を見るかは差分の指定で変わる:
+      unstaged … 旧=HEAD / 新=作業ツリー、staged … 旧=HEAD / 新=index、
+      range・commit … 旧=A / 新=B。リネームは旧側のパスが違う。
+    """
+    path = entry["old_path"] if (side == "old" and entry.get("old_path")) else entry["path"]
+    status = (entry.get("status") or "")[:1]
+    if side == "old" and status == "A":
+        return None
+    if side == "new" and status == "D":
+        return None
+
+    if source == "range" and rev:
+        base, _, head = rev.partition("..")
+        base = base or "HEAD"
+        head = head or "HEAD"
+        return git_try(repo, ["show", "%s:%s" % (base if side == "old" else head, path)])
+    if source == "commit" and rev:
+        spec = ("%s~1" % rev) if side == "old" else rev
+        out = git_try(repo, ["show", "%s:%s" % (spec, path)])
+        if out is None and side == "old":
+            return None
+        return out
+    if side == "old":
+        return git_try(repo, ["show", "HEAD:%s" % path])
+    if source == "staged":
+        return git_try(repo, ["show", ":%s" % path])
+    try:
+        with open(Path(repo) / path, "rb") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def as_text(data):
+    """バイト列をテキストに。NUL を含むならバイナリとみなして None を返す。"""
+    if data is None or b"\x00" in data:
+        return None
+    return data.decode("utf-8", "replace")
+
+
+def split_lines(text):
+    """行に切る（末尾の改行で空行を増やさない）。"""
+    lines = text.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    return lines
+
+
+def build_expand(text, lang, max_lines):
+    """展開データ（T3）。上限を超えるファイルは中身を持たず truncated にする。"""
+    if text is None or max_lines <= 0:
+        return None
+    lines = split_lines(text)
+    if len(lines) > max_lines:
+        return {"truncated": True, "count": len(lines)}
+    tokens = highlight.tokenize_lines(text, lang) if lang else None
+    if tokens is not None:
+        tokens = tokens[:len(lines)]
+        return {"truncated": False, "count": len(lines), "tokens": tokens}
+    return {"truncated": False, "count": len(lines), "lines": lines}
+
+
+def attach_tokens(hunks, tok_old, tok_new, covered_side=None):
+    """差分行にトークンを付ける（T2）。
+
+    **展開データが同じ側の全文トークンを持っているなら、その側の行には付けない**——
+    画面が行番号で引けるので、付けると同じ配列を 2 回運ぶことになる（生成物がその分重くなる）。
+    """
+    for hunk in hunks:
+        for line in hunk["lines"]:
+            side = "old" if line["kind"] == "del" else "new"
+            if side == covered_side:
+                continue
+            source_tokens = tok_old if side == "old" else tok_new
+            number = line["old"] if side == "old" else line["new"]
+            if not source_tokens or not number or number > len(source_tokens):
+                continue
+            line["tokens"] = source_tokens[number - 1]
+
+
+def collect_diff(repo, source, rev, context, expand_max_lines=DEFAULT_EXPAND_MAX_LINES, rich=True):
     """差分を取り、構造化したファイル一覧と identity を返す（T1 / T2）。"""
     args = resolve_commit_args(repo, source, rev)
     body_bytes = git_bytes(repo, args[:1] + ["--no-color", "--no-ext-diff", "-U%d" % context] + args[1:])
@@ -286,6 +386,37 @@ def collect_diff(repo, source, rev, context):
         if add is None or dele is None:
             binary = True
             add, dele = 0, 0
+
+        # バイナリでも rich の対象（PDF）なら中身が要る。それ以外のバイナリは触らない。
+        wants_bytes = (not binary) or (richdiff.rich_kind(entry["path"]) is not None)
+        old_bytes = side_bytes(repo, source, rev, entry, "old") if wants_bytes else None
+        new_bytes = side_bytes(repo, source, rev, entry, "new") if wants_bytes else None
+        old_text = as_text(old_bytes)
+        new_text = as_text(new_bytes)
+        if not binary and old_bytes is not None and old_text is None:
+            binary = True
+        if not binary and new_bytes is not None and new_text is None:
+            binary = True
+
+        language = None if binary else highlight.language_for(entry["path"])
+        expand_side = "new" if new_text is not None else ("old" if old_text is not None else None)
+        expand_text = new_text if expand_side == "new" else old_text
+        expand = None
+        if not binary and expand_side:
+            expand = build_expand(expand_text, language, expand_max_lines)
+            if expand:
+                expand["side"] = expand_side
+
+        if not binary and language:
+            tok_old = highlight.tokenize_lines(old_text, language) if old_text is not None else None
+            tok_new = highlight.tokenize_lines(new_text, language) if new_text is not None else None
+            covered = expand_side if (expand and expand.get("tokens")) else None
+            attach_tokens(hunks, tok_old, tok_new, covered)
+
+        rich_payload = None
+        if rich:
+            rich_payload = richdiff.build(entry["path"], old_text, new_text, old_bytes, new_bytes)
+
         files.append({
             "path": entry["path"],
             "old_path": entry["old_path"],
@@ -293,7 +424,10 @@ def collect_diff(repo, source, rev, context):
             "additions": add,
             "deletions": dele,
             "binary": binary,
+            "language": language,
             "hunks": [] if binary else hunks,
+            "expand": expand,
+            "rich": rich_payload,
         })
 
     target = {
@@ -341,10 +475,29 @@ def empty_review(target):
     return {"schema": SCHEMA, "target": target, "reviews": [], "threads": []}
 
 
+def migrate(review):
+    """`diff-review/1` を `/2` として扱えるようにする（読むだけ。書き出しは常に /2）。
+
+    欠けている項目の既定値は `decisions.md` D8: kind は review、severity は None。
+    """
+    if not isinstance(review, dict):
+        return review
+    if review.get("schema") == SCHEMA_LEGACY:
+        review = dict(review, schema=SCHEMA)
+    for thread in review.get("threads") or []:
+        if isinstance(thread, dict):
+            thread.setdefault("kind", "review")
+            for comment in thread.get("comments") or []:
+                if isinstance(comment, dict):
+                    comment.setdefault("severity", None)
+    return review
+
+
 def load_json(path):
+    """読み込みは常に `migrate` を通す（`/1` も `/2` として扱えるようにする）。"""
     try:
         with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+            return migrate(json.load(f))
     except OSError as exc:
         die("読み込めません: %s" % exc, EXIT_USAGE)
     except json.JSONDecodeError as exc:
@@ -363,8 +516,9 @@ def validate(review):
 
     if not isinstance(review, dict):
         return ["$: オブジェクトではありません"]
-    if review.get("schema") != SCHEMA:
-        bad("$.schema", "既知のスキーマではありません（期待: %r、実際: %r）" % (SCHEMA, review.get("schema")))
+    if review.get("schema") not in SCHEMAS:
+        bad("$.schema", "既知のスキーマではありません（期待: %s、実際: %r）"
+            % ("/".join(SCHEMAS), review.get("schema")))
 
     target = review.get("target")
     if not isinstance(target, dict):
@@ -416,6 +570,10 @@ def validate(review):
         else:
             thread_ids.add(tid)
 
+        kind = thread.get("kind", "review")
+        if kind not in THREAD_KINDS:
+            bad(where + ".kind", "%s のいずれかが必要です（実際: %r）" % ("/".join(THREAD_KINDS), kind))
+
         path, line, side = thread.get("path"), thread.get("line"), thread.get("side")
         if path is not None and not isinstance(path, str):
             bad(where + ".path", "文字列か null が必要です")
@@ -453,6 +611,14 @@ def validate(review):
             rid = comment.get("review_id")
             if rid is not None and rid not in review_ids:
                 bad(cwhere + ".review_id", "存在しないレビューを指しています（%s）" % rid)
+            if kind == "note" and rid is not None:
+                bad(cwhere + ".review_id", "説明コメント（kind: note）は提出されないので review_id を持ちません")
+            severity = comment.get("severity", None)
+            if severity is not None and severity not in SEVERITIES:
+                bad(cwhere + ".severity", "%s または null が必要です（実際: %r）"
+                    % ("/".join(SEVERITIES), severity))
+            if kind == "note" and severity is not None:
+                bad(cwhere + ".severity", "説明コメント（kind: note）に重大度は付けません")
         for j, comment in enumerate(comments):
             if not isinstance(comment, dict):
                 continue
@@ -475,12 +641,25 @@ def identity_mismatch(review, target):
     return notes
 
 
-def iter_threads(review, unresolved_only=True):
-    threads = review.get("threads") or []
-    for thread in threads:
+def iter_threads(review, unresolved_only=True, include_notes=False):
+    """既定では「未解決の指摘」だけを返す。説明コメント（note）は明示しない限り出さない。"""
+    for thread in review.get("threads") or []:
+        if not include_notes and thread.get("kind", "review") == "note":
+            continue
         if unresolved_only and thread.get("resolved"):
             continue
         yield thread
+
+
+def thread_severity(thread):
+    """スレッドの重大度は、含まれるコメントの中で最も重いもの（無ければ None）。"""
+    order = {"must": 3, "should": 2, "nit": 1}
+    best = None
+    for comment in thread.get("comments") or []:
+        sev = comment.get("severity")
+        if sev in order and (best is None or order[sev] > order[best]):
+            best = sev
+    return best
 
 
 def location_of(thread):
@@ -509,14 +688,19 @@ def render_html(target, files, review, title):
     page = read_template("page.html")
     style = read_template("style.css")
     app = read_template("app.js")
-    for name, text in (("style.css", style), ("app.js", app)):
+    # rich の描画コードは**対象があるときだけ**積む（decisions.md D4）。
+    # 解析は生成時に済ませてあるので、画面側に積むのは「構造を描く」数十行だけ。
+    has_rich = any(f.get("rich") for f in files)
+    rich_js = read_template("rich.js") if has_rich else ""
+    for name, text in (("style.css", style), ("app.js", app), ("rich.js", rich_js)):
         if "</script" in text:
             die("テンプレート %s に '</script' が含まれています（埋め込むと壊れます）" % name, EXIT_USAGE)
-    diff_data = {"target": target, "files": files}
+    diff_data = {"target": target, "files": files, "rich_enabled": bool(has_rich)}
     replacements = {
         "__TITLE__": title,
         "__STYLE__": style,
         "__APP_JS__": app,
+        "__RICH_JS__": rich_js,
         "__DIFF_DATA__": json_for_script_block(diff_data),
         "__REVIEW_DATA__": json_for_script_block(review) if review is not None else "null",
     }
@@ -528,7 +712,8 @@ def render_html(target, files, review, title):
 
 
 def cmd_html(args):
-    target, files = collect_diff(args.repo, args.source, args.rev, args.context)
+    target, files = collect_diff(args.repo, args.source, args.rev, args.context,
+                                 expand_max_lines=args.expand_max_lines, rich=(args.rich != "off"))
     review = None
     if args.import_path:
         review = load_json(args.import_path)
@@ -552,7 +737,8 @@ def default_title(target):
 
 
 def cmd_template(args):
-    target, _files = collect_diff(args.repo, args.source, args.rev, args.context)
+    target, _files = collect_diff(args.repo, args.source, args.rev, args.context,
+                                  expand_max_lines=0, rich=False)
     write_out(dumps_canonical(empty_review(target)), args.out)
     return EXIT_OK
 
@@ -561,7 +747,8 @@ def cmd_check(args):
     review = load_json(args.path)
     problems = validate(review)
     if args.repo_given:
-        target, _files = collect_diff(args.repo, args.source, args.rev, args.context)
+        target, _files = collect_diff(args.repo, args.source, args.rev, args.context,
+                                      expand_max_lines=0, rich=False)
         for note in identity_mismatch(review, target):
             sys.stderr.write("警告: %s\n" % note)
     if problems:
@@ -582,25 +769,38 @@ def cmd_list(args):
     if problems:
         sys.stderr.write("NG %s（%d 件）: check サブコマンドで詳細を見てください\n" % (args.path, len(problems)))
         return EXIT_INVALID
+    wanted = None
+    if args.severity:
+        wanted = set(x.strip() for x in args.severity.split(",") if x.strip())
     rows = []
-    for thread in iter_threads(review, unresolved_only=not args.all):
+    for thread in iter_threads(review, unresolved_only=not args.all, include_notes=args.notes):
+        severity = thread_severity(thread)
+        if wanted is not None:
+            key = severity or "none"
+            if key not in wanted:
+                continue
         first = (thread.get("comments") or [{}])[0]
         rows.append({
             "location": location_of(thread),
             "state": "resolved" if thread.get("resolved") else "unresolved",
+            "kind": thread.get("kind", "review"),
+            "severity": severity or "-",
             "body": (first.get("body") or "").strip(),
             "replies": max(0, len(thread.get("comments") or []) - 1),
         })
     if args.format == "tsv":
         for row in rows:
             body = row["body"].replace("\t", " ").replace("\n", " ")
-            write_out("%s\t%s\t%s\n" % (row["location"], row["state"], body), None)
+            write_out("%s\t%s\t%s\t%s\t%s\n"
+                      % (row["location"], row["severity"], row["state"], row["kind"], body), None)
         return EXIT_OK
     if not rows:
-        write_out("未解決の指摘はありません\n", None)
+        write_out("該当する指摘はありません\n", None)
         return EXIT_OK
     for row in rows:
-        write_out("- %s [%s]\n" % (row["location"], row["state"]), None)
+        label = "[%s]" % row["severity"] if row["severity"] != "-" else "[重大度なし]"
+        note = " ＜説明＞" if row["kind"] == "note" else ""
+        write_out("- %s %s %s%s\n" % (row["location"], label, row["state"], note), None)
         for line in row["body"].split("\n"):
             write_out("    %s\n" % line, None)
         if row["replies"]:
@@ -620,6 +820,12 @@ def add_source_options(parser, required_repo_flag=False):
     group.add_argument("--commit", metavar="<C>", help="そのコミットが入れた差分")
     parser.add_argument("--repo", default=".", help="対象リポジトリ（既定: カレント）")
     parser.add_argument("--context", type=int, default=3, help="前後に出す文脈行数（既定: 3）")
+    parser.add_argument("--expand-max-lines", type=int, default=DEFAULT_EXPAND_MAX_LINES,
+                        dest="expand_max_lines",
+                        help="画面で前後を展開するために全文を埋める上限行数（既定: %d。0 で埋めない）"
+                             % DEFAULT_EXPAND_MAX_LINES)
+    parser.add_argument("--rich", choices=("auto", "off"), default="auto",
+                        help="CSV/Markdown/HTML/PDF の rich diff（既定: auto。対象が無ければ自動で積まない）")
 
 
 def normalize_source(args):
@@ -661,6 +867,9 @@ def build_parser():
     p_list = sub.add_parser("list", help="未解決の指摘を一覧にする")
     p_list.add_argument("path", metavar="<review.json>")
     p_list.add_argument("--all", action="store_true", help="解決済みも出す")
+    p_list.add_argument("--severity", metavar="must,should,nit,none",
+                        help="重大度で絞る（カンマ区切り。none は重大度なし）")
+    p_list.add_argument("--notes", action="store_true", help="説明コメント（kind: note）も出す")
     p_list.add_argument("--format", choices=("text", "tsv"), default="text")
     p_list.set_defaults(func=cmd_list)
 

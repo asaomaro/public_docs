@@ -1,4 +1,4 @@
-# レビュー記録 JSON スキーマ（`diff-review/1`）
+# レビュー記録 JSON スキーマ（`diff-review/2`）
 
 `diff-review-html` が読み書きする唯一の外部形式。**人間（画面）と AI（テキスト）の契約点**であり、
 画面・`diff_review.py`・AI エージェントの 3 者はすべてこの形だけをやり取りする。
@@ -10,7 +10,7 @@
 
 ```json
 {
-  "schema": "diff-review/1",
+  "schema": "diff-review/2",
   "target": { "...": "対象の差分（雛形が埋める。手で書かない）" },
   "reviews": [ { "...": "提出されたレビュー（判定とサマリ）" } ],
   "threads": [ { "...": "コメントのスレッド" } ]
@@ -19,7 +19,7 @@
 
 | キー | 型 | 説明 |
 |---|---|---|
-| `schema` | string | 固定で `"diff-review/1"`。違う値は読み込みも検証も拒否される |
+| `schema` | string | `"diff-review/2"`。`"diff-review/1"`（旧版）も**読み込みだけ**受け付ける |
 | `target` | object | 対象の差分の識別情報（下記） |
 | `reviews` | array | 提出単位。0 件でもよい（提出前の記録） |
 | `threads` | array | コメントのスレッド。0 件でもよい |
@@ -67,6 +67,7 @@
 ```json
 {
   "id": "t1",
+  "kind": "review",
   "path": "docs/x.md",
   "line": 120,
   "side": "RIGHT",
@@ -74,8 +75,10 @@
   "start_side": null,
   "resolved": false,
   "comments": [
-    { "id": "c1", "review_id": "r1", "author": "ai", "body": "この分岐は null を踏みます", "in_reply_to": null },
-    { "id": "c2", "review_id": null, "author": "human", "body": "直しました", "in_reply_to": "c1" }
+    { "id": "c1", "review_id": "r1", "author": "ai", "body": "この分岐は null を踏みます",
+      "severity": "must", "in_reply_to": null },
+    { "id": "c2", "review_id": null, "author": "human", "body": "直しました",
+      "severity": null, "in_reply_to": "c1" }
   ]
 }
 ```
@@ -83,6 +86,7 @@
 | キー | 型 | 説明 |
 |---|---|---|
 | `id` | string | 記録内で一意 |
+| `kind` | string | `"review"`（指摘）または `"note"`（**作者の説明**。提出されず、未解決にも数えない） |
 | `path` | string \| null | ファイルのパス。`null` は**差分全体へのコメント** |
 | `line` | integer \| null | 行番号。`null` は**ファイル単位のコメント**（`path` は必須） |
 | `side` | string \| null | `RIGHT`（追加・文脈行の新しい側）/ `LEFT`（削除行）。`line` が `null` なら `null` |
@@ -103,10 +107,11 @@
 | キー | 型 | 説明 |
 |---|---|---|
 | `id` | string | **同じスレッド内で**一意 |
-| `review_id` | string \| null | 属する提出レビューの `id`。**`null` は「未提出（pending）」** |
+| `review_id` | string \| null | 属する提出レビューの `id`。**`null` は「未提出（pending）」**。`kind: "note"` では常に `null` |
 | `author` | string | `human` / `ai` / 任意の名前 |
 | `body` | string | 本文（空は不可） |
-| `in_reply_to` | string \| null | **同じスレッド内の**コメント `id`。起点は `null` |
+| `severity` | string \| null | `"must"` / `"should"` / `"nit"` / `null`（重大度なし）。`kind: "note"` では常に `null` |
+| `in_reply_to` | string \| null | **同じスレッド内の**コメント `id`。起点は `null`。返信への返信は**その返信の id** |
 
 ## 正規形（書き出しの形）
 
@@ -116,11 +121,35 @@
 - 画面（JavaScript）も同じ形で書き出すので、**書き出し → 読み込み → 再書き出しでバイト一致する**。
 - **時刻を持たない**。持たせると同じ内容でも出力が変わり、差分として読めなくなる。
 
+### 指摘（review）と説明（note）
+
+| | `kind: "review"` | `kind: "note"` |
+|---|---|---|
+| 目的 | レビュアーの指摘 | **差分の作者がレビュアーに残す説明** |
+| 提出（Approve 等）の対象 | なる（`review_id` が付く） | ならない（`review_id` は常に `null`） |
+| 重大度 | 付けられる | 付けない |
+| `list` の既定の一覧 | 出る | 出ない（`--notes` で出せる） |
+| 画面の解決ボタン | 出る | 出ない |
+
+## 旧版（`diff-review/1`）からの移行
+
+`/1` の記録はそのまま読み込める。足りない項目は既定値で補われる。
+
+| 項目 | `/1` を読んだときの既定値 |
+|---|---|
+| `threads[].kind` | `"review"` |
+| `comments[].severity` | `null` |
+
+**書き出しは常に `/2`**。`check` は `/1` も通すが、読み込み時に `/2` として扱われる。
+
 ## 検証（何を弾くか）
 
 `python3 diff_review.py check <review.json>` が見るもの。1 件でも該当すれば終了コード 3。
 
-- `schema` が `diff-review/1` でない
+- `schema` が `diff-review/2` でも `diff-review/1` でもない
+- `threads[].kind` が `review` / `note` のどちらでもない
+- `comments[].severity` が `must` / `should` / `nit` / `null` のどれでもない
+- `kind: "note"` なのに `review_id` や `severity` を持っている
 - `target` / `reviews` / `threads` の欠落や型違い
 - `reviews[].state` が 3 値のいずれでもない
 - `threads[].line` があるのに `path` が無い / `side` が `LEFT` `RIGHT` でない
@@ -142,5 +171,7 @@
 | `comments[].body` | `body` |
 | `comments[].in_reply_to` | `in_reply_to_id` |
 | `reviews[].state` | `event` / `state`（`APPROVED` / `CHANGES_REQUESTED` / `COMMENTED`） |
+| `comments[].severity` | （対応なし。GitHub にはこの語彙が無いので、本文の接頭辞に落とす想定） |
+| `threads[].kind` | （対応なし。`note` は GitHub では普通のコメントになる） |
 
 **互換を保証するものではない**（GitHub への書き戻しはこの skill のスコープ外）。名前を揃えてあるだけ。

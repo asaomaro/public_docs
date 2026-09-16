@@ -13,11 +13,15 @@
 (function () {
   "use strict";
 
-  var SCHEMA = "diff-review/1";
+  var SCHEMA = "diff-review/2";
+  var SCHEMA_LEGACY = "diff-review/1";
   var STORAGE_KEY_PREFIX = "diff-review-html/v1/";
   var LAZY_LINE_LIMIT = 2000;
+  var EXPAND_STEP = 20;                      // 展開ボタン 1 回で広がる行数
   var REVIEW_STATES = ["APPROVED", "CHANGES_REQUESTED", "COMMENTED"];
   var SIDES = ["LEFT", "RIGHT"];
+  var THREAD_KINDS = ["review", "note"];     // note = 作者の説明（提出されない）
+  var SEVERITIES = ["must", "should", "nit"];
 
   var diffData = readEmbedded("diff-data");
   var embeddedReview = readEmbedded("review-data");
@@ -105,6 +109,8 @@
       thread.comments.forEach(function (comment, j) { commentMap[comment.id] = "c" + (j + 1); });
       return {
         id: "t" + (index + 1),
+        kind: thread.kind === "note" ? "note" : "review",
+        kind: thread.kind === "note" ? "note" : "review",   // /1 には kind が無いので review を補う
         path: thread.path === undefined ? null : thread.path,
         line: thread.line === undefined ? null : thread.line,
         side: thread.side === undefined ? null : thread.side,
@@ -117,6 +123,7 @@
             review_id: comment.review_id ? (reviewMap[comment.review_id] || null) : null,
             author: comment.author,
             body: comment.body,
+            severity: SEVERITIES.indexOf(comment.severity) === -1 ? null : comment.severity,
             in_reply_to: comment.in_reply_to ? (commentMap[comment.in_reply_to] || null) : null
           };
         })
@@ -191,6 +198,7 @@
       state.threads.push({
         id: thread.id || nextId("t"),
         _order: index,
+        kind: thread.kind === "note" ? "note" : "review",   // /1 には kind が無いので review を補う
         path: thread.path === undefined ? null : thread.path,
         line: thread.line === undefined ? null : thread.line,
         side: thread.side === undefined ? null : thread.side,
@@ -203,6 +211,7 @@
             review_id: comment.review_id === undefined ? null : comment.review_id,
             author: comment.author || "unknown",
             body: comment.body || "",
+            severity: SEVERITIES.indexOf(comment.severity) === -1 ? null : comment.severity,
             in_reply_to: comment.in_reply_to === undefined ? null : comment.in_reply_to
           };
         })
@@ -226,8 +235,9 @@
   function validateRecord(record) {
     if (!record || typeof record !== "object") { return ["オブジェクトではありません"]; }
     var problems = [];
-    if (record.schema !== SCHEMA) {
-      problems.push("スキーマが " + SCHEMA + " ではありません（" + String(record.schema) + "）");
+    if (record.schema !== SCHEMA && record.schema !== SCHEMA_LEGACY) {
+      problems.push("スキーマが " + SCHEMA + "（または " + SCHEMA_LEGACY + "）ではありません（"
+                    + String(record.schema) + "）");
     }
     if (!record.target || typeof record.target !== "object") { problems.push("target がありません"); }
     if (!Array.isArray(record.reviews)) { problems.push("reviews が配列ではありません"); }
@@ -251,6 +261,11 @@
       if (!thread.id) { problems.push(where + ".id がありません"); }
       else if (threadIds[thread.id]) { problems.push(where + ".id が重複しています"); }
       else { threadIds[thread.id] = true; }
+
+      var kind = thread.kind === undefined ? "review" : thread.kind;
+      if (THREAD_KINDS.indexOf(kind) === -1) {
+        problems.push(where + ".kind が " + THREAD_KINDS.join("/") + " ではありません");
+      }
 
       var line = thread.line === undefined ? null : thread.line;
       var side = thread.side === undefined ? null : thread.side;
@@ -277,6 +292,16 @@
         if (typeof comment.body !== "string" || !comment.body.trim()) { problems.push(cwhere + ".body が空です"); }
         if (comment.review_id && !reviewIds[comment.review_id]) {
           problems.push(cwhere + ".review_id が存在しないレビューを指しています");
+        }
+        if (kind === "note" && comment.review_id) {
+          problems.push(cwhere + ".review_id は説明コメント（note）では持てません");
+        }
+        if (comment.severity !== undefined && comment.severity !== null
+            && SEVERITIES.indexOf(comment.severity) === -1) {
+          problems.push(cwhere + ".severity が " + SEVERITIES.join("/") + " ではありません");
+        }
+        if (kind === "note" && comment.severity) {
+          problems.push(cwhere + ".severity は説明コメント（note）では持てません");
         }
       });
       thread.comments.forEach(function (comment, j) {
@@ -353,6 +378,16 @@
     return (file.hunks || []).reduce(function (sum, hunk) { return sum + hunk.lines.length; }, 0);
   }
 
+  // ---------------------------------------------------- ファイルと行の描画
+
+  var viewModes = {};      // path -> "rich" | "source"
+  var expandState = {};    // path -> { gapIndex: {top: 件数, bottom: 件数} }
+
+  function viewMode(file) {
+    if (!file.rich || !window.DiffReviewRich) { return "source"; }
+    return viewModes[file.path] || "rich";
+  }
+
   function renderFiles() {
     var container = document.getElementById("files");
     clear(container);
@@ -383,9 +418,26 @@
       var tags = [statusLabel(file.status)];
       if (file.old_path) { tags.push("← " + file.old_path); }
       if (file.binary) { tags.push("バイナリ"); }
+      if (file.language) { tags.push(file.language); }
       if (big) { tags.push(lineCount(file) + " 行・既定で折りたたみ"); }
       tags.push("+" + file.additions + " -" + file.deletions);
 
+      var actions = el("span", { class: "file-actions" });
+      if (file.rich && window.DiffReviewRich) {
+        var richButton = el("button", {
+          type: "button",
+          class: "view-toggle",
+          "aria-pressed": viewMode(file) === "rich" ? "true" : "false",
+          text: viewMode(file) === "rich" ? "rich 表示" : "source 表示"
+        });
+        richButton.addEventListener("click", function () { toggleView(section, file); });
+        actions.appendChild(richButton);
+      }
+      if (!file.binary && file.expand && !file.expand.truncated) {
+        var allButton = el("button", { type: "button", class: "expand-all", text: "すべて展開" });
+        allButton.addEventListener("click", function () { expandAll(section, file); });
+        actions.appendChild(allButton);
+      }
       var commentButton = el("button", {
         type: "button",
         class: "comment-open",
@@ -397,11 +449,12 @@
       commentButton.addEventListener("click", function () {
         toggleComposer(fileKey(file.path), commentButton, { path: file.path, line: null, side: null });
       });
+      actions.appendChild(commentButton);
 
       section.appendChild(el("div", { class: "file-head" }, [
         el("div", { class: "path" }, [toggle]),
         el("div", { class: "tags", text: tags.join(" ・ ") }),
-        commentButton
+        actions
       ]));
       section.appendChild(el("div", { class: "threads", "data-threads": fileKey(file.path) }));
       section.appendChild(el("div", { class: "composer-slot", "data-composer": fileKey(file.path) }));
@@ -428,24 +481,206 @@
     renderThreads();
   }
 
+  function toggleView(section, file) {
+    viewModes[file.path] = viewMode(file) === "rich" ? "source" : "rich";
+    var button = section.querySelector(".view-toggle");
+    if (button) {
+      button.setAttribute("aria-pressed", viewMode(file) === "rich" ? "true" : "false");
+      button.textContent = viewMode(file) === "rich" ? "rich 表示" : "source 表示";
+    }
+    var body = section.querySelector(".file-body");
+    clear(body);
+    fillFileBody(body, file);
+    renderThreads();
+    if (button) { button.focus(); }
+  }
+
+  function expandAll(section, file) {
+    // ファイル内の隙間をすべて開く（AC12）。折りたたみ中なら先に開く。
+    var gaps = gapsOf(file);
+    var state = expandState[file.path] || (expandState[file.path] = {});
+    gaps.forEach(function (gap, i) {
+      state[i] = { top: gap.end - gap.start + 1, bottom: 0 };
+    });
+    section.setAttribute("data-collapsed", "false");
+    section.querySelector(".file-toggle").setAttribute("aria-expanded", "true");
+    // **フォーカスを落とさない**（AC-I4）。描き直しで行のノードが作り直されるので、
+    // 元いた行を指し直し、見つからなければ押したボタンへ戻す。
+    var currentKey = currentRow && currentRow.getAttribute ? currentRow.getAttribute("data-key") : null;
+    var body = section.querySelector(".file-body");
+    clear(body);
+    fillFileBody(body, file);
+    renderThreads();
+    var again = currentKey
+      ? section.querySelector('.row[data-key="' + cssEscape(currentKey) + '"]')
+      : null;
+    setCurrentRow(again);
+    if (again) { again.focus(); }
+    else {
+      var button = section.querySelector(".expand-all");
+      if (button) { button.focus(); }
+    }
+  }
+
+  function hunkRange(hunk) {
+    // そのハンクが新側で占める行番号の範囲（削除だけのハンクは空になる）
+    var first = null, last = null;
+    (hunk.lines || []).forEach(function (line) {
+      if (line.new === null || line.new === undefined) { return; }
+      if (first === null) { first = line.new; }
+      last = line.new;
+    });
+    if (first === null) { return { start: hunk.new_start, end: hunk.new_start - 1 }; }
+    return { start: first, end: last };
+  }
+
+  function gapsOf(file) {
+    // ハンクとハンクの間・前後の「見えていない範囲」を出す
+    if (!file.expand || file.expand.truncated || !file.expand.count) { return []; }
+    var total = file.expand.count;
+    var gaps = [];
+    var cursor = 1;
+    (file.hunks || []).forEach(function (hunk) {
+      var range = hunkRange(hunk);
+      if (range.start > cursor) { gaps.push({ start: cursor, end: range.start - 1 }); }
+      else { gaps.push(null); }
+      cursor = Math.max(cursor, range.end + 1);
+    });
+    gaps.push(cursor <= total ? { start: cursor, end: total } : null);
+    return gaps;
+  }
+
+  function expandLine(file, no) {
+    var ex = file.expand;
+    if (!ex || ex.truncated) { return null; }
+    if (ex.tokens) { return { tokens: ex.tokens[no - 1] || [], text: null }; }
+    if (ex.lines) { return { tokens: null, text: ex.lines[no - 1] === undefined ? "" : ex.lines[no - 1] }; }
+    return null;
+  }
+
   function fillFileBody(body, file) {
-    if (file.binary) {
+    if (file.binary && !(file.rich && viewMode(file) === "rich")) {
       body.appendChild(el("p", { class: "empty", text: "バイナリのため差分は表示しません（ファイル単位のコメントは付けられます）" }));
       return;
+    }
+    if (viewMode(file) === "rich") {
+      var rich = window.DiffReviewRich.render(file.rich);
+      if (rich) { body.appendChild(rich); return; }
     }
     if (!file.hunks || !file.hunks.length) {
       body.appendChild(el("p", { class: "empty", text: "表示できる差分の本文がありません" }));
       return;
     }
-    file.hunks.forEach(function (hunk) {
+    if (file.expand && file.expand.truncated) {
+      body.appendChild(el("p", { class: "hint", text:
+        "このファイルは " + file.expand.count + " 行あるため、前後の展開データを持っていません"
+        + "（生成時に --expand-max-lines を上げてください）" }));
+    }
+    var gaps = gapsOf(file);
+    file.hunks.forEach(function (hunk, index) {
+      renderGap(body, file, gaps[index], index);
       body.appendChild(el("div", { class: "hunk-head", text: hunk.header }));
-      hunk.lines.forEach(function (line) {
-        body.appendChild(renderRow(file, line));
-      });
+      hunk.lines.forEach(function (line) { body.appendChild(renderRow(file, line)); });
     });
+    renderGap(body, file, gaps[file.hunks.length], file.hunks.length);
   }
 
-  function renderRow(file, line) {
+  function renderGap(body, file, gap, index) {
+    if (!gap) { return; }
+    var state = expandState[file.path] || (expandState[file.path] = {});
+    var shown = state[index] || (state[index] = { top: 0, bottom: 0 });
+    var size = gap.end - gap.start + 1;
+    var topEnd = gap.start + Math.min(shown.top, size) - 1;
+    var bottomStart = gap.end - Math.min(shown.bottom, size) + 1;
+    var remaining = bottomStart - topEnd - 1;
+
+    for (var n = gap.start; n <= topEnd; n += 1) { appendContext(body, file, n); }
+    if (remaining > 0) {
+      body.appendChild(expander(file, index, gap, shown, remaining));
+      for (var m = bottomStart; m <= gap.end; m += 1) { appendContext(body, file, m); }
+    } else {
+      for (var k = topEnd + 1; k <= gap.end; k += 1) { appendContext(body, file, k); }
+    }
+  }
+
+  function expander(file, index, gap, shown, remaining) {
+    var row = el("div", { class: "expander", "data-gap": index });
+    var label = el("span", { class: "expander-label", text: "… " + remaining + " 行" });
+    var up = el("button", { type: "button", class: "expand-up", text: "↑ " + EXPAND_STEP + " 行" });
+    up.addEventListener("click", function () {
+      shown.bottom = Math.min(shown.bottom + EXPAND_STEP, gap.end - gap.start + 1);
+      redrawFile(file);
+    });
+    var down = el("button", { type: "button", class: "expand-down", text: "↓ " + EXPAND_STEP + " 行" });
+    down.addEventListener("click", function () {
+      shown.top = Math.min(shown.top + EXPAND_STEP, gap.end - gap.start + 1);
+      redrawFile(file);
+    });
+    row.appendChild(label);
+    // 下に続くハンクがあるときだけ「↑」、上にハンクがあるときだけ「↓」を出す
+    if (index < (file.hunks || []).length) { row.appendChild(up); }
+    if (index > 0) { row.appendChild(down); }
+    return row;
+  }
+
+  function redrawFile(file) {
+    var section = document.querySelector('.file[data-path="' + cssEscape(file.path) + '"]');
+    if (!section) { return; }
+    // 再描画で行のノードが作り直されるので、**現在行を指し直す**。
+    // 放っておくと currentRow が切り離されたノードのまま残り、closest(".file") が null を返して
+    // 以降のキー操作（e / Shift+E / t / f）が黙って効かなくなる。
+    var currentKey = currentRow && currentRow.getAttribute ? currentRow.getAttribute("data-key") : null;
+    var body = section.querySelector(".file-body");
+    clear(body);
+    fillFileBody(body, file);
+    renderThreads();
+    var again = currentKey
+      ? section.querySelector('.row[data-key="' + cssEscape(currentKey) + '"]')
+      : null;
+    setCurrentRow(again);
+    var next = section.querySelector(".expander button");
+    if (next) { next.focus(); }
+  }
+
+  function appendContext(body, file, no) {
+    var data = expandLine(file, no);
+    if (!data) { return; }
+    body.appendChild(renderRow(file, {
+      kind: "ctx", old: null, new: no,
+      text: data.text === null ? null : data.text,
+      tokens: data.tokens
+    }, true));
+  }
+
+  function tokensFor(file, line) {
+    // 行が自分でトークンを持っていればそれ。無ければ**展開データ側から行番号で引く**
+    // （同じ配列を 2 回運ばないための取り決め。生成側 attach_tokens と対）。
+    if (line.tokens) { return line.tokens; }
+    var ex = file && file.expand;
+    if (!ex || !ex.tokens) { return null; }
+    var side = line.kind === "del" ? "old" : "new";
+    if (ex.side !== side) { return null; }
+    var number = line.kind === "del" ? line.old : line.new;
+    if (!number) { return null; }
+    return ex.tokens[number - 1] || null;
+  }
+
+  function codeCell(file, line) {
+    // トークンがあれば span に分けて描く。無ければそのままテキスト（どちらも textContent）。
+    var cell = el("span", { class: "code" });
+    line = { kind: line.kind, old: line.old, new: line.new, text: line.text,
+             tokens: tokensFor(file, line) };
+    if (line.tokens && line.tokens.length) {
+      line.tokens.forEach(function (token) {
+        cell.appendChild(el("span", { class: "tok-" + token[0], text: token[1] }));
+      });
+      return cell;
+    }
+    cell.textContent = line.text === null || line.text === undefined ? "" : line.text;
+    return cell;
+  }
+
+  function renderRow(file, line, expanded) {
     var side = line.kind === "del" ? "LEFT" : "RIGHT";
     var number = line.kind === "del" ? line.old : line.new;
     var key = rowKey(file.path, side, number);
@@ -464,17 +699,17 @@
     });
 
     var row = el("div", {
-      class: "row",
+      class: expanded ? "row expanded" : "row",
       "data-kind": line.kind,
       "data-key": key,
       tabindex: "-1"
     }, [
       el("div", { class: "line" }, [
-        el("span", { class: "gutter", text: line.old === null ? "" : String(line.old) }),
-        el("span", { class: "gutter", text: line.new === null ? "" : String(line.new) }),
+        el("span", { class: "gutter", text: line.old === null || line.old === undefined ? "" : String(line.old) }),
+        el("span", { class: "gutter", text: line.new === null || line.new === undefined ? "" : String(line.new) }),
         button,
         el("span", { class: "mark", text: mark }),
-        el("span", { class: "code", text: line.text })
+        codeCell(file, line)
       ])
     ]);
     row.addEventListener("focus", function () { setCurrentRow(row); });
@@ -482,6 +717,7 @@
     row.appendChild(el("div", { class: "composer-slot", "data-composer": key }));
     return row;
   }
+
 
   // ------------------------------------------------------- コメントの描画
 
@@ -539,35 +775,38 @@
   }
 
   function renderThread(thread) {
-    var resolveButton = el("button", {
-      type: "button",
-      text: thread.resolved ? "未解決に戻す" : "解決にする"
+    var isNote = thread.kind === "note";
+    var head = el("span", {
+      class: thread.resolved ? "state-resolved" : "",
+      text: locationLabel(thread) + (thread.resolved ? " ・ 解決済み" : "")
     });
-    resolveButton.addEventListener("click", function () {
-      thread.resolved = !thread.resolved;
-      persist();
-      renderThreads();
-    });
+    var actions = el("span", {});
+    if (isNote) {
+      // 説明は「解決する」ものではないので、解決ボタンを出さない（decisions.md D9）
+      head.appendChild(document.createTextNode(" "));
+      head.appendChild(el("span", { class: "badge badge-note", text: "説明" }));
+    } else {
+      var resolveButton = el("button", {
+        type: "button",
+        text: thread.resolved ? "未解決に戻す" : "解決にする"
+      });
+      resolveButton.addEventListener("click", function () {
+        thread.resolved = !thread.resolved;
+        persist();
+        renderThreads();
+      });
+      actions.appendChild(resolveButton);
+    }
 
-    var replyButton = el("button", { type: "button", "aria-expanded": "false", text: "返信" });
-    replyButton.addEventListener("click", function () {
-      toggleComposer("reply:" + thread.id, replyButton, null, thread);
-    });
-
-    var node = el("div", { class: "thread", "data-resolved": thread.resolved ? "true" : "false" }, [
-      el("div", { class: "thread-head" }, [
-        el("span", {
-          class: thread.resolved ? "state-resolved" : "",
-          text: locationLabel(thread) + (thread.resolved ? " ・ 解決済み" : "")
-        }),
-        el("span", {}, [resolveButton, replyButton])
-      ])
-    ]);
+    var node = el("div", {
+      class: isNote ? "thread thread-note" : "thread",
+      "data-kind": thread.kind || "review",
+      "data-resolved": thread.resolved ? "true" : "false"
+    }, [el("div", { class: "thread-head" }, [head, actions])]);
 
     thread.comments.forEach(function (comment) {
       node.appendChild(renderComment(thread, comment));
     });
-    node.appendChild(el("div", { class: "composer-slot", "data-composer": "reply:" + thread.id }));
     return node;
   }
 
@@ -575,16 +814,31 @@
     var who = el("div", { class: "who" }, [
       el("span", { text: comment.author || "unknown" })
     ]);
-    if (!comment.review_id) {
+    if (comment.severity) {
+      who.appendChild(document.createTextNode(" "));
+      who.appendChild(el("span", { class: "badge sev-" + comment.severity, text: comment.severity }));
+    }
+    if (!comment.review_id && thread.kind !== "note") {
       who.appendChild(document.createTextNode(" "));
       who.appendChild(el("span", { class: "pending", text: "未提出" }));
     }
-    var node = el("div", { class: "comment" }, [who, el("div", { class: "body", text: comment.body })]);
-    if (!comment.review_id) {
+    var node = el("div", { class: "comment", "data-comment": comment.id },
+                 [who, el("div", { class: "body", text: comment.body })]);
+
+    // **返信はコメント 1 件ごと**（返信への返信も同じ経路で、親はその返信になる）
+    var replyKey = "reply:" + thread.id + ":" + comment.id;
+    var replyButton = el("button", { type: "button", "aria-expanded": "false", text: "返信" });
+    replyButton.addEventListener("click", function () {
+      toggleComposer(replyKey, replyButton, null, thread, comment);
+    });
+    var buttons = [replyButton];
+    if (!comment.review_id && thread.kind !== "note") {
       var cancel = el("button", { type: "button", text: "取り消し" });
       cancel.addEventListener("click", function () { cancelComment(thread, comment); });
-      node.appendChild(el("div", { class: "row-actions" }, [cancel]));
+      buttons.push(cancel);
     }
+    node.appendChild(el("div", { class: "row-actions" }, buttons));
+    node.appendChild(el("div", { class: "composer-slot", "data-composer": replyKey }));
     return node;
   }
 
@@ -599,41 +853,84 @@
 
   // ------------------------------------------------------------- 入力欄
 
-  function toggleComposer(key, trigger, location, thread) {
+  function toggleComposer(key, trigger, location, thread, parent) {
     var slot = document.querySelector('[data-composer="' + cssEscape(key) + '"]');
     if (!slot) { return; }
     if (slot.firstChild) { closeComposer(key, trigger); return; }
-    openComposer(key, trigger, location, thread);
+    openComposer(key, trigger, location, thread, parent);
   }
 
-  function openComposer(key, trigger, location, thread) {
+  function draftOf(key) {
+    var draft = drafts[key];
+    if (typeof draft === "string") { return { body: draft, severity: "", note: false }; }  // 旧形式
+    return draft || { body: "", severity: "", note: false };
+  }
+
+  function openComposer(key, trigger, location, thread, parent) {
     var slot = document.querySelector('[data-composer="' + cssEscape(key) + '"]');
     if (!slot || slot.firstChild) { return; }
+    var draft = draftOf(key);
+    var isReply = !!thread;
+    var isNoteThread = isReply && thread.kind === "note";
+
     var area = el("textarea", { rows: "3", placeholder: "コメント（Ctrl/⌘ + Enter で確定）" });
-    area.value = drafts[key] || "";
-    area.addEventListener("input", function () {
-      drafts[key] = area.value;
+    area.value = draft.body || "";
+
+    // 重大度。説明（note）には付けないので、そのときは出さない。
+    var severity = el("select", { class: "severity", "aria-label": "重大度" });
+    [["", "重大度なし"], ["must", "must（直す）"], ["should", "should（直したい）"], ["nit", "nit（好み）"]]
+      .forEach(function (pair) {
+        var option = el("option", { value: pair[0], text: pair[1] });
+        if (pair[0] === (draft.severity || "")) { option.setAttribute("selected", "selected"); }
+        severity.appendChild(option);
+      });
+    severity.value = draft.severity || "";
+
+    // 「説明として残す」= レビュー提出の対象外（kind: note）。新しいスレッドのときだけ選べる。
+    var noteBox = el("input", { type: "checkbox", id: "note-" + cssEscape(key) });
+    noteBox.checked = !!draft.note;
+    var noteLabel = el("label", { class: "note-toggle" }, [
+      noteBox, document.createTextNode(" 説明として残す（レビュー対象外）")
+    ]);
+
+    function save() {
+      drafts[key] = { body: area.value, severity: severity.value, note: noteBox.checked };
       persist();
+    }
+    area.addEventListener("input", save);
+    severity.addEventListener("change", save);
+    noteBox.addEventListener("change", function () {
+      save();
+      severity.disabled = noteBox.checked;
     });
+    severity.disabled = noteBox.checked || isNoteThread;
+
     area.addEventListener("keydown", function (event) {
       if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
         event.preventDefault();
-        confirmComment(key, trigger, location, thread, area.value);
+        submitComposer();
       } else if (event.key === "Escape") {
         event.preventDefault();
         closeComposer(key, trigger);
       }
     });
 
-    var submit = el("button", { type: "button", text: "コメントする" });
-    submit.addEventListener("click", function () {
-      confirmComment(key, trigger, location, thread, area.value);
-    });
+    function submitComposer() {
+      confirmComment(key, trigger, location, thread, parent, area.value,
+                     severity.disabled ? "" : severity.value,
+                     isReply ? (thread.kind === "note") : noteBox.checked);
+    }
+
+    var submit = el("button", { type: "button", text: isReply ? "返信する" : "コメントする" });
+    submit.addEventListener("click", submitComposer);
     var close = el("button", { type: "button", text: "閉じる" });
     close.addEventListener("click", function () { closeComposer(key, trigger); });
 
+    var controls = [severity];
+    if (!isReply) { controls.push(noteLabel); }
     slot.appendChild(el("div", { class: "composer" }, [
       area,
+      el("div", { class: "composer-controls" }, controls),
       el("div", { class: "row-actions" }, [submit, close])
     ]));
     if (trigger) { trigger.setAttribute("aria-expanded", "true"); }
@@ -649,29 +946,39 @@
     }
   }
 
-  function confirmComment(key, trigger, location, thread, text) {
+  function confirmComment(key, trigger, location, thread, parent, text, severity, asNote) {
     var body = (text || "").trim();
     if (!body) { return; }
+    var sev = SEVERITIES.indexOf(severity) === -1 ? null : severity;
     if (thread) {
-      var parent = thread.comments.length ? thread.comments[thread.comments.length - 1].id : null;
       thread.comments.push({
         id: nextId("c"),
         review_id: null,
         author: "human",
         body: body,
-        in_reply_to: parent
+        severity: thread.kind === "note" ? null : sev,
+        in_reply_to: parent ? parent.id : (thread.comments.length
+          ? thread.comments[thread.comments.length - 1].id : null)
       });
     } else {
       state.threads.push({
         id: nextId("t"),
         _order: state.threads.length,
+        kind: asNote ? "note" : "review",
         path: location.path,
         line: location.line,
         side: location.side,
         start_line: null,
         start_side: null,
         resolved: false,
-        comments: [{ id: nextId("c"), review_id: null, author: "human", body: body, in_reply_to: null }]
+        comments: [{
+          id: nextId("c"),
+          review_id: null,
+          author: "human",
+          body: body,
+          severity: asNote ? null : sev,
+          in_reply_to: null
+        }]
       });
     }
     delete drafts[key];
@@ -683,8 +990,10 @@
   // --------------------------------------------------------------- 提出
 
   function pendingComments() {
+    // 説明（note）は提出されないので数えない（decisions.md D9）
     var out = [];
     state.threads.forEach(function (thread) {
+      if (thread.kind === "note") { return; }
       thread.comments.forEach(function (comment) {
         if (!comment.review_id) { out.push(comment); }
       });
@@ -692,9 +1001,28 @@
     return out;
   }
 
+  var reviewStarted = false;
+
   function updatePendingCount() {
     var node = document.getElementById("pending-count");
-    if (node) { node.textContent = "未提出のコメント: " + pendingComments().length + " 件"; }
+    if (node) {
+      node.textContent = "未提出のコメント: " + pendingComments().length + " 件"
+        + (reviewStarted ? "（レビュー中）" : "");
+    }
+    var start = document.getElementById("btn-start-review");
+    if (start) {
+      var active = reviewStarted || pendingComments().length > 0;
+      start.setAttribute("aria-pressed", active ? "true" : "false");
+      start.textContent = active ? "レビュー中（提出する）" : "レビューを開始";
+    }
+  }
+
+  function startReview() {
+    reviewStarted = true;
+    showPanel("submit-panel", true);
+    updatePendingCount();
+    var body = document.getElementById("review-body");
+    if (body) { body.focus(); }
   }
 
   function submitReview() {
@@ -710,6 +1038,7 @@
     state.reviews.push(review);
     pending.forEach(function (comment) { comment.review_id = review.id; });
     document.getElementById("review-body").value = "";
+    reviewStarted = false;
     persist();
     renderThreads();
     banner("レビューを提出しました（" + stateValue + "）。JSON を書き出して渡してください。", []);
@@ -717,6 +1046,7 @@
 
   function discardPending() {
     state.threads.forEach(function (thread) {
+      if (thread.kind === "note") { return; }   // 説明は提出の対象外なので破棄もしない
       thread.comments = thread.comments.filter(function (comment) { return !!comment.review_id; });
     });
     state.threads = state.threads.filter(function (thread) { return thread.comments.length; });
@@ -780,9 +1110,11 @@
   }
 
   function setCurrentRow(row) {
-    if (currentRow && currentRow !== row) { currentRow.removeAttribute("data-current"); }
-    currentRow = row;
-    if (row) { row.setAttribute("data-current", "true"); }
+    if (currentRow && currentRow !== row && currentRow.removeAttribute) {
+      currentRow.removeAttribute("data-current");
+    }
+    currentRow = row || null;
+    if (currentRow) { currentRow.setAttribute("data-current", "true"); }
   }
 
   function moveRow(step) {
@@ -794,6 +1126,13 @@
     setCurrentRow(next);
     next.focus();
     next.scrollIntoView({ block: "nearest" });
+  }
+
+  function currentSection() {
+    // 現在行が生きていればそこから、そうでなければフォーカス位置から「いま見ているファイル」を引く。
+    if (currentRow && currentRow.isConnected) { return currentRow.closest(".file"); }
+    var active = document.activeElement;
+    return active && active.closest ? active.closest(".file") : null;
   }
 
   function isTyping(event) {
@@ -828,13 +1167,34 @@
       }
       return;
     }
+    if (key === "e" || key === "E") {
+      var fileSection = currentSection();
+      if (fileSection) {
+        event.preventDefault();
+        // e … 展開ボタンを 1 回 / Shift+E（= 大文字の E）… そのファイルを全部開く。
+        // shiftKey だけを見ると、環境によって大文字 E が shiftKey なしで届いたときに
+        // 「全部開く」が黙って効かなくなるので、キーが大文字であることも合図として使う。
+        var wantAll = event.shiftKey || key === "E";
+        var selector = wantAll ? ".expand-all" : ".expand-down, .expand-up";
+        var target = fileSection.querySelector(selector);
+        if (target) { target.click(); }
+      }
+      return;
+    }
+    if (key === "t") {
+      var richSection = currentSection();
+      var viewButton = richSection && richSection.querySelector(".view-toggle");
+      if (viewButton) {
+        event.preventDefault();
+        viewButton.click();
+      }
+      return;
+    }
     if (key === "f") {
-      if (currentRow) {
-        var section = currentRow.closest(".file");
-        if (section) {
-          event.preventDefault();
-          section.querySelector(".file-toggle").click();
-        }
+      var section = currentSection();
+      if (section) {
+        event.preventDefault();
+        section.querySelector(".file-toggle").click();
       }
       return;
     }
@@ -881,6 +1241,13 @@
     document.getElementById("btn-submit-close").addEventListener("click", function () {
       showPanel("submit-panel", false);
     });
+    var startButton = document.getElementById("btn-start-review");
+    if (startButton) {
+      startButton.addEventListener("click", function () {
+        if (document.getElementById("submit-panel").hidden) { startReview(); }
+        else { showPanel("submit-panel", false); }
+      });
+    }
     document.getElementById("btn-export-open").addEventListener("click", openExport);
     document.getElementById("btn-export-close").addEventListener("click", function () {
       showPanel("export-panel", false);

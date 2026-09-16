@@ -15,6 +15,7 @@
     <p class="meta" id="meta"></p>
   </div>
   <div class="actions">
+    <button type="button" id="btn-start-review" aria-pressed="false">レビューを開始</button>
     <button type="button" id="btn-submit-open">レビューを提出</button>
     <button type="button" id="btn-export-open">JSON を書き出す</button>
     <label class="filebtn" for="file-import">JSON を読み込む</label>
@@ -33,6 +34,8 @@
       <tr><th><kbd>c</kbd> / <kbd>Enter</kbd></th><td>その行にコメントを書く</td></tr>
       <tr><th><kbd>Esc</kbd></th><td>コメント欄を閉じる（書きかけは残る）</td></tr>
       <tr><th><kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>Enter</kbd></th><td>コメントを確定（未提出として溜める）</td></tr>
+      <tr><th><kbd>e</kbd></th><td>前後の行を展開（<kbd>Shift</kbd>+<kbd>E</kbd> でそのファイルを全部）</td></tr>
+      <tr><th><kbd>t</kbd></th><td>rich 表示 ↔ source 表示の切り替え</td></tr>
       <tr><th><kbd>f</kbd></th><td>そのファイルの折りたたみを切り替え</td></tr>
       <tr><th><kbd>r</kbd></th><td>レビューの提出パネルを開く</td></tr>
       <tr><th><kbd>?</kbd></th><td>この一覧を開閉</td></tr>
@@ -85,6 +88,7 @@
 
 <script type="application/json" id="diff-data">__DIFF_DATA__</script>
 <script type="application/json" id="review-data">__REVIEW_DATA__</script>
+<script>__RICH_JS__</script>
 <script>__APP_JS__</script>
 </body>
 </html>

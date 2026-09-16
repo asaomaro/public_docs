@@ -1,6 +1,6 @@
 ---
 name: diff-review-html
-description: ローカルの git 差分（未ステージ / ステージ済み / コミット間）を、GitHub の PR 画面のように読める単一HTMLにして出力する。画面では行・ファイル・全体の3階層にコメントし、返信・解決・提出（Approve / Request changes / Comment）まで行え、その記録をJSONで書き出し／読み込みできる。AIが書いた指摘のJSONを埋め込んだHTMLを作ることも、人間が書いた指摘のJSONをAIが読んで修正することもできる。「差分をHTMLで見たい」「差分レビューの画面を作って」「レビュー用のHTMLを生成して」「レビュー結果をJSONで受け渡したい」「レビュー記録のJSONを読み込んで」と言われたときに使用する。GitHubのPRそのものへの投稿や取得は行わない。
+description: ローカルの git 差分（未ステージ / ステージ済み / コミット間）を、GitHub の PR 画面のように読める単一HTMLにして出力する。シンタックスハイライト、CSV/TSV・Markdown（mermaid・alert記法）・HTML・PDF の rich diff、前後の行を押した分だけ広げる段階展開つき。画面では行・ファイル・全体の3階層にコメントし、must/should/nit の重大度、コメントごとの返信、解決、提出（Approve / Request changes / Comment）、レビュー対象外の説明コメントまで行え、その記録をJSONで書き出し／読み込みできる。AIが書いた指摘のJSONを埋め込んだHTMLを作ることも、人間が書いた指摘のJSONをAIが読んで修正することもできる。「差分をHTMLで見たい」「差分レビューの画面を作って」「レビュー用のHTMLを生成して」「レビュー結果をJSONで受け渡したい」「レビュー記録のJSONを読み込んで」と言われたときに使用する。GitHubのPRそのものへの投稿や取得は行わない。
 allowed-tools: [Bash, Read]
 ---
 
@@ -48,6 +48,13 @@ python3 <skill>/diff_review.py html --repo . --import review.json --out review.h
 `--out` を省くと標準出力へ出る。`--context N` で前後の文脈行数、`--title` で見出しを変えられる。
 できた HTML はブラウザで開くだけでよい（サーバは要らない）。
 
+**容量と rich を調整するフラグ**:
+
+| フラグ | 既定 | 何が変わるか |
+|---|---|---|
+| `--expand-max-lines N` | 2000 | 画面で前後を展開するために全文を埋める上限（行数）。**超えるファイルは展開できない**（画面に理由が出る）。`0` で展開データを一切埋めない（いちばん軽い）。**ハイライトは影響を受けない**——差分行にしか乗らないので軽い |
+| `--rich auto\|off` | auto | `off` にすると CSV/Markdown/HTML/PDF の rich diff を作らない。**auto でも対象が 1 件も無ければ描画コードは埋め込まれない** |
+
 ### 2. JSON を作る（AI がレビューする場合）
 
 **`template` で雛形を作り、`threads` に指摘を足す。`target` は書き換えない**
@@ -65,6 +72,7 @@ python3 <skill>/diff_review.py html --repo . --import review.json --out review.h
 ```json
 {
   "id": "t1",
+  "kind": "review",
   "path": "src/parse.py",
   "line": 120,
   "side": "RIGHT",
@@ -72,22 +80,27 @@ python3 <skill>/diff_review.py html --repo . --import review.json --out review.h
   "start_side": null,
   "resolved": false,
   "comments": [
-    { "id": "c1", "review_id": null, "author": "ai", "body": "空文字のとき例外になります", "in_reply_to": null }
+    { "id": "c1", "review_id": null, "author": "ai", "body": "空文字のとき例外になります",
+      "severity": "must", "in_reply_to": null }
   ]
 }
 ```
 
 - 行コメントは `path` ＋ `line` ＋ `side`（`RIGHT`＝追加・文脈行 / `LEFT`＝削除行）。
 - ファイル単位は `line: null`、差分全体は `path: null` と `line: null`。
+- **重大度**は `severity`（`must` / `should` / `nit` / `null`）。受け取る側が着手順を機械的に決められる。
+- **説明**（指摘ではない注記）は `kind: "note"`。提出されず、未解決にも数えない（`severity` は付けない）。
 - 判定を添えるなら `reviews` に 1 件足し、そのコメントの `review_id` にその `id` を書く。
 
 ### 3. JSON を読む（AI が修正する場合）
 
 ```sh
-python3 <skill>/diff_review.py check review.json           # 構造・参照・値域を検証
-python3 <skill>/diff_review.py list  review.json           # 未解決の指摘だけを一覧に
-python3 <skill>/diff_review.py list  review.json --format tsv   # path<TAB>state<TAB>本文
-python3 <skill>/diff_review.py list  review.json --all      # 解決済みも出す
+python3 <skill>/diff_review.py check review.json                 # 構造・参照・値域を検証
+python3 <skill>/diff_review.py list  review.json                 # 未解決の指摘だけを一覧に
+python3 <skill>/diff_review.py list  review.json --severity must  # must だけ（should,nit,none も指定可）
+python3 <skill>/diff_review.py list  review.json --notes          # 作者の説明コメントも出す
+python3 <skill>/diff_review.py list  review.json --format tsv     # path<TAB>重大度<TAB>state<TAB>kind<TAB>本文
+python3 <skill>/diff_review.py list  review.json --all            # 解決済みも出す
 ```
 
 `list` の出力（`path:line` と本文）をそのまま修正の作業リストにできる。
@@ -96,10 +109,28 @@ python3 <skill>/diff_review.py list  review.json --all      # 解決済みも出
 ## 画面でできること
 
 - 変更ファイル一覧（追加 / 削除行数つき）、ファイル単位の折りたたみ、追加 / 削除の色分け
-- **行 / ファイル / 全体**の 3 階層のコメント、返信（スレッド）、解決 / 未解決の切り替え
-- **未提出（pending）→ 提出**：Approve / Request changes / Comment ＋ サマリ本文
+- **シンタックスハイライト**（python / javascript / typescript / json / yaml / shell / css / html / markdown / sql）
+- **rich diff**（下記）と **rich ↔ source の切り替え**
+- **前後の行の段階展開**（`↑ 20 行` / `↓ 20 行` を押すたびに広がる）と、ファイルの **「すべて展開」**
+- **行 / ファイル / 全体**の 3 階層のコメント、**コメントごとの返信**（返信への返信も可）、解決 / 未解決
+- コメントの **重大度**（must / should / nit / なし）
+- **説明コメント**（「説明として残す」）——レビュー提出の対象に入らず、未解決にも数えない。
+  差分の作者がレビュアーに意図を残すためのもの
+- **レビューを開始** → 未提出として溜める → **提出**（Approve / Request changes / Comment ＋ サマリ）
 - JSON の書き出し（ダウンロード or コピー用テキストエリア）と読み込み（ファイル選択 / ドラッグ＆ドロップ）
 - 書きかけのコメントの自動保存と復元
+
+### rich diff の対応範囲
+
+| 形式 | 何が出るか | 限界 |
+|---|---|---|
+| `.csv` / `.tsv` | 表として並べ、**変わったセル**に印（行の追加・削除も色分け） | 列がずれる編集は行単位の対応付けに従う |
+| `.md` / `.markdown` | 見出し・リスト・表・コード・引用・リンクを描画。**GitHub alert 記法**（`> [!NOTE]` 等 5 種）は専用表示 | 画像は取得せずテキストに落とす（オフライン維持） |
+| Markdown 内の **mermaid** | `flowchart` / `graph` / `stateDiagram` / `sequenceDiagram` を **SVG に描いて埋め込む** | **mermaid 公式とは絵が違う**（読める図が目標）。他の図種はコードのまま＋理由 |
+| `.html` / `.htm` | `<iframe sandbox="">` で描画（**スクリプトは実行されない**） | 外部リソースは読み込まれない |
+| `.pdf` | ページ数・サイズ＋**テキストの差分** | ToUnicode を持たない PDF（スキャン等）ではテキストが取れず、理由が出る |
+
+rich は**生成時に作られる**（ブラウザに解析器を積まない）。対象が 1 件も無ければ描画コードごと省かれる。
 
 ### キー操作
 
@@ -109,6 +140,8 @@ python3 <skill>/diff_review.py list  review.json --all      # 解決済みも出
 | `c` / `Enter` | その行にコメントを書く |
 | `Esc` | コメント欄を閉じる（**書きかけは残る**） |
 | `Ctrl` / `⌘` + `Enter` | コメントを確定（未提出として溜まる） |
+| `e` | 前後の行を展開（`Shift` + `E` でそのファイルを全部） |
+| `t` | rich 表示 ↔ source 表示 |
 | `f` | そのファイルの折りたたみを切り替え |
 | `r` | 提出パネルを開く |
 | `?` | キー操作の一覧 |
@@ -121,8 +154,11 @@ python3 <skill>/diff_review.py list  review.json --all      # 解決済みも出
   （書き出しだけが確実な永続化）。
 - **隣に置いた JSON を自動では読めない**。`file://` ではページから他のファイルを読めないため、
   読み込みは「ファイル選択 / ドラッグ＆ドロップ」か、生成時の `--import` に限る。
-- 構文ハイライトと side-by-side 表示は持たない（unified 表示・差分の色分けのみ）。
+- **side-by-side 表示は持たない**（unified のみ）。rich diff だけは変更前 / 変更後を並べて出す。
+- ハイライトは正規表現ベースの近似（構文解析器ではない）。未対応の拡張子は素のまま表示する。
 - 大きいファイル（2,000 行超の差分）は既定で折りたたみ、開いたときに描画する。
+- `--expand-max-lines`（既定 2,000 行）を超えるファイルは、**前後を展開できない**（全文を埋めないため）。
+  画面にその旨が出る。ハイライトは効いたまま（差分行にしか乗らないので容量への影響が小さい）。
 
 ## 出力の性質
 
@@ -137,8 +173,10 @@ python3 <skill>/diff_review.py list  review.json --all      # 解決済みも出
 | パス | 役割 |
 |---|---|
 | `<skill>/diff_review.py` | 生成・検証の script（サブコマンド `html` / `template` / `check` / `list`） |
-| `<skill>/schema.md` | **レビュー記録 JSON の正典**（AI が書く前に読む） |
-| `<skill>/templates/` | 画面の素材（`page.html` / `style.css` / `app.js`） |
+| `<skill>/schema.md` | **レビュー記録 JSON の正典**（AI が書く前に読む。現行は `diff-review/2`） |
+| `<skill>/highlight.py` | シンタックスハイライト（生成時に行う） |
+| `<skill>/richdiff.py` | rich diff の生成（CSV / Markdown / mermaid / HTML / PDF） |
+| `<skill>/templates/` | 画面の素材（`page.html` / `style.css` / `app.js` / `rich.js`） |
 | `<skill>/tests/test_diff_review.py` | `python3 -m unittest` で回るテスト |
 
 ## 終了コード
