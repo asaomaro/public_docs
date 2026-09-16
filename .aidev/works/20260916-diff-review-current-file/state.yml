@@ -1,10 +1,11 @@
 schema: 11
 slug: diff-review-current-file
-current: review
-approved: [requirements, coding, test, review]
+current: deliver
+approved: [requirements, coding, test, review, deliver]
 mode: autonomous
 profile: light
 humanGates: []
 maxSendBacks: 3
 dependsOn: [20260916-diff-review-ux-polish]
 harnessRev: 8edfc354c955
+harnessRevDelivered: 8edfc354c955
