@@ -17,11 +17,15 @@
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 SCHEMA = "diff-review/1"
+
+# テンプレートの差し込み口。`render_html` はこの 5 つを 1 回の走査で置き換える。
+PLACEHOLDER_RE = re.compile(r"__(?:TITLE|STYLE|APP_JS|DIFF_DATA|REVIEW_DATA)__")
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 
 # git が「空のツリー」に与えている固定のハッシュ。最初のコミットの差分を取るときに親の代わりに使う。
@@ -516,9 +520,11 @@ def render_html(target, files, review, title):
         "__DIFF_DATA__": json_for_script_block(diff_data),
         "__REVIEW_DATA__": json_for_script_block(review) if review is not None else "null",
     }
-    for key, value in replacements.items():
-        page = page.replace(key, value)
-    return page
+    # **1 回の走査ですべて置き換える**。`str.replace` を順に掛けると、先に差し込んだ中身を
+    # 次の置換が書き換えてしまう——差分に `__REVIEW_DATA__` のような文字列が含まれていると
+    # （このテンプレート自身の差分をレビューすると必ず起きる）、埋め込んだ JSON の途中に
+    # 別の JSON が挿し込まれて壊れる。置換後の文字列は再走査しない。
+    return PLACEHOLDER_RE.sub(lambda m: replacements[m.group(0)], page)
 
 
 def cmd_html(args):

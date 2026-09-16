@@ -143,6 +143,23 @@ class HtmlTest(unittest.TestCase):
         for marker in ("http://", "https://", "//cdn."):
             self.assertNotIn(marker, html, "オフラインで開けるよう外部参照を持たない")
 
+    def test_placeholder_text_in_diff_does_not_corrupt_embedding(self):
+        """差分がテンプレートのプレースホルダ文字列を含んでも、埋め込み JSON が壊れないこと。
+
+        自分自身（templates/page.html）の差分をレビューすると必ず踏む。順に str.replace すると、
+        先に差し込んだ差分 JSON の中を次の置換が書き換えて JSON が壊れる。
+        """
+        # 追跡済みファイルに書く（未追跡のままだと `git diff` に出ず、検査が素通りする）
+        (self.repo / "plain.txt").write_text(
+            "a\n__DIFF_DATA__\n__REVIEW_DATA__\n__STYLE__\n__APP_JS__\n__TITLE__\n", encoding="utf-8")
+        _code, html, _err = cli(self.repo, "html", "--repo", ".")
+        for block_id in ("diff-data", "review-data"):
+            start = html.index('id="%s">' % block_id) + len('id="%s">' % block_id)
+            end = html.index("</script>", start)
+            payload = html[start:end]
+            json.loads(payload)  # 壊れていれば JSONDecodeError で落ちる
+        self.assertIn("__REVIEW_DATA__", html, "差分の中身としてはそのまま出ること")
+
     def test_import_rejects_broken_record(self):
         code, _out, _err = cli(self.repo, "template", "--repo", ".")
         self.assertEqual(code, 0)
