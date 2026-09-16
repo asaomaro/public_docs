@@ -287,7 +287,7 @@ cat > "$TMP/.aidev/works/20260101-hint/state.yml" <<'YML'
 schema: 3
 slug: hint
 current: requirements
-approved: []
+approved: [requirements]
 YML
 : > "$TMP/.aidev/works/20260101-hint/requirements.md"
 cat > "$TMP/.aidev/works/20260101-hint/metrics.yml" <<'YML'
@@ -338,11 +338,15 @@ for _pmc in requirements:no research:no design:yes architecture:yes tasks:yes co
   fi
 done
 # **subtask の tasks は親が切り方を確定済み**——同じ工程名でも促してはいけない
+mkdir -p "$TMP/.aidev/works/20260101-order"
+printf 'schema: 3\nslug: order\napproved: [design]\n' > "$TMP/.aidev/works/20260101-order/state.yml"
+: > "$TMP/.aidev/works/20260101-order/design.md"
 printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: []\nparent: 20260101-order\n' \
   > "$PM_W/state.yml"
 assert_eq "$(run_sh guard tasks 2>&1 | grep -c '成果物を書く前に方針だけを提示')" "0" \
   "guard tasks: subtask では促さない（切り方は親の tasks が確定済み）"
-printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: []\n' > "$PM_W/state.yml"
+rm -rf "$TMP/.aidev/works/20260101-order"
+printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: [requirements]\n' > "$PM_W/state.yml"
 rm -f "$PM_W/design.md" "$PM_W/architecture.md" "$PM_W/tasks.md" "$PM_W/tasks.md"
 # **方針の提示先まで言う**。「承認を得る」とだけ言うと、**どこに提示するかが決まらない**
 # （実走が実測——会話で済ませると記録に残らず、廃止した plan モードの欠点をそのまま引き継ぐ）。
@@ -355,30 +359,36 @@ printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: []\nprofile: lig
   > "$TMP/.aidev/works/20260101-hint/state.yml"
 assert_eq "$(run_sh guard design 2>&1 | grep -c '成果物を書く前に方針だけを提示')" "0" \
   "guard design: light では促さない（往復を減らす趣旨に反する）"
-printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: []\nmode: autonomous\n' \
+printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: [requirements]\nmode: autonomous\n' \
   > "$TMP/.aidev/works/20260101-hint/state.yml"
 assert_eq "$(run_sh guard design 2>&1 | grep -c '成果物を書く前に方針だけを提示')" "0" \
   "guard design: autonomous では促さない（承認者がいない）"
 # **見るのは mode ではなく「その工程に承認者がいるか」**。`humanGates` の部分自律には承認者がいる。
 # `mode != autonomous` で判定していた頃は、他 PJ の retro が実績として報告している構成で
 # 承認者がいるのに促しを止めていた（実走で実測）
-printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: []\nmode: autonomous\nhumanGates: [design]\n' \
+printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: [requirements]\nmode: autonomous\nhumanGates: [design]\n' \
   > "$TMP/.aidev/works/20260101-hint/state.yml"
 assert_eq "$(run_sh guard design 2>&1 | grep -c '成果物を書く前に方針だけを提示')" "1" \
   "guard design: humanGates に挙がっていれば autonomous でも促す（承認者がいる）"
+: > "$PM_W/design.md"
+printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: [requirements, design]\nmode: autonomous\nhumanGates: [design]\n' \
+  > "$TMP/.aidev/works/20260101-hint/state.yml"
 assert_eq "$(run_sh guard architecture 2>&1 | grep -c '成果物を書く前に方針だけを提示')" "0" \
   "guard architecture: humanGates に無い工程は promote しない（工程ごとに見る）"
 # **見るのは「この工程に承認者がいるか」で、mode そのものではない**。承認を出すのが
 # 人間だから。`autonomous` を一律で外していた頃は、`humanGates: [design]` の部分自律——
 # 他 PJ の retro が実績として報告している構成——で**承認者がいるのに促しを止めていた**（実走で実測）
-printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: []\nmode: autonomous\nhumanGates: [design]\n' \
+printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: [requirements]\nmode: autonomous\nhumanGates: [design]\n' \
   > "$TMP/.aidev/works/20260101-hint/state.yml"
 assert_eq "$(run_sh guard design 2>&1 | grep -c '成果物を書く前に方針だけを提示')" "1" \
   "guard design: autonomous でも humanGates にあれば促す（部分自律）"
+printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: [requirements, design]\nmode: autonomous\nhumanGates: [design]\n' \
+  > "$TMP/.aidev/works/20260101-hint/state.yml"
 assert_eq "$(run_sh guard architecture 2>&1 | grep -c '成果物を書く前に方針だけを提示')" "0" \
   "guard architecture: humanGates に無い工程は autonomous のまま促さない"
+rm -f "$PM_W/design.md"
 # light は承認者の有無と無関係に外す（往復を減らす趣旨に反する）
-printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: []\nmode: autonomous\nhumanGates: [design]\nprofile: light\n' \
+printf 'schema: 3\nslug: hint\ncurrent: requirements\napproved: [requirements]\nmode: autonomous\nhumanGates: [design]\nprofile: light\n' \
   > "$TMP/.aidev/works/20260101-hint/state.yml"
 assert_eq "$(run_sh guard design 2>&1 | grep -c '成果物を書く前に方針だけを提示')" "0" \
   "guard design: humanGates があっても light なら促さない"
@@ -549,9 +559,11 @@ echo "$SP/01-be" > "$SUB/.aidev/current"
 run_sub guard tasks >/dev/null 2>&1; assert_eq "$?" "0" "guard tasks: 親 design.md 継承で充足"
 # guard: subtask coding は親 tasks.md を継承「しない」（subtask 固有）。子に tasks.md が無いので未充足(2)
 run_sub guard coding >/dev/null 2>&1; assert_eq "$?" "2" "guard coding: 親 tasks.md を継承せず未充足(2)"
-# 子に tasks.md を置けば充足(0)
-: > "$SUB/.aidev/works/$SP/01-be/tasks.md"; : > "$SUB/.aidev/works/$SP/01-be/tasks.md"
-run_sub guard coding >/dev/null 2>&1; assert_eq "$?" "0" "guard coding: 子の tasks.md で充足(0)"
+# 子に tasks.md を置いただけではまだ未承認(2)。承認して初めて充足(0)
+: > "$SUB/.aidev/works/$SP/01-be/tasks.md"
+run_sub guard coding >/dev/null 2>&1; assert_eq "$?" "2" "guard coding: 子の tasks.md があっても tasks 未承認なら未充足(2)"
+run_sub approve tasks >/dev/null 2>&1
+run_sub guard coding >/dev/null 2>&1; assert_eq "$?" "0" "guard coding: 子の tasks 承認で充足(0)"
 # B: 親専用工程は subtask で実行不可（exit 2）。subtask の工程は tasks/coding/test/review のみ
 for ph in design architecture deliver research requirements; do
   run_sub guard "$ph" >/dev/null 2>&1; assert_eq "$?" "2" "B: subtask の guard $ph は親専用で拒否(2)"
@@ -2154,6 +2166,8 @@ for _lgp in design tasks research architecture; do
   assert_eq "$RTLR" "2" "guard $_lgp: light では単独起動を弾く"
   assert_contains "$RTLO" "aidev escalate" "guard $_lgp: light では昇格の手段を名指しする"
 done
+# light の coding guard は requirements 承認を見る（tasks は畳まれて無いので見ない）
+run_rt approve requirements >/dev/null 2>&1
 run_rt guard coding >/dev/null 2>&1
 assert_eq "$?" "0" "guard coding: light でも coding 以降は通る（light 判定が全部を止めていない）"
 
@@ -3298,6 +3312,7 @@ PNIDLE
   ( cd "$PGD" && "$AIDEV_SH" new pgd >/dev/null )
   PGDD="$PGD/.aidev/works/$(cat "$PGD/.aidev/current")"
   : > "$PGDD/requirements.md"
+  ( cd "$PGD" && "$AIDEV_SH" approve requirements >/dev/null 2>&1 )
   PGD_S=$( ( cd "$PGD" && "$AIDEV_SH" guard design ) 2>&1 )
   PGD_P=$( ( cd "$PGD" && run_ps1 "$AIDEV_PS1" guard design ) 2>&1 | tr -d '\r' )
   assert_eq "$PGD_S" "$PGD_P" "パリティ: guard design（方針の事前承認の促し）"
@@ -3314,11 +3329,14 @@ PNIDLE
   # 承認者の有無で見る（humanGates の部分自律）。sh 側と同じ判定になっていること
   ( cd "$PGD" && "$AIDEV_SH" new pgdh --mode autonomous --human-gates design >/dev/null )
   : > "$PGD/.aidev/works/$(cat "$PGD/.aidev/current")/requirements.md"
+  ( cd "$PGD" && "$AIDEV_SH" approve requirements >/dev/null 2>&1 )
   PGH_S=$( ( cd "$PGD" && "$AIDEV_SH" guard design ) 2>&1 )
   PGH_P=$( ( cd "$PGD" && run_ps1 "$AIDEV_PS1" guard design ) 2>&1 | tr -d '\r' )
   assert_eq "$PGH_S" "$PGH_P" "パリティ: guard design（humanGates の部分自律）"
   assert_contains "$PGH_P" "成果物を書く前に方針だけを提示" \
     "パリティ: ps1 も humanGates に挙がっていれば autonomous で促す"
+  : > "$PGD/.aidev/works/$(cat "$PGD/.aidev/current")/design.md"
+  ( cd "$PGD" && "$AIDEV_SH" approve design >/dev/null 2>&1 )
   PGH2_S=$( ( cd "$PGD" && "$AIDEV_SH" guard architecture ) 2>&1 )
   PGH2_P=$( ( cd "$PGD" && run_ps1 "$AIDEV_PS1" guard architecture ) 2>&1 | tr -d '\r' )
   assert_eq "$PGH2_S" "$PGH2_P" "パリティ: guard architecture（humanGates に無い工程）"

@@ -973,6 +973,21 @@ works/ ノイズや「なめる state.yml が無い」問題は status フィル
 - **`new` を作成の唯一経路にする理由**：手書きだと `schema:` 刻印を書き忘れ得る→その work が誤って legacy
   免除になり enforcement が無効化する。`new` 一本化で「全新規 work が検査対象」を保証する（enforcement の起点）。
 - 退けた: `land`（verify+commit）を別コマンド化＝CLI に破壊的操作を入れると移植性/安全性が落ちるため。
+- **`guard` が「前提工程の承認」を検査していなかった**（2026-09、他 PJ の retro 2 件が指摘）。
+  `protocol.md`「2.」は `guard <工程>` が前提成果物・**前提工程の承認**・`dependsOn` を検査すると
+  書いているが、実装は `review`/`deliver`/`retro` の3工程だけが承認を見ており、残り6工程
+  （`research`/`design`/`architecture`/`tasks`/`coding`/`test`）は成果物ファイルの**実在**しか
+  見ていなかった。`requirements.md` を一度も承認しなくても `guard design` が OK を返す、という形で
+  実測できた——散文の約束を実装が満たしていなかった。修正は6工程すべてに `need_approved` を追加。
+  2点、素朴な追加では壊れる境界があった：
+  - **subtask** は `requirements`/`design`/`architecture` を自分で承認しない（親が承認する。
+    `need_file` の `PARENT_DIR` 継承と同じ線）。`need_approved` にも同じ親フォールバックを足した。
+  - **`profile: light`** は `tasks` を承認しない（上流を `requirements` 1 ゲートに畳む。
+    `protocol-light.md`）。`coding` の前提を無条件で `need_approved tasks` にすると light が
+    永久に詰まるため、light では `requirements` 承認を見る分岐にした。
+- 退けた: `event <phase> start` 側で前提承認を検査する案（retro の原提案）。`guard` が入口の
+  ゲートだと `protocol.md`「2.」に明記されており、`event start` は記録コマンドで判定コマンドでは
+  ない。ゲートを二重に持つと片方だけ直したときにもう片方が古びる。
 
 ## 2.7 並行作業モデル（worktree = ユーザー責任の on-ramp）
 
@@ -1363,6 +1378,21 @@ git が無い環境では検査を省く（判定できないものを FAIL に�
     別 work（先行 PR）にする。先行 PR に切り出せない（新機能を見ないと seam が引けない）場合のみ、同一 work 内の
     順序付きコミット＋`walkthrough.md` で扱う（subtask の重い統合 test/review 機構は不要だから）。
   - autonomous は安全側＝**明確に独立な seam がある時だけ分割、迷えば分けない**（誤分割の統合地獄を回避）。
+- **13件の新規 retro（2026-09、5250プロジェクト由来）から拾った未着手の改善提案**：`guard` の前提承認
+  検査（本ラウンドで適用済み。「2.6」参照）以外は、下記を優先順位付けだけして未実装のまま残す
+  （1ラウンドで全部やると検証が粗くなるため）。次にこの種の retro が来たときの入口はここ。
+  - **最優先（3件の retro が独立に指摘）**：`protocol-check.md` の点検観点に「主張の前提を疑う」を足す。
+    「原因はXだ」という記述が**枠内では検証されていても、その枠の前提自体は誰も疑っていない**、という
+    形の手戻りが3件の retro で共通して報告されている。次にこの種の retro が来たら着手候補の筆頭。
+  - **次点**：UI変更時の実機/実ブラウザ確認を test 工程の手順に明記（2件が指摘）／
+    `verify` の0秒工程（start と approve の ts が同一）検知／`approve coding` の taskcheck 集合差分検知
+    （合計件数の一致だけでは `[x]` の入れ替わりを見逃す）。
+  - **小粒（着手コストが低い）**：`aidev debug report --category` に `design` を追加／
+    `aidev metrics` に `--slug` フラグ（`status --format` と同じ形にする）。
+  - **保留（判断が割れる・PJ固有）**：post-deliver 作業の正式工程化（`aidev-70-deliver`「事後記録」で
+    部分的に代替済み）／harness-bypass 検知の確認ゲート／軽量なバグ修正専用の入口工程の新設／
+    通知本文へのプロンプトインジェクション対策の構造化。いずれも「工程を増やす」側の変更で、
+    増やすほど light との整合や3ゲートの検査対象が増えるため、需要が繰り返し出てから設計する。
 
 ## 6. 経緯メモ（実証された学び）
 
@@ -1382,3 +1412,10 @@ git が無い環境では検査を省く（判定できないものを FAIL に�
 - issue#4 の試走で **review→coding の差し戻し**が発生。原因は「言語同居の副作用（.cmd へ CL 診断、
   .dds へ RPG 編集機能）を design 前に調査していなかった」こと。
   → この学びが **research 工程（影響範囲調査）追加**の直接の動機。retro があれば体系的に拾える類の改善。
+- **`20260718-acs-data-transfer` / `20260718-hostserver-sql`**（別 PJ の retro 2件、独立）: 両方とも
+  「requirements を承認しなくても次工程に進めた」という同じ実測を報告し、後者は前者の提案が
+  「未適用」であることまで確認していた。原提案は `event <phase> start` 側に承認検査を足す形だったが、
+  `protocol.md`「2.」は `guard` が入口ゲートだと明記しており、`event start` は記録コマンドに過ぎない
+  ——**提案の症状は正しかったが、直す層の指定は一段浅かった**。retro の提案は「症状の報告」として
+  信頼し、「直す場所」は自分で `protocol.md` と実装を突き合わせて決め直す、という扱いの実例。
+  → 「2.6」の `guard` 前提承認検査の動機。
