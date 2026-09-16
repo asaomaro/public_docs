@@ -1,0 +1,7 @@
+# aidev ハーネス設定（このリポジトリ用）
+# 起動確認（GO/NO-GO）。この PJ の実行可能な表面ごとに 1 行ずつ置く。
+# テスト本体（aidev の test/run.sh、diff-review-html の unittest）は test 工程で回すので smoke には置かない。
+smokeCommands:
+  - sh docs/ClaudeCode/skills/aidev/aidev-docs/bin/aidev help
+  - python3 docs/ClaudeCode/skills/other/diff-review-html/diff_review.py --help
+  - python3 docs/ClaudeCode/skills/other/diff-review-html/diff_review.py template --repo .

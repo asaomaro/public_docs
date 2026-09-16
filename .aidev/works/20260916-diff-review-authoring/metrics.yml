@@ -1,0 +1,7 @@
+events:
+  - { ts: 2026-09-16T11:41:36Z, phase: requirements, event: start }
+  - { ts: 2026-09-16T11:42:33Z, phase: requirements, event: doccheck, metrics: { stage: start, phase: requirements, mode: same_session, size: 8951 } }
+  - { ts: 2026-09-16T11:42:57Z, phase: requirements, event: doccheck, metrics: { stage: report, phase: requirements, findings: 3 } }
+  - { ts: 2026-09-16T11:42:57Z, phase: requirements, event: approved, metrics: { doc_check_rounds: 1, doc_check_findings: 3, doc_check_mode: same_session } }
+  - { ts: 2026-09-16T11:42:57Z, phase: research, event: start }
+  - { ts: 2026-09-16T11:54:29Z, phase: test, event: smoke, metrics: { result: pass, exit_code: 0, commands: 3 } }

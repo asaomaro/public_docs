@@ -1,0 +1,11 @@
+schema: 11
+slug: pr-review-html
+current: deliver
+approved: [requirements, research, design, tasks, coding, test, review, deliver]
+mode: autonomous
+profile: full
+humanGates: []
+maxSendBacks: 3
+dependsOn: []
+harnessRev: 8edfc354c955
+harnessRevDelivered: 8edfc354c955

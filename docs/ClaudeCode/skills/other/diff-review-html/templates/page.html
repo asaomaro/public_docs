@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__ — diff review</title>
+<script>
+/* テーマを**本文が描かれる前に**戻す。app.js の起動を待つと一瞬明るく光る。
+   localStorage が使えない環境（Firefox の file:// 等）では何もしない。 */
+try {
+  var t = localStorage.getItem("diff-review-html/ui/v1/theme");
+  if (t === "light" || t === "dark") { document.documentElement.setAttribute("data-theme", t); }
+} catch (e) { /* 使えないだけ。OS の設定に従う */ }
+</script>
+<style>__STYLE__</style>
+</head>
+<body>
+<a class="skip" href="#files">差分へ移動</a>
+
+<header class="topbar">
+  <div class="titles">
+    <h1 id="page-title">__TITLE__</h1>
+    <p class="meta" id="meta"></p>
+  </div>
+  <div class="actions">
+    <button type="button" id="btn-pane-left" aria-expanded="true" aria-controls="pane-left">◧ 一覧</button>
+    <button type="button" id="btn-pane-right" aria-expanded="true" aria-controls="pane-right">◨ 指摘</button>
+    <button type="button" id="btn-split" aria-pressed="false">split 表示</button>
+    <button type="button" id="btn-theme">テーマ: OS に従う</button>
+<!-- rw:begin -->
+    <button type="button" id="btn-start-review" aria-pressed="false">レビューを開始</button>
+    <button type="button" id="btn-submit-open">レビューを提出</button>
+    <button type="button" id="btn-export-open">JSON を書き出す</button>
+<!-- rw:end -->
+    <button type="button" id="btn-open-file">ファイルを開く</button>
+    <input type="file" id="file-import" accept=".json,.dreview,application/json,text/javascript" hidden>
+    <button type="button" id="btn-help-open" aria-expanded="false" aria-controls="help">キー操作</button>
+  </div>
+</header>
+
+<div id="banners" role="status" aria-live="polite"></div>
+
+<section id="help" class="panel" hidden aria-label="キー操作">
+  <h2>キー操作</h2>
+  <table>
+    <tbody>
+      <tr><th><kbd>j</kbd> / <kbd>k</kbd></th><td>差分の行を移動（<kbd>↓</kbd> / <kbd>↑</kbd> も同じ）</td></tr>
+<!-- rw:begin -->
+      <tr><th><kbd>c</kbd> / <kbd>Enter</kbd></th><td>その行にコメントを書く</td></tr>
+      <tr><th><kbd>Esc</kbd></th><td>コメント欄を閉じる（書きかけは残る）</td></tr>
+      <tr><th><kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>Enter</kbd></th><td>コメントを確定（未提出として溜める）</td></tr>
+<!-- rw:end -->
+      <tr><th><kbd>e</kbd></th><td>前後の行を展開（<kbd>Shift</kbd>+<kbd>E</kbd> でそのファイルを全部）</td></tr>
+      <tr><th><kbd>t</kbd></th><td>rich 表示 ↔ source 表示の切り替え</td></tr>
+      <tr><th><kbd>f</kbd></th><td>そのファイルの折りたたみを切り替え</td></tr>
+      <tr><th><kbd>s</kbd></th><td>unified 表示 ↔ split 表示の切り替え</td></tr>
+      <tr><th><kbd>[</kbd> / <kbd>]</kbd></th><td>左（ファイル一覧）／右（コメント一覧）へ移動（畳んでいれば開く）</td></tr>
+      <tr><th><kbd>{</kbd> / <kbd>}</kbd></th><td>左／右のペインを畳む・戻す（<kbd>Shift</kbd> + <kbd>[</kbd> / <kbd>]</kbd>）</td></tr>
+<!-- rw:begin -->
+      <tr><th><kbd>r</kbd></th><td>レビューの提出パネルを開く</td></tr>
+<!-- rw:end -->
+      <tr><th><kbd>?</kbd></th><td>この一覧を開閉</td></tr>
+    </tbody>
+  </table>
+  <p class="hint">ペインの境界にフォーカスを合わせると、<kbd>←</kbd> <kbd>→</kbd> で幅を変えられます
+    （<kbd>Shift</kbd> 併用で大きく・<kbd>Home</kbd> / <kbd>End</kbd> で最小 / 最大・<kbd>Enter</kbd> で畳む）。</p>
+</section>
+
+<!-- rw:begin -->
+<section id="submit-panel" class="panel" hidden aria-label="レビューの提出">
+  <h2>レビューを提出する</h2>
+  <p class="hint" id="pending-count"></p>
+  <fieldset>
+    <legend>判定</legend>
+    <label><input type="radio" name="review-state" value="COMMENTED" checked> コメントのみ</label>
+    <label><input type="radio" name="review-state" value="APPROVED"> 承認する</label>
+    <label><input type="radio" name="review-state" value="CHANGES_REQUESTED"> 修正を求める</label>
+  </fieldset>
+  <label class="block" for="review-body">サマリ</label>
+  <textarea id="review-body" rows="4" placeholder="レビュー全体のコメント"></textarea>
+  <div class="row-actions">
+    <button type="button" id="btn-submit-do">提出する</button>
+    <button type="button" id="btn-submit-discard">未提出のコメントを破棄</button>
+    <button type="button" id="btn-submit-close">閉じる</button>
+  </div>
+</section>
+
+<section id="export-panel" class="panel" hidden aria-label="JSON の書き出し">
+  <h2>レビュー記録を書き出す</h2>
+  <p class="hint">ダウンロードするか、下の内容をコピーしてファイルに貼り付けてください。</p>
+  <div class="row-actions">
+    <button type="button" id="btn-download">ダウンロード</button>
+    <button type="button" id="btn-export-close">閉じる</button>
+  </div>
+  <textarea id="export-text" rows="16" readonly></textarea>
+</section>
+<!-- rw:end -->
+
+<div class="shell" id="shell" data-left="open" data-right="open">
+
+  <nav class="pane pane-left" id="pane-left" aria-label="変更ファイル">
+    <div class="pane-head">
+      <h2>変更ファイル</h2>
+      <button type="button" id="btn-tree" aria-pressed="false">ツリー</button>
+    </div>
+    <div id="filelist"></div>
+  </nav>
+
+  <div class="sep" id="sep-left" role="separator" tabindex="0"
+       aria-orientation="vertical" aria-controls="pane-left"
+       aria-valuenow="260" aria-valuemin="0" aria-valuemax="600"
+       aria-label="ファイル一覧の幅"></div>
+
+  <main class="pane pane-center" id="pane-center">
+    <!-- 「全体へのコメント」は**書く**ための場所なので中央に置く。
+         右ペインは書かれたものを**読んで辿る**ための一覧で、役割が違う。 -->
+    <section id="overall" aria-label="全体へのコメント">
+      <div class="section-head">
+        <h2>全体へのコメント</h2>
+<!-- rw:begin -->
+        <button type="button" class="comment-open" data-scope="overall" aria-expanded="false">コメントする</button>
+<!-- rw:end -->
+      </div>
+      <div class="threads" data-threads="overall"></div>
+      <div class="composer-slot" data-composer="overall"></div>
+    </section>
+
+    <section id="open-prompt" hidden aria-label="バンドルを開く">
+      <h2>レビューするファイルを開いてください</h2>
+      <p class="hint">このビューアは差分を持っていません。<code>.dreview</code> のバンドル、または
+        レビュー記録の JSON を、上の「ファイルを開く」から選ぶか、この画面にドラッグ＆ドロップしてください。</p>
+    </section>
+
+    <section id="files"></section>
+  </main>
+
+  <div class="sep" id="sep-right" role="separator" tabindex="0"
+       aria-orientation="vertical" aria-controls="pane-right"
+       aria-valuenow="320" aria-valuemin="0" aria-valuemax="600"
+       aria-label="コメント一覧の幅"></div>
+
+  <aside class="pane pane-right" id="pane-right" aria-label="コメント一覧">
+    <div class="pane-head">
+      <h2>コメント一覧</h2>
+    </div>
+    <div class="cl-filters">
+      <label><input type="checkbox" id="cl-unresolved"> 未解決のみ</label>
+      <label>重大度
+        <select id="cl-severity">
+          <option value="">すべて</option>
+          <option value="must">must</option>
+          <option value="should">should</option>
+          <option value="nit">nit</option>
+          <option value="none">未設定</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="cl-notes" checked> 説明を含める</label>
+      <p class="hint" id="cl-count" role="status" aria-live="polite"></p>
+    </div>
+    <div id="commentlist"></div>
+  </aside>
+
+</div>
+
+<!-- ホスト（エディタ拡張など）が HTML を組み立てて渡すときは、ここにバンドルを書き込む。
+     空のままなら無視される。外部ファイルは読まないので、中身はこの HTML の中だけで決まる。 -->
+<script type="application/json" id="bundle-data"></script>
+<script type="application/json" id="diff-data">__DIFF_DATA__</script>
+<script type="application/json" id="review-data">__REVIEW_DATA__</script>
+<script>__UI_JS__</script>
+<script>__RICH_JS__</script>
+<script>__APP_JS__</script>
+</body>
+</html>
