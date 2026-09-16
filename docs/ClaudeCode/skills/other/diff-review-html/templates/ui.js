@@ -20,6 +20,8 @@
   var BIG_STEP = 50;
   var THEMES = ["auto", "light", "dark"];
   var THEME_LABEL = { auto: "テーマ: OS に従う", light: "テーマ: ライト", dark: "テーマ: ダーク" };
+  // 太陽・月・半月の組は他の多くのアプリで確立した idiom（research.md F5）。
+  var THEME_ICON = { auto: "◐", light: "☀", dark: "☾" };
 
   var DEFAULTS = {
     theme: "auto",
@@ -66,8 +68,10 @@
     else { root.removeAttribute("data-theme"); }
     var button = document.getElementById("btn-theme");
     if (button) {
-      button.textContent = THEME_LABEL[theme] || THEME_LABEL.auto;
-      button.setAttribute("aria-label", (THEME_LABEL[theme] || THEME_LABEL.auto) + "（押すと切り替え）");
+      var label = THEME_LABEL[theme] || THEME_LABEL.auto;
+      button.textContent = THEME_ICON[theme] || THEME_ICON.auto;   // アイコンのみ（research.md F5）
+      button.title = label;
+      button.setAttribute("aria-label", label + "（押すと切り替え）");
     }
   }
 
@@ -113,11 +117,19 @@
     return shell.getAttribute("data-" + which) !== "collapsed";
   }
 
+  var PANE_NAME = { left: "ファイル一覧", right: "コメント一覧" };
+
   function setPane(which, open, save) {
     var shell = document.getElementById("shell");
     shell.setAttribute("data-" + which, open ? "open" : "collapsed");
     var button = document.getElementById("btn-pane-" + which);
-    if (button) { button.setAttribute("aria-expanded", open ? "true" : "false"); }
+    if (button) {
+      button.setAttribute("aria-expanded", open ? "true" : "false");
+      // アイコンだけのボタンなので、状態（開く/閉じる）は title/aria-label の動詞で伝える。
+      var label = (PANE_NAME[which] || which) + (open ? "を閉じる" : "を開く");
+      button.title = label;
+      button.setAttribute("aria-label", label);
+    }
     if (save) { pref("pane-" + which, open ? "open" : "collapsed"); }
   }
 

@@ -1,0 +1,10 @@
+schema: 11
+slug: diff-review-ux-polish
+current: review
+approved: [requirements, research, design, tasks, coding, test, review]
+mode: autonomous
+profile: full
+humanGates: []
+maxSendBacks: 3
+dependsOn: [20260916-diff-review-authoring]
+harnessRev: 8edfc354c955

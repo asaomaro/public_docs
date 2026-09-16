@@ -23,10 +23,12 @@ try {
     <p class="meta" id="meta"></p>
   </div>
   <div class="actions">
-    <button type="button" id="btn-pane-left" aria-expanded="true" aria-controls="pane-left">◧ 一覧</button>
-    <button type="button" id="btn-pane-right" aria-expanded="true" aria-controls="pane-right">◨ 指摘</button>
+    <button type="button" id="btn-pane-left" class="icon-btn" aria-expanded="true" aria-controls="pane-left"
+            title="ファイル一覧を閉じる" aria-label="ファイル一覧を閉じる">◧</button>
+    <button type="button" id="btn-pane-right" class="icon-btn" aria-expanded="true" aria-controls="pane-right"
+            title="コメント一覧を閉じる" aria-label="コメント一覧を閉じる">◨</button>
     <button type="button" id="btn-split" aria-pressed="false">split 表示</button>
-    <button type="button" id="btn-theme">テーマ: OS に従う</button>
+    <button type="button" id="btn-theme" class="icon-btn" title="テーマ: OS に従う" aria-label="テーマ: OS に従う（押すと切り替え）">◐</button>
 <!-- rw:begin -->
     <button type="button" id="btn-start-review" aria-pressed="false">レビューを開始</button>
     <button type="button" id="btn-submit-open">レビューを提出</button>
@@ -34,7 +36,8 @@ try {
 <!-- rw:end -->
     <button type="button" id="btn-open-file">ファイルを開く</button>
     <input type="file" id="file-import" accept=".json,.dreview,application/json,text/javascript" hidden>
-    <button type="button" id="btn-help-open" aria-expanded="false" aria-controls="help">キー操作</button>
+    <button type="button" id="btn-help-open" class="icon-btn" aria-expanded="false" aria-controls="help"
+            title="キー操作" aria-label="キー操作">?</button>
   </div>
 </header>
 
@@ -101,7 +104,15 @@ try {
   <nav class="pane pane-left" id="pane-left" aria-label="変更ファイル">
     <div class="pane-head">
       <h2>変更ファイル</h2>
-      <button type="button" id="btn-tree" aria-pressed="false">ツリー</button>
+      <span class="viewed-count" id="viewed-count" aria-live="polite"></span>
+      <button type="button" id="btn-tree" class="icon-btn" aria-pressed="false"
+              title="ツリー表示に切り替え" aria-label="ツリー表示に切り替え">⊞</button>
+    </div>
+    <div class="filelist-tools">
+      <label class="visually-hidden" for="file-search">ファイルを検索</label>
+      <input type="search" id="file-search" placeholder="検索…（*/? や /正規表現/ にも対応）"
+             aria-label="ファイルを検索（ワイルドカードや正規表現にも対応）">
+      <p class="filelist-hint" id="file-search-hint" aria-live="polite"></p>
     </div>
     <div id="filelist"></div>
   </nav>
