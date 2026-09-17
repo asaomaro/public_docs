@@ -35,6 +35,8 @@
 
   var state = { reviews: [], threads: [] };
   var drafts = {};
+  var viewedFiles = {};    // path -> true。「確認済み」。記録には入れない（画面の状態）
+  var fileSearchQuery = "";   // ファイル一覧の検索語（画面の状態。保存しない・記録に入れない）
   var seq = 0;
   var dirty = false;
   var storageOk = true;
@@ -62,6 +64,8 @@
     expandState = {};
     collapsed = {};
     treeOpen = {};
+    viewedFiles = {};
+    fileSearchQuery = "";
     currentRow = null;
     state = { reviews: [], threads: [] };
     drafts = {};
@@ -155,6 +159,30 @@
     return prefix + seq;
   }
 
+  // Clipboard API は file:// では明示的な許可なしに失敗する（research.md F8 で実測）ので、
+  // 使えないときは非表示の textarea 経由の execCommand("copy") に落ちる。
+  function copyText(text) {
+    function legacy() {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      var ok = false;
+      try { ok = document.execCommand("copy"); } catch (err) { ok = false; }
+      document.body.removeChild(ta);
+      return ok;
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text).catch(function () {
+        return legacy() ? Promise.resolve() : Promise.reject(new Error("clipboard"));
+      });
+    }
+    return legacy() ? Promise.resolve() : Promise.reject(new Error("clipboard"));
+  }
+
   // ------------------------------------------------------- 正規形での書き出し
 
   function sortDeep(value) {
@@ -221,7 +249,10 @@
     dirty = true;
     if (!storageOk) { return; }
     try {
-      window.localStorage.setItem(storageKey, JSON.stringify({ state: state, drafts: drafts }));
+      // **viewedFiles は記録の一部ではない**。書き出し（exportText/canonicalRecord）はここを
+      // 一切見ないので、ここに同居させても書き出す JSON には混ざらない（AC12）。
+      window.localStorage.setItem(storageKey,
+        JSON.stringify({ state: state, drafts: drafts, viewed: viewedFiles }));
     } catch (err) {
       storageOk = false;
       banner("このブラウザでは下書きが保存できません（" + err.name + "）。書き出しは使えます。", []);
@@ -452,6 +483,40 @@
     section.setAttribute("tabindex", "-1");
     section.scrollIntoView({ block: "start" });
     section.focus();
+    // スクロールのイベントを待たず、クリックした直後にハイライトを移す（要件 AC7）。
+    applyCurrentFileHighlight();
+  }
+
+  // -------------------------------------------------- いま表示中のファイルの追跡
+
+  // 「画面の上部にあるファイル」＝ 中央ペインの上端を、その上端が最後に過ぎたセクション
+  // （scrollspy の定石。focusInPlace と同じ getBoundingClientRect ベースの幾何計算）。
+  function currentFileSection() {
+    var pane = document.getElementById("pane-center");
+    if (!pane) { return null; }
+    var sections = pane.querySelectorAll(".file");
+    if (!sections.length) { return null; }
+    var line = pane.getBoundingClientRect().top + 1;
+    var current = sections[0];
+    for (var i = 0; i < sections.length; i += 1) {
+      if (sections[i].getBoundingClientRect().top <= line) { current = sections[i]; }
+      else { break; }   // .file は文書順＝画面の上から下の順に並ぶので、そこで打ち切ってよい
+    }
+    return current;
+  }
+
+  function applyCurrentFileHighlight() {
+    var nav = document.getElementById("filelist");
+    if (!nav) { return; }
+    Array.prototype.forEach.call(nav.querySelectorAll('[data-current="true"]'), function (entry) {
+      entry.removeAttribute("data-current");
+    });
+    var section = currentFileSection();
+    var path = section ? section.getAttribute("data-path") : null;
+    if (!path) { return; }
+    // 検索で絞り込まれて一覧に出ていなければ、静かに何もつけない（要件 AC4）。
+    var entry = nav.querySelector('[data-path="' + cssEscape(path) + '"]');
+    if (entry) { entry.setAttribute("data-current", "true"); }
   }
 
   function statsSpan(file) {
@@ -462,24 +527,98 @@
     ]);
   }
 
+  function escapeRegExp(text) {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  // 検索語を 3 通りのどれかとして解釈する（research.md で 12 パターンを検証済み）:
+  //   /パターン/フラグ … そのまま正規表現として使う
+  //   * や ? を含む   … ワイルドカードとして正規表現に変換する（* は .*、? は 1 文字）
+  //   それ以外         … 大文字小文字を無視した部分一致
+  // 壊れた正規表現は例外を投げさせず、{error} を返して呼び出し側で表示させる。
+  function compileQuery(query) {
+    if (!query) { return null; }
+    var asRegex = /^\/(.*)\/([a-z]*)$/.exec(query);
+    if (asRegex) {
+      try { return new RegExp(asRegex[1], asRegex[2]); }
+      catch (err) { return { error: err.message }; }
+    }
+    var pattern;
+    if (/[*?]/.test(query)) {
+      pattern = query.split(/([*?])/).map(function (part) {
+        if (part === "*") { return ".*"; }
+        if (part === "?") { return "."; }
+        return escapeRegExp(part);
+      }).join("");
+    } else {
+      pattern = escapeRegExp(query);
+    }
+    try { return new RegExp(pattern, "i"); }
+    catch (err) { return { error: err.message }; }
+  }
+
+  function renderViewedCount() {
+    var span = document.getElementById("viewed-count");
+    if (!span) { return; }
+    var total = (diffData.files || []).length;
+    if (!total) { span.textContent = ""; return; }
+    span.textContent = Object.keys(viewedFiles).length + " / " + total + " 確認済み";
+  }
+
   function renderFileList() {
+    renderFileListBody();
+    // 描き直すたびに一覧の DOM が作り直されるので、ハイライトも都度つけ直す。
+    applyCurrentFileHighlight();
+  }
+
+  function renderFileListBody() {
     var nav = document.getElementById("filelist");
     clear(nav);
     nav.removeAttribute("role");
     nav.removeAttribute("aria-label");
     var button = document.getElementById("btn-tree");
     if (button) {
+      var label = treeMode() ? "フラット表示に切り替え" : "ツリー表示に切り替え";
       button.setAttribute("aria-pressed", treeMode() ? "true" : "false");
-      button.textContent = treeMode() ? "フラット" : "ツリー";
+      button.textContent = treeMode() ? "☰" : "⊞";
+      button.title = label;
+      button.setAttribute("aria-label", label);
     }
-    if (!(diffData.files || []).length) {
+    renderViewedCount();
+    var input = document.getElementById("file-search");
+    var hint = document.getElementById("file-search-hint");
+    var all = diffData.files || [];
+    if (!all.length) {
       nav.appendChild(el("p", { class: "empty", text: "変更ファイルなし" }));
+      if (hint) { hint.textContent = ""; }
+      if (input) { input.removeAttribute("aria-invalid"); }
       return;
     }
-    if (treeMode()) { renderFileTree(nav); return; }
-    (diffData.files || []).forEach(function (file, index) {
-      var link = el("a", { href: "#file-" + index }, [
-        el("span", { text: file.path }),
+    var query = compileQuery(fileSearchQuery);
+    if (query && query.error) {
+      if (input) { input.setAttribute("aria-invalid", "true"); }
+      if (hint) { hint.textContent = "正規表現が正しくありません: " + query.error; }
+      nav.appendChild(el("p", { class: "empty", text: "正規表現が正しくありません" }));
+      return;
+    }
+    if (input) { input.removeAttribute("aria-invalid"); }
+    var pairs = all
+      .map(function (file, index) { return { file: file, index: index }; })
+      .filter(function (pair) { return !query || query.test(pair.file.path); });
+    if (hint) { hint.textContent = fileSearchQuery ? pairs.length + " / " + all.length + " 件" : ""; }
+    if (!pairs.length) {
+      nav.appendChild(el("p", { class: "empty", text: "一致するファイルがありません" }));
+      return;
+    }
+    if (treeMode()) { renderFileTree(nav, pairs); return; }
+    pairs.forEach(function (pair) {
+      var file = pair.file, index = pair.index;
+      var link = el("a", {
+        href: "#file-" + index,
+        "data-path": file.path,
+        "data-viewed": viewedFiles[file.path] ? "true" : null
+      }, [
+        el("span", { class: "path-text", text: file.path }),
         el("span", {}, [
           el("span", { class: "stat-add", text: "+" + file.additions }),
           document.createTextNode(" "),
@@ -496,9 +635,11 @@
 
   // -------------------------------------------------------------- ツリー表示
 
-  function buildTree(files) {
+  function buildTree(pairs) {
+    // **もとの diffData.files 上の index を保つ**（検索で絞り込んでも gotoFile が正しいファイルを開くため）。
     var root = { name: "", dirs: {}, order: [], files: [] };
-    files.forEach(function (file, index) {
+    pairs.forEach(function (pair) {
+      var file = pair.file, index = pair.index;
       var parts = String(file.path).split("/");
       var leaf = parts.pop();
       var node = root;
@@ -528,21 +669,24 @@
     return node;
   }
 
-  function renderFileTree(nav) {
+  function renderFileTree(nav, pairs) {
     nav.setAttribute("role", "tree");
     nav.setAttribute("aria-label", "変更ファイル");
-    var root = buildTree(diffData.files || []);
-    appendTreeChildren(nav, root, "");
+    var root = buildTree(pairs);
+    // 検索中は、木に残るのは一致した枝だけなので、覚えている開閉に関わらずすべて開く。
+    // treeOpen 自体は書き換えないので、検索を消せば元の開閉に戻る。
+    var forceOpen = !!fileSearchQuery;
+    appendTreeChildren(nav, root, "", forceOpen);
     var first = nav.querySelector('[role="treeitem"]');
     if (first) { first.setAttribute("tabindex", "0"); }   // ローミング: 木の中で 1 つだけ
     // キーの受け口は wire() で 1 回だけ張る。ここで張ると描き直すたびに重なる。
   }
 
-  function appendTreeChildren(host, node, prefix) {
+  function appendTreeChildren(host, node, prefix, forceOpen) {
     node.order.forEach(function (name) {
       var dir = node.dirs[name];
       var path = (prefix ? prefix + "/" : "") + dir.name;
-      var open = treeOpen[path] !== false;
+      var open = forceOpen || treeOpen[path] !== false;
       var item = el("div", {
         role: "treeitem",
         class: "tree-item tree-dir",
@@ -553,7 +697,7 @@
         el("span", { class: "tree-name", text: dir.name })
       ]);
       var group = el("div", { role: "group", class: "tree-group" });
-      appendTreeChildren(group, dir, path);
+      appendTreeChildren(group, dir, path, forceOpen);
       item.addEventListener("click", function () { toggleTreeDir(item, path); });
       host.appendChild(item);
       host.appendChild(group);
@@ -563,7 +707,9 @@
         role: "treeitem",
         class: "tree-item tree-file",
         tabindex: "-1",
-        "data-index": entry.index
+        "data-index": entry.index,
+        "data-path": entry.file.path,
+        "data-viewed": viewedFiles[entry.file.path] ? "true" : null
       }, [
         el("span", { class: "tree-twisty", text: "" }),
         el("span", { class: "tree-name", text: entry.name }),
@@ -668,13 +814,52 @@
         "data-collapsed": big ? "true" : "false"
       });
 
+      // ファイル名クリックでの展開は展開ボタンと機能が被るので廃止（要件 F6）。
+      // 折りたたみボタンはアイコンのみ、パスは別要素（コピー用のアイコンボタンと並べる）。
       var toggle = el("button", {
         type: "button",
-        class: "file-toggle",
+        class: "file-toggle icon-btn",
         "aria-expanded": big ? "false" : "true",
-        text: file.path
+        title: big ? "展開する" : "折りたたむ",
+        "aria-label": (big ? "展開する: " : "折りたたむ: ") + file.path,
+        text: big ? "▸" : "▾"
       });
       toggle.addEventListener("click", function () { toggleFile(section, file); });
+
+      var pathText = el("span", {
+        class: "path-text",
+        "data-viewed": viewedFiles[file.path] ? "true" : null,
+        text: file.path
+      });
+
+      var copyButton = el("button", {
+        type: "button",
+        class: "copy-path icon-btn",
+        title: "パスをコピー",
+        "aria-label": "パスをコピー: " + file.path,
+        text: "⧉"
+      });
+      copyButton.addEventListener("click", function () {
+        copyText(file.path).then(function () {
+          copyButton.textContent = "✓";
+          setTimeout(function () { copyButton.textContent = "⧉"; }, 1200);
+        }, function () {
+          banner("コピーできませんでした。パスを選択してあるので手動でコピーしてください: " + file.path, []);
+        });
+      });
+
+      var viewedBox = el("input", { type: "checkbox", class: "file-viewed" });
+      viewedBox.checked = !!viewedFiles[file.path];
+      viewedBox.addEventListener("change", function () {
+        if (viewedBox.checked) { viewedFiles[file.path] = true; } else { delete viewedFiles[file.path]; }
+        persist();
+        pathText.setAttribute("data-viewed", viewedBox.checked ? "true" : "false");
+        renderViewedCount();
+        syncFileListViewed(file.path, viewedBox.checked);
+      });
+      var viewedLabel = el("label", { class: "file-viewed-label" }, [
+        viewedBox, document.createTextNode("確認済み")
+      ]);
 
       var tags = [statusLabel(file.status)];
       if (file.old_path) { tags.push("← " + file.old_path); }
@@ -696,9 +881,20 @@
       }
       var hasGap = gapsOf(file).some(function (gap) { return !!gap; });
       if (!file.binary && file.expand && !file.expand.truncated && hasGap) {
-        var allButton = el("button", { type: "button", class: "expand-all", text: "すべて展開" });
+        var allButton = el("button", {
+          type: "button", class: "expand-all icon-btn",
+          title: "このファイルをすべて展開", "aria-label": "このファイルをすべて展開",
+          text: "⏷"
+        });
         allButton.addEventListener("click", function () { expandAll(section, file); });
         actions.appendChild(allButton);
+        var collapseButton = el("button", {
+          type: "button", class: "collapse-all icon-btn",
+          title: "このファイルを折りたたむ", "aria-label": "このファイルの展開部分を折りたたむ",
+          text: "⏶"
+        });
+        collapseButton.addEventListener("click", function () { collapseAllGaps(section, file); });
+        actions.appendChild(collapseButton);
       }
       if (!readonly) {
         var commentButton = el("button", {
@@ -716,7 +912,7 @@
       }
 
       section.appendChild(el("div", { class: "file-head" }, [
-        el("div", { class: "path" }, [toggle]),
+        el("div", { class: "path" }, [toggle, pathText, copyButton, viewedLabel]),
         el("div", { class: "tags", text: tags.join(" ・ ") }),
         actions
       ]));
@@ -741,9 +937,22 @@
     var body = section.querySelector(".file-body");
     if (wasCollapsed && !body.childNodes.length) { fillFileBody(body, file); }
     section.setAttribute("data-collapsed", wasCollapsed ? "false" : "true");
-    section.querySelector(".file-toggle").setAttribute("aria-expanded", wasCollapsed ? "true" : "false");
+    var toggle = section.querySelector(".file-toggle");
+    toggle.setAttribute("aria-expanded", wasCollapsed ? "true" : "false");
+    toggle.title = wasCollapsed ? "折りたたむ" : "展開する";
+    toggle.setAttribute("aria-label", (wasCollapsed ? "折りたたむ: " : "展開する: ") + file.path);
+    toggle.textContent = wasCollapsed ? "▾" : "▸";
     collapsed[file.path] = !wasCollapsed;
     renderThreads();
+  }
+
+  // ファイル一覧側の「確認済み」表示だけを直す。全体を再描画すると、絞り込み・スクロール位置・
+  // 木の開閉状態まで作り直すことになり、チェックボックス 1 つの操作にしては影響が大きすぎる。
+  function syncFileListViewed(path, viewed) {
+    var nav = document.getElementById("filelist");
+    if (!nav) { return; }
+    var entry = nav.querySelector('[data-path="' + cssEscape(path) + '"]');
+    if (entry) { entry.setAttribute("data-viewed", viewed ? "true" : "false"); }
   }
 
   function toggleView(section, file) {
@@ -785,11 +994,23 @@
       ? section.querySelector('.row[data-key="' + cssEscape(currentKey) + '"]')
       : null;
     setCurrentRow(again);
-    if (again) { again.focus(); }
-    else {
-      var button = section.querySelector(".expand-all");
-      if (button) { button.focus(); }
-    }
+    focusInPlace(again || section.querySelector(".expand-all"));
+  }
+
+  // このファイルの隙間の展開をすべて畳んで初期状態（ハンク＋文脈のみ）へ戻す（要件 F4）。
+  // rich ↔ source の表示形式はここでは触らない（別の状態）。
+  function collapseAllGaps(section, file) {
+    expandState[file.path] = {};
+    var currentKey = currentRow && currentRow.getAttribute ? currentRow.getAttribute("data-key") : null;
+    var body = section.querySelector(".file-body");
+    clear(body);
+    fillFileBody(body, file);
+    renderThreads();
+    var again = currentKey
+      ? section.querySelector('.row[data-key="' + cssEscape(currentKey) + '"]')
+      : null;
+    setCurrentRow(again);
+    focusInPlace(again || section.querySelector(".collapse-all"));
   }
 
   function expandSide(file) {
@@ -897,12 +1118,12 @@
     var up = el("button", { type: "button", class: "expand-up", text: "↑ " + EXPAND_STEP + " 行" });
     up.addEventListener("click", function () {
       shown.bottom = Math.min(shown.bottom + EXPAND_STEP, gap.end - gap.start + 1);
-      redrawFile(file);
+      redrawFile(file, { gap: index, dir: "up" });
     });
     var down = el("button", { type: "button", class: "expand-down", text: "↓ " + EXPAND_STEP + " 行" });
     down.addEventListener("click", function () {
       shown.top = Math.min(shown.top + EXPAND_STEP, gap.end - gap.start + 1);
-      redrawFile(file);
+      redrawFile(file, { gap: index, dir: "down" });
     });
     row.appendChild(label);
     // 下に続くハンクがあるときだけ「↑」、上にハンクがあるときだけ「↓」を出す
@@ -911,7 +1132,11 @@
     return row;
   }
 
-  function redrawFile(file) {
+  // 隠れているコードを展開すると、それまでの一番近いボタンへ focus() が戻っていた
+  // （常に DOM 順で最初の .expander ボタン）。押した隙間と違う場所へ飛ぶと、ブラウザの
+  // 既定のスクロール追従でその場所まで画面が動いてしまう（research.md F10 で実測）。
+  // **押した隙間のボタン自身**を最優先で指し直すことでこれを防ぐ。
+  function redrawFile(file, focusHint) {
     var section = document.querySelector('.file[data-path="' + cssEscape(file.path) + '"]');
     if (!section) { return; }
     // 再描画で行のノードが作り直されるので、**現在行を指し直す**。
@@ -926,8 +1151,29 @@
       ? section.querySelector('.row[data-key="' + cssEscape(currentKey) + '"]')
       : null;
     setCurrentRow(again);
-    var next = section.querySelector(".expander button");
-    if (next) { next.focus(); }
+    var next = null;
+    if (focusHint) {
+      var gapSelector = '.expander[data-gap="' + focusHint.gap + '"] .expand-' + focusHint.dir;
+      next = section.querySelector(gapSelector);
+    }
+    if (!next) { next = again; }
+    if (!next) { next = section.querySelector(".expander button"); }
+    if (!next) { next = section.querySelector(".file-toggle"); }
+    focusInPlace(next);
+  }
+
+  // focus() だけだとブラウザが既定でその要素をビューポート内へスクロールしてしまう。
+  // preventScroll はほとんどのブラウザで効く（research.md F10 で実測）ので、まずそれで動かさず、
+  // それでも画面外にある場合だけ最小限（nearest）でスクロールする。
+  function focusInPlace(target) {
+    if (!target) { return; }
+    target.focus({ preventScroll: true });
+    var pane = target.closest ? target.closest(".pane") : null;
+    if (!pane) { return; }
+    var tr = target.getBoundingClientRect();
+    var pr = pane.getBoundingClientRect();
+    var visible = tr.top >= pr.top && tr.bottom <= pr.bottom;
+    if (!visible) { target.scrollIntoView({ block: "nearest" }); }
   }
 
   function appendContext(body, file, no) {
@@ -1867,6 +2113,9 @@
     renderFiles();
     renderThreads();
     UI.syncTopbarHeight();
+    // renderFileList() の時点では .file がまだ無いので、renderFiles() の後にもう一度
+    // （読み込み直後・スクロール前でも先頭のファイルがハイライトされる。要件 AC6）。
+    applyCurrentFileHighlight();
   }
 
   function wire() {
@@ -1932,6 +2181,40 @@
     // ツリーのキー操作は**ここで 1 回だけ**張る（描き直しのたびに張ると重なる）
     var filelist = document.getElementById("filelist");
     if (filelist) { filelist.addEventListener("keydown", onTreeKeyDown); }
+
+    // 中央ペインのスクロールで「いま表示中のファイル」のハイライトを更新する。
+    // scroll は 1 回のドラッグ/ホイールで何度も飛んでくるので、requestAnimationFrame で
+    // 1 フレームに 1 回へまとめる（persist() を毎回叩かないのと同じ考え方）。
+    var centerPane = document.getElementById("pane-center");
+    if (centerPane) {
+      var currentFileTicking = false;
+      centerPane.addEventListener("scroll", function () {
+        if (currentFileTicking) { return; }
+        currentFileTicking = true;
+        window.requestAnimationFrame(function () {
+          applyCurrentFileHighlight();
+          currentFileTicking = false;
+        });
+      });
+    }
+
+    var searchInput = document.getElementById("file-search");
+    if (searchInput) {
+      searchInput.addEventListener("input", function () {
+        fileSearchQuery = searchInput.value;
+        renderFileList();
+      });
+      searchInput.addEventListener("keydown", function (event) {
+        // 新しいキー操作は増やさない（非機能要件）。Escape は「検索語を消す」という
+        // この入力欄自身の意味に留め、画面側の Esc（コメント欄を閉じる）とは重ねて扱わない。
+        if (event.key === "Escape" && searchInput.value) {
+          event.stopPropagation();
+          searchInput.value = "";
+          fileSearchQuery = "";
+          renderFileList();
+        }
+      });
+    }
     wireCommentList();
 
     var overallButton = document.querySelector('#overall .comment-open');
@@ -2042,6 +2325,8 @@
     if (!storageOk) {
       banner("このブラウザでは下書きを保存できません（file:// の制限）。書き出し・読み込みは使えます。", []);
     }
+    // viewed は下書き（state/drafts）とは独立。下書きが無い・破棄されたときも「確認済み」は保つ。
+    if (saved && saved.viewed) { viewedFiles = saved.viewed; }
     if (saved && saved.state) {
       adoptRecord(saved.state, null);
       drafts = saved.drafts || {};

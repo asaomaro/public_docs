@@ -1,0 +1,25 @@
+events:
+  - { ts: 2026-09-16T23:00:08Z, phase: requirements, event: start }
+  - { ts: 2026-09-16T23:08:24Z, phase: requirements, event: doccheck, metrics: { stage: start, phase: requirements, mode: same_session, size: 11551 } }
+  - { ts: 2026-09-16T23:08:44Z, phase: requirements, event: doccheck, metrics: { stage: report, phase: requirements, findings: 2 } }
+  - { ts: 2026-09-16T23:08:53Z, phase: requirements, event: approved, metrics: { doc_check_rounds: 1, doc_check_findings: 2, doc_check_mode: same_session } }
+  - { ts: 2026-09-16T23:08:54Z, phase: research, event: start }
+  - { ts: 2026-09-16T23:10:22Z, phase: research, event: approved }
+  - { ts: 2026-09-16T23:10:22Z, phase: design, event: start }
+  - { ts: 2026-09-16T23:11:35Z, phase: design, event: doccheck, metrics: { stage: start, phase: design, mode: same_session, size: 15782 } }
+  - { ts: 2026-09-16T23:11:54Z, phase: design, event: doccheck, metrics: { stage: report, phase: design, findings: 2 } }
+  - { ts: 2026-09-16T23:12:10Z, phase: design, event: approved, metrics: { doc_check_rounds: 1, doc_check_findings: 2, doc_check_mode: same_session } }
+  - { ts: 2026-09-16T23:12:10Z, phase: tasks, event: start }
+  - { ts: 2026-09-16T23:14:02Z, phase: tasks, event: approved, metrics: { ac_total: 20, ac_covered: 20, tasks_no_ac: 0, tasks_ac_none: 0 } }
+  - { ts: 2026-09-16T23:14:02Z, phase: coding, event: start }
+  - { ts: 2026-09-16T23:28:14Z, phase: coding, event: start }
+  - { ts: 2026-09-16T23:31:24Z, phase: coding, event: approved }
+  - { ts: 2026-09-16T23:31:27Z, phase: test, event: start, metrics: { marks: 0 } }
+  - { ts: 2026-09-16T23:31:27Z, phase: test, event: smoke, metrics: { result: pass, exit_code: 0, commands: 3 } }
+  - { ts: 2026-09-16T23:32:32Z, phase: test, event: approved }
+  - { ts: 2026-09-16T23:32:35Z, phase: review, event: start, metrics: { marks: 0 } }
+  - { ts: 2026-09-16T23:35:47Z, phase: review, event: approved, metrics: { ac_total: 20, ac_covered: 20, tasks_no_ac: 0, tasks_ac_none: 0 } }
+  - { ts: 2026-09-16T23:36:42Z, phase: tasks, event: doccheck, metrics: { stage: start, phase: tasks, mode: same_session, size: 8938 } }
+  - { ts: 2026-09-16T23:36:55Z, phase: tasks, event: doccheck, metrics: { stage: report, phase: tasks, findings: 0 } }
+  - { ts: 2026-09-16T23:37:05Z, phase: deliver, event: start }
+  - { ts: 2026-09-16T23:37:20Z, phase: deliver, event: approved }
