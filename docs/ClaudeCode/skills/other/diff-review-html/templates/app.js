@@ -516,7 +516,25 @@
     if (!path) { return; }
     // 検索で絞り込まれて一覧に出ていなければ、静かに何もつけない（要件 AC4）。
     var entry = nav.querySelector('[data-path="' + cssEscape(path) + '"]');
-    if (entry) { entry.setAttribute("data-current", "true"); }
+    if (entry) {
+      entry.setAttribute("data-current", "true");
+      // 一覧側がスクロールを要するとき、ハイライトを表示範囲内へ追従させる。
+      // すでに見えていれば何もしない（focus() を伴わないので focusInPlace は使わずに済む）。
+      entry.scrollIntoView({ block: "nearest" });
+    }
+  }
+
+  // ------------------------------------------------ 画面全体のスクロール位置（進捗バー）
+
+  // ページ自体は固定高さで、#pane-center だけがスクロールする（.shell が
+  // height: calc(100vh - ...) を持つため）。「画面全体のスクロール位置」を実際に
+  // 体現しているのは #pane-center なので、そこを見る。
+  function updateProgressBar() {
+    var pane = document.getElementById("pane-center");
+    var bar = document.getElementById("progress-bar");
+    if (!pane || !bar) { return; }
+    var max = pane.scrollHeight - pane.clientHeight;
+    bar.style.width = (max > 0 ? (pane.scrollTop / max * 100) : 0) + "%";
   }
 
   function statsSpan(file) {
@@ -694,7 +712,7 @@
         "aria-expanded": open ? "true" : "false"
       }, [
         el("span", { class: "tree-twisty", text: open ? "▾" : "▸" }),
-        el("span", { class: "tree-name", text: dir.name })
+        el("span", { class: "tree-name", text: dir.name, title: dir.name })
       ]);
       var group = el("div", { role: "group", class: "tree-group" });
       appendTreeChildren(group, dir, path, forceOpen);
@@ -712,7 +730,7 @@
         "data-viewed": viewedFiles[entry.file.path] ? "true" : null
       }, [
         el("span", { class: "tree-twisty", text: "" }),
-        el("span", { class: "tree-name", text: entry.name }),
+        el("span", { class: "tree-name", text: entry.name, title: entry.name }),
         statsSpan(entry.file)
       ]);
       item.addEventListener("click", function () { gotoFile(entry.index); });
@@ -1125,9 +1143,17 @@
       shown.top = Math.min(shown.top + EXPAND_STEP, gap.end - gap.start + 1);
       redrawFile(file, { gap: index, dir: "down" });
     });
+    // その隙間を一度に全部開く（GitHub の中央の展開ボタンと同じ）。shown.bottom は使わない
+    // （expandAll がファイル全体を開くときと同じ前提: shown.top だけで隙間全体を覆える）。
+    var all = el("button", { type: "button", class: "expand-gap-all", text: "すべて表示" });
+    all.addEventListener("click", function () {
+      shown.top = gap.end - gap.start + 1;
+      redrawFile(file, { gap: index, dir: "gap-all" });
+    });
     row.appendChild(label);
     // 下に続くハンクがあるときだけ「↑」、上にハンクがあるときだけ「↓」を出す
     if (index < (file.hunks || []).length) { row.appendChild(up); }
+    row.appendChild(all);
     if (index > 0) { row.appendChild(down); }
     return row;
   }
@@ -2116,6 +2142,7 @@
     // renderFileList() の時点では .file がまだ無いので、renderFiles() の後にもう一度
     // （読み込み直後・スクロール前でも先頭のファイルがハイライトされる。要件 AC6）。
     applyCurrentFileHighlight();
+    updateProgressBar();
   }
 
   function wire() {
@@ -2182,9 +2209,10 @@
     var filelist = document.getElementById("filelist");
     if (filelist) { filelist.addEventListener("keydown", onTreeKeyDown); }
 
-    // 中央ペインのスクロールで「いま表示中のファイル」のハイライトを更新する。
+    // 中央ペインのスクロールで「いま表示中のファイル」のハイライトと進捗バーを更新する。
     // scroll は 1 回のドラッグ/ホイールで何度も飛んでくるので、requestAnimationFrame で
     // 1 フレームに 1 回へまとめる（persist() を毎回叩かないのと同じ考え方）。
+    // 2 本目の scroll リスナーを増やさず、同じ間引きに進捗バーの更新も相乗りさせる。
     var centerPane = document.getElementById("pane-center");
     if (centerPane) {
       var currentFileTicking = false;
@@ -2193,8 +2221,23 @@
         currentFileTicking = true;
         window.requestAnimationFrame(function () {
           applyCurrentFileHighlight();
+          updateProgressBar();
           currentFileTicking = false;
         });
+      });
+    }
+
+    // 進捗バーをクリックすると、その横位置に相当する位置へ #pane-center をスクロールする。
+    var progressTrack = document.getElementById("progress-track");
+    if (progressTrack) {
+      progressTrack.addEventListener("click", function (event) {
+        var pane = document.getElementById("pane-center");
+        if (!pane) { return; }
+        var rect = progressTrack.getBoundingClientRect();
+        var ratio = rect.width ? (event.clientX - rect.left) / rect.width : 0;
+        ratio = Math.max(0, Math.min(1, ratio));
+        var max = pane.scrollHeight - pane.clientHeight;
+        pane.scrollTo({ top: max * ratio, behavior: "smooth" });
       });
     }
 
