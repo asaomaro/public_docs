@@ -1077,18 +1077,34 @@ function Cmd-Guard($rest) {
     if ($script:PARENT_DIR -and ('requirements.md','design.md','architecture.md' -ccontains $f) -and (IsFile (Join-Path $script:PARENT_DIR $f))) { return }
     $script:miss += $f
   }
-  function needApproved($p) { if (-not (ApprovedHas $script:WORK $p)) { $script:unapp += $p } }
+  # subtask は requirements/design/architecture を自分で承認しない（親が承認する。needFile と
+  # 同じ継承。sh 版 need_approved の注記に理由）
+  function needApproved($p) {
+    if (ApprovedHas $script:WORK $p) { return }
+    if ($script:PARENT_DIR -and ('requirements','design','architecture' -ccontains $p) `
+        -and (@(YList (Join-Path $script:PARENT_DIR 'state.yml') 'approved') -ccontains $p)) { return }
+    $script:unapp += $p
+  }
   $script:miss=@(); $script:unapp=@()
+  # **`needFile` は前提成果物が「在るか」しか見ない**。guard は前提工程の「承認」も見る、と
+  # protocol.md「2.」に書いてあるのに、review/deliver/retro 以外は needApproved を呼んでいなかった
+  # （sh 版 cmd_guard の注記に理由・経緯）
   switch -CaseSensitive ($ph) {
     'requirements' { }
-    'research'    { needFile 'requirements.md' }
-    'design'        { needFile 'requirements.md' }
-    'architecture'      { needFile 'design.md' }
-    'tasks'        { needFile 'design.md' }
-    'coding'      { needFile 'tasks.md' }
+    'research'    { needFile 'requirements.md'; needApproved 'requirements' }
+    'design'        { needFile 'requirements.md'; needApproved 'requirements' }
+    'architecture'      { needFile 'design.md'; needApproved 'design' }
+    'tasks'        { needFile 'design.md'; needApproved 'design' }
+    'coding'      {
+      needFile 'tasks.md'
+      # light は tasks を承認しない（上流を requirements 1 ゲートに畳む）
+      if ((YGet (Join-Path $script:WORK 'state.yml') 'profile') -ceq 'light') { needApproved 'requirements' }
+      else { needApproved 'tasks' }
+    }
     'test'        {
       # 分割 work の親は tasks.md を持たない（各 subtask の tasks が作る）。一律に要求すると
-      # 書いてあるとおりに tasks を書いた親の統合 test が必ず塞がる
+      # 書いてあるとおりに tasks を書いた親の統合 test が必ず塞がる。親自身は coding を
+      # 持たないので、この分岐に needApproved coding は要らない（B' チェックが先に弾く）
       $subs = @(YList (Join-Path $script:WORK 'state.yml') 'subtasks')
       if ($subs.Count -gt 0) {
         needFile 'tasks.md'
@@ -1097,7 +1113,7 @@ function Cmd-Guard($rest) {
           if ($subAp -cnotcontains 'review') { $script:miss += "$sub(未review)" }
         }
       } else {
-        needFile 'tasks.md'
+        needFile 'tasks.md'; needApproved 'coding'
       }
     }
     'review'      { needFile 'design.md'; needApproved 'test' }
