@@ -64,6 +64,7 @@
     expandState = {};
     collapsed = {};
     treeOpen = {};
+    threadCollapsed = {};
     viewedFiles = {};
     fileSearchQuery = "";
     currentRow = null;
@@ -107,7 +108,7 @@
     persist();
     renderAll();
     focusFirstRow();
-    banner("読み込みました（" + (source || "不明") + "）: " + (bundle.files || []).length + " ファイル", [], "load");
+    notify("読み込みました（" + (source || "不明") + "）: " + (bundle.files || []).length + " ファイル");
     return true;
   }
 
@@ -148,6 +149,21 @@
       if (child) { node.appendChild(child); }
     });
     return node;
+  }
+
+  // フォルダ/ファイル/検索/ベルは絵文字ではなく単色の線画（page.html の <symbol> スプライト）を
+  // 参照する。createElementNS + setAttribute だけで組み立てる（innerHTML は使わない）。
+  // SVG の名前空間 URI（ネットワーク先を指すものではない、識別子としての固定文字列）。
+  var SVG_NS = "http://www.w3.org/2000/svg";
+  function icon(name) {
+    var svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("class", "icon icon-" + name);
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("focusable", "false");
+    var use = document.createElementNS(SVG_NS, "use");
+    use.setAttribute("href", "#icon-" + name);
+    svg.appendChild(use);
+    return svg;
   }
 
   function clear(node) {
@@ -297,6 +313,57 @@
       box.appendChild(actions);
     }
     document.getElementById("banners").appendChild(box);
+  }
+
+  // ------------------------------------------------------------- 通知ベル
+
+  // 「対応不要のお知らせ」（成功の確認だけで、押せるボタンも無く、読んだあとに何もする必要が
+  // 無いもの）はここへ流す。banner() と違い key による置き換えは持たない（対象は限られており、
+  // 同じ内容が短時間に連続する想定が薄いため）。件数は NOTIF_LIMIT で頭打ちにする。
+  var notifications = [];   // { id, message, ts } の配列。新しい順
+  var notifUnread = 0;
+  var NOTIF_LIMIT = 50;
+
+  function notify(message) {
+    notifications.unshift({ id: nextId("n"), message: message, ts: Date.now() });
+    if (notifications.length > NOTIF_LIMIT) { notifications.length = NOTIF_LIMIT; }
+    renderNotifList();
+    // パネルを開いたまま届いた通知は、一覧にそのまま見えているので未読に数えない
+    // （taskcheck T9 で指摘。バッジは「まだ見ていない件数」を表すため）。
+    var panel = document.getElementById("notif-panel");
+    if (!panel || panel.hidden) { notifUnread += 1; }
+    updateNotifBadge();
+  }
+
+  function renderNotifList() {
+    var host = document.getElementById("notif-list");
+    if (!host) { return; }
+    clear(host);
+    if (!notifications.length) {
+      host.appendChild(el("p", { class: "empty", text: "通知はまだありません" }));
+      return;
+    }
+    notifications.forEach(function (n) {
+      host.appendChild(el("p", { class: "notif-item", text: n.message }));
+    });
+  }
+
+  function updateNotifBadge() {
+    var badge = document.getElementById("notif-badge");
+    if (!badge) { return; }
+    badge.hidden = notifUnread === 0;
+    badge.textContent = String(notifUnread);
+  }
+
+  function toggleNotifPanel() {
+    var panel = document.getElementById("notif-panel");
+    var button = document.getElementById("btn-notif");
+    if (!panel || !button) { return; }
+    var open = panel.hidden;
+    panel.hidden = !open;
+    button.setAttribute("aria-expanded", open ? "true" : "false");
+    // 開いた時点で既読にする（通知の内容自体は残す。要件 AC16）。
+    if (open) { notifUnread = 0; updateNotifBadge(); }
   }
 
   // ------------------------------------------------------- 記録の読み込み
@@ -712,6 +779,7 @@
         "aria-expanded": open ? "true" : "false"
       }, [
         el("span", { class: "tree-twisty", text: open ? "▾" : "▸" }),
+        icon("folder"),
         el("span", { class: "tree-name", text: dir.name, title: dir.name })
       ]);
       var group = el("div", { role: "group", class: "tree-group" });
@@ -730,6 +798,7 @@
         "data-viewed": viewedFiles[entry.file.path] ? "true" : null
       }, [
         el("span", { class: "tree-twisty", text: "" }),
+        icon("file"),
         el("span", { class: "tree-name", text: entry.name, title: entry.name }),
         statsSpan(entry.file)
       ]);
@@ -804,6 +873,7 @@
   var viewModes = {};      // path -> "rich" | "source"
   var expandState = {};    // path -> { gapIndex: {top: 件数, bottom: 件数} }
   var collapsed = {};      // path -> 畳んでいるか（未設定なら行数から決める）
+  var threadCollapsed = {};   // thread.id -> 畳んでいるか（画面の中だけの状態。保存しない）
 
   function viewMode(file) {
     if (!file.rich || !window.DiffReviewRich) { return "source"; }
@@ -1452,6 +1522,7 @@
     });
     renderOrphans(orphans);
     renderCommentList();
+    renderReviewList();
     updatePendingCount();
   }
 
@@ -1514,12 +1585,45 @@
       actions.appendChild(resolveButton);
     }
 
+    // 重大度は .thread-head 側にも出す（review 工程の指摘: 折りたたむと .comment ごと
+    // 隠れるため、.comment の中にしか無いと AC12「重大度などのヘッダー情報は見えたまま」を
+    // 満たせない）。note は severity を持てないので対象外（validateRecord と対）。
+    if (!isNote) {
+      var sev = threadSeverity(thread);
+      if (sev) {
+        head.appendChild(document.createTextNode(" "));
+        head.appendChild(el("span", { class: "badge sev-" + sev, text: sev }));
+      }
+    }
+
+    // 折りたたみは読み書きに関わらず出す（表示の都合だけで、記録には触らない）。
+    // 全体/ファイル/行のいずれのスコープも renderThread() を通るので、ここ1箇所で全スコープに効く。
+    var isCollapsed = !!threadCollapsed[thread.id];
+    var foldButton = el("button", {
+      type: "button", class: "thread-fold icon-btn",
+      "aria-expanded": isCollapsed ? "false" : "true",
+      title: isCollapsed ? "展開する" : "折りたたむ",
+      "aria-label": (isCollapsed ? "展開する: " : "折りたたむ: ") + locationLabel(thread),
+      text: isCollapsed ? "▸" : "▾"
+    });
+    foldButton.addEventListener("click", function () {
+      threadCollapsed[thread.id] = !threadCollapsed[thread.id];
+      renderThreads();
+      // renderThreads() は DOM を作り直すので、押したボタン自身を id で指し直してフォーカスを
+      // 戻す（AC-I4）。
+      var again = document.querySelector(
+        '.thread[data-thread="' + cssEscape(thread.id) + '"] .thread-fold');
+      focusInPlace(again || foldButton);
+    });
+    actions.appendChild(foldButton);
+
     var node = el("div", {
       class: isNote ? "thread thread-note" : "thread",
       "data-kind": thread.kind || "review",
       "data-thread": thread.id,
       tabindex: "-1",              // コメント一覧から飛んできたフォーカスの行き先（AC-I4）
-      "data-resolved": thread.resolved ? "true" : "false"
+      "data-resolved": thread.resolved ? "true" : "false",
+      "data-collapsed": isCollapsed ? "true" : "false"
     }, [el("div", { class: "thread-head" }, [head, actions])]);
 
     thread.comments.forEach(function (comment) {
@@ -1532,7 +1636,10 @@
     var who = el("div", { class: "who" }, [
       el("span", { text: comment.author || "unknown" })
     ]);
-    if (comment.severity) {
+    // 先頭コメントの重大度は threadSeverity() として .thread-head 側にも出るので
+    // （review ラウンド1の対応）、ここで重ねて出すと展開時に二重表示になる（review
+    // ラウンド2で指摘）。先頭コメント以外（返信が個別に持つ重大度）はここでだけ出す。
+    if (comment.severity && comment !== thread.comments[0]) {
       who.appendChild(document.createTextNode(" "));
       who.appendChild(el("span", { class: "badge sev-" + comment.severity, text: comment.severity }));
     }
@@ -1845,6 +1952,44 @@
   }
 
   var reviewStarted = false;
+  var editingReviewId = null;   // null = 新規作成モード。id なら編集中のエントリ
+  var REVIEW_STATE_LABEL = { COMMENTED: "コメントのみ", APPROVED: "承認する", CHANGES_REQUESTED: "修正を求める" };
+
+  function renderReviewList() {
+    var host = document.getElementById("review-list");
+    if (!host) { return; }
+    clear(host);
+    if (!state.reviews.length) {
+      host.appendChild(el("p", { class: "empty", text: "提出したレビュー結果はまだありません" }));
+      return;
+    }
+    state.reviews.forEach(function (review) { host.appendChild(reviewEntry(review)); });
+  }
+
+  function reviewEntry(review) {
+    // #review-list は #submit-panel（rw ブロック）の中にしかないので、readonly では
+    // renderReviewList() が host 不在で早期リターンし、この関数自体が呼ばれない
+    // （taskcheck T5 で確認）。編集・削除ボタンは常に作ってよい。
+    var summary = (review.body || "").replace(/\s+/g, " ").trim();
+    if (summary.length > 80) { summary = summary.slice(0, 80) + "…"; }
+    var isEditing = review.id === editingReviewId;
+    var node = el("div", { class: "review-entry", "data-editing": isEditing ? "true" : null }, [
+      el("span", { class: "badge review-state-" + review.state.toLowerCase(),
+                   text: REVIEW_STATE_LABEL[review.state] || review.state }),
+      el("span", { class: "review-entry-body", text: summary || "（サマリなし）" })
+    ]);
+    if (isEditing) {
+      // 一覧が複数件あるとき、ボタンのラベル変化（提出する→保存する）だけでは
+      // 編集対象を見失いやすい（review 工程の指摘）。一覧側にも明示する。
+      node.appendChild(el("span", { class: "review-entry-editing", text: "編集中" }));
+    }
+    var editButton = el("button", { type: "button", text: "編集" });
+    editButton.addEventListener("click", function () { editReview(review); });
+    var deleteButton = el("button", { type: "button", text: "削除" });
+    deleteButton.addEventListener("click", function () { deleteReview(review); });
+    node.appendChild(el("div", { class: "row-actions" }, [editButton, deleteButton]));
+    return node;
+  }
 
   function updatePendingCount() {
     var node = document.getElementById("pending-count");
@@ -1856,7 +2001,7 @@
     if (start) {
       var active = reviewStarted || pendingComments().length > 0;
       start.setAttribute("aria-pressed", active ? "true" : "false");
-      start.textContent = active ? "レビュー中（提出する）" : "レビューを開始";
+      start.textContent = active ? "レビュー結果を入力" : "レビューを開始";
     }
   }
 
@@ -1868,10 +2013,39 @@
     if (body) { body.focus(); }
   }
 
+  // パネルを閉じる経路（ボタン・Escape）はここに一本化する。編集中（editingReviewId が
+  // 非 null）にパネルを閉じると、暗黙にキャンセルされる（保存されていない入力は失われるが、
+  // state.reviews 側のエントリ自体は変更されない。要件 AC-I2）。
+  function closeSubmitPanel() {
+    if (editingReviewId) { cancelEditReview(); }
+    showPanel("submit-panel", false);
+  }
+
   function submitReview() {
     var selected = document.querySelector('input[name="review-state"]:checked');
     var stateValue = selected ? selected.value : "COMMENTED";
-    var body = document.getElementById("review-body").value.trim();
+    var bodyField = document.getElementById("review-body");
+    var body = bodyField.value.trim();
+
+    if (editingReviewId) {
+      var target = state.reviews.filter(function (r) { return r.id === editingReviewId; })[0];
+      if (!target) {
+        // 削除済み等、参照が失われていた場合。無言で戻すとユーザーが入力を消された理由に
+        // 気づけないので一言伝える（taskcheck T5 で指摘）。
+        cancelEditReview();
+        banner("編集していたレビュー結果は既に削除されています。", []);
+        return;
+      }
+      // 紐づくコメントの review_id はそのまま（判定・サマリだけを差し替える）。
+      target.state = stateValue;
+      target.body = body;
+      cancelEditReview();   // 保存後は新規作成モードへ戻す
+      persist();
+      renderThreads();
+      notify("レビュー結果を更新しました（" + stateValue + "）。JSON を書き出して渡してください。");
+      return;
+    }
+
     var pending = pendingComments();
     if (!pending.length && !body) {
       banner("提出するコメントもサマリもありません。", []);
@@ -1880,21 +2054,45 @@
     var review = { id: nextId("r"), author: "human", state: stateValue, body: body };
     state.reviews.push(review);
     pending.forEach(function (comment) { comment.review_id = review.id; });
-    document.getElementById("review-body").value = "";
+    bodyField.value = "";
     reviewStarted = false;
     persist();
     renderThreads();
-    banner("レビューを提出しました（" + stateValue + "）。JSON を書き出して渡してください。", []);
+    notify("レビューを提出しました（" + stateValue + "）。JSON を書き出して渡してください。");
   }
 
-  function discardPending() {
+  function editReview(review) {
+    editingReviewId = review.id;
+    var radio = document.querySelector('input[name="review-state"][value="' + review.state + '"]');
+    if (radio) { radio.checked = true; }
+    document.getElementById("review-body").value = review.body || "";
+    document.getElementById("btn-submit-do").textContent = "保存する";
+    showPanel("submit-panel", true);
+    document.getElementById("review-body").focus();
+    // 一覧側にも「いま編集中」を示す（review 工程の指摘: ボタンのラベルだけが手がかりだと、
+    // 一覧が複数件でスクロールした先では編集対象が分からなくなる）。
+    renderReviewList();
+  }
+
+  function cancelEditReview() {
+    editingReviewId = null;
+    document.getElementById("review-body").value = "";
+    var defaultRadio = document.querySelector('input[name="review-state"][value="COMMENTED"]');
+    if (defaultRadio) { defaultRadio.checked = true; }
+    document.getElementById("btn-submit-do").textContent = "提出する";
+    renderReviewList();
+  }
+
+  function deleteReview(review) {
+    state.reviews = state.reviews.filter(function (r) { return r !== review; });
     state.threads.forEach(function (thread) {
-      if (thread.kind === "note") { return; }   // 説明は提出の対象外なので破棄もしない
-      thread.comments = thread.comments.filter(function (comment) { return !!comment.review_id; });
+      thread.comments.forEach(function (comment) {
+        if (comment.review_id === review.id) { comment.review_id = null; }
+      });
     });
-    state.threads = state.threads.filter(function (thread) { return thread.comments.length; });
+    if (editingReviewId === review.id) { cancelEditReview(); }
     persist();
-    renderThreads();
+    renderThreads();   // 「未提出」バッジの再計算＋ renderReviewList() も呼ぶ（下記）
   }
 
   // --------------------------------------------------- 書き出し / 読み込み
@@ -2109,10 +2307,13 @@
     }
     if (key === "r") {
       event.preventDefault();
-      showPanel("submit-panel", document.getElementById("submit-panel").hidden);
-      if (!document.getElementById("submit-panel").hidden) {
+      var submitPanel = document.getElementById("submit-panel");
+      if (submitPanel.hidden) {
+        showPanel("submit-panel", true);
         updatePendingCount();
         document.getElementById("review-body").focus();
+      } else {
+        closeSubmitPanel();
       }
       return;
     }
@@ -2124,9 +2325,14 @@
       return;
     }
     if (key === "Escape") {
-      showPanel("submit-panel", false);
+      closeSubmitPanel();
       showPanel("export-panel", false);
       showPanel("help", false);
+      var notifPanel = document.getElementById("notif-panel");
+      if (notifPanel && !notifPanel.hidden) {
+        notifPanel.hidden = true;
+        document.getElementById("btn-notif").setAttribute("aria-expanded", "false");
+      }
     }
   }
 
@@ -2149,25 +2355,16 @@
     // 書き込みの導線は、参照専用では**そもそも HTML に無い**（生成時に切り落としてある）。
     // だから「あれば繋ぐ」形で書く。存在を前提にすると、参照専用で起動時に例外が出て
     // 読む機能まで巻き添えで死ぬ。
-    var submitOpen = document.getElementById("btn-submit-open");
-    if (submitOpen) {
-      submitOpen.addEventListener("click", function () {
-        var panel = document.getElementById("submit-panel");
-        showPanel("submit-panel", panel.hidden);
-        updatePendingCount();
-      });
-      document.getElementById("btn-submit-do").addEventListener("click", submitReview);
-      document.getElementById("btn-submit-discard").addEventListener("click", discardPending);
-      document.getElementById("btn-submit-close").addEventListener("click", function () {
-        showPanel("submit-panel", false);
-      });
-    }
+    // #btn-start-review の存在が rw ブロックの有無を示す唯一の入口になった
+    // （#btn-submit-open は F2 で撤去。レビュー操作は「レビューを開始」の 1 個だけ）。
     var startButton = document.getElementById("btn-start-review");
     if (startButton) {
       startButton.addEventListener("click", function () {
         if (document.getElementById("submit-panel").hidden) { startReview(); }
-        else { showPanel("submit-panel", false); }
+        else { closeSubmitPanel(); }
       });
+      document.getElementById("btn-submit-do").addEventListener("click", submitReview);
+      document.getElementById("btn-submit-close").addEventListener("click", closeSubmitPanel);
     }
     var exportOpen = document.getElementById("btn-export-open");
     if (exportOpen) {
@@ -2182,6 +2379,8 @@
       showPanel("help", help.hidden);
       this.setAttribute("aria-expanded", help.hidden ? "false" : "true");
     });
+    var notifButton = document.getElementById("btn-notif");
+    if (notifButton) { notifButton.addEventListener("click", toggleNotifPanel); }
     // `<label for>` はキーボードで到達できない（`Tab` が止まらない）。**ボタンにして繋ぐ**。
     var openButton = document.getElementById("btn-open-file");
     if (openButton) {

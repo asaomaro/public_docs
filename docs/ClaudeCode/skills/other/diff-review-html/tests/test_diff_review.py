@@ -9,6 +9,7 @@
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -176,10 +177,17 @@ class HtmlTest(unittest.TestCase):
                          "差分に含まれる script タグが生のまま HTML に出てはいけない")
         self.assertIn("\\u003cscript>alert(1)", html)  # 退避が要るのは < だけ
 
+    # SVG/XML の名前空間 URI（例: http://www.w3.org/2000/svg。app.js が
+    # document.createElementNS() に渡す固定の識別子）は、ブラウザが読みに行く
+    # ネットワーク参照ではないので許可する。それ以外の w3.org URL 風の文字列や、
+    # 他のホストへの参照は許可しない（w3.org 直下だけに絞った狭い例外）。
+    W3C_NAMESPACE_URI = re.compile(r"https?://www\.w3\.org/[\w./-]*")
+
     def test_contains_no_external_reference(self):
         _code, html, _err = cli(self.repo, "html", "--repo", ".")
+        scrubbed = self.W3C_NAMESPACE_URI.sub("", html)
         for marker in ("http://", "https://", "//cdn."):
-            self.assertNotIn(marker, html, "オフラインで開けるよう外部参照を持たない")
+            self.assertNotIn(marker, scrubbed, "オフラインで開けるよう外部参照を持たない")
 
     def test_placeholder_text_in_diff_does_not_corrupt_embedding(self):
         """差分がテンプレートのプレースホルダ文字列を含んでも、埋め込み JSON が壊れないこと。
@@ -973,7 +981,7 @@ class ReadonlyTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    WRITE_UI = ('id="btn-submit-open"', 'id="btn-export-open"', 'id="btn-start-review"',
+    WRITE_UI = ('id="btn-export-open"', 'id="btn-start-review"', 'id="review-list"',
                 'id="submit-panel"', 'id="export-panel"', 'class="comment-open"')
 
     def skeleton(self, html):
