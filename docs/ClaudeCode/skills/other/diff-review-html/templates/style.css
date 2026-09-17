@@ -161,14 +161,17 @@ button:focus-visible, [tabindex]:focus-visible {
   height: calc(100vh - var(--topbar-h, 56px));
   min-height: 320px;
 }
+/* 畳んだ側は幅 0 ではなく細いストリップ（40px）にする。.icon-btn の min-width: 30px
+   （box-sizing: border-box）に対し、片側 5px の余白が残る値（research.md R4）。
+   パネル自体は隠さず、開閉ボタンだけを残す——下の「閉じたときの見た目」参照。 */
 .shell[data-left="collapsed"] {
-  grid-template-columns: 0 6px minmax(0, 1fr) 6px var(--right, 320px);
+  grid-template-columns: 40px 6px minmax(0, 1fr) 6px var(--right, 320px);
 }
 .shell[data-right="collapsed"] {
-  grid-template-columns: var(--left, 260px) 6px minmax(0, 1fr) 6px 0;
+  grid-template-columns: var(--left, 260px) 6px minmax(0, 1fr) 6px 40px;
 }
 .shell[data-left="collapsed"][data-right="collapsed"] {
-  grid-template-columns: 0 6px minmax(0, 1fr) 6px 0;
+  grid-template-columns: 40px 6px minmax(0, 1fr) 6px 40px;
 }
 
 .pane { overflow: auto; min-width: 0; }
@@ -184,9 +187,26 @@ button:focus-visible, [tabindex]:focus-visible {
   gap: 16px;
   align-content: start;
 }
-/* 畳んだら境界線も消す。box-sizing: border-box なので、線が残ると幅 0 にならず 1px 残る。 */
+
+/* 閉じたときの見た目: パネル自体は隠さず、.pane-sticky（見出し＋開閉ボタン）だけを残し、
+   それ以外の子要素を隠す。開閉ボタンをトップバーからパネル自身へ移したので
+  （要件「パネルの開閉ボタンをトップバーではなく各パネル自身に置く」）、
+   閉じたパネルにも「再度開く」ための同じボタンがそのまま残る形になる。 */
 .shell[data-left="collapsed"] .pane-left,
-.shell[data-right="collapsed"] .pane-right { visibility: hidden; border: none; }
+.shell[data-right="collapsed"] .pane-right { border: none; }
+.shell[data-left="collapsed"] .pane-left > *:not(.pane-sticky),
+.shell[data-right="collapsed"] .pane-right > *:not(.pane-sticky) { display: none; }
+.shell[data-left="collapsed"] .pane-left .pane-sticky > *:not(.pane-head),
+.shell[data-right="collapsed"] .pane-right .pane-sticky > *:not(.pane-head) { display: none; }
+.shell[data-left="collapsed"] .pane-left .pane-head > *:not(.pane-toggle),
+.shell[data-right="collapsed"] .pane-right .pane-head > *:not(.pane-toggle) { display: none; }
+.shell[data-left="collapsed"] .pane-left .pane-head,
+.shell[data-right="collapsed"] .pane-right .pane-head { justify-content: center; padding: 8px 4px; }
+
+/* .pane-head と、その下の検索欄/絞り込み欄（.filelist-tools / .cl-filters）をまとめて
+   スクロールしても上部に固定する。個別に sticky にして top をピクセルで計算する代わりに、
+   ラッパーごと固定すれば、中の高さが変わっても一緒に動く（JS 実測が要らない）。 */
+.pane-sticky { position: sticky; top: 0; z-index: 2; background: var(--surface); }
 
 .pane-head {
   display: flex;
@@ -195,10 +215,7 @@ button:focus-visible, [tabindex]:focus-visible {
   gap: 8px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--line);
-  position: sticky;
-  top: 0;
   background: var(--surface);
-  z-index: 1;
 }
 .pane-head h2 { font-size: 13px; margin: 0; color: var(--muted); }
 
@@ -223,8 +240,11 @@ button:focus-visible, [tabindex]:focus-visible {
   .sep { display: none; }
   .pane { overflow: visible; }
   .pane-left, .pane-right { border: none; border-bottom: 1px solid var(--line); max-height: 40vh; overflow: auto; }
+  /* 開閉ボタンをパネル自身（.pane-head）へ移したので、900px 以下でも display:none で
+     丸ごと隠すと二度と開けなくなる（移設そのものが生む退行）。中身は隠すがパネル自体は
+     残し、.pane-head の開閉ボタンだけが見える状態にする（上の「閉じたときの見た目」と同じ規則）。 */
   .shell[data-left="collapsed"] .pane-left,
-  .shell[data-right="collapsed"] .pane-right { display: none; }
+  .shell[data-right="collapsed"] .pane-right { display: block; max-height: none; }
 }
 
 #banners:empty { display: none; }
@@ -516,7 +536,15 @@ textarea {
 .tree-item:hover { background: var(--bg); }
 .tree-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .tree-twisty { flex: 0 0 auto; width: 12px; text-align: center; color: var(--muted); }
-.tree-name { flex: 1 1 auto; word-break: break-all; }
+/* 中間階層を連結した名前は長くなりがちなので、折り返さず省略する（title で全体を出す）。
+   min-width: 0 が無いと flex アイテムは縮まず、ellipsis が効かない（実測済みの落とし穴）。 */
+.tree-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .tree-stat { flex: 0 0 auto; white-space: nowrap; }
 .tree-dir > .tree-name { font-weight: 600; }
 /* 深さに応じたインデント。ネストした .tree-group に同じ規則を当てるだけで複合する
@@ -635,4 +663,29 @@ textarea {
   color: var(--muted);
   white-space: nowrap;
   cursor: pointer;
+}
+
+/* ------------------------------------------------------------ 進捗バー */
+
+/* #pane-center（差分を読む領域）のスクロール位置。値は md-to-doc skill の実装と揃える。 */
+.progress-track {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 6px;
+  z-index: 200;
+  cursor: pointer;
+  background: transparent;
+}
+.progress-track:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 3px;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.1s;
+  pointer-events: none;
 }
