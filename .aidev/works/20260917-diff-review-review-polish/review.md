@@ -1,0 +1,113 @@
+# レビュー記録
+
+## タスク点検ログ（coding 工程内・「3.3」(b)）
+
+- [should][conv:-] `templates/app.js`（`SVG_NS`） SVG 名前空間 URI を2文字列に分割して
+  `test_contains_no_external_reference` の部分文字列検査を回避していたのは、ソース側の
+  難読化であって本質的な対応ではない / 対応: 修正済（T1・ラウンド1）。`SVG_NS` を通常の
+  1リテラルへ戻し、`tests/test_diff_review.py` 側に w3.org 名前空間 URI を許可する狭い
+  例外（正規表現でスクラブしてから検査）を追加した。
+- [should][conv:-] `templates/page.html`／`templates/app.js`（T4） 提示された diff の範囲
+  だけでは `#btn-submit-do`/`#btn-submit-close` が通常モードの page.html に実在するか
+  確認できない、という指摘 / 対応: 確認済（修正不要）。`grep` で実ファイルを直読し、
+  両ボタンが T6 実施後も変わらず存在することを確認した（T6 で消したのは
+  `#btn-submit-discard` のみ）。
+- [should][conv:-] `templates/page.html`/`templates/app.js`（T5） `#review-list` が
+  `#submit-panel`（rw ブロック）の中にしかなく、readonly では `renderReviewList()` が
+  host 不在で早期リターンするため、`reviewEntry()` に足した
+  `if (readonly) { return node; }` が実行されない死んだ分岐になっていた / 対応: 修正済
+  （T5・ラウンド1）。死んだ分岐を削除し、理由をコメントで残した（readonly での提出済み
+  レビュー結果の閲覧対応は、今回の要件の対象外として scope 外のまま——将来必要なら
+  別途 backlog 化する）。
+- [nit][conv:-] `templates/app.js`（T5） `submitReview()` の編集分岐で編集対象が
+  削除済み等により見つからない場合、無言でフォームがリセットされていた / 対応: 修正済
+  （T5・ラウンド1）。`banner()` で一言伝えるようにした。
+- [nit][conv:-] `templates/style.css`（T7） `.file-head`/`.file-body` の入れ子
+  `border-radius` が `.file` の `border-width`（1px）を厳密には差し引いていない（理論上
+  1px 未満の誤差） / 対応: 許容。border=1px・radius=8px のスケールでは視認できないレベル
+  のため、複雑さに見合わないと判断し据え置いた。
+- [should][conv:-] `templates/style.css`（T9） `.notif-badge` が `color: #fff` 固定で、
+  ダークテーマで `--danger` が明るいサーモンピンクに切り替わるとコントラストが崩れる
+  / 対応: 修正済（T9・ラウンド1）。`color: var(--bg)`（明暗どちらのテーマでも `--danger`
+  と輝度が逆になるよう設計済みの既存トークン）に差し替えた。
+- [nit][conv:-] `templates/app.js`（T9） `notifUnread` が `NOTIF_LIMIT`（保持上限50件）と
+  連動しておらず、パネルを一度も開かないまま51件以上通知が発生すると、バッジの数字と
+  実際に一覧へ残る件数がずれる / 対応: 許容。極めて稀な状況であり、対応の複雑さに
+  見合わないと判断し据え置いた。
+- [nit][conv:-] `templates/app.js`（T9） `notify()` が `#notif-panel` の開閉状態を見ずに
+  常に `notifUnread` を加算しており、パネルを開いたまま新着があると一覧には見えているのに
+  バッジの数字だけ増えたままになりうる / 対応: 修正済（T9・ラウンド1）。パネルが開いている
+  間に届いた通知は未読に数えないよう分岐を追加した。
+
+（T2・T3・T6・T8・T10・T11 は `CHECK: ok` / `FINDINGS: 0`。指摘なし。）
+
+## タスクをまたぐ不変条件の点検（`cross`・「3.3」(b)）
+
+- [nit][conv:-] `templates/style.css` の `.tree-item[data-viewed="true"] .tree-name`
+  ルールが、単独の宣言（旧585行目）と「フラット・ツリー共通」ルール（`#filelist
+  a[data-viewed="true"] .path-text, .tree-item[data-viewed="true"] .tree-name`）の
+  2箇所に全く同一の内容で重複定義されていた / 対応: 修正済（cross・ラウンド1）。
+  `git diff` で確認したところ**この重複は本 work の変更に起因せず、過去の work から
+  持ち越された既存の重複**だったが、修正が1行削除で完結し既存テストにも影響しないため、
+  触れたついでに直した。単独ルールを削除し、共通ルール1本に統合した。
+
+（他の観点——`#submit-panel` を閉じる経路の一貫性・`readonly` ガードの使い分け・
+新規アイコンの属性・`ReadonlyTest.WRITE_UI` との整合・新規色トークンの不在——はいずれも
+整合していることを確認済み。）
+
+## ラウンド 1（review 工程・要件適合/価値適合の独立点検）
+
+- [must][conv:-] スレッドを折りたたむと重大度（severity）バッジが一緒に消え、AC12
+  「位置・解決状態・重大度などのヘッダー情報は見えたままである」を満たさない。
+  `.thread[data-collapsed="true"] > .comment { display: none; }`（style.css）は `.thread`
+  の直接の子である `.comment` 全体を隠すが、重大度バッジは `.thread-head` ではなく
+  `renderComment()` が作る `.comment > .who` の中にしかない。design.md F5 節の「位置・
+  解決状態・重大度は `.thread-head` の中に既にある」という記述は事実誤認だった。
+  既存の `threadSeverity(thread)`（コメント一覧のフィルタで使用中）をそのまま
+  `.thread-head` 側の表示に転用できる。 / 対応: 修正済（coding 再開・ラウンド1）。
+  `renderThread()` の `.thread-head` に `threadSeverity(thread)` から重大度バッジを
+  追加した。折りたたんでもバッジは `.thread-head` 側に残るため消えない。headless DOM
+  検証で「折りたたむ前後どちらも `.thread-head .badge.sev-must` が存在する」ことを確認。
+- [should][conv:-] 提出済みレビュー結果の編集中（`editingReviewId` が非 null）に、
+  `#review-list` の一覧側にはどのエントリを編集中か分かる視覚的な印が無い。一覧が複数件
+  あり、スクロールで編集対象のエントリが見えなくなると、US3 が意図する「いま自分が
+  何を編集しているか一目で分かる」体験を取りこぼす。 / 対応: 修正済（coding 再開・
+  ラウンド1）。`reviewEntry()` に `data-editing`/「編集中」表示を追加し、
+  `editReview()`/`cancelEditReview()` で一覧を再描画して同期させた。headless DOM 検証で
+  一覧2件のうち編集中の1件だけに印が付き、保存/キャンセルどちらでも印が消えることを確認。
+
+（他の観点——ツリーアイコン・単一ボタン化・sticky ヘッダー・通知ベルの対象範囲選定——は
+requirements.md / design.md の記述と実装が整合していることを確認済み。）
+
+## ラウンド 2（review 工程・ラウンド1の修正の検証）
+
+- [should][conv:-] ラウンド1の must 対応（`.thread-head` への重大度バッジ追加）が、
+  展開時（折りたたんでいない通常時）に `.comment > .who` 側の既存バッジと二重表示に
+  なっていた。`threadSeverity(thread)` は常に「先頭コメントの重大度」を返すため、
+  `.thread-head` に出すバッジと、先頭コメント自身の `.who` に出るバッジが同じ内容で
+  重複していた。 / 対応: 修正済（coding 再開・ラウンド2）。`renderComment()` 側で、
+  先頭コメント（`comment === thread.comments[0]`）のときだけ `.who` の重大度バッジを
+  省くようにした（返信が個別に持つ重大度は従来どおり `.who` に表示される）。headless
+  DOM 検証で、展開時に先頭コメント側の重複が無いこと、かつ返信自身の重大度は
+  抑制されず表示されることの両方を確認した。
+- ラウンド1の2件（AC12 の重大度消失・編集中インジケータ欠如）は解消を再確認。
+  新たな回帰は見当たらない（`ReadonlyTest.WRITE_UI` との整合も含め確認済み）。
+
+（他の観点の広い再点検は、ラウンド1で確認済みの範囲に留め、今回の修正が触れていない
+箇所——ツリーアイコン・sticky・通知ベル等——は対象外とした。）
+
+## ラウンド 3（review 工程・D10 の修正の最終確認）
+
+指摘なし。D10 の修正（`renderComment()` で先頭コメントの重大度バッジを抑制）が
+`.thread[data-collapsed]`/`.thread-head`/`renderCommentList()`/`clItem()` 等、重大度を
+扱う他の箇所（`grep -n '"sev-'`で全数確認: `templates/app.js` の3箇所——`.thread-head`・
+`.comment > .who`・コメント一覧の `clItem()`——のうち影響があるのは前2者のみで、
+`clItem()` は別 DOM 部分木のため無関係）と矛盾しないことを diff の通読で確認した。
+`closeSubmitPanel()`/`editReview()`/`cancelEditReview()`/`deleteReview()` のフォーカス・
+再描画の流れ（`editReview()` が `renderReviewList()` を呼ぶ前に `review-body` へ
+フォーカスしているため、一覧の再構築でフォーカスが失われない等）も合わせて確認した。
+`aidev coverage --strict` は gaps=0 のまま（tasks 承認時から被覆の乖離なし）。
+
+**この work のレビュー指摘は最終的に must 1件・should 2件・nit 0件**
+（ラウンド1: must 1・should 1／ラウンド2: should 1／ラウンド3: 指摘なし。いずれも
+coding で修正し、修正後の再検証まで完了している）。

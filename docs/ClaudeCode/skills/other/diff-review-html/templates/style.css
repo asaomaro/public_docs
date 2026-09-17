@@ -272,6 +272,29 @@ button:focus-visible, [tabindex]:focus-visible {
 .panel legend { padding: 0 4px; color: var(--muted); }
 .panel label { margin-right: 12px; }
 .panel label.block { display: block; margin: 8px 0 4px; }
+
+/* 提出済みレビュー結果の一覧（#submit-panel の中）。長くなりすぎないよう自前でスクロールする。 */
+.review-list { max-height: 200px; overflow: auto; margin: 0 0 12px; }
+.review-list:empty { display: none; }
+.review-entry {
+  display: grid;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  background: var(--bg);
+}
+.review-entry:last-child { margin-bottom: 0; }
+.review-entry-body { font-size: 12px; word-break: break-word; }
+.review-entry .row-actions { margin-top: 2px; }
+.review-state-approved { color: var(--resolved); }
+.review-state-changes_requested { color: var(--danger); }
+.review-state-commented { color: var(--muted); }
+/* 編集中のエントリを一覧側でも分かるようにする（review 工程の指摘。ラベル変化
+   「提出する」→「保存する」だけでは、一覧が複数件かつスクロール先だと見失う）。 */
+.review-entry[data-editing="true"] { border-color: var(--accent); }
+.review-entry-editing { color: var(--accent); font-size: 11px; font-weight: 600; }
 kbd {
   font-family: var(--mono);
   border: 1px solid var(--line);
@@ -314,8 +337,16 @@ textarea {
 .section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .section-head h2 { font-size: 14px; margin: 0; }
 
-.file { border: 1px solid var(--line); border-radius: 8px; margin-bottom: 16px; overflow: hidden; }
+/* 角丸のクリップは .file 自身の overflow ではなく、.file-head（上2角）/ .file-body
+   （下2角）それぞれの border-radius で持たせる。.file 自身に overflow: hidden を付けると
+   それ自体がスクロールコンテナとして扱われ、.file-head の position: sticky が
+   #pane-center ではなく .file 自身を基準にしてしまい、画面上部への固定が効かなくなる
+   （research.md F1〜F3 で確認）。 */
+.file { border: 1px solid var(--line); border-radius: 8px; margin-bottom: 16px; }
 .file-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   display: flex;
   gap: 12px;
   align-items: center;
@@ -323,10 +354,11 @@ textarea {
   padding: 6px 12px;
   background: var(--surface);
   border-bottom: 1px solid var(--line);
+  border-radius: 8px 8px 0 0;
 }
 .file-head .path { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .file-head .tags { color: var(--muted); font-size: 12px; white-space: nowrap; }
-.file-body { overflow-x: auto; }
+.file-body { overflow-x: auto; overflow-y: hidden; border-radius: 0 0 8px 8px; }
 .file[data-collapsed="true"] .file-body { display: none; }
 
 .hunk-head {
@@ -377,6 +409,9 @@ textarea {
   background: var(--bg);
 }
 .thread[data-resolved="true"] { opacity: 0.75; }
+/* 折りたたみ: 位置・解決状態・重大度などの .thread-head は常に見せ、コメント本文だけ隠す。
+   .comment は返信用の .composer-slot を自分の中に持つので、これで一緒に隠れる。 */
+.thread[data-collapsed="true"] > .comment { display: none; }
 .thread-head {
   display: flex;
   justify-content: space-between;
@@ -551,7 +586,6 @@ textarea {
    （research.md F1 で実測: 3 階層で x = 8 / 31 / 54 と均等に増える）。接続線は左境界で表す。 */
 .tree-group { margin: 0 0 0 6px; padding-left: 16px; border-left: 1px solid var(--line); }
 .tree-item[aria-expanded="false"] + .tree-group { display: none; }
-.tree-item[data-viewed="true"] .tree-name { text-decoration: line-through; color: var(--muted); }
 
 /* -------------------------------------------------------------- コメント一覧 */
 
@@ -610,9 +644,78 @@ textarea {
   color: var(--accent);
 }
 
+/* 線画アイコン（フォルダ/ファイル/検索/ベル）。stroke="currentColor" なので、置かれた場所の
+   `color`（既存の --fg/--muted 等）にそのまま追従する。新規の色トークンは増やさない。 */
+.icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  vertical-align: middle;
+}
+
+/* ---------------------------------------------------------------- 通知ベル */
+
+/* ベルボタンの真下に重ねて出す浮動ポップオーバー。固定パネル（#help/#submit-panel）とは
+   違い、topbar の高さ計算（ui.js の syncTopbarHeight）の対象に含めない——開閉しても
+   レイアウトが動かない。 */
+#btn-notif { position: relative; }
+.notif-wrap { position: relative; }
+.notif-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--danger);
+  /* #fff 固定だと、--danger がダークテーマで明るいサーモンピンクへ切り替わったとき
+     コントラストが崩れる（taskcheck T9 で実測）。var(--bg) は明暗どちらのテーマでも
+     --danger と輝度が逆になるよう設計済みのトークンなので、これに乗せる。 */
+  color: var(--bg);
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+}
+.notif-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  width: 280px;
+  max-height: 320px;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
+  padding: 4px;
+}
+.notif-item {
+  margin: 0;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.notif-item:last-child { border-bottom: none; }
+.notif-panel .empty { padding: 6px 8px; }
+
 /* ---------------------------------------------------------- ファイル一覧の検索 */
 
 .filelist-tools { padding: 6px 12px; border-bottom: 1px solid var(--line); }
+/* 検索アイコンは入力欄に重ねる。角丸は他の入力欄より少し強め（8px）にして、
+   参考画像の質感に寄せつつ、この画面の既存の角丸（.file 等の 8px）には揃える
+   （参考画像そのままのピル型にはしない。decisions.md D2 の考え方と同じく、
+   既存の視覚言語との一貫性を優先する）。 */
+.filelist-search { position: relative; }
+.filelist-search .icon {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
+}
 #file-search {
   width: 100%;
   font: inherit;
@@ -620,8 +723,8 @@ textarea {
   color: var(--fg);
   background: var(--bg);
   border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 4px 8px;
+  border-radius: 8px;
+  padding: 4px 8px 4px 28px;
 }
 #file-search:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 #file-search[aria-invalid="true"] { border-color: var(--danger); }

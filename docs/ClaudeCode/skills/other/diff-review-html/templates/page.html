@@ -15,6 +15,26 @@ try {
 <style>__STYLE__</style>
 </head>
 <body>
+<!-- アイコンのスプライト。フォルダ/ファイル/検索/ベルは絵文字ではなく単色の線画（decisions.md
+     参照）。各行では <svg><use></use></svg> で参照する（app.js の icon() ヘルパー、または
+     このファイル内の静的な使用箇所）。 -->
+<svg aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden">
+  <symbol id="icon-folder" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2.5 6c0-.83.67-1.5 1.5-1.5h3.5l1.5 2h7c.83 0 1.5.67 1.5 1.5v7c0 .83-.67 1.5-1.5 1.5h-12c-.83 0-1.5-.67-1.5-1.5V6Z"/>
+  </symbol>
+  <symbol id="icon-file" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5.5 2.5h6l4 4v10c0 .55-.45 1-1 1h-9c-.55 0-1-.45-1-1v-13c0-.55.45-1 1-1Z"/>
+    <path d="M11.5 2.5V6.5c0 .55.45 1 1 1h4"/>
+  </symbol>
+  <symbol id="icon-search" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="8.5" cy="8.5" r="5"/>
+    <path d="M12.7 12.7 17 17"/>
+  </symbol>
+  <symbol id="icon-bell" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M10 3a4 4 0 0 0-4 4v2.4c0 .7-.25 1.37-.7 1.9L4 13.5h12l-1.3-2.2a3 3 0 0 1-.7-1.9V7a4 4 0 0 0-4-4Z"/>
+    <path d="M8.3 15.5a1.8 1.8 0 0 0 3.4 0"/>
+  </symbol>
+</svg>
 <div class="progress-track" id="progress-track" title="クリックした位置へ移動" aria-hidden="true">
   <div class="progress" id="progress-bar"></div>
 </div>
@@ -30,11 +50,20 @@ try {
     <button type="button" id="btn-theme" class="icon-btn" title="テーマ: OS に従う" aria-label="テーマ: OS に従う（押すと切り替え）">◐</button>
 <!-- rw:begin -->
     <button type="button" id="btn-start-review" aria-pressed="false">レビューを開始</button>
-    <button type="button" id="btn-submit-open">レビューを提出</button>
     <button type="button" id="btn-export-open">JSON を書き出す</button>
 <!-- rw:end -->
     <button type="button" id="btn-open-file">ファイルを開く</button>
     <input type="file" id="file-import" accept=".json,.dreview,application/json,text/javascript" hidden>
+    <div class="notif-wrap">
+      <button type="button" id="btn-notif" class="icon-btn" aria-expanded="false"
+              aria-controls="notif-panel" title="通知" aria-label="通知">
+        <svg class="icon icon-bell" aria-hidden="true" focusable="false"><use href="#icon-bell"></use></svg>
+        <span id="notif-badge" class="notif-badge" hidden>0</span>
+      </button>
+      <section id="notif-panel" class="notif-panel" hidden aria-label="通知一覧">
+        <div id="notif-list"></div>
+      </section>
+    </div>
     <button type="button" id="btn-help-open" class="icon-btn" aria-expanded="false" aria-controls="help"
             title="キー操作" aria-label="キー操作">?</button>
   </div>
@@ -71,6 +100,7 @@ try {
 <!-- rw:begin -->
 <section id="submit-panel" class="panel" hidden aria-label="レビューの提出">
   <h2>レビューを提出する</h2>
+  <div id="review-list" class="review-list" aria-label="提出済みのレビュー結果"></div>
   <p class="hint" id="pending-count"></p>
   <fieldset>
     <legend>判定</legend>
@@ -82,7 +112,6 @@ try {
   <textarea id="review-body" rows="4" placeholder="レビュー全体のコメント"></textarea>
   <div class="row-actions">
     <button type="button" id="btn-submit-do">提出する</button>
-    <button type="button" id="btn-submit-discard">未提出のコメントを破棄</button>
     <button type="button" id="btn-submit-close">閉じる</button>
   </div>
 </section>
@@ -112,8 +141,11 @@ try {
       </div>
       <div class="filelist-tools">
         <label class="visually-hidden" for="file-search">ファイルを検索</label>
-        <input type="search" id="file-search" placeholder="検索…（*/? や /正規表現/ にも対応）"
-               aria-label="ファイルを検索（ワイルドカードや正規表現にも対応）">
+        <div class="filelist-search">
+          <svg class="icon icon-search" aria-hidden="true" focusable="false"><use href="#icon-search"></use></svg>
+          <input type="search" id="file-search" placeholder="検索…（*/? や /正規表現/ にも対応）"
+                 aria-label="ファイルを検索（ワイルドカードや正規表現にも対応）">
+        </div>
         <p class="filelist-hint" id="file-search-hint" aria-live="polite"></p>
       </div>
     </div>
