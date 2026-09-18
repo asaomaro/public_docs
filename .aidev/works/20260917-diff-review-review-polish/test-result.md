@@ -1,8 +1,38 @@
 # テスト結果: レビュー操作性の改善（ツリー見た目・レビュー提出フロー・固定ヘッダー・コメント折りたたみ・通知ベル）
 
-> **ラウンド6・最終**（review 工程の独立点検で「`height: 28px` 固定だと長いラベルが
-> 2行になったとき欠ける」という指摘を受け、`min-height: 28px` に直した後の再検証）。
-> ラウンド1〜5の内容は本ファイル末尾に残す。
+> **ラウンド7・最終**（PR #28 マージ後、「高さの修正が元に戻っている」というユーザー報告を
+> 受け、`min-height` が実ブラウザで効いていなかった原因を突き止めて修正した後の再検証。
+> decisions.md D13）。ラウンド1〜6の内容は本ファイル末尾に残す。
+
+## 実行したもの（ラウンド7・最終）
+
+- `python3 -m unittest discover -s docs/ClaudeCode/skills/other/diff-review-html/tests -p "test_*.py"`
+  — 126 passed / 0 failed / 0 skipped
+- `aidev smoke`（`.aidev/config.yml` の `smokeCommands` 3本）— pass (exit 0)
+- **実ブラウザでの高さ実測（新規の検証手段）**: `playwright-core` ＋ 既存インストール済みの
+  Chromium バイナリ（`~/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome`）を使い、
+  `page.locator(...).boundingBox()` で実際にレンダリングされた高さを測定した。
+  jsdom（headless DOM 検証）は CSS の**指定値**（`getComputedStyle().minHeight` が
+  `"28px"` を返す等）しか確認できず、レイアウト計算後の**使用値**（実際に描画される
+  高さ）は検証できていなかった——今回の不具合（`min-height` が下限であるがゆえに
+  content 側の自然な高さがそれを超えていると無効化される）は、まさにこの「指定値と
+  使用値の違い」によって jsdom では検出できず、実ブラウザでしか見つけられなかった。
+  - トップバー7個（split表示/テーマ/レビュー開始/JSON書き出し/ファイルを開く/通知ベル/
+    ヘルプ）: すべて 28.00px（修正前は通知ベル以外すべて 32.39px）
+  - ファイル操作列（file-toggle/copy-path）: 28.00px
+  - composer（コメントする/閉じる/severity select）: 28.00px
+  - submit-panel（提出する/閉じる）: 28.00px
+  - 例外3箇所（差分行の +・expand-all〔比較用に icon-btn も確認〕・
+    row .comment-open）: `row .comment-open` は 18.80px（意図どおりコンパクトなまま）、
+    `expand-all`（`.icon-btn`）は 28.00px
+  - 「ファイルにコメント」ボタン（`.file-actions .comment-open`）は、この work が
+    自分自身の差分をレビューする際、`docs/ClaudeCode/skills/other/diff-review-html/
+    templates/style.css` という長いパスと組み合わさって `.file-head` の横幅が窮屈になり、
+    ボタン自身が2行に折り返って 43.59px になるケースを確認した。**これはバグではなく
+    D12/D13 で意図した「固定 `height` ではなく `min-height` にして、収まらない場合は
+    欠けずに伸びる」という安全策が働いている状態**（通常の短いパスでは発生しない）。
+
+## 実行したもの（ラウンド6）
 
 ## 実行したもの（ラウンド6・最終）
 
@@ -236,12 +266,21 @@ ALL PASS（51件）
 - **実際の描画・レイアウト**: jsdom はレイアウトエンジンを持たないため、
   `position: sticky` によるファイルヘッダーの追従、通知ポップオーバーの表示位置、
   検索アイコンとテキストの重なり具合など、**見た目・スクロール挙動そのものは
-  実ブラウザで未確認**。CSS ルールの存在と、taskcheck（T7/T9）でのレビュー時の
-  仕様確認（CSS Positioned Layout の仕様に照らした静的検証）で代替している。
-  - **この穴が実際に顕在化した**: PR #26 マージ後、ユーザーが実ブラウザで確認し、
-    sticky ヘッダーとトップバーの間の隙間・トップバーのボタンの高さ不揃いの2件を
-    発見した（decisions.md D11）。修正済みだが、**同種の「実ブラウザでしか分からない
-    見た目のズレ」は他にも残っている可能性がある**（この穴自体は解消していない）。
+  当初実ブラウザで未確認だった**。CSS ルールの存在と、taskcheck（T7/T9）でのレビュー時の
+  仕様確認（CSS Positioned Layout の仕様に照らした静的検証）で代替していた。
+  - **この穴が2度顕在化した**: (1) PR #26 マージ後、sticky ヘッダーとトップバーの間の
+    隙間・トップバーのボタンの高さ不揃い（decisions.md D11）。(2) PR #28 マージ後、
+    `min-height: 28px` が実ブラウザでは全く効いていなかった（`min-height` は下限であり、
+    content 由来の高さが既にそれを超えていると無効化される。decisions.md D13）。
+    (2) は特に、jsdom の `getComputedStyle()` が「指定値」しか読めず「使用値」（実際の
+    描画結果）を読めないことに起因し、jsdom による検証だけでは原理的に検出不可能だった。
+  - **この work では playwright-core ＋ 既存 Chromium バイナリによる実ブラウザ実測
+    （`boundingBox()`）を用意し、ボタンの高さについてはこの穴を解消した**（D13）。
+    ただし sticky の実際のスクロール追従・通知ポップオーバーの表示位置など、
+    ボタンの高さ以外の見た目はまだ実ブラウザで網羅的には確認していない。
+    **今後 diff-review-html を触る work では、jsdom だけでなく実ブラウザでの
+    `boundingBox()`/スクリーンショット確認も検証手段に含めることを推奨する**
+    （この work で有効性が実証された）。
 - **Tab キーでの到達順序**: AC-I3 は新規ボタンが `<button>` として click 操作できる
   ことは確認したが、実際に Tab キーで辿ったときの順序・フォーカスの見え方
   （`:focus-visible` のスタイル等）は未確認。

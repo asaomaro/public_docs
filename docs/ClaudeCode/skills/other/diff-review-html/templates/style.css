@@ -132,7 +132,7 @@ body {
 
 .topbar h1 { font-size: 16px; margin: 0; }
 .meta { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
-.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
 /* すべての通常ボタンは高さ 28px に揃える（ユーザー報告: トップバーだけでなく、
    ファイルの操作列（ファイルにコメント 等）・コメントの入力欄（コメントする/閉じる 等）
@@ -156,6 +156,16 @@ button {
   align-items: center;
   justify-content: center;
   font: inherit;
+  /* font: inherit は line-height も含めて body の 1.6 を継承する。1行の文字の高さ
+     （14px×1.6=22.4px）だけで padding・border を足すと 32px 超になり、min-height の
+     28px という「下限」を自然に超えてしまうため min-height が効かず、実ブラウザでは
+     32.39px のまま——という実機検証で見つかったバグ（min-height は最小値の保証であって
+     縮小はしない）。ここで line-height を明示的に詰めることで、1行の内容は 28px 未満に
+     収まり、min-height の 28px が実際に効くようになる。**font より後に書くこと**
+     （font ショートハンドが line-height を巻き込んで上書きするため、順序が逆だと消える）。
+     長いラベルが折り返して2行になる場合は、通常どおり min-height を超えて伸びる
+     （欠けない）。 */
+  line-height: 1.2;
   color: var(--fg);
   background: var(--bg);
   border: 1px solid var(--line);
