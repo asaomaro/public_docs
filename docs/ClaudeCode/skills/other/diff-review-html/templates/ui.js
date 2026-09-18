@@ -113,6 +113,26 @@
     return pane ? pane.getBoundingClientRect().width : 0;
   }
 
+  // ドラッグ中の生の幅（MIN_W 未満にもなりうる）を実際の表示へ反映する。MIN_W は
+  // clampWidth の下限であると同時に、畳んだときのストリップ幅でもある（style.css）。
+  // その床まで縮めても「開いたまま 40px に潰れた」表示にはせず、開閉ボタンで畳んだときと
+  // 同じ見た目（中身を隠す）に倒す（ユーザー報告: D&D で縮めても一覧の中身が隠れず見えたまま）。
+  function applyWidth(which, rawWidth, save) {
+    var width = clampWidth(rawWidth);
+    if (width <= MIN_W) {
+      if (isOpen(which)) { setPane(which, false, save); }
+      // 畳んだときは `--left`/`--right`（＝ 再度開いたときに戻る幅）はあえて書き換えない
+      // （setWidth を呼ぶとそれも上書きしてしまう）。ただし `aria-valuenow` だけは
+      // 実際の表示幅（40px）に合わせておく——ここを更新しないと、支援技術には
+      // 畳む直前の幅のまま止まって見える（review 工程の指摘）。
+      var sep = document.getElementById("sep-" + which);
+      if (sep) { sep.setAttribute("aria-valuenow", String(MIN_W)); }
+    } else {
+      if (!isOpen(which)) { setPane(which, true, save); }
+      setWidth(which, width, save);
+    }
+  }
+
   // ------------------------------------------------------------ ペインの開閉
 
   function isOpen(which) {
@@ -123,7 +143,7 @@
   var PANE_NAME = { left: "ファイル一覧", right: "コメント一覧" };
 
   // 開閉状態が変わる経路はボタンのクリックだけでなく、キーボードショートカット
-  // （{ / } / [ / ]）・セパレータへの Enter/Space・ドラッグ開始時の自動オープンなど
+  // （{ / } / [ / ]）・セパレータへの Enter/Space・ドラッグでの MIN_W 到達（applyWidth）など
   // 複数ある（review 工程の指摘）。それらをすべて app.js 側で個別に検知するのではなく、
   // 状態を実際に書き換えるここ（setPane）1箇所から、登録されていれば呼ぶ。
   // ui.js はフックの中身（バッジの更新等）を一切知らない——画面の形だけを扱うという
@@ -161,15 +181,16 @@
 
     sep.addEventListener("pointerdown", function (event) {
       if (event.button !== 0) { return; }
-      // 畳んでいる状態からドラッグを始められると、戻したときの幅が 0 になる。先に開く。
-      if (!isOpen(which)) { setPane(which, true, true); }
+      // 畳んでいる状態からドラッグを始めても、ここでは開かない。開いた瞬間にパネル幅が
+      // ストリップ幅(40px)から以前の幅へ飛び、マウス位置と罫線の位置がずれてしまう
+      // （ユーザー報告）。現在の実際の幅（畳んでいれば 40px）をそのまま起点にする。
       var startX = event.clientX;
       var startW = currentWidth(which);
       sep.setPointerCapture(event.pointerId);
 
       function move(e) {
         var delta = e.clientX - startX;
-        setWidth(which, which === "left" ? startW + delta : startW - delta, false);
+        applyWidth(which, which === "left" ? startW + delta : startW - delta, false);
       }
       function up() {
         sep.removeEventListener("pointermove", move);
@@ -177,7 +198,12 @@
         sep.removeEventListener("pointercancel", up);
         try { sep.releasePointerCapture(event.pointerId); } catch (err) { /* すでに解放済み */ }
         // **離した時点で確定**（ドラッグ中に毎回書くと localStorage への書き込みが多すぎる）
-        setWidth(which, currentWidth(which), true);
+        if (isOpen(which)) {
+          setWidth(which, currentWidth(which), true);
+          pref("pane-" + which, "open");
+        } else {
+          pref("pane-" + which, "collapsed");
+        }
       }
       sep.addEventListener("pointermove", move);
       sep.addEventListener("pointerup", up);
@@ -190,16 +216,15 @@
       var step = event.shiftKey ? BIG_STEP : STEP;
       var now = currentWidth(which);
       var key = event.key;
-      if (key === "ArrowLeft") { setWidth(which, which === "left" ? now - step : now + step, true); }
-      else if (key === "ArrowRight") { setWidth(which, which === "left" ? now + step : now - step, true); }
-      else if (key === "Home") { setWidth(which, MIN_W, true); }
-      else if (key === "End") { setWidth(which, MAX_W, true); }
+      // ドラッグと同じ `applyWidth` を通す（review 工程の指摘）。個別に `setWidth` を
+      // 呼んでいたときは、`Home`（最小幅）で「開いたまま 40px に潰れた」状態を保存でき、
+      // ドラッグ側で塞いだはずの不変条件（MIN_W 以下は畳む）に穴が残っていた。
+      if (key === "ArrowLeft") { applyWidth(which, which === "left" ? now - step : now + step, true); }
+      else if (key === "ArrowRight") { applyWidth(which, which === "left" ? now + step : now - step, true); }
+      else if (key === "Home") { applyWidth(which, MIN_W, true); }
+      else if (key === "End") { applyWidth(which, MAX_W, true); }
       else if (key === "Enter" || key === " " || key === "Spacebar") { togglePane(which); }
       else { return; }
-      // 幅を変えるなら開いていないと意味がないので、畳んだ状態からの矢印は開く
-      if (key !== "Enter" && key !== " " && key !== "Spacebar" && !isOpen(which)) {
-        setPane(which, true, true);
-      }
       event.preventDefault();
     });
   }
@@ -224,10 +249,16 @@
 
   function init() {
     applyTheme(pref("theme"));
-    setWidth("left", pref("left-width"), false);
-    setWidth("right", pref("right-width"), false);
-    setPane("left", pref("pane-left") !== "collapsed", false);
-    setPane("right", pref("pane-right") !== "collapsed", false);
+    ["left", "right"].forEach(function (which) {
+      var storedWidth = clampWidth(pref(prefName(which)));
+      setWidth(which, storedWidth, false);
+      // 保存された組み合わせが「幅は最小なのに開いたまま」という壊れた状態（同じ
+      // ブラウザで以前のバージョンを使っていた等で作られ得る）なら、読み込み時にも
+      // 畳んだ扱いにする——MIN_W 以下は畳む、という不変条件をドラッグ・キーボードだけで
+      // なく読み込みでも保つ（review 工程の指摘: 保存状態の読み込みだけ穴が残っていた）。
+      var storedOpen = pref("pane-" + which) !== "collapsed";
+      setPane(which, storedOpen && storedWidth > MIN_W, false);
+    });
 
     var theme = document.getElementById("btn-theme");
     if (theme) { theme.addEventListener("click", cycleTheme); }

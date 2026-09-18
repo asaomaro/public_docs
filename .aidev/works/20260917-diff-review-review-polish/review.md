@@ -223,3 +223,41 @@ green。readonly ビルドでも動作を確認済み。
   / 対応: 修正済（decisions.md D15）。開閉状態を実際に書き換える `setPane()`
   （`ui.js`）にフック機構を追加し、経路によらず確実に更新されるようにした。
   playwright-core で4経路（`}`/`]`/`{`/セパレータ Enter）すべてを実測して確認した。
+
+## PR レビュー（人間）（PR #30 マージ後、2件の追加指摘）
+
+- [should][conv:-] ファイル一覧・コメント一覧が畳まれた状態でセパレータを D&D すると
+  勝手に展開状態になり、その分だけマウス位置と罫線の位置がずれる / 対応: 修正済
+  （decisions.md D16）。`wireSeparator()` の `pointerdown` から「畳んでいたら先に開く」
+  処理を削除し、畳んだ実測幅（40px）をそのままドラッグの起点にした。
+- [should][conv:-] D&D でサイズを縮小しても、開閉ボタンで畳んだ場合と違って一覧の
+  中身が隠されずに見えたままになる。一定位置より縮めたら非展開状態にしてほしい /
+  対応: 修正済（decisions.md D16）。新設 `applyWidth()` が、クランプ後の幅が
+  `MIN_W`（＝畳んだときのストリップ幅と同じ 40px）以下になった時点で
+  `setPane(..., false, ...)` を呼び、開閉ボタンでの折りたたみと同じ表示（中身を隠す）
+  に倒す。
+
+playwright-core による実ブラウザでのドラッグ操作（`page.mouse.move/down/up` で実際に
+セパレータを動かす）で19アサーションすべて確認した（decisions.md D16 参照）。
+既存の `python3 -m unittest`（140件）・`aidev smoke` も green。
+
+## ラウンド（review 工程・独立点検、D16 に対して）
+
+- [should][conv:-] `applyWidth` はドラッグ（`wireSeparator` の pointerdown/move/up）
+  からしか呼ばれておらず、セパレータへの `Home` キー操作は従来どおり
+  `setWidth(which, MIN_W, true)` を直接呼んで「開いたまま幅だけ40pxにする」壊れた
+  状態を保存できた。この状態を保存したままリロードすると、`init()` が保存された
+  `pane-left: open` をそのまま復元するため、D16 で塞いだはずの「開いたまま40pxに
+  潰れて中身が見える」状態がキーボード操作＋リロード経由で再現できる / 対応: 修正済
+  （decisions.md D17）。`keydown` ハンドラの4キーすべてを `applyWidth` 経由に統一し、
+  `init()` も「幅が MIN_W 以下なら開閉状態によらず畳む」という同じ不変条件で
+  正規化してから復元するよう変更した。
+- [should][conv:-] `applyWidth` の畳む分岐は意図的に `setWidth` を呼ばない
+  （呼ぶと再度開いたときに戻る幅を上書きしてしまうため）ため、`aria-valuenow` が
+  畳む直前の値のまま更新されず、支援技術には畳む前の幅が残ったまま見える / 対応:
+  修正済（decisions.md D17）。CSS 変数はそのままに `aria-valuenow` だけを直接
+  `MIN_W` へ更新するようにした。
+
+playwright-core で追加7アサーション（`Home` キーでの畳み・壊れた保存状態からの
+リロード正規化・`aria-valuenow` の実測）を含む計25アサーション、すべて green。
+`python3 -m unittest`（140件）も green のまま。
