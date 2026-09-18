@@ -176,3 +176,20 @@ headless DOM 検証（jsdom）で、ファイル操作列・コメント入力�
 
 上記の修正を反映した最終版で headless DOM 検証を再実行し、64件すべて pass（環境依存の
 スキップも今回は該当差分が複数ファイルだったため発生せず）。
+
+## PR レビュー（人間）（PR #28 マージ後、追加の指摘）
+
+- [must][conv:-] `templates/style.css`（`button`） PR #28 で `height: 28px` を
+  `min-height: 28px` に変えたが、実ブラウザではトップバーのボタンが軒並み元の
+  32.39px に戻って見える / 対応: 修正済（decisions.md D13）。原因は `min-height` が
+  「下限」であって、素の `button` の content 由来の自然な高さ（`line-height: 1.6` 継承で
+  32.4px）が既にその下限を超えていたため、`min-height: 28px` が全く効いていなかった。
+  基底の `button {}` に `line-height: 1.2;`（`font: inherit` の直後）を追加し、
+  content の自然な高さを 28px 未満に収めることで `min-height` の下限が実際に効くように
+  した。jsdom は「指定値」しか読めず「実際に描画される高さ」を検証できないため、
+  この指摘は jsdom では検出できず、**playwright-core を使った実ブラウザでの
+  `boundingBox()` 実測で初めて発見・確認した**（decisions.md D13 参照）。
+
+トップバー7個・ファイル操作列・composer・submit-panel・3つの例外箇所すべてで、実際の
+Chromium レンダリングにより高さを実測して確認した（jsdom による指定値の確認だけでなく、
+使用値レベルでの検証を初めて行った）。
