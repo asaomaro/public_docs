@@ -133,20 +133,28 @@ body {
 .topbar h1 { font-size: 16px; margin: 0; }
 .meta { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; }
-/* トップバーのボタンは高さを揃える（ユーザー報告: 素の button が line-height の継承
-   （body の 1.6）でおよそ 32px、.icon-btn は line-height: 1.2 でおよそ 28px と、既に
-   ばらついていた。ベルボタンは中身が SVG のため、line-height ベースの高さ計算がさらに
-   ずれて他の .icon-btn よりも高くなっていた）。line-height に頼らず、flex で中身を
-   揃えて高さを固定することで、文字ボタンも SVG ボタンも同じ 28px にする。
-   `.cl-item` 等、複数行の内容を持つ他の button はこのセレクタの外なので影響しない。 */
-.topbar .actions button {
-  height: 28px;
+
+/* すべての通常ボタンは高さ 28px に揃える（ユーザー報告: トップバーだけでなく、
+   ファイルの操作列（ファイルにコメント 等）・コメントの入力欄（コメントする/閉じる 等）
+   でも、素の button（body の line-height: 1.6 を継承しておよそ32px）と .icon-btn
+   （独自の line-height: 1.2 でおよそ28px）が混在する箇所ではすべて揃っていなかった。
+   SVG を内包するボタン（通知ベル等）は line-height ベースの計算がさらにずれる。
+   line-height に頼らず、flex で中身を揃えて高さを固定することで、文字ボタンも
+   SVG ボタンもすべて同じ 28px にする。
+   **`height` ではなく `min-height`**（review 工程で指摘）: アプリ内で最も長いラベル
+   （バナーの「下書きを破棄してやり直す」等）が狭い幅で2行に折り返す場合、固定 `height`
+   だと文字がボタンの枠からはみ出す。`min-height` なら短いラベルは 28px に揃ったまま、
+   万一2行になっても高さが追従して欠けない。
+   **例外**（下記で明示的に高さ固定を外す）:
+   - `.row .comment-open` / `.row.split .cell .comment-open`（差分の各行に出る「+」。
+     12px フォントの行に収める必要があり、28px では行の高さを崩す）
+   - `.expander button`（隙間展開の ↑/↓/すべて表示。同じく差分内の 12px 文脈）
+   - `.cl-item`（コメント一覧の1件。位置・タグ・本文の複数行を持つカード） */
+button {
+  min-height: 28px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-}
-
-button {
   font: inherit;
   color: var(--fg);
   background: var(--bg);
@@ -406,6 +414,12 @@ textarea {
 .row .mark { flex: 0 0 auto; width: 14px; text-align: center; color: var(--muted); }
 .row .code { flex: 1 1 auto; white-space: pre-wrap; word-break: break-word; padding-right: 8px; }
 .row .comment-open {
+  /* button の既定（min-height: 28px; display: inline-flex）から外れる例外
+     （差分の行に収める必要があり、行の高さを崩さないよう行の line-height に委ねる）。
+     min-height も明示的に打ち消す（height だけでは基底の min-height が優先されて残る）。 */
+  height: auto;
+  min-height: 0;
+  display: inline-block;
   flex: 0 0 auto;
   visibility: hidden;
   border-radius: 4px;
@@ -470,7 +484,7 @@ textarea {
   font-size: 12px;
 }
 .expander-label { color: var(--muted); font-family: var(--mono); }
-.expander button { padding: 0 8px; font-size: 12px; }
+.expander button { height: auto; min-height: 0; display: inline-block; padding: 0 8px; font-size: 12px; }
 .row.expanded { background: transparent; }
 .row.expanded .gutter { color: var(--muted); opacity: 0.7; }
 .file-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
@@ -491,7 +505,10 @@ textarea {
 .badge-note { color: var(--note); }
 .thread-note { border-style: dashed; }
 .composer-controls { display: flex; gap: 12px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
-.composer-controls select { font: inherit; padding: 2px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
+/* select はボタンと同じ 28px に揃える（.composer-controls では「コメントする」等の
+   ボタンと同じ行に並ぶため。native の select は button と違い高さの既定が
+   ブラウザ依存なので、ここも明示する）。 */
+.composer-controls select { height: 28px; font: inherit; padding: 2px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
 .note-toggle { font-size: 12px; color: var(--muted); }
 
 /* rich diff */
@@ -560,7 +577,16 @@ textarea {
 .row.split .cell .gutter { flex: 0 0 auto; width: 44px; text-align: right; padding: 0 6px; color: var(--muted); user-select: none; }
 .row.split .cell .mark { flex: 0 0 auto; width: 14px; text-align: center; color: var(--muted); }
 .row.split .cell .code { flex: 1 1 auto; white-space: pre-wrap; word-break: break-word; padding-right: 8px; }
-.row.split .cell .comment-open { flex: 0 0 auto; visibility: hidden; border-radius: 4px; padding: 0 6px; line-height: 1.4; }
+.row.split .cell .comment-open {
+  height: auto;
+  min-height: 0;
+  display: inline-block;
+  flex: 0 0 auto;
+  visibility: hidden;
+  border-radius: 4px;
+  padding: 0 6px;
+  line-height: 1.4;
+}
 .row.split:hover .comment-open,
 .row.split:focus-within .comment-open,
 .row.split[data-current="true"] .comment-open { visibility: visible; }
@@ -613,10 +639,12 @@ textarea {
   border-bottom: 1px solid var(--line);
   font-size: 12px;
 }
-.cl-filters select { font: inherit; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 1px 4px; }
+.cl-filters select { height: 28px; font: inherit; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 1px 4px; }
 .cl-filters .hint { margin: 2px 0 0; }
 #commentlist { display: grid; gap: 6px; padding: 8px; }
 .cl-item {
+  height: auto;
+  min-height: 0;
   display: grid;
   gap: 2px;
   width: 100%;

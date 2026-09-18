@@ -1,8 +1,34 @@
 # テスト結果: レビュー操作性の改善（ツリー見た目・レビュー提出フロー・固定ヘッダー・コメント折りたたみ・通知ベル）
 
-> **ラウンド4**（deliver・PR #26 マージ後にユーザーが実ブラウザで発見した2件——
-> decisions.md D11——を coding で修正した後の再検証）。ラウンド1〜3の内容は本ファイル
-> 末尾に残す。
+> **ラウンド6・最終**（review 工程の独立点検で「`height: 28px` 固定だと長いラベルが
+> 2行になったとき欠ける」という指摘を受け、`min-height: 28px` に直した後の再検証）。
+> ラウンド1〜5の内容は本ファイル末尾に残す。
+
+## 実行したもの（ラウンド6・最終）
+
+- `python3 -m unittest discover -s docs/ClaudeCode/skills/other/diff-review-html/tests -p "test_*.py"`
+  — 126 passed / 0 failed / 0 skipped
+- `aidev smoke`（`.aidev/config.yml` の `smokeCommands` 3本）— pass (exit 0)
+- Node.js + jsdom による headless DOM 検証 — **64 件、すべて pass**（`height: 28px` を
+  `min-height: 28px` に変更したことを `getComputedStyle().minHeight` で確認。3つの
+  例外セレクタは `min-height: 0` も明示したことを確認。今回の実行では差分が複数
+  ファイルだったため、環境依存スキップは発生しなかった）
+
+> **ラウンド5**（PR #27 マージ後、ボタンの高さ不揃いがトップバー以外にも残っていると
+> いう指摘——decisions.md D12——を coding で修正した後の再検証）。ラウンド1〜4の内容は
+> 本ファイル末尾に残す。
+
+## 実行したもの（ラウンド5）
+
+- `python3 -m unittest discover -s docs/ClaudeCode/skills/other/diff-review-html/tests -p "test_*.py"`
+  — 126 passed / 0 failed / 0 skipped
+- `aidev smoke`（`.aidev/config.yml` の `smokeCommands` 3本）— pass (exit 0)
+- Node.js + jsdom による headless DOM 検証 — **62 件のアサーション pass・1件は環境依存で
+  スキップ**（D12 の確認——ファイル操作列/コメント入力欄/スレッド見出し/提出パネル/
+  レビュー結果一覧の編集・削除ボタンが軒並み `height: 28px`、かつ差分行の「+」・
+  隙間展開ボタン・コメント一覧カードは意図どおり `auto` のまま——を `getComputedStyle()`
+  で追加。スキップは「差分が1ファイルのみだとツリーのフォルダ行自体が出ない」という
+  ツリー表示側の既存仕様に起因するもので、今回の変更とは無関係）
 
 ## 実行したもの（ラウンド4）
 
