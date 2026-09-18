@@ -1,10 +1,29 @@
 # テスト結果: レビュー操作性の改善（ツリー見た目・レビュー提出フロー・固定ヘッダー・コメント折りたたみ・通知ベル）
 
-> **ラウンド12・最終**（ユーザーから「split表示で変更後変更前の行が常に2行分を消費して
-> いる。通常は表示しないのでは」との指摘を受けて対応した後の検証。decisions.md D20）。
-> ラウンド1〜11の内容は本ファイル末尾に残す。
+> **ラウンド13・最終**（ユーザーから「レビュー結果の入力画面もヘルプ画面同様に
+> ポップアップにしてほしい」との要望を受けて対応した後の検証。decisions.md D21）。
+> ラウンド1〜12の内容は本ファイル末尾に残す。
 
-## 実行したもの（ラウンド12・最終）
+## 実行したもの（ラウンド13・最終）
+
+- `python3 -m unittest discover -s docs/ClaudeCode/skills/other/diff-review-html/tests -p "test_*.py"`
+  — 140 passed / 0 failed / 0 skipped（`ReadonlyTest.WRITE_UI` に
+  `id="submit-backdrop"`/`id="btn-submit-close-x"` を追加）
+- `aidev smoke`（`.aidev/config.yml` の `smokeCommands` 3本）— pass (exit 0)
+- **playwright-core による実ブラウザでの操作確認（新規20アサーション、すべて pass）**:
+  1. `#submit-panel` がフローティング表示（`position: fixed`）になり、開いても
+     `.shell` の高さが変わらないことを確認
+  2. ×ボタン・backdropクリック・Escapeキー・既存の下部「閉じる」ボタンの
+     いずれでも閉じられることを確認（`#submit-backdrop` も一緒に隠れる）
+  3. `"r"` キーで開くこと（回帰確認）。開いた直後は `#review-body`（textarea）へ
+     フォーカスが移るため、その状態で `"r"` を押すと**文字として "r" が
+     入力される**のが正しい挙動であることを明示的に確認（`isTyping()` ガードが
+     引き続き機能している）。閉じるトグルは、フォーカスをボタンへ移した状態で
+     `"r"` を押すことで確認した（ラジオボタンは `<input>` なので `isTyping()` に
+     引っかかり、そこからは閉じない——これは今回の変更と無関係な既存の性質）
+  4. 実際にレビューを1件提出すると `#review-list` に反映されること（提出後も
+     パネルは開いたまま——既存仕様で変更していないことの確認）
+  5. 一覧から「編集」を開いてもフローティング表示のまま同じ経路で閉じられること
 
 - `python3 -m unittest discover -s docs/ClaudeCode/skills/other/diff-review-html/tests -p "test_*.py"`
   — 140 passed / 0 failed / 0 skipped（Python 側は無変更）
@@ -270,6 +289,17 @@
   headless DOM 検証で確認。
 
 ## 失敗の証跡
+
+**ラウンド13では失敗は発生していない**（`python3 -m unittest` 140件・smoke 3件・
+playwright-core 実測20件、いずれも green で coding への差し戻しは無かった。テスト
+作成中に自分の想定違いが3件あった——(1) 開いた直後は `#review-body` に
+フォーカスが移るため Escape がグローバルハンドラの `isTyping()` ガードで無効化
+され、そのままでは Esc が効かなかった〔これは実装側の不足だったので `#submit-panel`
+専用の Escape listener を追加して修正〕、(2) `"r"` キーでフォーカスが textarea に
+あるまま2回目を押すと「r」が閉じるのではなく文字として入力されるのが正しい
+挙動だった〔テスト側の期待を訂正〕、(3) `submitReview()` は提出後にパネルを
+自動で閉じない仕様だった〔テスト側の期待を訂正〕。(1) のみ実装を直し、
+(2)(3) はテストの前提を実際の・意図した挙動に合わせて修正した）。
 
 **ラウンド12では失敗は発生していない**（`python3 -m unittest` 140件・smoke 3件・
 playwright-core 実測11件、いずれも green で coding への差し戻しは無かった。テスト
