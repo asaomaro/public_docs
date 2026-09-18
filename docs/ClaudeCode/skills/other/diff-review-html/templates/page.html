@@ -137,7 +137,8 @@ try {
         <button type="button" id="btn-tree" class="icon-btn" aria-pressed="false"
                 title="ツリー表示に切り替え" aria-label="ツリー表示に切り替え">⊞</button>
         <button type="button" id="btn-pane-left" class="icon-btn pane-toggle" aria-expanded="true"
-                aria-controls="pane-left" title="ファイル一覧を閉じる" aria-label="ファイル一覧を閉じる">◧</button>
+                aria-controls="pane-left" title="ファイル一覧を閉じる" aria-label="ファイル一覧を閉じる">◧<span
+                class="pane-badge" id="pane-left-badge" hidden>0</span></button>
       </div>
       <div class="filelist-tools">
         <label class="visually-hidden" for="file-search">ファイルを検索</label>
@@ -190,7 +191,8 @@ try {
       <div class="pane-head">
         <h2>コメント一覧</h2>
         <button type="button" id="btn-pane-right" class="icon-btn pane-toggle" aria-expanded="true"
-                aria-controls="pane-right" title="コメント一覧を閉じる" aria-label="コメント一覧を閉じる">◨</button>
+                aria-controls="pane-right" title="コメント一覧を閉じる" aria-label="コメント一覧を閉じる">◨<span
+                class="pane-badge" id="pane-right-badge" hidden>0</span></button>
       </div>
       <div class="cl-filters">
         <label><input type="checkbox" id="cl-unresolved"> 未解決のみ</label>

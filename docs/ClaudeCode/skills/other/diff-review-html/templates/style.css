@@ -231,6 +231,11 @@ button:focus-visible, [tabindex]:focus-visible {
 .shell[data-right="collapsed"] .pane-right { border: none; }
 .shell[data-left="collapsed"] .pane-left > *:not(.pane-sticky),
 .shell[data-right="collapsed"] .pane-right > *:not(.pane-sticky) { display: none; }
+/* #commentlist は ID セレクタ（`#commentlist { display: grid; }`）で display を
+   持っており、ID はクラスをいくつ重ねても勝つため、上の class ベースの display:none が
+   効かず、パネルを閉じても中身（「指摘はまだありません」等）が見えてしまっていた
+   （実機で report された不具合）。ID を含めて同じ強さで上書きする。 */
+.shell[data-right="collapsed"] .pane-right > #commentlist { display: none; }
 .shell[data-left="collapsed"] .pane-left .pane-sticky > *:not(.pane-head),
 .shell[data-right="collapsed"] .pane-right .pane-sticky > *:not(.pane-head) { display: none; }
 .shell[data-left="collapsed"] .pane-left .pane-head > *:not(.pane-toggle),
@@ -715,7 +720,11 @@ textarea {
    レイアウトが動かない。 */
 #btn-notif { position: relative; }
 .notif-wrap { position: relative; }
-.notif-badge {
+/* パネル開閉ボタン（ファイル一覧/コメント一覧）にも同じ形のバッジを出す
+   （未レビューのファイル数・未解決の指摘数。パネルが閉じているときだけ表示）。
+   通知ベルのバッジと見た目を揃えるため同じルールにまとめる。 */
+.pane-toggle { position: relative; }
+.notif-badge, .pane-badge {
   position: absolute;
   top: -4px;
   right: -4px;

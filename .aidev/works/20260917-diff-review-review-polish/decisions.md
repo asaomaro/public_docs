@@ -304,3 +304,80 @@
 - 確認方法: python3 -m unittest discover（126件）と headless DOM 検証（jsdom, 64件）がいずれもgreen。style.cssの最終diffを通読し、min-height化・3例外セレクタのmin-height:0明示・select要素の高さ統一が矛盾なく揃っていることを確認済み（review.md ラウンド6参照）。
 - 確度: high
 - 次の行動: retry
+
+## D14: PR #29 マージ後、ユーザーの実利用から5件の追加指摘を受け、うち1件は本 work の
+  コードにあった不具合（ツリーのフォルダ非表示）、4件は新規の使い勝手改善として対応した
+
+- **背景**: ユーザーが実際にツールを使い、以下5件を報告した。
+  1. ツリー表示でフォルダの行が出ない（例: `apps/sample/src` 配下に2ファイルだけの
+     とき、フォルダ名の行が消えてファイルだけが並ぶ）。
+  2. コメント一覧パネルを閉じても「指摘はまだありません」が見えてしまう。代わりに、
+     パネルの開閉ボタンに未解決件数・未レビューのファイル数をバッジ表示してほしい
+     （展開時は消す）。
+  3. ファイル一覧・コメント一覧のドラッグでのリサイズが、閉じた状態より小さくできて
+     しまう。
+  4. ファイルの「確認済み」チェックを入れたら、そのファイルのソースを自動で畳んで
+     ほしい。
+  5. コメントの「解決済み」にしたら、そのスレッドも自動で畳んでほしい。
+- **決定・原因**:
+  1. `buildTree()`/`collapseSingles()` は、全ファイルが1つの共通フォルダに収まる場合、
+     **ルート自身まで畳んでしまい**、そのフォルダ名を表示する行そのものが消えていた
+     （`templates/app.js:723-741`）。ルートは畳まず、ルートの直下フォルダだけを畳むように
+     修正した。**これは本 work の T2（ツリーアイコン）が触れた既存コード
+     （`buildTree`/`collapseSingles`。decisions.md D10 で導入）に元からあった不具合**
+     ——T2 では表示ロジックを変えておらずアイコンを挿すだけだったため見つからなかった。
+  2. `#commentlist { display: grid; ... }` が**ID セレクタ**で、パネルを閉じたときの
+     `.shell[data-right="collapsed"] .pane-right > *:not(.pane-sticky) { display: none; }`
+     （クラスセレクタ）を **ID の方が強いため上書き**していた。ID を含む同格のセレクタで
+     上書きし直した。加えて `#pane-left-badge`/`#pane-right-badge`（`.notif-badge` と
+     同じ見た目を流用）を新設し、`updateFileBadge()`/`updateCommentBadge()`
+     （`templates/app.js`）で「パネルが閉じているときだけ・件数が1以上のときだけ」
+     表示するようにした。
+  3. `templates/ui.js` の `MIN_W`（ドラッグでの最小幅）が `0` だった。閉じた状態の
+     ストリップ幅（`style.css` の `.shell[data-left="collapsed"]` 等、40px）に合わせて
+     `MIN_W = 40` に変更した。
+  4. `viewedBox`（確認済みチェックボックス）の `change` ハンドラに、チェックを入れた
+     ときだけ `toggleFile()` を呼んで折りたたむ処理を追加した（外したときは自動で
+     展開し直さない）。
+  5. `resolveButton`（解決にするボタン）のクリックハンドラに、`thread.resolved` を
+     true にしたときだけ `threadCollapsed[thread.id] = true` を設定する処理を追加した
+     （T8 で作った折りたたみの仕組みをそのまま再利用。未解決に戻したときは自動で
+     展開し直さない）。
+- **検証**: D13 の教訓（jsdom は「指定値」しか読めず「実際に描画される高さ/見え方」を
+  検証できない）を踏まえ、**実装した5件すべてを playwright-core による実ブラウザ
+  操作・スクリーンショットで確認**した（`click`/`fill` で実際にユーザー操作を再現し、
+  `boundingBox()`/`isVisible()`/スクリーンショットで結果を確認。jsdom だけでは
+  2番のバッジ表示・CSS 特異性起因の非表示漏れ・3番のドラッグ最小幅のいずれも
+  検出できなかった可能性が高い）。既存の headless DOM 検証（jsdom, run.js）・
+  `python3 -m unittest discover`（126件）もあわせて green を確認済み。readonly
+  ビルドでも例外なく動作し、フォルダ表示・バッジ表示とも機能することを確認した。
+- **影響**: `templates/app.js`（`buildTree`/`viewedBox` change/`resolveButton` click/
+  `renderViewedCount`/`renderThreads`/新設 `updateFileBadge`/`updateCommentBadge`）、
+  `templates/page.html`（バッジ用 `<span>` 2箇所）、`templates/style.css`（`#commentlist`
+  の上書き・`.pane-badge`）、`templates/ui.js`（`MIN_W`）。
+
+## D15: D14 のバッジ更新が、ボタンのクリック以外の開閉経路（キーボードショートカット・
+  セパレータ操作）では効いていなかった不具合を review 工程の独立点検で見つけて直した
+
+- **背景**: D14 で `#btn-pane-left`/`#btn-pane-right` の `click` イベントにバッジ更新を
+  結線したが、review 工程の独立点検で、パネルの開閉状態が変わる経路はクリックだけでなく
+  `{`/`}`（`UI.togglePane()` を直接呼ぶ）・`[`/`]`（`focusPane()` 経由の
+  `UI.openPane()`）・セパレータへの Enter/Space・セパレータのドラッグ開始時の自動オープン
+  など複数あり、いずれも ui.js 側で完結していて app.js のバッジ更新を経由しない、と
+  指摘された。
+- **決定**: 開閉状態を実際に書き換える唯一の関数 `setPane()`（`templates/ui.js`）に
+  フック機構（`onPaneChange`）を追加した。ui.js は**フックの中身を一切知らない**まま
+  （画面の形だけを扱うという既存の約束を保ったまま）、状態が変わったことだけを
+  app.js へ伝える。app.js は `UI.onPaneChange(fn)` で
+  `updateFileBadge`/`updateCommentBadge` を登録し、クリック個別の結線
+  （`btn-pane-left`/`btn-pane-right` への追加リスナー）は撤去した。
+- **理由・代替案**: 個々の経路（キー・セパレータ）ごとに app.js から結線し直す案もあったが、
+  経路が今後増えるたびに同じ抜け漏れを繰り返す。状態を書き換える唯一の箇所にフックを
+  1つ置く方が、経路の数に関わらず確実。
+- **検証**: playwright-core で `}`/`]`/`{` のキーボードショートカット、セパレータへの
+  `Enter` キー操作、それぞれでバッジが正しく表示/非表示に切り替わることを実測した
+  （4経路すべて確認）。既存の headless DOM 検証（jsdom, run.js）・
+  `python3 -m unittest discover`（126件）・D14 の12項目の実ブラウザ確認も再実行し、
+  いずれも green のままであることを確認した。
+- **影響**: `templates/ui.js`（`setPane`/`onPaneChange`/`DiffReviewUI` の公開面）、
+  `templates/app.js`（`wire()` の結線をクリック個別から `UI.onPaneChange` 登録に変更）。
