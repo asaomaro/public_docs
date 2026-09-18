@@ -1,5 +1,18 @@
 # テスト結果: レビュー操作性の改善（ツリー見た目・レビュー提出フロー・固定ヘッダー・コメント折りたたみ・通知ベル）
 
+> **ラウンド4**（deliver・PR #26 マージ後にユーザーが実ブラウザで発見した2件——
+> decisions.md D11——を coding で修正した後の再検証）。ラウンド1〜3の内容は本ファイル
+> 末尾に残す。
+
+## 実行したもの（ラウンド4）
+
+- `python3 -m unittest discover -s docs/ClaudeCode/skills/other/diff-review-html/tests -p "test_*.py"`
+  — 126 passed / 0 failed / 0 skipped
+- `aidev smoke`（`.aidev/config.yml` の `smokeCommands` 3本）— pass (exit 0)
+- Node.js + jsdom による headless DOM 検証 — **60 件のアサーション、すべて pass**
+  （D11 の2件——`#pane-center` の `padding-top`/`#overall` の `margin-top`・トップバー
+  7個のボタンの `height`——の確認を `getComputedStyle()` で追加）
+
 > **ラウンド3**（review ラウンド2で見つかった重大度バッジの二重表示——decisions.md D10
 > ——を coding で修正した後の再検証）。ラウンド2は D9 の2件（AC12 の重大度消失・編集中
 > インジケータ欠如）の修正検証、ラウンド1は初回実装の検証。いずれの内容も本ファイル
@@ -199,6 +212,10 @@ ALL PASS（51件）
   検索アイコンとテキストの重なり具合など、**見た目・スクロール挙動そのものは
   実ブラウザで未確認**。CSS ルールの存在と、taskcheck（T7/T9）でのレビュー時の
   仕様確認（CSS Positioned Layout の仕様に照らした静的検証）で代替している。
+  - **この穴が実際に顕在化した**: PR #26 マージ後、ユーザーが実ブラウザで確認し、
+    sticky ヘッダーとトップバーの間の隙間・トップバーのボタンの高さ不揃いの2件を
+    発見した（decisions.md D11）。修正済みだが、**同種の「実ブラウザでしか分からない
+    見た目のズレ」は他にも残っている可能性がある**（この穴自体は解消していない）。
 - **Tab キーでの到達順序**: AC-I3 は新規ボタンが `<button>` として click 操作できる
   ことは確認したが、実際に Tab キーで辿ったときの順序・フォーカスの見え方
   （`:focus-visible` のスタイル等）は未確認。
