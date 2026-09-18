@@ -261,3 +261,17 @@ playwright-core による実ブラウザでのドラッグ操作（`page.mouse.m
 playwright-core で追加7アサーション（`Home` キーでの畳み・壊れた保存状態からの
 リロード正規化・`aria-valuenow` の実測）を含む計25アサーション、すべて green。
 `python3 -m unittest`（140件）も green のまま。
+
+## ユーザー要望（下書き自動復元の確認バナー撤去・初期化ボタン新設）
+
+- [nit][conv:-] `#btn-reset-draft`（`templates/page.html`） `title`/`aria-label` が
+  可視テキスト「下書きを初期化」と重複しており、隣接する `#btn-start-review`/
+  `#btn-export-open`（どちらも `title`/`aria-label` 無し）と流儀が揃っていない /
+  対応: 修正済（decisions.md D18）。可視テキストと完全に重複する `aria-label` は削除し、
+  可視テキストに無い説明を持つ `title` は残した。
+
+独立点検（別コンテキストの subagent）で must/should の指摘は無し。`embeddedReview` の
+モジュール変数への昇格・`resetDraft()` の `dropSaved`/`drafts`/`state` の扱い・
+readonly ビルドからの除外・`viewedFiles` の独立性が保たれていること、他のバナー
+（保存不可・バンドル破損・checkIdentity）に影響していないことを確認済み
+（decisions.md D18 参照）。`python3 -m unittest`（140件）も green のまま。

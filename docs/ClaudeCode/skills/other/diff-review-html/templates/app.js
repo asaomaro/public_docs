@@ -32,6 +32,7 @@
   var storageKey = STORAGE_KEY_PREFIX + "unknown";
   var readonly = false;
   var bundleSource = null;      // どこから来たか（画面の meta 行に出す）
+  var embeddedReview = null;    // 埋め込みのレビュー記録。#btn-reset-draft からの初期化先にも使う
 
   var state = { reviews: [], threads: [] };
   var drafts = {};
@@ -288,6 +289,18 @@
 
   function dropSaved() {
     try { window.localStorage.removeItem(storageKey); } catch (err) { /* 保存できない環境 */ }
+  }
+
+  // このブラウザに保存された下書きを明示的に消して、埋め込みのレビュー記録
+  // （無ければ空）まで戻す。以前は起動時に自動表示するバナーの中にこの操作を
+  // 埋め込んでいたが、復元そのものは常に自動で行う一方で、ユーザーが「消したい」と
+  // 思ったときにだけ**自分から**押す独立ボタンへ変えた（ユーザー報告: 自動表示される
+  // バナーは確認を求められているように感じる）。
+  function resetDraft() {
+    dropSaved();
+    drafts = {};
+    if (embeddedReview) { adoptRecord(embeddedReview, null); } else { state = { reviews: [], threads: [] }; }
+    renderAll();
   }
 
   // --------------------------------------------------------------- バナー
@@ -2426,6 +2439,8 @@
       });
       document.getElementById("btn-download").addEventListener("click", download);
     }
+    var resetButton = document.getElementById("btn-reset-draft");
+    if (resetButton) { resetButton.addEventListener("click", resetDraft); }
     document.getElementById("btn-help-open").addEventListener("click", function () {
       var help = document.getElementById("help");
       showPanel("help", help.hidden);
@@ -2590,7 +2605,7 @@
     // 中身が空なら無視されるので、生成物は常に空で出す（決定論を壊さない）。
     var embeddedBundle = readEmbedded("bundle-data");
     var initial = initialSource(embedded, embeddedBundle);
-    var embeddedReview = readEmbedded("review-data");
+    embeddedReview = readEmbedded("review-data");
     // 参照専用かどうかは**ビューアの性質**なので、常に埋め込みの設定から取る
     // （開いたバンドルによって読み書きできたりできなかったりしては混乱する）。
     var viewerReadonly = !!(embedded || {}).readonly;
@@ -2622,19 +2637,10 @@
     // viewed は下書き（state/drafts）とは独立。下書きが無い・破棄されたときも「確認済み」は保つ。
     if (saved && saved.viewed) { viewedFiles = saved.viewed; }
     if (saved && saved.state) {
+      // 復元は常に自動で行い、確認は求めない（ユーザー報告）。消したければ
+      // #btn-reset-draft を自分から押す（resetDraft()）。
       adoptRecord(saved.state, null);
       drafts = saved.drafts || {};
-      banner("このブラウザに保存されていた下書きを復元しました。", [
-        {
-          label: "下書きを破棄してやり直す",
-          onClick: function () {
-            dropSaved();
-            drafts = {};
-            if (embeddedReview) { adoptRecord(embeddedReview, null); } else { state = { reviews: [], threads: [] }; }
-            renderAll();
-          }
-        }
-      ]);
     } else if (embeddedReview) {
       adoptRecord(embeddedReview, null);
       checkIdentity(embeddedReview).forEach(function (note) { banner(note, []); });
