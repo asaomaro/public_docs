@@ -1,10 +1,30 @@
 # テスト結果: レビュー操作性の改善（ツリー見た目・レビュー提出フロー・固定ヘッダー・コメント折りたたみ・通知ベル）
 
-> **ラウンド9・最終**（PR #30 マージ後、ユーザーからセパレータの D&D リサイズに2件の
-> 指摘——畳んだ状態からのドラッグで勝手に展開されジャンプする／縮小しても非展開表示に
-> ならない——を受けて対応し、さらに review 工程の独立点検で2件の should 指摘（キー
-> ボード操作＋読み込み時の不変条件の穴、`aria-valuenow` の陳腐化）を修正した後の
-> 検証。decisions.md D16・D17）。ラウンド1〜8の内容は本ファイル末尾に残す。
+> **ラウンド10・最終**（ユーザーから「下書き自動復元時の確認バナーは不要、自動的に
+> 復元し、初期化したいときは明示的なボタンで」との要望を受けて対応した後の検証。
+> decisions.md D18）。ラウンド1〜9の内容は本ファイル末尾に残す。
+
+## 実行したもの（ラウンド10・最終）
+
+- `python3 -m unittest discover -s docs/ClaudeCode/skills/other/diff-review-html/tests -p "test_*.py"`
+  — 140 passed / 0 failed / 0 skipped（`ReadonlyTest.WRITE_UI` に `id="btn-reset-draft"` を
+  追加し、通常ビルドで存在・readonly ビルドで不在の両方をカバー）
+- `aidev smoke`（`.aidev/config.yml` の `smokeCommands` 3本）— pass (exit 0)
+- **playwright-core による実ブラウザでの操作確認（新規11アサーション、すべて pass）**:
+  `git range 8b22f0c..HEAD` の実差分から生成した `out.html` を Chromium で開き、
+  `page.on('dialog', ...)` でネイティブの確認ダイアログが一切出ないことを監視しながら検証した。
+  1. 「下書きを初期化」ボタン（`#btn-reset-draft`）がトップバーに常設で見えている
+  2. 「全体へのコメント」に下書きを書くと `persist()` により `localStorage` に1件だけ
+     書かれ、その間 confirm/alert 系のダイアログは一切出ない
+  3. リロードしても `#banners` に「復元」「下書きを破棄」といった文言のバナーが一切
+     出ない（無言で自動復元）
+  4. 実際にコンポーザーを開くと、リロード前に書いた下書きの内容がそのまま復元されている
+  5. 「下書きを初期化」ボタンを押すと、確認ダイアログ無しで即座に `localStorage` の
+     下書きキーが消え、コンポーザーが空になる
+  6. 初期化後にリロードしても下書きは空のままである（本当に消えている）
+  - readonly ビルド（`--readonly`）では `#btn-reset-draft` が DOM に1件も存在しないことを
+    実ブラウザで別途確認（生成物のテキスト検索では埋め込み diff データ内にこの識別子の
+    文字列が偶然含まれ誤検出するため、DOM 要素数で確認した）
 
 ## 実行したもの（ラウンド9・最終）
 
@@ -203,6 +223,9 @@
   headless DOM 検証で確認。
 
 ## 失敗の証跡
+
+**ラウンド10では失敗は発生していない**（`python3 -m unittest` 140件・smoke 3件・
+playwright-core 実測11件、いずれも green で coding への差し戻しは無かった）。
 
 **ラウンド9では失敗は発生していない**（`python3 -m unittest` 140件・smoke 3件・
 playwright-core 実測19件、いずれも green で coding への差し戻しは無かった。検証
