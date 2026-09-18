@@ -104,8 +104,12 @@ try {
 </section>
 
 <!-- rw:begin -->
-<section id="submit-panel" class="panel" hidden aria-label="レビューの提出">
-  <h2>レビューを提出する</h2>
+<div id="submit-backdrop" class="modal-backdrop" hidden></div>
+<section id="submit-panel" class="panel modal" hidden aria-label="レビューの提出" role="dialog" aria-modal="true">
+  <div class="modal-head">
+    <h2>レビューを提出する</h2>
+    <button type="button" id="btn-submit-close-x" class="icon-btn" title="閉じる" aria-label="閉じる">×</button>
+  </div>
   <div id="review-list" class="review-list" aria-label="提出済みのレビュー結果"></div>
   <p class="hint" id="pending-count"></p>
   <fieldset>

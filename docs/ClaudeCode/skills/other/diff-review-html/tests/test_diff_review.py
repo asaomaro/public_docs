@@ -987,7 +987,7 @@ class ReadonlyTest(unittest.TestCase):
 
     WRITE_UI = ('id="btn-export-open"', 'id="btn-start-review"', 'id="review-list"',
                 'id="submit-panel"', 'id="export-panel"', 'class="comment-open"',
-                'id="btn-reset-draft"')
+                'id="btn-reset-draft"', 'id="submit-backdrop"', 'id="btn-submit-close-x"')
 
     def skeleton(self, html):
         """埋め込んだ差分の中身と、ページの骨格を分ける（差分に何が入っていても影響されない）。"""

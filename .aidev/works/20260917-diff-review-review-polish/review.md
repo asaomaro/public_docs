@@ -301,3 +301,20 @@ composer-slot では `slot.closest(".slots")` が `null` を返し安全に早�
 セレクタが無いこと、解決済み（未削除）のスレッドは中身として残るので `.slots` が
 可視のままなのは意図どおりであること、を確認済み（decisions.md D20 参照）。
 `python3 -m unittest`（140件）も green のまま。
+
+## ユーザー要望（レビュー結果の入力画面のフローティング化）
+
+独立点検（別コンテキストの subagent）で must/should/nit いずれの指摘も無し。新設した
+`#submit-panel` 専用の Escape listener が `event.preventDefault()` を呼ぶことで、
+既存の `onKeyDown()` 冒頭の `defaultPrevented` ガード（別の目的で既に存在していた
+仕組み）により、グローバルの Escape ハンドラ側の `closeSubmitPanel()` 呼び出しと
+二重発火しないこと（`stopPropagation()` を使わなかったのは意図的に正しい選択で
+あったこと）、`editReview()` から開いた場合でも新しい全ての閉じる経路
+（×・backdrop・下部「閉じる」・Escape・`"r"`）が `closeSubmitPanel()` を経由して
+`cancelEditReview()` を正しく呼ぶこと、`#btn-submit-close-x`/`#submit-backdrop` が
+`#btn-start-review` とは別の rw ブロックに属するが常に一緒に着脱される（同じ
+`readonly` フラグで一律に処理されるため）ので無条件の `getElementById` が安全なこと、
+`ui.js` から `"submit-panel"` を外したことに他の依存が無いこと、を確認済み
+（decisions.md D21 参照）。×ボタンと下部「閉じる」ボタンの両方を残した設計判断は
+妥当な UX 判断であり欠陥ではない、との言及もあった。`python3 -m unittest`
+（140件）も green のまま。

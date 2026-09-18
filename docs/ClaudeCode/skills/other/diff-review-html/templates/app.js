@@ -2083,20 +2083,30 @@
     }
   }
 
+  // レビュー提出パネルもキー操作説明（#help）と同じくフローティング表示
+  // （style.css の .modal）にしたので、開閉のたびに backdrop も一緒に揃える
+  // （ユーザー報告: ヘルプ画面同様にポップアップにしてほしい。decisions.md D19 と同じ形）。
+  function setSubmitOpen(open) {
+    showPanel("submit-panel", open);
+    var backdrop = document.getElementById("submit-backdrop");
+    if (backdrop) { backdrop.hidden = !open; }
+  }
+
   function startReview() {
     reviewStarted = true;
-    showPanel("submit-panel", true);
+    setSubmitOpen(true);
     updatePendingCount();
     var body = document.getElementById("review-body");
     if (body) { body.focus(); }
   }
 
-  // パネルを閉じる経路（ボタン・Escape）はここに一本化する。編集中（editingReviewId が
-  // 非 null）にパネルを閉じると、暗黙にキャンセルされる（保存されていない入力は失われるが、
-  // state.reviews 側のエントリ自体は変更されない。要件 AC-I2）。
+  // パネルを閉じる経路（ボタン・×・backdrop・Escape）はここに一本化する。編集中
+  // （editingReviewId が非 null）にパネルを閉じると、暗黙にキャンセルされる
+  // （保存されていない入力は失われるが、state.reviews 側のエントリ自体は変更されない。
+  // 要件 AC-I2）。
   function closeSubmitPanel() {
     if (editingReviewId) { cancelEditReview(); }
-    showPanel("submit-panel", false);
+    setSubmitOpen(false);
   }
 
   function submitReview() {
@@ -2145,7 +2155,7 @@
     if (radio) { radio.checked = true; }
     document.getElementById("review-body").value = review.body || "";
     document.getElementById("btn-submit-do").textContent = "保存する";
-    showPanel("submit-panel", true);
+    setSubmitOpen(true);
     document.getElementById("review-body").focus();
     // 一覧側にも「いま編集中」を示す（review 工程の指摘: ボタンのラベルだけが手がかりだと、
     // 一覧が複数件でスクロールした先では編集対象が分からなくなる）。
@@ -2398,7 +2408,7 @@
       event.preventDefault();
       var submitPanel = document.getElementById("submit-panel");
       if (submitPanel.hidden) {
-        showPanel("submit-panel", true);
+        setSubmitOpen(true);
         updatePendingCount();
         document.getElementById("review-body").focus();
       } else {
@@ -2456,6 +2466,18 @@
       });
       document.getElementById("btn-submit-do").addEventListener("click", submitReview);
       document.getElementById("btn-submit-close").addEventListener("click", closeSubmitPanel);
+      document.getElementById("btn-submit-close-x").addEventListener("click", closeSubmitPanel);
+      document.getElementById("submit-backdrop").addEventListener("click", closeSubmitPanel);
+      // グローバルの Escape ハンドラ（onKeyDown）は入力欄にフォーカスがあると
+      // 何もしない（isTyping ガード）。#help と違い、開いた直後に必ず #review-body
+      // （textarea）へフォーカスするため、そのままでは Esc が効かない。パネル自身に
+      // 個別の listener を持たせて塞ぐ（ユーザー報告: ヘルプ画面同様に Esc で閉じたい）。
+      document.getElementById("submit-panel").addEventListener("keydown", function (event) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          closeSubmitPanel();
+        }
+      });
     }
     // パネルの開閉状態が変わる経路はボタンのクリックだけでなく、キーボード
     // ショートカット（{ / } / [ / ]）・セパレータへの Enter/Space・ドラッグ開始時の

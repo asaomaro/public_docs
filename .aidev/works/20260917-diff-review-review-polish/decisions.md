@@ -609,3 +609,50 @@
 - **影響**: `templates/app.js`（`renderThreads()`/新設 `syncSlotsVisibility()`/
   `openComposer()`/`closeComposer()`）、`templates/style.css`（死んでいた
   `.row.split .slots:empty` ルールの削除）。
+
+## D21: レビュー結果の入力画面（#submit-panel）も #help と同じフローティング表示にした
+
+- **背景**: ユーザーから「レビュー結果の入力画面はヘルプ画面同様にポップアップにして
+  ください」。D19 で `#help` をフローティング化した際と同じ問題——`#submit-panel` も
+  `.panel`（文書の流れに乗る）のままで、開くと他の表示に影響していた——を
+  `#submit-panel` にも適用する。
+- **決定**: D19 で確立した `.modal`/`.modal-backdrop`/`.modal-head` の CSS をそのまま
+  再利用し、`#submit-panel` に `.modal` クラスを追加、新設 `#submit-backdrop` を
+  背後に敷いた。見出し行を `.modal-head` に変え、新設の ×ボタン
+  （`#btn-submit-close-x`）を追加した（既存の下部「閉じる」ボタンは提出/取消の
+  アクション行としてそのまま残す——モーダル右上の×とボタン行の「閉じる」は
+  役割が違うので両方持たせて問題ない）。開閉を実際に書き換える3箇所
+  （`startReview()`/`editReview()`/`"r"`キー分岐の開く側）をすべて新設
+  `setSubmitOpen(open)` 経由にし、閉じる経路（ボタン・×・backdrop・Escape・`"r"`
+  キーの閉じる側）は既存の `closeSubmitPanel()`（編集中のキャンセル処理を持つ）が
+  内部で `setSubmitOpen(false)` を呼ぶ形に一本化した。`ui.js` の
+  `syncTopbarHeight()` の対象 id からも `"submit-panel"` を外した。
+  - **副次的に見つけて直した不具合**: `#help` と違い `#submit-panel` は開いた直後に
+    `#review-body`（textarea）へ自動でフォーカスする。グローバルの Escape ハンドラは
+    `isTyping()`（`<textarea>`/`<input>`/`contenteditable` を「入力中」とみなす）が
+    真だと何もせずに戻るため、開いた直後は Esc がまったく効かなかった
+    （「ヘルプ画面同様に」と約束する以上、これは新機能の一部として塞ぐ必要がある）。
+    `#submit-panel` 自身に Escape 専用の `keydown` listener を追加して塞いだ。
+- **理由・代替案**: `isTyping()` 自体を「Escape だけは常に通す」ように緩める案も
+  検討したが、影響範囲がアプリ全体のキーボード処理（`c`/`f`/`e`/`s` 等、他の
+  入力欄でも横断的に効く）に及び、この work のスコープを超える。`#submit-panel`
+  というこの1箇所にだけ listener を足す方が影響範囲が閉じている。
+  「`"r"` キーでの閉じるトグルも直すべきか」を検証中に検討したが、`isTyping()` は
+  `<input>` を型を問わず（ラジオボタン含む）「入力中」とみなすため、開いた直後の
+  ほぼ全ての操作可能要素（textarea・ラジオ）でこの経路が塞がれており、キー操作表の
+  約束も「開く」としかしていない（「閉じる」トグルは謳っていない）。これは
+  この work と無関係な既存の性質と判断し、手を入れなかった。
+- **検証**: playwright-core で20アサーション。フローティング化・`.shell` の高さ不変・
+  ×/backdrop/Escape/既存の下部「閉じる」ボタン・`"r"`キーそれぞれでの開閉・
+  実際にレビューを提出して一覧に載ること・提出後も開いたままなこと（既存仕様、
+  変更していないことの確認）・編集モードでも同じ挙動になること、を確認した。
+  `"r"` キーについては、フォーカスが textarea にある間は文字として "r" が入力される
+  のが正しい挙動であること（`isTyping()` ガードが機能していること）も明示的に
+  確認し、閉じるトグルの確認はボタンへフォーカスを移した状態で行った。
+  `python3 -m unittest`（140件）も green のまま。
+- **影響**: `templates/page.html`（`#submit-backdrop`・`.modal-head`・
+  `#btn-submit-close-x`）、`templates/style.css`（既存の `.modal` 系クラスを再利用、
+  追加ルール無し）、`templates/app.js`（新設 `setSubmitOpen()`、`startReview()`/
+  `editReview()`/`"r"`キー分岐/`closeSubmitPanel()`/`wire()` の更新、`#submit-panel`
+  への Escape listener 追加）、`templates/ui.js`（`syncTopbarHeight()` の対象 id）、
+  `tests/test_diff_review.py`（`WRITE_UI` タプル）。
