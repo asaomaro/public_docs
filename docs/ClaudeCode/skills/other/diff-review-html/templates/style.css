@@ -331,16 +331,16 @@ button:focus-visible, [tabindex]:focus-visible {
   z-index: 31;
   margin: 0;
   width: calc(100vw - 32px);
-  max-width: 560px;
+  /* 当初 560px だったが、#submit-panel（提出済みレビュー一覧）・#export-panel
+     （JSON のテキストエリア）が狭いとの報告で 800px に広げた（decisions.md D22）。
+     続けて #help も広げてほしいとの報告を受け、3画面とも同じ幅に揃えた
+     （decisions.md D23）——広さを個別に変える理由がもう無いので、モディファイア
+     クラスは廃止しここへ統合した。 */
+  max-width: 800px;
   max-height: calc(100vh - 48px);
   overflow: auto;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
 }
-/* レビュー結果の入力（#submit-panel）と JSON 書き出し（#export-panel）は、提出済み
-   レビュー一覧や JSON のテキストエリアなど中身の幅が要る画面なので、既定の 560px では
-   狭かった（ユーザー報告）。#help（表組み中心で幅を必要としない）はそのまま据え置き、
-   この2つだけ .modal-lg で広げる。 */
-.panel.modal.modal-lg { max-width: 800px; }
 .modal-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
 .modal-head h2 { margin: 0; }
 

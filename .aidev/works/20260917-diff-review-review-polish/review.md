@@ -335,3 +335,16 @@ composer-slot では `slot.closest(".slots")` が `null` を返し安全に早�
 はみ出さないこと、`WRITE_UI` タプルの更新が新設要素を正しくカバーしていること、
 を確認済み（decisions.md D22 参照）。`python3 -m unittest`（140件）も green の
 まま。
+
+## ユーザー要望（ヘルプ画面の拡幅・コメント編集機能）
+
+独立点検（別コンテキストの subagent）で must/should/nit いずれの指摘も無し。
+`saveEdit()` が `thread.comments[i]` への直接参照を書き換えており（コピーでは
+ない）`persist()` が実体を正しくシリアライズすること、`renderThreads()` が
+毎回 `state.threads` から作り直すため先頭コメントの重大度編集後も
+`.thread-head` の表示が古いままにならないこと、`"edit:" + comment.id` が
+`nextId()` の単一の連番カウンタにより他の composer-slot キー（`reply:`/
+`file:`/`line:`/`overall`）と衝突しないこと、note スレッドでの編集・返信自体の
+編集・返信入力欄との同時オープンいずれも正しく動くこと、`.modal-lg` への
+参照が grep でどこにも残っていないこと、を確認済み（decisions.md D23 参照）。
+`python3 -m unittest`（140件）も green のまま。

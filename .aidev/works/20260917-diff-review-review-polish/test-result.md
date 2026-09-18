@@ -1,11 +1,27 @@
 # テスト結果: レビュー操作性の改善（ツリー見た目・レビュー提出フロー・固定ヘッダー・コメント折りたたみ・通知ベル）
 
-> **ラウンド14・最終**（ユーザーから3件の要望——「レビューを開始」ボタンのラベル
-> 固定化、JSON書き出し画面のフローティング化、submit-panel/export-panelの拡幅——を
-> 受けて対応した後の検証。decisions.md D22）。ラウンド1〜13の内容は本ファイル
-> 末尾に残す。
+> **ラウンド15・最終**（ユーザーから「ヘルプ画面も広げて」「投稿済みコメントを
+> 編集できるように」との要望、および「未提出表示がいつ消えるか」の質問を受けて
+> 対応した後の検証。decisions.md D23）。ラウンド1〜14の内容は本ファイル末尾に残す。
 
-## 実行したもの（ラウンド14・最終）
+## 実行したもの（ラウンド15・最終）
+
+- `python3 -m unittest discover -s docs/ClaudeCode/skills/other/diff-review-html/tests -p "test_*.py"`
+  — 140 passed / 0 failed / 0 skipped（Python 側は無変更）
+- `aidev smoke`（`.aidev/config.yml` の `smokeCommands` 3本）— pass (exit 0)
+- **playwright-core による実ブラウザでの操作確認（新規12アサーション＋readonly
+  ビルドでの1件の実測確認、すべて pass）**:
+  1. `#help` が800pxに広がったこと（`#submit-panel`/`#export-panel` と揃ったこと）
+  2. 未提出のコメントに「編集」ボタンが表示され、既存の本文・重大度が
+     事前入力された状態で入力欄が開くこと
+  3. 保存すると本文・重大度が反映され、重大度は `.thread-head` 側の表示
+     （先頭コメントの重大度はそちらに出る既存仕様）にも反映されること
+  4. 提出済みのコメントでは「取り消し」は出ないが「編集」は引き続き使えること
+     （まさにユーザーが報告した制約の解消）
+  5. 提出済みコメントを編集しても「未提出」バッジは付かない（`review_id` は
+     変更しない設計どおり）こと
+  6. 「閉じる」で保存せずに閉じると変更が破棄されること
+  7. readonly ビルドでは「編集」ボタンが1件も存在しないこと
 
 - `python3 -m unittest discover -s docs/ClaudeCode/skills/other/diff-review-html/tests -p "test_*.py"`
   — 140 passed / 0 failed / 0 skipped（`ReadonlyTest.WRITE_UI` に
@@ -316,6 +332,9 @@
   headless DOM 検証で確認。
 
 ## 失敗の証跡
+
+**ラウンド15では失敗は発生していない**（`python3 -m unittest` 140件・smoke 3件・
+playwright-core 実測13件、いずれも green で coding への差し戻しは無かった）。
 
 **ラウンド14では失敗は発生していない**（`python3 -m unittest` 140件・smoke 3件・
 playwright-core 実測27件、いずれも green で coding への差し戻しは無かった。テスト

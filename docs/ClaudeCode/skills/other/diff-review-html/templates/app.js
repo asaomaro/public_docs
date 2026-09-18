@@ -1731,12 +1731,21 @@
       toggleComposer(replyKey, replyButton, null, thread, comment);
     });
     var buttons = [replyButton];
+    // 提出済み（review_id が付いた）コメントでも、取り消しはできないが本文・重大度の
+    // 編集はできる（ユーザー報告: 取り消しか返信しか選べず、書いた内容を直せなかった）。
+    var editKey = "edit:" + comment.id;
+    var editButton = el("button", { type: "button", "aria-expanded": "false", text: "編集" });
+    editButton.addEventListener("click", function () {
+      toggleEditComposer(thread, comment, editButton);
+    });
+    buttons.push(editButton);
     if (!comment.review_id && thread.kind !== "note") {
       var cancel = el("button", { type: "button", text: "取り消し" });
       cancel.addEventListener("click", function () { cancelComment(thread, comment); });
       buttons.push(cancel);
     }
     node.appendChild(el("div", { class: "row-actions" }, buttons));
+    node.appendChild(el("div", { class: "composer-slot", "data-composer": editKey }));
     node.appendChild(el("div", { class: "composer-slot", "data-composer": replyKey }));
     return node;
   }
@@ -1748,6 +1757,70 @@
     }
     persist();
     renderThreads();
+  }
+
+  // 既存コメントの本文・重大度を直す（openComposer() とは別経路——新規の下書き
+  // （drafts）や「説明として残す」チェックボックスは編集には無関係なので持たない。
+  // 提出済み（review_id 付き）でも直せる。review_id 自体・in_reply_to・author は
+  // 変えない）。
+  function toggleEditComposer(thread, comment, trigger) {
+    var key = "edit:" + comment.id;
+    var slot = document.querySelector('[data-composer="' + cssEscape(key) + '"]');
+    if (!slot) { return; }
+    if (slot.firstChild) { closeComposer(key, trigger); return; }
+    openEditComposer(thread, comment, trigger, key, slot);
+  }
+
+  function openEditComposer(thread, comment, trigger, key, slot) {
+    var isNoteThread = thread.kind === "note";
+    var area = el("textarea", { rows: "3", placeholder: "コメント（Ctrl/⌘ + Enter で保存）" });
+    area.value = comment.body || "";
+
+    var severity = el("select", { class: "severity", "aria-label": "重大度" });
+    [["", "重大度なし"], ["must", "must（直す）"], ["should", "should（直したい）"], ["nit", "nit（好み）"]]
+      .forEach(function (pair) {
+        var option = el("option", { value: pair[0], text: pair[1] });
+        if (pair[0] === (comment.severity || "")) { option.setAttribute("selected", "selected"); }
+        severity.appendChild(option);
+      });
+    severity.value = comment.severity || "";
+
+    function saveEdit() {
+      var body = area.value.trim();
+      if (!body) { return; }
+      comment.body = body;
+      if (!isNoteThread) { comment.severity = SEVERITIES.indexOf(severity.value) === -1 ? null : severity.value; }
+      persist();
+      closeComposer(key, trigger);
+      renderThreads();
+    }
+
+    area.addEventListener("keydown", function (event) {
+      if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        saveEdit();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        closeComposer(key, trigger);
+      }
+    });
+
+    var save = el("button", { type: "button", text: "保存する" });
+    save.addEventListener("click", saveEdit);
+    var close = el("button", { type: "button", text: "閉じる" });
+    close.addEventListener("click", function () { closeComposer(key, trigger); });
+
+    var controls = isNoteThread ? [] : [severity];
+    slot.appendChild(el("div", { class: "composer" }, [
+      area,
+      el("div", { class: "composer-controls" }, controls),
+      el("div", { class: "row-actions" }, [save, close])
+    ]));
+    if (trigger) { trigger.setAttribute("aria-expanded", "true"); }
+    area.focus();
+    // split 表示の「変更前」「変更後」見出しは、renderThreads() を経ずにここで
+    // 入力欄が増える経路でも追従させる（syncSlotsVisibility 参照。D20 と同じ理由）。
+    syncSlotsVisibility(slot.closest(".slots"));
   }
 
   // ------------------------------------------------------------ コメント一覧
