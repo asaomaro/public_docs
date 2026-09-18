@@ -133,6 +133,18 @@ body {
 .topbar h1 { font-size: 16px; margin: 0; }
 .meta { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+/* トップバーのボタンは高さを揃える（ユーザー報告: 素の button が line-height の継承
+   （body の 1.6）でおよそ 32px、.icon-btn は line-height: 1.2 でおよそ 28px と、既に
+   ばらついていた。ベルボタンは中身が SVG のため、line-height ベースの高さ計算がさらに
+   ずれて他の .icon-btn よりも高くなっていた）。line-height に頼らず、flex で中身を
+   揃えて高さを固定することで、文字ボタンも SVG ボタンも同じ 28px にする。
+   `.cl-item` 等、複数行の内容を持つ他の button はこのセレクタの外なので影響しない。 */
+.topbar .actions button {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
 
 button {
   font: inherit;
@@ -179,7 +191,11 @@ button:focus-visible, [tabindex]:focus-visible {
 .pane-left { border-right: 1px solid var(--line); }
 .pane-right { border-left: 1px solid var(--line); }
 .pane-center {
-  padding: 16px;
+  /* 上だけ 0 にする。sticky な .file-head は #pane-center の padding 辺を基準に
+     固定されるので、上に padding を残すと「トップバーの下に隙間が空いたまま固定される」
+     見た目になる（ユーザー報告で実測）。最初の子（#overall）側で margin-top により
+     同じ余白を確保する——padding と違い、margin は sticky の基準に含まれない。 */
+  padding: 0 16px 16px;
   display: grid;
   /* 明示しないと暗黙の列が max-content で決まり、`white-space: nowrap` の見出しなどが
      ペインの幅を押し広げてページごと横スクロールする。 */
@@ -187,6 +203,7 @@ button:focus-visible, [tabindex]:focus-visible {
   gap: 16px;
   align-content: start;
 }
+#overall { margin-top: 16px; }
 
 /* 閉じたときの見た目: パネル自体は隠さず、.pane-sticky（見出し＋開閉ボタン）だけを残し、
    それ以外の子要素を隠す。開閉ボタンをトップバーからパネル自身へ移したので

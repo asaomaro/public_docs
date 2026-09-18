@@ -198,3 +198,29 @@
   さらに拡張し、(a) 展開時に先頭コメント側の重複が無いこと、(b) 返信自身が持つ重大度は
   抑制されず表示されること、の両方を確認した（47件、すべて pass）。
   `python3 -m unittest discover`（126件）は green のまま。
+
+## D11: deliver（PR #26 マージ）後、実ブラウザで確認したユーザーから2件の指摘を受け、
+  work を再開して修正した
+
+- **背景**: PR #26 マージ後、ユーザーが実際にブラウザで生成 HTML を開いて確認し、
+  (1) sticky なファイルヘッダーとトップバーの間に隙間がある、(2) トップバーのボタンの
+  高さが揃っていない（通知ベルが他より高く、そもそも既存のボタン同士も 28px と
+  32.39px でばらついていた）、の2件を報告した。これは `test-result.md`「未検証の穴」に
+  記載していたとおり、jsdom が実際のレイアウト計算をできないために検出できなかった
+  種類の欠陥。
+- **決定**: `aidev-70-deliver`「deliver 後に作業が続いたら」の手順に従い、`aidev use`
+  でこの work を再開し、`aidev event coding start` から入り直した。
+  (1) `.pane-center` の `padding-top` を `0` にし、`#overall` の `margin-top: 16px` で
+  同じ視覚的余白を確保（padding は sticky の基準位置に含まれるが margin は含まれない
+  ため）。
+  (2) `.topbar .actions button` に `height: 28px` と flex ベースの中央揃えを追加し、
+  line-height 依存の高さ計算（本文からの継承・SVG コンテンツでの baseline のずれ）を
+  排除して、トップバーの全ボタンを 28px に統一した。
+- **理由・代替案**: (2) は基底の `button {}` セレクタを直接 28px に固定する案もあったが、
+  行コメントの「+」ボタン等、トップバー外の小さいボタンまで巻き込んで壊す
+  （`.comment-open` 等は現状 `height: auto` の compact なサイズに依存している）ため、
+  `.topbar .actions button` に絞ったスコープの狭い上書きを選んだ。
+- **影響**: `templates/style.css` のみ。headless DOM 検証（jsdom）に9件のアサーションを
+  追加し、`getComputedStyle()` で実際に確認した（計60件、すべて pass）。
+  `python3 -m unittest discover`（126件）も green。新しいブランチ・PR で提出する
+  （PR #26 は既にマージ・ブランチ削除済みのため再利用しない）。

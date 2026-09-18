@@ -111,3 +111,24 @@ requirements.md / design.md の記述と実装が整合していることを確�
 **この work のレビュー指摘は最終的に must 1件・should 2件・nit 0件**
 （ラウンド1: must 1・should 1／ラウンド2: should 1／ラウンド3: 指摘なし。いずれも
 coding で修正し、修正後の再検証まで完了している）。
+
+## PR レビュー（人間）（deliver 後・PR #26 マージ後）
+
+- [should][conv:-] `templates/style.css`（`.pane-center`） sticky なファイルヘッダーと
+  トップバーの間に隙間が見える / 対応: 修正済。`.pane-center` の `padding-top` を
+  `0` にし、その分の余白を `#overall` の `margin-top: 16px` で確保するようにした
+  （padding は sticky の基準位置に含まれるが margin は含まれないため、固定時に隙間が
+  出なくなる）。 / src: チャットでの指摘（GitHub の PR コメントではない。PR #26 は
+  マージ・ブランチ削除済みのため、この修正は新しい PR で提出する）。
+- [should][conv:-] `templates/style.css`（`button`/`.icon-btn`） 通知ベルボタンが他の
+  トップバーのボタンより高く、既存のボタン同士（アイコンボタン ≒28px・通常ボタン
+  ≒32.39px）も揃っていなかった / 対応: 修正済。`.topbar .actions button` に
+  `height: 28px; display: inline-flex; align-items: center; justify-content: center;`
+  を追加し、line-height ベースの高さ計算（本文の line-height: 1.6 の継承や、SVG を
+  含むボタンでの baseline 計算のずれ）に頼らず、トップバーのボタン全てを一律 28px に
+  揃えた。トップバー外の小さいボタン（行コメントの「+」等）は対象外のまま。
+  / src: チャットでの指摘（同上）。
+
+いずれも headless DOM 検証（jsdom）に確認項目を追加し、`getComputedStyle()` で
+`#pane-center` の `padding-top: 0px`／`#overall` の `margin-top: 16px`／トップバー7個の
+ボタンがすべて `height: 28px` になっていることを確認した（計9件追加、60件すべて pass）。
