@@ -631,9 +631,11 @@ textarea {
 .row.split:hover .comment-open,
 .row.split:focus-within .comment-open,
 .row.split[data-current="true"] .comment-open { visibility: visible; }
-/* コメントの入れ物は**両列にまたがる**。半分の幅だと入力欄が書きにくい。 */
+/* コメントの入れ物は**両列にまたがる**。半分の幅だと入力欄が書きにくい。
+   表示・非表示は `hidden` 属性（app.js の syncSlotsVisibility）で切り替える——
+   `.threads`/`.composer-slot` は中身が無くても要素自体は常に置いてあるため、
+   CSS の `:empty` では判定できない（decisions.md 参照）。 */
 .row.split .slots { grid-column: 1 / -1; }
-.row.split .slots:empty { display: none; }
 .slot-side {
   font-size: 11px;
   color: var(--muted);

@@ -288,3 +288,16 @@ readonly ビルドからの除外・`viewedFiles` の独立性が保たれてい
 こと、`renderNotifList()` を `renderAll()` に足したことが `notifUnread`/バッジや
 ドラッグ＆ドロップ読み込み時の再描画と衝突しないこと、を確認済み（decisions.md D19
 参照）。`python3 -m unittest`（140件）も green のまま。
+
+## ユーザー要望（split表示の変更前/変更後見出しが常に2行分を消費する不具合）
+
+独立点検（別コンテキストの subagent）で must/should/nit いずれの指摘も無し。
+`.slots` が `.threads`/`.composer-slot` を常に両方持つため「両方とも無い」ケースは
+到達不能であること、`labelled=false`（見出し無し）の行でも同じ可視性判定が正しく
+働くこと、split 以外（unified・ファイル単位・overall・スレッド内の返信）の
+composer-slot では `slot.closest(".slots")` が `null` を返し安全に早期returnすること、
+`renderFiles()`（`.slots` を生成）が全ての呼び出し経路で必ず `renderThreads()`
+（可視性を同期）より先に実行されること、削除された `:empty` ルールに依存する他の
+セレクタが無いこと、解決済み（未削除）のスレッドは中身として残るので `.slots` が
+可視のままなのは意図どおりであること、を確認済み（decisions.md D20 参照）。
+`python3 -m unittest`（140件）も green のまま。

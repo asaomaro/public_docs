@@ -1562,6 +1562,23 @@
     renderReviewList();
     updatePendingCount();
     updateCommentBadge();
+    // split 表示の .slots（「変更前」「変更後」の見出し）は、実際にコメントや入力欄が
+    // あるときだけ見せる（下記 syncSlotsVisibility 参照）。
+    Array.prototype.forEach.call(document.querySelectorAll(".slots"), syncSlotsVisibility);
+  }
+
+  // .slots（split 表示で削除＋追加が対になる行にだけ現れる「変更前」「変更後」の
+  // 見出しと、その下のスレッド・入力欄の入れ物）は、`.threads`/`.composer-slot` が
+  // 中身の無いときも要素自体は常に置いてある（renderThreads()/openComposer() が
+  // 鍵で探して差し込むための入れ物なので、無くせない）。そのため CSS の `:empty` では
+  // 「中身が無い」を判定できず、見出しだけが常に見えて1行の変更ごとに2行分を
+  // 消費していた（ユーザー報告）。ここで実際の中身の有無を見て `.slots` ごと隠す。
+  function syncSlotsVisibility(slotsEl) {
+    if (!slotsEl) { return; }
+    var threadsHost = slotsEl.querySelector(".threads");
+    var composerHost = slotsEl.querySelector(".composer-slot");
+    var hasContent = !!(threadsHost && threadsHost.firstChild) || !!(composerHost && composerHost.firstChild);
+    slotsEl.hidden = !hasContent;
   }
 
   // コメント一覧パネルが閉じているとき、開閉ボタンに未解決件数のバッジを出す
@@ -1940,11 +1957,17 @@
     ]));
     if (trigger) { trigger.setAttribute("aria-expanded", "true"); }
     area.focus();
+    // split 表示の「変更前」「変更後」見出しは、renderThreads() を経ずにここで
+    // 入力欄が増える経路でも追従させる（syncSlotsVisibility 参照）。
+    syncSlotsVisibility(slot.closest(".slots"));
   }
 
   function closeComposer(key, trigger) {
     var slot = document.querySelector('[data-composer="' + cssEscape(key) + '"]');
-    if (slot) { clear(slot); }
+    if (slot) {
+      clear(slot);
+      syncSlotsVisibility(slot.closest(".slots"));
+    }
     if (trigger) {
       trigger.setAttribute("aria-expanded", "false");
       trigger.focus();
