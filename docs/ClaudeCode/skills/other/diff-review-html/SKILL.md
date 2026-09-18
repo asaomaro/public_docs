@@ -1,6 +1,6 @@
 ---
 name: diff-review-html
-description: ローカルの git 差分（未ステージ / ステージ済み / コミット間）を、GitHub の PR 画面のように読める単一HTMLにして出力する。差分と指摘を1ファイルにまとめたバンドル（.dreview）と、それを開くビューアHTMLに分けて出すこともでき、エディタ拡張の土台になる。配布用に書き込み機能を積まない参照専用HTMLも出せる。ファイル一覧（左・ツリー/フラット）・差分（中央・unified/split 切り替え）・コメント一覧（右）の3ペインで、左右はD&Dで幅を変えられ畳める。ライト/ダーク/OS追従のテーマ切り替え、シンタックスハイライト、CSV/TSV・Markdown（mermaid・alert記法）・HTML・PDF の rich diff、前後の行を押した分だけ広げる段階展開つき。画面では行・ファイル・全体の3階層にコメントし、must/should/nit の重大度、コメントごとの返信、解決、提出（Approve / Request changes / Comment）、レビュー対象外の説明コメントまで行え、その記録をJSONで書き出し／読み込みできる。AIが書いた指摘のJSONを埋め込んだHTMLを作ることも、人間が書いた指摘のJSONをAIが読んで修正することもできる。「差分をHTMLで見たい」「差分レビューの画面を作って」「レビュー用のHTMLを生成して」「レビュー結果をJSONで受け渡したい」「レビュー記録のJSONを読み込んで」「差分をファイルに切り出して」「レビュー用のビューアを作って」「読むだけのHTMLを配りたい」と言われたときに使用する。GitHubのPRそのものへの投稿や取得は行わない。
+description: ローカルの git 差分（未ステージ / ステージ済み / コミット間）や、GitHub の PR・任意の2リビジョン間の比較（API 経由・ローカルリポジトリ不要）を、GitHub の PR 画面のように読める単一HTMLにして出力する。差分と指摘を1ファイルにまとめたバンドル（.dreview）と、それを開くビューアHTMLに分けて出すこともでき、エディタ拡張の土台になる。配布用に書き込み機能を積まない参照専用HTMLも出せる。ファイル一覧（左・ツリー/フラット）・差分（中央・unified/split 切り替え）・コメント一覧（右）の3ペインで、左右はD&Dで幅を変えられ畳める。ライト/ダーク/OS追従のテーマ切り替え、シンタックスハイライト、CSV/TSV・Markdown（mermaid・alert記法）・HTML・PDF の rich diff、前後の行を押した分だけ広げる段階展開つき。画面では行・ファイル・全体の3階層にコメントし、must/should/nit の重大度、コメントごとの返信、解決、提出（Approve / Request changes / Comment）、レビュー対象外の説明コメントまで行え、その記録をJSONで書き出し／読み込みできる。AIが書いた指摘のJSONを埋め込んだHTMLを作ることも、人間が書いた指摘のJSONをAIが読んで修正することもできる。「差分をHTMLで見たい」「差分レビューの画面を作って」「レビュー用のHTMLを生成して」「レビュー結果をJSONで受け渡したい」「レビュー記録のJSONを読み込んで」「差分をファイルに切り出して」「レビュー用のビューアを作って」「読むだけのHTMLを配りたい」と言われたときに使用する。GitHub の PR・比較の**差分取得**（読み取り）はできるが、GitHub の PR への投稿（コメント・レビューの書き戻し）は行わない。
 allowed-tools: [Bash, Read]
 ---
 
@@ -40,11 +40,36 @@ py -3 diff_review.py <サブコマンド> ...       # Windows（python でも可
 --from staged        # ステージ済みの変更
 --from range  --rev main..HEAD
 --from commit --rev 3d6624e
---from github-pr     # まだ未対応（黙って別の差分を出さず、理由を出して落ちる）
+--from github-pr      --github-pr <owner>/<repo>#<番号>            # ローカルリポジトリ不要
+--from github-compare --github-repo <owner>/<repo> --rev A...B    # 同上（3 ドット必須）
 ```
 
 従来のフラグ（`--unstaged` / `--staged` / `--range A..B` / `--commit C`）も**そのまま使える**。
 ただし `--from` との**併用はできない**（同じことを 2 通りで書けるので、矛盾として落とす）。
+
+**`github-pr` / `github-compare` は GitHub REST API（既定 `https://api.github.com`）から取る**。
+`--repo`（ローカルリポジトリ）は不要——clone していなくても PR 番号や比較対象を指定するだけでよい。
+
+```sh
+# PR（owner/repo#番号 でも PR の URL でもよい）
+python3 <skill>/diff_review.py html --from github-pr --github-pr octocat/hello-world#42 --out review.html
+python3 <skill>/diff_review.py html --from github-pr --github-pr https://github.com/octocat/hello-world/pull/42 --out review.html
+
+# PR に紐付かない任意の 2 リビジョン間（3 ドット。GitHub の compare URL と同じ書式）
+python3 <skill>/diff_review.py html --from github-compare \
+        --github-repo octocat/hello-world --rev main...feature --out review.html
+```
+
+**認証**（非公開リポジトリ・レート制限の緩和に使う。無くても公開リポジトリは取得できる）:
+
+```sh
+--github-token <TOKEN>          # 省略時は環境変数 GITHUB_TOKEN → GH_TOKEN の順に探す
+--github-api-base <URL>         # GitHub Enterprise 等（既定: https://api.github.com）
+```
+
+トークンは環境変数での指定を推奨する（`--github-token` はプロセス一覧に一時的に見える）。
+GitHub 側のエラー（存在しない PR・認証エラー・レート制限）は、HTTP ステータスと GitHub からの
+メッセージを添えて `EXIT_NETWORK`（4）で失敗する——黙って空の差分を返さない。
 
 ### 1. HTML を出す
 
@@ -372,7 +397,15 @@ rich は**生成時に作られる**（ブラウザに解析器を積まない�
 
 ## 制限（知っておくこと）
 
-- **GitHub の PR には触らない**。PR からの差分・コメント取得も、PR への投稿も行わない。
+- **GitHub の PR・比較の取得（`--from github-pr` / `github-compare`）は差分の読み取りに限る**。
+  PR へのコメント・レビューの投稿は行わない。
+- **GitHub 取得元は全文（変更前後のファイル全体）を取得しない**。そのため、前後の段階展開
+  （`↑`/`↓`/「すべて表示」）と rich diff（CSV/Markdown/HTML/PDF）は効かない
+  （画面には既存の「展開データを持っていません」表示が出る）。構文ハイライトはハンク単位で
+  行うため、ハンクをまたぐ構文（複数行コメント等）の検出精度がローカル取得元より低い。
+- **GitHub API の未認証リクエストはレート制限が低い**（一般に 60 リクエスト/時。GitHub Docs 案内）。
+  非公開リポジトリ・頻繁な利用では `--github-token`（または環境変数 `GITHUB_TOKEN`/`GH_TOKEN`）
+  でのトークン指定を推奨する。
 - **下書きの自動保存はブラウザ依存**。`file://` の localStorage を塞ぐブラウザ（Firefox 等）では
   保存されない。その場合は画面にその旨が出る。**提出済みの記録は JSON に書き出して保存すること**
   （書き出しだけが確実な永続化）。
@@ -440,3 +473,4 @@ rich は**生成時に作られる**（ブラウザに解析器を積まない�
 | 1 | 使い方の誤り |
 | 2 | `git` の失敗（リポジトリ外・不正なリビジョン等） |
 | 3 | レビュー記録 JSON が不正 |
+| 4 | GitHub API の失敗（HTTP エラー・接続不可・応答が JSON として読めない） |
