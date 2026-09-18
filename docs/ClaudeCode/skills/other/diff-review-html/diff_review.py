@@ -16,10 +16,15 @@
 """
 
 import argparse
+import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 import highlight
@@ -49,6 +54,7 @@ EXIT_OK = 0
 EXIT_USAGE = 1
 EXIT_GIT = 2
 EXIT_INVALID = 3
+EXIT_NETWORK = 4    # GitHub API の失敗（HTTP エラー・接続不可・JSON 不正）。git の失敗とは分ける
 
 REVIEW_STATES = ("APPROVED", "CHANGES_REQUESTED", "COMMENTED")
 SIDES = ("LEFT", "RIGHT")
@@ -458,8 +464,17 @@ def attach_tokens(hunks, tok_old, tok_new, covered_side=None):
             line["tokens"] = source_tokens[number - 1]
 
 
-def collect_diff(repo, source, rev, context, expand_max_lines=DEFAULT_EXPAND_MAX_LINES, rich=True):
-    """差分を取り、構造化したファイル一覧と identity を返す（T1 / T2）。"""
+def collect_diff(repo, source, rev, context, expand_max_lines=DEFAULT_EXPAND_MAX_LINES, rich=True,
+                  github_opts=None, github_pr=None, github_repo=None):
+    """差分を取り、構造化したファイル一覧と identity を返す（T1 / T2）。
+
+    `source` が `github-pr` / `github-compare` のときは、ローカル git を一切使わず
+    GitHub REST API から取る（`collect_diff_github` へ委譲）。以下はその場合の処理を通らない
+    ——既存のローカル取得元の経路は無改造（design F9）。
+    """
+    if source in GITHUB_SOURCES:
+        return collect_diff_github(github_opts, source, github_pr, github_repo, rev,
+                                   expand_max_lines)
     args = resolve_commit_args(repo, source, rev)
     body_bytes = git_bytes(repo, args[:1] + ["--no-color", "--no-ext-diff", "-U%d" % context] + args[1:])
     raw = parse_raw_z(git_bytes(repo, args[:1] + ["--no-color", "--no-ext-diff", "--raw", "-z"] + args[1:]))
@@ -555,6 +570,265 @@ def digest(repo, body_bytes):
     out = git_bytes(repo, ["hash-object", "--stdin"], stdin=body_bytes)
     return out.decode("ascii", "replace").strip()
 
+
+# --------------------------------------------------------------------------
+# GitHub REST API 経由の差分取得（decisions.md D2）。ローカルの git には一切依存しない
+# ——`--repo` を要求しない設計（要件 F7）のため、`git hash-object` 等も使えない。
+# --------------------------------------------------------------------------
+
+class GithubOpts(object):
+    """GitHub API 呼び出しの共通設定。"""
+
+    def __init__(self, api_base, token):
+        self.api_base = (api_base or DEFAULT_GITHUB_API_BASE).rstrip("/")
+        self.token = token
+
+
+def resolve_github_token(cli_token):
+    """トークンの優先順位: CLI 引数 > GITHUB_TOKEN > GH_TOKEN > 無し（要件 F3）。"""
+    return cli_token or os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or None
+
+
+_LINK_NEXT_RE = re.compile(r'<([^>]+)>\s*;\s*rel="next"')
+
+
+def _next_link_path(link_header):
+    """`Link` ヘッダ（RFC 5988）から次ページの URL を取る。無ければ None（research.md F5）。"""
+    if not link_header:
+        return None
+    m = _LINK_NEXT_RE.search(link_header)
+    return m.group(1) if m else None
+
+
+def _github_error_message(body):
+    """エラー応答の `message` フィールドを取る（research.md F4）。JSON でなければ本文の頭を使う。"""
+    try:
+        data = json.loads(body)
+    except (ValueError, TypeError):
+        data = None
+    if isinstance(data, dict) and isinstance(data.get("message"), str):
+        return data["message"]
+    return (body or "").strip()[:200] or "(本文なし)"
+
+
+def _rate_limit_hint(headers):
+    """`X-RateLimit-Remaining: 0` のときだけ、リセット時刻を添えた案内を返す。それ以外は空文字。"""
+    if headers.get("X-RateLimit-Remaining") != "0":
+        return ""
+    reset = headers.get("X-RateLimit-Reset")
+    if not reset:
+        return "レート制限に達しています。--github-token で緩和できます。"
+    try:
+        import datetime
+        when = datetime.datetime.utcfromtimestamp(int(reset)).strftime("%Y-%m-%d %H:%M:%S UTC")
+    except (ValueError, OSError, OverflowError):
+        return "レート制限に達しています（リセット時刻: %s）。--github-token で緩和できます。" % reset
+    return "レート制限に達しています（リセット: %s）。--github-token で緩和できます。" % when
+
+
+def github_request(opts, path_or_url, accept="application/vnd.github+json"):
+    """GitHub API を 1 回呼ぶ。JSON 本文と応答ヘッダを返す。
+
+    `path_or_url` は `/repos/...` のようなパスでも、`Link` ヘッダから得たフル URL でもよい
+    （`http` で始まっていればそのまま使う）。認証情報はここでだけ組み立て、
+    エラーメッセージには**含めない**（要件の非機能要件: トークンをログに出さない）。
+    """
+    url = path_or_url if path_or_url.startswith("http") else opts.api_base + path_or_url
+    headers = {"Accept": accept, "User-Agent": "diff-review-html"}
+    if opts.token:
+        headers["Authorization"] = "Bearer " + opts.token
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            body = resp.read().decode("utf-8", "replace")
+            return json.loads(body), resp.headers
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", "replace")
+        detail = "GitHub API に失敗しました（HTTP %d %s）: %s" % (exc.code, url, _github_error_message(body))
+        hint = _rate_limit_hint(exc.headers)
+        die(detail + ("\n  " + hint if hint else ""), EXIT_NETWORK)
+    except (urllib.error.URLError, TimeoutError) as exc:
+        die("GitHub に接続できません（%s）: %s" % (url, exc), EXIT_NETWORK)
+    except json.JSONDecodeError as exc:
+        die("GitHub の応答を JSON として読めません（%s）: %s" % (url, exc), EXIT_NETWORK)
+
+
+def github_list_all(opts, path, items_key=None):
+    """ページネーション（`Link: rel="next"`）を追従して全件を集める（research.md F5）。
+
+    `items_key` が `None` なら応答そのものが配列（PR の `files` エンドポイント）。
+    指定があれば、その応答オブジェクトの中の配列を使う（compare の `files`）。
+    1 ページ目の応答オブジェクト全体も返す（compare の `base_commit` 等に使う）。
+    """
+    items, first_page, next_path = [], None, path
+    while next_path:
+        page, headers = github_request(opts, next_path)
+        chunk = page if items_key is None else (page.get(items_key) or [])
+        if first_page is None:
+            first_page = page
+        items.extend(chunk)
+        next_path = _next_link_path(headers.get("Link"))
+    return items, first_page
+
+
+GITHUB_PR_URL_RE = re.compile(
+    r"^https?://github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/pull/(?P<number>\d+)(?:[/?#].*)?$")
+GITHUB_PR_SLUG_RE = re.compile(r"^(?P<owner>[^/]+)/(?P<repo>[^/]+)#(?P<number>\d+)$")
+
+
+def parse_github_pr_spec(spec):
+    """`--github-pr` の値を `(owner, repo, number)` に分ける（要件 AC1・AC2）。"""
+    m = GITHUB_PR_URL_RE.match(spec or "") or GITHUB_PR_SLUG_RE.match(spec or "")
+    if not m:
+        die("--github-pr は <owner>/<repo>#<番号> か PR の URL"
+            "（https://github.com/<owner>/<repo>/pull/<番号>）の形にしてください（実際: %r）" % spec,
+            EXIT_USAGE)
+    return m.group("owner"), m.group("repo"), m.group("number")
+
+
+def parse_owner_repo(spec):
+    """`--github-repo` の値を `(owner, repo)` に分ける。"""
+    parts = (spec or "").split("/")
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        die("--github-repo は <owner>/<repo> の形にしてください（実際: %r）" % spec, EXIT_USAGE)
+    return parts[0], parts[1]
+
+
+_GITHUB_STATUS_LETTER = {
+    "added": "A", "removed": "D", "renamed": "R", "copied": "C",
+    "modified": "M", "changed": "M", "unchanged": "M",
+}
+
+
+def _github_status_to_letter(status):
+    return _GITHUB_STATUS_LETTER.get(status, "M")
+
+
+def github_files_to_entries(files_raw):
+    """GitHub の `files[]` を、ローカル取得元の `entries` と同じ形に詰め替える（research.md F1）。"""
+    entries = []
+    for f in files_raw:
+        entries.append({
+            "path": f["filename"],
+            "old_path": f.get("previous_filename"),
+            "status": _github_status_to_letter(f.get("status")),
+            "old_blob": None,   # GitHub のファイル一覧 API は旧 blob の sha を返さない（research.md F1）
+            "new_blob": f.get("sha"),
+        })
+    return entries
+
+
+def _approx_line_count(hunks):
+    """最終ハンクの最終行番号（新側優先）を、ファイルの行数の近似値として使う（decisions.md D5）。"""
+    if not hunks:
+        return None
+    best = None
+    for line in hunks[-1]["lines"]:
+        no = line.get("new") if line.get("new") is not None else line.get("old")
+        if no is not None and (best is None or no > best):
+            best = no
+    return best
+
+
+def _tokenize_hunks_inplace(hunks, language):
+    """ハンク単位で構文ハイライトする（全文が無いため。decisions.md D6）。"""
+    for hunk in hunks:
+        lines = hunk["lines"]
+        if not lines:
+            continue
+        tokens = highlight.tokenize_lines("\n".join(line["text"] for line in lines), language)
+        if not tokens:
+            continue
+        for line, tok in zip(lines, tokens):
+            line["tokens"] = tok
+
+
+def build_file_from_github(f, entry, expand_max_lines):
+    """GitHub の 1 ファイル分の要素を、ローカル取得元の `files[]` 要素と同じ形にする（T2）。"""
+    patch = f.get("patch")
+    binary = patch is None
+    hunks = [] if binary else parse_hunks(patch.split("\n"))[0]
+    language = None if binary else highlight.language_for(entry["path"])
+    # F8: 全文を取得しないため、展開データの代わりに「展開できません」を既存の表示で流用する
+    # （decisions.md D5）。expand_max_lines <= 0 なら、ローカル取得元と同様に一切埋めない。
+    expand = None
+    if not binary and hunks and expand_max_lines > 0:
+        approx = _approx_line_count(hunks)
+        if approx:
+            expand = {"truncated": True, "count": approx}
+    if not binary and language:
+        _tokenize_hunks_inplace(hunks, language)
+    return {
+        "path": entry["path"], "old_path": entry["old_path"], "status": entry["status"],
+        "additions": f.get("additions", 0) or 0, "deletions": f.get("deletions", 0) or 0,
+        "binary": binary, "language": language,
+        "hunks": [] if binary else hunks, "expand": expand,
+        "rich": None,   # rich diff は今回スコープ外（decisions.md D5）
+    }
+
+
+def github_digest(files_raw):
+    """GitHub 取得元の差分の同一性。`git` に依存しないため `hashlib` を使う（decisions.md D4）。"""
+    canon = dumps_canonical([
+        {"path": f["filename"], "sha": f.get("sha"), "status": f.get("status"),
+         "patch_len": len(f.get("patch") or "")}
+        for f in sorted(files_raw, key=lambda f: f["filename"])
+    ])
+    return "gh1:" + hashlib.sha256(canon.encode("utf-8")).hexdigest()
+
+
+def _github_target_files(entries):
+    return [{"path": e["path"], "status": e["status"], "old_blob": e["old_blob"], "new_blob": e["new_blob"]}
+            for e in entries]
+
+
+def collect_diff_github_pr(opts, owner, repo, number, expand_max_lines):
+    """`--from github-pr`（T3）。"""
+    pr, _ = github_request(opts, "/repos/%s/%s/pulls/%s" % (owner, repo, number))
+    files_raw, _ = github_list_all(
+        opts, "/repos/%s/%s/pulls/%s/files?per_page=100" % (owner, repo, number))
+    entries = github_files_to_entries(files_raw)
+    files = [build_file_from_github(f, e, expand_max_lines) for f, e in zip(files_raw, entries)]
+    target = {
+        "source": "github-pr",
+        "range": "%s/%s#%s" % (owner, repo, number),
+        "base_commit": pr["head"]["sha"],
+        "diff_digest": github_digest(files_raw),
+        "files": _github_target_files(entries),
+    }
+    return target, files
+
+
+def collect_diff_github_compare(opts, owner, repo, rev, expand_max_lines):
+    """`--from github-compare`（T4）。`rev` は `<base>...<head>`（3 ドット。decisions.md D7）。"""
+    if "..." not in (rev or ""):
+        die("--rev は <base>...<head>（3 ドット）の形にしてください（実際: %r）" % rev, EXIT_USAGE)
+    encoded = urllib.parse.quote(rev, safe=".")
+    files_raw, first_page = github_list_all(
+        opts, "/repos/%s/%s/compare/%s?per_page=100" % (owner, repo, encoded), items_key="files")
+    entries = github_files_to_entries(files_raw)
+    files = [build_file_from_github(f, e, expand_max_lines) for f, e in zip(files_raw, entries)]
+    commits = (first_page or {}).get("commits") or []
+    base_commit = commits[-1]["sha"] if commits else ((first_page or {}).get("base_commit") or {}).get("sha")
+    target = {
+        "source": "github-compare",
+        "range": "%s/%s@%s" % (owner, repo, rev),
+        "base_commit": base_commit,
+        "diff_digest": github_digest(files_raw),
+        "files": _github_target_files(entries),
+    }
+    return target, files
+
+
+def collect_diff_github(opts, source, github_pr, github_repo, rev, expand_max_lines):
+    """`collect_diff` からの GitHub 取得元への分岐（design 全体構成）。"""
+    if source == "github-pr":
+        owner, repo, number = parse_github_pr_spec(github_pr)
+        return collect_diff_github_pr(opts, owner, repo, number, expand_max_lines)
+    if source == "github-compare":
+        owner, repo = parse_owner_repo(github_repo)
+        return collect_diff_github_compare(opts, owner, repo, rev, expand_max_lines)
+    die("知らない GitHub 取得元です: %r" % source, EXIT_USAGE)   # pragma: no cover - 呼び出し元で弾く
 
 
 # --------------------------------------------------------------------------
@@ -945,7 +1219,9 @@ def render_html(target, files, review, title, readonly=False, force_rich=False):
 
 def cmd_html(args):
     target, files = collect_diff(args.repo, args.source, args.rev, args.context,
-                                 expand_max_lines=args.expand_max_lines, rich=(args.rich != "off"))
+                                 expand_max_lines=args.expand_max_lines, rich=(args.rich != "off"),
+                                 github_opts=args.github_opts, github_pr=args.github_pr,
+                                 github_repo=args.github_repo)
     review = load_review_for_embedding(args.import_path, target) if args.import_path else None
     title = args.title or default_title(target)
     write_out(render_html(target, files, review, title, readonly=args.readonly), args.out)
@@ -967,7 +1243,9 @@ def load_review_for_embedding(path, target):
 def cmd_bundle(args):
     """差分と記録を 1 ファイルに（T3）。ビューアはこれを開く。"""
     target, files = collect_diff(args.repo, args.source, args.rev, args.context,
-                                 expand_max_lines=args.expand_max_lines, rich=(args.rich != "off"))
+                                 expand_max_lines=args.expand_max_lines, rich=(args.rich != "off"),
+                                 github_opts=args.github_opts, github_pr=args.github_pr,
+                                 github_repo=args.github_repo)
     review = load_review_for_embedding(args.import_path, target) if args.import_path else None
     rich_enabled = any(f.get("rich") for f in files)
     write_out(bundle_text(target, files, rich_enabled, review), args.out)
@@ -1003,7 +1281,9 @@ def default_title(target):
 
 def cmd_template(args):
     target, _files = collect_diff(args.repo, args.source, args.rev, args.context,
-                                  expand_max_lines=0, rich=False)
+                                  expand_max_lines=0, rich=False,
+                                  github_opts=args.github_opts, github_pr=args.github_pr,
+                                  github_repo=args.github_repo)
     write_out(dumps_canonical(empty_review(target)), args.out)
     return EXIT_OK
 
@@ -1055,7 +1335,9 @@ def cmd_check(args):
     problems = validate(review)
     if args.repo_given:
         target, _files = collect_diff(args.repo, args.source, args.rev, args.context,
-                                      expand_max_lines=0, rich=False)
+                                      expand_max_lines=0, rich=False,
+                                      github_opts=args.github_opts, github_pr=args.github_pr,
+                                      github_repo=args.github_repo)
         for note in identity_mismatch(review, target):
             sys.stderr.write("警告: %s\n" % note)
     if args.anchors:
@@ -1238,7 +1520,9 @@ def diff_files_for(record, args):
             EXIT_USAGE)
     _target, files = collect_diff(args.repo, args.source, args.rev, args.context,
                                   expand_max_lines=args.expand_max_lines,
-                                  rich=False)
+                                  rich=False,
+                                  github_opts=args.github_opts, github_pr=args.github_pr,
+                                  github_repo=args.github_repo)
     return files
 
 
@@ -1458,8 +1742,10 @@ def cmd_submit(args):
 # 入口
 # --------------------------------------------------------------------------
 
-SOURCES = ("unstaged", "staged", "range", "commit", "github-pr")
-SOURCES_NOT_YET = {"github-pr": "GitHub の PR からの取得はまだ実装していません"}
+SOURCES = ("unstaged", "staged", "range", "commit", "github-pr", "github-compare")
+GITHUB_SOURCES = ("github-pr", "github-compare")
+GITHUB_REV_SOURCES = ("range", "commit", "github-compare")
+DEFAULT_GITHUB_API_BASE = "https://api.github.com"
 
 
 def add_source_options(parser, required_repo_flag=False):
@@ -1467,21 +1753,31 @@ def add_source_options(parser, required_repo_flag=False):
     parser.add_argument("--from", dest="from_source", choices=SOURCES, metavar="<元>",
                         help="差分の取得元: %s（既定: unstaged）" % " | ".join(SOURCES))
     parser.add_argument("--rev", metavar="<SPEC>",
-                        help="--from range / commit のときの指定（例 main..HEAD / 3d6624e）")
+                        help="--from range / commit のときの指定（例 main..HEAD / 3d6624e）。"
+                             "--from github-compare のときは <base>...<head>（3 ドット）")
     # 以下は従来からのフラグ。**同じことを 2 通りで書けるので、併用は矛盾として弾く**。
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--unstaged", action="store_true", help="（別名）--from unstaged")
     group.add_argument("--staged", action="store_true", help="（別名）--from staged")
     group.add_argument("--range", dest="range_spec", metavar="<A>..<B>", help="（別名）--from range --rev <A>..<B>")
     group.add_argument("--commit", metavar="<C>", help="（別名）--from commit --rev <C>")
-    parser.add_argument("--repo", default=".", help="対象リポジトリ（既定: カレント）")
+    parser.add_argument("--repo", default=".", help="対象リポジトリ（既定: カレント。github-pr / github-compare では使わない）")
     parser.add_argument("--context", type=int, default=3, help="前後に出す文脈行数（既定: 3）")
     parser.add_argument("--expand-max-lines", type=int, default=DEFAULT_EXPAND_MAX_LINES,
                         dest="expand_max_lines",
                         help="画面で前後を展開するために全文を埋める上限行数（既定: %d。0 で埋めない）"
                              % DEFAULT_EXPAND_MAX_LINES)
     parser.add_argument("--rich", choices=("auto", "off"), default="auto",
-                        help="CSV/Markdown/HTML/PDF の rich diff（既定: auto。対象が無ければ自動で積まない）")
+                        help="CSV/Markdown/HTML/PDF の rich diff（既定: auto。対象が無ければ自動で積まない。"
+                             "GitHub 取得元は常に対象なし）")
+    parser.add_argument("--github-pr", metavar="<owner>/<repo>#<N> | URL",
+                        help="--from github-pr のときの対象 PR")
+    parser.add_argument("--github-repo", metavar="<owner>/<repo>",
+                        help="--from github-compare のときの対象リポジトリ")
+    parser.add_argument("--github-token", metavar="<TOKEN>",
+                        help="GitHub API の認証トークン（既定: 環境変数 GITHUB_TOKEN → GH_TOKEN → 無し）")
+    parser.add_argument("--github-api-base", metavar="<URL>", default=DEFAULT_GITHUB_API_BASE,
+                        help="GitHub API のベース URL（既定: %s。Enterprise 等向け）" % DEFAULT_GITHUB_API_BASE)
 
 
 def normalize_source(args):
@@ -1506,17 +1802,27 @@ def normalize_source(args):
         die("--from と従来のフラグ（--unstaged / --staged / --range / --commit）は"
             "同時に指定できません。どちらか一方にしてください", EXIT_USAGE)
     if chosen:
-        if chosen in SOURCES_NOT_YET:
-            die("%s（--from %s）" % (SOURCES_NOT_YET[chosen], chosen), EXIT_USAGE)
         if chosen in ("range", "commit") and not rev:
             die("--from %s には --rev <SPEC> が要ります" % chosen, EXIT_USAGE)
-        if chosen not in ("range", "commit") and rev:
-            die("--rev は --from range / commit のときだけ使えます", EXIT_USAGE)
+        if chosen not in GITHUB_REV_SOURCES and rev:
+            die("--rev は --from range / commit / github-compare のときだけ使えます", EXIT_USAGE)
         args.source, args.rev = chosen, rev
-        return args
-    if rev and not legacy:
+    elif rev and not legacy:
         die("--rev は --from range / commit と一緒に使ってください", EXIT_USAGE)
-    args.source, args.rev = legacy or ("unstaged", None)
+    else:
+        args.source, args.rev = legacy or ("unstaged", None)
+
+    if args.source == "github-pr" and not getattr(args, "github_pr", None):
+        die("--from github-pr には --github-pr <owner>/<repo>#<番号> が必要です", EXIT_USAGE)
+    if args.source == "github-compare":
+        if not getattr(args, "github_repo", None):
+            die("--from github-compare には --github-repo <owner>/<repo> が必要です", EXIT_USAGE)
+        if not args.rev:
+            die("--from github-compare には --rev <base>...<head> が必要です", EXIT_USAGE)
+
+    args.github_opts = GithubOpts(
+        getattr(args, "github_api_base", None) or DEFAULT_GITHUB_API_BASE,
+        resolve_github_token(getattr(args, "github_token", None)))
     return args
 
 

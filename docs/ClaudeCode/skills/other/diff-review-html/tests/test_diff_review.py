@@ -7,6 +7,8 @@
 ここが見るのは script の責務: 差分のパース、決定論、エスケープ、検証、一覧、符号化と改行。
 """
 
+import email.message
+import io
 import json
 import os
 import re
@@ -14,7 +16,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
+from unittest import mock
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
 TESTS_DIR = Path(__file__).resolve().parent
@@ -1047,11 +1051,212 @@ class SourceSelectionTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("--rev", err)
 
-    def test_github_pr_is_declared_not_yet(self):
+    def test_github_pr_requires_github_pr_flag(self):
         code, out, err = cli(self.repo, "html", "--repo", ".", "--from", "github-pr")
         self.assertEqual(code, 1, "黙って別の差分を出してはいけない")
         self.assertEqual(out, "")
-        self.assertIn("まだ実装していません", err)
+        self.assertIn("--github-pr", err)
+
+    def test_github_compare_requires_github_repo_and_rev(self):
+        code, _out, err = cli(self.repo, "html", "--from", "github-compare")
+        self.assertEqual(code, 1)
+        self.assertIn("--github-repo", err)
+        code, _out, err = cli(self.repo, "html", "--from", "github-compare",
+                              "--github-repo", "o/r")
+        self.assertEqual(code, 1)
+        self.assertIn("--rev", err)
+
+    def test_github_compare_rejects_two_dot_rev(self):
+        code, _out, err = cli(self.repo, "html", "--from", "github-compare",
+                              "--github-repo", "o/r", "--rev", "main..feature")
+        self.assertEqual(code, 1, "書式の誤りは使い方エラー。ネットワークを叩く前に検査で落ちる")
+        self.assertIn("3 ドット", err)
+
+    def test_github_sources_do_not_require_a_local_repo(self):
+        # --repo を省いても（既定値 "." のまま）使い方エラーにならない（要件 AC3）。
+        # ネットワークは実際には叩かれない——引数不足で先に落ちるケースで確認する。
+        code, _out, err = cli(self.tmp.name, "html", "--from", "github-pr")
+        self.assertEqual(code, 1)
+        self.assertIn("--github-pr", err)
+
+
+# --------------------------------------------------------------------------
+# GitHub REST API 経由の差分取得（decisions.md D2）。
+# **実際の外部ネットワークは叩かない**——`urllib.request.urlopen` をモックする
+# （design テスト方針・tasks.md T7）。
+# --------------------------------------------------------------------------
+
+class _FakeResponse:
+    def __init__(self, body_bytes, headers):
+        self._body = body_bytes
+        self.headers = email.message.Message()
+        for k, v in (headers or {}).items():
+            self.headers[k] = v
+
+    def read(self):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
+def fake_urlopen_sequence(pages):
+    """`pages`: [(status, JSON でエンコードする値, headers) , ...] を呼び出し順に返す偽 urlopen。
+
+    呼ばれた `Request` は `calls` に積む（Authorization ヘッダ・URL の検査に使う）。
+    """
+    calls = []
+    it = iter(pages)
+
+    def _fake(req, timeout=None):
+        calls.append(req)
+        status, payload, headers = next(it)
+        body = json.dumps(payload).encode("utf-8") if not isinstance(payload, bytes) else payload
+        if status >= 400:
+            hdrs = email.message.Message()
+            for k, v in (headers or {}).items():
+                hdrs[k] = v
+            raise urllib.error.HTTPError(req.full_url, status, "error", hdrs, io.BytesIO(body))
+        return _FakeResponse(body, headers)
+
+    _fake.calls = calls
+    return _fake
+
+
+PR_PATCH_A = "@@ -1,3 +1,4 @@\n a\n-b\n+B\n+c\n c"
+PR_PATCH_B = "@@ -0,0 +1,2 @@\n+x\n+y"
+
+
+class GithubSourceTest(unittest.TestCase):
+    def test_pr_fetch_builds_target_and_files_and_follows_pagination(self):
+        pr = {"number": 7, "head": {"sha": "headsha0123456"}, "base": {"sha": "basesha"}}
+        page1 = [{"filename": "a.py", "status": "modified", "additions": 2, "deletions": 1,
+                  "previous_filename": None, "sha": "shaa", "patch": PR_PATCH_A}]
+        page2 = [{"filename": "b.py", "status": "added", "additions": 2, "deletions": 0,
+                  "previous_filename": None, "sha": "shab", "patch": PR_PATCH_B}]
+        next_url = "https://api.github.com/repositories/1/pulls/7/files?per_page=100&page=2"
+        fake = fake_urlopen_sequence([
+            (200, pr, {}),
+            (200, page1, {"Link": '<%s>; rel="next", <%s>; rel="last"' % (next_url, next_url)}),
+            (200, page2, {}),
+        ])
+        with mock.patch("diff_review.urllib.request.urlopen", fake):
+            opts = dr.GithubOpts(dr.DEFAULT_GITHUB_API_BASE, None)
+            target, files = dr.collect_diff_github_pr(opts, "o", "r", "7", 2000)
+        self.assertEqual(target["source"], "github-pr")
+        self.assertEqual(target["range"], "o/r#7")
+        self.assertEqual(target["base_commit"], "headsha0123456")
+        self.assertTrue(target["diff_digest"].startswith("gh1:"))
+        self.assertEqual([f["path"] for f in files], ["a.py", "b.py"])
+        self.assertEqual(files[0]["status"], "M")
+        self.assertEqual(files[1]["status"], "A")
+        self.assertEqual(files[0]["additions"], 2)
+        self.assertEqual(files[0]["deletions"], 1)
+        self.assertEqual(len(files[0]["hunks"]), 1)
+        self.assertEqual(fake.calls[2].full_url, next_url, "Link ヘッダの rel=\"next\" を追従すること")
+
+    def test_compare_fetch_uses_three_dot_and_resolves_head_commit(self):
+        compare = {
+            "base_commit": {"sha": "basesha"},
+            "commits": [{"sha": "midsha"}, {"sha": "headsha999"}],
+            "files": [{"filename": "c.py", "status": "renamed", "additions": 1, "deletions": 1,
+                       "previous_filename": "old_c.py", "sha": "shac", "patch": PR_PATCH_A}],
+        }
+        fake = fake_urlopen_sequence([(200, compare, {})])
+        with mock.patch("diff_review.urllib.request.urlopen", fake):
+            opts = dr.GithubOpts(dr.DEFAULT_GITHUB_API_BASE, None)
+            target, files = dr.collect_diff_github_compare(opts, "o", "r", "main...feature", 2000)
+        self.assertEqual(target["source"], "github-compare")
+        self.assertEqual(target["range"], "o/r@main...feature")
+        self.assertEqual(target["base_commit"], "headsha999", "commits の最後＝head 側")
+        self.assertEqual(files[0]["old_path"], "old_c.py")
+        self.assertEqual(files[0]["status"], "R")
+        self.assertIn("main...feature", fake.calls[0].full_url)
+
+    def test_authorization_header_present_only_when_token_given(self):
+        fake = fake_urlopen_sequence([(200, {"head": {"sha": "s"}, "base": {"sha": "b"}}, {}),
+                                      (200, [], {})])
+        with mock.patch("diff_review.urllib.request.urlopen", fake):
+            opts = dr.GithubOpts(dr.DEFAULT_GITHUB_API_BASE, None)
+            dr.collect_diff_github_pr(opts, "o", "r", "1", 2000)
+        self.assertNotIn("Authorization", fake.calls[0].headers)
+
+        fake2 = fake_urlopen_sequence([(200, {"head": {"sha": "s"}, "base": {"sha": "b"}}, {}),
+                                       (200, [], {})])
+        with mock.patch("diff_review.urllib.request.urlopen", fake2):
+            opts = dr.GithubOpts(dr.DEFAULT_GITHUB_API_BASE, "tok123")
+            dr.collect_diff_github_pr(opts, "o", "r", "1", 2000)
+        self.assertEqual(fake2.calls[0].headers.get("Authorization"), "Bearer tok123")
+
+    def test_api_base_override_changes_the_request_url(self):
+        fake = fake_urlopen_sequence([(200, {"head": {"sha": "s"}, "base": {"sha": "b"}}, {}),
+                                      (200, [], {})])
+        with mock.patch("diff_review.urllib.request.urlopen", fake):
+            opts = dr.GithubOpts("https://ghe.example.com/api/v3", None)
+            dr.collect_diff_github_pr(opts, "o", "r", "1", 2000)
+        self.assertTrue(fake.calls[0].full_url.startswith("https://ghe.example.com/api/v3/"))
+
+    def test_http_error_reports_status_and_message_and_dies_with_exit_network(self):
+        fake = fake_urlopen_sequence([(404, {"message": "Not Found"}, {})])
+        with mock.patch("diff_review.urllib.request.urlopen", fake):
+            opts = dr.GithubOpts(dr.DEFAULT_GITHUB_API_BASE, None)
+            with self.assertRaises(SystemExit) as ctx:
+                dr.collect_diff_github_pr(opts, "o", "r", "999999", 2000)
+        self.assertEqual(ctx.exception.code, dr.EXIT_NETWORK)
+
+    def test_rate_limit_hint_is_included_when_remaining_is_zero(self):
+        fake = fake_urlopen_sequence([
+            (403, {"message": "API rate limit exceeded"},
+             {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "2000000000"}),
+        ])
+        with mock.patch("diff_review.urllib.request.urlopen", fake):
+            opts = dr.GithubOpts(dr.DEFAULT_GITHUB_API_BASE, None)
+            try:
+                dr.collect_diff_github_pr(opts, "o", "r", "1", 2000)
+                self.fail("SystemExit が要る")
+            except SystemExit:
+                pass
+
+    def test_github_pr_spec_accepts_url_and_slug(self):
+        self.assertEqual(dr.parse_github_pr_spec("o/r#123"), ("o", "r", "123"))
+        self.assertEqual(dr.parse_github_pr_spec("https://github.com/o/r/pull/123"),
+                         ("o", "r", "123"))
+        self.assertEqual(dr.parse_github_pr_spec("https://github.com/o/r/pull/123/files"),
+                         ("o", "r", "123"))
+        with self.assertRaises(SystemExit):
+            dr.parse_github_pr_spec("not-a-valid-spec")
+
+    def test_github_digest_is_order_independent_and_deterministic(self):
+        files_a = [{"filename": "a.py", "sha": "1", "status": "modified", "patch": "x"},
+                  {"filename": "b.py", "sha": "2", "status": "added", "patch": "y"}]
+        files_b = list(reversed(files_a))
+        self.assertEqual(dr.github_digest(files_a), dr.github_digest(files_b))
+        self.assertTrue(dr.github_digest(files_a).startswith("gh1:"))
+
+    def test_resolve_github_token_priority(self):
+        with mock.patch.dict(os.environ, {"GITHUB_TOKEN": "from-env", "GH_TOKEN": "from-gh"}):
+            self.assertEqual(dr.resolve_github_token("from-cli"), "from-cli")
+            self.assertEqual(dr.resolve_github_token(None), "from-env")
+        with mock.patch.dict(os.environ, {"GH_TOKEN": "from-gh"}, clear=True):
+            self.assertEqual(dr.resolve_github_token(None), "from-gh")
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertIsNone(dr.resolve_github_token(None))
+
+    def test_expand_is_none_when_expand_max_lines_is_zero(self):
+        entry = {"path": "a.py", "old_path": None, "status": "M"}
+        f = {"additions": 2, "deletions": 1, "patch": PR_PATCH_A}
+        built = dr.build_file_from_github(f, entry, 0)
+        self.assertIsNone(built["expand"])
+
+    def test_expand_reuses_the_truncated_display_when_files_have_a_gap(self):
+        entry = {"path": "a.py", "old_path": None, "status": "M"}
+        f = {"additions": 2, "deletions": 1, "patch": PR_PATCH_A}
+        built = dr.build_file_from_github(f, entry, 2000)
+        self.assertEqual(built["expand"], {"truncated": True, "count": 4})
+        self.assertIsNone(built["rich"], "rich diff は今回スコープ外（decisions.md D5）")
 
 
 # --------------------------------------------------------------------------
