@@ -485,6 +485,19 @@ textarea {
   border-radius: 6px;
   background: var(--bg);
 }
+/* .threads（グリッド）に直接置かれる .thread は、グリッドの gap（8px）と
+   .thread 自身の上下マージン（8px）が二重に効き、実測で24px（8+8+8）もの
+   隙間になっていた——グリッドの子要素どうしのマージンはグリッドの gap と
+   相殺されない（ユーザー報告: 折りたたんだコメント同士の余白が大きすぎる）。
+   .orphans（グリッドではない素の入れ物）の中の .thread はこの対象外で、
+   引き続き自分の上下マージンだけで間隔を作る（そちらは gap が無いため必要）。
+   隣接する2つの間だけを潰す（:not(:last-child)/:not(:first-child)）——
+   両方とも一律 0 にすると、`.threads` の前後（#overall の見出し行や
+   ファイル見出しの直下など。.threads 自身は padding を持たない）の余白まで
+   消えてしまう（review 工程の指摘）。最初/最後の要素は自身がどちらでも
+   ない側のマージンを保ったまま残るので、外側の余白は保たれる。 */
+.threads > .thread:not(:last-child) { margin-bottom: 0; }
+.threads > .thread:not(:first-child) { margin-top: 0; }
 .thread[data-resolved="true"] { opacity: 0.75; }
 /* 折りたたみ: 位置・解決状態・重大度などの .thread-head は常に見せ、コメント本文だけ隠す。
    .comment は返信用の .composer-slot を自分の中に持つので、これで一緒に隠れる。 */

@@ -348,3 +348,15 @@ composer-slot では `slot.closest(".slots")` が `null` を返し安全に早�
 編集・返信入力欄との同時オープンいずれも正しく動くこと、`.modal-lg` への
 参照が grep でどこにも残っていないこと、を確認済み（decisions.md D23 参照）。
 `python3 -m unittest`（140件）も green のまま。
+
+## ユーザー報告（コメント間の余白の二重計上）
+
+- [should][conv:-] `templates/style.css`（`.threads > .thread { margin-top: 0;
+  margin-bottom: 0; }`） 隣接するスレッド間の余白（グリッドの gap と
+  `.thread` 自身のマージンの二重計上）は直っているが、この打ち消し方（一律に
+  上下マージンを0にする）だと `.threads` の前後（`#overall` の見出し行と
+  最初のスレッドの間など。`.threads` 自身は padding を持たないため）の余白も
+  一緒に消えてしまう。実測（見出し行と最初のスレッドの間隔）は未検証だった。
+  / 対応: 修正済（decisions.md D24 追記）。`:not(:first-child)`/
+  `:not(:last-child)` を使い、隣接ペアの間だけを打ち消す形に直した。見出し行と
+  最初のスレッドの間隔が8pxに戻ったことを実測で確認した。
