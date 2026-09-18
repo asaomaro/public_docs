@@ -49,8 +49,8 @@ try {
     <button type="button" id="btn-split" aria-pressed="false">split 表示</button>
     <button type="button" id="btn-theme" class="icon-btn" title="テーマ: OS に従う" aria-label="テーマ: OS に従う（押すと切り替え）">◐</button>
 <!-- rw:begin -->
-    <button type="button" id="btn-start-review" aria-pressed="false">レビューを開始</button>
-    <button type="button" id="btn-export-open">JSON を書き出す</button>
+    <button type="button" id="btn-start-review" aria-expanded="false">レビュー結果を入力</button>
+    <button type="button" id="btn-export-open" aria-expanded="false">JSON を書き出す</button>
     <button type="button" id="btn-reset-draft"
             title="このブラウザに保存された下書きを消して、埋め込みの状態まで戻す">下書きを初期化</button>
 <!-- rw:end -->
@@ -105,7 +105,7 @@ try {
 
 <!-- rw:begin -->
 <div id="submit-backdrop" class="modal-backdrop" hidden></div>
-<section id="submit-panel" class="panel modal" hidden aria-label="レビューの提出" role="dialog" aria-modal="true">
+<section id="submit-panel" class="panel modal modal-lg" hidden aria-label="レビューの提出" role="dialog" aria-modal="true">
   <div class="modal-head">
     <h2>レビューを提出する</h2>
     <button type="button" id="btn-submit-close-x" class="icon-btn" title="閉じる" aria-label="閉じる">×</button>
@@ -126,8 +126,12 @@ try {
   </div>
 </section>
 
-<section id="export-panel" class="panel" hidden aria-label="JSON の書き出し">
-  <h2>レビュー記録を書き出す</h2>
+<div id="export-backdrop" class="modal-backdrop" hidden></div>
+<section id="export-panel" class="panel modal modal-lg" hidden aria-label="JSON の書き出し" role="dialog" aria-modal="true">
+  <div class="modal-head">
+    <h2>レビュー記録を書き出す</h2>
+    <button type="button" id="btn-export-close-x" class="icon-btn" title="閉じる" aria-label="閉じる">×</button>
+  </div>
   <p class="hint">ダウンロードするか、下の内容をコピーしてファイルに貼り付けてください。</p>
   <div class="row-actions">
     <button type="button" id="btn-download">ダウンロード</button>

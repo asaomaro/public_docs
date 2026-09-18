@@ -656,3 +656,73 @@
   `editReview()`/`"r"`キー分岐/`closeSubmitPanel()`/`wire()` の更新、`#submit-panel`
   への Escape listener 追加）、`templates/ui.js`（`syncTopbarHeight()` の対象 id）、
   `tests/test_diff_review.py`（`WRITE_UI` タプル）。
+
+## D22: 「レビューを開始」ボタンのラベル固定化、JSON書き出し画面のフローティング化、
+  submit-panel/export-panel の拡幅
+
+- **背景**: ユーザーから3件の要望（後半2件は同じ会話の中で連続して届いた）。
+  (1) 「レビューを開始ボタンを一度クリックすると、それ以降レビュー結果を入力ボタンに
+  変わりますが、特に開始した状態自体を記録している訳でもなく、記録する必要も
+  あまりないので、レビュー結果を入力で表現を固定して構いません」。
+  (2) 「JSONを書き出すも、ヘルプ表示同様にポップアップにしてください」（D19/D21 と
+  同じ形を `#export-panel` にも適用してほしい）。
+  (3) 実装中に届いた追加要望: 「レビュー結果入力のポップアップ画面のサイズが
+  小さかったので大きくしてください。同じサイズでjson書き出しも表示して」。
+- **決定**:
+  (1) `reviewStarted` 変数を完全に削除した（`updatePendingCount()`/`startReview()`/
+  `submitReview()` から参照・代入を全て除去）。`pending-count` の
+  「（レビュー中）」サフィックスも道連れで削除（`reviewStarted` 専用の表示だった
+  ため、その概念自体を無くす以上残す理由が無い）。`#btn-start-review` の表示は
+  `page.html` に静的に「レビュー結果を入力」と書き、JS 側の textContent 切り替えを
+  削除した。ボタンは実質「`#submit-panel` の開閉トリガー」という disclosure
+  ボタンでしかなくなったので、意味の合わない `aria-pressed`（「レビュー中」を
+  表していた）を `aria-expanded`（`#btn-help-open` と同じ型）に差し替え、
+  `setSubmitOpen()` がその同期も担うようにした。
+  (2) D19/D21 で確立した `.modal`/`.modal-backdrop`/`.modal-head` をそのまま
+  `#export-panel` に適用。新設 `#export-backdrop`、`.modal-head` ＋新設 ×ボタン
+  （`#btn-export-close-x`）、新設 `setExportOpen(open)`（`#btn-export-open` の
+  `aria-expanded` も同期）。`openExport()` は開いた直後に readonly な
+  `#export-text` （textarea）へフォーカス＋選択するため、`#submit-panel` と同じ
+  理由（`isTyping()` ガード）で Escape が効かなかった——`#export-panel` 専用の
+  Escape listener で塞いだ。グローバルの Escape ハンドラの該当行
+  （`showPanel("export-panel", false)`）も `setExportOpen(false)` に差し替え、
+  backdrop の状態が経路によらず必ず揃うようにした。`ui.js` の
+  `syncTopbarHeight()` の対象からも `"export-panel"` を外した（`#banners` のみ残る）。
+  (3) `.panel.modal` に `.modal-lg`（`max-width: 800px`）という追加のモディファイア
+  クラスを新設し、`#submit-panel`/`#export-panel` にだけ付けた。`#help`
+  （表組み中心で幅を必要としない。ユーザーからの言及も無い）は既定の560pxのまま
+  据え置いた。
+- **理由・代替案**: (1) は「ラベルだけ固定文字列にする」だけの対症療法も検討したが、
+  `reviewStarted` 変数自体がその表示以外に一切使われておらず（`submitReview()` の
+  可否判定にも関わらない、純粋な表示専用フラグ）、変数を残したまま参照だけ削れば
+  「更新されるが読まれない」デッドコードになる。変数ごと削除する方が素直。
+  `aria-pressed`→`aria-expanded` の切り替えは、テキストラベルは固定でも「押されて
+  いる/いない」という意味論自体が既に無くなっている（ボタンはトグル開閉であって
+  「オン/オフの状態を持つトグルスイッチ」ではない）ため、放置すると視覚的には
+  何も変わらないのに支援技術には無意味な状態変化が伝わる不整合が残る（D17 の
+  `aria-valuenow` の教訓と同種）。
+  (2) は D19/D21 の設計をそのまま踏襲するのが最も一貫性が高い。
+  (3) は `.panel.modal` 自体の既定値を上げる案（3画面とも一律で広げる）も検討したが、
+  ユーザーの要望は明確に「レビュー結果入力」「JSON書き出す」の2つを指しており、
+  `#help` を広げる根拠が無い。モディファイアクラスで対象を絞る方が要望に忠実。
+- **検証**: playwright-core で27アサーション。ラベルが起動直後から一貫して
+  「レビュー結果を入力」であること（開閉・コメント追加のいずれでも変わらない）、
+  「（レビュー中）」表示が消えたこと、`aria-expanded` が開閉に追従すること、
+  `#export-panel` のフローティング化（`.shell` の高さ不変・×/backdrop/Escape/
+  既存の下部「閉じる」ボタンでの close・書き出し内容の非回帰）、`#submit-panel`/
+  `#export-panel` が800pxで揃い `#help` は560pxのまま変わらないこと、を確認した。
+  **テスト作成中に見つけた誤り（実装ではなくテスト側）**: 一度モーダルを開くと
+  `.modal-backdrop`（z-index:30）が `.topbar`（z-index:5、別のスタッキング
+  コンテキスト）ごと覆うため、同じトリガーボタンをマウスで再クリックして閉じる
+  ことは元々できない——これは backdrop 付きモーダルとして正しい・意図した挙動
+  （閉じる手段は ×/backdrop クリック/Esc/下部の「閉じる」）であり、実装の不具合
+  ではない。テスト側でトリガーボタンの再クリックに依存していた箇所を実際の
+  close 経路（×ボタン等）に修正した。`python3 -m unittest`（140件）も green。
+- **影響**: `templates/page.html`（`#btn-start-review` の静的ラベル・
+  `aria-expanded`、`#export-backdrop`・`.modal-head`・`#btn-export-close-x`、
+  `#submit-panel`/`#export-panel` への `.modal-lg`）、`templates/style.css`
+  （`.modal-lg` 新設）、`templates/app.js`（`reviewStarted` 削除、
+  `updatePendingCount()`/`startReview()`/`submitReview()`/`setSubmitOpen()` の
+  更新、新設 `setExportOpen()`、`openExport()`/`wire()`/グローバル Escape
+  ハンドラの更新）、`templates/ui.js`（`syncTopbarHeight()` の対象 id）、
+  `tests/test_diff_review.py`（`WRITE_UI` タプル）、`SKILL.md`（説明文の更新）。

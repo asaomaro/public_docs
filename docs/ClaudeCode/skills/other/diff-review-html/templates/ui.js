@@ -237,10 +237,11 @@
     var bar = document.querySelector(".topbar");
     if (!bar) { return; }
     var extra = 0;
-    // #help・#submit-panel はフローティング表示（style.css の .modal）になり、文書の
-    // 流れから外れたので、開いても .shell の高さには影響しない——ここから外す
-    // （ユーザー報告: 他の表示に影響を与えないでほしい）。
-    ["banners", "export-panel"].forEach(function (id) {
+    // #help・#submit-panel・#export-panel はいずれもフローティング表示
+    // （style.css の .modal）になり、文書の流れから外れたので、開いても .shell の
+    // 高さには影響しない——対象は #banners だけ残る（ユーザー報告: 他の表示に
+    // 影響を与えないでほしい）。
+    ["banners"].forEach(function (id) {
       var node = document.getElementById(id);
       if (node && !node.hidden) { extra += node.getBoundingClientRect().height; }
     });

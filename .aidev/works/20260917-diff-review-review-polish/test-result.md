@@ -1,10 +1,37 @@
 # テスト結果: レビュー操作性の改善（ツリー見た目・レビュー提出フロー・固定ヘッダー・コメント折りたたみ・通知ベル）
 
-> **ラウンド13・最終**（ユーザーから「レビュー結果の入力画面もヘルプ画面同様に
-> ポップアップにしてほしい」との要望を受けて対応した後の検証。decisions.md D21）。
-> ラウンド1〜12の内容は本ファイル末尾に残す。
+> **ラウンド14・最終**（ユーザーから3件の要望——「レビューを開始」ボタンのラベル
+> 固定化、JSON書き出し画面のフローティング化、submit-panel/export-panelの拡幅——を
+> 受けて対応した後の検証。decisions.md D22）。ラウンド1〜13の内容は本ファイル
+> 末尾に残す。
 
-## 実行したもの（ラウンド13・最終）
+## 実行したもの（ラウンド14・最終）
+
+- `python3 -m unittest discover -s docs/ClaudeCode/skills/other/diff-review-html/tests -p "test_*.py"`
+  — 140 passed / 0 failed / 0 skipped（`ReadonlyTest.WRITE_UI` に
+  `id="export-backdrop"`/`id="btn-export-close-x"` を追加）
+- `aidev smoke`（`.aidev/config.yml` の `smokeCommands` 3本）— pass (exit 0)
+- **playwright-core による実ブラウザでの操作確認（新規27アサーション、すべて pass）**:
+  1. `#btn-start-review` のラベルが起動直後から一貫して「レビュー結果を入力」で
+     あること（開閉・コメント追加を挟んでも変わらないこと）を確認
+  2. `aria-expanded` がボタンの開閉に正しく追従すること（`aria-pressed` から
+     切り替えたことの確認）
+  3. `#pending-count` から「（レビュー中）」表示が消え、件数表示だけが残ること
+  4. `#export-panel` が `#help`/`#submit-panel` と同じくフローティング表示
+     （`position: fixed`）になり、開いても `.shell` の高さが変わらないこと
+  5. `#export-panel` が ×・backdropクリック・Escapeキー・既存の下部「閉じる」
+     ボタンのいずれでも閉じられること（Escape は、開いた直後に readonly な
+     `#export-text` textarea へフォーカスが移る状態からでも効くことを確認——
+     `#submit-panel` と同じ `isTyping()` の穴を専用 listener で塞いだ）
+  6. 書き出される JSON の内容自体に変化が無いこと（回帰確認）
+  7. `#submit-panel`/`#export-panel` の幅が800pxで揃い、`#help` は560pxのまま
+     変わらないことを実測で確認
+  - **テスト作成中に見つけた誤り（テスト側の問題であり実装の不具合ではない）**:
+     一度モーダルを開くと `.modal-backdrop`（z-index:30）が `.topbar`
+     （z-index:5、別のスタッキングコンテキスト）ごと覆うため、同じトリガー
+     ボタンをマウスで再クリックして閉じることは元々できない。これは backdrop
+     付きモーダルとして正しい挙動であり、テスト側の該当箇所を実際の close
+     経路（×ボタン等）を使うよう修正した。
 
 - `python3 -m unittest discover -s docs/ClaudeCode/skills/other/diff-review-html/tests -p "test_*.py"`
   — 140 passed / 0 failed / 0 skipped（`ReadonlyTest.WRITE_UI` に
@@ -289,6 +316,12 @@
   headless DOM 検証で確認。
 
 ## 失敗の証跡
+
+**ラウンド14では失敗は発生していない**（`python3 -m unittest` 140件・smoke 3件・
+playwright-core 実測27件、いずれも green で coding への差し戻しは無かった。テスト
+作成中にバックドロップとトリガーボタンのスタッキング関係についての想定違いが
+1件あったが、これは実装の不具合ではなく正しい・意図したモーダルの挙動であり、
+テスト側の該当箇所を修正して解消した）。
 
 **ラウンド13では失敗は発生していない**（`python3 -m unittest` 140件・smoke 3件・
 playwright-core 実測20件、いずれも green で coding への差し戻しは無かった。テスト
