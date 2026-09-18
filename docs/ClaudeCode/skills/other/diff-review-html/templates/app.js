@@ -2225,6 +2225,17 @@
     UI.syncTopbarHeight();   // .shell の高さは「画面 − トップバーとパネル」なので測り直す
   }
 
+  // キー操作説明（#help）はフローティング表示（style.css の .modal）なので、開閉の経路
+  // （ボタン・`?`・Escape・backdrop クリック・×ボタン）がどこから来ても、パネル本体と
+  // backdrop・トリガーボタンの aria-expanded を必ず揃えてこの1箇所から変える。
+  function setHelpOpen(open) {
+    showPanel("help", open);
+    var backdrop = document.getElementById("help-backdrop");
+    if (backdrop) { backdrop.hidden = !open; }
+    var openButton = document.getElementById("btn-help-open");
+    if (openButton) { openButton.setAttribute("aria-expanded", open ? "true" : "false"); }
+  }
+
   // --------------------------------------------------------- キーボード
 
   function rows() {
@@ -2374,15 +2385,13 @@
     }
     if (key === "?") {
       event.preventDefault();
-      var help = document.getElementById("help");
-      showPanel("help", help.hidden);
-      document.getElementById("btn-help-open").setAttribute("aria-expanded", help.hidden ? "false" : "true");
+      setHelpOpen(document.getElementById("help").hidden);
       return;
     }
     if (key === "Escape") {
       closeSubmitPanel();
       showPanel("export-panel", false);
-      showPanel("help", false);
+      setHelpOpen(false);
       var notifPanel = document.getElementById("notif-panel");
       if (notifPanel && !notifPanel.hidden) {
         notifPanel.hidden = true;
@@ -2399,6 +2408,10 @@
     renderFileList();
     renderFiles();
     renderThreads();
+    // renderNotifList() は以前 notify() からしか呼ばれておらず、起動直後（まだ1件も
+    // 通知が無い状態）でベルを開くと #notif-list が空の DOM のまま（「通知はまだ
+    // ありません」の一行すら無い）で、細長い空の帯にしか見えなかった（ユーザー報告）。
+    renderNotifList();
     UI.syncTopbarHeight();
     // renderFileList() の時点では .file がまだ無いので、renderFiles() の後にもう一度
     // （読み込み直後・スクロール前でも先頭のファイルがハイライトされる。要件 AC6）。
@@ -2442,10 +2455,10 @@
     var resetButton = document.getElementById("btn-reset-draft");
     if (resetButton) { resetButton.addEventListener("click", resetDraft); }
     document.getElementById("btn-help-open").addEventListener("click", function () {
-      var help = document.getElementById("help");
-      showPanel("help", help.hidden);
-      this.setAttribute("aria-expanded", help.hidden ? "false" : "true");
+      setHelpOpen(document.getElementById("help").hidden);
     });
+    document.getElementById("btn-help-close").addEventListener("click", function () { setHelpOpen(false); });
+    document.getElementById("help-backdrop").addEventListener("click", function () { setHelpOpen(false); });
     var notifButton = document.getElementById("btn-notif");
     if (notifButton) { notifButton.addEventListener("click", toggleNotifPanel); }
     // `<label for>` はキーボードで到達できない（`Tab` が止まらない）。**ボタンにして繋ぐ**。

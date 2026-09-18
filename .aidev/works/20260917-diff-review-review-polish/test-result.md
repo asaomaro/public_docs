@@ -1,10 +1,34 @@
 # テスト結果: レビュー操作性の改善（ツリー見た目・レビュー提出フロー・固定ヘッダー・コメント折りたたみ・通知ベル）
 
-> **ラウンド10・最終**（ユーザーから「下書き自動復元時の確認バナーは不要、自動的に
-> 復元し、初期化したいときは明示的なボタンで」との要望を受けて対応した後の検証。
-> decisions.md D18）。ラウンド1〜9の内容は本ファイル末尾に残す。
+> **ラウンド11・最終**（ユーザーから「キー操作説明をフローティング表示にし ×/backdrop/Esc
+> で閉じられるように」「通知ベルの空状態が細長い帯になっている」との要望を受けて対応
+> した後の検証。decisions.md D19）。ラウンド1〜10の内容は本ファイル末尾に残す。
 
-## 実行したもの（ラウンド10・最終）
+## 実行したもの（ラウンド11・最終）
+
+- `python3 -m unittest discover -s docs/ClaudeCode/skills/other/diff-review-html/tests -p "test_*.py"`
+  — 140 passed / 0 failed / 0 skipped（Python 側は無変更）
+- `aidev smoke`（`.aidev/config.yml` の `smokeCommands` 3本）— pass (exit 0)
+- **playwright-core による実ブラウザでの操作確認（新規18アサーション、すべて pass）**:
+  `git range 8b22f0c..HEAD` の実差分から生成した `out.html` を Chromium で開いて検証した。
+  1. `#btn-help-open` クリックで `#help`/`#help-backdrop` が表示され、`#help` の
+     `position` が `fixed`（フローティング）になっていることを確認
+  2. `#help` を開く前後で `.shell` の高さが変わらない（652px→652px。他の表示への
+     影響が無くなったことの実測）
+  3. ×ボタン（`#btn-help-close`）・backdrop クリック・Esc キーのそれぞれで閉じられ、
+     閉じると `#help-backdrop` も一緒に隠れることを確認
+  4. `btn-help-open` の `aria-expanded` が開閉に追従することを確認
+  5. `?` キーでの開閉に回帰が無いことを確認
+  6. 通知ベルを開くと、`#notif-panel` の高さが72px以上あり、`#notif-list .empty`
+     （「通知はまだありません」）が最初の1回目から可視であることを確認（修正前は
+     この要素自体が DOM に存在せず、`isVisible()` がタイムアウトしていた）
+  - readonly ビルド（`--readonly`）でも `#help`/`#btn-help-close` が機能することを
+    別途確認した
+- **テスト作業中に見つけた副産物**: backdrop クリックのテストを画面左上隅
+  （x:5, y:5）で行うと `#progress-track`（読了位置バー、`z-index: 200`）に
+  クリックを奪われタイムアウトした。これはテストの座標選択の問題であり実装の不具合
+  ではない（progress-track は画面最上部の高さ6pxの帯にのみ存在し、backdrop より
+  前面にあるのは元々の設計どおり）。座標を (20, 100) に変更して解消した。
 
 - `python3 -m unittest discover -s docs/ClaudeCode/skills/other/diff-review-html/tests -p "test_*.py"`
   — 140 passed / 0 failed / 0 skipped（`ReadonlyTest.WRITE_UI` に `id="btn-reset-draft"` を
@@ -223,6 +247,10 @@
   headless DOM 検証で確認。
 
 ## 失敗の証跡
+
+**ラウンド11では失敗は発生していない**（`python3 -m unittest` 140件・smoke 3件・
+playwright-core 実測18件、いずれも green で coding への差し戻しは無かった。上述の
+座標選択ミスはテスト側の修正で解消し、実装への差し戻しは発生していない）。
 
 **ラウンド10では失敗は発生していない**（`python3 -m unittest` 140件・smoke 3件・
 playwright-core 実測11件、いずれも green で coding への差し戻しは無かった）。

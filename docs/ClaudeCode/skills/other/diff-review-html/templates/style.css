@@ -313,6 +313,32 @@ button:focus-visible, [tabindex]:focus-visible {
 .panel label { margin-right: 12px; }
 .panel label.block { display: block; margin: 8px 0 4px; }
 
+/* キー操作説明（#help）はフローティング表示にする（ユーザー報告: 通常の .panel は
+   文書の流れに乗るため、開くとトップバー直下の高さが変わり、他の表示（.shell の高さ等。
+   ui.js の syncTopbarHeight）に影響していた）。画面中央に固定し、背後にクリックで
+   閉じられる backdrop を敷く。中の見た目（見出し・表組み等）は .panel をそのまま流用する。 */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: color-mix(in srgb, #000 45%, transparent);
+}
+.panel.modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 31;
+  margin: 0;
+  width: calc(100vw - 32px);
+  max-width: 560px;
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
+}
+.modal-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
+.modal-head h2 { margin: 0; }
+
 /* 提出済みレビュー結果の一覧（#submit-panel の中）。長くなりすぎないよう自前でスクロールする。 */
 .review-list { max-height: 200px; overflow: auto; margin: 0 0 12px; }
 .review-list:empty { display: none; }
@@ -747,6 +773,10 @@ textarea {
   right: 0;
   z-index: 20;
   width: 280px;
+  /* 通知が0件のとき、中身が「通知はまだありません」の1行だけになり細長い帯に
+     見えていた（ユーザー報告）。最低限の高さを確保して、空でも意図した見た目の
+     領域として見えるようにする。 */
+  min-height: 72px;
   max-height: 320px;
   overflow: auto;
   background: var(--bg);
@@ -762,7 +792,7 @@ textarea {
   font-size: 12px;
 }
 .notif-item:last-child { border-bottom: none; }
-.notif-panel .empty { padding: 6px 8px; }
+.notif-panel .empty { padding: 24px 8px; text-align: center; }
 
 /* ---------------------------------------------------------- ファイル一覧の検索 */
 

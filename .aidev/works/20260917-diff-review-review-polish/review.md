@@ -275,3 +275,16 @@ playwright-core で追加7アサーション（`Home` キーでの畳み・壊�
 readonly ビルドからの除外・`viewedFiles` の独立性が保たれていること、他のバナー
 （保存不可・バンドル破損・checkIdentity）に影響していないことを確認済み
 （decisions.md D18 参照）。`python3 -m unittest`（140件）も green のまま。
+
+## ユーザー要望（キー操作説明のフローティング化・通知ベルの空状態修正）
+
+独立点検（別コンテキストの subagent）で must/should/nit いずれの指摘も無し。
+`setHelpOpen()` が5つの開閉経路（ボタン・`?`・Escape・×・backdrop）を正しく一本化して
+いること、`#help-backdrop`/`#help` が兄弟要素で backdrop クリックが `#help` 自身の
+クリックに誤って反応しないこと、`#progress-track`（z-index:200）が `#help` 本体には
+重ならず backdrop の最上部6px帯にのみ影響すること（この回のテスト中に自分たちで
+見つけて座標側を直した問題であり実装の不具合ではないことの再確認）、readonly
+ビルドで `#help-backdrop`/`#btn-help-close` が rw ブロック外にあり無条件に機能する
+こと、`renderNotifList()` を `renderAll()` に足したことが `notifUnread`/バッジや
+ドラッグ＆ドロップ読み込み時の再描画と衝突しないこと、を確認済み（decisions.md D19
+参照）。`python3 -m unittest`（140件）も green のまま。
