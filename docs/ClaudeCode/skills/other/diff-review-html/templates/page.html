@@ -73,8 +73,12 @@ try {
 
 <div id="banners" role="status" aria-live="polite"></div>
 
-<section id="help" class="panel" hidden aria-label="キー操作">
-  <h2>キー操作</h2>
+<div id="help-backdrop" class="modal-backdrop" hidden></div>
+<section id="help" class="panel modal" hidden aria-label="キー操作" role="dialog" aria-modal="true">
+  <div class="modal-head">
+    <h2>キー操作</h2>
+    <button type="button" id="btn-help-close" class="icon-btn" title="閉じる" aria-label="閉じる">×</button>
+  </div>
   <table>
     <tbody>
       <tr><th><kbd>j</kbd> / <kbd>k</kbd></th><td>差分の行を移動（<kbd>↓</kbd> / <kbd>↑</kbd> も同じ）</td></tr>

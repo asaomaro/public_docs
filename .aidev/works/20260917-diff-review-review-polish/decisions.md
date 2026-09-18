@@ -515,3 +515,55 @@
   という指摘。`aria-label`（可視テキストと完全に重複）は削除し、`title`（可視テキストに
   無い説明——「初期化」が具体的に何をするかのヒント）は残した。修正後、
   `python3 -m unittest`（140件）を再実行し green を確認。
+
+## D19: キー操作説明（#help）をフローティング表示にし、通知ベルの空状態が細長い帯に
+  見えていた不具合を修正した
+
+- **背景**: ユーザーから2件の要望。(1) キー操作説明（`#help`）をフローティング表示に
+  し、表示時に他の表示へ影響を与えないようにしてほしい。×アイコン・backdrop クリック・
+  Esc キーで閉じられるようにしてほしい。(2) 通知ベルをクリックして通知が無いとき、
+  細長いバーのようなメッセージ領域が表示されるので、ある程度のサイズで表示させ、
+  「メッセージなし」のテキストを載せてほしい。
+  - (1) を調べると、`#help` は他の `.panel`（`#submit-panel`/`#export-panel`）と同じく
+    文書の流れに乗ったブロックで、開くと `ui.js` の `syncTopbarHeight()` がその高さを
+    `--topbar-h` に足し込み、`.shell` の高さ（他のペイン全体）まで変わっていた。
+    Esc キーでの close は実はすでに実装済みだった（`onKeyDown()` の `Escape` 分岐が
+    `showPanel("help", false)` を呼んでいた）が、backdrop・×ボタンは無かった。
+  - (2) を実ブラウザで再現すると、`#notif-panel` の高さが実測 10px しかなく、
+    `#notif-list .empty`（「通知はまだありません」）の要素が**そもそも DOM に存在しない**
+    ことが分かった。`renderNotifList()` は `notify()` の中からしか呼ばれておらず、
+    起動直後（1件も通知が飛んでいない状態）にベルを開いても、空状態の描画が
+    一度も行われていなかった（要望文の「メッセージなしのテキストを載せてください」は
+    比喩ではなく文字どおり——本当に何も描画されていなかった）。
+- **決定**: (1) `#help` に `.modal` クラスを追加し `position: fixed` で画面中央固定に、
+  背後に `#help-backdrop`（`position: fixed; inset: 0;`）を敷いた。開閉が変わる経路
+  （ボタン・`?`・Escape・backdrop クリック・新設の `#btn-help-close`）を、パネル・
+  backdrop・トリガーボタンの `aria-expanded` を必ず揃えて書き換える `setHelpOpen(open)`
+  1箇所に統一した（review 工程で確立した「状態を書き換える唯一の関数にフックを置く」
+  という設計方針——D15/D17と同じ考え方——をここでも踏襲）。`ui.js` の
+  `syncTopbarHeight()` の対象 id リストから `"help"` を外し、フローティング化した
+  ぶん `.shell` の高さ計算に含めないようにした。
+  (2) `renderNotifList()` を `renderAll()`（起動時に必ず通る経路）からも呼ぶようにし、
+  1件も通知が無い状態でも「通知はまだありません」が最初から描画されているようにした。
+  あわせて `.notif-panel` に `min-height: 72px` を追加し、空状態でも意図した大きさの
+  領域として見えるようにした（`.notif-panel .empty` の余白も広げ、テキストを中央に）。
+- **理由・代替案**: (1) は `<dialog>` 要素（`showModal()`）の採用も検討したが、この
+  アプリは通知ポップオーバー等、既存のフローティング UI をすべて自前の
+  `position: fixed/absolute` + `hidden` 属性の切り替えで実装しており（ネイティブ
+  `<dialog>` は使っていない）、1箇所だけ別の仕組みを持ち込むと閉じる経路の扱いが
+  ばらつく。既存のパターン（backdrop 用の div を敷き、クリックで閉じる）に揃えた。
+  (2) は「起動時に呼び忘れている」という単純な抜けだったので、`renderAll()` に足すだけ
+  で直接解消する。`min-height` は無くても機能的には直っていたが、要望の「ある程度の
+  サイズで表示」に文字どおり応えるため追加した。
+- **検証**: playwright-core で18アサーション。フローティング化後も `.shell` の高さが
+  開閉前後で変わらないこと（652px→652px）、×ボタン・backdrop クリック
+  （`#progress-track` の z-index:200 な6px帯を避けた座標で）・Esc キーそれぞれで
+  閉じられること、`aria-expanded` が正しく追従すること、`?` キーでの開閉に回帰が
+  無いこと、通知パネルが空でも72px以上の高さを持ち「通知はまだありません」が
+  最初から表示されていること、を確認。readonly ビルドでも `#help`/`#btn-help-close`
+  が機能することを別途確認。`python3 -m unittest`（140件）も green のまま。
+- **影響**: `templates/page.html`（`#help-backdrop`・`.modal-head`・`#btn-help-close`）、
+  `templates/style.css`（`.modal-backdrop`/`.panel.modal`/`.modal-head`、
+  `.notif-panel` の `min-height`・`.empty` の余白）、`templates/app.js`（新設
+  `setHelpOpen()`、`"?"`/`Escape`/`btn-help-open` の3箇所を統一、`renderAll()` から
+  `renderNotifList()` を呼ぶ）、`templates/ui.js`（`syncTopbarHeight()` の対象 id）。
