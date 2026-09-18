@@ -1,10 +1,29 @@
 # テスト結果: レビュー操作性の改善（ツリー見た目・レビュー提出フロー・固定ヘッダー・コメント折りたたみ・通知ベル）
 
-> **ラウンド15・最終**（ユーザーから「ヘルプ画面も広げて」「投稿済みコメントを
-> 編集できるように」との要望、および「未提出表示がいつ消えるか」の質問を受けて
-> 対応した後の検証。decisions.md D23）。ラウンド1〜14の内容は本ファイル末尾に残す。
+> **ラウンド16・最終**（ユーザーから「コメント間の余白が大きすぎてスペースを
+> 無駄にしている」との報告を受けて対応した後の検証。decisions.md D24）。
+> ラウンド1〜15の内容は本ファイル末尾に残す。
 
-## 実行したもの（ラウンド15・最終）
+## 実行したもの（ラウンド16・最終）
+
+- `python3 -m unittest discover -s docs/ClaudeCode/skills/other/diff-review-html/tests -p "test_*.py"`
+  — 140 passed / 0 failed / 0 skipped（Python 側は無変更）
+- `aidev smoke`（`.aidev/config.yml` の `smokeCommands` 3本）— pass (exit 0)
+- **playwright-core による実ブラウザでの操作確認（新規4アサーション、すべて pass）**:
+  1. 修正前に、全体コメントを2件実際に投稿して折りたたんだ `.thread` 間の間隔を
+     実測すると24pxだったことを確認（`.threads` の `gap`（8px）と `.thread`
+     自身の上下マージン（8px×2）が二重に効いていたことの実証）
+  2. 修正後、全体・ファイル・行それぞれで2件ずつコメントを実際に投稿し、
+     折りたたんだ `.thread` 間の間隔が実測8pxになったことを確認
+  3. `.orphans`（位置不明の指摘。`--import` で埋め込んで作った別ビルドで検証）
+     内の `.thread` の間隔は今回の対象外であり、変わっていないことを確認
+     （こちらはグリッドではない入れ物なので、`.thread` 自身のマージンに
+     引き続き依存する設計）
+  4. **（review 工程の指摘の修正後・追加）** `#overall` の見出し行（「全体への
+     コメント」）と最初のスレッドの間隔が8pxのまま保たれていること
+     （最初の実装は一律に上下マージンを0にしていたため、ここが意図せず
+     0pxになっていた——`:not(:first-child)`/`:not(:last-child)` で隣接ペア
+     だけを狙う形に直して解消）
 
 - `python3 -m unittest discover -s docs/ClaudeCode/skills/other/diff-review-html/tests -p "test_*.py"`
   — 140 passed / 0 failed / 0 skipped（Python 側は無変更）
@@ -332,6 +351,9 @@
   headless DOM 検証で確認。
 
 ## 失敗の証跡
+
+**ラウンド16では失敗は発生していない**（`python3 -m unittest` 140件・smoke 3件・
+playwright-core 実測4件、いずれも green で coding への差し戻しは無かった）。
 
 **ラウンド15では失敗は発生していない**（`python3 -m unittest` 140件・smoke 3件・
 playwright-core 実測13件、いずれも green で coding への差し戻しは無かった）。

@@ -782,3 +782,46 @@
   `templates/style.css`（`.modal-lg` 廃止、`.panel.modal` の `max-width` を
   800pxへ）、`templates/app.js`（`renderComment()` に編集ボタン・専用
   composer-slot、新設 `toggleEditComposer()`/`openEditComposer()`）。
+
+## D24: 折りたたんだコメント同士の縦の余白が二重に効いていた不具合を修正した
+
+- **背景**: ユーザーからスクリーンショット付きで報告。「全体コメント、ファイル
+  コメント、行コメントは複数入力できますが、コメント間の余白が大きすぎて
+  スペースを無駄にしている」。実測すると、折りたたんだ `.thread` 同士の間隔が
+  24px あった。原因は `.threads { display: grid; gap: 8px; }`（親のグリッドが
+  既に縦の間隔を8px確保している）に加えて `.thread { margin: 8px 12px; }`
+  （各スレッド自身も上下8pxのマージンを持つ）が**二重に**効いていたこと——
+  グリッドの子要素どうしのマージンは gap と相殺されない（通常のブロック要素の
+  隣接マージンのような「マージンの相殺」が、グリッドコンテナの直接の子には
+  起きない）ため、8（前の要素の margin-bottom）+ 8（grid gap）+ 8（次の要素の
+  margin-top）= 24px になっていた。
+- **決定**: `.threads > .thread { margin-top: 0; margin-bottom: 0; }` を追加し、
+  `.threads` グリッドの直接の子である `.thread` の上下マージンだけを打ち消した
+  （左右のマージンは維持——横方向はグリッドの gap ではなく `.thread` 自身の
+  マージンで確保しているため）。`.thread` 自体の `margin: 8px 12px` は変更して
+  いない——`renderOrphans()` が作る `.orphans`（グリッドではない素の入れ物）の
+  中の `.thread` はこの対象外（`.orphans > .thread` は `.threads > .thread` に
+  マッチしない）で、引き続き自分のマージンだけで間隔を作る必要があるため。
+- **理由・代替案**: `.thread` 自体の `margin` を丸ごと消す案も検討したが、
+  `.orphans` 内の `.thread` の間隔がそれ1つに依存しており、消すとそちらが
+  壊れる。グリッドの `gap` を無くして `.thread` のマージンだけに頼る案も
+  検討したが、`.threads` は他の場所（split 表示の `.slots` 内側など）でも
+  使われており、影響範囲を `.thread` 側だけに絞れる今回の直し方の方が安全。
+- **検証**: playwright-core で5アサーション。全体・ファイル・行のそれぞれで
+  2件コメントを実際に投稿し、折りたたんだ `.thread` 同士の間隔が実測8px
+  （グリッドの gap のみ）になったことを確認した（修正前は24pxだった）。
+  `.orphans`（位置不明の指摘）内の `.thread` は今回の対象外であることも、
+  `--import` で位置不明な指摘を埋め込んだ別ビルドで実測し、独自の間隔
+  （35px前後。段落ラベルとマージンによるもので今回の変更と無関係）が
+  変わっていないことを確認した。`python3 -m unittest`（140件）も green のまま。
+- **review 工程の独立点検で1件の should 指摘**: 最初の実装
+  （`.threads > .thread { margin-top: 0; margin-bottom: 0; }` と一律に打ち消す形）
+  は、`.threads` の前後（`#overall` の見出し行と最初のスレッドの間など。
+  `.threads` 自身は padding を持たない）の余白まで消してしまう副作用があった
+  （指摘時点では未検証だった箇所）。実測すると、`#overall` の見出し行と最初の
+  スレッドの間隔が0pxになっていた（修正前は8px）。`:not(:first-child)`/
+  `:not(:last-child)` を使い、**隣接する2要素の間だけ**を打ち消す形に直した
+  （最初の要素は自身の margin-top を、最後の要素は自身の margin-bottom を
+  保つ）。修正後、見出し行と最初のスレッドの間隔が8pxに戻ったことを実測で
+  確認した（このアサーションを含め計5件）。
+- **影響**: `templates/style.css` のみ（`.threads > .thread` 関連ルール）。
