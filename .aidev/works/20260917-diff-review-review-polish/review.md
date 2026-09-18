@@ -318,3 +318,20 @@ composer-slot では `slot.closest(".slots")` が `null` を返し安全に早�
 （decisions.md D21 参照）。×ボタンと下部「閉じる」ボタンの両方を残した設計判断は
 妥当な UX 判断であり欠陥ではない、との言及もあった。`python3 -m unittest`
 （140件）も green のまま。
+
+## ユーザー要望（ボタンラベル固定化・JSON書き出しのフローティング化・拡幅）
+
+独立点検（別コンテキストの subagent）で must/should/nit いずれの指摘も無し。
+`reviewStarted` が app.js のどこにも参照が残っていないこと（`node --check` でも
+確認）、`pendingComments()` は他で引き続き使われておりデッドコードになっていない
+こと、`#btn-start-review` の `aria-expanded` が `setSubmitOpen()` という単一の
+経由点を通じて全ての開閉経路（`startReview`/`editReview`/`"r"`キー/
+`closeSubmitPanel` とその全呼び出し元）で正しく同期すること、`#export-panel` も
+同様に `setExportOpen()` が全ての旧 `showPanel("export-panel", ...)` 呼び出し箇所
+（`openExport`・グローバル Escape 分岐・新設の×/backdrop/閉じる）を置き換えている
+こと、新設の `#export-panel` 専用 Escape listener が `#submit-panel` と同じ
+`preventDefault`+`defaultPrevented` ガードの仕組みで安全に二重発火しないこと、
+`.modal-lg`（800px）が既存の `width: calc(100vw - 32px)` により狭い画面でも
+はみ出さないこと、`WRITE_UI` タプルの更新が新設要素を正しくカバーしていること、
+を確認済み（decisions.md D22 参照）。`python3 -m unittest`（140件）も green の
+まま。

@@ -2029,7 +2029,6 @@
     return out;
   }
 
-  var reviewStarted = false;
   var editingReviewId = null;   // null = 新規作成モード。id なら編集中のエントリ
   var REVIEW_STATE_LABEL = { COMMENTED: "コメントのみ", APPROVED: "承認する", CHANGES_REQUESTED: "修正を求める" };
 
@@ -2072,28 +2071,25 @@
   function updatePendingCount() {
     var node = document.getElementById("pending-count");
     if (node) {
-      node.textContent = "未提出のコメント: " + pendingComments().length + " 件"
-        + (reviewStarted ? "（レビュー中）" : "");
-    }
-    var start = document.getElementById("btn-start-review");
-    if (start) {
-      var active = reviewStarted || pendingComments().length > 0;
-      start.setAttribute("aria-pressed", active ? "true" : "false");
-      start.textContent = active ? "レビュー結果を入力" : "レビューを開始";
+      node.textContent = "未提出のコメント: " + pendingComments().length + " 件";
     }
   }
 
   // レビュー提出パネルもキー操作説明（#help）と同じくフローティング表示
-  // （style.css の .modal）にしたので、開閉のたびに backdrop も一緒に揃える
-  // （ユーザー報告: ヘルプ画面同様にポップアップにしてほしい。decisions.md D19 と同じ形）。
+  // （style.css の .modal）にしたので、開閉のたびに backdrop・トリガーボタンの
+  // aria-expanded も一緒に揃える（ユーザー報告: ヘルプ画面同様にポップアップに
+  // してほしい。decisions.md D19 と同じ形。#btn-start-review はラベルが変わらない
+  // ただの開閉トリガーになったので、#btn-help-open と同じ disclosure の型
+  // （aria-expanded）に揃えた——D22参照）。
   function setSubmitOpen(open) {
     showPanel("submit-panel", open);
     var backdrop = document.getElementById("submit-backdrop");
     if (backdrop) { backdrop.hidden = !open; }
+    var openButton = document.getElementById("btn-start-review");
+    if (openButton) { openButton.setAttribute("aria-expanded", open ? "true" : "false"); }
   }
 
   function startReview() {
-    reviewStarted = true;
     setSubmitOpen(true);
     updatePendingCount();
     var body = document.getElementById("review-body");
@@ -2143,7 +2139,6 @@
     state.reviews.push(review);
     pending.forEach(function (comment) { comment.review_id = review.id; });
     bodyField.value = "";
-    reviewStarted = false;
     persist();
     renderThreads();
     notify("レビューを提出しました（" + stateValue + "）。JSON を書き出して渡してください。");
@@ -2185,11 +2180,22 @@
 
   // --------------------------------------------------- 書き出し / 読み込み
 
+  // JSON 書き出し画面も #help/#submit-panel と同じくフローティング表示にする
+  // （ユーザー報告: ヘルプ画面同様にポップアップにしてほしい。decisions.md D19/D21
+  // と同じ形）。
+  function setExportOpen(open) {
+    showPanel("export-panel", open);
+    var backdrop = document.getElementById("export-backdrop");
+    if (backdrop) { backdrop.hidden = !open; }
+    var openButton = document.getElementById("btn-export-open");
+    if (openButton) { openButton.setAttribute("aria-expanded", open ? "true" : "false"); }
+  }
+
   function openExport() {
     var text = exportText();
     var area = document.getElementById("export-text");
     area.value = text;
-    showPanel("export-panel", true);
+    setExportOpen(true);
     area.focus();
     area.select();
   }
@@ -2423,7 +2429,7 @@
     }
     if (key === "Escape") {
       closeSubmitPanel();
-      showPanel("export-panel", false);
+      setExportOpen(false);
       setHelpOpen(false);
       var notifPanel = document.getElementById("notif-panel");
       if (notifPanel && !notifPanel.hidden) {
@@ -2457,7 +2463,8 @@
     // だから「あれば繋ぐ」形で書く。存在を前提にすると、参照専用で起動時に例外が出て
     // 読む機能まで巻き添えで死ぬ。
     // #btn-start-review の存在が rw ブロックの有無を示す唯一の入口になった
-    // （#btn-submit-open は F2 で撤去。レビュー操作は「レビューを開始」の 1 個だけ）。
+    // （#btn-submit-open は F2 で撤去。レビュー操作は #btn-start-review の 1 個だけ。
+    // ラベルは「レビュー結果を入力」で固定——D22 参照）。
     var startButton = document.getElementById("btn-start-review");
     if (startButton) {
       startButton.addEventListener("click", function () {
@@ -2493,7 +2500,22 @@
     if (exportOpen) {
       exportOpen.addEventListener("click", openExport);
       document.getElementById("btn-export-close").addEventListener("click", function () {
-        showPanel("export-panel", false);
+        setExportOpen(false);
+      });
+      document.getElementById("btn-export-close-x").addEventListener("click", function () {
+        setExportOpen(false);
+      });
+      document.getElementById("export-backdrop").addEventListener("click", function () {
+        setExportOpen(false);
+      });
+      // #export-text は readonly でも <textarea> なので、開いた直後にここへフォーカス
+      // する openExport() の後は isTyping() ガードでグローバルの Escape が効かない
+      // （#submit-panel と同じ理由。decisions.md D21 参照）。専用の listener で塞ぐ。
+      document.getElementById("export-panel").addEventListener("keydown", function (event) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setExportOpen(false);
+        }
       });
       document.getElementById("btn-download").addEventListener("click", download);
     }
