@@ -567,3 +567,45 @@
   `.notif-panel` の `min-height`・`.empty` の余白）、`templates/app.js`（新設
   `setHelpOpen()`、`"?"`/`Escape`/`btn-help-open` の3箇所を統一、`renderAll()` から
   `renderNotifList()` を呼ぶ）、`templates/ui.js`（`syncTopbarHeight()` の対象 id）。
+
+## D20: split 表示で削除＋追加の対になる行が、コメントの有無に関わらず常に
+  「変更前」「変更後」の見出しで2行分を消費していた不具合を修正した
+
+- **背景**: ユーザーからスクリーンショット付きで報告。split 表示で1行の変更
+  （削除＋追加の対）ごとに、コメントが1件も無くても「変更前」「変更後」という
+  見出しの行が常に表示され、2行分を消費して見た目が間延びしていた。
+  「通常、変更後変更前の行を差分表示で表示しないのでは？」という指摘どおり。
+  - 原因を追うと、`splitSlots()` が組み立てる `.slots`（`.slot-side` 見出し＋
+    `.threads` ＋ `.composer-slot` の入れ物）は、`.threads`/`.composer-slot` が
+    他の関数（`renderThreads()`/`openComposer()`）が鍵で探して差し込むための
+    入れ物として**中身が無くても常に DOM に存在**しており、`.slots` 自身が
+    リテラルに空（子要素ゼロ）になることが無いため、既存の CSS
+    `.row.split .slots:empty { display: none; }` は**一度も発火していなかった**
+    （`.slots` は常に最低2つの子要素——`.threads` と `.composer-slot`——を持つ）。
+    左右両方に位置を持つ行（削除＋追加の対）では `.slot-side` 見出しも常に
+    追加されるため、コメントの有無に関わらずラベルだけが常に見えていた。
+- **決定**: `.slots` の可視性を CSS の `:empty` に頼らず、JS で明示的に管理する
+  `syncSlotsVisibility(slotsEl)` を新設した。`.threads`/`.composer-slot` の**実際の
+  中身の有無**（`firstChild` の有無）を見て `.slots` ごと `hidden` 属性で隠す/見せる。
+  呼び出し箇所は3つ: (1) `renderThreads()`（clear→repopulate の後に全 `.slots` を
+  スキャン——フル再描画のたびに整合させる）、(2) `openComposer()`（入力欄を開いた
+  直後）、(3) `closeComposer()`（入力欄を閉じた直後）。CSS の `.row.split .slots:empty`
+  は一度も効いていなかった死んだルールなので削除した。
+- **理由・代替案**: CSS の `:has()` で「中身のある `.threads`/`.composer-slot` を
+  持たない `.slots` を隠す」というセレクタも検討したが、この work で確立してきた
+  「状態を書き換える箇所にフックを置く」という設計方針（D15/D17/D19 と同じ考え方）
+  に揃え、可視性の判定と切り替えを1箇所（`syncSlotsVisibility`）に集約する方を
+  選んだ。`.slot-side` 見出し自体を `openComposer()`/`renderThread()` の中へ
+  移して「コンテンツに紐づけて生成する」案も検討したが、レビュー中に会話が既存の
+  スレッドと新規コンポーザーの両方に及ぶ場合（両方が同時に存在しうる）に見出しを
+  二重生成しない設計が煩雑になるため、既存の「見出しは常に1つ、表示だけ切り替える」
+  構造を保つ方が単純だった。
+- **検証**: playwright-core で11アサーション。split 表示でコメントが1件も無い
+  状態では `.slots`（`.slot-side` を含む）が全1195個中0個も可視でないこと、片側の
+  「+」で入力欄を開くとそのときだけ「変更前」ラベルと入力欄が見えること、
+  「閉じる」で確定せずに閉じると再び不可視に戻ること、コメントを確定すると
+  スレッドが残るぶん閉じても表示され続けること（かつ他の無関係な行は不可視の
+  ままであること）を確認した。`python3 -m unittest`（140件）も green のまま。
+- **影響**: `templates/app.js`（`renderThreads()`/新設 `syncSlotsVisibility()`/
+  `openComposer()`/`closeComposer()`）、`templates/style.css`（死んでいた
+  `.row.split .slots:empty` ルールの削除）。
