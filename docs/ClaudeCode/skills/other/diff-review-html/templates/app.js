@@ -644,10 +644,24 @@
 
   function renderViewedCount() {
     var span = document.getElementById("viewed-count");
-    if (!span) { return; }
+    if (span) {
+      var total = (diffData.files || []).length;
+      span.textContent = total ? Object.keys(viewedFiles).length + " / " + total + " 確認済み" : "";
+    }
+    updateFileBadge();
+  }
+
+  // ファイル一覧パネルが閉じているとき、開閉ボタンに未レビュー件数のバッジを出す
+  // （閉じている間は一覧そのものが見えないため。開いているときは一覧に直接出ているので
+  // バッジは消す。要件: 展開ボタンに未レビューのファイル数をバッジ表示・展開状態では消す）。
+  function updateFileBadge() {
+    var badge = document.getElementById("pane-left-badge");
+    if (!badge) { return; }
     var total = (diffData.files || []).length;
-    if (!total) { span.textContent = ""; return; }
-    span.textContent = Object.keys(viewedFiles).length + " / " + total + " 確認済み";
+    var unreviewed = total - Object.keys(viewedFiles).length;
+    var collapsed = document.getElementById("shell").getAttribute("data-left") === "collapsed";
+    badge.hidden = !collapsed || unreviewed <= 0;
+    badge.textContent = String(unreviewed);
   }
 
   function renderFileList() {
@@ -737,7 +751,12 @@
       });
       node.files.push({ name: leaf, file: file, index: index });
     });
-    return collapseSingles(root);
+    // ルート自身は畳まない。全ファイルが1つの共通フォルダに収まる場合（例:
+    // apps/sample/src 配下に2ファイルだけ）、ルートまで畳んでしまうとその
+    // フォルダ名を表示する行そのものが無くなり、ファイルだけが並んで見える
+    // （実機で report された不具合）。ルートの直下フォルダそれぞれだけを畳む。
+    root.order.forEach(function (name) { collapseSingles(root.dirs[name]); });
+    return root;
   }
 
   function collapseSingles(node) {
@@ -944,6 +963,11 @@
         pathText.setAttribute("data-viewed", viewedBox.checked ? "true" : "false");
         renderViewedCount();
         syncFileListViewed(file.path, viewedBox.checked);
+        // 確認済みにしたら、そのファイルのソースを自動で折りたたむ（要件）。
+        // チェックを外したときは自動で展開し直さない（勝手に画面を広げない）。
+        if (viewedBox.checked && section.getAttribute("data-collapsed") !== "true") {
+          toggleFile(section, file);
+        }
       });
       var viewedLabel = el("label", { class: "file-viewed-label" }, [
         viewedBox, document.createTextNode("確認済み")
@@ -1524,6 +1548,21 @@
     renderCommentList();
     renderReviewList();
     updatePendingCount();
+    updateCommentBadge();
+  }
+
+  // コメント一覧パネルが閉じているとき、開閉ボタンに未解決件数のバッジを出す
+  // （説明〔note〕は指摘ではないので数えない。要件: 展開ボタンに未解決のコメント数を
+  // バッジ表示・展開状態では消す）。
+  function updateCommentBadge() {
+    var badge = document.getElementById("pane-right-badge");
+    if (!badge) { return; }
+    var unresolved = state.threads.filter(function (t) {
+      return t.kind !== "note" && !t.resolved;
+    }).length;
+    var collapsed = document.getElementById("shell").getAttribute("data-right") === "collapsed";
+    badge.hidden = !collapsed || unresolved <= 0;
+    badge.textContent = String(unresolved);
   }
 
   function slotFor(thread) {
@@ -1579,6 +1618,9 @@
       });
       resolveButton.addEventListener("click", function () {
         thread.resolved = !thread.resolved;
+        // 解決済みにしたら自動で折りたたむ（要件）。未解決に戻したときは自動で
+        // 展開し直さない（file の確認済みチェックと同じ非対称の扱いに揃える）。
+        if (thread.resolved) { threadCollapsed[thread.id] = true; }
         persist();
         renderThreads();
       });
@@ -2365,6 +2407,16 @@
       });
       document.getElementById("btn-submit-do").addEventListener("click", submitReview);
       document.getElementById("btn-submit-close").addEventListener("click", closeSubmitPanel);
+    }
+    // パネルの開閉状態が変わる経路はボタンのクリックだけでなく、キーボード
+    // ショートカット（{ / } / [ / ]）・セパレータへの Enter/Space・ドラッグ開始時の
+    // 自動オープンなど複数ある（review 工程の指摘）。それらを個別に結線する代わりに、
+    // 状態を実際に書き換える ui.js 側の setPane() 1箇所にフックを登録する
+    // （ui.js はフックの中身＝バッジの更新を一切知らない）。
+    if (UI.onPaneChange) {
+      UI.onPaneChange(function (which) {
+        if (which === "left") { updateFileBadge(); } else if (which === "right") { updateCommentBadge(); }
+      });
     }
     var exportOpen = document.getElementById("btn-export-open");
     if (exportOpen) {

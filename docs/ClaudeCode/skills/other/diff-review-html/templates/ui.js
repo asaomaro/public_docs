@@ -14,7 +14,10 @@
   "use strict";
 
   var PREFIX = "diff-review-html/ui/v1/";
-  var MIN_W = 0;
+  // 閉じた状態のストリップ幅（style.css の `.shell[data-left="collapsed"]` 等）と
+  // 揃える。ドラッグでこれより狭くはできない——それ以上狭くしたいときは専用の
+  // 開閉ボタンで畳む（要件: ドラッグの最小サイズは非展開状態まで）。
+  var MIN_W = 40;
   var MAX_W = 600;
   var STEP = 10;
   var BIG_STEP = 50;
@@ -119,6 +122,14 @@
 
   var PANE_NAME = { left: "ファイル一覧", right: "コメント一覧" };
 
+  // 開閉状態が変わる経路はボタンのクリックだけでなく、キーボードショートカット
+  // （{ / } / [ / ]）・セパレータへの Enter/Space・ドラッグ開始時の自動オープンなど
+  // 複数ある（review 工程の指摘）。それらをすべて app.js 側で個別に検知するのではなく、
+  // 状態を実際に書き換えるここ（setPane）1箇所から、登録されていれば呼ぶ。
+  // ui.js はフックの中身（バッジの更新等）を一切知らない——画面の形だけを扱うという
+  // 既存の約束（decisions.md）を保ったまま、app.js に「変わった」ことだけを伝える。
+  var onPaneChange = null;
+
   function setPane(which, open, save) {
     var shell = document.getElementById("shell");
     shell.setAttribute("data-" + which, open ? "open" : "collapsed");
@@ -131,6 +142,7 @@
       button.setAttribute("aria-label", label);
     }
     if (save) { pref("pane-" + which, open ? "open" : "collapsed"); }
+    if (onPaneChange) { onPaneChange(which, open); }
   }
 
   function togglePane(which) {
@@ -235,6 +247,7 @@
     togglePane: togglePane,
     openPane: openPane,
     syncTopbarHeight: syncTopbarHeight,
+    onPaneChange: function (fn) { onPaneChange = fn; },
     defaults: DEFAULTS
   };
 })();

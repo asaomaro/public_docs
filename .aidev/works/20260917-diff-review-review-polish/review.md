@@ -193,3 +193,33 @@ headless DOM 検証（jsdom）で、ファイル操作列・コメント入力�
 トップバー7個・ファイル操作列・composer・submit-panel・3つの例外箇所すべてで、実際の
 Chromium レンダリングにより高さを実測して確認した（jsdom による指定値の確認だけでなく、
 使用値レベルでの検証を初めて行った）。
+
+## PR レビュー（人間）（PR #29 マージ後、5件の追加指摘）
+
+- [must][conv:-] ツリー表示でフォルダの行が出ない（全ファイルが1つの共通フォルダに
+  収まる場合に顕著） / 対応: 修正済（decisions.md D14）。`buildTree()` がルート自身まで
+  畳んでいたのが原因。本 work の T2 が触れた既存コード（D10 由来）に元々あった不具合。
+- [should][conv:-] コメント一覧パネルを閉じても「指摘はまだありません」が見える /
+  対応: 修正済（decisions.md D14）。`#commentlist` の ID セレクタが、閉じたときの
+  `display: none`（クラスセレクタ）を ID の強さで上書きしていた。
+- [should][conv:-] 代わりにパネルの開閉ボタンへ未解決件数・未レビューのファイル数を
+  バッジ表示してほしい（展開時は消す） / 対応: 実装済（decisions.md D14）。
+- [should][conv:-] ドラッグでのリサイズが、閉じた状態（40px）より小さくできてしまう /
+  対応: 修正済（decisions.md D14）。`ui.js` の `MIN_W` を `0` → `40` に変更。
+- [should][conv:-] 確認済みチェック・解決済みチェックで、それぞれファイル本文/
+  コメントスレッドを自動的に折りたたんでほしい / 対応: 実装済（decisions.md D14）。
+  既存の折りたたみの仕組み（`toggleFile()`/`threadCollapsed`）を再利用。
+
+D13 の教訓（jsdom は使用値を検証できない）を踏まえ、5件すべてを playwright-core による
+実ブラウザ操作（click/fill）とスクリーンショットで確認した（decisions.md D14 参照）。
+既存の headless DOM 検証（jsdom, run.js）・`python3 -m unittest discover`（126件）も
+green。readonly ビルドでも動作を確認済み。
+
+## ラウンド（review 工程・独立点検）
+
+- [should][conv:-] D14 のバッジ更新が `#btn-pane-left`/`#btn-pane-right` の `click`
+  イベントにしか結線されておらず、キーボードショートカット（`{`/`}`/`[`/`]`）・
+  セパレータへの Enter/Space・ドラッグ開始時の自動オープンではバッジが更新されない
+  / 対応: 修正済（decisions.md D15）。開閉状態を実際に書き換える `setPane()`
+  （`ui.js`）にフック機構を追加し、経路によらず確実に更新されるようにした。
+  playwright-core で4経路（`}`/`]`/`{`/セパレータ Enter）すべてを実測して確認した。
