@@ -1255,25 +1255,41 @@
     }
   }
 
+  // 押したボタン自身が再描画後に消えている（D26/D27 で、隙間を閉じきる・残り20行
+  // 以下になると、そのボタン自身が DOM から無くなるようになった）場合の保険。
+  // この隙間の**外側**（直前・直後）にある行は、この隙間をどう展開しても動かない
+  // ——安定した目印として使う（data-key で再描画後も同じ行を引ける）。
+  function anchorRowKey(expanderRow) {
+    var candidates = [expanderRow.previousElementSibling, expanderRow.nextElementSibling];
+    for (var i = 0; i < candidates.length; i += 1) {
+      var node = candidates[i];
+      if (node && node.classList && node.classList.contains("row")) {
+        var key = node.getAttribute("data-key");
+        if (key) { return key; }
+      }
+    }
+    return null;
+  }
+
   function expander(file, index, gap, shown, remaining, headerText) {
     var row = el("div", { class: "expander", "data-gap": index });
     var label = el("span", { class: "expander-label", text: "… " + remaining + " 行" });
     var up = el("button", { type: "button", class: "expand-up", text: "↑ " + EXPAND_STEP + " 行" });
     up.addEventListener("click", function () {
       shown.bottom = Math.min(shown.bottom + EXPAND_STEP, gap.end - gap.start + 1);
-      redrawFile(file, { gap: index, dir: "up" });
+      redrawFile(file, { gap: index, dir: "up", anchorKey: anchorRowKey(row) });
     });
     var down = el("button", { type: "button", class: "expand-down", text: "↓ " + EXPAND_STEP + " 行" });
     down.addEventListener("click", function () {
       shown.top = Math.min(shown.top + EXPAND_STEP, gap.end - gap.start + 1);
-      redrawFile(file, { gap: index, dir: "down" });
+      redrawFile(file, { gap: index, dir: "down", anchorKey: anchorRowKey(row) });
     });
     // その隙間を一度に全部開く（GitHub の中央の展開ボタンと同じ）。shown.bottom は使わない
     // （expandAll がファイル全体を開くときと同じ前提: shown.top だけで隙間全体を覆える）。
     var all = el("button", { type: "button", class: "expand-gap-all", text: "すべて表示" });
     all.addEventListener("click", function () {
       shown.top = gap.end - gap.start + 1;
-      redrawFile(file, { gap: index, dir: "gap-all" });
+      redrawFile(file, { gap: index, dir: "gap-all", anchorKey: anchorRowKey(row) });
     });
     row.appendChild(label);
     // 残り行数が EXPAND_STEP（20行ずつ広げる1回分）以下なら、↑ を押しても ↓ を
@@ -1295,7 +1311,9 @@
   // 隠れているコードを展開すると、それまでの一番近いボタンへ focus() が戻っていた
   // （常に DOM 順で最初の .expander ボタン）。押した隙間と違う場所へ飛ぶと、ブラウザの
   // 既定のスクロール追従でその場所まで画面が動いてしまう（research.md F10 で実測）。
-  // **押した隙間のボタン自身**を最優先で指し直すことでこれを防ぐ。
+  // **押した隙間のボタン自身**を最優先で指し直すことでこれを防ぐ。ボタン自身が
+  // 展開で消えていた場合は、隙間の外側の行（anchorRowKey）を次善として使う
+  // （ユーザー報告: 展開後に表示位置が動いてしまう）。
   function redrawFile(file, focusHint) {
     var section = document.querySelector('.file[data-path="' + cssEscape(file.path) + '"]');
     if (!section) { return; }
@@ -1315,6 +1333,14 @@
     if (focusHint) {
       var gapSelector = '.expander[data-gap="' + focusHint.gap + '"] .expand-' + focusHint.dir;
       next = section.querySelector(gapSelector);
+      // 押したボタン自身が今回の展開で消えていたら（隙間を閉じきった・残り20行
+      // 以下でこのボタンが引っ込んだ等）、この隙間のすぐ外側にあった行——展開しても
+      // 動かない——を次善の目印にする。ここで拾えないと、この後の汎用フォール
+      // バック（ファイル内の最初の展開ボタン等）まで落ち、無関係な離れた場所へ
+      // 表示が飛んでしまっていた（ユーザー報告）。
+      if (!next && focusHint.anchorKey) {
+        next = section.querySelector('.row[data-key="' + cssEscape(focusHint.anchorKey) + '"]');
+      }
     }
     if (!next) { next = again; }
     if (!next) { next = section.querySelector(".expander button"); }
