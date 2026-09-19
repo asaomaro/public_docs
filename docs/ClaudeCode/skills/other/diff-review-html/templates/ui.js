@@ -65,13 +65,27 @@
 
   // ------------------------------------------------------------------ テーマ
 
+  // VSCode の WebView の <body> には配色の種類がクラスで付く（research.md F25）。WebView の
+  // prefers-color-scheme は VSCode の配色に追従しない（F26）ので、「自動」はこちらを見る。
+  // HTML 版の <body> にはこのクラスが無く、今どおり OS に従う。
+  function hostThemeKind() {
+    var list = document.body ? document.body.classList : null;
+    if (!list) { return null; }
+    if (list.contains("vscode-high-contrast-light") || list.contains("vscode-light")) { return "light"; }
+    if (list.contains("vscode-high-contrast") || list.contains("vscode-dark")) { return "dark"; }
+    return null;
+  }
+
   function applyTheme(theme) {
     var root = document.documentElement;
+    var hostKind = hostThemeKind();
     if (theme === "light" || theme === "dark") { root.setAttribute("data-theme", theme); }
+    else if (hostKind) { root.setAttribute("data-theme", hostKind); }
     else { root.removeAttribute("data-theme"); }
     var button = document.getElementById("btn-theme");
     if (button) {
-      var label = THEME_LABEL[theme] || THEME_LABEL.auto;
+      var label = (theme !== "light" && theme !== "dark" && hostKind)
+        ? "テーマ: VSCode に従う" : (THEME_LABEL[theme] || THEME_LABEL.auto);
       button.textContent = THEME_ICON[theme] || THEME_ICON.auto;   // アイコンのみ（research.md F5）
       button.title = label;
       button.setAttribute("aria-label", label + "（押すと切り替え）");
@@ -253,6 +267,15 @@
 
   function init() {
     applyTheme(pref("theme"));
+    // VSCode の配色を切り替えると <body> のクラスがその場で変わる。「自動」のときだけ付け直す。
+    // 起動の時点でクラスがまだ付いていない場合に備えて常に見る（画面自身は <body> のクラスを変えないので、
+    // HTML 版では一度も呼ばれない）。
+    if (document.body && typeof MutationObserver === "function") {
+      new MutationObserver(function () {
+        var theme = pref("theme");
+        if (theme !== "light" && theme !== "dark") { applyTheme(theme); }
+      }).observe(document.body, { attributes: true, attributeFilter: ["class"] });
+    }
     ["left", "right"].forEach(function (which) {
       var storedWidth = clampWidth(pref(prefName(which)));
       setWidth(which, storedWidth, false);

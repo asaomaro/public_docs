@@ -1,6 +1,6 @@
 ---
 name: diff-review-html
-description: ローカルの git 差分（未ステージ / ステージ済み / コミット間）や、GitHub の PR・任意の2リビジョン間の比較（API 経由・ローカルリポジトリ不要）を、GitHub の PR 画面のように読める単一HTMLにして出力する。差分と指摘を1ファイルにまとめたバンドル（.dreview）と、それを開くビューアHTMLに分けて出すこともでき、エディタ拡張の土台になる。配布用に書き込み機能を積まない参照専用HTMLも出せる。ファイル一覧（左・ツリー/フラット）・差分（中央・unified/split 切り替え）・コメント一覧（右）の3ペインで、左右はD&Dで幅を変えられ畳める。ライト/ダーク/OS追従のテーマ切り替え、シンタックスハイライト、CSV/TSV・Markdown（mermaid・alert記法）・HTML・PDF の rich diff、前後の行を押した分だけ広げる段階展開つき。画面では行・ファイル・全体の3階層にコメントし、must/should/nit の重大度、コメントごとの返信、解決、提出（Approve / Request changes / Comment）、レビュー対象外の説明コメントまで行え、その記録をJSONで書き出し／読み込みできる。AIが書いた指摘のJSONを埋め込んだHTMLを作ることも、人間が書いた指摘のJSONをAIが読んで修正することもできる。「差分をHTMLで見たい」「差分レビューの画面を作って」「レビュー用のHTMLを生成して」「レビュー結果をJSONで受け渡したい」「レビュー記録のJSONを読み込んで」「差分をファイルに切り出して」「レビュー用のビューアを作って」「読むだけのHTMLを配りたい」と言われたときに使用する。GitHub の PR・比較の**差分取得**（読み取り）はできるが、GitHub の PR への投稿（コメント・レビューの書き戻し）は行わない。
+description: ローカルの git 差分（未ステージ / ステージ済み / コミット間）や、GitHub の PR・任意の2リビジョン間の比較（API 経由・ローカルリポジトリ不要）を、GitHub の PR 画面のように読める単一HTMLにして出力する。差分と指摘を1ファイルにまとめたバンドル（.dreview）と、それを開くビューアHTMLに分けて出すこともでき、同梱の VSCode 拡張（vscode/）で .dreview を同じ画面のまま開いてコメントを書き Ctrl+S で保存できる。配布用に書き込み機能を積まない参照専用HTMLも出せる。ファイル一覧（左・ツリー/フラット）・差分（中央・unified/split 切り替え）・コメント一覧（右）の3ペインで、左右はD&Dで幅を変えられ畳める。ライト/ダーク/OS追従のテーマ切り替え、シンタックスハイライト、CSV/TSV・Markdown（mermaid・alert記法）・HTML・PDF の rich diff、前後の行を押した分だけ広げる段階展開つき。画面では行・ファイル・全体の3階層にコメントし、must/should/nit の重大度、コメントごとの返信、解決、提出（Approve / Request changes / Comment）、レビュー対象外の説明コメントまで行え、その記録をJSONで書き出し／読み込みできる。AIが書いた指摘のJSONを埋め込んだHTMLを作ることも、人間が書いた指摘のJSONをAIが読んで修正することもできる。「差分をHTMLで見たい」「差分レビューの画面を作って」「レビュー用のHTMLを生成して」「レビュー結果をJSONで受け渡したい」「レビュー記録のJSONを読み込んで」「差分をファイルに切り出して」「レビュー用のビューアを作って」「読むだけのHTMLを配りたい」「.dreview を VSCode で開きたい」と言われたときに使用する。GitHub の PR・比較の**差分取得**（読み取り）はできるが、GitHub の PR への投稿（コメント・レビューの書き戻し）は行わない。
 allowed-tools: [Bash, Read]
 ---
 
@@ -113,6 +113,9 @@ python3 <skill>/diff_review.py bundle --repo . --from range --rev main..HEAD \
 python3 <skill>/diff_review.py view --out viewer.html
 ```
 
+**VSCode で開くなら、同梱の拡張（`<skill>/vscode/`）を入れる**と、`.dreview` をダブルクリックするだけで
+この画面が開き、コメントを書いて `Ctrl+S` で `.dreview` に保存できる（下の「エディタ拡張から使う」）。
+
 **ビューアは、どのバンドルも自動では読まない。** 中身は開いたときに選ぶ（または埋め込み / ホストが渡す）。
 ビューアが特定のファイル名を指す形にすると、配ったあと
 「このビューアはどれを見ているのか」がファイル名任せになり、**決まらなくなる**ため。
@@ -136,7 +139,7 @@ window.__DIFF_REVIEW_BUNDLE__ = {
 |---|---|---|
 | **手動**（ファイル選択 / ドラッグ＆ドロップ） | 人間 | 開いたあと、いつでも |
 | **埋め込み**（HTML の中に書いてある） | `html` の出力 / ホストが組み立てた HTML | 起動時 |
-| **`postMessage`** | ホスト（エディタ拡張・親フレーム） | いつでも |
+| **`postMessage`** | ホスト（親フレーム等。VSCode の WebView の中では「エディタ拡張から使う」の口になる） | いつでも |
 
 埋め込みの口は 2 種類ある。`html` サブコマンドの出力は `#diff-data` と `#review-data` を埋める。
 ホスト（エディタ拡張など）が HTML を組み立てて渡すときは、
@@ -450,22 +453,53 @@ rich は**生成時に作られる**（ブラウザに解析器を積まない�
 | `<skill>/templates/` | 画面の素材（`page.html` / `style.css` / `ui.js` / `app.js` / `rich.js`） |
 | `<skill>/tests/test_diff_review.py` | `python3 -m unittest` で回るテスト |
 | `<skill>/tests/fixture_repo.py` | 画面の確認に使う**固定の入力**を作る（新規 / 削除 / 置き換え / 隙間 / rich を含む git リポジトリ）。`python3 tests/fixture_repo.py <出力先>` |
+| `<skill>/vscode/` | **VSCode 拡張**（`.dreview` を開いて読み書きする。画面はビルド時に `view` から生成し、処理は画面の JS と共通。README に手順） |
 
-## エディタ拡張から使う（土台）
+## エディタ拡張から使う
 
-この skill は拡張そのものを持たない。**拡張が守ればよいことだけ**を決めてある。
+**VSCode 拡張は `<skill>/vscode/` に同梱している**（Marketplace には出していない。ビルド・インストール・テストの手順は
+`vscode/README.md`）。`.dreview` を開くとこの画面（`view` の出力そのもの）が開き、画面で書いたコメント・返信・解決・
+提出は **その `.dreview` への編集**になる——未保存の印・`Ctrl+S` での保存・元に戻す／やり直し・閉じるときの確認は
+VSCode の標準どおりに効く。CLI（`comment` / `resolve`）でファイルが書き換わると、開いている画面が再読み込みなしで追従する
+（未保存の変更がある間は VSCode がディスクから読み直さないので追従しない）。
 
-| 拡張がやること | 備考 |
+**処理は 1 か所にしかない。** 解析・検証・描画・正規形の書き出しは画面の JS（`templates/app.js`。HTML 版と共通）が行い、
+拡張は「文書のテキスト」と「画面」をメッセージでつなぐだけ。画面を直せば拡張にもそのまま入る
+（拡張はビルド時に `view` の出力を取り込む。生成物はコミットしない）。
+
+### 別のホストが同じ画面を載せるときの契約
+
+読み書きするホスト（VSCode 拡張と同じ形）:
+
+| 向き | メッセージ | いつ |
+|---|---|---|
+| 画面 → ホスト | `{ type: "diff-review/ready" }` | 画面が起動し終えたとき（作り直されるたびに毎回） |
+| ホスト → 画面 | `{ type: "diff-review/text", text, version }` | `ready` の返事／文書の中身か版が変わったとき（`text` は `.dreview` の全文） |
+| 画面 → ホスト | `{ type: "diff-review/edit", id, text, baseVersion }` | 画面で記録が変わったとき（正規形の全文。返事待ちでないときだけ） |
+| ホスト → 画面 | `{ type: "diff-review/ack", id, version }` | その編集を書けたとき（全文が既に文書と同じで、書く必要が無かったときも） |
+| ホスト → 画面 | `{ type: "diff-review/text", id, text, version, conflict: true }` | その編集を書かなかったとき（`baseVersion` が古い等。今の文書で答える） |
+
+- 画面は `acquireVsCodeApi` があるときだけこの口を使う（HTML 版では眠っている）。**1 つの編集には返事を 1 つだけ**返し、
+  `baseVersion` が今の版と違う編集は書かない（古い内容で新しい変更を上書きしない）。
+- 画面が送る全文は、`diff_review.py` の正規形（`bundle` の出力と同じ規則）とバイト一致する。**記録が変わらない限り送らない**ので、
+  開いて見るだけではファイルに触れない。正規形でない（CRLF 等の）ファイルは、最初の編集で全体が正規形になる。
+- ホストは画面を載せる前に CSP を付ける。`<meta charset="utf-8">` の直後に
+  `default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'nonce-<N>'; frame-src 'self';` を置き、
+  **行頭の** `<script` を `<script nonce="<N>"` に置き換える（`app.js` のコメントの中の `<script` は書き換えない）。
+
+読むだけのホスト（従来の口。**VSCode の WebView 以外**のホスト——`iframe` で載せる親ページ等——向け。
+`acquireVsCodeApi` がある WebView の中では、画面は上の `text` / `ack` だけを受け、`#bundle-data` や
+`postMessage(bundle)` は使わない）:
+
+| ホストがやること | 備考 |
 |---|---|
-| `.dreview` を読み、前後を剥がして `JSON.parse` する | **実行しない**。Node で検査済み |
+| `.dreview` を読み、前後を剥がして `JSON.parse` する | **実行しない** |
 | `view --readonly` で作ったビューア HTML を読む | 差分を持たないので**どのバンドルにも使い回せる** |
-| 空の `#bundle-data` にバンドルの JSON を書き込んで `webview.html` に渡す | `<` を `\u003c` に退避すること（`</script>` でブロックが切れるため） |
-| 開いたあとの差し替えは `webview.postMessage(bundle)` | 再読み込みしないので、**スクロール位置と現在行が残る**（差分が変わればフォーカスは先頭へ移る） |
-| CSP を付けるなら `<script` を `<script nonce="…"` に置換する | 1 か所の置換で済む形にしてある |
+| 空の `#bundle-data` にバンドルの JSON を書き込んで渡す | `<` を `\u003c` に退避すること（`</script>` でブロックが切れるため） |
+| 開いたあとの差し替えは `postMessage(bundle)` | 再読み込みしないので、**スクロール位置と現在行が残る**（差分が変わればフォーカスは先頭へ移る） |
 
-> **未検証**: VSCode の webview が CSP 無しで inline script を実行するかは、
-> この skill の開発環境（VSCode 無し）では確かめていない。
-> 上の契約は「どちらに転んでも拡張側の 1 行で済む」ようにしてあるが、**実機で確かめること**。
+> **確かめた範囲**: VSCode 1.138.0（Linux 版）で、既定で開く・CSP・編集と保存・元に戻す・外部変更への追従・配色・キー入力を
+> 実機の e2e（`vscode/` の `npm run test:e2e`）で確かめている。**Windows 版・macOS 版の VSCode では試していない。**
 
 ## 終了コード
 

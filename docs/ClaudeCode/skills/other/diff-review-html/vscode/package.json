@@ -1,0 +1,58 @@
+{
+  "name": "diff-review-vscode",
+  "displayName": "Diff Review",
+  "description": "diff-review-html の .dreview（差分とレビュー指摘）を VSCode で開いて読み書きする",
+  "version": "0.1.0",
+  "publisher": "local",
+  "license": "UNLICENSED",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/asaomaro/public_docs.git",
+    "directory": "docs/ClaudeCode/skills/other/diff-review-html/vscode"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./out/src/extension.js",
+  "activationEvents": [],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    }
+  },
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "diffReview.editor",
+        "displayName": "Diff Review",
+        "selector": [
+          {
+            "filenamePattern": "*.dreview"
+          }
+        ],
+        "priority": "default"
+      }
+    ]
+  },
+  "scripts": {
+    "build:viewer": "node scripts/build-viewer.mjs",
+    "compile": "tsc -p .",
+    "build": "npm run build:viewer && npm run compile",
+    "test:unit": "npm run build && node --test \"out/test/unit/*.test.js\"",
+    "test:protocol": "npm run build && node out/test/viewer/protocol.js",
+    "test:e2e": "npm run build && node out/test/e2e/run.js",
+    "package": "npm run build && vsce package --skip-license"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "1.90.0",
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.2.0",
+    "playwright-core": "^1.50.0",
+    "typescript": "^5.6.0"
+  }
+}
