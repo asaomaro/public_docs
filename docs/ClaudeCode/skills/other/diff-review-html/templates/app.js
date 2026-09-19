@@ -1224,8 +1224,16 @@
   }
 
   // headerText を渡すと、隙間が残っている（remaining > 0）ときだけそのハンクの見出しを
-  // 展開コントロールの帯へ合流させる。隙間が無い/使い切ったときは通常の .hunk-head を出す
+  // 展開コントロールの帯へ合流させる。隙間が無い（!gap）ときは通常の .hunk-head を出す
   // （headerText が null の末尾の隙間も同じ扱い）。
+  //
+  // **隙間を使い切った（remaining <= 0 になった）ときは、見出しを一切出さない**
+  // （ユーザー報告: 展開後もボタンの無い @@ 行だけが残るのはおかしい）。@@ 見出しは
+  // 「ここで行番号が飛ぶ（隙間がある）」ことを示すためのものなので、ユーザーが
+  // 隙間を全部埋めた時点で、示すべき飛びそのものが無くなる——GitHub でも、隙間を
+  // 全部展開した2つのハンクは実質1つに繋がって見え、境目の @@ は残らない。
+  // 一方 `!gap`（そもそも隙間が無く、元の差分の時点で隣接しているハンク）は
+  // ユーザーが埋めたものではないので、これまでどおり常に見出しを出す。
   function renderGap(body, file, gap, index, headerText) {
     if (!gap) {
       if (headerText !== null) { body.appendChild(el("div", { class: "hunk-head", text: headerText })); }
@@ -1244,9 +1252,6 @@
       for (var m = bottomStart; m <= gap.end; m += 1) { appendContext(body, file, m); }
     } else {
       for (var k = topEnd + 1; k <= gap.end; k += 1) { appendContext(body, file, k); }
-    }
-    if (remaining <= 0 && headerText !== null) {
-      body.appendChild(el("div", { class: "hunk-head", text: headerText }));
     }
   }
 
