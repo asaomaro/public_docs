@@ -40,6 +40,13 @@ try {
 </div>
 <a class="skip" href="#files">差分へ移動</a>
 
+<!-- ファイルのドラッグ中だけ表示する。読み込み自体は既にどこへドロップしても効くが
+     （document 全体で drop を受ける）、見た目の手がかりが無く気づけなかった
+     （ユーザー報告: JSON取り込みをD&D対応して）。 -->
+<div id="drop-overlay" class="drop-overlay" hidden aria-hidden="true">
+  <p>ここにドロップして読み込む</p>
+</div>
+
 <header class="topbar">
   <div class="titles">
     <h1 id="page-title">__TITLE__</h1>

@@ -918,3 +918,36 @@ textarea {
   transition: width 0.1s;
   pointer-events: none;
 }
+
+/* ファイルのドラッグ中だけ出す全画面の目印。読み込み自体はどこへドロップしても
+   既に効いていたが、見た目の手がかりが無く気づけなかった（ユーザー報告）。
+   pointer-events: none — このオーバーレイ自身をドラッグイベントの的にしない
+   （document 側の dragenter/dragleave の対象を、このオーバーレイの下にある
+   実際の要素のままにしておくため。素通りさせないと出入りの数え間違いが起きる）。
+   display は `.drop-overlay` 自身ではなく `:not([hidden])` に付ける——
+   同じ要素に対する author 由来の `display` は、より詳細度の高い `[hidden]` の
+   UA既定（display: none）より常に勝ってしまい、`hidden` 属性のトグルが
+   一切効かなくなる（実機で確認済み）。 */
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 4px dashed var(--accent);
+  pointer-events: none;
+}
+.drop-overlay:not([hidden]) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.drop-overlay p {
+  margin: 0;
+  padding: 16px 32px;
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--accent);
+  font-size: 18px;
+  font-weight: 600;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
+}

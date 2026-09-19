@@ -2771,12 +2771,46 @@
 
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("dragover", function (event) { event.preventDefault(); });
+
+    // ドラッグ中の見た目の手がかり（#drop-overlay）。dragenter/dragleave は子要素へ
+    // 出入りするたびにも飛ぶので、素直に「入ったら表示・出たら非表示」にすると
+    // ページ内の要素をまたぐたびにちらつく。出入りの回数を数え、0 に戻ったときだけ隠す
+    // （ユーザー報告: JSON取り込みをD&D対応して — 機能自体は既にあったが手がかりが無かった）。
+    var dragDepth = 0;
+    function isFileDrag(event) {
+      var types = event.dataTransfer && event.dataTransfer.types;
+      return !!types && Array.prototype.indexOf.call(types, "Files") !== -1;
+    }
+    function resetDragOverlay() {
+      dragDepth = 0;
+      var overlay = document.getElementById("drop-overlay");
+      if (overlay) { overlay.hidden = true; }
+    }
+    document.addEventListener("dragenter", function (event) {
+      if (!isFileDrag(event)) { return; }
+      dragDepth += 1;
+      var overlay = document.getElementById("drop-overlay");
+      if (overlay) { overlay.hidden = false; }
+    });
+    document.addEventListener("dragleave", function (event) {
+      if (!isFileDrag(event)) { return; }
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (dragDepth === 0) { resetDragOverlay(); }
+    });
     document.addEventListener("drop", function (event) {
       event.preventDefault();
+      resetDragOverlay();
       if (event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0]) {
         readFile(event.dataTransfer.files[0]);
       }
     });
+    // ドラッグを画面外へ持ち出して離す等、dragenter/dragleave が対にならずに
+    // 終わるケースの保険（ブラウザ・OS間で挙動が揃わない既知の穴）。
+    // タブが非表示になった時点でカウンタと表示をリセットする。
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "hidden") { resetDragOverlay(); }
+    });
+    window.addEventListener("blur", resetDragOverlay);
     window.addEventListener("beforeunload", function (event) {
       if (!dirty) { return undefined; }
       event.preventDefault();

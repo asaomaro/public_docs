@@ -434,3 +434,39 @@ composer-slot では `slot.closest(".slots")` が `null` を返し安全に早�
 具体例が存在し、`nextElementSibling` へのフォールバックが単なる防御的コードでは
 なく実際に機能する経路であること、を確認済み（decisions.md D28 参照）。
 `python3 -m unittest`（140件）も green のまま。
+
+## ユーザー報告（json取り込みをD＆D対応して）
+
+- [must][conv:-] `templates/style.css` `.drop-overlay { display: flex; ... }` —
+  `display: flex` を `.drop-overlay` 自身のセレクタに直接書いていたため、CSS の
+  カスケードで author 由来の `display` が `[hidden]` の UA 既定（`display: none`）
+  に常に勝ち、**`hidden` 属性のトグルが一切効かず、通常のページロード直後から
+  オーバーレイが画面全体に常時表示され続ける**（`pointer-events: none` のため
+  クリックは通るが、破線の縁取り・半透明の帯・中央のメッセージが常に画面を
+  覆っている）ことを、独立レビューが実際に生成物を Chromium でレンダリングして
+  `getComputedStyle`/`getBoundingClientRect` で実証。「ドラッグ中だけ表示」という
+  意図と正反対の挙動だった / 対応: `display: flex`（と `align-items`/
+  `justify-content`）を `.drop-overlay:not([hidden])` 側へ移し、通常のページロード
+  直後に `display: none` へ戻ることを再実測して修正（decisions.md D29 追記）。
+- [should][conv:-] `templates/app.js` `dragenter`/`dragleave`/`dragDepth` カウンタ —
+  ドラッグを画面外へ持ち出して離す等、`dragenter`/`dragleave` が対にならずに
+  終わるケース（ブラウザ・OS間で挙動が揃わないことが知られている）に対する
+  保険が無く、対になり損ねると次の `drop`/一巡のドラッグまでオーバーレイが
+  誤った表示状態のまま残りうる、との指摘 / 対応: `window` の `blur` と
+  `document` の `visibilitychange`（非表示化時）でカウンタと表示をリセットする
+  `resetDragOverlay()` の安全弁を追加。合成 `blur` イベントで、対になる
+  `dragleave`/`drop` が無くてもオーバーレイが隠れることを実測して確認
+  （decisions.md D29 追記）。
+
+独立点検（別コンテキストの subagent）で上記2件以外の指摘は無し。
+`dragover` の既存（無変更）の無条件 `event.preventDefault()` が新設の
+`isFileDrag()` ゲート付き `dragenter`/`dragleave` と矛盾しないこと、
+`DataTransfer.types` に `"Files"` が含まれるかでの判定が evergreen 各ブラウザで
+安定して使える標準的な手法であること、コードの流儀（`var`・無名関数・
+`indexOf() === -1` の既存慣習）に沿っていること、`#drop-overlay` が
+`--readonly` ビルドでも `#btn-open-file`/`#file-import` と同様に rw マーカーの
+外にあり、読み取り専用ビルドでも取り込みを受け付ける設計と整合すること、
+`aria-hidden="true"` を静的なままにしている（表示時に `"false"` へ切り替えない）
+のは、マウス専用の装飾的な手がかりであり `#btn-open-file` が引き続き
+アクセシブルな取り込み手段として存在するため妥当であること、を確認済み
+（decisions.md D29 参照）。`python3 -m unittest`（140件）も green のまま。

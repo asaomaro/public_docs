@@ -1,8 +1,63 @@
 # テスト結果: レビュー操作性の改善（ツリー見た目・レビュー提出フロー・固定ヘッダー・コメント折りたたみ・通知ベル）
 
-> **ラウンド20・最終**（ユーザーから「展開ボタンクリック後に表示位置が移動しない
-> ようにしてください」との報告を受けて対応した後の検証。decisions.md D28）。
-> ラウンド1〜19の内容は本ファイル末尾に残す。
+> **ラウンド21・最終**（ユーザーから「json取り込みをD＆D対応して」との報告を受けて
+> 対応した後の検証。decisions.md D29）。ラウンド1〜20の内容は本ファイル末尾に残す。
+
+## 実行したもの（ラウンド21・最終）
+
+- **事前調査（対応前）**: `readFile()`/既存の `dragover`/`drop` リスナーを読み、
+  JSON/バンドルの D&D 取り込み自体は既に実装済みであることをコードから確認した。
+  playwright-core で実際に合成 `File`/`DataTransfer`/`DragEvent` を組み立てて検証し、
+  `<body>` へのドロップ、および素の `<textarea>`（`#review-body`。ブラウザ標準の
+  D&D 挙動と干渉しうる要素）へのドロップの両方で、機能自体は既に正しく動作している
+  ことを実測で確認した（再現できなかった＝直すべき機能バグは無かった）。
+  同時に、ドラッグ中の視覚的な手がかり（CSS）が一切存在しないことを `grep` で確認し、
+  対応スコープを「機能追加」ではなく「発見可能性のための視覚フィードバック追加」に
+  絞った。
+- 実装: `page.html` に非表示の `#drop-overlay`、`style.css` に固定オーバーレイの
+  スタイル、`app.js` に `dragenter`/`dragleave` の出入り回数カウンタ（子要素をまたぐ
+  たびのチラつきを避けるため）を追加。ファイルを含まないドラッグ（ページ内テキスト
+  選択など）では表示しないよう `DataTransfer.types` に `"Files"` が含まれるかで判定。
+  既存の `drop` ハンドラはカウンタと表示状態をリセットするよう最小限だけ変更。
+- `python3 -m unittest discover -s docs/ClaudeCode/skills/other/diff-review-html/tests -p "test_*.py"`
+  — 140 passed / 0 failed / 0 skipped（Python 側は無変更）
+- `aidev smoke`（`.aidev/config.yml` の `smokeCommands` 3本）— pass (exit 0)
+- **playwright-core による実ブラウザでの操作確認（新規9アサーション、すべて pass）**:
+  1. 初期状態でオーバーレイが非表示（`hidden` 属性あり）であること
+  2. ファイルを含むドラッグで `dragenter` すると表示されること
+  3. 子要素へ `dragenter` した後に祖先要素から `dragleave` しても、出入りの回数が
+     0 に戻らない限り表示され続けること（チラつき防止のカウンタが機能している）
+  4. `dragover` の間も表示され続けること
+  5. 最後に入っていた要素から `dragleave` すると（回数が0に戻ると）非表示に戻ること
+  6. 再度 `dragenter` すると表示されること
+  7. `drop` 後は非表示に戻ること
+  8. `drop` 後も、実際に JSON が取り込まれて `#overall` に反映されること
+     （視覚フィードバックの追加が既存の取り込み機能を壊していないことの確認）
+  9. ファイルを含まないドラッグ（`text/plain` のみ）では `dragenter` してもオーバーレイが
+     表示されないこと
+  - 実ブラウザのスクリーンショットで、ドラッグ中に破線の縁取りと
+    「ここにドロップして読み込む」という中央のメッセージが表示されることを目視でも確認した。
+
+### レビュー指摘の修正後の再検証（同ラウンド内）
+
+独立レビューが must 1件・should 1件を検出（詳細は review.md）。修正後、以下を追加で実測した。
+
+- **must の修正確認（CSS カスケードのバグ）**: 修正前は `.drop-overlay { display: flex }`
+  が `[hidden]` の UA 既定より常に勝ち、ページロード直後から
+  `getComputedStyle(#drop-overlay).display === "flex"` かつ `getBoundingClientRect()`
+  がビューポート全体を覆うことを実機で確認（バグを先に実証）。
+  `display: flex` を `.drop-overlay:not([hidden])` 側へ移す修正後、通常のページロード
+  直後は `getComputedStyle(...).display === "none"`・`getBoundingClientRect()` が
+  `null`（非表示）であること、`hidden = false` にすると `display === "flex"` に戻る
+  （トグルが機能する）ことを実測した。
+- **should の対応確認（対にならないドラッグの保険）**: `window` へ合成 `blur` イベントを
+  dispatch し、対になる `dragleave`/`drop` が一切無くても `dragDepth` とオーバーレイの
+  表示状態がリセットされる（オーバーレイが隠れる）ことを実測した。
+- 上記2件を含め、ラウンド21の既存9アサーションを再実行し、回帰が無いことを確認
+  （`isFileDrag`/カウンタ/`drop` 経由の取り込みは無変更のため）。
+- `python3 -m unittest discover -s docs/ClaudeCode/skills/other/diff-review-html/tests -p "test_*.py"`
+  — 140 passed / 0 failed / 0 skipped
+- `aidev smoke`（`.aidev/config.yml` の `smokeCommands` 3本）— pass (exit 0)
 
 ## 実行したもの（ラウンド20・最終）
 
