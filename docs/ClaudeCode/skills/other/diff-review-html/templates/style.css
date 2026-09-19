@@ -544,6 +544,10 @@ textarea {
 }
 .expander-label { color: var(--muted); font-family: var(--mono); }
 .expander button { height: auto; min-height: 0; display: inline-block; padding: 0 8px; font-size: 12px; }
+/* 展開コントロールと次のハンクの見出し（@@ ... @@）を同じ帯にまとめたときの見出し側
+   （GitHub と同じ形。decisions.md 参照）。.hunk-head 自身と違い、背景・余白・罫線は
+   親の .expander が既に持っているので、ここでは文字の見た目だけを合わせる。 */
+.expander-hunk-head { font-family: var(--mono); color: var(--muted); white-space: pre; }
 .row.expanded { background: transparent; }
 .row.expanded .gutter { color: var(--muted); opacity: 0.7; }
 .file-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
