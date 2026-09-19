@@ -1276,10 +1276,15 @@
       redrawFile(file, { gap: index, dir: "gap-all" });
     });
     row.appendChild(label);
+    // 残り行数が EXPAND_STEP（20行ずつ広げる1回分）以下なら、↑ を押しても ↓ を
+    // 押しても「すべて表示」と全く同じ結果（1回で残り全部が開く）になる。
+    // 選択肢が3つあるように見えて実は同じ結果、という紛らわしさを避け、
+    // 「すべて表示」だけを出す（ユーザー報告）。
+    var onlyAll = remaining <= EXPAND_STEP;
     // 下に続くハンクがあるときだけ「↑」、上にハンクがあるときだけ「↓」を出す
-    if (index < (file.hunks || []).length) { row.appendChild(up); }
+    if (!onlyAll && index < (file.hunks || []).length) { row.appendChild(up); }
     row.appendChild(all);
-    if (index > 0) { row.appendChild(down); }
+    if (!onlyAll && index > 0) { row.appendChild(down); }
     // 合流できる次のハンクの見出しがあれば、同じ帯の右側に続けて出す（末尾の隙間には無い）。
     if (headerText !== null) {
       row.appendChild(el("span", { class: "expander-hunk-head", text: headerText }));
