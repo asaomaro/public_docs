@@ -981,3 +981,58 @@
 - **影響**: `templates/style.css`（`.pane` に `overflow-anchor: none`）、
   `templates/app.js`（新設 `anchorRowKey()`、`expander()` の3つのクリック
   ハンドラ・`redrawFile()` のフォールバック連鎖）。
+
+## D29: JSON/バンドル取り込みの D&D に視覚的なフィードバックを追加する
+
+- **背景**: ユーザーから「json取り込みをD＆D対応して」との要望があった。事前調査で、
+  `document` 全体への `dragover`/`drop` リスナーは既に実装済みで、実際に
+  playwright-core で合成 `File`/`DataTransfer`/`DragEvent` を組み立てて検証した
+  ところ、`<body>` へのドロップ・素の `<textarea>`（`#review-body`）へのドロップの
+  どちらも機能としては正しく取り込みが行われることを実測で確認した。一方で、
+  ドラッグ中の視覚的な手がかりに関する CSS は一切存在しないことを `grep` で確認した。
+  つまり機能自体は既にあったが、利用者が「ここにドロップできる」と気づける
+  手がかりが無く、事実上使われていなかったと考えられる。
+- **決定**: 機能の実装（既存のため不要）ではなく、ドラッグ中にだけ表示する
+  全画面オーバーレイ（`#drop-overlay`）を追加する。`dragenter`/`dragleave` の
+  出入り回数をカウンタで管理し、0 に戻ったときだけ非表示にする（子要素を
+  またぐたびに `dragenter`/`dragleave` が飛ぶため、素朴な「入ったら表示・出たら
+  非表示」ではちらつく）。`DataTransfer.types` に `"Files"` が含まれる場合だけ
+  表示し、ページ内のテキスト選択などファイルを伴わないドラッグでは表示しない。
+  オーバーレイ自身は `pointer-events: none` とし、オーバーレイそのものが
+  `dragenter`/`dragleave` の対象になって深さのカウントを狂わせないようにした。
+  `#drop-overlay` は `--readonly` ビルドでも出力する（`#btn-open-file`/
+  `#file-import` と同様、rw マーカーの外に置く。取り込み自体が読み取り専用
+  ビルドでも可能な操作のため）。
+- **理由・代替案**: 「ドロップ可能な領域だけ」を対象にオーバーレイを出す案も
+  検討したが、既存の取り込みロジックが `document` 全体を対象にしているため、
+  一部の領域だけに視覚的な手がかりを絞ると「表示されていない場所にもドロップ
+  できる」という不一致が生まれる。全画面オーバーレイにすることで、実際の
+  受け付け範囲と見た目の手がかりを一致させた。
+- **検証**: playwright-core で、初期非表示・`dragenter` での表示・子要素への
+  出入りをまたいでもチラつかないこと（カウンタが機能していること）・
+  `dragleave` で回数が0に戻ったときの非表示・`drop` 後の非表示と実際の取り込み
+  成功（`#overall` への反映）・ファイルを含まないドラッグでは表示されないこと、
+  の計9アサーションをすべて実測した。スクリーンショットで見た目も確認した。
+  `python3 -m unittest`（140件）・`aidev smoke`（3本）も green のまま。
+- **影響**: `templates/page.html`（`#drop-overlay` 追加）、`templates/style.css`
+  （`.drop-overlay`/`.drop-overlay p` 追加）、`templates/app.js`（`wire()` 内に
+  `dragenter`/`dragleave` リスナーと `isFileDrag()` を追加、既存の `drop`
+  ハンドラを最小限拡張）。機能自体（取り込みロジック）は無変更。
+- **独立レビューで見つかった must（同ラウンド内で修正）**: `.drop-overlay` に
+  `display: flex` をセレクタ自身へ直接書いていたため、CSS のカスケードで
+  author 由来の `display` が `[hidden]` の UA 既定（`display: none`）に常に
+  勝ってしまい、**`hidden` 属性のトグルが一切効かず、オーバーレイが常時
+  画面全体に表示され続ける**バグになっていた（レビューが実際に生成物を
+  `Chromium` でレンダリングして `getComputedStyle` で実証）。
+  `display: flex`（と `align-items`/`justify-content`）を `.drop-overlay` 本体
+  ではなく `.drop-overlay:not([hidden])` 側に移すことで修正し、通常の
+  ページロード時に `getComputedStyle(...).display === "none"` であることを
+  再実測して確認した。
+- **独立レビューで見つかった should（同ラウンド内で対応）**: `dragenter`/
+  `dragleave` が対にならないまま終わるドラッグ（画面外へ持ち出して離す等、
+  ブラウザ間で挙動が揃わない既知の穴）に対する保険が無かった。
+  `window` の `blur` と `document` の `visibilitychange`（非表示化時）で
+  `dragDepth` とオーバーレイ表示をリセットする安全弁を追加した
+  （`resetDragOverlay()` に共通化）。`window.dispatchEvent(new Event("blur"))`
+  を使い、対になる `dragleave`/`drop` が無くてもオーバーレイが隠れることを
+  実測した。
