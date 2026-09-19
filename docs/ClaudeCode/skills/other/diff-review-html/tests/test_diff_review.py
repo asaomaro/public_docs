@@ -12,6 +12,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -975,6 +976,85 @@ class ViewCommandTest(unittest.TestCase):
         code, _out, err = cli(self.repo, "view", "--load", "x.dreview")
         self.assertEqual(code, 2, "argparse が知らない引数として弾くこと")
         self.assertIn("--load", err)
+
+
+class EditorHostBridgeTest(unittest.TestCase):
+    """VSCode 拡張（vscode/）との橋渡しは、HTML 版では眠っている。
+
+    画面の JS は HTML 版と VSCode 版で共通。VSCode でだけ動く分岐は `acquireVsCodeApi` の有無
+    （app.js）と `<body>` の `vscode-*` クラスの有無（ui.js）で閉じる。実行時の確認は拡張の e2e が受け持つ。
+    """
+
+    GUARD = 'if (typeof acquireVsCodeApi === "function") {'
+
+    def setUp(self):
+        self.app = (SKILL_DIR / "templates" / "app.js").read_text(encoding="utf-8")
+        self.ui = (SKILL_DIR / "templates" / "ui.js").read_text(encoding="utf-8")
+
+    def test_host_api_is_acquired_once_and_only_when_present(self):
+        # acquireVsCodeApi は 1 ページで 1 回しか呼べない。呼ぶのは存在を確かめた分岐の中だけ。
+        # 行末のコメントだけ落とす（文字列の中の "https://" などは残す）。
+        code = "\n".join(re.sub(r"(^|\s)//.*", "", ln) for ln in self.app.split("\n"))
+        self.assertEqual(len(re.findall(r"acquireVsCodeApi\s*\(", code)), 1)
+        guard = self.app.index(self.GUARD)
+        call = self.app.index("host = acquireVsCodeApi();")
+        self.assertLess(guard, call)
+        self.assertNotIn("}", self.app[guard + len(self.GUARD):call], "呼び出しは分岐の中")
+        self.assertIn("var host = null;", self.app, "HTML 版では null のまま")
+
+    def test_host_messages_are_accepted_only_with_a_host(self):
+        # 文書の受け取り（text / ack）は、ホストがいるときの分岐の中だけ。HTML 版の取り込み口を増やさない。
+        for kind in ("diff-review/text", "diff-review/ack"):
+            self.assertEqual(self.app.count('"%s"' % kind), 1, "%s を扱う場所は 1 か所だけ" % kind)
+            match = re.search(re.escape('data.type === "%s"' % kind), self.app)
+            self.assertIsNotNone(match, kind)
+            before = self.app[:match.start()].split("\n")[-3:]
+            self.assertTrue(any("if (host)" in ln for ln in before), (kind, before))
+        self.assertIn('host.postMessage({ type: "diff-review/ready" })', self.app)
+        # 送る処理は、最初の文でホストがいなければ戻る。
+        body = self.app[self.app.index("function sendHostEdit() {"):]
+        first = body.split("\n")[1].strip()
+        self.assertEqual(first, "if (!host) { return; }", "sendHostEdit の最初の文")
+
+    def test_host_only_paths_are_gated(self):
+        # ホストがいるときだけ変わる振る舞いの門。どれか 1 つでも逆になると、HTML 版で下書きが消える・
+        # 起動時に null.postMessage で落ちる、などが起きる（taskcheck cross が変異で実証）。
+        boot = self.app[self.app.index("function boot() {"):]
+        gate = boot.index("    if (host) {\n")
+        self.assertLess(gate, boot.index("var saved = restore();"), "boot: ホストがいるときは記録を復元する前に戻る")
+        self.assertIn("wireHost();\n      return;\n    }", boot[gate:gate + 400])
+        self.assertEqual(self.app.count("wireHost();"), 1, "wireHost を呼ぶのは boot の分岐の中だけ")
+        self.assertIn("JSON.stringify(host\n          ? { drafts: drafts, viewed: viewedFiles }\n"
+                      "          : { state: state, drafts: drafts, viewed: viewedFiles })", self.app,
+                      "persist: 記録を localStorage に書かないのはホストがいるときだけ")
+        self.assertIn("if (host || !isFileDrag(event)) { return; }", self.app, "D&D の目印はホストがいるときだけ出さない")
+        drop = self.app[self.app.index('document.addEventListener("drop"'):]
+        self.assertIn("resetDragOverlay();\n      if (host) { return; }", drop[:300], "D&D の取り込みはホストがいるときだけしない")
+        self.assertIn("if (!dirty || host) { return undefined; }", self.app, "離れるときの確認はホストがいるときだけしない")
+
+    def test_templates_have_no_invisible_line_terminators(self):
+        # U+2028 / U+2029 は JS では行終端文字。正規表現リテラルや文字列の中に生で置くと、
+        # 画面の JS 全体が構文エラーになり HTML 版も VSCode 版も動かなくなる（実際に起きた）。
+        # BOM も目に見えないので、テンプレートでは \\u エスケープで書く。
+        for name in ("app.js", "ui.js", "rich.js", "page.html", "style.css"):
+            text = (SKILL_DIR / "templates" / name).read_text(encoding="utf-8")
+            for ch in (chr(0x2028), chr(0x2029), chr(0xFEFF)):
+                where = text.find(ch)
+                self.assertEqual(where, -1, "%s の %d 文字目に U+%04X が生で入っている" % (name, where, ord(ch)))
+
+    @unittest.skipUnless(shutil.which("node"), "node が無い環境では構文検査を省く")
+    def test_template_scripts_parse(self):
+        for name in ("app.js", "ui.js", "rich.js"):
+            result = subprocess.run(["node", "--check", str(SKILL_DIR / "templates" / name)],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, "%s: %s" % (name, result.stderr))
+
+    def test_theme_follows_vscode_only_when_its_classes_exist(self):
+        body = self.ui[self.ui.index("function hostThemeKind()"):self.ui.index("function applyTheme(")]
+        for cls in ("vscode-light", "vscode-dark", "vscode-high-contrast", "vscode-high-contrast-light"):
+            self.assertIn('"%s"' % cls, body)
+            self.assertEqual(self.ui.count('"%s"' % cls), 1, "判定は hostThemeKind の 1 か所だけ")
+        self.assertTrue(body.rstrip().endswith("return null;\n  }"), "クラスが無ければ判定しない（OS に従う）")
 
 
 class ReadonlyTest(unittest.TestCase):

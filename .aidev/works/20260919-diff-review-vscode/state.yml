@@ -1,0 +1,11 @@
+schema: 11
+slug: diff-review-vscode
+current: deliver
+approved: [requirements, research, design, tasks, coding, test, review, deliver]
+mode: autonomous
+profile: full
+humanGates: []
+maxSendBacks: 3
+dependsOn: [20260916-diff-review-bundle]
+harnessRev: a2dcaccbc720
+harnessRevDelivered: a2dcaccbc720

@@ -33,6 +33,7 @@
   var readonly = false;
   var bundleSource = null;      // どこから来たか（画面の meta 行に出す）
   var embeddedReview = null;    // 埋め込みのレビュー記録。#btn-reset-draft からの初期化先にも使う
+  var recordTarget = null;      // 採用した記録そのものの target（別の差分に対する記録なら差分の target と違う）
 
   var state = { reviews: [], threads: [] };
   var drafts = {};
@@ -42,6 +43,20 @@
   var dirty = false;
   var storageOk = true;
   var currentRow = null;
+
+  // ホスト（VSCode 拡張）と文書を往復するときの状態。HTML 版では host が null のまま、どれも使われない。
+  // 同期の約束は vscode/src/sync.ts と対（design.md「振る舞いの詳細」・decisions.md D10）。
+  var host = null;              // acquireVsCodeApi() の戻り値
+  var hostPage = "";            // この画面の乱数（編集 id の頭。作り直した画面と混ざらない）
+  var hostSeq = 0;
+  var hostText = null;          // 最後に受けた文書（壊れていても）か、最後に送った全文
+  var hostVersion = null;       // いまの表示が基にしている文書の版
+  var hostRecord = null;        // いま表示している記録の正規形。null = 送らない（未読込・採用中・壊れている）
+  var hostDiffKey = null;       // 差分部分の同一性。同じなら記録だけ差し替える
+  var hostBroken = false;
+  var hostBrokenRecord = null;  // 壊れたときの記録。これと違えば「保存されない変更」がある
+  var hostInFlight = null;      // 返事待ちの編集 id
+  var hostResend = false;       // 返事待ちの間に記録がさらに変わった
 
   // 画面の設定は ui.js が持つ（レビュー記録の JSON には入らない＝AC15）。
   // ui.js が読めていない不測の事態でも画面が死なないよう、既定値で動く形にしておく。
@@ -70,6 +85,7 @@
     fileSearchQuery = "";
     currentRow = null;
     state = { reviews: [], threads: [] };
+    recordTarget = null;
     drafts = {};
     seq = 0;
     dirty = false;
@@ -222,18 +238,24 @@
     return a._order - b._order;
   }
 
-  function canonicalRecord() {
+  // keepIds: id を振り直さない。VSCode の文書へ書くときに使う——振り直すと、画面が id で覚えているもの
+  // （編集中のレビュー・畳んだスレッド・返信や編集の下書きの鍵）と文書の id がずれる（taskcheck T6）。
+  // Python の bundle_text は id を振り直さないので、どちらでも正規形のバイト列の規則は同じ。
+  function canonicalRecord(keepIds) {
     var reviewMap = {};
     var reviews = state.reviews.map(function (review, index) {
-      var id = "r" + (index + 1);
+      var id = keepIds ? review.id : "r" + (index + 1);
       reviewMap[review.id] = id;
       return { id: id, author: review.author, state: review.state, body: review.body };
     });
-    var threads = state.threads.slice().sort(threadOrder).map(function (thread, index) {
+    // 文書へ書くときは並べ替えない（Python の bundle_text も comment も配列の順のまま。並べ替えると、
+    // CLI が書いたファイルの最初の編集ですべてのスレッドが動く。taskcheck cross）。
+    var ordered = keepIds ? state.threads.slice() : state.threads.slice().sort(threadOrder);
+    var threads = ordered.map(function (thread, index) {
       var commentMap = {};
-      thread.comments.forEach(function (comment, j) { commentMap[comment.id] = "c" + (j + 1); });
+      thread.comments.forEach(function (comment, j) { commentMap[comment.id] = keepIds ? comment.id : "c" + (j + 1); });
       return {
-        id: "t" + (index + 1),
+        id: keepIds ? thread.id : "t" + (index + 1),
         kind: thread.kind === "note" ? "note" : "review",   // /1 には kind が無いので review を補う
         path: thread.path === undefined ? null : thread.path,
         line: thread.line === undefined ? null : thread.line,
@@ -241,9 +263,9 @@
         start_line: thread.start_line === undefined ? null : thread.start_line,
         start_side: thread.start_side === undefined ? null : thread.start_side,
         resolved: !!thread.resolved,
-        comments: thread.comments.map(function (comment, j) {
+        comments: thread.comments.map(function (comment) {
           return {
-            id: "c" + (j + 1),
+            id: commentMap[comment.id],
             review_id: comment.review_id ? (reviewMap[comment.review_id] || null) : null,
             author: comment.author,
             body: comment.body,
@@ -253,7 +275,10 @@
         })
       };
     });
-    return { schema: SCHEMA, target: target, reviews: reviews, threads: threads };
+    // 文書へ書くときは、記録が持っていた target を保つ（Python の comment / resolve と同じ。差分の target に
+    // 置き換えると「別の差分への記録」という情報が消える。独立レビュー ラウンド1）。
+    var recordTargetOut = keepIds && recordTarget ? recordTarget : target;
+    return { schema: SCHEMA, target: recordTargetOut, reviews: reviews, threads: threads };
   }
 
   function exportText() {
@@ -264,16 +289,20 @@
 
   function persist() {
     dirty = true;
-    if (!storageOk) { return; }
-    try {
-      // **viewedFiles は記録の一部ではない**。書き出し（exportText/canonicalRecord）はここを
-      // 一切見ないので、ここに同居させても書き出す JSON には混ざらない（AC12）。
-      window.localStorage.setItem(storageKey,
-        JSON.stringify({ state: state, drafts: drafts, viewed: viewedFiles }));
-    } catch (err) {
-      storageOk = false;
-      banner("このブラウザでは下書きが保存できません（" + err.name + "）。書き出しは使えます。", []);
+    if (storageOk) {
+      try {
+        // **viewedFiles は記録の一部ではない**。書き出し（exportText/canonicalRecord）はここを
+        // 一切見ないので、ここに同居させても書き出す JSON には混ざらない（AC12）。
+        // ホストがいるときは記録を文書が持つので、ここには書かない（食い違いの元になる）。
+        window.localStorage.setItem(storageKey, JSON.stringify(host
+          ? { drafts: drafts, viewed: viewedFiles }
+          : { state: state, drafts: drafts, viewed: viewedFiles }));
+      } catch (err) {
+        storageOk = false;
+        banner("このブラウザでは下書きが保存できません（" + err.name + "）。書き出しは使えます。", []);
+      }
     }
+    sendHostEdit();
   }
 
   function restore() {
@@ -305,13 +334,15 @@
 
   // --------------------------------------------------------------- バナー
 
+  function clearBanner(key) {
+    var old = document.querySelector('#banners [data-banner="' + cssEscape(key) + '"]');
+    if (old && old.parentNode) { old.parentNode.removeChild(old); }
+  }
+
   function banner(message, buttons, key) {
     // 同じ種類のバナー（key つき）は**置き換える**。ファイルを開くたびに積み上がると、
     // 画面の上半分がバナーで埋まって差分が見えなくなる。
-    if (key) {
-      var old = document.querySelector('#banners [data-banner="' + cssEscape(key) + '"]');
-      if (old && old.parentNode) { old.parentNode.removeChild(old); }
-    }
+    if (key) { clearBanner(key); }
     var box = el("div", { class: "banner", "data-banner": key || null },
                 [el("div", { text: message })]);
     if (buttons && buttons.length) {
@@ -383,6 +414,7 @@
 
   function adoptRecord(record, note) {
     state = { reviews: [], threads: [] };
+    recordTarget = record.target && typeof record.target === "object" ? record.target : null;
     (record.reviews || []).forEach(function (review) {
       state.reviews.push({
         id: review.id || nextId("r"),
@@ -1786,7 +1818,8 @@
     var buttons = [replyButton];
     // 提出済み（review_id が付いた）コメントでも、取り消しはできないが本文・重大度の
     // 編集はできる（ユーザー報告: 取り消しか返信しか選べず、書いた内容を直せなかった）。
-    var editKey = "edit:" + comment.id;
+    // コメントの id はスレッドごとの採番（Python の comment は各スレッドの最初を c1 にする）なので、スレッドの id も含める。
+    var editKey = "edit:" + thread.id + ":" + comment.id;
     var editButton = el("button", { type: "button", "aria-expanded": "false", text: "編集" });
     editButton.addEventListener("click", function () {
       toggleEditComposer(thread, comment, editButton);
@@ -1817,7 +1850,7 @@
   // 提出済み（review_id 付き）でも直せる。review_id 自体・in_reply_to・author は
   // 変えない）。
   function toggleEditComposer(thread, comment, trigger) {
-    var key = "edit:" + comment.id;
+    var key = "edit:" + thread.id + ":" + comment.id;
     var slot = document.querySelector('[data-composer="' + cssEscape(key) + '"]');
     if (!slot) { return; }
     if (slot.firstChild) { closeComposer(key, trigger); return; }
@@ -2252,7 +2285,7 @@
       cancelEditReview();   // 保存後は新規作成モードへ戻す
       persist();
       renderThreads();
-      notify("レビュー結果を更新しました（" + stateValue + "）。JSON を書き出して渡してください。");
+      notify("レビュー結果を更新しました（" + stateValue + "）。" + handOffHint());
       return;
     }
 
@@ -2267,7 +2300,12 @@
     bodyField.value = "";
     persist();
     renderThreads();
-    notify("レビューを提出しました（" + stateValue + "）。JSON を書き出して渡してください。");
+    notify("レビューを提出しました（" + stateValue + "）。" + handOffHint());
+  }
+
+  // 提出したレビューを人に渡す方法。VSCode では .dreview 自体に入る。
+  function handOffHint() {
+    return host ? "Ctrl+S で .dreview に保存されます。" : "JSON を書き出して渡してください。";
   }
 
   function editReview(review) {
@@ -2379,6 +2417,145 @@
     };
     reader.onerror = function () { banner("ファイルを読めませんでした。", [], "load"); };
     reader.readAsText(file, "utf-8");
+  }
+
+  // ---------------------------------------------- ホスト（VSCode 拡張）との往復
+
+  // バンドル全文の正規形。diff_review.py の bundle_text と同じバイト列になる（JSON.stringify は末尾に改行を
+  // 付けないので dumps_canonical(...).rstrip("\n") と同じ本体。U+2028/2029 は js_safe と同じく退避する）。
+  function bundleText() {
+    var body = JSON.stringify(sortDeep({
+      schema: BUNDLE_SCHEMA,
+      target: diffData.target,
+      files: diffData.files,
+      rich_enabled: !!diffData.rich_enabled,
+      review: canonicalRecord(true)
+    }), null, 2);
+    return BUNDLE_PREFIX + body.replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029") + BUNDLE_SUFFIX;
+  }
+
+  // 文書に書く記録の比較用の文字列（id は振り直さない。bundleText と同じ中身）。
+  function hostRecordText() {
+    return JSON.stringify(sortDeep(canonicalRecord(true)));
+  }
+
+  // 記録が変わったときだけ、返事待ちでなければ全文を送る。入力欄への入力や「確認済み」は記録に入らないので、
+  // persist() が呼ばれても文書には触れない（開いただけ・見ただけで書き換えない）。
+  function sendHostEdit() {
+    if (!host) { return; }
+    var record = hostRecordText();
+    if (hostBroken) {
+      if (record !== hostBrokenRecord) {
+        banner("文書が壊れているため、画面での変更は保存されません。", [], "host-broken");
+      }
+      return;
+    }
+    if (hostRecord === null || record === hostRecord) { return; }
+    if (hostInFlight !== null) { hostResend = true; return; }
+    var text = bundleText();
+    hostRecord = record;
+    hostText = text;
+    hostSeq += 1;
+    hostInFlight = hostPage + ":" + hostSeq;
+    host.postMessage({ type: "diff-review/edit", id: hostInFlight, text: text, baseVersion: hostVersion });
+  }
+
+  function onHostAck(msg) {
+    if (msg.id === undefined || msg.id !== hostInFlight || typeof msg.version !== "number") { return; }
+    hostInFlight = null;
+    hostVersion = msg.version;
+    clearBanner("host-conflict");   // 次の変更が書けたら「同時に変更された」は過去の話
+    if (hostResend) {
+      hostResend = false;
+      sendHostEdit();
+    }
+  }
+
+  function onHostText(msg) {
+    if (typeof msg.text !== "string" || typeof msg.version !== "number") { return; }
+    if (msg.id !== undefined && msg.id === hostInFlight) {
+      hostInFlight = null;
+      hostResend = false;
+      if (msg.conflict) {
+        banner("文書が同時に変更されたため、直前の画面での変更は反映されませんでした（文書の内容で表示し直しました）。",
+               [], "host-conflict");
+      }
+    } else if (hostInFlight !== null) {
+      // 返事待ちの編集は版が古くなったので退けられる（知らせは返事が来たときに出る）。
+      // 返事待ちの間に重ねた変更は、この採用で文書の内容に置き換わる。
+      hostResend = false;
+    }
+    hostVersion = msg.version;
+    if (msg.text !== hostText) {
+      applyHostText(msg.text);
+      hostText = msg.text;   // 壊れていても覚える。覚えないと、壊れる前と同じテキストに戻ったときに無視してしまう
+    }
+    // 表示が文書と同じままでも、返事待ちの間に重ねた変更が残っていることがある（返事の本文が送った全文と
+    // 同じだったとき）。残っていれば今の版を基に送る（taskcheck T6）。
+    sendHostEdit();
+  }
+
+  function applyHostText(text) {
+    var prevKey = hostDiffKey;
+    hostRecord = null;     // 採用の途中で persist() が呼ばれても送らない
+    hostDiffKey = null;
+    var bundle = null;
+    var problems;
+    try {
+      bundle = parseBundleText(text.replace(/^\uFEFF/, ""));
+      problems = bundle === null
+        ? ["バンドルの形ではありません（" + BUNDLE_PREFIX.trim() + " … ; の形が必要です）"]
+        : validateBundle(bundle);
+    } catch (err) {
+      problems = ["JSON として読めません: " + err.message];
+    }
+    if (!problems.length) {
+      try {
+        var key = JSON.stringify(sortDeep([bundle.target, bundle.files, !!bundle.rich_enabled]));
+        adoptHostBundle(bundle, key === prevKey);
+        hostBroken = false;
+        clearBanner("host-load");
+        clearBanner("host-broken");
+        hostRecord = hostRecordText();
+        hostDiffKey = key;
+        return;
+      } catch (err) {
+        // validateBundle は浅い検査なので、通っても描画で落ちる形がある（taskcheck T6）。壊れているとして扱う。
+        problems = ["描画できません: " + err.message];
+      }
+    }
+    // 文書が唯一の真実なので、無いものを見せない（残した表示に書いたものはどこにも保存されない。D10）。
+    hostBroken = true;
+    applyDiffData({ target: {}, files: [], rich_enabled: false, readonly: readonly }, null);
+    renderAll();
+    banner("この .dreview を表示できません: " + problems.join(" / ")
+           + "（「エディターを開き直す」でテキストエディターに切り替えて直してください）", [], "host-load");
+    hostBrokenRecord = hostRecordText();
+  }
+
+  function adoptHostBundle(bundle, sameDiff) {
+    if (sameDiff) {
+      // 差分が同じ（元に戻す・外部での追記）: 記録だけ差し替える。行を作り直さないので、スクロール・現在行・
+      // 展開・行とファイルの入力欄はそのまま残る。
+      adoptRecord(bundle.review || { reviews: [], threads: [] }, null);
+      if (editingReviewId !== null && !state.reviews.some(function (r) { return r.id === editingReviewId; })) {
+        cancelEditReview();
+      }
+      renderThreads();
+      return;
+    }
+    applyDiffData({
+      target: bundle.target,
+      files: bundle.files,
+      rich_enabled: !!bundle.rich_enabled,
+      readonly: readonly
+    }, "VSCode");
+    var saved = restore();   // 下書きと「確認済み」だけ（記録は文書にある）
+    if (saved && saved.viewed) { viewedFiles = saved.viewed; }
+    if (saved && saved.drafts) { drafts = saved.drafts; }
+    if (bundle.review) { adoptRecord(bundle.review, null); }
+    renderAll();
+    focusFirstRow();
   }
 
   // ------------------------------------------------------------ パネル
@@ -2763,6 +2940,13 @@
     window.addEventListener("message", function (event) {
       var data = event.data;
       if (!data || typeof data !== "object") { return; }
+      // VSCode 拡張と往復しているときは、文書（テキストと版）だけを受ける。バンドルの差し替えは受けない
+      // ——画面と文書が指すものが食い違う（decisions.md D9）。
+      if (host) {
+        if (data.type === "diff-review/text") { onHostText(data); }
+        else if (data.type === "diff-review/ack") { onHostAck(data); }
+        return;
+      }
       var bundle = data.schema === BUNDLE_SCHEMA ? data
         : (data.type === "diff-review/bundle" ? data.bundle : null);
       if (!bundle) { return; }
@@ -2787,7 +2971,7 @@
       if (overlay) { overlay.hidden = true; }
     }
     document.addEventListener("dragenter", function (event) {
-      if (!isFileDrag(event)) { return; }
+      if (host || !isFileDrag(event)) { return; }   // VSCode では取り込まない（文書が唯一の真実。D9）
       dragDepth += 1;
       var overlay = document.getElementById("drop-overlay");
       if (overlay) { overlay.hidden = false; }
@@ -2800,6 +2984,7 @@
     document.addEventListener("drop", function (event) {
       event.preventDefault();
       resetDragOverlay();
+      if (host) { return; }
       if (event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0]) {
         readFile(event.dataTransfer.files[0]);
       }
@@ -2812,11 +2997,39 @@
     });
     window.addEventListener("blur", resetDragOverlay);
     window.addEventListener("beforeunload", function (event) {
-      if (!dirty) { return undefined; }
+      // VSCode では閉じるときの確認を VSCode が出す（未保存は文書が持つ）。
+      if (!dirty || host) { return undefined; }
       event.preventDefault();
       event.returnValue = "";
       return "";
     });
+  }
+
+  // VSCode 拡張と往復しているときだけ。wire() のあとに呼ぶ（外す要素にも wire() が結線を済ませている）。
+  function wireHost() {
+    // HTML 版だけの操作（decisions.md D9）。#file-import は wire() が無条件に結線するので残す
+    // （#btn-open-file が無ければ辿り着けない）。
+    ["btn-open-file", "btn-reset-draft", "btn-download"].forEach(function (id) {
+      var node = document.getElementById(id);
+      if (node && node.parentNode) { node.parentNode.removeChild(node); }
+    });
+    var exportHint = document.querySelector("#export-panel .hint");
+    if (exportHint) {
+      exportHint.textContent = "下の内容（レビュー記録の JSON）をコピーして使ってください。"
+        + "変更は .dreview 自体に保存されます（Ctrl+S）。";
+    }
+    // 入力欄の中の Ctrl/⌘+Z・Ctrl/⌘+Y は入力欄の取り消し。VSCode まで伝わると文書の元に戻すに化ける
+    // （research.md F18）。伝播だけ止め、入力欄の既定の取り消しは生かす（preventDefault しない。F19）。
+    document.addEventListener("keydown", function (event) {
+      if (!(event.ctrlKey || event.metaKey)) { return; }
+      var key = String(event.key || "").toLowerCase();
+      if (key !== "z" && key !== "y") { return; }
+      var t = event.target;
+      var editable = !!t && (t.tagName === "TEXTAREA" || t.isContentEditable
+        || (t.tagName === "INPUT" && /^(text|search|url|email|tel|password|number)$/i.test(t.type || "text")));
+      if (editable) { event.stopPropagation(); }
+    });
+    host.postMessage({ type: "diff-review/ready" });
   }
 
   function initialSource(embedded, embeddedBundle) {
@@ -2834,14 +3047,21 @@
 
   function showOpenPrompt(show) {
     var prompt = document.getElementById("open-prompt");
-    if (prompt) { prompt.hidden = !show; }
+    // VSCode ではファイルは VSCode が開いている。「ファイルを開いてください」は出さない。
+    if (prompt) { prompt.hidden = !show || !!host; }
   }
 
   function boot() {
+    // acquireVsCodeApi は 1 ページで 1 回しか呼べない（research.md F11）。呼ぶのはここだけ。
+    if (typeof acquireVsCodeApi === "function") {
+      host = acquireVsCodeApi();
+      hostPage = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    }
     // 埋め込みの JSON は**1 回だけ**読む。2 回 parse すると、大きな差分（実測 1.9MB で 1 回 6.4ms）で
     // 起動が二重に待たされる。
     var embedded = readEmbedded("diff-data");
-    // ホスト（VSCode 拡張など）が流し込む HTML にバンドルを**そのまま**書き込む口。
+    // ホスト（iframe で載せる親ページなど）が流し込む HTML にバンドルを**そのまま**書き込む口。
+    // VSCode の WebView の中（host がある）ではここを使わず、ready への返事で文書を受ける。
     // 中身が空なら無視されるので、生成物は常に空で出す（決定論を壊さない）。
     var embeddedBundle = readEmbedded("bundle-data");
     var initial = initialSource(embedded, embeddedBundle);
@@ -2868,6 +3088,15 @@
       applyDiffData(initial.data, "埋め込み");
     } else {
       applyDiffData({ target: {}, files: [], rich_enabled: false, readonly: viewerReadonly }, null);
+    }
+
+    if (host) {
+      // 記録は文書にある。localStorage の記録は復元しない（食い違いの元）。中身は ready の返事で届く。
+      UI.init();
+      wire();
+      renderAll();
+      wireHost();
+      return;
     }
 
     var saved = restore();
