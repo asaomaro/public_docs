@@ -204,7 +204,15 @@ button:focus-visible, [tabindex]:focus-visible {
   grid-template-columns: 40px 6px minmax(0, 1fr) 6px 40px;
 }
 
-.pane { overflow: auto; min-width: 0; }
+/* overflow-anchor: none — ブラウザ既定の「スクロールアンカリング」を切る。中央ペインは
+   展開ボタンを押すたびに中身を丸ごと作り直す（redrawFile の clear→再構築）。その瞬間
+   ブラウザが自前で「表示中の内容がずれないように」と scrollTop を勝手に補正すること
+   があり、これがアプリ側の focusInPlace（押したボタン/隙間の外側の行へ明示的に
+   scrollIntoView）と二重に働いて、かえって表示位置が動いてしまっていた
+   （実測: ブラウザ側の補正だけで500px超動き、その上にアプリ側の補正が重なっていた。
+   ユーザー報告: 展開ボタンクリック後に表示位置が移動する）。位置の維持は
+   focusInPlace 側で完結させるため、ブラウザ側の自動補正はここで止める。 */
+.pane { overflow: auto; min-width: 0; overflow-anchor: none; }
 .pane-left, .pane-right { background: var(--surface); border-color: var(--line); }
 .pane-left { border-right: 1px solid var(--line); }
 .pane-right { border-left: 1px solid var(--line); }
