@@ -360,3 +360,16 @@ composer-slot では `slot.closest(".slots")` が `null` を返し安全に早�
   / 対応: 修正済（decisions.md D24 追記）。`:not(:first-child)`/
   `:not(:last-child)` を使い、隣接ペアの間だけを打ち消す形に直した。見出し行と
   最初のスレッドの間隔が8pxに戻ったことを実測で確認した。
+
+## ユーザー提案（展開コントロールとハンク見出しの帯を1本に統合）
+
+独立点検（別コンテキストの subagent）で must/should/nit いずれの指摘も無し。
+`renderGap` の3経路（隙間無し・隙間残あり・隙間使い切り）いずれでもハンク見出しが
+正確に1回だけ出ること（`headerText===null` の末尾隙間では0回）、`expandState`/
+`shown` の計算式・ボタンのクリックハンドラは今回の変更で一切変わっていないこと、
+`gapsOf()` が隣接ハンク間で `null` を積むケース（`!gap` 分岐）でも見出しが
+正しく出ること、`.expander-hunk-head` は常に `.expander` の子としてしか
+生成されないため背景・余白・罫線を持たなくても安全なこと、`redrawFile()` の
+フォーカス復元セレクタ（`.expand-up`/`.expand-down`/`.expand-gap-all` を厳密に
+クラス名で指定）が新設の `.expander-hunk-head` と衝突しないこと、を確認済み
+（decisions.md D25 参照）。`python3 -m unittest`（140件）も green のまま。

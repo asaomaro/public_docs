@@ -1206,8 +1206,10 @@
     var split = splitMode();
     var gaps = gapsOf(file);
     file.hunks.forEach(function (hunk, index) {
-      renderGap(body, file, gaps[index], index);
-      body.appendChild(el("div", { class: "hunk-head", text: hunk.header }));
+      // 展開コントロールと次のハンクの見出し（@@ ... @@）は同じ帯にまとめる
+      // （GitHub と同じ形。ユーザー提案: 別々の帯だと、展開してもコントロール側の帯だけ
+      // 残って見える事象の温床になる——帯そのものを1本にすれば構造的に起きなくなる）。
+      renderGap(body, file, gaps[index], index, hunk.header);
       if (split) {
         pairLines(hunk.lines).forEach(function (pair) {
           body.appendChild(renderRowSplit(file, pair.left, pair.right, false));
@@ -1216,11 +1218,19 @@
         hunk.lines.forEach(function (line) { body.appendChild(renderRow(file, line)); });
       }
     });
-    renderGap(body, file, gaps[file.hunks.length], file.hunks.length);
+    // 末尾（最後のハンクより後ろ）の隙間には合流できる次の見出しが無いので、
+    // 従来どおり単独の帯のまま。
+    renderGap(body, file, gaps[file.hunks.length], file.hunks.length, null);
   }
 
-  function renderGap(body, file, gap, index) {
-    if (!gap) { return; }
+  // headerText を渡すと、隙間が残っている（remaining > 0）ときだけそのハンクの見出しを
+  // 展開コントロールの帯へ合流させる。隙間が無い/使い切ったときは通常の .hunk-head を出す
+  // （headerText が null の末尾の隙間も同じ扱い）。
+  function renderGap(body, file, gap, index, headerText) {
+    if (!gap) {
+      if (headerText !== null) { body.appendChild(el("div", { class: "hunk-head", text: headerText })); }
+      return;
+    }
     var state = expandState[file.path] || (expandState[file.path] = {});
     var shown = state[index] || (state[index] = { top: 0, bottom: 0 });
     var size = gap.end - gap.start + 1;
@@ -1230,14 +1240,17 @@
 
     for (var n = gap.start; n <= topEnd; n += 1) { appendContext(body, file, n); }
     if (remaining > 0) {
-      body.appendChild(expander(file, index, gap, shown, remaining));
+      body.appendChild(expander(file, index, gap, shown, remaining, headerText));
       for (var m = bottomStart; m <= gap.end; m += 1) { appendContext(body, file, m); }
     } else {
       for (var k = topEnd + 1; k <= gap.end; k += 1) { appendContext(body, file, k); }
     }
+    if (remaining <= 0 && headerText !== null) {
+      body.appendChild(el("div", { class: "hunk-head", text: headerText }));
+    }
   }
 
-  function expander(file, index, gap, shown, remaining) {
+  function expander(file, index, gap, shown, remaining, headerText) {
     var row = el("div", { class: "expander", "data-gap": index });
     var label = el("span", { class: "expander-label", text: "… " + remaining + " 行" });
     var up = el("button", { type: "button", class: "expand-up", text: "↑ " + EXPAND_STEP + " 行" });
@@ -1262,6 +1275,10 @@
     if (index < (file.hunks || []).length) { row.appendChild(up); }
     row.appendChild(all);
     if (index > 0) { row.appendChild(down); }
+    // 合流できる次のハンクの見出しがあれば、同じ帯の右側に続けて出す（末尾の隙間には無い）。
+    if (headerText !== null) {
+      row.appendChild(el("span", { class: "expander-hunk-head", text: headerText }));
+    }
     return row;
   }
 
