@@ -373,3 +373,18 @@ composer-slot では `slot.closest(".slots")` が `null` を返し安全に早�
 フォーカス復元セレクタ（`.expand-up`/`.expand-down`/`.expand-gap-all` を厳密に
 クラス名で指定）が新設の `.expander-hunk-head` と衝突しないこと、を確認済み
 （decisions.md D25 参照）。`python3 -m unittest`（140件）も green のまま。
+
+## ユーザー報告（展開後、ボタンの無い@@行だけ残る）
+
+独立点検（別コンテキストの subagent）で must/should/nit いずれの指摘も無し。
+`!gap`（元から隣接しているハンク。`gapsOf()` が `range.start <= cursor` のとき
+`null` を積む）と、実際の隙間をユーザーが展開しきった場合（`remaining<=0`）は
+明確に別のケースであり、見出しを消すのは後者だけで正しいこと、ハンク自身の行
+（追加・削除・文脈）は `fillFileBody()` の呼び出し元で見出しの有無に関わらず
+必ず出るため内容が失われないこと、`shown` が初期状態（`{top:0,bottom:0}`）の
+初回描画では `remaining` が常に隙間サイズ（1以上）と一致し、ページ初回表示で
+見出しの無いハンクが出ることは数学的にあり得ないこと、他に `.hunk-head` へ
+依存する JS/CSS（`querySelectorAll`・兄弟セレクタ等）が無いこと、`redrawFile()`
+のフォーカス復元は元から `.expander` 行が無いケースを許容していたため今回の
+変更と無関係に安全であること、を確認済み（decisions.md D26 参照）。
+`python3 -m unittest`（140件）も green のまま。
