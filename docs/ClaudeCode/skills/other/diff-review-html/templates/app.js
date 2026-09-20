@@ -39,6 +39,7 @@
   var drafts = {};
   var viewedFiles = {};    // path -> true。「確認済み」。記録には入れない（画面の状態）
   var fileSearchQuery = "";   // ファイル一覧の検索語（画面の状態。保存しない・記録に入れない）
+  var extFilter = null;    // 拡張子の絞り込み。null = すべて表示 / { ".md": true } = その拡張子だけ（同上）
   var seq = 0;
   var dirty = false;
   var storageOk = true;
@@ -83,6 +84,7 @@
     threadCollapsed = {};
     viewedFiles = {};
     fileSearchQuery = "";
+    extFilter = null;
     currentRow = null;
     state = { reviews: [], threads: [] };
     recordTarget = null;
@@ -579,10 +581,25 @@
     if (target.range) { parts.push(target.range); }
     if (target.base_commit) { parts.push("base " + String(target.base_commit).slice(0, 7)); }
     if (target.diff_digest) { parts.push("diff " + String(target.diff_digest).slice(0, 7)); }
-    parts.push((diffData.files || []).length + " ファイル");
+    var files = diffData.files || [];
+    var shown = visibleFiles();
+    parts.push(shown.length === files.length
+      ? files.length + " ファイル"
+      : shown.length + " / " + files.length + " ファイル");
     if (bundleSource) { parts.push("← " + bundleSource); }
     if (readonly) { parts.push("参照専用"); }
-    document.getElementById("meta").textContent = parts.join(" ・ ");
+    var meta = document.getElementById("meta");
+    clear(meta);
+    meta.appendChild(document.createTextNode(parts.join(" ・ ")));
+    // 差分全体の量。絞り込んでも**差分そのものの大きさ**は変わらないので、隠したファイルも
+    // 含めた合計を出す（GitHub のヘッダーと同じ。「いま何件見えているか」は上の件数が言う）。
+    if (files.length) {
+      var totals = files.reduce(function (sum, file) {
+        return { add: sum.add + (file.additions || 0), del: sum.del + (file.deletions || 0) };
+      }, { add: 0, del: 0 });
+      meta.appendChild(document.createTextNode(" ・ "));
+      meta.appendChild(statsWithBar(totals.add, totals.del));
+    }
   }
 
   function treeMode() { return UI.pref("filetree") === "on"; }
@@ -590,6 +607,8 @@
   function gotoFile(index) {
     // **移動には必ず focus() を伴う**。リンクだけではスクロールしてもフォーカスが動かず、
     // キーボードの現在位置が置き去りになる（research.md F7 で実測）。
+    var wanted = (diffData.files || [])[index];
+    if (wanted) { revealFile(wanted.path); }
     var section = document.getElementById("file-" + index);
     if (!section) { return; }
     section.setAttribute("tabindex", "-1");
@@ -606,7 +625,8 @@
   function currentFileSection() {
     var pane = document.getElementById("pane-center");
     if (!pane) { return null; }
-    var sections = pane.querySelectorAll(".file");
+    // 絞り込みで隠れているファイルは「いま表示中」になり得ない（隠れている＝高さも無い）。
+    var sections = pane.querySelectorAll(".file:not([data-filtered])");
     if (!sections.length) { return null; }
     var line = pane.getBoundingClientRect().top + 1;
     var current = sections[0];
@@ -657,6 +677,65 @@
     ]);
   }
 
+  // ------------------------------------------------------ 差分量の 5 段階表示（□□□□□）
+  //
+  // GitHub の PR と同じ見せ方。埋まる色は**その差分の中の追加 / 削除の比**で、変更行が
+  // 5 行に満たないときだけ余りを灰色にする（1 行の変更が 1 個、100 行の変更が 5 個）。
+  // 比を丸めるときは、追加も削除もある差分では**両方に必ず 1 個ずつ残す**——+1292 -1 の
+  // ような差分で削除が 0 個に丸められると「削除が無い」と読めてしまう。
+  var DIFFSTAT_BLOCKS = 5;
+
+  function diffstatCount(value) {
+    var n = Number(value);
+    // 手で書いたバンドルなど、数でない値が来ても画面を壊さない（Infinity / NaN は 0 と見なす）。
+    if (!isFinite(n) || n <= 0) { return 0; }
+    return Math.floor(n);
+  }
+
+  function diffstatBlocks(additions, deletions) {
+    var add = diffstatCount(additions);
+    var del = diffstatCount(deletions);
+    var changes = add + del;
+    if (!changes) { return { added: 0, deleted: 0, neutral: DIFFSTAT_BLOCKS }; }
+    if (changes <= DIFFSTAT_BLOCKS) {
+      return { added: add, deleted: del, neutral: DIFFSTAT_BLOCKS - changes };
+    }
+    var a = Math.round(add / changes * DIFFSTAT_BLOCKS);
+    if (add > 0 && a === 0) { a = 1; }
+    if (del > 0 && a === DIFFSTAT_BLOCKS) { a = DIFFSTAT_BLOCKS - 1; }
+    return { added: a, deleted: DIFFSTAT_BLOCKS - a, neutral: 0 };
+  }
+
+  // 5 個の □ そのもの。色だけで意味を運ぶので、読み上げには数字（+12 -3）を渡す。
+  function diffstatNode(additions, deletions) {
+    var blocks = diffstatBlocks(additions, deletions);
+    // 読み上げる数字も**丸めたあとの値**から作る（壊れた値で "+undefined" と読ませない）。
+    var label = "+" + diffstatCount(additions) + " -" + diffstatCount(deletions);
+    var node = el("span", {
+      class: "diffstat", role: "img", title: label,
+      "aria-label": "差分量 " + label
+    });
+    var kinds = [];
+    var i;
+    for (i = 0; i < blocks.added; i += 1) { kinds.push("add"); }
+    for (i = 0; i < blocks.deleted; i += 1) { kinds.push("del"); }
+    for (i = 0; i < blocks.neutral; i += 1) { kinds.push("none"); }
+    kinds.forEach(function (kind) {
+      node.appendChild(el("span", { class: "diffstat-block", "data-kind": kind, "aria-hidden": "true" }));
+    });
+    return node;
+  }
+
+  // 「+12 -3 □□□□□」。ファイルのヘッダーと画面上部の見出し行で同じ形を使う。
+  function statsWithBar(additions, deletions) {
+    return el("span", { class: "file-stat" }, [
+      el("span", { class: "stat-add", text: "+" + additions }),
+      document.createTextNode(" "),
+      el("span", { class: "stat-del", text: "-" + deletions }),
+      diffstatNode(additions, deletions)
+    ]);
+  }
+
   function escapeRegExp(text) {
     return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
@@ -685,6 +764,154 @@
     }
     try { return new RegExp(pattern, "i"); }
     catch (err) { return { error: err.message }; }
+  }
+
+  // ------------------------------------------------------------ 拡張子での絞り込み
+  //
+  // GitHub の「File filter」と同じ位置づけ。**検索欄との違いは効く範囲**で、検索は一覧を
+  // 絞るだけ（どのファイルも中央には出たまま）、この絞り込みは中央の差分も隠す。GitHub も
+  // 同じ分担で、読む対象そのものを絞りたいときにこちらを使う。
+  var NO_EXT = "（拡張子なし）";
+
+  function extensionOf(path) {
+    var name = String(path).split("/").pop();
+    var dot = name.lastIndexOf(".");
+    // ドットで始まるだけの名前（.gitignore）と、ドットで終わる名前は「拡張子なし」に寄せる。
+    if (dot <= 0 || dot === name.length - 1) { return NO_EXT; }
+    return name.slice(dot).toLowerCase();
+  }
+
+  // 拡張子 -> 件数と、並び順（件数の多い順・同数なら名前順。GitHub と同じく多いものから読む）。
+  function extensionCounts() {
+    var counts = {};
+    var order = [];
+    (diffData.files || []).forEach(function (file) {
+      var ext = extensionOf(file.path);
+      if (!Object.prototype.hasOwnProperty.call(counts, ext)) { counts[ext] = 0; order.push(ext); }
+      counts[ext] += 1;
+    });
+    order.sort(function (a, b) {
+      if (counts[b] !== counts[a]) { return counts[b] - counts[a]; }
+      return a < b ? -1 : (a > b ? 1 : 0);
+    });
+    return { counts: counts, order: order };
+  }
+
+  function extSelected(ext) { return !extFilter || extFilter[ext] === true; }
+
+  function fileVisible(file) { return extSelected(extensionOf(file.path)); }
+
+  function visibleFiles() {
+    return (diffData.files || []).filter(fileVisible);
+  }
+
+  // 1 つの拡張子の表示/非表示を切り替える。**すべて選ばれた状態は null に畳む**ので、
+  // 差分を読み込み直しても（拡張子の顔ぶれが変わっても）「すべて表示」の意味が保たれる。
+  function setExtSelected(ext, on) {
+    var info = extensionCounts();
+    var next = {};
+    info.order.forEach(function (name) { if (extSelected(name)) { next[name] = true; } });
+    if (on) { next[ext] = true; } else { delete next[ext]; }
+    var all = info.order.every(function (name) { return next[name] === true; });
+    extFilter = all ? null : next;
+    applyFileFilter(ext);
+  }
+
+  function setAllExtSelected(on) {
+    if (on) { extFilter = null; } else { extFilter = {}; }
+    applyFileFilter();
+  }
+
+  // 絞り込みで隠れているファイルへ飛ぶ指示（コメント一覧からの移動など）が来たら、その
+  // 拡張子だけ表示へ戻す。黙って何も起きないより、見えるようにしてから飛ぶほうが筋が通る。
+  function revealFile(path) {
+    var file = (diffData.files || []).filter(function (f) { return f.path === path; })[0];
+    if (!file || fileVisible(file)) { return; }
+    var ext = extensionOf(file.path);
+    setExtSelected(ext, true);
+    notify("拡張子の絞り込みを一部解除しました: " + ext);
+  }
+
+  // keepFocusOn: 直前に操作した拡張子。一覧は毎回作り直すので、そのままだとチェックを
+  // 1 つ変えるたびにフォーカスが body まで落ち、キーボードでは続けて切り替えられない。
+  function applyFileFilter(keepFocusOn) {
+    var hadFocus = keepFocusOn && document.activeElement
+      && document.activeElement.classList
+      && document.activeElement.classList.contains("ext-filter-box");
+    renderExtFilter();
+    if (hadFocus) {
+      var box = document.querySelector('.ext-filter-item[data-ext="' + cssEscape(keepFocusOn) + '"] input');
+      if (box) { box.focus(); }
+    }
+    renderFileList();
+    applyFileVisibility();
+    renderMeta();
+  }
+
+  // 中央ペイン側の反映。差分そのものは作り直さず、隠す/戻すだけにする
+  // （展開・折りたたみ・書きかけのコメントを絞り込みのたびに失わないため）。
+  function applyFileVisibility() {
+    var files = diffData.files || [];
+    var hidden = 0;
+    files.forEach(function (file, index) {
+      var section = document.getElementById("file-" + index);
+      if (!section) { return; }
+      if (fileVisible(file)) { section.removeAttribute("data-filtered"); }
+      else { section.setAttribute("data-filtered", "true"); hidden += 1; }
+    });
+    var note = document.getElementById("filter-empty");
+    if (note) { note.hidden = !(files.length && hidden === files.length); }
+    applyCurrentFileHighlight();
+    updateProgressBar();
+  }
+
+  function renderExtFilter() {
+    var list = document.getElementById("ext-filter-list");
+    var button = document.getElementById("btn-ext-filter");
+    var summary = document.getElementById("ext-filter-summary");
+    if (!list || !button) { return; }
+    var info = extensionCounts();
+    var chosen = info.order.filter(extSelected);
+    clear(list);
+    info.order.forEach(function (ext) {
+      var box = el("input", { type: "checkbox", class: "ext-filter-box" });
+      box.checked = extSelected(ext);
+      box.addEventListener("change", function () { setExtSelected(ext, box.checked); });
+      list.appendChild(el("label", { class: "ext-filter-item", "data-ext": ext }, [
+        box,
+        el("span", { class: "ext-filter-name", text: ext }),
+        el("span", { class: "ext-filter-count", text: String(info.counts[ext]) })
+      ]));
+    });
+    if (!info.order.length) {
+      list.appendChild(el("p", { class: "empty", text: "変更ファイルなし" }));
+    }
+    var all = chosen.length === info.order.length;
+    if (summary) {
+      summary.textContent = info.order.length
+        ? (all ? info.order.length + " 種類すべてを表示中"
+               : info.order.length + " 種類中 " + chosen.length + " 種類を表示中")
+        : "";
+    }
+    var toggleAll = document.getElementById("btn-ext-all");
+    if (toggleAll) {
+      toggleAll.textContent = all ? "すべて外す" : "すべて選ぶ";
+      toggleAll.disabled = !info.order.length;
+    }
+    // 畳んでいても絞り込み中だと分かるよう、ボタン側にも状態を出す（件数とハイライト）。
+    button.setAttribute("data-filtered", all ? "false" : "true");
+    button.textContent = all ? "拡張子 ▾" : "拡張子 " + chosen.length + "/" + info.order.length + " ▾";
+  }
+
+  function setExtFilterOpen(open) {
+    var panel = document.getElementById("ext-filter-panel");
+    var button = document.getElementById("btn-ext-filter");
+    if (!panel || !button) { return; }
+    var wasOpen = !panel.hidden;
+    panel.hidden = !open;
+    button.setAttribute("aria-expanded", open ? "true" : "false");
+    // 閉じるときはフォーカスを開いたボタンへ返す（中にフォーカスがあれば行き場が無くなるため）。
+    if (wasOpen && !open && panel.contains(document.activeElement)) { button.focus(); }
   }
 
   function renderViewedCount() {
@@ -746,12 +973,19 @@
       return;
     }
     if (input) { input.removeAttribute("aria-invalid"); }
-    var pairs = all
+    var shown = all
       .map(function (file, index) { return { file: file, index: index }; })
-      .filter(function (pair) { return !query || query.test(pair.file.path); });
-    if (hint) { hint.textContent = fileSearchQuery ? pairs.length + " / " + all.length + " 件" : ""; }
+      .filter(function (pair) { return fileVisible(pair.file); });
+    var pairs = shown.filter(function (pair) { return !query || query.test(pair.file.path); });
+    // 件数は「検索か絞り込みで減っているとき」に出す（減っていないのに n / n と出す意味はない）。
+    if (hint) { hint.textContent = pairs.length === all.length ? "" : pairs.length + " / " + all.length + " 件"; }
     if (!pairs.length) {
-      nav.appendChild(el("p", { class: "empty", text: "一致するファイルがありません" }));
+      // 検索のせいなのか拡張子の絞り込みのせいなのかで文言を変える。同じ「一致しません」だと
+      // 検索欄を空にしても戻らず、検索が壊れているように読める。
+      nav.appendChild(el("p", {
+        class: "empty",
+        text: shown.length ? "一致するファイルがありません" : "拡張子の絞り込みで表示できるファイルがありません"
+      }));
       return;
     }
     if (treeMode()) { renderFileTree(nav, pairs); return; }
@@ -952,6 +1186,9 @@
       // 壊れているのか本当に差分が無いのかが利用者に区別できない。
       container.appendChild(el("p", { class: "empty", text: "差分がありません（この指定では変更が見つかりませんでした）。" }));
       container.appendChild(el("p", { class: "hint", text: "レビュー記録の JSON は読み込めます。別の差分を見るには --staged / --range などを指定して生成し直してください。" }));
+      // ここでも呼ぶ。前の差分を全拡張子で隠していた場合、#filter-empty が残って
+      // 「差分がありません」と二重に出る（0 件の差分に差し替わったときだけ起きる）。
+      applyFileVisibility();
       return;
     }
     (diffData.files || []).forEach(function (file, index) {
@@ -1023,7 +1260,6 @@
       if (file.binary) { tags.push("バイナリ"); }
       if (file.language) { tags.push(file.language); }
       if (big) { tags.push(lineCount(file) + " 行・既定で折りたたみ"); }
-      tags.push("+" + file.additions + " -" + file.deletions);
 
       var actions = el("span", { class: "file-actions" });
       if (file.rich && window.DiffReviewRich) {
@@ -1070,7 +1306,11 @@
 
       section.appendChild(el("div", { class: "file-head" }, [
         el("div", { class: "path" }, [toggle, pathText, copyButton, viewedLabel]),
-        el("div", { class: "tags", text: tags.join(" ・ ") }),
+        el("div", { class: "tags" }, [
+          el("span", { text: tags.join(" ・ ") }),
+          document.createTextNode(" ・ "),
+          statsWithBar(file.additions, file.deletions)
+        ]),
         actions
       ]));
       section.appendChild(el("div", { class: "threads", "data-threads": fileKey(file.path) }));
@@ -1081,6 +1321,8 @@
       if (!big) { fillFileBody(body, file); }
       container.appendChild(section);
     });
+    // 作り直したので、絞り込みで隠す指定も付け直す（.file は毎回新しい DOM になる）。
+    applyFileVisibility();
   }
 
   function statusLabel(status) {
@@ -1989,8 +2231,10 @@
   }
 
   function gotoThread(thread) {
-    // 1) 折りたたみ中のファイルにあるなら先に開く（開かないと行が存在しない）
+    // 1) 折りたたみ中のファイルにあるなら先に開く（開かないと行が存在しない）。
+    //    拡張子で隠しているファイルなら、先に見えるように戻す（隠れたままでは飛べない）。
     if (thread.path !== null && thread.path !== undefined) {
+      revealFile(thread.path);
       var section = document.querySelector('.file[data-path="' + cssEscape(thread.path) + '"]');
       if (section && section.getAttribute("data-collapsed") === "true") {
         var file = (diffData.files || []).filter(function (f) { return f.path === thread.path; })[0];
@@ -2581,7 +2825,10 @@
   // --------------------------------------------------------- キーボード
 
   function rows() {
-    return Array.prototype.slice.call(document.querySelectorAll(".row"));
+    // 拡張子で隠したファイルの行は j / k の道筋からも外す（見えない行へ飛ぶと現在位置を見失う）。
+    return Array.prototype.filter.call(document.querySelectorAll(".row"), function (row) {
+      return !(row.closest && row.closest('.file[data-filtered="true"]'));
+    });
   }
 
   function setCurrentRow(row) {
@@ -2628,9 +2875,16 @@
 
   function currentSection() {
     // 現在行が生きていればそこから、そうでなければフォーカス位置から「いま見ているファイル」を引く。
-    if (currentRow && currentRow.isConnected) { return currentRow.closest(".file"); }
-    var active = document.activeElement;
-    return active && active.closest ? active.closest(".file") : null;
+    // 絞り込みで隠れたファイルは**返さない**——隠れたまま f / e / t が効くと、画面では何も
+    // 起きないのに折りたたみ状態だけ変わり、絞り込みを戻したときに覚えの無い状態になる。
+    var section = null;
+    if (currentRow && currentRow.isConnected) { section = currentRow.closest(".file"); }
+    else {
+      var active = document.activeElement;
+      section = active && active.closest ? active.closest(".file") : null;
+    }
+    if (section && section.getAttribute("data-filtered") === "true") { return null; }
+    return section;
   }
 
   function isTyping(event) {
@@ -2739,6 +2993,7 @@
         notifPanel.hidden = true;
         document.getElementById("btn-notif").setAttribute("aria-expanded", "false");
       }
+      setExtFilterOpen(false);
     }
   }
 
@@ -2747,6 +3002,7 @@
   function renderAll() {
     renderMeta();
     showOpenPrompt(!(diffData.files || []).length);
+    renderExtFilter();
     renderFileList();
     renderFiles();
     renderThreads();
@@ -2905,6 +3161,41 @@
           fileSearchQuery = "";
           renderFileList();
         }
+      });
+    }
+
+    var extButton = document.getElementById("btn-ext-filter");
+    if (extButton) {
+      extButton.addEventListener("click", function () {
+        setExtFilterOpen(document.getElementById("ext-filter-panel").hidden);
+      });
+      var extAll = document.getElementById("btn-ext-all");
+      if (extAll) {
+        extAll.addEventListener("click", function () {
+          // 「すべて選ぶ」⇔「すべて外す」。外したあとに拡張子を 1 つずつ足して読む使い方
+          // （.md だけ見る等）が、チェックを 1 つずつ外すより速い。
+          setAllExtSelected(extAll.textContent.indexOf("外す") === -1);
+        });
+      }
+      // グローバルの Escape（onKeyDown）は入力欄にフォーカスがあると何もしない（isTyping ガード）。
+      // このパネルの中身はチェックボックス＝input なので、そのままでは開いた中から Esc で閉じられない
+      // （#submit-panel / #export-panel と同じ理由。decisions.md D21）。パネル自身で塞ぐ。
+      var extPanel = document.getElementById("ext-filter-panel");
+      if (extPanel) {
+        extPanel.addEventListener("keydown", function (event) {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            setExtFilterOpen(false);
+          }
+        });
+      }
+      // 外側を押したら閉じる。パネル内のチェックは押すたびに絞り込みが変わるので、
+      // 押しただけでは閉じない（続けて何個も切り替えられる）。
+      document.addEventListener("click", function (event) {
+        var panel = document.getElementById("ext-filter-panel");
+        if (!panel || panel.hidden) { return; }
+        var inside = panel.contains(event.target) || extButton.contains(event.target);
+        if (!inside) { setExtFilterOpen(false); }
       });
     }
     wireCommentList();

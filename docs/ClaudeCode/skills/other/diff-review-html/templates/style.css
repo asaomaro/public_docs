@@ -413,6 +413,22 @@ textarea {
 .stat-add { color: var(--resolved); }
 .stat-del { color: var(--danger); }
 
+/* 差分量の 5 段階（□□□□□）。GitHub の PR と同じく、数字の右に並べる。
+   色だけが意味を運ぶので、読み上げ用の名前は .diffstat 自身に付けてある（app.js）。
+   枠線を必ず 1 本持たせるのは、灰色のマスが背景に溶けて「4 個しかない」と見えないため
+   （淡色テーマの --line でも輪郭が残る）。 */
+.diffstat { display: inline-flex; gap: 2px; margin-left: 6px; vertical-align: middle; }
+.diffstat-block {
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: transparent;
+}
+.diffstat-block[data-kind="add"] { background: var(--resolved); border-color: var(--resolved); }
+.diffstat-block[data-kind="del"] { background: var(--danger); border-color: var(--danger); }
+.file-stat { white-space: nowrap; }
+
 .section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .section-head h2 { font-size: 14px; margin: 0; }
 
@@ -855,6 +871,57 @@ textarea {
 #file-search:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 #file-search[aria-invalid="true"] { border-color: var(--danger); }
 .filelist-hint { margin: 4px 0 0; font-size: 11px; color: var(--muted); }
+
+/* ------------------------------------------------------ 拡張子での絞り込み（左ペイン） */
+
+.ext-filter-wrap { position: relative; margin-top: 6px; }
+.ext-filter-button { font-size: 12px; padding: 3px 8px; }
+/* 畳んでいても絞り込み中だと分かるように（ラベルの件数だけだと見落とす）。 */
+.ext-filter-button[data-filtered="true"] { border-color: var(--accent); color: var(--accent); }
+.ext-filter-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  /* ペインを狭くしてもはみ出さない（境界は 0〜600px まで引ける）。 */
+  width: 240px;
+  max-width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .24);
+  padding: 8px;
+}
+/* 長くなるのは一覧だけ。パネルごとスクロールさせると、拡張子が多いときに見出しと
+   「n 種類中 m 種類を表示中」が枠の外へ出てしまう（実機のスクリーンショットで確認）。 */
+#ext-filter-list { max-height: 240px; overflow: auto; }
+.ext-filter-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+.ext-filter-head button { font-size: 11px; padding: 2px 6px; }
+.ext-filter-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 2px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.ext-filter-item:hover { background: var(--surface); }
+.ext-filter-name { flex: 1 1 auto; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; }
+.ext-filter-count { flex: 0 0 auto; color: var(--muted); }
+.ext-filter-panel .hint { margin: 6px 0 0; font-size: 11px; }
+.ext-filter-panel .empty { padding: 8px 2px; font-size: 12px; color: var(--muted); }
+
+/* 絞り込みで隠したファイル。差分の DOM は残したまま隠すだけにして、展開や書きかけの
+   コメントを絞り込みのたびに失わないようにする（app.js の applyFileVisibility）。 */
+.file[data-filtered="true"] { display: none; }
+#filter-empty { padding: 16px 0; color: var(--muted); }
 
 .viewed-count { font-size: 11px; color: var(--muted); white-space: nowrap; }
 
