@@ -3,6 +3,7 @@ src/**
 test/**
 out/test/**
 scripts/**
+media/icon.svg
 .vscode-test/**
 tsconfig.json
 .gitignore

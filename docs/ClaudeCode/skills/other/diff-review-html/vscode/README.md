@@ -25,6 +25,7 @@ HTML 版と**同じ画面**のまま読み書きする拡張。Marketplace に�
 | `src/viewerHtml.ts` | 画面に CSP と nonce を付ける |
 | `src/minimalEdit.ts` | 文書の書き換えを最小の範囲にする |
 | `scripts/build-viewer.mjs` | `media/viewer.html` を `diff_review.py view` で生成する |
+| `media/icon.svg` / `icon.png` | 拡張のアイコン（原本は SVG。PNG は 256px に書き出したもの） |
 
 画面と拡張のあいだのメッセージの契約は `../SKILL.md` の「エディタ拡張から使う」にある。
 
