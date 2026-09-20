@@ -1996,9 +1996,9 @@ assert_contains "$DBO" "aidev debug start --phase coding" "event sent_back: 上�
 assert_contains "$DBO" "同じコンテキストで回し続けない" "event sent_back: 何が問題かを言う"
 
 DBO=$(run_db debug status --format tsv 2>&1)
-assert_contains "$DBO" "$(printf 'coding\t3\t0\tyes')" "debug status: 差し戻し3・デバッグ未実施・要=yes"
+assert_contains "$DBO" "$(printf 'coding\t3\t0\t0\tyes')" "debug status: 差し戻し3・デバッグ未実施・skip 無し・要=yes"
 assert_contains "$DBO" "maxSendBacks=3 maxDebugRounds=2 last_action=-" "debug status: 上限と直近の行動"
-assert_contains "$(run_db debug 2>&1)" "phase   sent_backs  debug_rounds  due" "debug: 引数なしは status（表）"
+assert_contains "$(run_db debug 2>&1)" "phase   sent_backs  debug_rounds  skips  due" "debug: 引数なしは status（表）"
 
 # start は「渡さないもの」を明示する（この手順の要）
 DBO=$(run_db debug start --phase coding 2>&1); DBR2=$?
@@ -2053,6 +2053,70 @@ for p in requirements design tasks coding test review deliver; do run_db approve
 DBV=$(run_db verify 2>&1); DBR2=$?
 assert_eq "$DBR2" "0" "verify: 原因究明の記録漏れは WARN 止まり（人の判断が要る）"
 assert_contains "$DBV" "test の差し戻しが 3 回（上限 3）だが原因究明の記録が無い" "verify: 上限到達＋未実施を知らせる"
+assert_contains "$DBV" "省くなら aidev debug skip --phase test --reason" "verify: 省く出口を工程つきで示す"
+
+# skip: 原因が特定済みで委譲の価値が無いときの出口。**黙って無視**と区別するため理由の記録を対価にする
+run_db debug skip --phase test >/dev/null 2>&1
+assert_eq "$?" "1" "debug skip: --reason 無しは弾く（書けないなら省かない）"
+run_db debug skip --phase review --reason "x" >/dev/null 2>&1
+assert_eq "$?" "1" "debug skip: 差し戻しの無い工程では拒否する"
+printf -- '- [must][conv:-] x / 対応: 済\n' > "$DBD2/review.md"  # review の差し戻しには指摘行が要る
+# **上限に達する前には打てない**（手前で打てると WARN が鳴る前に永久に黙らせられる。review 指摘）
+run_db event review sent_back >/dev/null
+run_db debug skip --phase review --reason "まだ上限ではない" >/dev/null 2>&1
+assert_eq "$?" "1" "debug skip: 上限未到達の工程では拒否する"
+DBO=$(run_db debug skip --phase test --reason "原因は毎回違い、いずれもその場で特定・再現できている" 2>&1)
+assert_eq "$?" "0" "debug skip: 理由つきなら通る"
+assert_contains "$DBO" "skip（差し戻し 3 回）" "debug skip: 何回目で省いたかを出す"
+assert_contains "$(cat "$DBD2/decisions.md")" "- 理由: 原因は毎回違い、いずれもその場で特定・再現できている"   "debug skip: 理由は decisions.md に文章として残す"
+assert_contains "$(cat "$DBD2/metrics.yml")" "stage: skip, sent_backs: 3" "debug skip: metrics には列挙値だけを刻む"
+DBV=$(run_db verify 2>&1); DBR2=$?
+assert_eq "$DBR2" "0" "verify: skip があっても exit code は変わらない"
+assert_absent "$DBV" "だが原因究明の記録が無い" "verify: 理由つきで省いた工程では WARN を出さない"
+DBO=$(run_db debug status --format tsv 2>&1)
+assert_contains "$DBO" "$(printf 'test	3	0	1	no')" "debug status: skip 列を出し、due を満たす"
+# **抑止は工程ごと**（phase 条件が落ちて全工程を黙らせる退行を捕まえる）
+for i in 1 2 3; do run_db event coding sent_back >/dev/null; done
+DBV=$(run_db verify 2>&1)
+assert_contains "$DBV" "coding の差し戻しが 3 回（上限 3）だが原因究明の記録が無い" "verify: skip は他の工程を黙らせない"
+# **省いた後にさらに差し戻されたら鳴らし直す**（当時の判断はその後の手戻りに及ばない）
+run_db event test sent_back >/dev/null
+DBV=$(run_db verify 2>&1)
+assert_contains "$DBV" "test の差し戻しが 4 回（上限 3）だが原因究明の記録が無い" "verify: skip の後に増えたら鳴らし直す"
+assert_contains "$(run_db debug status --format tsv 2>&1)" "$(printf 'test\t4\t0\t1\tyes')" "debug status: skip の後に増えたら due=yes に戻る"
+
+# **--phase の既定は「上限に達している工程」**（`current`＝最後に承認した工程ではない）。
+# 実走では、裸の `debug skip --reason` が coding に記録され、test の WARN が消えないまま通った
+run_db new stuck3 >/dev/null; DBW3=$(cat "$DBR/.aidev/current"); DBD3="$DBR/.aidev/works/$DBW3"
+for f in design tasks; do : > "$DBD3/$f.md"; done
+printf -- '- [ ] AC1: a\n' > "$DBD3/requirements.md"
+printf -- '- [ ] T1: x\n      AC: AC1\n      依存: なし\n' > "$DBD3/tasks.md"
+printf '```\nFAILED\n```\n' > "$DBD3/test-result.md"
+printf -- '- [must][conv:-] x / 対応: 済\n' > "$DBD3/review.md"
+for p in requirements design tasks coding; do run_db approve "$p" >/dev/null; done  # current は coding
+for i in 1 2 3; do run_db event test sent_back >/dev/null; done
+for i in 1 2 3; do run_db event review sent_back >/dev/null; done
+# 省ける工程が 2 つあるなら、どちらかを選ばせる（黙って片方に記録しない）。**候補は全部並べる**
+DBO=$(run_db debug skip --reason "x" 2>&1); DBR2=$?
+assert_eq "$DBR2" "1" "debug skip: 省ける工程が複数なら --phase を要求する"
+assert_contains "$DBO" "省ける工程: test review 計 2 件" "debug skip: 候補を全部並べて選ばせる"
+# 1 つ省くと候補は 1 つに減り、省略でも通る（current は coding だが選ばれるのは review）
+run_db debug skip --phase test --reason "原因は毎回違い、いずれもその場で特定・再現できている" >/dev/null
+DBO=$(run_db debug skip --reason "review も同じで、指摘の出所はすべて特定できている" 2>&1); DBR2=$?
+assert_eq "$DBR2" "0" "debug skip: --phase 省略でも省ける工程が 1 つなら通る"
+assert_contains "$DBO" "/review skip" "debug skip: --phase 省略時は current（coding）ではなく省ける工程を選ぶ"
+# 委譲済み（debug start）の工程は候補に入らない——WARN が元から鳴らないので、省く対象ではない
+run_db new stuck4 >/dev/null; DBW4=$(cat "$DBR/.aidev/current"); DBD4="$DBR/.aidev/works/$DBW4"
+for f in design tasks; do : > "$DBD4/$f.md"; done
+printf -- '- [ ] AC1: a\n' > "$DBD4/requirements.md"
+printf -- '- [ ] T1: x\n      AC: AC1\n      依存: なし\n' > "$DBD4/tasks.md"
+printf '```\nFAILED\n```\n' > "$DBD4/test-result.md"
+for p in requirements design tasks; do run_db approve "$p" >/dev/null; done
+for i in 1 2 3; do run_db event test sent_back >/dev/null; done
+run_db debug start --phase test >/dev/null
+DBO=$(run_db debug skip --reason "x" 2>&1); DBR2=$?
+assert_eq "$DBR2" "1" "debug skip: 委譲済みの工程は候補に入らない"
+assert_contains "$DBO" "省ける工程: なし" "debug skip: 省ける工程が無いと言う"
 rm -rf "$DBR"
 
 
@@ -3502,20 +3566,27 @@ EOF
     for f in design tasks review test-result; do : > "$PDD/$f.md"; done
     printf -- '- [ ] AC1: a\n' > "$PDD/requirements.md"
     printf -- '- [ ] T1: x\n      AC: AC1\n      依存: なし\n' > "$PDD/tasks.md"
+    printf '```\nFAILED\n```\n' > "$PDD/test-result.md"   # test の差し戻しは理由（生出力）を要求する
     for p in requirements design tasks; do pdr approve "$p"; done
     for i in 1 2 3; do pdr event coding sent_back; done
     pdr debug start --phase coding
     pdr debug report --phase coding --root-cause "save() が例外を握りつぶしていた" --category logic --next-action retry --confidence high --fix-tasks "os.replace の前に再送出"
     pdr debug start --phase coding
     pdr debug report --phase coding --root-cause "外部 API の仕様が違う" --category external --next-action stop_for_human
+    # skip も同じ記録経路を通る（sh/ps1 で decisions.md・metrics.yml が一致することを見る）
+    for i in 1 2 3; do pdr event test sent_back; done
+    pdr debug skip --phase test --reason "原因は毎回違い、いずれもその場で特定・再現できている"
     for p in coding test review deliver; do pdr approve "$p"; done
   done
   PDM_SH=$(sed 's/ts: [^,]*, //' "$PDB/.aidev/works"/*/metrics.yml)
   PDM_PS=$(tr -d '\r' < "$(ls -d "$PDB2/.aidev/works"/*/metrics.yml)" | sed 's/ts: [^,]*, //')
   assert_eq "$PDM_SH" "$PDM_PS" "パリティ: debug が刻む metrics（stage/round/category/next_action）"
-  PDD_SH=$(sed 's/・[0-9TZ:-]*）/）/' "$PDB/.aidev/works"/*/decisions.md)
-  PDD_PS=$(tr -d '\r' < "$(ls -d "$PDB2/.aidev/works"/*/decisions.md)" | sed 's/・[0-9TZ:-]*）/）/')
-  assert_eq "$PDD_SH" "$PDD_PS" "パリティ: debug report が書く decisions.md"
+  # 日時は正規化する。**`（<日時>）` の形（skip の見出し）も落とす**——`・<日時>）`（report）だけを
+  # 落としていた頃は、skip の見出しの日時がそのまま比較され、sh/ps1 の実行時刻の差で必ず落ちた
+  _pdnorm() { sed -e 's/・[0-9TZ:-]*）/）/' -e 's/（[0-9][0-9TZ:.-]*）/（）/'; }
+  PDD_SH=$(_pdnorm < "$(ls -d "$PDB/.aidev/works"/*/decisions.md)")
+  PDD_PS=$(tr -d '\r' < "$(ls -d "$PDB2/.aidev/works"/*/decisions.md)" | _pdnorm)
+  assert_eq "$PDD_SH" "$PDD_PS" "パリティ: debug report / skip が書く decisions.md"
   for pargs in "debug status --format tsv" "debug" "debug start --phase coding" "verify"; do
     # shellcheck disable=SC2086
     PDO_SH=$( ( cd "$PDB"  && "$AIDEV_SH" $pargs ) 2>&1 ); PDO_SH_RC=$?
@@ -3534,6 +3605,26 @@ EOF
     PB_PS=$(printf '%s' "$PB_PS_RAW" | tr -d '\r')
     assert_eq "$PB_SH" "$PB_PS" "パリティ: debug report の入口ゲート（$pbad）"
     assert_eq "$PB_SH_RC" "$PB_PS_RC" "パリティ: debug report の入口ゲート exit（$pbad）"
+  done
+  # --phase 省略（既定の選び方）のパリティ。曖昧なときの文面も突き合わせる
+  for pomit in "debug skip --reason 省略の既定" "debug status --format tsv"; do
+    # shellcheck disable=SC2086
+    PO_SH=$( ( cd "$PDB"  && "$AIDEV_SH" $pomit ) 2>&1 ); PO_SH_RC=$?
+    # shellcheck disable=SC2086
+    PO_PS_RAW=$( ( cd "$PDB2" && run_ps1 "$AIDEV_PS1" $pomit ) 2>&1 ); PO_PS_RC=$?
+    PO_PS=$(printf '%s' "$PO_PS_RAW" | tr -d '\r')
+    assert_eq "$PO_SH" "$PO_PS" "パリティ: $pomit（出力）"
+    assert_eq "$PO_SH_RC" "$PO_PS_RC" "パリティ: $pomit（exit code）"
+  done
+  # skip の入口ゲート（理由必須・上限未到達）のパリティ
+  for pbad in "--phase test" "--phase review --reason x"; do
+    # shellcheck disable=SC2086
+    PS_SH=$( ( cd "$PDB"  && "$AIDEV_SH" debug skip $pbad ) 2>&1 ); PS_SH_RC=$?
+    # shellcheck disable=SC2086
+    PS_PS_RAW=$( ( cd "$PDB2" && run_ps1 "$AIDEV_PS1" debug skip $pbad ) 2>&1 ); PS_PS_RC=$?
+    PS_PS=$(printf '%s' "$PS_PS_RAW" | tr -d '\r')
+    assert_eq "$PS_SH" "$PS_PS" "パリティ: debug skip の入口ゲート（$pbad）"
+    assert_eq "$PS_SH_RC" "$PS_PS_RC" "パリティ: debug skip の入口ゲート exit（$pbad）"
   done
   # sent_back の上限通知
   PN_SH=$( ( cd "$PDB"  && "$AIDEV_SH" event review sent_back ) 2>&1 )
@@ -4353,9 +4444,9 @@ YML
   else
     skip 10 "git 不在のため worktree パリティを省略"
   fi
-  block_end parity "274" "parity"
+  block_end parity "282" "parity"
 else
-  skip 260 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
+  skip 268 "PowerShell(pwsh/powershell) 不在のためパリティテストを省略（sh 単体の検査も一部含む）"
 fi
 
 echo

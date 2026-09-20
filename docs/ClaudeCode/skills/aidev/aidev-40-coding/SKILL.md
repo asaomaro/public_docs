@@ -59,8 +59,10 @@ tasks に沿ってコードを書く。`tasks.md` の未チェック項目を 1 
    - `mode: autonomous`（人間の目が入らないので**全タスク**。ただし**自前の差分を生まないタスク**——
      既存テストの実行、test 工程で消化する確認など——は点検対象が存在しないので `task_checks` に数えない。
      数えると `task_check_findings` の分母が work ごとに揺れる）／ `対象: 未特定` だったタスク／
-     アンカーが外れて探索し直したタスク（手順3で数えたもの）／共有モジュール・公開 API に触れたタスク
-     （`.aidev/config.yml` の `sharedFiles` があればそれを使う）。
+     アンカーが外れて探索し直したタスク（手順3で数えたもの）／**共有モジュール・公開 API・外部に見える
+     振る舞い**（プロトコル・CLI の表面・画面の操作）に触れたタスク（`.aidev/config.yml` の `sharedFiles` が
+     あればそれを使う）——**`interactive` でもこれは既定で点検する**（実測：点検はタスク 20 件に対し 100 件を
+     review の前に潰した。同じ期間の review のラウンド指摘は 78 件）。
    - **観点・返却形式・崩れたときの扱いは `protocol-check.md`「(b)」**（ここには写さない）。
    - **`aidev taskcheck start <task-id> --mode <delegated|same_session>` を打ってから委譲する**。
      ラウンド上限（`maxTaskCheckRounds`。既定 2）を CLI が検査し、超えていれば exit 4 で止まる。

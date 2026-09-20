@@ -25,6 +25,7 @@
 #     受け入れ基準(AC)の被覆率と tasks.md の整合（AC 行の欠落・未定義参照・依存の循環）を検査する。
 #     対応付けの正典は tasks.md の `AC:` 行。--strict は gap があれば exit 4（tasks の承認前ゲート）
 #   aidev debug [start|report|status] ...        # 詰まったときの原因究明を有限化する
+#   aidev debug skip [--phase p] --reason <理由>  # 原因が特定済みなら委譲を省く（理由は必須）
 #     start  [slug] [--phase p]                  # 新しいコンテキストへ委譲する前に打つ。ラウンド上限(既定2)を検査
 #     report [slug] --root-cause <t> --category <c> --next-action <retry|block|stop_for_human>
 #            [--confidence high|medium|low] [--fix-tasks <t>] [--verification <t>]
@@ -798,6 +799,7 @@ cmd_event() {
       if [ "$_edr" -eq 0 ]; then
         printf 'note: %s の差し戻しが %s 回（上限 %s）。**同じコンテキストで回し続けない** —— \n' "$ph" "$_esb" "$_emax"
         printf '      aidev debug start --phase %s で、新しいコンテキストへ原因究明を委譲すること\n' "$ph"
+        printf '      原因が特定済みで再現できているなら aidev debug skip --phase %s --reason "<理由>" で省ける\n' "$ph"
       fi
     fi
   fi
@@ -1693,6 +1695,20 @@ dbg_rounds() { # metrics_file phase
   case "$_n" in ''|*[!0-9]*) _n=0 ;; esac
   printf '%s' "$_n"
 }
+# この工程で原因究明を省いた回数（`debug skip`。stage:skip を数える）
+dbg_skips() { # metrics_file phase
+  [ -f "$1" ] || { printf '0'; return; }
+  _n=$(grep "phase:[[:space:]]*$2," "$1" 2>/dev/null | grep 'event:[[:space:]]*debug' \
+        | grep -c 'stage:[[:space:]]*skip') || _n=0
+  case "$_n" in ''|*[!0-9]*) _n=0 ;; esac
+  printf '%s' "$_n"
+}
+# 直近の `debug skip` が刻んだ sent_backs（無ければ空）。skip の後にさらに差し戻されたかを見る
+dbg_skip_at() { # metrics_file phase
+  [ -f "$1" ] || return 0
+  grep "phase:[[:space:]]*$2," "$1" 2>/dev/null | grep 'event:[[:space:]]*debug' | grep 'stage:[[:space:]]*skip' \
+    | tail -n1 | sed -n 's/.*sent_backs:[[:space:]]*\([0-9][0-9]*\).*/\1/p'
+}
 # 直近の debug 報告の next_action（無ければ空）
 dbg_last_action() { # metrics_file
   [ -f "$1" ] || return 0
@@ -1772,6 +1788,9 @@ dbg_report() {
 
   # **本文は decisions.md、列挙値は metrics** に分ける。metrics はフロー形式の1行なので
   # 自由文（カンマを含む）を入れると壊れる。文章は文章の置き場へ送る
+  # 改行は潰す（decisions.md に偽の見出しを書けて採番が飛ぶ。`skip` と同じ扱い）
+  _nl() { printf '%s' "$1" | tr '\r' '\n' | sed ':a;N;$!ba;s/\n\{1,\}/ /g'; }
+  drc=$(_nl "$drc"); dfix=$(_nl "$dfix"); dver=$(_nl "$dver")
   _df="$WORK/decisions.md"
   _dn=$(grep -c '^## デバッグ D' "$_df" 2>/dev/null) || _dn=0
   case "$_dn" in ''|*[!0-9]*) _dn=0 ;; esac
@@ -1805,6 +1824,75 @@ dbg_report() {
   return 0
 }
 
+# 原因究明の委譲を**省く**（理由を記録する）。
+# 上限に達した差し戻しでも、原因が毎回違って既に特定・再現できている場合は、まっさらなコンテキストへ
+# 委譲する価値が無い（`protocol-debug.md`「発火条件」の但し書き）。そこを**黙って無視**すると
+# `verify` の WARN が常態化して他の WARN を埋めるので、**出口は作るが理由の記録を対価にする**
+# （`taskcheck` の `unreported` を「`decisions.md` に ID があれば消える」にしたのと同じ判断）。
+dbg_skip() {
+  dslug=""; dph=""; drs=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --phase)  need_arg "$1" $#; dph=$2; shift 2 ;;
+      --reason) need_arg "$1" $#; drs=$2; shift 2 ;;
+      -*) die "未知のオプション: $1" ;;
+      *) [ -z "$dslug" ] && dslug=$1 || die "slug は1つだけ"; shift ;;
+    esac
+  done
+  resolve_work "$dslug"
+  # **既定は「上限に達している工程」**（`state.yml` の current ではない）。差し戻されるのは test / review で、
+  # current は最後に承認した工程（多くは coding）なので、current を既定にすると**別の工程に記録され、
+  # 狙った WARN は消えないまま黙って通る**（実走で実測）。該当が 1 つに決まらなければ `--phase` を要求する
+  if [ -z "$dph" ]; then
+    # 候補は **`verify` の WARN が実際に鳴る工程**に揃える——上限に達していて、まだ委譲しておらず
+    # （`debug start` 済みは除く）、有効な skip も無い（省いた後に増えた分だけ再び候補）。揃えないと、
+    # 既に片付いた工程を選んで矛盾した記録を残したり、本当に省きたい工程が「複数」で弾かれたりする
+    _dmx=$(dbg_max_send_backs); _dcand=""; _dn2=0
+    for _p in $PHASES; do
+      _c1=$(dbg_sent_backs "$WORK/metrics.yml" "$_p")
+      [ "$_c1" -ge "$_dmx" ] 2>/dev/null || continue
+      [ "$(dbg_rounds "$WORK/metrics.yml" "$_p")" -eq 0 ] || continue
+      _c2=$(dbg_skip_at "$WORK/metrics.yml" "$_p")
+      [ -z "$_c2" ] || [ "$_c1" -gt "$_c2" ] 2>/dev/null || continue
+      _dcand="${_dcand:+$_dcand }$_p"; _dn2=$((_dn2+1))
+    done
+    if [ "$_dn2" -ne 1 ]; then
+      [ "$_dn2" -eq 0 ] && _dlbl="なし" || _dlbl="$_dcand 計 $_dn2 件"
+      die "どの工程を省くかを --phase で指定してください（省ける工程: $_dlbl）"
+    fi
+    dph=$_dcand
+  fi
+  is_phase "$dph" || die_unknown_phase "$dph" "" "。--phase で指定するか state.yml の current を直す"
+  # **理由は必須**（`debug report --root-cause` と同じ入口ゲート）。書けないなら省かせない
+  [ -n "$drs" ] || die "--reason は必須です（理由を書けないなら省かない。aidev debug start へ倒すこと）"
+  _dsb=$(dbg_sent_backs "$WORK/metrics.yml" "$dph")
+  _dmx=$(dbg_max_send_backs)
+  # **上限に達していない差し戻しでは省かせない**。この出口は「上限に達したのに委譲しない」ための
+  # ものなので、手前で打てると WARN が鳴る前に永久に黙らせられる（レビュー指摘。実測で 1 回の
+  # 差し戻しでも通り、その後 4 回増えても鳴らなかった）
+  [ "$_dsb" -ge "$_dmx" ] 2>/dev/null || die "$dph の差し戻しは $_dsb 回で、上限（$_dmx）に達していません（省く対象がありません）"
+  # 改行は潰す（decisions.md に偽の `## デバッグ D<n>` 見出しを書けて採番が飛ぶ）
+  drs=$(printf '%s' "$drs" | tr '\r' '\n' | sed ':a;N;$!ba;s/\n\{1,\}/ /g')
+  _df="$WORK/decisions.md"
+  _dn=$(grep -c '^## デバッグ D' "$_df" 2>/dev/null) || _dn=0
+  case "$_dn" in ''|*[!0-9]*) _dn=0 ;; esac
+  _dn=$((_dn+1))
+  if [ ! -f "$_df" ]; then printf '# 判断の記録: %s\n' "$SLUG" > "$_df"
+  elif [ -n "$(tail -c 1 "$_df" 2>/dev/null)" ]; then printf '\n' >> "$_df"; fi
+  {
+    printf '\n## デバッグ D%s: %s の原因究明を省いた（%s）\n' "$_dn" "$dph" "$(now)"
+    printf -- '- 背景: %s の差し戻しが %s 回（上限 %s）。\n' "$dph" "$_dsb" "$_dmx"
+    printf -- '- 決定: 原因究明（aidev debug start）の委譲を省いた。\n'
+    printf -- '- 理由: %s\n' "$drs"
+  } >> "$_df"
+  append_event "$dph" debug "stage=skip" "sent_backs=$_dsb"
+  printf 'debug: %s/%s skip（差し戻し %s 回）\n' "$SLUG" "$dph" "$_dsb"
+  printf 'recorded: .aidev/works/%s/decisions.md の「デバッグ D%s」\n' "$SLUG" "$_dn"
+  printf 'note: 省いてよいのは**原因が特定済みで再現できている**ときだけ。\n'
+  printf '      同じコンテキストで回し続けない——修正は新しい実装コンテキストへ委ねる（protocol-debug.md）\n'
+  return 0
+}
+
 dbg_status() {
   dslug=""; fmt=table
   while [ $# -gt 0 ]; do
@@ -1821,14 +1909,17 @@ dbg_status() {
   for p in $PHASES; do
     _sb=$(dbg_sent_backs "$WORK/metrics.yml" "$p")
     _rd=$(dbg_rounds "$WORK/metrics.yml" "$p")
-    [ "$_sb" -eq 0 ] && [ "$_rd" -eq 0 ] && continue
-    if [ "$_sb" -ge "$_dsb" ] 2>/dev/null && [ "$_rd" -eq 0 ]; then _due=yes; else _due=no; fi
-    rows="${rows}${p}	${_sb}	${_rd}	${_due}
+    _sk=$(dbg_skips "$WORK/metrics.yml" "$p")
+    [ "$_sb" -eq 0 ] && [ "$_rd" -eq 0 ] && [ "$_sk" -eq 0 ] && continue
+    # skip（理由つきで省いた）は due を満たす。ただし省いた後にさらに差し戻されたら再び yes（verify と同じ判定）
+    _ska=$(dbg_skip_at "$WORK/metrics.yml" "$p"); [ -n "$_ska" ] || _ska=-1
+    if [ "$_sb" -ge "$_dsb" ] 2>/dev/null && [ "$_rd" -eq 0 ] && { [ "$_sk" -eq 0 ] || [ "$_sb" -gt "$_ska" ]; }; then _due=yes; else _due=no; fi
+    rows="${rows}${p}	${_sb}	${_rd}	${_sk}	${_due}
 "
   done
   printf 'debug: %s\n' "$SLUG"
   if [ "$fmt" = tsv ]; then printf '%s' "$rows"
-  else { printf 'phase	sent_backs	debug_rounds	due\n'; printf '%s' "$rows"; } | fmt_table; fi
+  else { printf 'phase	sent_backs	debug_rounds	skips	due\n'; printf '%s' "$rows"; } | fmt_table; fi
   _dla=$(dbg_last_action "$WORK/metrics.yml"); [ -n "$_dla" ] || _dla=-
   printf 'debug-summary: maxSendBacks=%s maxDebugRounds=%s last_action=%s\n' "$_dsb" "$_dm" "$_dla"
   return 0
@@ -1839,8 +1930,9 @@ cmd_debug() {
   case "$1" in
     start)  shift; dbg_start "$@" ;;
     report) shift; dbg_report "$@" ;;
+    skip)   shift; dbg_skip "$@" ;;
     status) shift; dbg_status "$@" ;;
-    *) die "未知の debug サブコマンド: $1（start|report|status）" ;;
+    *) die "未知の debug サブコマンド: $1（start|report|skip|status）" ;;
   esac
 }
 
@@ -2849,8 +2941,12 @@ verify_work() { # WORK already set; prints lines; returns 0 ok / 4 fail / 5 stri
           [ "$_vsb" -ge 1 ] 2>/dev/null || continue
           [ "$_vsb" -ge "$_vmsb" ] 2>/dev/null || continue
           [ "$(dbg_rounds "$WORK/metrics.yml" "$_vp")" -eq 0 ] || continue
-          printf '  WARN %s の差し戻しが %s 回（上限 %s）だが原因究明の記録が無い: aidev debug start\n' \
-            "$_vp" "$_vsb" "$_vmsb"
+          # 理由つきで省いた（`debug skip`）なら鳴らさない——「黙って無視」と区別するための出口。
+          # ただし**省いた後にさらに差し戻されたら鳴らし直す**（省いた時点の判断は、その後の手戻りには及ばない）
+          _vsk=$(dbg_skip_at "$WORK/metrics.yml" "$_vp")
+          [ -z "$_vsk" ] || [ "$_vsb" -gt "$_vsk" ] 2>/dev/null || continue
+          printf '  WARN %s の差し戻しが %s 回（上限 %s）だが原因究明の記録が無い: aidev debug start（省くなら aidev debug skip --phase %s --reason）\n' \
+            "$_vp" "$_vsb" "$_vmsb" "$_vp"
         done
         if approved_has deliver && [ "$(dbg_last_action "$WORK/metrics.yml")" = stop_for_human ]; then
           VF="$VF デバッグが stop_for_human のまま着地している（人の判断を待つ出口を素通りした）"

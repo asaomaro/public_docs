@@ -1,0 +1,11 @@
+schema: 11
+slug: harness-retro-proposals
+current: deliver
+approved: [requirements, design, tasks, coding, test, review, deliver]
+mode: interactive
+profile: full
+humanGates: []
+maxSendBacks: 3
+dependsOn: []
+harnessRev: unknown
+harnessRevDelivered: a2dcaccbc720

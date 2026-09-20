@@ -27,6 +27,7 @@
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 smoke [slug]
 #     config.yml の smokeCommand を実行して結果を metrics に刻む（起動確認 GO/NO-GO）。未設定は exit 2
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 debug <start|report|status> ...
+#   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 debug skip [--phase p] --reason <理由>
 #     詰まったときの原因究明を有限化する（report は --root-cause/--category/--next-action が必須）
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 convention <new|confirm|retire|defer|promote|status> ...
 #   pwsh .claude/skills/aidev-docs/bin/aidev.ps1 harness <new|confirm|retire|status> ...
@@ -813,6 +814,7 @@ function Cmd-Event($rest) {
     if ($esb -ge $emax -and (DbgRounds $mfe $ph) -eq 0) {
       Write-Output "note: $ph の差し戻しが $esb 回（上限 $emax）。**同じコンテキストで回し続けない** —— "
       Write-Output "      aidev debug start --phase $ph で、新しいコンテキストへ原因究明を委譲すること"
+      Write-Output "      原因が特定済みで再現できているなら aidev debug skip --phase $ph --reason ""<理由>"" で省ける"
     }
   }
 }
@@ -1497,6 +1499,24 @@ function DbgRounds($metricsFile, $phase) {
   }
   return $c
 }
+# この工程で原因究明を省いた回数（`debug skip`。sh 版 dbg_skips と同一）
+function DbgSkips($metricsFile, $phase) {
+  if (-not (IsFile $metricsFile)) { return 0 }
+  $c = 0
+  foreach ($l in [System.IO.File]::ReadAllLines($metricsFile)) {
+    if ($l -match "phase:\s*$phase," -and $l -match 'event:\s*debug' -and $l -match 'stage:\s*skip') { $c++ }
+  }
+  return $c
+}
+# 直近の `debug skip` が刻んだ sent_backs（無ければ空。sh 版 dbg_skip_at と同一）
+function DbgSkipAt($metricsFile, $phase) {
+  if (-not (IsFile $metricsFile)) { return '' }
+  $r = ''
+  foreach ($l in [System.IO.File]::ReadAllLines($metricsFile)) {
+    if ($l -match "phase:\s*$phase," -and $l -match 'event:\s*debug' -and $l -match 'stage:\s*skip' -and $l -match 'sent_backs:\s*([0-9]+)') { $r = $Matches[1] }
+  }
+  return $r
+}
 function DbgLastAction($metricsFile) {
   if (-not (IsFile $metricsFile)) { return '' }
   $r = ''
@@ -1577,6 +1597,8 @@ function Dbg-Report($rest) {
   if ($dr -lt 1) { Die "この工程で aidev debug start が記録されていません（先に start を打つこと）" }
 
   # 本文は decisions.md、列挙値は metrics（フロー形式の1行に自由文を入れると壊れる）
+  # 改行は潰す（偽の見出しを書けて採番が飛ぶ。skip と同じ扱い）
+  $drc = ($drc -replace "[`r`n]+", ' '); $dfix = ($dfix -replace "[`r`n]+", ' '); $dver = ($dver -replace "[`r`n]+", ' ')
   $df = Join-Path $script:WORK 'decisions.md'
   $dn = 0
   if (IsFile $df) {
@@ -1612,6 +1634,73 @@ function Dbg-Report($rest) {
   exit 0
 }
 
+# 原因究明の委譲を**省く**（理由を記録する。sh 版 dbg_skip と同一）。
+# 「黙って無視」と「理由を書いて省く」を区別するための出口で、理由の記録を対価にする。
+function Dbg-Skip($rest) {
+  $dslug=''; $dph=''; $drs=''
+  for ($i=0; $i -lt $rest.Count; $i++) {
+    switch -CaseSensitive ($rest[$i]) {
+      '--phase'  { $i++; $dph=(ArgAt $rest $i '--phase') }
+      '--reason' { $i++; $drs=(ArgAt $rest $i '--reason') }
+      default {
+        if ($rest[$i].StartsWith('-')) { Die "未知のオプション: $($rest[$i])" }
+        elseif ($dslug) { Die "slug は1つだけ" } else { $dslug=$rest[$i] }
+      }
+    }
+  }
+  ResolveWork $dslug
+  # 既定は「上限に達している工程」（current ではない。sh 版と同一。実走で current を既定にすると
+  # 別の工程に記録され、狙った WARN が消えないまま黙って通ることを実測した）
+  if (-not $dph) {
+    # 候補は verify の WARN が実際に鳴る工程に揃える（委譲済み・有効な skip 済みは除く。sh 版と同一）
+    $mx = DbgMaxSendBacks $script:WORK
+    $mf0 = Join-Path $script:WORK 'metrics.yml'
+    $cand = @()
+    foreach ($p in $script:PHASES) {
+      $c1 = DbgSentBacks $mf0 $p
+      if ($c1 -lt $mx) { continue }
+      if ((DbgRounds $mf0 $p) -ne 0) { continue }
+      $c2 = DbgSkipAt $mf0 $p
+      if ($c2 -ne '' -and $c1 -le [int]$c2) { continue }
+      $cand += $p
+    }
+    if ($cand.Count -ne 1) {
+      $lbl = if ($cand.Count -eq 0) { 'なし' } else { "$($cand -join ' ') 計 $($cand.Count) 件" }
+      Die "どの工程を省くかを --phase で指定してください（省ける工程: $lbl）"
+    }
+    $dph = $cand[0]
+  }
+  if (-not (IsPhase $dph)) { DieUnknownPhase $dph '' '。--phase で指定するか state.yml の current を直す' }
+  if (-not $drs) { Die "--reason は必須です（理由を書けないなら省かない。aidev debug start へ倒すこと）" }
+  $mf = Join-Path $script:WORK 'metrics.yml'
+  $dsb = DbgSentBacks $mf $dph
+  $dmx = DbgMaxSendBacks $script:WORK
+  # 上限に達していない差し戻しでは省かせない（sh 版と同一。手前で打てると WARN が鳴る前に黙らせられる）
+  if ($dsb -lt $dmx) { Die "$dph の差し戻しは $dsb 回で、上限（$dmx）に達していません（省く対象がありません）" }
+  # 改行は潰す（decisions.md に偽の見出しを書けて採番が飛ぶ）
+  $drs = ($drs -replace "[`r`n]+", ' ')
+  $df = Join-Path $script:WORK 'decisions.md'
+  $dn = 0
+  if (IsFile $df) {
+    foreach ($l in [System.IO.File]::ReadAllLines($df)) { if ($l -match '^## デバッグ D') { $dn++ } }
+    $cur = [System.IO.File]::ReadAllText($df)
+    if ($cur.Length -gt 0 -and -not $cur.EndsWith("`n")) { AppendText $df "`n" }
+  }
+  else { WriteText $df "# 判断の記録: $($script:SLUG)`n" }
+  $dn = $dn + 1
+  $blk = "`n## デバッグ D$dn`: $dph の原因究明を省いた（$(Now)）`n"
+  $blk += "- 背景: $dph の差し戻しが $dsb 回（上限 $dmx）。`n"
+  $blk += "- 決定: 原因究明（aidev debug start）の委譲を省いた。`n"
+  $blk += "- 理由: $drs`n"
+  AppendText $df $blk
+  AppendEvent $script:WORK $dph 'debug' @('stage=skip', "sent_backs=$dsb")
+  Write-Output "debug: $($script:SLUG)/$dph skip（差し戻し $dsb 回）"
+  Write-Output "recorded: .aidev/works/$($script:SLUG)/decisions.md の「デバッグ D$dn」"
+  Write-Output "note: 省いてよいのは**原因が特定済みで再現できている**ときだけ。"
+  Write-Output "      同じコンテキストで回し続けない——修正は新しい実装コンテキストへ委ねる（protocol-debug.md）"
+  exit 0
+}
+
 function Dbg-Status($rest) {
   $dslug=''; $fmt='table'
   for ($i=0; $i -lt $rest.Count; $i++) {
@@ -1631,13 +1720,16 @@ function Dbg-Status($rest) {
   foreach ($p in $script:PHASES) {
     $sb = DbgSentBacks $mf $p
     $rd = DbgRounds $mf $p
-    if ($sb -eq 0 -and $rd -eq 0) { continue }
-    $due = if ($sb -ge $dsb -and $rd -eq 0) { 'yes' } else { 'no' }
-    $rows += "$p`t$sb`t$rd`t$due"
+    $sk = DbgSkips $mf $p
+    if ($sb -eq 0 -and $rd -eq 0 -and $sk -eq 0) { continue }
+    # skip（理由つきで省いた）は due を満たす。省いた後にさらに差し戻されたら再び yes（sh 版と同一）
+    $ska = DbgSkipAt $mf $p; if (-not $ska) { $ska = -1 }
+    $due = if ($sb -ge $dsb -and $rd -eq 0 -and ($sk -eq 0 -or $sb -gt [int]$ska)) { 'yes' } else { 'no' }
+    $rows += "$p`t$sb`t$rd`t$sk`t$due"
   }
   Write-Output "debug: $($script:SLUG)"
   if ($fmt -ceq 'tsv') { foreach ($r in $rows) { Write-Output $r } }
-  else { foreach ($l in (Fmt-Table (@("phase`tsent_backs`tdebug_rounds`tdue") + $rows))) { Write-Output $l } }
+  else { foreach ($l in (Fmt-Table (@("phase`tsent_backs`tdebug_rounds`tskips`tdue") + $rows))) { Write-Output $l } }
   $dla = DbgLastAction $mf; if (-not $dla) { $dla = '-' }
   Write-Output "debug-summary: maxSendBacks=$dsb maxDebugRounds=$dm last_action=$dla"
   exit 0
@@ -1649,8 +1741,9 @@ function Cmd-Debug($rest) {
   switch -CaseSensitive ($sub) {
     'start'  { Dbg-Start  $sr }
     'report' { Dbg-Report $sr }
+    'skip'   { Dbg-Skip   $sr }
     'status' { Dbg-Status $sr }
-    default { Die "未知の debug サブコマンド: $sub（start|report|status）" }
+    default { Die "未知の debug サブコマンド: $sub（start|report|skip|status）" }
   }
 }
 
@@ -2607,7 +2700,10 @@ function VerifyWork($work) {
           if ($vsb -lt 1) { continue }
           if ($vsb -lt $vmsb) { continue }
           if ((DbgRounds $vmf $vp) -ne 0) { continue }
-          VLine("  WARN $vp の差し戻しが $vsb 回（上限 $vmsb）だが原因究明の記録が無い: aidev debug start")
+          # 理由つきで省いた（debug skip）なら鳴らさない。省いた後にさらに差し戻されたら鳴らし直す（sh 版と同一）
+          $vsk = DbgSkipAt $vmf $vp
+          if ($vsk -ne '' -and $vsb -le [int]$vsk) { continue }
+          VLine("  WARN $vp の差し戻しが $vsb 回（上限 $vmsb）だが原因究明の記録が無い: aidev debug start（省くなら aidev debug skip --phase $vp --reason）")
         }
         if ((ApprovedHas $work 'deliver') -and (DbgLastAction $vmf) -ceq 'stop_for_human') {
           $vf += "デバッグが stop_for_human のまま着地している（人の判断を待つ出口を素通りした）"

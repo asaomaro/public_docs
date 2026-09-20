@@ -178,7 +178,7 @@ deliver 前の `aidev verify`（不変条件）。いずれも exit≠0 なら�
 
 | 上限 | 何を止めるか | 到達したら |
 |---|---|---|
-| `maxSendBacks` | 同一工程の差し戻し（`aidev event <工程> sent_back` が数える） | `aidev debug start` へ倒す（まっさらなコンテキストで原因究明） |
+| `maxSendBacks` | 同一工程の差し戻し（`aidev event <工程> sent_back` が数える） | `aidev debug start` へ倒す（まっさらなコンテキストで原因究明）。原因が特定済みで再現できているなら `aidev debug skip --reason "<理由>"` で省ける（理由が記録に残り、以後さらに差し戻されたら再び促す） |
 | `maxTaskCheckRounds` | 同一タスクの「点検 → 修正」（`aidev taskcheck start` が数える） | `decisions.md` に経緯を残して次のタスクへ。判断は 60 review に委ねる |
 | `maxDocCheckRounds` | 上流4文書の「点検 → 修正」（`aidev doccheck start` が数える） | 残った疑問を `decisions.md` に残して承認へ進む。判断は次工程・60 review に委ねる |
 | `maxDebugRounds` | 1工程あたりのデバッグ（`aidev debug start` が数える） | `block` か `stop_for_human` で締める |
