@@ -166,23 +166,30 @@ try {
         <div class="filelist-search">
           <svg class="icon icon-search" aria-hidden="true" focusable="false"><use href="#icon-search"></use></svg>
           <input type="search" id="file-search" placeholder="検索…（*/? や /正規表現/ にも対応）"
-                 aria-label="ファイルを検索（ワイルドカードや正規表現にも対応）">
+                 aria-label="ファイルを検索（ワイルドカードや正規表現にも対応）"
+                 aria-describedby="file-search-error">
         </div>
-        <!-- 件数とエラーは検索欄の説明なので、検索欄のすぐ下に置く（間に何も挟まない）。 -->
-        <p class="filelist-hint" id="file-search-hint" aria-live="polite"></p>
-        <!-- 検索欄は一覧だけを絞る。こちらは**中央の差分も隠す**（読む対象そのものを絞る）。 -->
-        <div class="ext-filter-wrap">
-          <button type="button" id="btn-ext-filter" class="ext-filter-button" aria-expanded="false"
-                  aria-controls="ext-filter-panel"
-                  title="拡張子で絞り込む" data-filtered="false">拡張子 ▾</button>
-          <section id="ext-filter-panel" class="ext-filter-panel" hidden aria-label="拡張子で絞り込む">
-            <div class="ext-filter-head">
-              <strong>拡張子で絞り込む</strong>
-              <button type="button" id="btn-ext-all">すべて外す</button>
-            </div>
-            <div id="ext-filter-list"></div>
-            <p class="hint" id="ext-filter-summary" role="status" aria-live="polite"></p>
-          </section>
+        <!-- 検索語の誤り。長くなるので全幅の行に置いて折り返させる（件数は下の行の右）。 -->
+        <p class="filelist-error" id="file-search-error" role="status" aria-live="polite" hidden></p>
+        <!-- 検索欄は一覧だけを絞る。フィルターは**中央の差分も隠す**（読む対象そのものを絞る）。
+             件数（と検索のエラー）はボタンと同じ行の右に出す——行を増やすと一覧が下がるため。 -->
+        <div class="filter-bar">
+          <div class="filter-wrap">
+            <button type="button" id="btn-filter" class="filter-button" aria-expanded="false"
+                    aria-controls="filter-panel"
+                    title="表示するファイルを絞り込む" data-filtered="false">フィルター ▾</button>
+            <section id="filter-panel" class="filter-panel" hidden aria-label="表示するファイルの絞り込み">
+              <div class="filter-head">
+                <strong>拡張子で絞り込む</strong>
+                <button type="button" id="btn-filter-exts-all">すべて外す</button>
+              </div>
+              <div id="filter-exts"></div>
+              <p class="hint" id="filter-summary" role="status" aria-live="polite"></p>
+              <div id="filter-viewed-slot" class="filter-extra" role="group"
+                   aria-label="拡張子以外の絞り込み"></div>
+            </section>
+          </div>
+          <p class="filelist-hint" id="file-search-hint" aria-live="polite"></p>
         </div>
       </div>
     </div>
@@ -216,9 +223,9 @@ try {
 
     <section id="files"></section>
 
-    <!-- 拡張子の絞り込みで 1 つも残らないとき。差分が無いのか絞り込みで消えたのかを
+    <!-- 絞り込みで 1 つも残らないとき。差分が無いのか絞り込みで消えたのかを
          区別できないと、壊れたように見える（#open-prompt と同じ考え方）。 -->
-    <p id="filter-empty" class="empty" hidden>拡張子の絞り込みで、表示できるファイルがありません（左の「拡張子」から選び直してください）。</p>
+    <p id="filter-empty" class="empty" hidden>絞り込みで、表示できるファイルがありません（左の「フィルター」から選び直してください）。</p>
   </main>
 
   <div class="sep" id="sep-right" role="separator" tabindex="0"
