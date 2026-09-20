@@ -2109,3 +2109,51 @@ class FileFilterTest(unittest.TestCase):
         app = (SKILL_DIR / "templates" / "app.js").read_text(encoding="utf-8")
         body = app[app.index("function currentSection()"):app.index("function isTyping(")]
         self.assertIn('data-filtered', body)
+
+
+class FileHeaderPathTest(unittest.TestCase):
+    """ファイルヘッダーのパスは折り返さず、溢れたら「…」で省略する（ユーザー報告）。
+
+    ヘッダーは sticky で画面上部に貼り付くので、折り返すとその帯が 2〜3 行ぶん厚くなり、
+    差分を読む領域を食う。省略するのは**フォルダ側**で、ファイル名は最後まで残す
+    ——末尾から削ると、どのファイルのヘッダーか分からなくなる。
+    """
+
+    def css(self):
+        return (SKILL_DIR / "templates" / "style.css").read_text(encoding="utf-8")
+
+    def rule(self, selector):
+        css = self.css()
+        start = css.index(selector + " {")
+        return css[start:css.index("}", start)]
+
+    def test_path_does_not_wrap(self):
+        rule = self.rule(".file-head .path-text")
+        self.assertIn("white-space: nowrap", rule)
+        self.assertIn("overflow: hidden", rule)
+        self.assertNotIn("word-break", rule, "折り返しの指定が残っている")
+
+    def test_the_folder_part_is_what_gets_shortened(self):
+        folder = self.rule(".file-head .path-dir")
+        self.assertIn("text-overflow: ellipsis", folder)
+        self.assertIn("flex: 0 1 auto", folder, "フォルダ側が縮む")
+        name = self.rule(".file-head .path-base")
+        self.assertIn("flex: 0 0 auto", name,
+                      "ファイル名は縮ませない（わずかでも縮むと拡張子が欠ける）")
+        self.assertIn("max-width: 100%", name, "それでも入らないときだけ頭打ちにする")
+        self.assertIn("text-overflow: ellipsis", name)
+
+    def test_markup_splits_the_path_and_keeps_the_whole_one_readable(self):
+        app = (SKILL_DIR / "templates" / "app.js").read_text(encoding="utf-8")
+        body = app[app.index("var pathText = el("):app.index("var copyButton = el(")]
+        self.assertIn('class: "path-dir"', body)
+        self.assertIn('class: "path-base"', body)
+        self.assertIn("title: file.path", body, "省略した全体は title で読めること")
+        cut = app[app.index("var cut = "):app.index("var pathText = el(")]
+        self.assertIn('lastIndexOf("/")', cut, "フォルダとファイル名の切れ目は最後の / で決める")
+
+    def test_a_path_without_a_folder_still_renders(self):
+        # ルート直下のファイル（"README.md"）ではフォルダ側の要素を作らない
+        app = (SKILL_DIR / "templates" / "app.js").read_text(encoding="utf-8")
+        body = app[app.index("var pathText = el("):app.index("var copyButton = el(")]
+        self.assertIn("cut === -1 ? null", body)
