@@ -168,7 +168,22 @@ try {
           <input type="search" id="file-search" placeholder="検索…（*/? や /正規表現/ にも対応）"
                  aria-label="ファイルを検索（ワイルドカードや正規表現にも対応）">
         </div>
+        <!-- 件数とエラーは検索欄の説明なので、検索欄のすぐ下に置く（間に何も挟まない）。 -->
         <p class="filelist-hint" id="file-search-hint" aria-live="polite"></p>
+        <!-- 検索欄は一覧だけを絞る。こちらは**中央の差分も隠す**（読む対象そのものを絞る）。 -->
+        <div class="ext-filter-wrap">
+          <button type="button" id="btn-ext-filter" class="ext-filter-button" aria-expanded="false"
+                  aria-controls="ext-filter-panel"
+                  title="拡張子で絞り込む" data-filtered="false">拡張子 ▾</button>
+          <section id="ext-filter-panel" class="ext-filter-panel" hidden aria-label="拡張子で絞り込む">
+            <div class="ext-filter-head">
+              <strong>拡張子で絞り込む</strong>
+              <button type="button" id="btn-ext-all">すべて外す</button>
+            </div>
+            <div id="ext-filter-list"></div>
+            <p class="hint" id="ext-filter-summary" role="status" aria-live="polite"></p>
+          </section>
+        </div>
       </div>
     </div>
     <div id="filelist"></div>
@@ -200,6 +215,10 @@ try {
     </section>
 
     <section id="files"></section>
+
+    <!-- 拡張子の絞り込みで 1 つも残らないとき。差分が無いのか絞り込みで消えたのかを
+         区別できないと、壊れたように見える（#open-prompt と同じ考え方）。 -->
+    <p id="filter-empty" class="empty" hidden>拡張子の絞り込みで、表示できるファイルがありません（左の「拡張子」から選び直してください）。</p>
   </main>
 
   <div class="sep" id="sep-right" role="separator" tabindex="0"

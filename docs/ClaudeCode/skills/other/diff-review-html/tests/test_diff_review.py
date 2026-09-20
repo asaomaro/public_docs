@@ -1862,3 +1862,176 @@ class AuthoringOutputTest(unittest.TestCase):
         code, _out, err = cli(self.dir, "check", path.name, "--anchors")
         self.assertEqual(code, 3, "--anchors なら捕まえる")
         self.assertIn("存在しません", err)
+
+
+# --------------------------------------------------------------------------
+# 差分量の 5 段階（□□□□□）と、拡張子での絞り込み
+# --------------------------------------------------------------------------
+
+class DiffstatBarTest(unittest.TestCase):
+    """□ の数え方を固定する。GitHub の PR と同じ見え方（ユーザー提示の画面）に合わせてある。
+
+    要は「色の比 ＝ 追加 / 削除の比」「5 行未満の変更だけ灰色が残る」「追加も削除もあるなら
+    **両方に必ず 1 個ずつ残す**」の 3 点。+1292 -1 の差分で削除が 0 個に丸められると
+    「削除が無い」と読めてしまうので、そこが崩れていないかを見る。
+    """
+
+    # (追加, 削除) -> (緑, 赤, 灰)
+    CASES = [
+        ((0, 0), (0, 0, 5)),        # 変更なし（バイナリやモード変更）
+        ((1, 0), (1, 0, 4)),        # 小さい変更は小さく見える
+        ((3, 2), (3, 2, 0)),
+        ((5, 0), (5, 0, 0)),
+        ((14, 0), (5, 0, 0)),       # 追加だけの差分は全部緑
+        ((0, 300), (0, 5, 0)),      # 削除だけの差分は全部赤
+        ((13, 1), (4, 1, 0)),       # 削除が 1 行でも 1 個は赤を残す
+        ((1292, 1), (4, 1, 0)),     # ユーザー提示の PR ヘッダー（+1,292 -1）
+        ((1, 1292), (1, 4, 0)),     # 逆向きも同じ
+        ((7, 7), (3, 2, 0)),        # 半々（丸めは追加側へ寄る）
+        ((-5, None), (0, 0, 5)),    # 壊れた値でも例外にしない
+    ]
+
+    def source(self):
+        """`diffstatBlocks` の本体を app.js から切り出す（実装の二重管理を避ける）。
+
+        切れ目は**コードの目印**（次の関数の宣言）で取る。コメント文字列で切ると、
+        コメントを直すだけでテストが落ちる。
+        """
+        app = (SKILL_DIR / "templates" / "app.js").read_text(encoding="utf-8")
+        start = app.index("var DIFFSTAT_BLOCKS = 5;")
+        end = app.index("function diffstatNode(")
+        return app[start:end]
+
+    @unittest.skipUnless(node_available(), "node が無い環境では確かめられない")
+    def test_block_counts(self):
+        script = self.source() + (
+            "\nconst cases = JSON.parse(process.argv[1]);"
+            "const out = cases.map(function (c) {"
+            "  const b = diffstatBlocks(c[0], c[1]);"
+            "  return [b.added, b.deleted, b.neutral];"
+            "});"
+            "process.stdout.write(JSON.stringify(out));"
+        )
+        inputs = [list(case[0]) for case in self.CASES]
+        out = subprocess.run(["node", "-e", script, json.dumps(inputs)],
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.assertEqual(out.returncode, 0, out.stderr.decode("utf-8", "replace"))
+        got = json.loads(out.stdout.decode("utf-8"))
+        for (args, want), actual in zip(self.CASES, got):
+            self.assertEqual(tuple(actual), want, "diffstatBlocks%s" % (args,))
+            self.assertEqual(sum(actual), 5, "□ は常に 5 個: %s" % (args,))
+
+    def test_bar_is_drawn_where_the_numbers_are(self):
+        # 画面上部（全体）とファイルのヘッダーの両方。片方だけになっていないこと。
+        app = (SKILL_DIR / "templates" / "app.js").read_text(encoding="utf-8")
+        meta = app[app.index("function renderMeta()"):app.index("function treeMode()")]
+        self.assertIn("statsWithBar(", meta, "画面上部に差分量が出ていない")
+        head = app[app.index('el("div", { class: "file-head" }'):]
+        self.assertIn("statsWithBar(file.additions, file.deletions)", head[:600],
+                      "ファイルのヘッダーに差分量が出ていない")
+
+    def test_css_colors_every_kind_of_block(self):
+        css = (SKILL_DIR / "templates" / "style.css").read_text(encoding="utf-8")
+        for needle in ('.diffstat-block[data-kind="add"]', '.diffstat-block[data-kind="del"]',
+                       ".diffstat-block {"):
+            self.assertIn(needle, css, needle)
+
+    def test_bar_carries_the_numbers_for_screen_readers(self):
+        # 色だけが意味を運ぶので、読み上げには数字を渡す（色覚・読み上げの両方）。
+        app = (SKILL_DIR / "templates" / "app.js").read_text(encoding="utf-8")
+        node = app[app.index("function diffstatNode("):app.index("function statsWithBar(")]
+        self.assertIn('"aria-label": "差分量 " + label', node)
+        self.assertIn('"aria-hidden": "true"', node, "□ 自体は読み上げない")
+
+
+class ExtensionFilterTest(unittest.TestCase):
+    """拡張子での絞り込み（GitHub の File filter 相当）。
+
+    検索欄との違いは**効く範囲**: 検索は一覧だけを絞り、この絞り込みは中央の差分も隠す。
+    隠すのは DOM を消すのではなく data-filtered 属性 ＋ CSS で、展開や書きかけの
+    コメントを絞り込みのたびに失わないようにしてある。
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = make_repo(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_filter_ui_is_in_the_page(self):
+        _code, html, _err = cli(self.repo, "html", "--repo", ".")
+        for needle in ('id="btn-ext-filter"', 'id="ext-filter-panel"', 'id="ext-filter-list"',
+                       'id="ext-filter-summary"', 'id="btn-ext-all"', 'id="filter-empty"'):
+            self.assertIn(needle, html, needle)
+
+    def test_filter_ui_survives_readonly(self):
+        # 参照専用でも「読む」機能は全部残す（削るのは書き込みの導線だけ）。
+        # CSS のクラス名では素通りするので、描画する関数そのものの有無で見る。
+        _code, html, _err = cli(self.repo, "html", "--repo", ".", "--readonly")
+        self.assertIn('id="btn-ext-filter"', html)
+        self.assertIn("function diffstatNode(", html)
+        self.assertNotIn('id="btn-start-review"', html, "書き込みの導線は落ちているはず")
+
+    def test_hidden_files_are_hidden_by_css_not_removed(self):
+        css = (SKILL_DIR / "templates" / "style.css").read_text(encoding="utf-8")
+        self.assertIn('.file[data-filtered="true"] { display: none; }', css)
+
+    def test_navigation_skips_and_reveals_filtered_files(self):
+        app = (SKILL_DIR / "templates" / "app.js").read_text(encoding="utf-8")
+        # 隠れている行は j / k の道筋から外す
+        rows = app[app.index("function rows()"):app.index("function setCurrentRow(")]
+        self.assertIn('.file[data-filtered="true"]', rows)
+        # 「いま表示中のファイル」も隠れているものを選ばない
+        current = app[app.index("function currentFileSection()"):app.index("function applyCurrentFileHighlight(")]
+        self.assertIn(".file:not([data-filtered])", current)
+        # 隠れたファイルへ飛ぶ指示が来たら、黙って失敗せずに見えるように戻す
+        for caller in ("function gotoFile(", "function gotoThread("):
+            body = app[app.index(caller):app.index(caller) + 700]
+            self.assertIn("revealFile(", body, caller)
+
+    def test_filter_resets_when_another_diff_is_loaded(self):
+        # 差し替えで拡張子の顔ぶれが変わる。前の差分の絞り込みが残ると「ファイルが無い」画面になる。
+        app = (SKILL_DIR / "templates" / "app.js").read_text(encoding="utf-8")
+        body = app[app.index("function applyDiffData("):app.index("function validateBundle(")]
+        self.assertIn("extFilter = null;", body)
+
+    def test_filter_state_never_reaches_the_record(self):
+        """画面の状態（絞り込み）はレビュー記録に入らない（AC15 と同じ約束）。
+
+        混ざるとしたら**書き出しの経路**なので、そこを見る（`template` の出力はもともと
+        画面の状態を持たないので、見ても素通りになる）。
+        """
+        app = (SKILL_DIR / "templates" / "app.js").read_text(encoding="utf-8")
+        body = app[app.index("function canonicalRecord("):app.index("// ---", app.index("function exportText("))]
+        self.assertIn("schema: SCHEMA", body, "書き出しの経路を切り出せていない")
+        for name in ("extFilter", "extSelected", "fileVisible", "viewedFiles", "fileSearchQuery"):
+            self.assertNotIn(name, body, "書き出す記録に画面の状態が混ざっている: %s" % name)
+
+    def test_empty_list_says_which_filter_emptied_it(self):
+        # 検索が空でも拡張子で 0 件になり得る。同じ文言だと「検索が壊れた」と読める。
+        app = (SKILL_DIR / "templates" / "app.js").read_text(encoding="utf-8")
+        body = app[app.index("function renderFileListBody("):app.index("function buildTree(")]
+        self.assertIn("拡張子の絞り込みで表示できるファイルがありません", body)
+
+    def test_escape_closes_the_panel_from_inside(self):
+        """パネル自身が Esc を受けること（実機で閉じないのを踏んで足した）。
+
+        中身はチェックボックス＝`input` なので、グローバルの Esc は isTyping ガードで
+        素通りする。#submit-panel / #export-panel と同じく、パネル側で塞ぐ必要がある。
+        """
+        app = (SKILL_DIR / "templates" / "app.js").read_text(encoding="utf-8")
+        start = app.index('var extButton = document.getElementById("btn-ext-filter");')
+        body = app[start:app.index("wireCommentList();", start)]
+        self.assertIn('extPanel.addEventListener("keydown"', body)
+        self.assertIn("setExtFilterOpen(false)", body)
+        # 閉じるときはフォーカスを開いたボタンへ返す（中に残すと行き場が無くなる）
+        close = app[app.index("function setExtFilterOpen("):app.index("function renderViewedCount(")]
+        self.assertIn("button.focus()", close)
+
+    def test_keys_do_not_act_on_a_hidden_file(self):
+        # f / e / t が使う「いま見ているファイル」。隠れたまま効くと、画面では何も起きないのに
+        # 折りたたみ状態だけ変わる（独立レビュー S2）。
+        app = (SKILL_DIR / "templates" / "app.js").read_text(encoding="utf-8")
+        body = app[app.index("function currentSection()"):app.index("function isTyping(")]
+        self.assertIn('data-filtered', body)
