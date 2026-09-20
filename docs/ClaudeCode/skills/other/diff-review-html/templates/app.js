@@ -40,6 +40,7 @@
   var viewedFiles = {};    // path -> true。「確認済み」。記録には入れない（画面の状態）
   var fileSearchQuery = "";   // ファイル一覧の検索語（画面の状態。保存しない・記録に入れない）
   var extFilter = null;    // 拡張子の絞り込み。null = すべて表示 / { ".md": true } = その拡張子だけ（同上）
+  var showViewed = true;   // 「確認済み」にしたファイルを表示に残すか（同上）
   var seq = 0;
   var dirty = false;
   var storageOk = true;
@@ -85,6 +86,7 @@
     viewedFiles = {};
     fileSearchQuery = "";
     extFilter = null;
+    showViewed = true;
     currentRow = null;
     state = { reviews: [], threads: [] };
     recordTarget = null;
@@ -766,11 +768,12 @@
     catch (err) { return { error: err.message }; }
   }
 
-  // ------------------------------------------------------------ 拡張子での絞り込み
+  // -------------------------------------------------------------- 表示するファイルの絞り込み
   //
   // GitHub の「File filter」と同じ位置づけ。**検索欄との違いは効く範囲**で、検索は一覧を
   // 絞るだけ（どのファイルも中央には出たまま）、この絞り込みは中央の差分も隠す。GitHub も
   // 同じ分担で、読む対象そのものを絞りたいときにこちらを使う。
+  // 絞り込みの軸は 2 つ（GitHub と同じく 1 つのパネルにまとめる）: 拡張子と「確認済み」。
   var NO_EXT = "（拡張子なし）";
 
   function extensionOf(path) {
@@ -799,10 +802,21 @@
 
   function extSelected(ext) { return !extFilter || extFilter[ext] === true; }
 
-  function fileVisible(file) { return extSelected(extensionOf(file.path)); }
+  function fileVisible(file) {
+    if (!showViewed && viewedFiles[file.path]) { return false; }
+    return extSelected(extensionOf(file.path));
+  }
 
   function visibleFiles() {
     return (diffData.files || []).filter(fileVisible);
+  }
+
+  function viewedCount() {
+    return (diffData.files || []).filter(function (file) { return !!viewedFiles[file.path]; }).length;
+  }
+
+  function filterActive() {
+    return !showViewed || !!extFilter;
   }
 
   // 1 つの拡張子の表示/非表示を切り替える。**すべて選ばれた状態は null に畳む**ので、
@@ -822,25 +836,43 @@
     applyFileFilter();
   }
 
-  // 絞り込みで隠れているファイルへ飛ぶ指示（コメント一覧からの移動など）が来たら、その
-  // 拡張子だけ表示へ戻す。黙って何も起きないより、見えるようにしてから飛ぶほうが筋が通る。
+  function setShowViewed(on) {
+    showViewed = !!on;
+    applyFileFilter("viewed");
+  }
+
+  // 絞り込みで隠れているファイルへ飛ぶ指示（コメント一覧からの移動など）が来たら、隠して
+  // いる条件だけ戻す。黙って何も起きないより、見えるようにしてから飛ぶほうが筋が通る。
   function revealFile(path) {
     var file = (diffData.files || []).filter(function (f) { return f.path === path; })[0];
     if (!file || fileVisible(file)) { return; }
+    // 何を戻したかは**まとめて 1 行**で知らせる（両方で隠れていても通知は 1 件）。
+    var undone = [];
+    if (!showViewed && viewedFiles[file.path]) {
+      showViewed = true;
+      undone.push("確認済みのファイルを表示");
+    }
     var ext = extensionOf(file.path);
-    setExtSelected(ext, true);
-    notify("拡張子の絞り込みを一部解除しました: " + ext);
+    if (!extSelected(ext)) {
+      extFilter[ext] = true;
+      // すべて選ばれた状態は null に畳む（setExtSelected と同じ約束）。
+      if (extensionCounts().order.every(extSelected)) { extFilter = null; }
+      undone.push("拡張子 " + ext);
+    }
+    applyFileFilter();
+    notify("絞り込みを一部解除しました（" + undone.join(" / ") + "）: " + file.path);
   }
 
-  // keepFocusOn: 直前に操作した拡張子。一覧は毎回作り直すので、そのままだとチェックを
-  // 1 つ変えるたびにフォーカスが body まで落ち、キーボードでは続けて切り替えられない。
+  // keepFocusOn: 直前に操作した行（拡張子名か "viewed"）。一覧は毎回作り直すので、
+  // そのままだとチェックを 1 つ変えるたびにフォーカスが body まで落ち、キーボードでは
+  // 続けて切り替えられない。
   function applyFileFilter(keepFocusOn) {
     var hadFocus = keepFocusOn && document.activeElement
       && document.activeElement.classList
-      && document.activeElement.classList.contains("ext-filter-box");
-    renderExtFilter();
+      && document.activeElement.classList.contains("filter-box");
+    renderFilterPanel();
     if (hadFocus) {
-      var box = document.querySelector('.ext-filter-item[data-ext="' + cssEscape(keepFocusOn) + '"] input');
+      var box = document.querySelector('.filter-row[data-key="' + cssEscape(keepFocusOn) + '"] input');
       if (box) { box.focus(); }
     }
     renderFileList();
@@ -861,27 +893,73 @@
     });
     var note = document.getElementById("filter-empty");
     if (note) { note.hidden = !(files.length && hidden === files.length); }
+    handOverFromHiddenFile();
     applyCurrentFileHighlight();
     updateProgressBar();
   }
 
-  function renderExtFilter() {
-    var list = document.getElementById("ext-filter-list");
-    var button = document.getElementById("btn-ext-filter");
-    var summary = document.getElementById("ext-filter-summary");
+  // 現在行ごと隠れたときの行き先。読み終えたファイルを確認済みにすると、その場で消える
+  // ——そのまま放っておくと、フォーカスは body に落ち、現在行は隠れた中に残って
+  // 次の j が差分の先頭まで飛ぶ（独立レビュー should 3）。次に見えているファイルへ渡す。
+  function handOverFromHiddenFile() {
+    if (!currentRow || !currentRow.isConnected || !currentRow.closest) { return; }
+    var from = currentRow.closest(".file");
+    if (!from || from.getAttribute("data-filtered") !== "true") { return; }
+    var sections = Array.prototype.slice.call(document.querySelectorAll(".file"));
+    var here = sections.indexOf(from);
+    var target = null;
+    var i;
+    for (i = here + 1; i < sections.length && !target; i += 1) {
+      if (sections[i].getAttribute("data-filtered") !== "true") { target = sections[i]; }
+    }
+    for (i = here - 1; i >= 0 && !target; i -= 1) {
+      if (sections[i].getAttribute("data-filtered") !== "true") { target = sections[i]; }
+    }
+    var moveFocus = document.activeElement && from.contains(document.activeElement);
+    if (!target) {
+      setCurrentRow(null);
+      if (moveFocus) { document.getElementById("file-search").focus(); }
+      return;
+    }
+    // 現在行は、渡した先（か、その先で最初に行を持つファイル）の先頭行にする。行を持たない
+    // ファイル（畳んである・rich 表示・バイナリ）で null のままにすると、次の j が差分の
+    // 先頭まで戻ってしまう（moveRow は現在行が無いと all[0] から始める）。
+    var row = null;
+    for (i = sections.indexOf(target); i < sections.length && !row; i += 1) {
+      if (sections[i].getAttribute("data-filtered") !== "true") { row = sections[i].querySelector(".row"); }
+    }
+    setCurrentRow(row);
+    if (moveFocus) {
+      var landing = target.querySelector(".row") || target;
+      if (landing === target) { target.setAttribute("tabindex", "-1"); }
+      landing.scrollIntoView({ block: "nearest" });
+      landing.focus();
+    }
+  }
+
+  function filterRow(key, name, count, checked, onChange) {
+    var box = el("input", { type: "checkbox", class: "filter-box" });
+    box.checked = checked;
+    box.addEventListener("change", function () { onChange(box.checked); });
+    return el("label", { class: "filter-row", "data-key": key }, [
+      box,
+      el("span", { class: "filter-name", text: name }),
+      el("span", { class: "filter-count", text: count === null ? "" : String(count) })
+    ]);
+  }
+
+  function renderFilterPanel() {
+    var list = document.getElementById("filter-exts");
+    var button = document.getElementById("btn-filter");
+    var summary = document.getElementById("filter-summary");
     if (!list || !button) { return; }
     var info = extensionCounts();
     var chosen = info.order.filter(extSelected);
     clear(list);
     info.order.forEach(function (ext) {
-      var box = el("input", { type: "checkbox", class: "ext-filter-box" });
-      box.checked = extSelected(ext);
-      box.addEventListener("change", function () { setExtSelected(ext, box.checked); });
-      list.appendChild(el("label", { class: "ext-filter-item", "data-ext": ext }, [
-        box,
-        el("span", { class: "ext-filter-name", text: ext }),
-        el("span", { class: "ext-filter-count", text: String(info.counts[ext]) })
-      ]));
+      list.appendChild(filterRow(ext, ext, info.counts[ext], extSelected(ext), function (on) {
+        setExtSelected(ext, on);
+      }));
     });
     if (!info.order.length) {
       list.appendChild(el("p", { class: "empty", text: "変更ファイルなし" }));
@@ -893,23 +971,36 @@
                : info.order.length + " 種類中 " + chosen.length + " 種類を表示中")
         : "";
     }
-    var toggleAll = document.getElementById("btn-ext-all");
+    var toggleAll = document.getElementById("btn-filter-exts-all");
     if (toggleAll) {
       toggleAll.textContent = all ? "すべて外す" : "すべて選ぶ";
       toggleAll.disabled = !info.order.length;
     }
-    // 畳んでいても絞り込み中だと分かるよう、ボタン側にも状態を出す（件数とハイライト）。
-    button.setAttribute("data-filtered", all ? "false" : "true");
-    button.textContent = all ? "拡張子 ▾" : "拡張子 " + chosen.length + "/" + info.order.length + " ▾";
+    // 「確認済みのファイル」も同じパネルに置く（GitHub の File filter と同じ並び）。
+    // 外すと、確認済みにしたファイルが一覧からも中央からも消える＝残りだけを読める。
+    var viewed = document.getElementById("filter-viewed-slot");
+    if (viewed) {
+      clear(viewed);
+      viewed.appendChild(filterRow("viewed", "確認済みのファイル", viewedCount(), showViewed, setShowViewed));
+    }
+    // 畳んでいても絞り込み中だと分かるよう、ボタンに印をつける（件数は右の行が言う）。
+    button.setAttribute("data-filtered", filterActive() ? "true" : "false");
   }
 
-  function setExtFilterOpen(open) {
-    var panel = document.getElementById("ext-filter-panel");
-    var button = document.getElementById("btn-ext-filter");
+  function setFilterOpen(open) {
+    var panel = document.getElementById("filter-panel");
+    var button = document.getElementById("btn-filter");
     if (!panel || !button) { return; }
     var wasOpen = !panel.hidden;
     panel.hidden = !open;
     button.setAttribute("aria-expanded", open ? "true" : "false");
+    // 積んだレイアウト（900px 以下）では左ペインが 40vh で頭打ちになり、重ねて出した
+    // パネルの下が切れる。開いている間だけ上限を外す（実際の指定は style.css 側）。
+    var pane = document.getElementById("pane-left");
+    if (pane) {
+      if (open) { pane.setAttribute("data-filter-open", "true"); }
+      else { pane.removeAttribute("data-filter-open"); }
+    }
     // 閉じるときはフォーカスを開いたボタンへ返す（中にフォーカスがあれば行き場が無くなるため）。
     if (wasOpen && !open && panel.contains(document.activeElement)) { button.focus(); }
   }
@@ -918,8 +1009,13 @@
     var span = document.getElementById("viewed-count");
     if (span) {
       var total = (diffData.files || []).length;
-      span.textContent = total ? Object.keys(viewedFiles).length + " / " + total + " 確認済み" : "";
+      // 数え方は viewedCount() 1 つに寄せる（同じ数を別々の規則で数えると、いつか食い違う）。
+      span.textContent = total ? viewedCount() + " / " + total + " 確認済み" : "";
     }
+    // 絞り込みパネルの「確認済みのファイル」の件数だけ直す。パネルごと作り直すと、
+    // チェックを押した直後にフォーカスが飛ぶ（applyFileFilter の focus 戻しと打ち消し合う）。
+    var count = document.querySelector('.filter-row[data-key="viewed"] .filter-count');
+    if (count) { count.textContent = String(viewedCount()); }
     updateFileBadge();
   }
 
@@ -930,7 +1026,7 @@
     var badge = document.getElementById("pane-left-badge");
     if (!badge) { return; }
     var total = (diffData.files || []).length;
-    var unreviewed = total - Object.keys(viewedFiles).length;
+    var unreviewed = total - viewedCount();
     var collapsed = document.getElementById("shell").getAttribute("data-left") === "collapsed";
     badge.hidden = !collapsed || unreviewed <= 0;
     badge.textContent = String(unreviewed);
@@ -958,21 +1054,33 @@
     renderViewedCount();
     var input = document.getElementById("file-search");
     var hint = document.getElementById("file-search-hint");
+    // 件数とエラーは別の場所に出す。件数はボタンと同じ行（1 行に収める）、エラーは
+    // 全幅の行に折り返して出す——同じ行に入れると長いエラー文が 5 行に折り返して、
+    // 「行を増やさない」という件数側の狙いを潰す（独立レビュー should 2）。
+    var error = document.getElementById("file-search-error");
+    function setError(message) {
+      if (!error) { return; }
+      error.textContent = message || "";
+      error.hidden = !message;
+    }
     var all = diffData.files || [];
     if (!all.length) {
       nav.appendChild(el("p", { class: "empty", text: "変更ファイルなし" }));
       if (hint) { hint.textContent = ""; }
+      setError("");
       if (input) { input.removeAttribute("aria-invalid"); }
       return;
     }
     var query = compileQuery(fileSearchQuery);
     if (query && query.error) {
       if (input) { input.setAttribute("aria-invalid", "true"); }
-      if (hint) { hint.textContent = "正規表現が正しくありません: " + query.error; }
+      if (hint) { hint.textContent = ""; }
+      setError("正規表現が正しくありません: " + query.error);
       nav.appendChild(el("p", { class: "empty", text: "正規表現が正しくありません" }));
       return;
     }
     if (input) { input.removeAttribute("aria-invalid"); }
+    setError("");
     var shown = all
       .map(function (file, index) { return { file: file, index: index }; })
       .filter(function (pair) { return fileVisible(pair.file); });
@@ -980,11 +1088,11 @@
     // 件数は「検索か絞り込みで減っているとき」に出す（減っていないのに n / n と出す意味はない）。
     if (hint) { hint.textContent = pairs.length === all.length ? "" : pairs.length + " / " + all.length + " 件"; }
     if (!pairs.length) {
-      // 検索のせいなのか拡張子の絞り込みのせいなのかで文言を変える。同じ「一致しません」だと
+      // 検索のせいなのか絞り込みのせいなのかで文言を変える。同じ「一致しません」だと
       // 検索欄を空にしても戻らず、検索が壊れているように読める。
       nav.appendChild(el("p", {
         class: "empty",
-        text: shown.length ? "一致するファイルがありません" : "拡張子の絞り込みで表示できるファイルがありません"
+        text: shown.length ? "一致するファイルがありません" : "絞り込みで表示できるファイルがありません"
       }));
       return;
     }
@@ -1250,6 +1358,8 @@
         if (viewedBox.checked && section.getAttribute("data-collapsed") !== "true") {
           toggleFile(section, file);
         }
+        // 「確認済みのファイル」を外して読んでいるときは、その場で消える（GitHub と同じ）。
+        if (!showViewed) { applyFileFilter(); }
       });
       var viewedLabel = el("label", { class: "file-viewed-label" }, [
         viewedBox, document.createTextNode("確認済み")
@@ -2993,7 +3103,7 @@
         notifPanel.hidden = true;
         document.getElementById("btn-notif").setAttribute("aria-expanded", "false");
       }
-      setExtFilterOpen(false);
+      setFilterOpen(false);
     }
   }
 
@@ -3002,7 +3112,7 @@
   function renderAll() {
     renderMeta();
     showOpenPrompt(!(diffData.files || []).length);
-    renderExtFilter();
+    renderFilterPanel();
     renderFileList();
     renderFiles();
     renderThreads();
@@ -3164,12 +3274,12 @@
       });
     }
 
-    var extButton = document.getElementById("btn-ext-filter");
-    if (extButton) {
-      extButton.addEventListener("click", function () {
-        setExtFilterOpen(document.getElementById("ext-filter-panel").hidden);
+    var filterButton = document.getElementById("btn-filter");
+    if (filterButton) {
+      filterButton.addEventListener("click", function () {
+        setFilterOpen(document.getElementById("filter-panel").hidden);
       });
-      var extAll = document.getElementById("btn-ext-all");
+      var extAll = document.getElementById("btn-filter-exts-all");
       if (extAll) {
         extAll.addEventListener("click", function () {
           // 「すべて選ぶ」⇔「すべて外す」。外したあとに拡張子を 1 つずつ足して読む使い方
@@ -3180,22 +3290,22 @@
       // グローバルの Escape（onKeyDown）は入力欄にフォーカスがあると何もしない（isTyping ガード）。
       // このパネルの中身はチェックボックス＝input なので、そのままでは開いた中から Esc で閉じられない
       // （#submit-panel / #export-panel と同じ理由。decisions.md D21）。パネル自身で塞ぐ。
-      var extPanel = document.getElementById("ext-filter-panel");
-      if (extPanel) {
-        extPanel.addEventListener("keydown", function (event) {
+      var filterPanel = document.getElementById("filter-panel");
+      if (filterPanel) {
+        filterPanel.addEventListener("keydown", function (event) {
           if (event.key === "Escape") {
             event.preventDefault();
-            setExtFilterOpen(false);
+            setFilterOpen(false);
           }
         });
       }
       // 外側を押したら閉じる。パネル内のチェックは押すたびに絞り込みが変わるので、
       // 押しただけでは閉じない（続けて何個も切り替えられる）。
       document.addEventListener("click", function (event) {
-        var panel = document.getElementById("ext-filter-panel");
+        var panel = document.getElementById("filter-panel");
         if (!panel || panel.hidden) { return; }
-        var inside = panel.contains(event.target) || extButton.contains(event.target);
-        if (!inside) { setExtFilterOpen(false); }
+        var inside = panel.contains(event.target) || filterButton.contains(event.target);
+        if (!inside) { setFilterOpen(false); }
       });
     }
     wireCommentList();

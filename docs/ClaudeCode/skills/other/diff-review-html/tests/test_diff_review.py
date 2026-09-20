@@ -1944,8 +1944,8 @@ class DiffstatBarTest(unittest.TestCase):
         self.assertIn('"aria-hidden": "true"', node, "□ 自体は読み上げない")
 
 
-class ExtensionFilterTest(unittest.TestCase):
-    """拡張子での絞り込み（GitHub の File filter 相当）。
+class FileFilterTest(unittest.TestCase):
+    """表示するファイルの絞り込み（GitHub の File filter 相当）。軸は拡張子と「確認済み」。
 
     検索欄との違いは**効く範囲**: 検索は一覧だけを絞り、この絞り込みは中央の差分も隠す。
     隠すのは DOM を消すのではなく data-filtered 属性 ＋ CSS で、展開や書きかけの
@@ -1961,15 +1961,16 @@ class ExtensionFilterTest(unittest.TestCase):
 
     def test_filter_ui_is_in_the_page(self):
         _code, html, _err = cli(self.repo, "html", "--repo", ".")
-        for needle in ('id="btn-ext-filter"', 'id="ext-filter-panel"', 'id="ext-filter-list"',
-                       'id="ext-filter-summary"', 'id="btn-ext-all"', 'id="filter-empty"'):
+        for needle in ('id="btn-filter"', 'id="filter-panel"', 'id="filter-exts"',
+                       'id="filter-summary"', 'id="btn-filter-exts-all"',
+                       'id="filter-viewed-slot"', 'id="filter-empty"'):
             self.assertIn(needle, html, needle)
 
     def test_filter_ui_survives_readonly(self):
         # 参照専用でも「読む」機能は全部残す（削るのは書き込みの導線だけ）。
         # CSS のクラス名では素通りするので、描画する関数そのものの有無で見る。
         _code, html, _err = cli(self.repo, "html", "--repo", ".", "--readonly")
-        self.assertIn('id="btn-ext-filter"', html)
+        self.assertIn('id="btn-filter"', html)
         self.assertIn("function diffstatNode(", html)
         self.assertNotIn('id="btn-start-review"', html, "書き込みの導線は落ちているはず")
 
@@ -1995,6 +1996,7 @@ class ExtensionFilterTest(unittest.TestCase):
         app = (SKILL_DIR / "templates" / "app.js").read_text(encoding="utf-8")
         body = app[app.index("function applyDiffData("):app.index("function validateBundle(")]
         self.assertIn("extFilter = null;", body)
+        self.assertIn("showViewed = true;", body)
 
     def test_filter_state_never_reaches_the_record(self):
         """画面の状態（絞り込み）はレビュー記録に入らない（AC15 と同じ約束）。
@@ -2005,14 +2007,15 @@ class ExtensionFilterTest(unittest.TestCase):
         app = (SKILL_DIR / "templates" / "app.js").read_text(encoding="utf-8")
         body = app[app.index("function canonicalRecord("):app.index("// ---", app.index("function exportText("))]
         self.assertIn("schema: SCHEMA", body, "書き出しの経路を切り出せていない")
-        for name in ("extFilter", "extSelected", "fileVisible", "viewedFiles", "fileSearchQuery"):
+        for name in ("extFilter", "showViewed", "extSelected", "fileVisible", "viewedFiles",
+                     "fileSearchQuery"):
             self.assertNotIn(name, body, "書き出す記録に画面の状態が混ざっている: %s" % name)
 
     def test_empty_list_says_which_filter_emptied_it(self):
         # 検索が空でも拡張子で 0 件になり得る。同じ文言だと「検索が壊れた」と読める。
         app = (SKILL_DIR / "templates" / "app.js").read_text(encoding="utf-8")
         body = app[app.index("function renderFileListBody("):app.index("function buildTree(")]
-        self.assertIn("拡張子の絞り込みで表示できるファイルがありません", body)
+        self.assertIn("絞り込みで表示できるファイルがありません", body)
 
     def test_escape_closes_the_panel_from_inside(self):
         """パネル自身が Esc を受けること（実機で閉じないのを踏んで足した）。
@@ -2021,13 +2024,84 @@ class ExtensionFilterTest(unittest.TestCase):
         素通りする。#submit-panel / #export-panel と同じく、パネル側で塞ぐ必要がある。
         """
         app = (SKILL_DIR / "templates" / "app.js").read_text(encoding="utf-8")
-        start = app.index('var extButton = document.getElementById("btn-ext-filter");')
+        start = app.index('var filterButton = document.getElementById("btn-filter");')
         body = app[start:app.index("wireCommentList();", start)]
-        self.assertIn('extPanel.addEventListener("keydown"', body)
-        self.assertIn("setExtFilterOpen(false)", body)
+        self.assertIn('filterPanel.addEventListener("keydown"', body)
+        self.assertIn("setFilterOpen(false)", body)
         # 閉じるときはフォーカスを開いたボタンへ返す（中に残すと行き場が無くなる）
-        close = app[app.index("function setExtFilterOpen("):app.index("function renderViewedCount(")]
+        close = app[app.index("function setFilterOpen("):app.index("function renderViewedCount(")]
         self.assertIn("button.focus()", close)
+
+    def test_viewed_files_are_a_filter_too(self):
+        """「確認済みのファイル」も同じパネルで外せる（GitHub の File filter と同じ並び）。
+
+        外している間は、確認済みにしたファイルが一覧からも中央からも消える。読み終えた
+        ものを畳んで残りだけを読む、という使い方がこの 1 つの操作で通る。
+        """
+        app = (SKILL_DIR / "templates" / "app.js").read_text(encoding="utf-8")
+        visible = app[app.index("function fileVisible("):app.index("function visibleFiles(")]
+        self.assertIn("showViewed", visible, "確認済みが表示の条件に入っていない")
+        self.assertIn("viewedFiles[file.path]", visible)
+        # 外して読んでいる最中に確認済みにしたら、その場で消える（押してから探し直さない）。
+        # 整形に依らないよう、呼び出しの形だけを見る。
+        box = app[app.index("viewedBox.addEventListener("):app.index("var viewedLabel =")]
+        self.assertRegex(box, r"if \(!showViewed\)\s*\{\s*applyFileFilter\(\);")
+        # 消えたファイルに現在位置とフォーカスを置き去りにしない
+        vis = app[app.index("function applyFileVisibility("):app.index("function handOverFromHiddenFile(")]
+        self.assertIn("handOverFromHiddenFile();", vis)
+        # 隠れたファイルへ飛ぶときは、確認済みの側の絞り込みも戻す
+        reveal = app[app.index("function revealFile("):app.index("function applyFileFilter(")]
+        self.assertIn("showViewed = true;", reveal)
+
+    def test_count_shares_the_row_with_the_button(self):
+        """件数はフィルターボタンと同じ行の右に出す（行を増やすと一覧が下がる）。
+
+        ユーザー報告で直した点。位置は CSS が決めるので、並び（markup の順）と
+        行にする指定の両方を見る。
+        """
+        page = (SKILL_DIR / "templates" / "page.html").read_text(encoding="utf-8")
+        bar = page[page.index('<div class="filter-bar">'):page.index("</div>", page.index('id="file-search-hint"'))]
+        self.assertLess(bar.index('id="btn-filter"'), bar.index('id="file-search-hint"'),
+                        "件数はボタンの後ろ（右）に置く")
+        css = (SKILL_DIR / "templates" / "style.css").read_text(encoding="utf-8")
+        rule = css[css.index(".filter-bar {"):css.index("}", css.index(".filter-bar {"))]
+        self.assertIn("display: flex", rule)
+        self.assertIn("position: relative", rule,
+                      "パネルの幅の基準は行全体（ボタン基準だと縦長に潰れる）")
+        # 折り返したら行が増え、この行に置いた意味が無くなる
+        hint = css[css.index(".filter-bar .filelist-hint {"):
+                   css.index("}", css.index(".filter-bar .filelist-hint {"))]
+        self.assertIn("white-space: nowrap", hint)
+        self.assertIn("text-overflow: ellipsis", hint)
+        # 長くなり得るエラー文は別の（全幅の）行が受け持つ
+        page = (SKILL_DIR / "templates" / "page.html").read_text(encoding="utf-8")
+        self.assertIn('id="file-search-error"', page)
+        app = (SKILL_DIR / "templates" / "app.js").read_text(encoding="utf-8")
+        body = app[app.index("function renderFileListBody("):app.index("function buildTree(")]
+        self.assertIn('setError("正規表現が正しくありません: " + query.error)', body)
+
+    def test_panel_is_reachable_on_a_narrow_screen(self):
+        """積んだレイアウト（900px 以下）で、パネルの下（確認済みの行）が切れないこと。
+
+        左ペインは 40vh で頭打ちになり中をスクロールするが、パネルは .pane-sticky の
+        中にあるのでスクロールしても動かない。開いている間だけ上限を外して逃がす。
+        """
+        css = (SKILL_DIR / "templates" / "style.css").read_text(encoding="utf-8")
+        narrow = css[css.index("@media (max-width: 900px) {"):]
+        narrow = narrow[:narrow.index("\n}\n")]
+        self.assertIn('.pane-left[data-filter-open="true"]', narrow)
+        self.assertIn("max-height: none", narrow)
+        app = (SKILL_DIR / "templates" / "app.js").read_text(encoding="utf-8")
+        opener = app[app.index("function setFilterOpen("):app.index("function renderViewedCount(")]
+        self.assertIn('pane.setAttribute("data-filter-open", "true")', opener)
+        self.assertIn('pane.removeAttribute("data-filter-open")', opener)
+
+    def test_reveal_tells_once_even_when_both_axes_hid_it(self):
+        # 通知が 2 行に割れると「何が起きたか」が読みにくい。1 件にまとめる。
+        app = (SKILL_DIR / "templates" / "app.js").read_text(encoding="utf-8")
+        body = app[app.index("function revealFile("):app.index("function applyFileFilter(")]
+        self.assertEqual(body.count("notify("), 1, "通知は 1 件にまとめる")
+        self.assertIn("undone.join(", body)
 
     def test_keys_do_not_act_on_a_hidden_file(self):
         # f / e / t が使う「いま見ているファイル」。隠れたまま効くと、画面では何も起きないのに

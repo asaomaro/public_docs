@@ -293,6 +293,11 @@ button:focus-visible, [tabindex]:focus-visible {
      残し、.pane-head の開閉ボタンだけが見える状態にする（上の「閉じたときの見た目」と同じ規則）。 */
   .shell[data-left="collapsed"] .pane-left,
   .shell[data-right="collapsed"] .pane-right { display: block; max-height: none; }
+  /* 積んだレイアウトでは左ペインが 40vh で頭打ちになり、中をスクロールする。重ねて出す
+     絞り込みパネルは .pane-sticky の中にあるので**スクロールしても動かず**、下のほう
+     （「確認済みのファイル」の行）が切れて押せなかった（独立レビュー must 1）。
+     開いている間だけ高さの上限を外し、パネル全体が見えるようにする。 */
+  .pane-left[data-filter-open="true"] { max-height: none; overflow: visible; }
 }
 
 #banners:empty { display: none; }
@@ -872,13 +877,30 @@ textarea {
 #file-search[aria-invalid="true"] { border-color: var(--danger); }
 .filelist-hint { margin: 4px 0 0; font-size: 11px; color: var(--muted); }
 
-/* ------------------------------------------------------ 拡張子での絞り込み（左ペイン） */
+/* ------------------------------------------ 表示するファイルの絞り込み（左ペイン） */
 
-.ext-filter-wrap { position: relative; margin-top: 6px; }
-.ext-filter-button { font-size: 12px; padding: 3px 8px; }
-/* 畳んでいても絞り込み中だと分かるように（ラベルの件数だけだと見落とす）。 */
-.ext-filter-button[data-filtered="true"] { border-color: var(--accent); color: var(--accent); }
-.ext-filter-panel {
+/* ボタンと件数を 1 行に収める。件数を別の行に置くと、一覧の始まりがその分だけ下がる
+   （ユーザー報告: 件数はボタンの右に出して行を増やさないで）。 */
+/* パネルの位置と幅の基準は**行全体**にする（.filter-wrap を基準にすると、それは
+   ボタン幅しかないので max-width: 100% がボタン幅まで縮み、パネルが縦長に潰れる）。 */
+.filter-bar { position: relative; display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+/* 件数は**折り返さない**。折り返すと行が増えて、この行に置いた意味が無くなる
+   （長くなり得るエラー文は #file-search-error の全幅の行が受け持つ）。 */
+.filter-bar .filelist-hint {
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.filelist-error { margin: 4px 0 0; font-size: 11px; color: var(--danger); }
+.filter-wrap { flex: 0 0 auto; }
+.filter-button { font-size: 12px; padding: 3px 8px; }
+/* 畳んでいても絞り込み中だと分かるように（右の件数だけだと見落とす）。 */
+.filter-button[data-filtered="true"] { border-color: var(--accent); color: var(--accent); }
+.filter-panel {
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
@@ -892,10 +914,10 @@ textarea {
   box-shadow: 0 8px 24px rgba(0, 0, 0, .24);
   padding: 8px;
 }
-/* 長くなるのは一覧だけ。パネルごとスクロールさせると、拡張子が多いときに見出しと
-   「n 種類中 m 種類を表示中」が枠の外へ出てしまう（実機のスクリーンショットで確認）。 */
-#ext-filter-list { max-height: 240px; overflow: auto; }
-.ext-filter-head {
+/* 長くなるのは拡張子の並びだけ。パネルごとスクロールさせると、拡張子が多いときに見出しと
+   「n 種類中 m 種類を表示中」、その下の「確認済みのファイル」が枠の外へ出てしまう。 */
+#filter-exts { max-height: 240px; overflow: auto; }
+.filter-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -903,8 +925,8 @@ textarea {
   font-size: 12px;
   margin-bottom: 6px;
 }
-.ext-filter-head button { font-size: 11px; padding: 2px 6px; }
-.ext-filter-item {
+.filter-head button { font-size: 11px; padding: 2px 6px; }
+.filter-row {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -912,11 +934,14 @@ textarea {
   font-size: 12px;
   cursor: pointer;
 }
-.ext-filter-item:hover { background: var(--surface); }
-.ext-filter-name { flex: 1 1 auto; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; }
-.ext-filter-count { flex: 0 0 auto; color: var(--muted); }
-.ext-filter-panel .hint { margin: 6px 0 0; font-size: 11px; }
-.ext-filter-panel .empty { padding: 8px 2px; font-size: 12px; color: var(--muted); }
+.filter-row:hover { background: var(--surface); }
+.filter-name { flex: 1 1 auto; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; }
+.filter-count { flex: 0 0 auto; color: var(--muted); }
+.filter-panel .hint { margin: 6px 0 0; font-size: 11px; }
+.filter-panel .empty { padding: 8px 2px; font-size: 12px; color: var(--muted); }
+/* 拡張子とは別の軸（確認済み）なので、区切り線を挟んで下に置く。 */
+.filter-extra { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); }
+.filter-extra .filter-name { font-family: inherit; }
 
 /* 絞り込みで隠したファイル。差分の DOM は残したまま隠すだけにして、展開や書きかけの
    コメントを絞り込みのたびに失わないようにする（app.js の applyFileVisibility）。 */
