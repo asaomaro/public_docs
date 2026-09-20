@@ -1323,11 +1323,18 @@
       });
       toggle.addEventListener("click", function () { toggleFile(section, file); });
 
+      // パスは折り返さず、入りきらなければ「…」で省略する。省略するのは**フォルダ側**で、
+      // ファイル名は最後まで残す（末尾から削ると、どのファイルのヘッダーか分からなくなる）。
+      // 全体は title で読める（隣の ⧉ でコピーもできる）。
+      var cut = String(file.path).lastIndexOf("/");
       var pathText = el("span", {
         class: "path-text",
-        "data-viewed": viewedFiles[file.path] ? "true" : null,
-        text: file.path
-      });
+        title: file.path,
+        "data-viewed": viewedFiles[file.path] ? "true" : null
+      }, [
+        cut === -1 ? null : el("span", { class: "path-dir", text: file.path.slice(0, cut + 1) }),
+        el("span", { class: "path-base", text: cut === -1 ? file.path : file.path.slice(cut + 1) })
+      ]);
 
       var copyButton = el("button", {
         type: "button",

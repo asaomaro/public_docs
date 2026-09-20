@@ -967,12 +967,34 @@ textarea {
 
 /* -------------------------------------------------------------- ファイルヘッダー */
 
+/* パスは**折り返さず**、入りきらなければ「…」で省略する（折り返すとヘッダーが 2〜3 行に
+   なり、sticky で画面上部に貼り付く帯がそのぶん厚くなる）。削るのはフォルダ側だけで、
+   ファイル名は最後まで残す——flex-shrink を大きく差をつけて、縮む順番を決めている。
+   全体は title で読める（隣の ⧉ でコピーもできる）。 */
 .file-head .path-text {
   flex: 1 1 auto;
   min-width: 0;
+  display: flex;
   font-family: var(--mono);
   font-size: 12px;
-  word-break: break-all;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.file-head .path-dir {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* ファイル名は**縮ませない**（flex-shrink: 0）。わずかでも縮むと ellipsis が出て
+   拡張子が「SKILL.…」のように欠ける。フォルダ側を 0 まで削っても足りないときだけ、
+   max-width: 100% で頭打ちになり、そこで初めてファイル名自身が省略される。 */
+.file-head .path-base {
+  flex: 0 0 auto;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .file-head .path-text[data-viewed="true"] { text-decoration: line-through; color: var(--muted); }
 .file-head .copy-path { flex: 0 0 auto; font-size: 13px; padding: 2px 6px; }
