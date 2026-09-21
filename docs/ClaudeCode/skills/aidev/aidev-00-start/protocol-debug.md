@@ -24,6 +24,23 @@
 - タスク点検の「点検 → 修正」が **`maxTaskCheckRounds`**（既定 2）を超えても直らない（`protocol-check.md`）。
 - 原因が分からないまま実装を変えている自覚があるとき（自己申告でよい。上限を待たなくてよい）。
 
+## 省く（`aidev debug skip`）
+
+**発火条件に当たっても、原因が既に特定できていて再現もできるなら委譲しない**——まっさらなコンテキストの
+価値は「前提を疑い直す」ことにあり、原因が分かっている差し戻しには無い。ただし**黙って飛ばさない**:
+
+```sh
+aidev debug skip [--phase <工程>] --reason "<なぜ委譲が要らないか>"
+```
+
+**打てるのは差し戻しが上限に達してから**（手前で打つと WARN が鳴る前に黙らせられる）。
+`--phase` を省いたときの既定は**上限に達している工程**（`current` ではない。該当が 1 つに決まらなければ要求される）。
+**回数の上限は無い**——差し戻されるたびに WARN が鳴り直し、そのたびに理由を書けば省ける。歯止めは
+「毎回、理由が `decisions.md` に積まれる」ことだけで、積み上がった記録そのものが retro の材料になる。
+`--reason` は必須（書けないなら省かない）。理由は `decisions.md`、記録は `metrics.yml` に残り、
+その工程の `verify` の WARN は出なくなる。**上限に達した差し戻しを何もせず通した場合との違いは、この記録だけ**。
+省いた後でも `debug start` は打てる（後から必要になったら委譲してよい）。
+
 ## 手順
 
 1. **`aidev debug start [--phase <工程>]`** を打つ。ラウンド上限（`maxDebugRounds`。既定 2）を検査し、
@@ -82,10 +99,11 @@
 
 ## 記録と検査
 
-- `metrics.yml`: `{ phase: <工程>, event: debug, metrics: { stage: start|report, round: N,
-  category: …, next_action: …, confidence: … } }`
+- `metrics.yml`: `{ phase: <工程>, event: debug, metrics: { stage: start|report|skip, round: N,
+  category: …, next_action: …, confidence: …, sent_backs: N } }`（`sent_backs` は skip のみ）
 - `decisions.md`: 「デバッグ D&lt;n&gt;」の節（根本原因・修正方針・確認方法・確度・次の行動）。
-- `aidev debug status`: 工程ごとの差し戻し数・デバッグ回数・要否（`due`）。
+- `aidev debug status`: 工程ごとの差し戻し数・デバッグ回数・**skip 回数**・要否（`due`）。
 - `aidev verify`（schema 8）:
   - 差し戻しが上限に達しているのに原因究明の記録が無い → **WARN**（挟むかは人の判断）。
+    `skip` があれば鳴らさないが、**省いた後にさらに差し戻されたら鳴らし直す**（当時の判断はその後の手戻りに及ばない）。
   - `stop_for_human` のまま deliver 承認済 → **FAIL**（人の判断を待つ出口を素通りしている）。

@@ -422,7 +422,20 @@ BUDGET_PROTOCOL=608
 #   （`aidev-util-insights`）に届いておらず、retro の課題が名指ししたのはまさにその比較だった
 #   ——**列を足しただけでは読み手に届かない**。`aidev-95-retro` 側は `<file>` の選び方と
 #   不在時の手順が無く、**条項側（`convention new` まで閉じている）と非対称**だった。
-BUDGET_TOTAL=3485
+# 3485 -> 3513: 別 PJ（新規プロジェクト 1 本を 1 work で完走）の retro が出した 5 件の反映。
+#   内訳（実測の増減。すべて実走で時間を失った箇所で、根拠は該当 work の retro.md）:
+#   aidev-60-review「ラウンド 2 以降の範囲」+3（絞る規定が無く、ラウンドごとに別コンテキストの
+#     レビュアーが範囲を広げて **review が 7 ラウンド**まで伸びた。絞って初めて閉じた）
+#   aidev-40-coding「interactive でも点検する対象」+2（既存の発火条件の行に語を足した。
+#     点検はタスク 20 件に対し 100 件を review の前に潰したのに、推奨に反映されていなかった）
+#   protocol.md「7.」の沈黙する失敗 +3（`pnpm -s` の無出力で誤った結論を decisions.md に書いた実測）
+#   protocol-analysis.md の sent_back の数え方 +2（retro が読む付録に置く。protocol.md 本体には
+#     既に除外規則があるので、新しい「素で grep すると混ざる」だけを足した）
+#   protocol-debug.md「省く（debug skip）」+18（新しい出口の位置づけ・打てる条件・`--phase` の既定・
+#     回数に上限が無いこと・記録と検査。**本文はここ 1 箇所**で、protocol.md・SKILL には 1 行も写していない。
+#     うち +3 は実走が見つけた分——`--phase` を省くと `current`（＝最後に承認した工程。多くは coding）に
+#     記録され、差し戻された工程の WARN は消えないまま黙って通っていた）
+BUDGET_TOTAL=3513
 _p=$(wc -l < "$SKILLS/aidev-00-start/protocol.md")
 _t=$(runtime_docs | xargs wc -l 2>/dev/null | tail -n1 | awk '{print $1}')
 [ "$_p" -le "$BUDGET_PROTOCOL" ] && ok "L6 protocol.md が予算内（$_p / $BUDGET_PROTOCOL 行）" \
