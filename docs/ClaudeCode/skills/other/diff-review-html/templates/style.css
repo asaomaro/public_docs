@@ -412,6 +412,9 @@ textarea {
   font-family: var(--mono);
   font-size: 12px;
 }
+/* 幅が足りないときに折り返すのは**パスの側**。数字（+31 -23）が 2 行に割れると、
+   どの行がどのファイルのものか分からなくなる（ユーザー報告）。 */
+#filelist a .path-text { min-width: 0; overflow-wrap: anywhere; }
 #filelist a:last-child { border-bottom: none; }
 #filelist a:hover, #filelist a:focus-visible { background: var(--bg); }
 #filelist .empty { padding: 8px 12px; }
@@ -432,7 +435,7 @@ textarea {
 }
 .diffstat-block[data-kind="add"] { background: var(--resolved); border-color: var(--resolved); }
 .diffstat-block[data-kind="del"] { background: var(--danger); border-color: var(--danger); }
-.file-stat { white-space: nowrap; }
+.file-stat { flex: 0 0 auto; white-space: nowrap; }
 
 .section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .section-head h2 { font-size: 14px; margin: 0; }
@@ -456,8 +459,22 @@ textarea {
   border-bottom: 1px solid var(--line);
   border-radius: 8px 8px 0 0;
 }
-.file-head .path { display: flex; align-items: center; gap: 4px; min-width: 0; }
-.file-head .tags { color: var(--muted); font-size: 12px; white-space: nowrap; }
+/* ヘッダーは**1 行**に収める（ユーザー報告）。折り返すと sticky の帯が 2 段になり、
+   差分を読む領域をそのぶん食う。詰まったときに削るのは「パス → タグの文字」の順で、
+   操作ボタンと差分量（□）は最後まで残す。 */
+.file-head .path { display: flex; align-items: center; gap: 4px; min-width: 0; flex: 1 1 auto; }
+.file-head .tags {
+  display: flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+/* 「変更 ・ markdown ・」の部分だけが縮む。差分量（.file-stat）は縮ませない。 */
+.file-head .tags-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .file-body { overflow-x: auto; overflow-y: hidden; border-radius: 0 0 8px 8px; }
 .file[data-collapsed="true"] .file-body { display: none; }
 
@@ -579,7 +596,7 @@ textarea {
 .expander-hunk-head { font-family: var(--mono); color: var(--muted); white-space: pre; }
 .row.expanded { background: transparent; }
 .row.expanded .gutter { color: var(--muted); opacity: 0.7; }
-.file-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.file-actions { display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; flex: 0 0 auto; }
 .view-toggle[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
 
 /* コメントの重大度・説明バッジ */
@@ -717,7 +734,8 @@ textarea {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.tree-stat { flex: 0 0 auto; white-space: nowrap; }
+/* ツリー・フラット共通。縮まず折り返さない（app.js の statsSpan）。 */
+.list-stat { flex: 0 0 auto; white-space: nowrap; }
 .tree-dir > .tree-name { font-weight: 600; }
 /* 深さに応じたインデント。ネストした .tree-group に同じ規則を当てるだけで複合する
    （research.md F1 で実測: 3 階層で x = 8 / 31 / 54 と均等に増える）。接続線は左境界で表す。 */
