@@ -2157,3 +2157,53 @@ class FileHeaderPathTest(unittest.TestCase):
         app = (SKILL_DIR / "templates" / "app.js").read_text(encoding="utf-8")
         body = app[app.index("var pathText = el("):app.index("var copyButton = el(")]
         self.assertIn("cut === -1 ? null", body)
+
+
+class OneLineRowsTest(unittest.TestCase):
+    """ファイルヘッダーと一覧の 1 行を守る（ユーザー報告）。
+
+    ヘッダーは sticky なので、折り返すと画面上部の帯が 2 段になって読む領域を食う。
+    一覧の「+31 -23」は、2 行に割れるとどの行がどのファイルの数字か分からなくなる。
+    どちらも「折り返す側」を決めて、そこだけに折り返し / 省略を寄せている。
+    """
+
+    def css(self):
+        return (SKILL_DIR / "templates" / "style.css").read_text(encoding="utf-8")
+
+    def rule(self, selector):
+        css = self.css()
+        start = css.index(selector + " {")
+        return css[start:css.index("}", start)]
+
+    def test_header_buttons_never_wrap(self):
+        actions = self.rule(".file-actions")
+        self.assertIn("flex-wrap: nowrap", actions, "ボタンが折り返すとヘッダーが 2 段になる")
+        self.assertIn("flex: 0 0 auto", actions, "ボタンは縮めない（押せなくなる）")
+
+    def test_header_shrinks_the_text_not_the_numbers(self):
+        # 詰まったときに削るのは「パス → タグの文字」。差分量（□）は最後まで残す。
+        path = self.rule(".file-head .path")
+        self.assertIn("flex: 1 1 auto", path)
+        tags = self.rule(".file-head .tags")
+        self.assertIn("flex: 0 1 auto", tags)
+        self.assertIn("overflow: hidden", tags)
+        self.assertIn("text-overflow: ellipsis", self.rule(".file-head .tags-text"))
+        self.assertIn("flex: 0 0 auto", self.rule(".file-stat"), "差分量は縮ませない")
+
+    def test_list_numbers_stay_on_one_line(self):
+        stat = self.rule(".list-stat")
+        self.assertIn("white-space: nowrap", stat)
+        self.assertIn("flex: 0 0 auto", stat)
+        # 代わりに折り返すのはパスの側
+        path = self.rule("#filelist a .path-text")
+        self.assertIn("min-width: 0", path)
+        self.assertIn("overflow-wrap: anywhere", path)
+
+    def test_both_list_modes_share_one_stat_part(self):
+        # フラットとツリーで同じ部品を使う（片方だけ直して食い違うのを防ぐ）
+        app = (SKILL_DIR / "templates" / "app.js").read_text(encoding="utf-8")
+        self.assertEqual(app.count('class: "list-stat"'), 1, "差分量の部品は 1 か所だけ")
+        flat = app[app.index("if (treeMode()) { renderFileTree(nav, pairs); return; }"):
+                   app.index("// -------------------------------------------------------------- ツリー表示")]
+        self.assertIn("statsSpan(file)", flat, "フラット表示も同じ部品を使う")
+        self.assertNotIn('"+" + file.additions', flat, "手書きの複製が残っている")

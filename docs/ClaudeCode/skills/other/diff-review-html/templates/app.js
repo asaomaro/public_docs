@@ -671,8 +671,10 @@
     bar.style.width = (max > 0 ? (pane.scrollTop / max * 100) : 0) + "%";
   }
 
+  // 一覧（ツリー・フラット共通）の「+12 -3」。**縮まず折り返さない**ので、幅が
+  // 足りなくなったらパスの側が折り返す（数字が 2 行に割れるとパスと見分けにくい）。
   function statsSpan(file) {
-    return el("span", { class: "tree-stat" }, [
+    return el("span", { class: "list-stat" }, [
       el("span", { class: "stat-add", text: "+" + file.additions }),
       document.createTextNode(" "),
       el("span", { class: "stat-del", text: "-" + file.deletions })
@@ -1105,11 +1107,7 @@
         "data-viewed": viewedFiles[file.path] ? "true" : null
       }, [
         el("span", { class: "path-text", text: file.path }),
-        el("span", {}, [
-          el("span", { class: "stat-add", text: "+" + file.additions }),
-          document.createTextNode(" "),
-          el("span", { class: "stat-del", text: "-" + file.deletions })
-        ])
+        statsSpan(file)
       ]);
       link.addEventListener("click", function (event) {
         event.preventDefault();
@@ -1424,8 +1422,7 @@
       section.appendChild(el("div", { class: "file-head" }, [
         el("div", { class: "path" }, [toggle, pathText, copyButton, viewedLabel]),
         el("div", { class: "tags" }, [
-          el("span", { text: tags.join(" ・ ") }),
-          document.createTextNode(" ・ "),
+          el("span", { class: "tags-text", text: tags.join(" ・ ") + " ・ " }),
           statsWithBar(file.additions, file.deletions)
         ]),
         actions
