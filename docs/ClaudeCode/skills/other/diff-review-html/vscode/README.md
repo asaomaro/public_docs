@@ -10,6 +10,10 @@ HTML 版と**同じ画面**のまま読み書きする拡張。Marketplace に�
   差分が同じ（指摘だけが変わった）ならスクロール位置と現在行はそのまま、差分そのものが変わったら先頭から表示し直す。
   **未保存の変更がある間は追従しない**（VSCode がディスクから読み直さないため。保存時の衝突は VSCode の標準の扱いになる）。
 - 配色は VSCode のライト／ダークに合わせる（画面の「◐」で「自動」のとき）。
+- エクスプローラーでは `.dreview` に**この拡張と同じアイコン**が付く。VSCode ではファイルの絵は
+  アイコンテーマの持ち物なので、`contributes.languages` の `icon`（＝テーマが `.dreview` を知らない
+  ときに使われる絵）として渡している。`.dreview` 用のアイコンを持つテーマを使っている場合は
+  そちらが優先される。
 
 ## しくみ（コードを二重に持たない）
 
@@ -25,7 +29,7 @@ HTML 版と**同じ画面**のまま読み書きする拡張。Marketplace に�
 | `src/viewerHtml.ts` | 画面に CSP と nonce を付ける |
 | `src/minimalEdit.ts` | 文書の書き換えを最小の範囲にする |
 | `scripts/build-viewer.mjs` | `media/viewer.html` を `diff_review.py view` で生成する |
-| `media/icon.svg` / `icon.png` | 拡張のアイコン（原本は SVG。PNG は 256px に書き出したもの） |
+| `media/icon.svg` / `icon.png` | 拡張と `.dreview` ファイルのアイコン（原本は SVG。PNG は 256px に書き出したもの） |
 
 画面と拡張のあいだのメッセージの契約は `../SKILL.md` の「エディタ拡張から使う」にある。
 

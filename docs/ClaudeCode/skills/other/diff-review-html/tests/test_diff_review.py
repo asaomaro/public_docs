@@ -2207,3 +2207,38 @@ class OneLineRowsTest(unittest.TestCase):
                    app.index("// -------------------------------------------------------------- ツリー表示")]
         self.assertIn("statsSpan(file)", flat, "フラット表示も同じ部品を使う")
         self.assertNotIn('"+" + file.additions', flat, "手書きの複製が残っている")
+
+
+class ExtensionManifestTest(unittest.TestCase):
+    """VSCode 拡張のマニフェスト。**画面やファイル形式と食い違わない**ことを見る。
+
+    ファイルアイコンは VSCode では「アイコンテーマ」の持ち物なので、拡張からは
+    `contributes.languages` の icon で「テーマが知らない拡張子のときの絵」として出す。
+    """
+
+    def manifest(self):
+        path = SKILL_DIR / "vscode" / "package.json"
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def language(self):
+        langs = self.manifest()["contributes"]["languages"]
+        self.assertEqual(len(langs), 1, "言語の定義は 1 つだけ")
+        return langs[0]
+
+    def test_the_bundle_extension_is_the_one_python_writes(self):
+        # 片方だけ変えると、拡張は別の拡張子を見張ることになる
+        self.assertEqual(self.language()["extensions"], [dr.BUNDLE_EXT])
+        selector = self.manifest()["contributes"]["customEditors"][0]["selector"]
+        self.assertEqual(selector, [{"filenamePattern": "*" + dr.BUNDLE_EXT}])
+
+    def test_the_file_icon_is_the_extension_icon(self):
+        # 「拡張のアイコンと同じ絵をファイルにも出す」が要件（ユーザー報告）。
+        # 別ファイルに分けると、片方だけ描き直したときに黙ってずれる。
+        icon = self.manifest()["icon"]
+        self.assertEqual(self.language()["icon"], {"light": icon, "dark": icon})
+        self.assertTrue((SKILL_DIR / "vscode" / icon).exists(), icon)
+
+    def test_the_icon_is_packaged(self):
+        # .vscodeignore に載せてしまうと、アイコンの無い vsix ができる
+        ignore = (SKILL_DIR / "vscode" / ".vscodeignore").read_text(encoding="utf-8").split()
+        self.assertNotIn(self.manifest()["icon"], ignore)

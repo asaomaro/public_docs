@@ -26,6 +26,21 @@
     }
   },
   "contributes": {
+    "languages": [
+      {
+        "id": "dreview",
+        "aliases": [
+          "Diff Review bundle"
+        ],
+        "extensions": [
+          ".dreview"
+        ],
+        "icon": {
+          "light": "media/icon.png",
+          "dark": "media/icon.png"
+        }
+      }
+    ],
     "customEditors": [
       {
         "viewType": "diffReview.editor",
