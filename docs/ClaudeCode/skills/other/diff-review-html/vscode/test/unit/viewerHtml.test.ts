@@ -7,10 +7,19 @@ import { cspFor, makeNonce, withCsp } from "../../src/viewerHtml";
 
 const extRoot = join(__dirname, "..", "..", "..");
 const viewerPath = join(extRoot, "media", "viewer.html");
-const python = process.env.PYTHON || (process.platform === "win32" ? "python" : "python3");
+// 呼び名の決め方はビルドと共通（scripts/python.cjs）。ここで決め打ちにすると、
+// Windows で「ビルドは通るのにテストだけ Python を見つけられない」が起きる。
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const pythonUtil = require(join(extRoot, "scripts", "python.cjs")) as {
+  resolvePython(): string[] | null;
+  pythonNotFoundMessage(): string;
+};
+const resolved = pythonUtil.resolvePython();
+if (!resolved) { throw new Error(pythonUtil.pythonNotFoundMessage()); }
+const [python, ...pythonArgs] = resolved;
 
 test("同梱のビューアは diff_review.py view の出力そのもの", () => {
-  const result = spawnSync(python, [join(extRoot, "..", "diff_review.py"), "view"], { encoding: "utf8" });
+  const result = spawnSync(python, [...pythonArgs, join(extRoot, "..", "diff_review.py"), "view"], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(readFileSync(viewerPath, "utf8"), result.stdout);
 });

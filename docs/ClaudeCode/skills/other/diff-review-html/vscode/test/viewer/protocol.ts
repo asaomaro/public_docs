@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Page, chromium } from "playwright-core";
 import { SyncSession } from "../../src/sync";
-import { EXT_ROOT, PYTHON, SKILL_DIR, diffReview, python, sleep, waitFor } from "../e2e/harness";
+import { EXT_ROOT, PYTHON, PYTHON_ARGS, SKILL_DIR, diffReview, python, sleep, waitFor } from "../e2e/harness";
 
 const results: Array<{ name: string; ok: boolean; detail: string }> = [];
 
@@ -116,7 +116,7 @@ function foreignTarget(text: string): string {
     "b['review']['target'] = dict(b['review']['target'], diff_digest='0' * 40, base_commit='f' * 40)",
     "sys.stdout.write(dr.bundle_text(b['target'], b['files'], b['rich_enabled'], b['review']))",
   ].join("\n");
-  const r = spawnSync(PYTHON, ["-c", script], { input: text, encoding: "utf8" });
+  const r = spawnSync(PYTHON, [...PYTHON_ARGS, "-c", script], { input: text, encoding: "utf8" });
   if (r.status !== 0) { throw new Error(r.stderr); }
   return r.stdout;
 }

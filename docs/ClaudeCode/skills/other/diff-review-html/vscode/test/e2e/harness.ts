@@ -11,7 +11,17 @@ import { downloadAndUnzipVSCode } from "@vscode/test-electron";
 
 export const EXT_ROOT = join(__dirname, "..", "..", "..");
 export const SKILL_DIR = join(EXT_ROOT, "..");
-export const PYTHON = process.env.PYTHON || (process.platform === "win32" ? "python" : "python3");
+// Python の呼び名の決め方は scripts/python.cjs に 1 つだけ置く（ビルドと共通。名前を
+// 決め打ちにすると、Windows の Microsoft Store のスタブを掴んで黙って失敗する）。
+// コンパイル後の位置（out/test/e2e）から相対で書けないので、EXT_ROOT から引く。
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const pythonUtil = require(join(EXT_ROOT, "scripts", "python.cjs")) as {
+  resolvePython(): string[] | null;
+  pythonNotFoundMessage(): string;
+};
+const resolved = pythonUtil.resolvePython();
+if (!resolved) { throw new Error(pythonUtil.pythonNotFoundMessage()); }
+export const [PYTHON, ...PYTHON_ARGS] = resolved;
 const VSCODE_VERSION = process.env.VSCODE_VERSION || "1.138.0";
 const QUICK_INPUT = ".quick-input-widget:not([style*='display: none']) input";
 
@@ -33,7 +43,7 @@ export async function waitFor<T>(what: string, probe: () => Promise<T | null | u
 }
 
 export function python(args: string[], cwd?: string, input?: string): { status: number; stdout: string; stderr: string } {
-  const result = spawnSync(PYTHON, args, { cwd, input, encoding: "utf8" });
+  const result = spawnSync(PYTHON, [...PYTHON_ARGS, ...args], { cwd, input, encoding: "utf8" });
   return { status: result.status ?? -1, stdout: result.stdout, stderr: result.stderr };
 }
 
