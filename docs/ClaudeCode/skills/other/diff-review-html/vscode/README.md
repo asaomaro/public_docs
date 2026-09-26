@@ -29,6 +29,7 @@ HTML 版と**同じ画面**のまま読み書きする拡張。Marketplace に�
 | `src/viewerHtml.ts` | 画面に CSP と nonce を付ける |
 | `src/minimalEdit.ts` | 文書の書き換えを最小の範囲にする |
 | `scripts/build-viewer.mjs` | `media/viewer.html` を `diff_review.py view` で生成する |
+| `build.sh` / `build.bat` | `.vsix` を作る（`--build` を付けるとビルドからやり直す）。中身は同じ |
 | `media/icon.svg` / `icon.png` | 拡張と `.dreview` ファイルのアイコン（原本は SVG。PNG は 256px に書き出したもの） |
 
 画面と拡張のあいだのメッセージの契約は `../SKILL.md` の「エディタ拡張から使う」にある。
@@ -46,9 +47,19 @@ HTML 版と**同じ画面**のまま読み書きする拡張。Marketplace に�
 ```sh
 cd <skill>/vscode
 npm ci
-npm run package          # 画面の生成 → コンパイル → diff-review-vscode-<版>.vsix
+./build.sh --build       # 画面の生成 → コンパイル → diff-review-vscode-<版>.vsix
 code --install-extension diff-review-vscode-0.1.0.vsix
 ```
+
+Windows は `build.bat --build`（引数も終了コードも sh 版と同じ）。
+
+| 使い方 | 何をするか |
+|---|---|
+| `./build.sh` | いまある `out/` と `media/viewer.html` から `.vsix` を作るだけ（速い。成果物が欠けていれば、作り直せと言って止まる） |
+| `./build.sh --build` | 画面の生成（`../diff_review.py view`）とコンパイルからやり直してから `.vsix` を作る |
+| `./build.sh --help` | 使い方 |
+
+`npm run package`（= 必ずビルドしてから作る）も従来どおり使える。
 
 入れたあとは `.dreview` を開くだけ。消すときは拡張機能ビューから「アンインストール」。
 `.vsix` に入るのは `package.json`・`README.md`・`out/src/`・`media/viewer.html` だけで、実行時の依存は無い
