@@ -65,8 +65,7 @@
   var UI = window.DiffReviewUI || {
     pref: function (name, value) { return arguments.length === 1 ? null : value; },
     init: function () {},
-    togglePane: function () {},
-    syncTopbarHeight: function () {}
+    togglePane: function () {}
   };
 
   // ------------------------------------------------- 差分の差し替え（バンドル）
@@ -2922,7 +2921,6 @@
     var panel = document.getElementById(id);
     if (!panel) { return; }
     panel.hidden = !show;
-    UI.syncTopbarHeight();   // .shell の高さは「画面 − トップバーとパネル」なので測り直す
   }
 
   // キー操作説明（#help）はフローティング表示（style.css の .modal）なので、開閉の経路
@@ -3124,7 +3122,6 @@
     // 通知が無い状態）でベルを開くと #notif-list が空の DOM のまま（「通知はまだ
     // ありません」の一行すら無い）で、細長い空の帯にしか見えなかった（ユーザー報告）。
     renderNotifList();
-    UI.syncTopbarHeight();
     // renderFileList() の時点では .file がまだ無いので、renderFiles() の後にもう一度
     // （読み込み直後・スクロール前でも先頭のファイルがハイライトされる。要件 AC6）。
     applyCurrentFileHighlight();
