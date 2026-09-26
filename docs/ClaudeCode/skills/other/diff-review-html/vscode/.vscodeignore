@@ -3,6 +3,8 @@ src/**
 test/**
 out/test/**
 scripts/**
+build.sh
+build.bat
 media/icon.svg
 .vscode-test/**
 tsconfig.json

@@ -2242,3 +2242,52 @@ class ExtensionManifestTest(unittest.TestCase):
         # .vscodeignore に載せてしまうと、アイコンの無い vsix ができる
         ignore = (SKILL_DIR / "vscode" / ".vscodeignore").read_text(encoding="utf-8").split()
         self.assertNotIn(self.manifest()["icon"], ignore)
+
+
+class BuildScriptTest(unittest.TestCase):
+    """.vsix を作るスクリプト（vscode/build.sh・build.bat）。
+
+    2 つの版は**同じ引数・同じ終了コード**で動く必要がある（片方だけ直すと、
+    Windows と Linux で手順が食い違う）。中身の詳細ではなく、その約束だけを見る。
+    """
+
+    def path(self, name):
+        return SKILL_DIR / "vscode" / name
+
+    def text(self, name):
+        return self.path(name).read_text(encoding="utf-8")
+
+    def test_both_versions_exist(self):
+        self.assertTrue(self.path("build.sh").exists())
+        self.assertTrue(self.path("build.bat").exists())
+        mode = self.path("build.sh").stat().st_mode
+        self.assertTrue(mode & 0o111, "build.sh に実行権が無い")
+
+    def test_both_take_the_same_flags(self):
+        for name in ("build.sh", "build.bat"):
+            body = self.text(name)
+            for flag in ("--build", "--help"):
+                self.assertIn(flag, body, "%s に %s が無い" % (name, flag))
+
+    def test_build_is_optional(self):
+        # 既定は「いまある成果物から詰めるだけ」。--build のときだけ作り直す。
+        sh = self.text("build.sh")
+        self.assertIn("npm run build", sh)
+        self.assertIn("media/viewer.html", sh, "成果物の有無を確かめてから詰める")
+        self.assertIn("out/src/extension.js", sh)
+        bat = self.text("build.bat")
+        self.assertIn("npm run build", bat)
+        self.assertIn("media\\viewer.html", bat)
+        self.assertIn("out\\src\\extension.js", bat)
+
+    def test_windows_version_is_crlf(self):
+        # cmd は LF だけの .bat でラベルの解釈が崩れることがある
+        raw = self.path("build.bat").read_bytes()
+        self.assertIn(b"\r\n", raw)
+        self.assertNotIn(b"\r\n\n", raw)
+
+    def test_the_scripts_are_not_shipped(self):
+        # 配る .vsix に入れるのは画面と out/src だけ（src/ や scripts/ と同じ扱い）
+        ignore = (SKILL_DIR / "vscode" / ".vscodeignore").read_text(encoding="utf-8").split()
+        self.assertIn("build.sh", ignore)
+        self.assertIn("build.bat", ignore)
