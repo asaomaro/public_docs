@@ -2332,3 +2332,49 @@ class WindowsBuildTest(unittest.TestCase):
             body = self.vscode(*path).read_text(encoding="utf-8")
             self.assertIn("python.cjs", body, "/".join(path))
             self.assertNotIn('=== "win32" ? "python"', body, "決め打ちが残っている: %s" % "/".join(path))
+
+
+class PageHeightTest(unittest.TestCase):
+    """画面全体に縦スクロールバーを出さない（ユーザー報告）。
+
+    以前は `.shell` の高さを `100vh - トップバーの実測` で出していた。実測を CSS 変数へ
+    渡す往復のどこかで端数が落ちる（拡大率 125% 等では 0.x px 残る）ため、数ピクセルだけ
+    はみ出して画面全体にスクロールバーが出ていた。**引き算をやめて flex に配らせる**のが
+    直し方で、そこへ戻さないための検査。
+    """
+
+    def css(self):
+        return (SKILL_DIR / "templates" / "style.css").read_text(encoding="utf-8")
+
+    def rule(self, selector, source=None):
+        css = source if source is not None else self.css()
+        start = css.index(selector + " {")
+        return css[start:css.index("}", start)]
+
+    def test_the_page_itself_does_not_scroll(self):
+        body = self.rule("body")
+        self.assertIn("height: 100vh", body)
+        self.assertIn("overflow: hidden", body)
+        self.assertIn("flex-direction: column", body)
+
+    def test_the_panes_take_the_rest_without_arithmetic(self):
+        shell = self.rule(".shell")
+        self.assertIn("flex: 1 1 auto", shell)
+        self.assertIn("min-height: 0", shell, "これが無いと中身の分だけ膨らむ")
+        self.assertNotIn("calc(100vh", shell, "引き算に戻っている（端数でスクロールバーが出る）")
+
+    def test_the_stacked_layout_still_scrolls(self):
+        # 900px 以下は 3 列を積んでページごとスクロールする。上の指定を戻していること。
+        css = self.css()
+        narrow = css[css.index("@media (max-width: 900px) {"):]
+        narrow = narrow[:narrow.index("\n}\n")]
+        body = self.rule("body", narrow)
+        self.assertIn("height: auto", body)
+        self.assertIn("overflow: visible", body)
+
+    def test_nothing_measures_the_topbar_any_more(self):
+        # 測った値を CSS 変数へ渡す経路が残っていると、同じ端数の問題がまた出る
+        for name in ("app.js", "ui.js", "style.css"):
+            text = (SKILL_DIR / "templates" / name).read_text(encoding="utf-8")
+            self.assertNotIn("--topbar-h", text, name)
+            self.assertNotIn("syncTopbarHeight", text, name)

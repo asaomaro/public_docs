@@ -100,8 +100,17 @@
 
 * { box-sizing: border-box; }
 
+/* 画面そのものはスクロールさせない。縦の配り方は**引き算ではなく flex** に任せる
+   ——`100vh - トップバーの実測` で出すと、拡大率 125% などで端数（0.x px）が残り、
+   数ピクセルだけはみ出した縦スクロールバーが画面全体に出る（ユーザー報告）。
+   スクロールするのは中の 3 ペインだけ。狭い画面（900px 以下）はこの指定を戻して
+   ページごとスクロールさせる（下のメディアクエリ）。 */
 body {
   margin: 0;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   background: var(--bg);
   color: var(--fg);
   font-family: system-ui, -apple-system, "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
@@ -188,8 +197,10 @@ button:focus-visible, [tabindex]:focus-visible {
   display: grid;
   grid-template-columns: var(--left, 260px) 6px minmax(0, 1fr) 6px var(--right, 320px);
   align-items: stretch;
-  height: calc(100vh - var(--topbar-h, 56px));
-  min-height: 320px;
+  /* トップバー（と #banners）を除いた残り全部。min-height: 0 が無いと、中身の
+     最小内容高さでグリッドが膨らんで body からはみ出す。 */
+  flex: 1 1 auto;
+  min-height: 0;
 }
 /* 畳んだ側は幅 0 ではなく細いストリップ（40px）にする。.icon-btn の min-width: 30px
    （box-sizing: border-box）に対し、片側 5px の余白が残る値（research.md R4）。
@@ -278,6 +289,8 @@ button:focus-visible, [tabindex]:focus-visible {
 
 /* 狭い画面では 3 列を積む。境界は意味を失うので消す（research.md F10 で実測） */
 @media (max-width: 900px) {
+  /* 積んだレイアウトは**ページごとスクロールする**ので、上の「はみ出させない」指定を戻す。 */
+  body { height: auto; overflow: visible; display: block; }
   .shell,
   .shell[data-left="collapsed"],
   .shell[data-right="collapsed"],
@@ -327,9 +340,9 @@ button:focus-visible, [tabindex]:focus-visible {
 .panel label.block { display: block; margin: 8px 0 4px; }
 
 /* キー操作説明（#help）はフローティング表示にする（ユーザー報告: 通常の .panel は
-   文書の流れに乗るため、開くとトップバー直下の高さが変わり、他の表示（.shell の高さ等。
-   ui.js の syncTopbarHeight）に影響していた）。画面中央に固定し、背後にクリックで
-   閉じられる backdrop を敷く。中の見た目（見出し・表組み等）は .panel をそのまま流用する。 */
+   文書の流れに乗るため、開くとトップバー直下の高さが変わり、3 ペインの高さまで動いて
+   いた）。画面中央に固定し、背後にクリックで閉じられる backdrop を敷く。中の見た目
+   （見出し・表組み等）は .panel をそのまま流用する。 */
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -812,9 +825,8 @@ textarea {
 
 /* ---------------------------------------------------------------- 通知ベル */
 
-/* ベルボタンの真下に重ねて出す浮動ポップオーバー。固定パネル（#help/#submit-panel）とは
-   違い、topbar の高さ計算（ui.js の syncTopbarHeight）の対象に含めない——開閉しても
-   レイアウトが動かない。 */
+/* ベルボタンの真下に重ねて出す浮動ポップオーバー。文書の流れから外してあるので、
+   開閉してもトップバーの高さも 3 ペインの高さも動かない。 */
 #btn-notif { position: relative; }
 .notif-wrap { position: relative; }
 /* パネル開閉ボタン（ファイル一覧/コメント一覧）にも同じ形のバッジを出す

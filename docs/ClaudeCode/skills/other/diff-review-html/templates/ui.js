@@ -243,26 +243,6 @@
     });
   }
 
-  // ------------------------------------------------------- トップバーの高さ
-
-  function syncTopbarHeight() {
-    // .shell の高さは「画面の高さ − トップバー」。トップバーはボタンが折り返すと高さが変わるので、
-    // 固定値ではなく実測を CSS 変数へ渡す。
-    var bar = document.querySelector(".topbar");
-    if (!bar) { return; }
-    var extra = 0;
-    // #help・#submit-panel・#export-panel はいずれもフローティング表示
-    // （style.css の .modal）になり、文書の流れから外れたので、開いても .shell の
-    // 高さには影響しない——対象は #banners だけ残る（ユーザー報告: 他の表示に
-    // 影響を与えないでほしい）。
-    ["banners"].forEach(function (id) {
-      var node = document.getElementById(id);
-      if (node && !node.hidden) { extra += node.getBoundingClientRect().height; }
-    });
-    var total = Math.round(bar.getBoundingClientRect().height + extra);
-    document.documentElement.style.setProperty("--topbar-h", total + "px");
-  }
-
   // ---------------------------------------------------------------- 起動
 
   function init() {
@@ -295,8 +275,6 @@
       if (button) { button.addEventListener("click", function () { togglePane(which); }); }
     });
 
-    syncTopbarHeight();
-    window.addEventListener("resize", syncTopbarHeight);
   }
 
   window.DiffReviewUI = {
@@ -304,7 +282,6 @@
     init: init,
     togglePane: togglePane,
     openPane: openPane,
-    syncTopbarHeight: syncTopbarHeight,
     onPaneChange: function (fn) { onPaneChange = fn; },
     defaults: DEFAULTS
   };
