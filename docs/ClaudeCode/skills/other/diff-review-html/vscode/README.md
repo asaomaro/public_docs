@@ -30,6 +30,7 @@ HTML 版と**同じ画面**のまま読み書きする拡張。Marketplace に�
 | `src/minimalEdit.ts` | 文書の書き換えを最小の範囲にする |
 | `scripts/build-viewer.mjs` | `media/viewer.html` を `diff_review.py view` で生成する |
 | `build.sh` / `build.bat` | `.vsix` を作る（`--build` を付けるとビルドからやり直す）。中身は同じ |
+| `scripts/python.cjs` | Python 3 の呼び名を決める（ビルドとテストで共通） |
 | `media/icon.svg` / `icon.png` | 拡張と `.dreview` ファイルのアイコン（原本は SVG。PNG は 256px に書き出したもの） |
 
 画面と拡張のあいだのメッセージの契約は `../SKILL.md` の「エディタ拡張から使う」にある。
@@ -37,7 +38,10 @@ HTML 版と**同じ画面**のまま読み書きする拡張。Marketplace に�
 ## 必要なもの
 
 - Node.js 22 以上（unit テストの起動にグロブ指定の `node --test` を使う）と npm
-- Python 3（画面の生成に `diff_review.py` を使う。`python3` 以外で呼ぶなら環境変数 `PYTHON` で指定）
+- Python 3（画面の生成に `diff_review.py` を使う）。呼び名は `py -3` → `python` → `python3` の順に
+  試し、`--version` が「Python 3」と答えたものを使う（Windows の `python` / `python3` は、実体の無い
+  Microsoft Store の別名が PATH に居ることがあるため）。明示するなら環境変数 `PYTHON`
+  （`PYTHON="py -3"` のように引数つきでもよい）
 - e2e を回すときだけ: 画面（Linux なら X / WSLg）、初回はネットワーク（テスト用の VSCode を取得する）
 - `test:protocol` を回すときだけ: Chromium（下の「テスト」）
 - e2e と `test:protocol` の両方: git（検査用の固定リポジトリ `../tests/fixture_repo.py` を作るため）
@@ -51,7 +55,9 @@ npm ci
 code --install-extension diff-review-vscode-0.1.0.vsix
 ```
 
-Windows は `build.bat --build`（引数も終了コードも sh 版と同じ）。
+Windows は `build.bat --build`（引数も終了コードも sh 版と同じ）。`build.bat` の中身が英語なのは、
+`cmd` がこのファイルを**その窓のコードページ**（932 など）で読むため——日本語を書くと化けるだけでなく、
+`rem` の行が途中でコマンドとして解釈されて壊れる（実機で踏んだ）。
 
 | 使い方 | 何をするか |
 |---|---|

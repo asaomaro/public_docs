@@ -2291,3 +2291,44 @@ class BuildScriptTest(unittest.TestCase):
         ignore = (SKILL_DIR / "vscode" / ".vscodeignore").read_text(encoding="utf-8").split()
         self.assertIn("build.sh", ignore)
         self.assertIn("build.bat", ignore)
+
+
+class WindowsBuildTest(unittest.TestCase):
+    """Windows で踏んだ 2 つの落とし穴を塞いだままにする（実機で報告された）。
+
+    1. `.bat` は cmd が**その窓のコードページ**（932 等）で読む。UTF-8 の日本語を書くと
+       化けるだけでなく、誤って解釈されたバイトに & が現れて `rem` の行が
+       コマンドとして実行される。だから build.bat は ASCII だけで書く。
+    2. Windows の `python` / `python3` は、実体の無い Microsoft Store の別名が PATH に
+       居ることがある。起動はできるが「Python was not found」と言って終わるので、
+       名前を決め打ちにせず `--version` の答えで選ぶ。
+    """
+
+    def vscode(self, *parts):
+        return SKILL_DIR.joinpath("vscode", *parts)
+
+    def test_bat_is_ascii_only(self):
+        raw = self.vscode("build.bat").read_bytes()
+        try:
+            raw.decode("ascii")
+        except UnicodeDecodeError as err:
+            self.fail("build.bat に ASCII でない文字がある（cmd が壊す）: %s" % err)
+
+    def test_bat_does_not_need_a_code_page_switch(self):
+        # ASCII だけなら chcp は要らない（chcp は窓の設定を書き換えて戻らない）
+        self.assertNotIn("chcp", self.vscode("build.bat").read_text(encoding="ascii"))
+
+    def test_python_lookup_lives_in_one_place(self):
+        finder = self.vscode("scripts", "python.cjs").read_text(encoding="utf-8")
+        for candidate in ('"py", "-3"', '"python"', '"python3"'):
+            self.assertIn(candidate, finder, candidate)
+        self.assertIn("Python 3", finder, "--version の答えで選ぶ")
+        self.assertIn("process.env.PYTHON", finder, "環境変数での指定を受ける")
+
+    def test_build_and_tests_use_that_one_place(self):
+        # 片方だけ決め打ちに戻ると「ビルドは通るのにテストだけ Python を見つけられない」になる
+        for path in (("scripts", "build-viewer.mjs"), ("test", "e2e", "harness.ts"),
+                     ("test", "unit", "viewerHtml.test.ts")):
+            body = self.vscode(*path).read_text(encoding="utf-8")
+            self.assertIn("python.cjs", body, "/".join(path))
+            self.assertNotIn('=== "win32" ? "python"', body, "決め打ちが残っている: %s" % "/".join(path))
