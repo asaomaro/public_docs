@@ -267,6 +267,204 @@ THEMES = {
     },
 }
 
+# ──────────────────────────────────────────────────────────────────────────
+# 追加のテーマ（色だけでなく、見出し・罫線・密度・地の模様まで変える）
+#   extra_css は共通の CSS の後に出す（テーマの個性が共通の見た目より優先される）。
+#   mermaid の配色はテーマの色から導く。
+# ──────────────────────────────────────────────────────────────────────────
+_GOTHIC = '"Hiragino Kaku Gothic ProN","Yu Gothic",system-ui,sans-serif'
+_MINCHO = '"Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif'
+_MONO = '"SFMono-Regular",Menlo,Consolas,monospace'
+_UD = '"BIZ UDPGothic","Hiragino Kaku Gothic ProN","Yu Gothic",system-ui,sans-serif'
+
+
+def _mermaid_from(v, dark):
+    return {
+        "theme": "dark" if dark else "base",
+        "themeVariables": dict({
+            "primaryColor": v["--accent-soft"], "primaryBorderColor": v["--accent"],
+            "primaryTextColor": v["--ink"], "lineColor": v["--muted"],
+            "secondaryColor": v["--line"], "tertiaryColor": v["--bg"],
+            "fontFamily": v["--font"].replace('"', ""),
+        }, **({"background": v["--bg"]} if dark else {})),
+    }
+
+
+def _theme(label, default_mode, accents, accents_dark, light, dark, extra=""):
+    dark_full = dict(light)
+    dark_full.update(dark)
+    return {"label": label, "default_mode": default_mode, "accents": accents, "accents_dark": accents_dark,
+            "vars": light, "vars_dark": dark, "extra_css": extra,
+            "mermaid": _mermaid_from(light, False), "mermaid_dark": _mermaid_from(dark_full, True)}
+
+
+# 見出しの番号付け（formal: 1. / 1.1、manual: 札の 1 / 1-1）
+_NUMBERED = """
+.content{counter-reset:h2}
+.content h2.hl{counter-increment:h2;counter-reset:h3}
+.content h3.hl{counter-increment:h3}
+"""
+
+THEMES.update({
+    "formal": _theme(
+        "フォーマル", "system",
+        ["#1f3a68", "#5b6b7f", "#8a6d3b", "#3f5f4f"], ["#9fb6de", "#aab4c2", "#d4b37a", "#8fbfa6"],
+        {"--bg": "#ffffff", "--card": "#ffffff", "--ink": "#111111", "--muted": "#555555", "--line": "#cfcfcf",
+         "--accent": "#1f3a68", "--accent-2": "#1f3a68", "--accent-soft": "#eef1f6", "--on-accent": "#ffffff",
+         "--code-bg": "#1b1f27", "--code-fg": "#e6e6e6", "--radius": "0px", "--shadow": "none",
+         "--font": _GOTHIC, "--font-head": _MINCHO, "--mono": _MONO,
+         "--header-bg": "#ffffff", "--header-fg": "#111111"},
+        {"--bg": "#121416", "--card": "#181b1f", "--ink": "#e8e8e8", "--muted": "#a0a4aa", "--line": "#2e3238",
+         "--accent": "#9fb6de", "--accent-2": "#b9cbe9", "--accent-soft": "#1c2230", "--on-accent": "#0f1420",
+         "--code-bg": "#0c0e11", "--code-fg": "#e6e6e6", "--header-bg": "#121416", "--header-fg": "#e8e8e8"},
+        _NUMBERED + """
+.content h2.hl{border-left:0;padding-left:0;padding-bottom:8px;border-bottom:3px double var(--ink);color:var(--ink);font-size:22px}
+.content h2.hl::before{content:counter(h2) ".";margin-right:.6em;color:var(--accent)}
+.content h3.hl::before{content:counter(h2) "." counter(h3);margin-right:.6em;color:var(--accent)}
+.hero{border-bottom:3px double var(--ink)}
+.hero h1{font-weight:700;letter-spacing:.04em}
+table{box-shadow:none;border-radius:0}
+th,td{border:1px solid var(--line)}
+th{color:var(--ink)}
+.doc-card,.stat,.tabs,.checklist,.defs,.tree,.pc-col,.accordion,.callout,.mermaid-fig{box-shadow:none}
+.doc-card{border-top-width:2px}
+.tl-dot{border-radius:0}
+"""),
+    "manual": _theme(
+        "マニュアル", "system",
+        ["#d9480f", "#2563eb", "#0f766e", "#7c3aed"], ["#ff8a4c", "#6ea1ff", "#2dd4bf", "#b196ff"],
+        {"--bg": "#f3f4f6", "--card": "#ffffff", "--ink": "#1c1f24", "--muted": "#5b616b", "--line": "#d7dbe0",
+         "--accent": "#d9480f", "--accent-2": "#b03a0b", "--accent-soft": "#fff1e8", "--on-accent": "#ffffff",
+         "--code-bg": "#1e2227", "--code-fg": "#e6e8eb", "--radius": "6px", "--shadow": "0 1px 2px rgba(0,0,0,.06)",
+         "--font": _GOTHIC, "--font-head": _GOTHIC, "--mono": _MONO,
+         "--header-bg": "#2b2f36", "--header-fg": "#ffffff"},
+        {"--bg": "#15171a", "--card": "#1d2024", "--ink": "#e7e9ec", "--muted": "#9aa1ab", "--line": "#30343a",
+         "--accent": "#ff8a4c", "--accent-2": "#ffb088", "--accent-soft": "#2a1d15", "--on-accent": "#1a0f08",
+         "--code-bg": "#101214", "--code-fg": "#e6e8eb", "--header-bg": "#0f1113", "--header-fg": "#e7e9ec",
+         "--shadow": "none"},
+        _NUMBERED + """
+body{line-height:1.7}
+.content{font-size:15px}
+.content h2.hl{border:1px solid var(--line);border-top:4px solid var(--accent);background:var(--card);padding:8px 14px;
+  color:var(--ink);font-size:21px;margin-top:36px}
+.content h2.hl::before{content:counter(h2);display:inline-block;min-width:1.7em;margin-right:.6em;padding:0 .4em;border-radius:4px;
+  background:var(--accent);color:var(--on-accent);text-align:center;font-size:.85em}
+.content h3.hl::before{content:counter(h2) "-" counter(h3);color:var(--accent);margin-right:.5em}
+.content p{margin:8px 0}
+.callout{border-left-width:6px}
+.callout-head{font-size:15px}
+.tl-dot{border-radius:8px}
+"""),
+    "contrast": _theme(
+        "高コントラスト", "system",
+        ["#0033aa", "#8a0000", "#005a1e", "#5a1a8a"], ["#ffd400", "#7fd4ff", "#9dff7a", "#ff9ecb"],
+        {"--bg": "#ffffff", "--card": "#ffffff", "--ink": "#000000", "--muted": "#333333", "--line": "#6b6b6b",
+         "--accent": "#0033aa", "--accent-2": "#002277", "--accent-soft": "#e8eeff", "--on-accent": "#ffffff",
+         "--code-bg": "#000000", "--code-fg": "#ffffff", "--radius": "8px", "--shadow": "none",
+         "--font": _UD, "--font-head": _UD, "--mono": '"BIZ UDGothic",Consolas,Menlo,monospace',
+         "--header-bg": "#000000", "--header-fg": "#ffffff"},
+        {"--bg": "#000000", "--card": "#0a0a0a", "--ink": "#ffffff", "--muted": "#d6d6d6", "--line": "#9a9a9a",
+         "--accent": "#ffd400", "--accent-2": "#ffe766", "--accent-soft": "#1f1a00", "--on-accent": "#000000",
+         "--code-bg": "#111111", "--code-fg": "#ffffff", "--header-bg": "#000000", "--header-fg": "#ffffff"},
+        """
+body{font-size:17px;line-height:1.9}
+.content a{text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:3px;border-bottom:0}
+:focus-visible{outline:3px solid var(--accent)!important;outline-offset:3px}
+.content h2.hl{color:var(--ink);border-left-width:8px}
+th{color:var(--ink)}
+.doc-card-tags span,.chip{color:var(--ink)!important}
+table,.doc-card,.stat,.tabs,.checklist,.defs,.tree,.pc-col,.accordion,.callout,.mermaid-fig{border-width:2px}
+"""),
+    "blueprint": _theme(
+        "ブループリント", "system",
+        ["#1d4e89", "#0f7c8c", "#b45309", "#6d28d9"], ["#7fb2ff", "#4fd1e0", "#f5b454", "#b69cff"],
+        {"--bg": "#f4f7fb", "--card": "#ffffff", "--ink": "#0f2540", "--muted": "#4b6584", "--line": "#c5d3e6",
+         "--accent": "#1d4e89", "--accent-2": "#163a66", "--accent-soft": "#e7eef8", "--on-accent": "#ffffff",
+         "--code-bg": "#0f2540", "--code-fg": "#dbe7f6", "--radius": "2px", "--shadow": "none",
+         "--font": _GOTHIC, "--font-head": _MONO.replace("monospace", '"Hiragino Kaku Gothic ProN",monospace'), "--mono": _MONO,
+         "--header-bg": "repeating-linear-gradient(0deg,rgba(255,255,255,.09) 0 1px,transparent 1px 24px),"
+                        "repeating-linear-gradient(90deg,rgba(255,255,255,.09) 0 1px,transparent 1px 24px),#163a66",
+         "--header-fg": "#ffffff"},
+        {"--bg": "#0b1a2e", "--card": "#0f2238", "--ink": "#dbe7f6", "--muted": "#8fa7c4", "--line": "#23405f",
+         "--accent": "#7fb2ff", "--accent-2": "#a9ccff", "--accent-soft": "#12294a", "--on-accent": "#07162a",
+         "--code-bg": "#07121f", "--code-fg": "#dbe7f6",
+         "--header-bg": "repeating-linear-gradient(0deg,rgba(127,178,255,.08) 0 1px,transparent 1px 24px),"
+                        "repeating-linear-gradient(90deg,rgba(127,178,255,.08) 0 1px,transparent 1px 24px),#0f2238",
+         "--header-fg": "#dbe7f6"},
+        """
+body{background-image:linear-gradient(color-mix(in srgb,var(--accent) 7%,transparent) 1px,transparent 1px),
+  linear-gradient(90deg,color-mix(in srgb,var(--accent) 7%,transparent) 1px,transparent 1px);background-size:24px 24px}
+.content h2.hl{border-left:0;padding-left:0;padding-bottom:6px;border-bottom:1px dashed var(--accent);letter-spacing:.02em}
+.content h2.hl::before{content:"// ";color:var(--muted)}
+.mermaid-fig{border:1px solid var(--accent);box-shadow:none;background-color:var(--card);
+  background-image:linear-gradient(color-mix(in srgb,var(--accent) 6%,transparent) 1px,transparent 1px),
+  linear-gradient(90deg,color-mix(in srgb,var(--accent) 6%,transparent) 1px,transparent 1px);background-size:16px 16px}
+.doc-card,.stat,.tabs,.checklist,.defs,.tree,.pc-col,.accordion{box-shadow:none}
+@media print{body,.mermaid-fig{background-image:none}}
+"""),
+    "minimal": _theme(
+        "ミニマル", "system",
+        ["#2f6feb", "#6e6e73", "#0f766e", "#b45309"], ["#6ea0ff", "#a1a1a6", "#2dd4bf", "#f5b454"],
+        {"--bg": "#ffffff", "--card": "#ffffff", "--ink": "#1d1d1f", "--muted": "#6e6e73", "--line": "#e6e6e6",
+         "--accent": "#2f6feb", "--accent-2": "#1d1d1f", "--accent-soft": "#f4f4f2", "--on-accent": "#ffffff",
+         "--code-bg": "#f6f6f4", "--code-fg": "#37352f", "--radius": "6px", "--shadow": "none",
+         "--font": _GOTHIC, "--font-head": _GOTHIC, "--mono": _MONO,
+         "--header-bg": "#ffffff", "--header-fg": "#1d1d1f"},
+        {"--bg": "#191919", "--card": "#202020", "--ink": "#e9e9e7", "--muted": "#9b9a97", "--line": "#2f2f2f",
+         "--accent": "#6ea0ff", "--accent-2": "#e9e9e7", "--accent-soft": "#252525", "--on-accent": "#0d0d0d",
+         "--code-bg": "#252525", "--code-fg": "#e9e9e7", "--header-bg": "#191919", "--header-fg": "#e9e9e7"},
+        """
+.content h2.hl{border-left:0;padding-left:0;padding-bottom:6px;border-bottom:1px solid var(--line);color:var(--ink);font-size:22px;font-weight:700}
+.content h3.hl{font-weight:700}
+.hero{border-bottom:1px solid var(--line);padding-bottom:36px}
+.hero h1{font-weight:700}
+.doc-card{border-top-width:1px}
+.copy-btn{background:var(--card);color:var(--muted);border-color:var(--line)}
+.copy-btn:hover{background:var(--accent-soft)}
+.codeblock pre{border:1px solid var(--line)}
+th{color:var(--ink);background:var(--accent-soft)}
+"""),
+    "paper": _theme(
+        "紙（セピア）", "system",
+        ["#7a4a1e", "#5f6f3a", "#8a3b3b", "#3f5f73"], ["#d9a066", "#b5c47a", "#e39a8f", "#9dbbd0"],
+        {"--bg": "#f6f1e7", "--card": "#fbf8f1", "--ink": "#3b2f24", "--muted": "#7a6a58", "--line": "#e2d7c5",
+         "--accent": "#7a4a1e", "--accent-2": "#5c3714", "--accent-soft": "#efe4d2", "--on-accent": "#fbf8f1",
+         "--code-bg": "#3b2f24", "--code-fg": "#f3eadb", "--radius": "10px", "--shadow": "none",
+         "--font": _GOTHIC, "--font-head": _MINCHO, "--mono": _MONO,
+         "--header-bg": "#efe4d2", "--header-fg": "#3b2f24"},
+        {"--bg": "#1e1a15", "--card": "#25201a", "--ink": "#e9dfcf", "--muted": "#b3a58f", "--line": "#3a3128",
+         "--accent": "#d9a066", "--accent-2": "#e8bd8d", "--accent-soft": "#2e261d", "--on-accent": "#1e1a15",
+         "--code-bg": "#16130f", "--code-fg": "#e9dfcf", "--header-bg": "#25201a", "--header-fg": "#e9dfcf"},
+        """
+:root{--maxw:940px}
+body{line-height:2;font-size:16.5px}
+.content p{margin:16px 0}
+.content h2.hl{border-left:0;padding-left:0;font-size:24px;font-weight:700}
+.content h2.hl::after{content:"";display:block;width:48px;height:2px;background:var(--accent);margin-top:10px}
+.hero h1{font-weight:700}
+"""),
+})
+
+# テーマの一覧（選ばせるときの材料。label は THEMES 側）
+THEME_INFO = {
+    "corporate": ("青基調・カード・万人向け", "資料・報告・社内共有の既定"),
+    "darktech": ("暗背景＋シアン/パープル", "エンジニア向けの技術資料"),
+    "infographic": ("カラフル・丸ゴシック", "インパクト重視の紹介・広報"),
+    "editorial": ("明朝・余白・読み物風", "コラム・解説・読み物"),
+    "pastel": ("丸み・淡色", "社内の親しみやすい共有"),
+    "formal": ("白と墨＋紺・罫線・見出しに 1. / 1.1 の番号", "報告書・稟議・規程・提案書（印刷が最も整う）"),
+    "manual": ("灰色の地＋オレンジ・詰めた組み・見出しに番号の札", "手順書・運用手順・トラブル対応"),
+    "contrast": ("大きな文字・高コントラスト・太い下線のリンク", "社外公開・全社向け・読みやすさ最優先"),
+    "blueprint": ("方眼の地に紺・等幅の見出し・製図風の図枠", "設計書・仕様書・アーキテクチャ説明"),
+    "minimal": ("黒い文字と余白・細い罫線・影なし", "社内メモ・議事録・ナレッジ"),
+    "paper": ("生成りの紙色・焦げ茶・広い行間", "長文の読み物・解説・研修資料"),
+}
+
+
+def theme_extra_css(theme_key):
+    return THEMES[theme_key].get("extra_css", "")
+
+
 COLOR_MODES = ["system", "light", "dark"]
 MODE_STORAGE_KEY = "md2doc-color-mode"
 
@@ -2111,7 +2309,7 @@ def build_html(meta, content_html, headings, theme_key, title, brand, footer,
         tags = '<div class="tags">%s</div>' % "".join("<span>%s</span>" % html.escape(t) for t in tg)
     repl = {
         "__TITLE__": html.escape(title), "__THEMECSS__": theme_css(theme_key),
-        "__STATIC_CSS__": STATIC_CSS, "__BRAND__": html.escape(brand),
+        "__STATIC_CSS__": STATIC_CSS + theme_extra_css(theme_key), "__BRAND__": html.escape(brand),
         "__MODE_SWITCH__": MODE_SWITCH_HTML,
         "__MODE_BOOT_JS__": MODE_BOOT_JS, "__MODE_SCRIPT_JS__": MODE_SCRIPT_JS,
         "__TOC_BOOT_JS__": TOC_BOOT_JS, "__TOC_SCRIPT_JS__": TOC_SCRIPT_JS, "__LAYOUT_JS__": LAYOUT_JS,
@@ -2857,7 +3055,8 @@ def main():
     ap.add_argument("--finalize", metavar="OUT.html", default=None,
                     help="AI 構築の仕上げ: 本文の <!--MD2DOC-PART layout=…--> を部品に置き換え、mermaid を描く（--theme が要る）")
     ap.add_argument("--src", default=None, help="--finalize で、断片の中の画像の相対パスの基準にする元の .md")
-    ap.add_argument("--theme", required=True, choices=list(THEMES.keys()))
+    ap.add_argument("--theme", choices=list(THEMES.keys()), help="テーマ（一覧は --list-themes）")
+    ap.add_argument("--list-themes", action="store_true", help="テーマの一覧（キー・名前・性格・向く文書）を出す")
     ap.add_argument("--mode", default="single", choices=["single", "print", "site"])
     ap.add_argument("--outdir", default=None, help="出力先（既定: 入力と同じ場所）")
     ap.add_argument("--eyebrow", default=None, help="ヘッダー上部の小見出し")
@@ -2889,6 +3088,15 @@ def main():
                     help="mdのローカル画像リンクの扱い（embed=data URIで埋め込み／link=外部フォルダ参照のまま）")
     args = ap.parse_args()
 
+    if args.list_themes:
+        print("| キー | 名前 | 性格 | 向く文書 |")
+        print("|---|---|---|---|")
+        for k, t in THEMES.items():
+            ch, fit = THEME_INFO.get(k, ("", ""))
+            print("| `%s` | %s | %s | %s |" % (k, t["label"], ch, fit))
+        return
+    if not args.theme:
+        ap.error("--theme を指定してください（一覧は --list-themes）")
     default_mode = default_mode_of(args.theme, args.default_mode)
     layout_map = parse_layout_map(args.layout_map)
     if args.finalize:
@@ -2976,7 +3184,7 @@ def main():
                html.escape(p["title"]), html.escape(os.path.basename(p["src"])))
             for p in produced)
         index = INDEX_PAGE.replace("__THEMECSS__", theme_css(args.theme))\
-                          .replace("__STATIC_CSS__", STATIC_CSS)\
+                          .replace("__STATIC_CSS__", STATIC_CSS + theme_extra_css(args.theme))\
                           .replace("__MODE_SWITCH__", MODE_SWITCH_HTML)\
                           .replace("__MODE_BOOT_JS__", MODE_BOOT_JS)\
                           .replace("__MODE_SCRIPT_JS__", MODE_SCRIPT_JS)\
