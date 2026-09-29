@@ -1,6 +1,6 @@
 ---
 name: md-to-doc
-description: Markdown を、視覚的に分かりやすく図表を活用した単一HTMLドキュメントに変換する。固定ヘッダー・見出しメニュー・目次（開閉トグル/検索/章アコーディオン付き）・コールアウト・コードコピー・印刷/PDF対応を備え、5つのデザインテーマから選べる。ヘッダーの切替ボタンで ライト/ダーク/システム設定 に追従。mermaid 図はテーマ配色でSVG化（環境が無い場合は内容を解釈して手描きSVGでフォールバック）。「mdをHTMLにして」「資料用のHTMLを作って」「このメモを綺麗なドキュメントに」「htmlドキュメント生成」などと言われたときに使用する。
+description: Markdown を、視覚的に分かりやすく図表を活用した単一HTMLドキュメントに変換する。固定ヘッダー・見出しメニュー・目次（開閉トグル/検索/章アコーディオン付き）・コールアウト・コードコピー・印刷/PDF対応を備え、5つのデザインテーマから選べる。ヘッダーの切替ボタンで ライト/ダーク/システム設定 に追従。mermaid 図はテーマ配色でSVG化（環境が無い場合は内容を解釈して手描きSVGでフォールバック）。説明図の要所をモーショングラフィックスで動かすこともできる（スクロールで再生・再生し直し・動きを減らす設定と印刷では静止）。「mdをHTMLにして」「資料用のHTMLを作って」「このメモを綺麗なドキュメントに」「htmlドキュメント生成」などと言われたときに使用する。
 ---
 
 # md-to-doc — Markdown → 視覚的HTMLドキュメント生成
@@ -45,8 +45,8 @@ Markdown を、配布しやすい**単一HTML**（外部依存なし）に変換
 3. **質問は 2 回の呼び出しに分ける**（1回 4問の上限、および 3d が 3c の回答に依存するため）。
 
    - **1回目（4問）**: 1. テーマ / 2. 出力モード / 3b. 目次 / 3c. レイアウト
-   - **2回目（1〜3問）**: 3. 図解 / 3d. 構築（3c が `plain|cards|timeline|accordion` のときだけ）/
-     3e. 画像（対象 md にローカル画像リンクがあるときだけ）
+   - **2回目（2〜4問）**: 3. 図解 / 3d. 構築（3c が `plain|cards|timeline|accordion` のときだけ）/
+     3e. 画像（対象 md にローカル画像リンクがあるときだけ）/ 3g. 動き（出力モードが `print` のときは聞かない）
 
 ---
 
@@ -163,6 +163,20 @@ Markdown を、配布しやすい**単一HTML**（外部依存なし）に変換
 > 束ねる場合も各HTMLごとに相対参照を再計算する。`freeform`/`design=ai` のときはスクリプトが選択モードを
 > Claude 向け指示（AI_DESIGN_REQUIRED）に添えるので、著述時に埋め込み/参照を合わせること。
 
+### 3g. 説明図の動き（motion）を選ばせる ※出力モードが `print` 以外のとき
+`AskUserQuestion`（header 例: 「動き」）。動画ではなく読み物なので、**説明図の要所に動きを付けるか**を聞く。
+動くのは図（mermaid・3 の図解・AI 構築で書く図）だけで、本文・カード等は動かさない。
+
+- **動かさない**（`off`）— 静止した図のみ（既定）。
+- **要所だけ動かす**（`key`）— 流れ・手順・状態遷移など、動きで理解が進む図を Claude が各文書 1〜2 個選んで動かす。
+- **図をすべて動かす**（`rich`）— すべての図が、図の流れの向きに沿って順に現れる。要の図は Claude が順序を注釈してよい。
+
+動きの仕様（全モード共通・スクリプトが決める。決定論的）:
+- 図が画面に入ったとき 1 回再生。図の右上の「↻ 再生」でもう一度。
+- 線だけの要素は「描かれ」、図形・文字は「浮かび上がる」。注釈で順序・現れ方・流れる破線・明滅を指定できる（4d）。
+- OS の「視差効果を減らす（prefers-reduced-motion）」・印刷・JS 無しでは、静止した完成図のまま表示する。
+- 図が 1 つも無い文書では効果が無い（mermaid が無く、図解 `off`、`design=deterministic` のとき）。その場合は聞かなくてよい。
+
 ### 3f. セクション別レイアウトの仕分け案を提示して合意を取る ※`design=deterministic` のときだけ
 
 3c で選ばせた `--layout` は**既定値**にすぎない。生成前に、**対象 md の見出し構成を実際に読んで**
@@ -212,7 +226,8 @@ python3 <skill_dir>/generate.py "<input.md>" [さらに.md...] \
   --theme <key> --mode <mode> [--auto-figure off|light|rich] \
   [--toc sidebar|menu|both|none] [--layout plain|cards|timeline|accordion|freeform] \
   [--layout-map "節名=cards,節名2=timeline"] \
-  [--design deterministic|ai] [--image-mode embed|link] [--default-mode system|light|dark]
+  [--design deterministic|ai] [--image-mode embed|link] [--default-mode system|light|dark] \
+  [--motion off|key|rich]
 ```
 
 - 出力は既定で入力と同じ場所に `<元ファイル名>.html`。別の場所にしたい場合は `--outdir <dir>`。
@@ -221,6 +236,7 @@ python3 <skill_dir>/generate.py "<input.md>" [さらに.md...] \
   割り当て（`plain|cards|timeline|accordion`。`freeform` は節単位には指定できない）。
 - `--image-mode` はローカル画像リンクの扱い（`embed`=data URI で埋め込み／`link`=外部フォルダ参照）。
   省略時は `embed`。3e で `link` を選んだ場合のみ明示する。
+- `--motion` は 3g の選択。`--mode print` と組み合わせた場合は警告を出して `off` として扱う。
 - `--default-mode` は初回表示（localStorage 未設定時）の既定モード。省略時はテーマの既定に従う。
   ユーザーから指定がなければ省略してよい。
 
@@ -264,6 +280,51 @@ python3 <skill_dir>/generate.py "<input.md>" [さらに.md...] \
 - **自己完結を厳守**: 画像/外部CSS/JS/フォントを足さない。既存の部品クラスとインライン `style` のみで仕上げる。むやみに新しい `<style>` を足さない（必要時は最小限）。
 - 内容の意味づけ（手順→タイムライン、比較→.split や表、要点→カード、数値→.stat）に合わせ、**メリハリのある誌面**にする。
 
+### 4d. 図の動き（motion が off 以外のとき）
+スクリプトは動きの実行部を埋め込み、次のマーカーを出す（図の一覧と注釈の語彙が入る）:
+
+```
+===== MOTION_ENABLED (level=...) =====
+... 動かす図の選び方・注釈の語彙・各ファイルの図 id ...
+===== /MOTION_ENABLED =====
+```
+
+**動かし方は実行部が決める**。Claude が行うのは「どの図を動かすか」と「(任意の)注釈」だけで、
+図の色・座標・style は変えない（再現性のため）。4b・5 で図を描き終えてから行う。
+
+- **図の単位**: `<figure data-motion="auto|steps|none">`。
+  - `auto` … 注釈なしで、図の向き（横長なら左→右、縦長なら上→下）に沿って順に現れる。
+  - `steps` … svg 内の `data-step` の順に現れる（`data-step` が 1 つでもあれば `auto` でもこちら）。
+  - `none` … 動かさない（`rich` で個別に止めるとき）。
+- **`key`**: 各文書で動きが理解を足す図を **1〜2 個**選び、その `<figure>` に `data-motion` を足す。
+  向く図は処理・データの流れ、手順の順序、状態の遷移、構成が段階的に組み上がる図。
+  静的な比較・一覧・単純な階層は選ばない（無理に選ばない。0 個でもよい）。
+- **`rich`**: 全図が `auto` で動くので作業は任意。邪魔な図は `data-motion="none"`、要の図は注釈で順序を明示してよい。
+- **要素の注釈**（svg 内の要素か `<g>` に付ける。すべて任意）
+
+  | 属性 | 意味 |
+  |---|---|
+  | `data-step="N"` | N の小さい順に現れる（同じ N は同時）。付けた要素だけが動き、他は最初から表示 |
+  | `data-effect="draw\|rise\|fade\|slide"` | 現れ方（既定: 線だけの path/line は `draw`、他は `rise`） |
+  | `data-flow` | 現れた後、線に沿って流れる破線でループ（データ・処理の流れ。1 図に 1〜3 本） |
+  | `data-pulse` | 現れた後、ゆっくり明滅（注目点。1 図に 1 つまで） |
+
+  ノードとその文字は同じ `<g>` にまとめ、1 つの step にすると自然に見える。
+- **mermaid（mmdc 出力）の svg は内部を書き換えない**。`<figure class="mermaid-fig" id="md2doc-mm-N">` に
+  `data-motion="auto"` を足すだけにする（`steps` の注釈は Claude が手描きした svg にだけ付ける）。
+- auto-figure・AI 構築で Claude が描く図は、描くときに `<figure ... data-motion="...">` と注釈を直接書く
+  （スロットに figure で包まない svg を置く場合は、スロットの `div` に `data-motion` を付ける）。
+
+```html
+<figure class="mermaid-fig" data-motion="steps">
+  <svg viewBox="0 0 640 140" role="img" aria-label="impl から reviewer、tester へ渡る流れ" ...>
+    <g data-step="1"><rect .../><text ...>impl</text></g>
+    <line data-step="2" data-flow ... marker-end="url(#arr)"/>
+    <g data-step="3" data-pulse><rect .../><text ...>reviewer</text></g>
+  </svg>
+</figure>
+```
+
 ### 5. mermaid のフォールバック対応（環境にmmdcが無い場合）
 スクリプトは mermaid 図を、`@mermaid-js/mermaid-cli`（`mmdc`）があれば**選択テーマの配色でSVG化**して埋め込む。
 このとき **ライト用・ダーク用の2枚**を描き、`.mm-light` / `.mm-dark` として両方埋め込んで表示モードで出し分ける
@@ -304,6 +365,7 @@ python3 <skill_dir>/generate.py "<input.md>" [さらに.md...] \
 ### 6. 完了報告
 - 生成した HTML の場所を伝える。`SendUserFile` で渡すと確認しやすい。
 - mermaid を手描きフォールバックした場合は「mmdc が無いため図はClaudeが描画した」旨を一言添える。
+- motion が `key` のときは、動かした図（見出し名）を一言添える。
 - 必要なら「`mmdc` を入れると今後は自動でテーマ配色SVGになる」ことも案内。
 
 ---

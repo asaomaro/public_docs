@@ -955,13 +955,14 @@ def render_mermaid(sources, theme):
                 except Exception:
                     svgs[mode] = None
             if svgs["light"] and svgs["dark"]:
-                result[idx] = ('<figure class="mermaid-fig">'
+                result[idx] = ('<figure class="mermaid-fig" id="md2doc-mm-%d">'
                                '<div class="mm-light">%s</div>'
                                '<div class="mm-dark">%s</div></figure>'
-                               % (svgs["light"], _uniquify_svg_ids(svgs["dark"], "-mmdark")))
+                               % (idx, svgs["light"], _uniquify_svg_ids(svgs["dark"], "-mmdark")))
             elif svgs["light"] or svgs["dark"]:
                 # 片方だけ描けたなら両モードでそれを使う（無いよりまし）
-                result[idx] = '<figure class="mermaid-fig">%s</figure>' % (svgs["light"] or svgs["dark"])
+                result[idx] = '<figure class="mermaid-fig" id="md2doc-mm-%d">%s</figure>' % (
+                    idx, svgs["light"] or svgs["dark"])
             else:
                 result[idx] = None
         return result, True
@@ -1473,6 +1474,7 @@ __TOC_SCRIPT_JS__
   onScroll();
 })();
 </script>
+__MOTION__
 </body>
 </html>
 """
@@ -1511,7 +1513,7 @@ def build_toc_html(headings):
 
 
 def build_html(meta, content_html, headings, theme_key, title, brand, footer,
-               toc_mode="sidebar", default_mode="system"):
+               toc_mode="sidebar", default_mode="system", motion="off"):
     nav = "".join('<a href="#%s">%s</a>' % (h["slug"], html.escape(h["text"]))
                   for h in headings if h["level"] == 2)
     toc = build_toc_html(headings)
@@ -1531,6 +1533,7 @@ def build_html(meta, content_html, headings, theme_key, title, brand, footer,
         "__NAV__": nav, "__TOC__": toc, "__EYEBROW__": eyebrow, "__H1__": h1,
         "__DATE__": date, "__TAGS__": tags, "__CONTENT__": content_html,
         "__FOOTER__": html.escape(footer), "__BODYCLASS__": "toc-" + toc_mode,
+        "__MOTION__": motion_html(motion),
     }
     page = PAGE
     for k, v in repl.items():
@@ -1540,6 +1543,198 @@ def build_html(meta, content_html, headings, theme_key, title, brand, footer,
                 .replace("__DEFAULT_MODE__", default_mode)
                 .replace("__TOC_KEY__", TOC_STORAGE_KEY))
     return page
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# モーション（説明図の要所を動かす）
+#   決定論的な実行部。Claude は図に data-* の注釈を付けるだけで、動かし方はここで決まる。
+#   - 図が画面に入ったら 1 回再生。図の右上の「↻ 再生」でもう一度。
+#   - prefers-reduced-motion / 印刷 / JS 無し では何もしない（静止した完成図のまま）。
+#   - 図の単位（コンテナ）: <figure data-motion="auto|steps|none">。level=rich は全図が対象。
+#   - 要素の注釈: data-step="N" / data-effect="draw|rise|fade|slide" / data-flow / data-pulse
+# ──────────────────────────────────────────────────────────────────────────
+MOTION_LEVELS = ["off", "key", "rich"]
+
+MOTION_CSS = """
+.mo-fig{position:relative}
+.mo-replay{position:absolute;top:8px;right:8px;z-index:2;font:inherit;font-size:12px;line-height:1;
+  padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:var(--card);
+  color:var(--muted);cursor:pointer;opacity:.0;transition:opacity .2s,color .2s,border-color .2s}
+.mo-fig.mo-played .mo-replay{opacity:.75}
+.mo-fig:hover .mo-replay,.mo-replay:focus-visible{opacity:1;color:var(--accent);border-color:var(--accent)}
+.mo-replay:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media print{.mo-replay{display:none!important}}
+"""
+
+MOTION_JS = r"""(function(){
+  var LEVEL='__MOTION_LEVEL__';
+  var mq=window.matchMedia?matchMedia('(prefers-reduced-motion: reduce)'):null;
+  if((mq&&mq.matches)||!('IntersectionObserver' in window)||!Element.prototype.animate) return;
+  var GEOM={rect:1,circle:1,ellipse:1,polygon:1,polyline:1,line:1,path:1,text:1,image:1,use:1,foreignObject:1};
+  var SKIP={defs:1,marker:1,clipPath:1,mask:1,pattern:1,symbol:1,linearGradient:1,radialGradient:1,filter:1,style:1,title:1,desc:1,metadata:1};
+  var DRAW=760, RISE=520, LOOP_FLOW=900, LOOP_PULSE=1800;
+  function tag(el){return el.localName||el.tagName;}
+  function strokeOnly(el){
+    var t=tag(el); if(t!=='path'&&t!=='line'&&t!=='polyline') return false;
+    var cs=getComputedStyle(el);
+    var noFill=t==='line'||cs.fill==='none'||parseFloat(cs.fillOpacity)===0;   // line には塗りが無い
+    return noFill&&cs.stroke!=='none'&&parseFloat(cs.strokeWidth)>0;
+  }
+  /* 対象の図（コンテナ）を集める */
+  function containers(){
+    var out=[];
+    function add(el){ if(el&&out.indexOf(el)<0&&el.getAttribute('data-motion')!=='none'&&!el.classList.contains('manual-render')&&el.querySelector('svg')) out.push(el); }
+    [].forEach.call(document.querySelectorAll('.content [data-motion]'),function(el){
+      if(el.closest('svg')) return;           // svg 内の data-motion は対象外（要素の注釈は data-effect）
+      add(el);
+    });
+    if(LEVEL==='rich'){
+      [].forEach.call(document.querySelectorAll('.content figure'),function(f){ if(!f.parentElement.closest('figure')) add(f); });
+      [].forEach.call(document.querySelectorAll('.content .auto-fig-slot'),function(s){ if(!s.querySelector('figure')) add(s); });
+    }
+    return out;
+  }
+  function visibleSvgs(c){
+    return [].filter.call(c.querySelectorAll('svg'),function(s){ return !s.parentElement.closest('svg')&&s.getClientRects().length>0; });
+  }
+  /* svg の中の動かす単位と、その段（step） */
+  function plan(svg){
+    var explicit=[].slice.call(svg.querySelectorAll('[data-step]'));
+    var units=[];
+    if(explicit.length){
+      explicit=explicit.filter(function(el){ return !el.parentElement.closest('[data-step]'); });   // 入れ子は外側だけ
+      var nums=explicit.map(function(el){return parseFloat(el.getAttribute('data-step'))||0;});
+      var uniq=nums.slice().sort(function(a,b){return a-b;}).filter(function(v,i,a){return i===0||v!==a[i-1];});
+      explicit.forEach(function(el,i){ units.push({el:el,step:uniq.indexOf(nums[i])}); });
+      return {units:units,steps:uniq.length,gap:450};
+    }
+    var sr=svg.getBoundingClientRect(), area=sr.width*sr.height;
+    var leaves=[];
+    (function walk(node){
+      for(var c=node.firstElementChild;c;c=c.nextElementSibling){
+        var t=tag(c);
+        if(SKIP[t]) continue;
+        if(t==='g'||t==='a'||t==='switch'||(t==='svg'&&c!==svg)){ walk(c); continue; }
+        if(!GEOM[t]) continue;
+        var r=c.getBoundingClientRect();
+        if(r.width===0&&r.height===0) continue;
+        if(r.width*r.height>area*0.8) continue;  // 背景の面は動かさない
+        leaves.push({el:c,r:r});
+      }
+    })(svg);
+    if(!leaves.length) return {units:[],steps:0,gap:0};
+    var horiz=sr.width>=sr.height*1.15;
+    var lo=Infinity,hi=-Infinity;
+    leaves.forEach(function(l){ l.c=horiz?(l.r.left+l.r.width/2):(l.r.top+l.r.height/2); lo=Math.min(lo,l.c); hi=Math.max(hi,l.c); });
+    var n=Math.max(3,Math.min(10,Math.round(leaves.length/3)));
+    var band=Math.max(1,(hi-lo)/n);
+    leaves.forEach(function(l){ units.push({el:l.el,step:Math.min(n-1,Math.floor((l.c-lo)/band))}); });
+    return {units:units,steps:n,gap:Math.min(380,2600/n)};
+  }
+  function effectOf(el){
+    var e=el.getAttribute('data-effect'); if(e) return e;
+    if(tag(el)==='g') return el.querySelector('path,line,polyline')&&[].every.call(el.querySelectorAll('*'),function(x){return !GEOM[tag(x)]||strokeOnly(x);})?'draw':'rise';
+    return strokeOnly(el)?'draw':'rise';
+  }
+  /* 1 要素分のアニメーションを作る（一時停止＝最初のコマで待機） */
+  function build(st,el,effect,delay){
+    if(effect==='draw'){
+      var paths=tag(el)==='g'?[].slice.call(el.querySelectorAll('path,line,polyline')):[el];
+      if(tag(el)==='g') [].forEach.call(el.querySelectorAll('*'),function(x){ if(GEOM[tag(x)]&&!strokeOnly(x)) build(st,x,'rise',delay+DRAW*0.6); });
+      paths.forEach(function(p){
+        if(!strokeOnly(p)) return;
+        var L=0; try{L=p.getTotalLength();}catch(e){}
+        if(!L){ build(st,p,'fade',delay); return; }
+        var ms=p.getAttribute('marker-start'), me=p.getAttribute('marker-end');
+        if(ms||me){
+          p.removeAttribute('marker-start'); p.removeAttribute('marker-end');
+          var back=function(){ if(ms) p.setAttribute('marker-start',ms); if(me) p.setAttribute('marker-end',me); };
+          st.restores.push(back);
+        }
+        var d=L+' '+L;
+        var a=p.animate([{strokeDasharray:d,strokeDashoffset:L},{strokeDasharray:d,strokeDashoffset:0}],
+                        {duration:DRAW,delay:delay,easing:'ease-in-out',fill:'backwards'});
+        a.pause(); st.anims.push(a);
+        if(back) a.finished.then(back,function(){});
+      });
+      return;
+    }
+    var o=getComputedStyle(el).opacity||'1';
+    var k0={opacity:0}, k1={opacity:o};
+    if(effect==='rise'){ k0.translate='0 10px'; k1.translate='0 0'; }
+    if(effect==='slide'){ k0.translate='-16px 0'; k1.translate='0 0'; }
+    var b=el.animate([k0,k1],{duration:RISE,delay:delay,easing:'cubic-bezier(.2,.7,.2,1)',fill:'backwards'});
+    b.pause(); st.anims.push(b);
+  }
+  function loops(st,svg){
+    [].forEach.call(svg.querySelectorAll('[data-flow]'),function(p){
+      var list=tag(p)==='g'?[].slice.call(p.querySelectorAll('path,line,polyline')):[p];
+      list.forEach(function(x){ st.loops.push(x.animate([{strokeDasharray:'10 8',strokeDashoffset:18},{strokeDasharray:'10 8',strokeDashoffset:0}],{duration:LOOP_FLOW,iterations:Infinity})); });
+    });
+    [].forEach.call(svg.querySelectorAll('[data-pulse]'),function(el){
+      st.loops.push(el.animate([{opacity:1},{opacity:.45},{opacity:1}],{duration:LOOP_PULSE,iterations:Infinity,easing:'ease-in-out'}));
+    });
+    if(!st.inView) st.loops.forEach(function(a){a.pause();});
+  }
+  function reset(st){
+    st.anims.forEach(function(a){try{a.cancel();}catch(e){}});
+    st.loops.forEach(function(a){try{a.cancel();}catch(e){}});
+    st.restores.forEach(function(f){f();});
+    st.anims=[]; st.loops=[]; st.restores=[];
+  }
+  function arm(st){
+    reset(st);
+    try{
+      visibleSvgs(st.c).forEach(function(svg){
+        var pl=plan(svg);
+        pl.units.forEach(function(u){ build(st,u.el,effectOf(u.el),u.step*pl.gap); });
+        st.svgs.push(svg);
+      });
+    }catch(e){ reset(st); }
+  }
+  function play(st){
+    st.svgs=[]; arm(st);
+    var runs=st.anims.slice(), svgs=st.svgs.slice();
+    runs.forEach(function(a){ a.currentTime=0; a.play(); });
+    st.c.classList.add('mo-played');
+    Promise.all(runs.map(function(a){return a.finished;})).then(function(){
+      st.restores.forEach(function(f){f();}); st.restores=[];
+      if(st.anims.length&&st.anims[0]!==runs[0]) return;   // 途中で再生し直した
+      svgs.forEach(function(svg){ loops(st,svg); });
+    },function(){});
+  }
+  var states=[];
+  var io=new IntersectionObserver(function(entries){
+    entries.forEach(function(en){
+      var st=en.target.__mo; if(!st) return;
+      st.inView=en.isIntersecting;
+      if(en.isIntersecting&&!st.played){ st.played=true; play(st); }
+      st.loops.forEach(function(a){ en.isIntersecting?a.play():a.pause(); });
+    });
+  },{threshold:0.3});
+  containers().forEach(function(c){
+    var st={c:c,anims:[],loops:[],restores:[],svgs:[],played:false,inView:false};
+    c.__mo=st; states.push(st);
+    c.classList.add('mo-fig');
+    var b=document.createElement('button');
+    b.type='button'; b.className='mo-replay'; b.textContent='↻ 再生';
+    b.setAttribute('aria-label','図の動きをもう一度再生');
+    b.addEventListener('click',function(){ st.played=true; play(st); });
+    c.appendChild(b);
+    st.svgs=[]; arm(st);                    // 見えるまでは最初のコマで待機
+    io.observe(c);
+  });
+  window.addEventListener('beforeprint',function(){ states.forEach(reset); });
+  if(mq&&mq.addEventListener) mq.addEventListener('change',function(e){ if(e.matches) states.forEach(reset); });
+})();"""
+
+
+def motion_html(level):
+    if level == "off":
+        return ""
+    return "<style>%s</style>\n<script>%s</script>" % (
+        MOTION_CSS, MOTION_JS.replace("__MOTION_LEVEL__", level))
+
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -1559,7 +1754,7 @@ def inject_figure_slots(content, headings):
 
 def convert_file(path, theme_key, eyebrow=None, auto_figure="off", toc_mode="sidebar",
                  layout="plain", design="deterministic", default_mode="system",
-                 image_mode="embed", outdir=None, layout_map=None):
+                 image_mode="embed", outdir=None, layout_map=None, motion="off"):
     global _IMG_BASE, _IMG_OUTDIR, _IMG_MODE, _LAYOUT_MAP
     if layout_map is not None:
         _LAYOUT_MAP = layout_map
@@ -1602,7 +1797,7 @@ def convert_file(path, theme_key, eyebrow=None, auto_figure="off", toc_mode="sid
         footer = "%s — Generated from Markdown by md-to-doc" % (meta.get("date") or
                  datetime.date.today().isoformat())
         out_html = build_html(meta, content, headings, theme_key, title, brand, footer,
-                              toc_mode, default_mode)
+                              toc_mode, default_mode, motion)
         return out_html, title, headings, True, []
 
     headings, used, mermaid_store = [], set(), []
@@ -1626,7 +1821,7 @@ def convert_file(path, theme_key, eyebrow=None, auto_figure="off", toc_mode="sid
     footer = "%s — Generated from Markdown by md-to-doc" % (meta.get("date") or
              datetime.date.today().isoformat())
     out_html = build_html(meta, content, headings, theme_key, title, brand, footer,
-                          toc_mode, default_mode)
+                          toc_mode, default_mode, motion)
     return out_html, title, headings, ok, pending
 
 
@@ -1654,12 +1849,19 @@ def main():
                     help="deterministic=スクリプトが型変換／ai=選んだ形式のテイストでClaudeが作り込む")
     ap.add_argument("--default-mode", default=None, choices=COLOR_MODES,
                     help="初回表示の既定モード（未指定ならテーマの既定。darktech=dark, 他=system）")
+    ap.add_argument("--motion", default="off", choices=MOTION_LEVELS,
+                    help="説明図の動き（off=動かさない／key=Claude が選んだ要所の図だけ／rich=すべての図）。"
+                         "スクロールで見えたとき 1 回再生。reduced-motion・印刷では静止")
     ap.add_argument("--image-mode", default="embed", choices=["embed", "link"],
                     help="mdのローカル画像リンクの扱い（embed=data URIで埋め込み／link=外部フォルダ参照のまま）")
     args = ap.parse_args()
 
     default_mode = default_mode_of(args.theme, args.default_mode)
     layout_map = parse_layout_map(args.layout_map)
+    if args.motion != "off" and args.mode == "print":
+        print("warn: --mode print では図を動かしません（--motion %s を off として扱います）" % args.motion,
+              file=sys.stderr)
+        args.motion = "off"
 
     produced = []
     todo = []  # 手描きが必要な図 [{out, id, source}]
@@ -1669,14 +1871,15 @@ def main():
         outdir = args.outdir or os.path.dirname(os.path.abspath(path))
         out_html, title, headings, ok, pending = convert_file(
             path, args.theme, args.eyebrow, args.auto_figure, args.toc, args.layout, args.design,
-            default_mode, args.image_mode, outdir, layout_map)
+            default_mode, args.image_mode, outdir, layout_map, args.motion)
         os.makedirs(outdir, exist_ok=True)
         outname = os.path.splitext(os.path.basename(path))[0] + ".html"
         outpath = os.path.join(outdir, outname)
         with open(outpath, "w", encoding="utf-8") as f:
             f.write(out_html)
         entry = {"src": path, "out": outpath, "title": title,
-                 "h2": [h["slug"] for h in headings if h["level"] == 2]}
+                 "h2": [h["slug"] for h in headings if h["level"] == 2],
+                 "figs": re.findall(r'<figure class="mermaid-fig[^"]*" id="([^"]+)"', out_html)}
         if args.layout == "freeform" or args.design == "ai":
             entry["hlist"] = headings
             try:
@@ -1815,6 +2018,47 @@ def main():
             print("\n--- figure id=%s  in  %s ---" % (t["id"], t["out"]))
             print(t["source"])
         print("===== /MERMAID_MANUAL_RENDER_REQUIRED =====")
+
+    # motion 有効: Claude が図に動きの注釈を付けるための情報を出力
+    if args.motion != "off" and produced:
+        ai = args.layout == "freeform" or args.design == "ai"
+        print("\n===== MOTION_ENABLED (level=%s) =====" % args.motion)
+        print("説明図を動かす実行部を埋め込みました。動かし方は実行部が決める（決定論的）ので、")
+        print("Claude が行うのは『どの図を動かすか』と『(任意の)順序・現れ方の注釈』だけです。")
+        print("再生: 図が画面に入ったとき 1 回。図の右上の「↻ 再生」でもう一度。")
+        print("reduced-motion・印刷・JS 無しでは静止した完成図のまま（注釈で見た目は変わらない）。")
+        if args.motion == "key":
+            print("\n[level=key] 動くのは data-motion を付けた図だけ。各文書で『動きがあると理解が進む』")
+            print("  要所の図を 1〜2 個選び、その <figure> に属性を Edit で足す（例: <figure class=\"mermaid-fig\" id=\"md2doc-mm-0\" data-motion=\"auto\">）。")
+            print("  向く図: 処理・データの流れ / 手順の順序 / 状態の遷移 / 構成が段階的に組み上がる図。")
+            print("  向かない図: 静的な比較表・一覧・単純な階層（動きが理解を足さない）。無理に選ばない。")
+        else:
+            print("\n[level=rich] すべての図（mermaid・auto-figure・AI 構築の図）が自動で動く。作業は任意。")
+            print("  動きが邪魔な図は <figure ... data-motion=\"none\"> で止める。要の図には下の注釈で順序を明示してよい。")
+        print("\n[図の単位] <figure data-motion=\"auto|steps|none\">（auto-figure で figure で包まない svg はスロット側に付ける）")
+        print("  auto  … 注釈なしで、図の流れの向き（横長なら左→右、縦長なら上→下）に沿って順に現れる。")
+        print("          線だけの path/line は『描かれ』、図形・文字は『浮かび上がる』。")
+        print("  steps … svg 内の data-step の順に現れる（data-step が 1 つでもあれば auto でも steps として扱う）。")
+        print("[要素の注釈]（svg 内の要素か <g> に付ける。任意）")
+        print("  data-step=\"N\"      N の小さい順に現れる（同じ N は同時）。付けた要素だけが動き、他は最初から表示。")
+        print("                      ノードとその文字・つながる矢印は同じ <g> に入れて 1 つの step にすると自然。")
+        print("  data-effect=\"draw|rise|fade|slide\"  現れ方（既定: 線だけの path/line/g は draw、他は rise）。")
+        print("  data-flow          現れた後、線に沿って流れる破線でループ（データ・処理の流れ。1 図に 1〜3 本）。")
+        print("  data-pulse         現れた後、ゆっくり明滅（注目点。1 図に 1 つまで）。")
+        print("  ※ mermaid（mmdc 出力）の svg は注釈を足さず data-motion=\"auto\" だけにする（生成物の内部を書き換えない）。")
+        print("  ※ 注釈は data-* 属性だけ。色・座標・style は変えない。")
+        for p in produced:
+            figs = p.get("figs") or []
+            print("--- %s" % p["out"])
+            print("  mermaid の図: %s" % (", ".join(figs) if figs else "(なし)"))
+            if args.auto_figure != "off":
+                print("  auto-figure: Claude が描く図（スロット data-section=%s）に、描くときに直接付ける"
+                      % (",".join(p["h2"]) or "-"))
+            if ai:
+                print("  AI 構築: 本文に書く <figure class=\"mermaid-fig\"><svg> に、書くときに直接付ける")
+            if not figs and args.auto_figure == "off" and not ai:
+                print("  ※ この文書には図がありません（動く対象なし）。")
+        print("===== /MOTION_ENABLED =====")
 
 
 INDEX_PAGE = """<!DOCTYPE html>
