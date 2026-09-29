@@ -310,6 +310,38 @@ figkit に無い形の図だけ、以下の手描きのルールで描く。
 - **図**: 必要なら自己完結 `<figure class="mermaid-fig"><svg viewBox=...>…</svg></figure>`（外部依存なし）。
 - **自己完結を厳守**: 画像/外部CSS/JS/フォントを足さない。既存の部品クラスとインライン `style` のみで仕上げる。むやみに新しい `<style>` を足さない（必要時は最小限）。
 - 内容の意味づけ（手順→タイムライン、比較→.split や表、要点→カード、数値→.stat）に合わせ、**メリハリのある誌面**にする。
+- **定型の部品はスクリプトに任せる（MD2DOC-PART と --finalize）**。タブ・チェックリスト・用語・数値タイル・タグ・
+  ツリー・対比・説明とコード・表・mermaid のような定型の形は、HTML を手で書かず、本文の中に Markdown の断片を置く:
+
+  ```html
+  <h2 id="インストール" class="hl">インストール</h2>
+  <p class="lead">（Claude が書く導入）</p>
+  <!--MD2DOC-PART layout=tabs-->
+  - macOS
+    ```bash
+    brew install node
+    ```
+  - Windows
+    ```powershell
+    winget install OpenJS.NodeJS
+    ```
+  <!--/MD2DOC-PART-->
+  ```
+
+  本文を書き終えたら 1 回だけ仕上げる（断片が決定論的な部品に置き換わり、mermaid も描かれる）:
+
+  ```bash
+  python3 <skill_dir>/generate.py --finalize "<out.html>" --theme <key> [--src "<input.md>"]
+  ```
+
+  - `layout` は 3f の表と同じ値（省略時 `plain`）。見出し（h2/h3）は断片に入れず Claude が書く（slug を合わせるため）。
+  - `--src` は断片の中のローカル画像の相対パスの基準（省略時は出力 HTML の場所）。
+  - mmdc が無い環境では `MERMAID_MANUAL_RENDER_REQUIRED` が出るので、5 の手順（figkit の `replace` が最短）で差し替える。
+  - 手作りするのは、文書全体の構成・導入や強調・定型に当たらない独自の部品だけにする（生成コストと書き漏れを減らす）。
+- **手で書いた表もページ側で整う**: 8 行以上の `<table>` には並べ替え・絞り込み・数値の列の右寄せと棒が自動で付く
+  （1 列目は行の見出しとして扱う）。止めるなら `<table data-table="plain">`、8 行未満でも付けるなら `data-table="tools"`。
+- **割り当て案が渡る**: `AI_DESIGN_REQUIRED` に `--suggest-layouts` と同じ判定の結果が載る。参考にしつつ崩してよいが、
+  定型に当たる節は MD2DOC-PART を使う。
 
 ### 4d. 図の動き（motion が off 以外のとき）
 スクリプトは動きの実行部を埋め込み、`MOTION_ENABLED` マーカー（図の一覧・注釈の語彙・figkit の使い方）を出す。

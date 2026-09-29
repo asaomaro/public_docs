@@ -908,7 +908,7 @@ def render_table(header, rows, mode="auto"):
             else:
                 tds.append("<td>%s</td>" % inline(cell))
         trs.append("<tr>%s</tr>" % "".join(tds))
-    return ('<div class="tablewrap%s"%s><table><thead><tr>%s</tr></thead><tbody>%s</tbody></table></div>'
+    return ('<div class="tablewrap%s" data-md2doc-table%s><table><thead><tr>%s</tr></thead><tbody>%s</tbody></table></div>'
             % (" tools" if tools else "", " data-table-tools" if tools else "", th, "".join(trs)))
 
 
@@ -1883,6 +1883,36 @@ LAYOUT_JS = r"""(function(){
     inp.addEventListener('input',function(){ var q=inp.value.trim().toLowerCase();
       rows.forEach(function(r){ r.hidden=!!q&&r.textContent.toLowerCase().indexOf(q)<0; }); });
   });
+  /* 手で書かれた表（AI 構築）も、スクリプトが組む表と同じ規則で整える:
+     数値の列（1 列目を除く）は右寄せと data-v、8 行以上なら並べ替え・絞り込み・棒。
+     table か .tablewrap に data-table="plain" で止め、"tools" で行数に関係なく付ける */
+  var NUM=/^[+\-−]?[¥$€]?\d[\d,]*(?:\.\d+)?\s*[%％a-zA-Zぁ-んァ-ヶ一-龠]{0,4}$/;
+  function numOf(t){ var m=t.match(/[+\-−]?\d[\d,]*(?:\.\d+)?/); return m?parseFloat(m[0].replace(/,/g,'').replace('−','-')):NaN; }
+  each(document.querySelectorAll('.content table'),function(tbl){
+    var w=tbl.closest('.tablewrap');
+    if(w&&w.hasAttribute('data-md2doc-table')) return;
+    var mode=tbl.getAttribute('data-table')||(w&&w.getAttribute('data-table'))||'auto';
+    if(mode==='plain'||!tbl.tBodies[0]) return;
+    if(!w){ w=document.createElement('div'); w.className='tablewrap'; tbl.parentNode.insertBefore(w,tbl); w.appendChild(tbl); }
+    var rows=[].slice.call(tbl.tBodies[0].rows), head=tbl.tHead?tbl.tHead.rows[0]:null;
+    var tools=mode==='tools'||rows.length>=8, ncol=head?head.cells.length:(rows[0]?rows[0].cells.length:0);
+    for(var c=1;c<ncol;c++){
+      var cells=rows.map(function(r){return r.cells[c];}).filter(function(x){return x&&x.textContent.trim();});
+      if(cells.length<2||!cells.every(function(x){return NUM.test(x.textContent.trim().replace(/\*\*/g,''));})) continue;
+      var vals=cells.map(function(x){return numOf(x.textContent);}), max=Math.max.apply(null,vals), min=Math.min.apply(null,vals);
+      if(head&&head.cells[c]) head.cells[c].classList.add('num');
+      cells.forEach(function(x,k){
+        x.classList.add('num'); x.setAttribute('data-v',vals[k]);
+        if(tools&&max>0&&min>=0&&!x.querySelector('.nbar')){
+          var v=document.createElement('span'); v.className='nv'; while(x.firstChild) v.appendChild(x.firstChild);
+          var b=document.createElement('span'); b.className='nbar'; b.style.setProperty('--w',(100*vals[k]/max).toFixed(1));
+          x.appendChild(b); x.appendChild(v);
+        }
+      });
+    }
+    if(tools){ w.classList.add('tools'); w.setAttribute('data-table-tools',''); }
+    w.setAttribute('data-md2doc-table','');
+  });
   /* 表: 並べ替え・絞り込み（見出しの固定は CSS） */
   each(document.querySelectorAll('[data-table-tools]'),function(w){
     var tb=w.querySelector('tbody'), rows=[].slice.call(tb.rows), ths=[].slice.call(w.querySelectorAll('thead th'));
@@ -2771,9 +2801,62 @@ def convert_file(path, theme_key, eyebrow=None, auto_figure="off", toc_mode="sid
     return out_html, title, headings, ok, pending
 
 
+
+# ──────────────────────────────────────────────────────────────────────────
+# AI 構築の仕上げ（--finalize）
+#   Claude が書いた本文の中の <!--MD2DOC-PART layout=…--> … <!--/MD2DOC-PART--> を、
+#   決定論的な部品（リストのレイアウト・表・コード・mermaid）に置き換える。
+# ──────────────────────────────────────────────────────────────────────────
+PART_RE = re.compile(r"<!--\s*MD2DOC-PART(?:\s+layout\s*=\s*([\w-]+))?\s*-->(.*?)<!--\s*/MD2DOC-PART\s*-->", re.S)
+
+
+def finalize_html(path, theme_key, src=None):
+    global _IMG_BASE, _IMG_OUTDIR, _IMG_MODE, _ACCENTS
+    doc = open(path, encoding="utf-8").read()
+    _IMG_BASE = os.path.dirname(os.path.abspath(src)) if src else os.path.dirname(os.path.abspath(path))
+    _IMG_OUTDIR = os.path.dirname(os.path.abspath(path))
+    _ACCENTS = accent_vars(theme_key)
+    store, count, bad = [], [0], []
+
+    def one(m):
+        lay = (m.group(1) or "plain").lower()
+        if lay not in DET_LAYOUTS:
+            bad.append(lay)
+            lay = "plain"
+        md = m.group(2)
+        lines = md.replace("\r\n", "\n").split("\n")
+        # 断片の共通の字下げを外す（HTML の中に字下げして書かれていてもよい）
+        ind = min([len(l) - len(l.lstrip(" ")) for l in lines if l.strip()] or [0])
+        lines = [l[ind:] if len(l) >= ind else l for l in lines]
+        base = len(store)
+        local = []
+        part = parse_blocks(lines, [], set(), local, top_level=True, layout=lay)
+        for k in range(len(local)):
+            part = part.replace("@@MERMAID_%d@@" % k, "@@MERMAID_%d@@" % (base + k))
+        store.extend(local)
+        count[0] += 1
+        return part
+
+    doc = PART_RE.sub(one, doc)
+    rendered, ok = render_mermaid(store, THEMES[theme_key])
+    pending = []
+    for i, src_ in enumerate(store):
+        svg = rendered.get(i)
+        if svg:
+            doc = doc.replace("@@MERMAID_%d@@" % i, svg)
+        else:
+            eid = "md2doc-mm-%d" % i
+            doc = doc.replace("@@MERMAID_%d@@" % i, manual_mermaid_figure(eid, src_))
+            pending.append({"out": path, "id": eid, "source": src_})
+    open(path, "w", encoding="utf-8").write(doc)
+    return count[0], pending, bad, "<!--MD2DOC_CONTENT-->" in doc
+
 def main():
     ap = argparse.ArgumentParser(description="Markdown を視覚的なHTMLドキュメントに変換")
-    ap.add_argument("inputs", nargs="+", help="入力 .md（複数可）")
+    ap.add_argument("inputs", nargs="*", help="入力 .md（複数可）")
+    ap.add_argument("--finalize", metavar="OUT.html", default=None,
+                    help="AI 構築の仕上げ: 本文の <!--MD2DOC-PART layout=…--> を部品に置き換え、mermaid を描く（--theme が要る）")
+    ap.add_argument("--src", default=None, help="--finalize で、断片の中の画像の相対パスの基準にする元の .md")
     ap.add_argument("--theme", required=True, choices=list(THEMES.keys()))
     ap.add_argument("--mode", default="single", choices=["single", "print", "site"])
     ap.add_argument("--outdir", default=None, help="出力先（既定: 入力と同じ場所）")
@@ -2808,6 +2891,26 @@ def main():
 
     default_mode = default_mode_of(args.theme, args.default_mode)
     layout_map = parse_layout_map(args.layout_map)
+    if args.finalize:
+        n, pending, bad, left = finalize_html(args.finalize, args.theme, args.src)
+        print("OK : %s（部品 %d 個を置き換え）" % (args.finalize, n))
+        for b in bad:
+            print("warn: MD2DOC-PART の layout=%s は使えません（plain で描きました）。%s のいずれか。"
+                  % (b, "/".join(DET_LAYOUTS)), file=sys.stderr)
+        if left:
+            print("warn: <!--MD2DOC_CONTENT--> がまだ残っています。本文を書いてから仕上げてください。", file=sys.stderr)
+        if pending:
+            print("\n===== MERMAID_MANUAL_RENDER_REQUIRED =====")
+            print("mmdc が無いため %d 個の図が未レンダリングです。figkit の flow / sequence に写して" % len(pending))
+            print('"replace": "<id>" で差し込むか、テーマ配色の <svg> を手描きして figure ごと置き換えてください。')
+            print("配色パレット: " + json.dumps(theme_palette(args.theme), ensure_ascii=False))
+            for t in pending:
+                print("\n--- figure id=%s  in  %s ---" % (t["id"], t["out"]))
+                print(t["source"])
+            print("===== /MERMAID_MANUAL_RENDER_REQUIRED =====")
+        return
+    if not args.inputs:
+        ap.error("入力 .md を指定してください（--finalize のときは不要）")
     if args.suggest_layouts:
         for path in args.inputs:
             raw = open(path, encoding="utf-8").read()
@@ -2919,6 +3022,24 @@ def main():
                 print("[節指定あり: %s] %s" % (os.path.basename(ent["src"]),
                       ", ".join("%s=%s" % (sec, lay) for sec, lay in dirs)))
                 print("  ↑ md 側で明示されている節は、この指定を優先すること。")
+        print("\n[定型の部品はスクリプトに任せる] 本文の中に、Markdown の断片とレイアウトを書く目印を置ける:")
+        print("  <!--MD2DOC-PART layout=tabs-->")
+        print("  - macOS")
+        print("    ```bash … ```")
+        print("  <!--/MD2DOC-PART-->")
+        print("  書き終えたら次を 1 回実行すると、断片が決定論的な部品（リストのレイアウト・表の強化・コード・mermaid）に置き換わる:")
+        print("  python3 %s --finalize <out.html> --theme %s [--src <input.md>]"
+              % (os.path.abspath(__file__), args.theme))
+        print("  layout は %s。見出し（h2/h3）は断片に入れず、Claude が書く。" % " / ".join(DET_LAYOUTS))
+        print("  定型の形（タブ・チェックリスト・用語・数値タイル・タグ・ツリー・対比・説明とコード・表・mermaid）は")
+        print("  手で書かずにこの目印を使い、手作りは構成・強調・独自の部品だけにする（生成コストと書き漏れを減らす）。")
+        print("  手で書いた <table> も、8 行以上ならページ側で並べ替え・絞り込み・数値の棒が付く（止めるなら data-table=\"plain\"）。")
+        for ent in produced:
+            sug = suggest_layouts((ent.get("md") or "").replace("\r\n", "\n").split("\n"))
+            if sug:
+                print("[割り当て案: %s]（参考。崩してよいが、定型に当たる節は MD2DOC-PART を使う）" % os.path.basename(ent["src"]))
+                for name, lay, why in sug:
+                    print("  %s → %s（%s）" % (name, lay, why))
         print("\n[配色] " + json.dumps(pal, ensure_ascii=False))
         print("[使える部品クラス] hero外の本文で利用可:")
         print("  見出し: <h2 id=SLUG class=\"hl\">..</h2> / <h3 id=SLUG class=\"hl\">..</h3>（下記SLUG必須）")
