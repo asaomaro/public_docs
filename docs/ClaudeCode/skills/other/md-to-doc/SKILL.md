@@ -310,10 +310,24 @@ figkit に無い形の図だけ、以下の手描きのルールで描く。
 | 中核と周り（関係者・連携先） | `hub` | 中心→線→周り。やりとりは `travel` / `flow`、繰り返し見せるなら `"trigger":"loop"` |
 | 層の構成（アーキテクチャ） | `layers` | 下の層から積み上がる |
 | 登場者の間のやりとりの順序 | `sequence` | メッセージが順に、線の上を印が移動 |
+| 数値の推移 | `line` | 線が描かれ、点が弾み、最後の値が数え上がる（`area` で面も） |
+| 割合・内訳 | `donut` | 時計回りに埋まり、合計が数え上がる |
+| 予定・工程表・マイルストーン | `gantt` | バーが伸び、今日の線が引かれる |
+| コマンドの実行例・セットアップ | `terminal` | コマンドが 1 文字ずつ打たれ、出力が続く。長い手順は `"trigger":"click"` |
+| 移行・改善・設計変更 | `toggle` | 変更前／変更後をボタンで切り替え、変わった所（`changed`）が光る。印刷は並べて表示 |
+| 1 枚の流れで複数の経路（正常系・異常系） | `flow` ＋ `edges[].paths` | 経路のボタンで、その経路だけが光り印が流れる |
+| 大きな構成図の要所を順に説明 | `flow`・`hub` ＋ `zoom` | 全体→部分へ寄り、次へ移って全体へ戻る（小さな図には使わない） |
+| 図の各部に一言ずつ説明を添える | 各 type の `note` | 引き出し線付きの吹き出しが、その部分と一緒に現れる |
+| 線が多いつながりの図 | `flow`・`hub`（既定で `hover`） | ノードに触れると、つながる線と相手だけが残る |
+| 本文を読み進めながら図を追ってほしい | 任意 ＋ `"trigger":"scroll"` | 図が画面を通る位置に合わせて段が進む（1 文書に 1〜2 個） |
 | 上のどれにも当たらない | 手描き svg | `data-motion="auto"`、必要なら `data-step` で順序 |
 
 - **再生のきっかけ**（`data-trigger`）: 既定は `view`（見えたら 1 回）。常に動いていてほしい全体像（hub 等）だけ `loop`、
-  読み手が自分のペースで見たい長いシーケンスは `click`。1 文書で `loop` は 1 つまで。
+  読み手が自分のペースで見たい長いシーケンス・ターミナルは `click`、本文と歩調を合わせたい図は `scroll`。
+  1 文書で `loop` は 1 つまで。`data-trigger` を付けた図は、`key` で `data-motion` が無くても動く。
+- **操作と注記は動きの設定と無関係に働く**: 経路の切り替え・変更前／変更後・関連の強調・注記の吹き出しは、
+  `--motion off` や「視差効果を減らす」でも使える（動きだけが止まり、切り替えは即座になる）。
+  ただし注記と経路は JS が要るので、**本文の理解に欠かせない情報は本文か caption にも書く**。
 - **強さの目安**: `data-flow`・`data-pulse`・`data-spin` などのループは 1 図に 1〜2 個まで。全図にループを付けない。
 
 #### 注釈の語彙（手描き svg・mermaid の figure に付ける。figkit は組み込み済み）
@@ -334,6 +348,12 @@ figkit に無い形の図だけ、以下の手描きのルールで描く。
 | 要素 | `data-pulse` | 現れた後、ゆっくり明滅 |
 | 要素 | `data-spin="cw\|ccw"` | 回り続ける（飾りの輪に。文字には付けない） |
 | 要素・g | `data-focus="N"` | 現れた後、N の順に 1 つずつ強調し、他の `data-focus` を薄くする |
+| text・g | `data-effect="type"` | 文字を 1 文字ずつ打つ（コマンドの入力に） |
+| 要素・g | `data-note="説明"`（`data-note-pos="top\|bottom\|left\|right"`） | 引き出し線付きの吹き出し。位置は空いている側を自動で選ぶ |
+| 要素・g | `data-zoom-step="N"` | 現れた後、N の順にその部分へ寄って戻る |
+| figure | `data-paths="正常系\|異常系"` ＋ 要素の `data-path="正常系\|…"` | 経路のボタンを出し、選んだ経路の要素だけを残して印を流す |
+| figure | `data-hover` ＋ `data-node="id"`・`data-link="id1 id2"` | ノードに触れる・フォーカスすると、つながる線と相手だけを残す |
+| figure | `data-toggle`（`data-toggle-auto`）＋ `.mo-states > .mo-state[data-state="名前"]` | 状態を切り替える。`data-changed` の要素が切り替え時に光る |
 
 ノードとその文字は同じ `<g>` にまとめ、1 つの step にすると自然に見える。
 `pop`・`grow`・`spin` は要素の中心・端を基準に拡大・回転するので、`transform` 属性で回転・拡大している要素には付けず、`<g>` で包んで付ける。
@@ -352,7 +372,11 @@ python3 <skill_dir>/figkit.py spec.json --insert out.html # 各図の slot / rep
 - 共通の項目: `type`（必須）/ `id` / `caption` / `aria` / `motion`（`true`=段の順に動く）/ `tempo` / `trigger`、
   差し込み先は `slot`（auto-figure の `data-section`）・`replace`（置き換える figure の id。mermaid の手描き
   フォールバック `md2doc-mm-N` に使う）・`placeholder`（AI 構築の本文に置いた `<!--FIGKIT:名前-->`）のどれか。
-- 種類: `flow` / `steps` / `cycle` / `bars` / `metrics` / `compare` / `hub` / `layers` / `sequence`（仕様は `--list`）。
+- 種類: `flow` / `steps` / `cycle` / `bars` / `metrics` / `compare` / `hub` / `layers` / `sequence` /
+  `line` / `donut` / `gantt` / `terminal` / `toggle`（仕様は `--list`）。
+- 項目の共通の注釈: `note`（吹き出し）・`note_pos`・`changed`（toggle で変わった所）。
+  `flow` は `edges[].paths`（経路）・`zoom`（寄るノード id の順）・`hover`、`hub` は `zoom`（label の順）・`hover`。
+- `toggle` は `states` に他の type の仕様を 2 つ以上並べる（`labels` で状態の名前）。
 - 1 つの JSON に複数の図を `{"figures":[...]}` で入れ、1 回で差し込める。
 - mermaid の flowchart・sequenceDiagram は、mmdc が無いとき `flow`・`sequence` の仕様に写して `replace` で差し込める。
 - 動きが `off` の文書でも使える（注釈は data-* 属性だけなので、静止した図として表示される）。

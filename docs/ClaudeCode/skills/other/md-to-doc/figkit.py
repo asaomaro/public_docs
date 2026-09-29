@@ -43,12 +43,29 @@ def acc(i):
     return "var(--a%d)" % (i % ACCENTS)
 
 
+def ann(o, **extra):
+    """仕様の項目から共通の注釈（注記・変更点・関連の強調・ズーム）を属性にする。"""
+    a = ""
+    if o.get("note"):
+        a += ' data-note="%s"' % esc(o["note"])
+        if o.get("note_pos"):
+            a += ' data-note-pos="%s"' % esc(o["note_pos"])
+    if o.get("changed"):
+        a += " data-changed"
+    for k, v in extra.items():
+        if v is None or v is False:
+            continue
+        a += ' data-%s' % k.replace("_", "-") if v is True else ' data-%s="%s"' % (k.replace("_", "-"), esc(v))
+    return a
+
+
 class Canvas:
     """SVG の断片を集めて、最後に viewBox を決める。"""
 
     def __init__(self, fid):
         self.fid = fid
         self.parts = []
+        self.fig = {}      # figure に付ける属性（data-paths / data-hover など）
 
     def add(self, s):
         self.parts.append(s)
@@ -179,6 +196,21 @@ def fig_flow(spec, cv):
             y += rowh[r] + GAP_R * 0.75
         H = y - GAP_R * 0.75 + PAD
     focus = {f: k for k, f in enumerate(spec.get("focus", []))}
+    zoom = {f: k for k, f in enumerate(spec.get("zoom", []))}
+    # 経路（シナリオ）: 辺の paths から、通るノードを求める
+    scen = list(spec.get("scenarios", []))
+    onpath = {i: [] for i in ids}
+    for e in edges:
+        for pth in e.get("paths", []):
+            if pth not in scen:
+                scen.append(pth)
+            for end in (e["from"], e["to"]):
+                if end in onpath and pth not in onpath[end]:
+                    onpath[end].append(pth)
+    if scen:
+        cv.fig["paths"] = "|".join(scen)
+    if spec.get("hover", len(nodes) >= 4):
+        cv.fig["hover"] = True
     mk = cv.marker()
     extra_h = 0
     for e in edges:
@@ -215,8 +247,9 @@ def fig_flow(spec, cv):
         flow = " data-flow" if e.get("flow") else ""
         step = 2 * rank[e["from"]] + 1
         lab = edge_label(lx, ly, e["label"]) if e.get("label") else ""
-        cv.add('<g data-step="%d" data-effect="draw"%s><path d="%s" fill="none" stroke="var(--accent-2)" stroke-width="2"%s%s '
-               'marker-end="url(#%s)"/>%s</g>' % (step, attr_travel(e), d, dash, flow, mk, lab))
+        pa = ann(e, path="|".join(e.get("paths", [])) or None, link="%s %s" % (e["from"], e["to"]))
+        cv.add('<g data-step="%d" data-effect="draw"%s%s><path d="%s" fill="none" stroke="var(--accent-2)" stroke-width="2"%s%s '
+               'marker-end="url(#%s)"/>%s</g>' % (step, attr_travel(e), pa, d, dash, flow, mk, lab))
     for k, i in enumerate(ids):
         x, y, w, h = pos[i]
         n = byid[i]
@@ -225,6 +258,8 @@ def fig_flow(spec, cv):
             a += ' data-focus="%d"' % focus[i]
         if n.get("pulse"):
             a += " data-pulse"
+        a += ann(n, node=i, path="|".join(onpath[i]) or None,
+                 zoom_step=zoom.get(i) if i in zoom else None)
         cv.add(box(x, y, w, h, n["label"], n.get("sub"), n.get("kind", "normal"), attrs=a))
     return W, H + extra_h
 
@@ -243,7 +278,7 @@ def fig_steps(spec, cv):
             if i < n - 1:
                 cv.add('<line data-step="%d" x1="%.1f" y1="44" x2="%.1f" y2="44" stroke="var(--line)" '
                        'stroke-width="3"/>' % (2 * i + 1, cx + R + 4, cx + colw - R - 4))
-            f = ' data-focus="%d"' % i if walk else ""
+            f = (' data-focus="%d"' % i if walk else "") + ann(it)
             cv.add('<g data-step="%d"%s><circle cx="%.1f" cy="44" r="%d" fill="%s" data-effect="pop"/>%s%s%s</g>'
                    % (2 * i, f, cx, R, acc(i), text(cx, 50, str(i + 1), 15, "700", "var(--on-accent)"),
                       text(cx, 92, it["label"], weight="700"),
@@ -256,7 +291,7 @@ def fig_steps(spec, cv):
             if i < n - 1:
                 cv.add('<line data-step="%d" x1="40" y1="%.1f" x2="40" y2="%.1f" stroke="var(--line)" '
                        'stroke-width="3"/>' % (2 * i + 1, cy + R + 4, cy + 70 - R - 4))
-            f = ' data-focus="%d"' % i if walk else ""
+            f = (' data-focus="%d"' % i if walk else "") + ann(it)
             sub = text(72, cy + 20, it.get("sub", ""), SUB, fill="var(--muted)", anchor="start") if it.get("sub") else ""
             cv.add('<g data-step="%d"%s><circle cx="40" cy="%.1f" r="%d" fill="%s"/>%s%s%s</g>'
                    % (2 * i, f, cy, R, acc(i), text(40, cy + 6, str(i + 1), 15, "700", "var(--on-accent)"),
@@ -290,7 +325,7 @@ def fig_cycle(spec, cv):
         w, h = sizes[i]
         x, y = pts[i]
         cv.add(box(x - w / 2, y - h / 2, w, h, it["label"], it.get("sub"), ci=i,
-                   attrs=' data-step="%d" data-effect="pop"' % (2 * i)))
+                   attrs=' data-step="%d" data-effect="pop"' % (2 * i) + ann(it)))
     return W, H
 
 
@@ -311,9 +346,9 @@ def fig_bars(spec, cv):
             y = 12 + i * (BH + G)
             w = max(2, BW * float(it["value"]) / vmax)
             p = " data-pulse" if hl == i else ""
-            cv.add('<g data-step="%d">%s<rect x="%.1f" y="%.1f" width="%.1f" height="%d" rx="5" fill="%s" '
+            cv.add('<g data-step="%d"%s>%s<rect x="%.1f" y="%.1f" width="%.1f" height="%d" rx="5" fill="%s" '
                    'data-effect="grow" data-grow="right"%s/>%s</g>'
-                   % (i, text(lw - 12, y + BH / 2 + 5, it["label"], anchor="end"), lw, y, w, BH, acc(i), p,
+                   % (i, ann(it), text(lw - 12, y + BH / 2 + 5, it["label"], anchor="end"), lw, y, w, BH, acc(i), p,
                       text(lw + w + 10, y + BH / 2 + 5, disp(it), 14, "700", anchor="start", extra=' data-count="0" data-effect="fade"')))
     else:
         colw = max(64, max(tw(it["label"], 13) for it in items) + 16)
@@ -323,9 +358,9 @@ def fig_bars(spec, cv):
             cx = 10 + colw * i + colw / 2
             h = max(2, BH * float(it["value"]) / vmax)
             p = " data-pulse" if hl == i else ""
-            cv.add('<g data-step="%d"><rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="5" fill="%s" '
+            cv.add('<g data-step="%d"%s><rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="5" fill="%s" '
                    'data-effect="grow" data-grow="up"%s/>%s%s</g>'
-                   % (i, cx - BW / 2, 30 + BH - h, BW, h, acc(i), p,
+                   % (i, ann(it), cx - BW / 2, 30 + BH - h, BW, h, acc(i), p,
                       text(cx, 30 + BH - h - 8, disp(it), 13, "700", extra=' data-count="0" data-effect="fade"'),
                       text(cx, 30 + BH + 22, it["label"], 13)))
         cv.add('<line x1="4" y1="%d" x2="%.1f" y2="%d" stroke="var(--line)" stroke-width="1.5"/>' % (30 + BH, W - 4, 30 + BH))
@@ -383,6 +418,9 @@ def fig_hub(spec, cv):
     W, H = ox * 2, oy * 2
     mk = cv.marker()
     inward = spec.get("inward")
+    zoom = spec.get("zoom", [])
+    if spec.get("hover", n >= 4):
+        cv.fig["hover"] = True
     for i, it in enumerate(items):
         ang = 2 * math.pi * i / n - math.pi / 2
         x, y = ox + R * math.cos(ang), oy + R * math.sin(ang)
@@ -392,12 +430,13 @@ def fig_hub(spec, cv):
         if inward:
             sx, sy, tx, ty = tx, ty, sx, sy
         e = it if isinstance(it, dict) else {}
-        cv.add('<line data-step="1"%s x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="var(--accent-2)" stroke-width="2" '
-               'marker-end="url(#%s)"%s/>' % (attr_travel(e), sx, sy, tx, ty, mk, " data-flow" if e.get("flow") else ""))
+        cv.add('<line data-step="1"%s data-link="c n%d" x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="var(--accent-2)" stroke-width="2" '
+               'marker-end="url(#%s)"%s/>' % (attr_travel(e), i, sx, sy, tx, ty, mk, " data-flow" if e.get("flow") else ""))
+        zs = zoom.index(it["label"]) if it["label"] in zoom else None
         cv.add(box(x - sizes[i][0] / 2, y - sizes[i][1] / 2, sizes[i][0], sizes[i][1], it["label"], it.get("sub"), ci=i,
-                   attrs=' data-step="2" data-effect="pop"'))
+                   attrs=' data-step="2" data-effect="pop"' + ann(it, node="n%d" % i, zoom_step=zs)))
     cv.add(box(ox - cw / 2, oy - ch / 2, cw, ch, c["label"], c.get("sub"), kind="start",
-               attrs=' data-step="0" data-effect="pop"%s' % (" data-pulse" if c.get("pulse") else "")))
+               attrs=' data-step="0" data-effect="pop"%s' % (" data-pulse" if c.get("pulse") else "") + ann(c, node="c")))
     return W, H
 
 
@@ -410,9 +449,9 @@ def fig_layers(spec, cv):
     for i, it in enumerate(items):
         y = 6 + i * (LH + G)
         sub = text(LW - 8, y + LH / 2 + 5, it.get("sub", ""), SUB, fill="var(--muted)", anchor="end") if it.get("sub") else ""
-        cv.add('<g data-step="%d" data-effect="rise"><rect x="10" y="%.1f" width="%.1f" height="%d" rx="10" fill="var(--accent-soft)" '
+        cv.add('<g data-step="%d" data-effect="rise"%s><rect x="10" y="%.1f" width="%.1f" height="%d" rx="10" fill="var(--accent-soft)" '
                'stroke="%s" stroke-width="1.6"/><rect x="10" y="%.1f" width="8" height="%d" rx="4" fill="%s"/>%s%s</g>'
-               % (n - 1 - i, y, LW, LH, acc(i), y, LH, acc(i),
+               % (n - 1 - i, ann(it), y, LW, LH, acc(i), y, LH, acc(i),
                   text(34, y + LH / 2 + 5, it["label"], weight="700", anchor="start"), sub))
     return W, H
 
@@ -447,8 +486,180 @@ def fig_sequence(spec, cv):
             anchor = "middle"
         dash = ' stroke-dasharray="6 5"' if m.get("reply") else ""
         tr = attr_travel(m) if "travel" in m else ' data-travel=""'
-        cv.add('<g data-step="%d" data-effect="draw"%s><path d="%s" fill="none" stroke="var(--accent-2)" stroke-width="2"%s marker-end="url(#%s)"/>%s</g>'
-               % (j + 1, tr, d, dash, mk, text(lx, y - 8, m.get("label", ""), 13, fill="var(--ink)", anchor=anchor)))
+        cv.add('<g data-step="%d" data-effect="draw"%s%s><path d="%s" fill="none" stroke="var(--accent-2)" stroke-width="2"%s marker-end="url(#%s)"/>%s</g>'
+               % (j + 1, tr, ann(m), d, dash, mk, text(lx, y - 8, m.get("label", ""), 13, fill="var(--ink)", anchor=anchor)))
+    return W, H
+
+
+def _nice(v):
+    if v <= 0:
+        return 1
+    e = 10 ** math.floor(math.log10(v))
+    for m in (1, 2, 2.5, 5, 10):
+        if v <= m * e:
+            return m * e
+    return 10 * e
+
+
+def _fmtnum(v):
+    return "{:,}".format(int(v)) if float(v).is_integer() else ("%g" % v)
+
+
+def fig_line(spec, cv):
+    labels = spec["labels"]
+    series = spec["series"]
+    unit = spec.get("unit", "")
+    vals = [v for s_ in series for v in s_["values"]]
+    lo = spec.get("min", 0)
+    hi = _nice(max(vals) - lo) + lo
+    L, R, Tp, B = 56, 70, 18, 40
+    W, H = max(560, len(labels) * 64 + L + R), 300
+    pw, ph = W - L - R, H - Tp - B
+    X = lambda i: L + (pw * i / max(1, len(labels) - 1))
+    Y = lambda v: Tp + ph * (1 - (v - lo) / (hi - lo or 1))
+    grid = "".join('<line x1="%d" y1="%.1f" x2="%d" y2="%.1f" stroke="var(--line)" stroke-width="1"/>%s'
+                   % (L, Y(lo + (hi - lo) * k / 4), W - R, Y(lo + (hi - lo) * k / 4),
+                      text(L - 8, Y(lo + (hi - lo) * k / 4) + 4, _fmtnum(lo + (hi - lo) * k / 4), 11, fill="var(--muted)", anchor="end"))
+                   for k in range(5))
+    xl = "".join(text(X(i), H - 14, l, 12, fill="var(--muted)") for i, l in enumerate(labels))
+    cv.add('<g data-step="0" data-effect="fade">%s%s</g>' % (grid, xl))
+    for si, s_ in enumerate(series):
+        pts = [(X(i), Y(v)) for i, v in enumerate(s_["values"])]
+        d = "M" + " L".join("%.1f,%.1f" % p for p in pts)
+        col = acc(si)
+        if spec.get("area") and len(series) == 1:
+            cv.add('<path data-step="1" data-effect="wipe" d="%s L%.1f,%.1f L%.1f,%.1f Z" fill="%s" opacity=".14"/>'
+                   % (d, pts[-1][0], Y(lo), pts[0][0], Y(lo), col))
+        cv.add('<path data-step="%d"%s d="%s" fill="none" stroke="%s" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>'
+               % (1 + si, ann(s_), d, col))
+        dots = "".join('<circle cx="%.1f" cy="%.1f" r="4.5" fill="var(--card)" stroke="%s" stroke-width="2.5"/>' % (x, y, col) for x, y in pts)
+        cv.add('<g data-step="%d" data-stagger="70" data-effect="pop">%s</g>' % (2 + si, dots))
+        last = s_["values"][-1]
+        cv.add('<g data-step="%d">%s</g>' % (2 + si, text(pts[-1][0] + 10, pts[-1][1] + 5, _fmtnum(last) + unit, 13, "700", col, "start",
+                                                  ' data-count="%s"' % esc(s_["values"][0]))))
+    if len(series) > 1:
+        lg = "".join('<g><rect x="%d" y="%d" width="12" height="4" rx="2" fill="%s"/>%s</g>'
+                     % (L + k * 110, 2, acc(k), text(L + k * 110 + 18, 8, s_["name"], 12, fill="var(--muted)", anchor="start"))
+                     for k, s_ in enumerate(series))
+        cv.add('<g data-step="0" data-effect="fade">%s</g>' % lg)
+    return W, H
+
+
+def fig_donut(spec, cv):
+    items = spec["items"]
+    total = float(sum(float(it["value"]) for it in items)) or 1
+    R, SW, cx, cy = 92, 32, 130, 125
+    a = -math.pi / 2
+    for i, it in enumerate(items):
+        frac = float(it["value"]) / total
+        a1 = a + 2 * math.pi * frac
+        g0, g1 = a + 0.015, a1 - 0.015
+        large = 1 if (g1 - g0) > math.pi else 0
+        p0 = (cx + R * math.cos(g0), cy + R * math.sin(g0))
+        p1 = (cx + R * math.cos(g1), cy + R * math.sin(g1))
+        cv.add('<path data-step="%d" data-effect="draw"%s d="M%.2f,%.2f A%d,%d 0 %d 1 %.2f,%.2f" fill="none" stroke="%s" stroke-width="%d"/>'
+               % (i, ann(it), p0[0], p0[1], R, R, large, p1[0], p1[1], acc(i), SW))
+        a = a1
+    c = spec.get("center") or {"value": _fmtnum(total) + spec.get("unit", ""), "label": "合計"}
+    cv.add('<g data-step="%d">%s%s</g>' % (len(items), text(cx, cy + 6, c["value"], 26, "800", "var(--ink)", extra=' data-count="0"'),
+                                          text(cx, cy + 28, c.get("label", ""), 12, fill="var(--muted)")))
+    lx, W = 270, 270 + max(tw(it["label"], 14) + 90 for it in items)
+    rows = "".join('<g><rect x="%d" y="%d" width="12" height="12" rx="3" fill="%s"/>%s%s</g>'
+                   % (lx, 40 + k * 30, acc(k), text(lx + 20, 51 + k * 30, it["label"], 14, anchor="start"),
+                      text(W - 6, 51 + k * 30, "%d%%" % round(100 * float(it["value"]) / total), 14, "700", acc(k), "end"))
+                   for k, it in enumerate(items))
+    cv.add('<g data-step="%d" data-stagger="90">%s</g>' % (len(items), rows))
+    return W, max(250, 60 + len(items) * 30)
+
+
+def _day(v):
+    if isinstance(v, (int, float)):
+        return float(v)
+    import datetime
+    return float(datetime.date.fromisoformat(str(v)).toordinal())
+
+
+def fig_gantt(spec, cv):
+    tasks = spec["tasks"]
+    isdate = any(isinstance(t["start"], str) for t in tasks)
+    t0 = min(_day(t["start"]) for t in tasks)
+    t1 = max(_day(t["end"]) for t in tasks)
+    if spec.get("today") is not None:
+        t0, t1 = min(t0, _day(spec["today"])), max(t1, _day(spec["today"]))
+    span = (t1 - t0) or 1
+    lw = max(tw(t["label"], 14) for t in tasks) + 24
+    PW, BH, G, TOP = 460, 22, 12, 50
+    W, H = lw + PW + 20, TOP + len(tasks) * (BH + G) + 10
+    X = lambda d: lw + PW * (d - t0) / span
+    import datetime
+    ticks = []
+    for k in range(5):
+        d = t0 + span * k / 4
+        lab = "%d/%d" % (datetime.date.fromordinal(int(round(d))).month, datetime.date.fromordinal(int(round(d))).day) if isdate else _fmtnum(round(d, 1))
+        ticks.append('<line x1="%.1f" y1="%d" x2="%.1f" y2="%d" stroke="var(--line)"/>%s'
+                     % (X(d), TOP - 6, X(d), H - 4, text(X(d), 16, lab, 11, fill="var(--muted)")))
+    cv.add('<g data-step="0" data-effect="fade">%s</g>' % "".join(ticks))
+    for i, t in enumerate(tasks):
+        y = TOP + i * (BH + G)
+        s0, s1 = _day(t["start"]), _day(t["end"])
+        lab = text(lw - 10, y + BH / 2 + 5, t["label"], 14, anchor="end")
+        if s1 <= s0:
+            cx = X(s0)
+            shape = ('<polygon points="%.1f,%.1f %.1f,%.1f %.1f,%.1f %.1f,%.1f" fill="%s" data-effect="pop"/>'
+                     % (cx, y, cx + 11, y + BH / 2, cx, y + BH, cx - 11, y + BH / 2, acc(i)))
+        else:
+            shape = ('<rect x="%.1f" y="%.1f" width="%.1f" height="%d" rx="6" fill="%s" data-effect="grow" data-grow="right"/>'
+                     % (X(s0), y, max(4, X(s1) - X(s0)), BH, acc(i)))
+        cv.add('<g data-step="%d"%s>%s%s</g>' % (1 + i, ann(t), lab, shape))
+    if spec.get("today") is not None:
+        x = X(_day(spec["today"]))
+        cv.add('<g data-step="%d" data-effect="draw"><line x1="%.1f" y1="%d" x2="%.1f" y2="%d" stroke="var(--accent)" stroke-width="2"/>%s</g>'
+               % (len(tasks) + 1, x, TOP - 8, x, H - 2, text(x, TOP - 12, spec.get("today_label", "今日"), 11, "700", "var(--accent)")))
+    return W, H
+
+
+def fig_terminal(spec, cv):
+    prompt = spec.get("prompt", "$")
+    rows = []
+    for ln in spec["lines"]:
+        if "cmd" in ln:
+            rows.append(("cmd", ln["cmd"]))
+        else:
+            for part in str(ln.get("out", "")).split("\n"):
+                rows.append(("out", part))
+    CH = 8.6
+    maxc = max([len(r[1]) + (len(prompt) + 1 if r[0] == "cmd" else 0) for r in rows] + [30])
+    W = min(820, int(maxc * CH) + 44)
+    per = max(20, int((W - 44) / CH))
+    wrapped = []
+    for kind, s_ in rows:
+        first = True
+        while True:
+            room = per - (len(prompt) + 1 if kind == "cmd" and first else 0)
+            wrapped.append((kind, s_[:room], first))
+            s_ = s_[room:]
+            first = False
+            if not s_:
+                break
+    LH, TOP = 22, 44
+    H = TOP + len(wrapped) * LH + 16
+    cv.add('<g><rect x="0" y="0" width="%d" height="%d" rx="10" fill="var(--code-bg)"/>'
+           '<circle cx="18" cy="16" r="5" fill="var(--a3)" opacity=".8"/><circle cx="36" cy="16" r="5" fill="var(--a2)" opacity=".8"/>'
+           '<circle cx="54" cy="16" r="5" fill="var(--a1)" opacity=".8"/>%s</g>'
+           % (W, H, text(W / 2, 20, spec.get("title", ""), 12, fill="var(--code-fg)", extra=' opacity=".6"')))
+    step = 0
+    for i, (kind, s_, first) in enumerate(wrapped):
+        y = TOP + i * LH + 14
+        if kind == "cmd":
+            if first:
+                step += 1
+            pre = ('<text x="22" y="%.1f" font-size="14" fill="var(--a1)" font-family="var(--mono)">%s</text>' % (y, esc(prompt))) if first else ""
+            x0 = 22 + (len(prompt) + 1) * CH if first else 22
+            cv.add('<g data-step="%d">%s<text x="%.1f" y="%.1f" font-size="14" fill="var(--code-fg)" font-family="var(--mono)" '
+                   'data-effect="type" xml:space="preserve">%s</text></g>' % (step * 2, pre, x0, y, esc(s_)))
+        else:
+            cv.add('<text data-step="%d" data-effect="fade" x="22" y="%.1f" font-size="14" fill="var(--code-fg)" opacity=".72" '
+                   'font-family="var(--mono)" xml:space="preserve">%s</text>' % (step * 2 + 1, y, esc(s_)))
     return W, H
 
 
@@ -472,21 +683,61 @@ TYPES = {
             '"items":[{"label":"Web","travel":"要求","flow":false}]}'),
     "layers": (fig_layers, "層の構成（上から順に書き、下から積み上がる）",
                '{"type":"layers","items":[{"label":"画面","sub":"Vue"},{"label":"API"},{"label":"DB"}]}'),
+    "line": (fig_line, "数値の推移（線が描かれ、点が弾み、最後の値が数え上がる）",
+             '{"type":"line","unit":"件","area":false,"labels":["4月","5月","6月"],'
+             '"series":[{"name":"発火","values":[120,340,610]}]}'),
+    "donut": (fig_donut, "割合（ドーナツが時計回りに埋まり、合計が数え上がる）",
+              '{"type":"donut","unit":"件","center":{"value":"1,240","label":"合計"},'
+              '"items":[{"label":"完了","value":820},{"label":"見送り","value":300},{"label":"失敗","value":120}]}'),
+    "gantt": (fig_gantt, "予定・工程表（バーが伸び、今日の線が引かれる。start==end はマイルストーン）",
+              '{"type":"gantt","today":"2026-10-06","tasks":[{"label":"設計","start":"2026-10-01","end":"2026-10-08"},'
+              '{"label":"リリース","start":"2026-10-20","end":"2026-10-20"}]}'),
+    "terminal": (fig_terminal, "コマンドの実行（コマンドが 1 文字ずつ打たれ、出力が続く）",
+                 '{"type":"terminal","title":"bash","prompt":"$","lines":[{"cmd":"soda serve"},{"out":"listening on 127.0.0.1:7780"}]}'),
+    "toggle": (None, "変更前／変更後（ボタンで切り替え、変わった所が光る。印刷・JS 無しでは並べて表示）",
+               '{"type":"toggle","labels":["変更前","変更後"],"auto":false,'
+               '"states":[{"type":"flow","nodes":[...],"edges":[...]},{"type":"flow","nodes":[{"id":"x","label":"新","changed":true}],"edges":[]}]}'),
     "sequence": (fig_sequence, "やりとりの順序（登場者の間のメッセージ。矢印の上を印が移動）",
                  '{"type":"sequence","actors":["利用者","サーバ"],'
                  '"messages":[{"from":"利用者","to":"サーバ","label":"ログイン"},{"from":"サーバ","to":"利用者","label":"トークン","reply":true}]}'),
 }
 
 
-def render(spec, n=0):
+def render_svg(spec, fid):
     t = spec.get("type")
-    if t not in TYPES:
+    if t not in TYPES or TYPES[t][0] is None:
         raise SystemExit("figkit: 不明な type: %r（--list で一覧）" % t)
-    fid = re.sub(r"[^\w-]", "-", spec.get("id") or spec.get("replace") or "figkit-%d" % n)
     cv = Canvas(fid)
     W, H = TYPES[t][0](spec, cv)
     W, H = math.ceil(W), math.ceil(H)
     aria = spec.get("aria") or spec.get("caption") or TYPES[t][1]
+    svg = ('<svg viewBox="0 0 %d %d" role="img" aria-label="%s" xmlns="http://www.w3.org/2000/svg" '
+           'style="max-width:%dpx;width:100%%;height:auto;font-family:var(--font)">%s%s</svg>'
+           % (W, H, esc(aria), W, cv.defs(), "".join(cv.parts)))
+    return svg, cv.fig
+
+
+def render(spec, n=0):
+    t = spec.get("type")
+    fid = re.sub(r"[^\w-]", "-", spec.get("id") or spec.get("replace") or "figkit-%d" % n)
+    figattr = {}
+    if t == "toggle":
+        labels = spec.get("labels") or ["変更前", "変更後"]
+        parts = []
+        for k, sub in enumerate(spec["states"]):
+            svg, fa = render_svg(sub, "%s-s%d" % (fid, k))
+            figattr.update(fa)
+            lab = labels[k] if k < len(labels) else "状態 %d" % (k + 1)
+            parts.append('<div class="mo-state" data-state="%s"><div class="mo-state-label">%s</div>%s</div>'
+                         % (esc(lab), esc(lab), svg))
+        body = '<div class="mo-states">%s</div>' % "".join(parts)
+        figattr["toggle"] = True
+        if spec.get("auto"):
+            figattr["toggle-auto"] = True
+    else:
+        if t not in TYPES:
+            raise SystemExit("figkit: 不明な type: %r（--list で一覧）" % t)
+        body, figattr = render_svg(spec, fid)
     m = spec.get("motion")
     attrs = ""
     if m is True or m == "steps":
@@ -496,12 +747,11 @@ def render(spec, n=0):
     for k in ("tempo", "trigger"):
         if spec.get(k):
             attrs += ' data-%s="%s"' % (k, esc(spec[k]))
+    for k, v in figattr.items():
+        attrs += (' data-%s' % k) if v is True else ' data-%s="%s"' % (k, esc(v))
     cap = ('<figcaption style="color:var(--muted);font-size:13px;margin-top:10px">%s</figcaption>'
            % esc(spec["caption"])) if spec.get("caption") else ""
-    svg = ('<svg viewBox="0 0 %d %d" role="img" aria-label="%s" xmlns="http://www.w3.org/2000/svg" '
-           'style="max-width:%dpx;width:100%%;height:auto;font-family:var(--font)">%s%s</svg>'
-           % (W, H, esc(aria), W, cv.defs(), "".join(cv.parts)))
-    return '<figure class="mermaid-fig figkit figkit-%s" id="%s"%s>%s%s</figure>' % (t, fid, attrs, svg, cap)
+    return '<figure class="mermaid-fig figkit figkit-%s" id="%s"%s>%s%s</figure>' % (t, fid, attrs, body, cap)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -555,6 +805,9 @@ def main():
     args = ap.parse_args()
     if args.list or not args.spec:
         print("figkit の図の種類（共通: id / caption / aria / motion / tempo / trigger / slot|replace|placeholder）")
+        print("項目の共通注釈: note（注記の吹き出し）/ note_pos / changed（toggle で変わった所）")
+        print("flow: edges[].paths（経路の名前の配列）でシナリオの切り替え、zoom（寄るノード id の順）、hover（既定: 4 ノード以上）")
+        print("hub: zoom（寄る項目の label の順）、hover（既定: 4 項目以上）")
         for k, (_, desc, ex) in TYPES.items():
             print("\n[%s] %s\n  %s" % (k, desc, ex))
         return

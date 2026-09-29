@@ -1564,21 +1564,44 @@ MOTION_CSS = """
 .mo-fig.mo-played .mo-replay,.mo-replay.mo-click{opacity:.75}
 .mo-fig:hover .mo-replay,.mo-replay:focus-visible{opacity:1;color:var(--accent);border-color:var(--accent)}
 .mo-replay:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-@media print{.mo-replay{display:none!important}}
+/* 操作（経路・状態の切り替え）と、関連の強調 */
+.mo-bar{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin:0 0 12px}
+.mo-chip{font:inherit;font-size:12.5px;line-height:1.2;padding:5px 12px;border-radius:999px;border:1px solid var(--line);
+  background:var(--card);color:var(--muted);cursor:pointer}
+.mo-chip:hover{color:var(--accent);border-color:var(--accent)}
+.mo-chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.mo-chip:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+[data-path],[data-node],[data-link]{transition:opacity .25s}
+.mo-dim{opacity:.15}
+[data-node]:focus{outline:none}
+[data-node]:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+/* 変更前／変更後: JS 無し・印刷では並べて表示し、JS があれば 1 つずつ切り替える */
+.mo-states{display:flex;flex-wrap:wrap;gap:18px;justify-content:center;align-items:flex-start}
+.mo-state{flex:1 1 280px;min-width:0}
+.mo-state-label{font-size:13px;font-weight:700;color:var(--muted);margin-bottom:6px}
+.mo-states.mo-js{display:block}
+.mo-states.mo-js .mo-state{display:none}
+.mo-states.mo-js .mo-state.mo-on{display:block}
+.mo-states.mo-js .mo-state-label{display:none}
+@media print{.mo-replay,.mo-bar{display:none!important}.mo-dim{opacity:1!important}}
 """
 
 MOTION_JS = r"""(function(){
   var LEVEL='__MOTION_LEVEL__', TEMPO_DEF='__MOTION_TEMPO__';
   var mq=window.matchMedia?matchMedia('(prefers-reduced-motion: reduce)'):null;
-  if((mq&&mq.matches)||!('IntersectionObserver' in window)||!Element.prototype.animate) return;
+  var REDUCE=!!(mq&&mq.matches), CAN=!!Element.prototype.animate&&('IntersectionObserver' in window);
+  var NS='http://www.w3.org/2000/svg';
   var GEOM={rect:1,circle:1,ellipse:1,polygon:1,polyline:1,line:1,path:1,text:1,image:1,use:1,foreignObject:1};
   var SKIP={defs:1,marker:1,clipPath:1,mask:1,pattern:1,symbol:1,linearGradient:1,radialGradient:1,filter:1,style:1,title:1,desc:1,metadata:1};
   var ATOMIC=['data-effect','data-stagger','data-travel','data-count','data-focus','data-spin','data-pulse','data-flow'];
   var TEMPOS={slow:1.45,normal:1,fast:.7};
-  var BASE={draw:760,rise:520,travel:1400,count:1100,stagger:130,gapSteps:450,gapAuto:380,autoTotal:2600,hold:1500,flow:900,pulse:1800,spin:24000,loopRest:2200};
+  var BASE={draw:760,rise:520,travel:1400,count:1100,type:30,stagger:130,gapSteps:450,gapAuto:380,autoTotal:2600,hold:1500,
+            flow:900,pulse:1800,spin:24000,loopRest:2200,zoomMove:900,zoomHold:1500,toggle:3400,token:900};
   var EASE='cubic-bezier(.2,.7,.2,1)';
   function tag(el){return el.localName||el.tagName;}
   function num(v,d){v=parseFloat(v);return isFinite(v)?v:d;}
+  function each(list,fn){[].forEach.call(list,fn);}
+  function tempoOf(c){return TEMPOS[c.getAttribute('data-tempo')]||TEMPOS[TEMPO_DEF]||1;}
   function strokeOnly(el){
     var t=tag(el); if(t!=='path'&&t!=='line'&&t!=='polyline') return false;
     var cs=getComputedStyle(el);
@@ -1586,36 +1609,202 @@ MOTION_JS = r"""(function(){
     return noFill&&cs.stroke!=='none'&&parseFloat(cs.strokeWidth)>0;
   }
   function isAtomic(el){ for(var i=0;i<ATOMIC.length;i++) if(el.hasAttribute(ATOMIC[i])) return true; return false; }
+  function shown(el){ return el.getClientRects().length>0; }
+  function outerSvgs(root){ return [].filter.call(root.querySelectorAll('svg'),function(s){ return !s.parentElement.closest('svg'); }); }
+  function el(name,attrs){ var e=document.createElementNS(NS,name); for(var k in attrs) e.setAttribute(k,attrs[k]); return e; }
+  /* 画面上の矩形を svg の座標へ */
+  function toUser(svg,r){
+    var m=svg.getScreenCTM(); if(!m) return null; m=m.inverse();
+    var p=svg.createSVGPoint(); p.x=r.left; p.y=r.top; var a=p.matrixTransform(m);
+    p.x=r.right; p.y=r.bottom; var b=p.matrixTransform(m);
+    return {x:a.x,y:a.y,w:b.x-a.x,h:b.y-a.y};
+  }
+  function vbox(svg){ var v=svg.viewBox&&svg.viewBox.baseVal; return v&&v.width?{x:v.x,y:v.y,w:v.width,h:v.height}:null; }
 
-  /* ---- 対象の図（コンテナ） ---- */
+  /* ================= 注記の吹き出し（data-note） ================= */
+  function notes(svg){
+    if(svg.__moNotes||!shown(svg)) return svg.__moNotes||[];
+    var vb=vbox(svg), out=[];
+    each(svg.querySelectorAll('[data-note]'),function(t){
+      var bb=toUser(svg,t.getBoundingClientRect()); if(!bb||!vb) return;
+      var txt=t.getAttribute('data-note'), lines=[], cur='';
+      for(var i=0;i<txt.length;i++){ cur+=txt[i]; if(cur.length>=18&&i<txt.length-1){ lines.push(cur); cur=''; } }
+      if(cur) lines.push(cur);
+      var g=el('g',{'class':'mo-note','pointer-events':'none'});
+      var box=el('rect',{rx:6,fill:'var(--card)',stroke:'var(--accent)','stroke-width':1.2});
+      var line=el('line',{stroke:'var(--accent)','stroke-width':1.2,'stroke-dasharray':'3 3'});
+      g.appendChild(line); g.appendChild(box);
+      var tx=[]; lines.forEach(function(s){ var x=el('text',{'font-size':12,fill:'var(--ink)','text-anchor':'middle'}); x.textContent=s; g.appendChild(x); tx.push(x); });
+      svg.appendChild(g);
+      var w=0; tx.forEach(function(x){ var l=0; try{l=x.getComputedTextLength();}catch(e){} w=Math.max(w,l||x.textContent.length*12); });
+      w+=16; var h=lines.length*16+10;
+      var pos=t.getAttribute('data-note-pos'), room={top:bb.y-vb.y,bottom:vb.y+vb.h-(bb.y+bb.h),left:bb.x-vb.x,right:vb.x+vb.w-(bb.x+bb.w)};
+      if(!pos){ pos=room.top>=h+14?'top':room.bottom>=h+14?'bottom':room.right>=w+14?'right':room.left>=w+14?'left':'top'; }
+      var cx=bb.x+bb.w/2, cy=bb.y+bb.h/2, ax=cx, ay=cy, lx, ly;
+      if(pos==='top'){ ay=bb.y; lx=cx; ly=bb.y-14-h/2; } else if(pos==='bottom'){ ay=bb.y+bb.h; lx=cx; ly=bb.y+bb.h+14+h/2; }
+      else if(pos==='left'){ ax=bb.x; lx=bb.x-14-w/2; ly=cy; } else { ax=bb.x+bb.w; lx=bb.x+bb.w+14+w/2; ly=cy; }
+      lx=Math.max(vb.x+w/2+2,Math.min(vb.x+vb.w-w/2-2,lx)); ly=Math.max(vb.y+h/2+2,Math.min(vb.y+vb.h-h/2-2,ly));
+      box.setAttribute('x',lx-w/2); box.setAttribute('y',ly-h/2); box.setAttribute('width',w); box.setAttribute('height',h);
+      tx.forEach(function(x,i){ x.setAttribute('x',lx); x.setAttribute('y',ly-h/2+17+i*16); });
+      var ex=pos==='left'?lx+w/2:pos==='right'?lx-w/2:lx, ey=pos==='top'?ly+h/2:pos==='bottom'?ly-h/2:ly;
+      line.setAttribute('x1',ax); line.setAttribute('y1',ay); line.setAttribute('x2',ex); line.setAttribute('y2',ey);
+      t.__moNote=g; out.push(g);
+    });
+    svg.__moNotes=out; return out;
+  }
+  function allNotes(root){ outerSvgs(root).forEach(notes); }
+
+  /* ================= 変更前／変更後（data-toggle） ================= */
+  function setupToggle(f){
+    var wrap=f.querySelector('.mo-states'); if(!wrap) return;
+    var states=[].slice.call(wrap.querySelectorAll(':scope > .mo-state')); if(states.length<2) return;
+    wrap.classList.add('mo-js');
+    var bar=document.createElement('div'); bar.className='mo-bar'; bar.setAttribute('role','group');
+    bar.setAttribute('aria-label','表示する状態');
+    var cur=0, timer=0, user=false, T=tempoOf(f);
+    function show(i,auto){
+      states.forEach(function(s,k){ s.classList.toggle('mo-on',k===i); });
+      each(bar.children,function(b,k){ b.setAttribute('aria-pressed',String(k===i)); });
+      var s=states[i]; outerSvgs(s).forEach(notes);
+      if(!REDUCE&&CAN&&i!==cur){
+        s.animate([{opacity:0},{opacity:1}],{duration:380,easing:'ease-out'});
+        each(s.querySelectorAll('[data-changed]'),function(x,k){
+          x.animate([{opacity:.25},{opacity:1,offset:.35},{opacity:.55,offset:.6},{opacity:1}],{duration:1300*T,delay:200+k*90,easing:'ease-in-out'});
+        });
+      }
+      cur=i;
+    }
+    states.forEach(function(s,i){
+      var b=document.createElement('button'); b.type='button'; b.className='mo-chip'; b.textContent=s.getAttribute('data-state');
+      b.addEventListener('click',function(){ user=true; clearInterval(timer); show(i); });
+      bar.appendChild(b);
+    });
+    wrap.parentNode.insertBefore(bar,wrap);
+    show(0);
+    if(f.hasAttribute('data-toggle-auto')&&!REDUCE&&CAN){
+      var io=new IntersectionObserver(function(en){
+        clearInterval(timer);
+        if(en[0].isIntersecting&&!user) timer=setInterval(function(){ show((cur+1)%states.length,true); },BASE.toggle*T);
+      },{threshold:.4});
+      io.observe(f);
+    }
+    f.__moToggle={wrap:wrap,show:show};
+  }
+
+  /* ================= シナリオの切り替え（data-paths / data-path） ================= */
+  function runTokens(svg,paths,T,gen,f){
+    if(REDUCE||!CAN||!paths.length) return;
+    var i=0;
+    (function next(){
+      if(f.__moGen!==gen||i>=paths.length) return;
+      var p=paths[i++], geo=tag(p)==='g'?p.querySelector('path,line,polyline'):p;
+      var L=0; try{L=geo.getTotalLength();}catch(e){}
+      if(!L){ next(); return; }
+      var g=el('g',{'class':'mo-token','pointer-events':'none'}); g.appendChild(el('circle',{r:6,fill:'var(--accent)',stroke:'var(--card)','stroke-width':2}));
+      geo.parentNode.insertBefore(g,geo.nextSibling);
+      var D=BASE.token*T, t0=performance.now();
+      (function step(now){
+        if(f.__moGen!==gen){ g.remove(); return; }
+        var k=Math.min(1,(now-t0)/D), e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2, pt=geo.getPointAtLength(L*e);
+        g.setAttribute('transform','translate('+pt.x+','+pt.y+')');
+        if(k<1) requestAnimationFrame(step); else { g.remove(); next(); }
+      })(t0);
+    })();
+  }
+  function setupPaths(f){
+    var names=(f.getAttribute('data-paths')||'').split('|').filter(Boolean); if(!names.length) return;
+    var bar=document.createElement('div'); bar.className='mo-bar'; bar.setAttribute('role','group'); bar.setAttribute('aria-label','経路');
+    var T=tempoOf(f);
+    function select(name){
+      f.__moGen=(f.__moGen||0)+1;
+      each(bar.children,function(b){ b.setAttribute('aria-pressed',String(b.__name===name)); });
+      each(f.querySelectorAll('[data-path]'),function(x){
+        var on=!name||x.getAttribute('data-path').split('|').indexOf(name)>=0;
+        x.classList.toggle('mo-dim',!on);
+      });
+      if(!name) return;
+      outerSvgs(f).forEach(function(svg){
+        var list=[].filter.call(svg.querySelectorAll('[data-path]'),function(x){
+          return x.getAttribute('data-path').split('|').indexOf(name)>=0&&(tag(x)==='path'||tag(x)==='line'||tag(x)==='polyline'||(tag(x)==='g'&&x.querySelector('path,line,polyline')&&!x.hasAttribute('data-node')));
+        });
+        list.sort(function(a,b){ return num(a.getAttribute('data-step'),0)-num(b.getAttribute('data-step'),0); });
+        runTokens(svg,list,T,f.__moGen,f);
+      });
+    }
+    ['すべて'].concat(names).forEach(function(n,i){
+      var b=document.createElement('button'); b.type='button'; b.className='mo-chip'; b.textContent=n; b.__name=i?n:'';
+      b.addEventListener('click',function(){ select(b.__name); });
+      bar.appendChild(b);
+    });
+    var anchor=f.querySelector('.mo-states')||outerSvgs(f)[0];
+    if(anchor) anchor.parentNode.insertBefore(bar,anchor);
+    select('');
+    f.__moPaths=select;
+  }
+
+  /* ================= 触れると関連が光る（data-hover） ================= */
+  function setupHover(f){
+    each(outerSvgs(f),function(svg){
+      var nodes=[].slice.call(svg.querySelectorAll('[data-node]')), links=[].slice.call(svg.querySelectorAll('[data-link]'));
+      if(!nodes.length) return;
+      function on(id){
+        var near={}; near[id]=1;
+        links.forEach(function(l){ var e=l.getAttribute('data-link').split(' '); if(e.indexOf(id)>=0){ near[e[0]]=1; near[e[1]]=1; } });
+        nodes.forEach(function(n){ n.classList.toggle('mo-dim',!near[n.getAttribute('data-node')]); });
+        links.forEach(function(l){ l.classList.toggle('mo-dim',l.getAttribute('data-link').split(' ').indexOf(id)<0); });
+      }
+      function off(){ nodes.concat(links).forEach(function(x){ x.classList.remove('mo-dim'); }); }
+      nodes.forEach(function(n){
+        n.setAttribute('tabindex','0'); n.setAttribute('focusable','true');
+        var id=n.getAttribute('data-node');
+        n.addEventListener('pointerenter',function(){ on(id); }); n.addEventListener('pointerleave',off);
+        n.addEventListener('focus',function(){ on(id); }); n.addEventListener('blur',off);
+      });
+    });
+  }
+
+  /* 操作（切り替え・経路・強調）と注記は、動きの設定に関係なく働く */
+  each(document.querySelectorAll('.content figure[data-toggle]'),setupToggle);
+  each(document.querySelectorAll('.content figure[data-paths]'),setupPaths);
+  each(document.querySelectorAll('.content figure[data-hover]'),setupHover);
+  window.addEventListener('beforeprint',function(){
+    each(document.querySelectorAll('.mo-states.mo-js'),function(w){ w.classList.remove('mo-js'); w.classList.add('mo-was-js'); });
+    each(document.querySelectorAll('.mo-dim'),function(x){ x.classList.remove('mo-dim'); });
+    allNotes(document.querySelector('.content')||document);
+  });
+  window.addEventListener('afterprint',function(){
+    each(document.querySelectorAll('.mo-was-js'),function(w){ w.classList.add('mo-js'); w.classList.remove('mo-was-js'); });
+  });
+  var content=document.querySelector('.content')||document.body;
+
+  if(REDUCE||!CAN||LEVEL==='off'&&!document.querySelector('.content [data-motion]:not([data-motion="none"]),.content figure[data-trigger]')){
+    allNotes(content); return;          // 動かさない: 注記は最初から出しておく
+  }
+
+  /* ================= 登場の動き ================= */
   function containers(){
     var out=[];
-    function add(el){ if(el&&out.indexOf(el)<0&&el.getAttribute('data-motion')!=='none'&&!el.classList.contains('manual-render')&&el.querySelector('svg')) out.push(el); }
-    [].forEach.call(document.querySelectorAll('.content [data-motion]'),function(el){ if(!el.closest('svg')) add(el); });
+    function add(c){ if(c&&out.indexOf(c)<0&&c.getAttribute('data-motion')!=='none'&&!c.classList.contains('manual-render')&&c.querySelector('svg')) out.push(c); }
+    each(content.querySelectorAll('[data-motion],figure[data-trigger]'),function(x){ if(!x.closest('svg')) add(x); });   // trigger の指定も動かす意図とみなす
     if(LEVEL==='rich'){
-      [].forEach.call(document.querySelectorAll('.content figure'),function(f){ if(!f.parentElement.closest('figure')) add(f); });
-      [].forEach.call(document.querySelectorAll('.content .auto-fig-slot'),function(s){ if(!s.querySelector('figure')) add(s); });
+      each(content.querySelectorAll('figure'),function(f){ if(!f.parentElement.closest('figure')) add(f); });
+      each(content.querySelectorAll('.auto-fig-slot'),function(s){ if(!s.querySelector('figure')) add(s); });
     }
     return out;
   }
-  function visibleSvgs(c){
-    return [].filter.call(c.querySelectorAll('svg'),function(s){ return !s.parentElement.closest('svg')&&s.getClientRects().length>0; });
-  }
-
-  /* ---- 現れる順番（段）を決める ---- */
   function plan(st,svg){
     var T=st.T, explicit=[].slice.call(svg.querySelectorAll('[data-step]'));
     if(explicit.length){
-      explicit=explicit.filter(function(el){ return !el.parentElement.closest('[data-step]'); });
-      var nums=explicit.map(function(el){return num(el.getAttribute('data-step'),0);});
+      explicit=explicit.filter(function(x){ return !x.parentElement.closest('[data-step]'); });
+      var nums=explicit.map(function(x){return num(x.getAttribute('data-step'),0);});
       var uniq=nums.slice().sort(function(a,b){return a-b;}).filter(function(v,i,a){return i===0||v!==a[i-1];});
-      return {units:explicit.map(function(el,i){return {el:el,step:uniq.indexOf(nums[i])};}),gap:BASE.gapSteps*T};
+      return {units:explicit.map(function(x,i){return {el:x,step:uniq.indexOf(nums[i])};}),gap:BASE.gapSteps*T};
     }
     var sr=svg.getBoundingClientRect(), area=sr.width*sr.height, leaves=[];
     (function walk(node){
       for(var c=node.firstElementChild;c;c=c.nextElementSibling){
         var t=tag(c);
-        if(SKIP[t]||(c.classList&&c.classList.contains('mo-token'))) continue;
+        if(SKIP[t]||(c.classList&&(c.classList.contains('mo-token')||c.classList.contains('mo-note')))) continue;
         var group=(t==='g'||t==='a'||t==='switch'||(t==='svg'&&c!==svg));
         if(group&&!isAtomic(c)){ walk(c); continue; }
         if(!group&&!GEOM[t]) continue;
@@ -1638,51 +1827,49 @@ MOTION_JS = r"""(function(){
     return {units:leaves.map(function(l){return {el:l.el,step:Math.min(n-1,Math.floor((l.k-lo)/band))};}),
             gap:Math.min(BASE.gapAuto,BASE.autoTotal/n)*T};
   }
-  function effectOf(el){
-    var e=el.getAttribute('data-effect'); if(e) return e;
-    if(tag(el)==='g') return el.querySelector('path,line,polyline')&&[].every.call(el.querySelectorAll('*'),function(x){return !GEOM[tag(x)]||strokeOnly(x);})?'draw':'rise';
-    return strokeOnly(el)?'draw':'rise';
+  function effectOf(x){
+    var e=x.getAttribute('data-effect'); if(e) return e;
+    if(tag(x)==='g') return x.querySelector('path,line,polyline')&&[].every.call(x.querySelectorAll('*'),function(y){return !GEOM[tag(y)]||strokeOnly(y);})?'draw':'rise';
+    return strokeOnly(x)?'draw':'rise';
   }
-
-  /* ---- 部品 ---- */
   function track(st,a,end){ a.pause(); st.anims.push(a); st.end=Math.max(st.end,end); return a; }
-  function withBox(st,el,origin){
-    var pb=el.style.transformBox, po=el.style.transformOrigin;
-    el.style.transformBox='fill-box'; el.style.transformOrigin=origin;
-    var back=function(){ el.style.transformBox=pb; el.style.transformOrigin=po; };
+  function withBox(st,x,origin){
+    var pb=x.style.transformBox, po=x.style.transformOrigin;
+    x.style.transformBox='fill-box'; x.style.transformOrigin=origin;
+    var back=function(){ x.style.transformBox=pb; x.style.transformOrigin=po; };
     st.restores.push(back); return back;
   }
-  /* 進み具合で中身を書き換える部品（数え上げ・移動する印）: 見えない代理アニメの進み具合で駆動する */
-  function driven(st,el,dur,delay,fn,done){
-    var a=el.animate([{},{}],{duration:dur,delay:delay});
+  /* 進み具合で中身を書き換える部品（数え上げ・入力・移動する印・ズーム）: 見えない代理アニメの進み具合で駆動する */
+  function driven(st,x,dur,delay,fn){
+    var a=x.animate([{},{}],{duration:dur,delay:delay});
     track(st,a,delay+dur);
-    st.drivers.push({a:a,fn:fn});
-    a.finished.then(function(){ fn(1); if(done) done(); },function(){});
+    var d={a:a,fn:fn}; st.drivers.push(d);
+    a.finished.then(function(){ fn(1); },function(){});
     return a;
   }
-  function build(st,el,effect,delay){
-    var T=st.T, t0=tag(el);
+  function build(st,x,effect,delay){
+    var T=st.T, t0=tag(x);
     /* 中に注釈のある要素を持つグループは、子ごとに組み立てる（棒の伸び・数え上げを内側で効かせる） */
-    if((t0==='g'||t0==='a')&&!el.hasAttribute('data-effect')&&!el.hasAttribute('data-stagger')&&!el.hasAttribute('data-travel')
-       &&el.querySelector('[data-effect],[data-count],[data-travel],[data-stagger]')){
-      [].forEach.call(el.children,function(k){ var tk=tag(k); if(GEOM[tk]||tk==='g'||tk==='a') build(st,k,effectOf(k),delay); });
+    if((t0==='g'||t0==='a')&&!x.hasAttribute('data-effect')&&!x.hasAttribute('data-stagger')&&!x.hasAttribute('data-travel')
+       &&x.querySelector('[data-effect],[data-count],[data-travel],[data-stagger]')){
+      each(x.children,function(k){ var tk=tag(k); if(GEOM[tk]||tk==='g'||tk==='a') build(st,k,effectOf(k),delay); });
       return;
     }
-    if(el.hasAttribute('data-stagger')){
-      var kids=[].filter.call(el.children,function(k){return GEOM[tag(k)]||tag(k)==='g';});
-      var gap=num(el.getAttribute('data-stagger'),BASE.stagger)*T;
-      var eff=el.getAttribute('data-effect')||'rise';
+    if(x.hasAttribute('data-stagger')){
+      var kids=[].filter.call(x.children,function(k){return GEOM[tag(k)]||tag(k)==='g';});
+      var gap=num(x.getAttribute('data-stagger'),BASE.stagger)*T, eff=x.getAttribute('data-effect')||'rise';
       kids.forEach(function(k,i){ build(st,k,k.getAttribute('data-effect')||eff,delay+i*gap); });
       return;
     }
-    if(el.hasAttribute('data-count')) count(st,el,delay);
-    if(el.hasAttribute('data-travel')) travel(st,el,delay);
-    var o=getComputedStyle(el).opacity||'1', k0={opacity:0}, k1={opacity:o}, dur=BASE.rise*T, back;
+    if(x.hasAttribute('data-count')) count(st,x,delay);
+    if(x.hasAttribute('data-travel')) travel(st,x,delay);
+    var o=getComputedStyle(x).opacity||'1', k0={opacity:0}, k1={opacity:o}, dur=BASE.rise*T, back;
     switch(effect){
       case 'none': return;
+      case 'type': type(st,x,delay); return;
       case 'draw':
-        var paths=tag(el)==='g'?[].slice.call(el.querySelectorAll('path,line,polyline')):[el];
-        if(tag(el)==='g') [].forEach.call(el.querySelectorAll('*'),function(x){ if(GEOM[tag(x)]&&!strokeOnly(x)&&!x.closest('.mo-token')) build(st,x,'fade',delay+BASE.draw*T*0.55); });
+        var paths=t0==='g'?[].slice.call(x.querySelectorAll('path,line,polyline')):[x];
+        if(t0==='g') each(x.querySelectorAll('*'),function(y){ if(GEOM[tag(y)]&&!strokeOnly(y)&&!y.closest('.mo-token')) build(st,y,'fade',delay+BASE.draw*T*0.55); });
         paths.forEach(function(p){
           if(!strokeOnly(p)||p.closest('.mo-token')) return;
           var L=0; try{L=p.getTotalLength();}catch(e){}
@@ -1702,11 +1889,11 @@ MOTION_JS = r"""(function(){
       case 'fade': break;
       case 'slide': k0.translate='-18px 0'; k1.translate='0 0'; break;
       case 'pop':
-        back=withBox(st,el,'center'); k0.scale='.6'; k1.scale='1';
+        back=withBox(st,x,'center'); k0.scale='.6'; k1.scale='1';
         k0.easing='cubic-bezier(.34,1.56,.64,1)'; dur=BASE.rise*T*1.1; break;
       case 'grow':
-        var g=el.getAttribute('data-grow')||'up';
-        back=withBox(st,el,{up:'50% 100%',down:'50% 0%',right:'0% 50%',left:'100% 50%'}[g]||'50% 100%');
+        var g=x.getAttribute('data-grow')||'up';
+        back=withBox(st,x,{up:'50% 100%',down:'50% 0%',right:'0% 50%',left:'100% 50%'}[g]||'50% 100%');
         k0={opacity:o,scale:(g==='left'||g==='right')?'0 1':'1 0'}; k1={opacity:o,scale:'1 1'};
         dur=BASE.draw*T*1.15; break;
       case 'wipe':
@@ -1714,47 +1901,64 @@ MOTION_JS = r"""(function(){
         dur=BASE.draw*T; break;
       default: k0.translate='0 10px'; k1.translate='0 0';   // rise
     }
-    var a=el.animate([k0,k1],{duration:dur,delay:delay,easing:EASE,fill:'backwards'});
+    var a=x.animate([k0,k1],{duration:dur,delay:delay,easing:EASE,fill:'backwards'});
     track(st,a,delay+dur);
     if(back) a.finished.then(back,function(){});
   }
-  function count(st,el,delay){
-    var textEl=tag(el)==='text'?el:el.querySelector('text')||el;
-    var orig=textEl.textContent, m=orig.match(/-?[\d,]*\.?\d+/);
+  function type(st,x,delay){
+    var targets=tag(x)==='text'?[x]:[].slice.call(x.querySelectorAll('text'));
+    var at=delay;
+    targets.forEach(function(t){
+      var orig=t.textContent, n=orig.length, D=Math.max(260,n*BASE.type*st.T);
+      var a=t.animate([{opacity:0},{opacity:1}],{duration:1,delay:at,fill:'backwards'}); track(st,a,at+1);
+      t.__moOrig=orig; st.restores.push(function(){ t.textContent=orig; });
+      driven(st,t,D,at,function(k){ t.textContent=k>=1?orig:orig.slice(0,Math.round(n*k)); });
+      at+=D+60;
+    });
+  }
+  function count(st,x,delay){
+    var t=tag(x)==='text'?x:x.querySelector('text')||x;
+    var orig=t.textContent, m=orig.match(/-?[\d,]*\.?\d+/);
     if(!m) return;
-    var to=parseFloat(m[0].replace(/,/g,'')), spec=el.getAttribute('data-count')||'', f=spec.split(/→|->/);
+    var to=parseFloat(m[0].replace(/,/g,'')), spec=x.getAttribute('data-count')||'', f=spec.split(/→|->/);
     var from=num(f.length>1?f[0]:spec,0), dec=(m[0].split('.')[1]||'').length, comma=m[0].indexOf(',')>=0;
     var pre=orig.slice(0,m.index), post=orig.slice(m.index+m[0].length);
     function fmt(v){ var s=v.toFixed(dec); if(comma){ var p=s.split('.'); p[0]=p[0].replace(/\B(?=(\d{3})+(?!\d))/g,','); s=p.join('.'); } return pre+s+post; }
-    textEl.textContent=fmt(from);
-    st.restores.push(function(){ textEl.textContent=orig; });
-    driven(st,el,BASE.count*st.T,delay,function(k){ textEl.textContent=k>=1?orig:fmt(from+(to-from)*(1-Math.pow(1-k,3))); });
+    t.textContent=fmt(from);
+    st.restores.push(function(){ t.textContent=orig; });
+    driven(st,x,BASE.count*st.T,delay,function(k){ t.textContent=k>=1?orig:fmt(from+(to-from)*(1-Math.pow(1-k,3))); });
   }
-  function travel(st,el,delay){
-    var p=tag(el)==='g'?el.querySelector('path,line,polyline'):el;
+  function travel(st,x,delay){
+    var p=tag(x)==='g'?x.querySelector('path,line,polyline'):x;
     if(!p||!p.getTotalLength) return;
     var L=0; try{L=p.getTotalLength();}catch(e){} if(!L) return;
-    var NS='http://www.w3.org/2000/svg', g=document.createElementNS(NS,'g');
-    g.setAttribute('class','mo-token'); g.setAttribute('pointer-events','none'); g.setAttribute('opacity','0');
-    var dot=document.createElementNS(NS,'circle'); dot.setAttribute('r','6'); dot.setAttribute('fill','var(--accent)');
-    dot.setAttribute('stroke','var(--card)'); dot.setAttribute('stroke-width','2'); g.appendChild(dot);
-    var label=el.getAttribute('data-travel');
+    var g=el('g',{'class':'mo-token','pointer-events':'none',opacity:0});
+    g.appendChild(el('circle',{r:6,fill:'var(--accent)',stroke:'var(--card)','stroke-width':2}));
+    var label=x.getAttribute('data-travel'), bg, tx;
     if(label){
-      var bg=document.createElementNS(NS,'rect'), tx=document.createElementNS(NS,'text');
-      tx.textContent=label; tx.setAttribute('font-size','12'); tx.setAttribute('fill','var(--on-accent)');
-      tx.setAttribute('text-anchor','middle'); tx.setAttribute('y','-13'); tx.setAttribute('font-family','var(--mono)');
-      bg.setAttribute('fill','var(--accent)'); bg.setAttribute('rx','6'); g.appendChild(bg); g.appendChild(tx);
+      bg=el('rect',{fill:'var(--accent)',rx:6}); tx=el('text',{'font-size':12,fill:'var(--on-accent)','text-anchor':'middle',y:-13,'font-family':'var(--mono)'});
+      tx.textContent=label; g.appendChild(bg); g.appendChild(tx);
     }
     p.parentNode.insertBefore(g,p.nextSibling);
     if(label){ var w=0; try{w=tx.getComputedTextLength();}catch(e){} w=(w||label.length*7)+14;
-      bg.setAttribute('x',-w/2); bg.setAttribute('y','-26'); bg.setAttribute('width',w); bg.setAttribute('height','18'); }
+      bg.setAttribute('x',-w/2); bg.setAttribute('y',-26); bg.setAttribute('width',w); bg.setAttribute('height',18); }
     st.restores.push(function(){ if(g.parentNode) g.parentNode.removeChild(g); });
-    var start=delay+(effectOf(el)==='draw'?BASE.draw*st.T*0.9:0);
+    var start=delay+(effectOf(x)==='draw'?BASE.draw*st.T*0.9:0);
     driven(st,g,BASE.travel*st.T,start,function(k){
-      if(k>=1){ g.setAttribute('opacity','0'); return; }
+      if(k>=1||k<=0){ g.setAttribute('opacity','0'); return; }
       var e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2, pt=p.getPointAtLength(L*e);
       g.setAttribute('transform','translate('+pt.x+','+pt.y+')');
       g.setAttribute('opacity', k<.08?String(k/.08):k>.92?String((1-k)/.08):'1');
+    });
+  }
+  function noteAnims(st,svg,units,gap){
+    notes(svg).forEach(function(g){
+      var target=null; each(svg.querySelectorAll('[data-note]'),function(t){ if(t.__moNote===g) target=t; });
+      if(!target) return;
+      var u=null; units.forEach(function(v){ if(v.el===target||v.el.contains(target)) u=v; });
+      if(!u) return;                                      // 動かない要素の注記は最初から表示
+      var d=u.step*gap+BASE.rise*st.T*0.8;
+      track(st,g.animate([{opacity:0,translate:'0 6px'},{opacity:1,translate:'0 0'}],{duration:BASE.rise*st.T,delay:d,easing:EASE,fill:'backwards'}),d+BASE.rise*st.T);
     });
   }
   function focus(st,svg){
@@ -1763,31 +1967,58 @@ MOTION_JS = r"""(function(){
     var ranks=els.map(function(e){return num(e.getAttribute('data-focus'),0);});
     var uniq=ranks.slice().sort(function(a,b){return a-b;}).filter(function(v,i,a){return i===0||v!==a[i-1];});
     var n=uniq.length, hold=BASE.hold*st.T, fadeIn=260, D=n*hold+500, delay=st.end+300;
-    els.forEach(function(el,i){
-      var r=uniq.indexOf(ranks[i]), o=num(getComputedStyle(el).opacity,1), kf=[{offset:0,opacity:o}];
+    els.forEach(function(e,i){
+      var r=uniq.indexOf(ranks[i]), o=num(getComputedStyle(e).opacity,1), kf=[{offset:0,opacity:o}];
       for(var s=0;s<n;s++){ var v=s===r?o:o*.25;
         kf.push({offset:(s*hold+fadeIn)/D,opacity:v}); kf.push({offset:((s+1)*hold)/D,opacity:v}); }
       kf.push({offset:1,opacity:o});
-      track(st,el.animate(kf,{duration:D,delay:delay,easing:'ease-in-out'}),delay+D);
+      track(st,e.animate(kf,{duration:D,delay:delay,easing:'ease-in-out'}),delay+D);
+    });
+  }
+  function zoom(st,svg){
+    var targets=[].slice.call(svg.querySelectorAll('[data-zoom-step]')); if(!targets.length) return;
+    var vb=vbox(svg); if(!vb) return;
+    targets.sort(function(a,b){ return num(a.getAttribute('data-zoom-step'),0)-num(b.getAttribute('data-zoom-step'),0); });
+    var boxes=targets.map(function(t){
+      var b=toUser(svg,t.getBoundingClientRect()); if(!b) return vb;
+      var pad=Math.max(b.w,b.h)*0.45+30, w=b.w+pad*2, h=b.h+pad*2, ar=vb.w/vb.h;
+      if(w/h<ar) w=h*ar; else h=w/ar;
+      w=Math.min(w,vb.w); h=Math.min(h,vb.h);
+      var x=Math.max(vb.x,Math.min(vb.x+vb.w-w,b.x+b.w/2-w/2)), y=Math.max(vb.y,Math.min(vb.y+vb.h-h,b.y+b.h/2-h/2));
+      return {x:x,y:y,w:w,h:h};
+    });
+    var seq=[vb]; boxes.forEach(function(b){ seq.push(b); seq.push(b); }); seq.push(vb);
+    var mv=BASE.zoomMove*st.T, hd=BASE.zoomHold*st.T, segs=[];
+    for(var i=0;i<seq.length-1;i++) segs.push({a:seq[i],b:seq[i+1],d:(i%2===0)?mv:hd});
+    var D=segs.reduce(function(s,g){return s+g.d;},0), orig=svg.getAttribute('viewBox'), delay=st.end+400;
+    st.restores.push(function(){ svg.setAttribute('viewBox',orig); });
+    driven(st,svg,D,delay,function(k){
+      if(k>=1){ svg.setAttribute('viewBox',orig); return; }
+      var t=k*D;
+      for(var j=0;j<segs.length;j++){ if(t<=segs[j].d||j===segs.length-1){
+        var q=Math.min(1,t/segs[j].d); q=q<.5?4*q*q*q:1-Math.pow(-2*q+2,3)/2;
+        var A=segs[j].a, B=segs[j].b;
+        svg.setAttribute('viewBox',[A.x+(B.x-A.x)*q,A.y+(B.y-A.y)*q,A.w+(B.w-A.w)*q,A.h+(B.h-A.h)*q].join(' ')); return; }
+        t-=segs[j].d; }
     });
   }
   function loops(st,svg){
-    [].forEach.call(svg.querySelectorAll('[data-flow]'),function(p){
+    each(svg.querySelectorAll('[data-flow]'),function(p){
       (tag(p)==='g'?[].slice.call(p.querySelectorAll('path,line,polyline')):[p]).forEach(function(x){
         st.loops.push(x.animate([{strokeDasharray:'10 8',strokeDashoffset:18},{strokeDasharray:'10 8',strokeDashoffset:0}],{duration:BASE.flow*st.T,iterations:Infinity})); });
     });
-    [].forEach.call(svg.querySelectorAll('[data-pulse]'),function(el){
-      st.loops.push(el.animate([{opacity:1},{opacity:.45},{opacity:1}],{duration:BASE.pulse*st.T,iterations:Infinity,easing:'ease-in-out'}));
+    each(svg.querySelectorAll('[data-pulse]'),function(x){
+      st.loops.push(x.animate([{opacity:1},{opacity:.45},{opacity:1}],{duration:BASE.pulse*st.T,iterations:Infinity,easing:'ease-in-out'}));
     });
-    [].forEach.call(svg.querySelectorAll('[data-spin]'),function(el){
-      var back=withBox(st,el,'center'), rev=el.getAttribute('data-spin')==='ccw';
-      st.loops.push(el.animate([{rotate:'0deg'},{rotate:(rev?'-':'')+'360deg'}],{duration:BASE.spin*st.T,iterations:Infinity}));
+    each(svg.querySelectorAll('[data-spin]'),function(x){
+      withBox(st,x,'center'); var rev=x.getAttribute('data-spin')==='ccw';
+      st.loops.push(x.animate([{rotate:'0deg'},{rotate:(rev?'-':'')+'360deg'}],{duration:BASE.spin*st.T,iterations:Infinity}));
     });
     if(!st.inView) st.loops.forEach(function(a){a.pause();});
   }
 
   /* ---- 再生の制御 ---- */
-  var driving=false;
+  var driving=false, states=[];
   function drive(){
     var any=false;
     states.forEach(function(st){ st.drivers.forEach(function(d){
@@ -1804,14 +2035,17 @@ MOTION_JS = r"""(function(){
   }
   function arm(st){
     reset(st);
-    st.T=TEMPOS[st.c.getAttribute('data-tempo')]||TEMPOS[TEMPO_DEF]||1;
+    st.T=tempoOf(st.c);
     try{
-      visibleSvgs(st.c).forEach(function(svg){
+      outerSvgs(st.c).filter(shown).forEach(function(svg){
+        notes(svg);
         var pl=plan(st,svg);
         pl.units.forEach(function(u){ build(st,u.el,effectOf(u.el),u.step*pl.gap); });
+        noteAnims(st,svg,pl.units,pl.gap);
         st.svgs.push(svg);
       });
       st.svgs.forEach(function(svg){ focus(st,svg); });
+      var base=st.end; st.svgs.forEach(function(svg){ st.end=base; zoom(st,svg); });
     }catch(e){ reset(st); }
   }
   function play(st){
@@ -1828,30 +2062,57 @@ MOTION_JS = r"""(function(){
       if(st.trigger==='loop') st.timer=setTimeout(function(){ if(st.inView) play(st); else st.pending=true; },BASE.loopRest*st.T);
     },function(){});
   }
-  var states=[];
+  /* スクロール連動: 図が画面を通る位置で進み具合を決める */
+  function scrub(st){
+    var r=st.c.getBoundingClientRect(), vh=window.innerHeight||1;
+    var p=Math.max(0,Math.min(1,(vh-r.top)/(vh*0.55+r.height*0.35)));
+    if(p===st.p) return; st.p=p;
+    var t=p*st.end;
+    st.anims.forEach(function(a){ a.currentTime=t; });
+    st.drivers.forEach(function(d){
+      var ct=d.a.effect.getComputedTiming(), k=ct.progress;
+      if(k===null) k=t>=(ct.endTime||0)?1:0;
+      d.fn(k);
+    });
+    if(p>=1&&!st.looped){ st.looped=true; st.svgs.forEach(function(svg){ loops(st,svg); }); }
+  }
+  var scrubbing=[];
+  if(!REDUCE) window.addEventListener('scroll',function(){ scrubbing.forEach(function(st){ if(!st.q){ st.q=true; requestAnimationFrame(function(){ st.q=false; scrub(st); }); } }); },{passive:true});
   var io=new IntersectionObserver(function(entries){
     entries.forEach(function(en){
       var st=en.target.__mo; if(!st) return;
       st.inView=en.isIntersecting;
+      if(st.trigger==='scroll'){ scrub(st); return; }
       if(en.isIntersecting&&((!st.played&&st.trigger!=='click')||st.pending)){ st.played=true; st.pending=false; play(st); }
       st.loops.forEach(function(a){ en.isIntersecting?a.play():a.pause(); });
     });
   },{threshold:0.3});
   containers().forEach(function(c){
     var st={c:c,anims:[],loops:[],restores:[],drivers:[],svgs:[],end:0,T:1,gen:0,played:false,inView:false,pending:false,
-            trigger:c.getAttribute('data-trigger')||'view'};
+            trigger:c.getAttribute('data-trigger')||'view',p:-1};
     c.__mo=st; states.push(st);
     c.classList.add('mo-fig');
-    var b=document.createElement('button');
-    b.type='button'; b.className='mo-replay'+(st.trigger==='click'?' mo-click':'');
-    b.textContent=st.trigger==='click'?'▶ 動きを再生':'↻ 再生';
-    b.setAttribute('aria-label',st.trigger==='click'?'図の動きを再生':'図の動きをもう一度再生');
-    b.addEventListener('click',function(){ st.played=true; st.pending=false; play(st); });
-    c.appendChild(b);
-    if(st.trigger!=='click') arm(st);          // 見えるまでは最初のコマで待機（click は完成図のまま待つ）
+    if(st.trigger!=='scroll'){
+      var b=document.createElement('button');
+      b.type='button'; b.className='mo-replay'+(st.trigger==='click'?' mo-click':'');
+      b.textContent=st.trigger==='click'?'▶ 動きを再生':'↻ 再生';
+      b.setAttribute('aria-label',st.trigger==='click'?'図の動きを再生':'図の動きをもう一度再生');
+      b.addEventListener('click',function(){ st.played=true; st.pending=false; play(st); });
+      c.appendChild(b);
+    }
+    if(st.trigger==='click') outerSvgs(c).forEach(notes);   // click は完成図のまま待つ
+    else arm(st);                                           // 見えるまでは最初のコマで待機
+    if(st.trigger==='scroll'){ scrubbing.push(st); st.p=-1; scrub(st); }
     io.observe(c);
   });
-  window.addEventListener('beforeprint',function(){ states.forEach(reset); });
+  /* 印刷: 動きを終わりのコマに揃える（注記は残す） */
+  window.addEventListener('beforeprint',function(){ states.forEach(function(st){
+    st.anims.forEach(function(a){try{a.finish();}catch(e){}});
+    st.drivers.forEach(function(d){ d.fn(1); });
+    st.loops.forEach(function(a){try{a.cancel();}catch(e){}});
+    for(var i=st.restores.length-1;i>=0;i--) st.restores[i]();
+    st.restores=[];
+  }); });
   if(mq&&mq.addEventListener) mq.addEventListener('change',function(e){ if(e.matches) states.forEach(reset); });
 })();"""
 
@@ -1860,8 +2121,8 @@ MOTION_TEMPOS = ["slow", "normal", "fast"]
 
 
 def motion_html(level, tempo="normal"):
-    if level == "off":
-        return ""
+    # off でも埋め込む: 切り替え・経路・関連の強調・注記は動きの設定と無関係に働く。
+    # off のときは、data-motion を明示した図以外は登場の動きをしない。
     return "<style>%s</style>\n<script>%s</script>" % (
         MOTION_CSS, MOTION_JS.replace("__MOTION_LEVEL__", level).replace("__MOTION_TEMPO__", tempo))
 
