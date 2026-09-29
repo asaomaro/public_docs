@@ -170,14 +170,23 @@ def narration_text(s):
     return " ".join(n) if isinstance(n, list) else str(n)
 
 
-def speech_seconds(text, lang):
-    plain = re.sub(r"\*\*", "", text).strip()
+def spoken(text, pronounce):
+    """読み上げる文（**強調** を外し、audio.pronounce の読みに置き換えた後）。長さの見積もりもこれで数える。"""
+    s = re.sub(r"\*\*", "", text)
+    for k in sorted(pronounce or {}, key=len, reverse=True):   # 長い語から（engine.js と同じ順）
+        s = s.replace(k, pronounce[k])
+    return s.strip()
+
+
+def speech_seconds(text, lang, pronounce=None):
+    """読み上げにかかる秒数（速さ 1.0 のとき）。ブラウザの日本語の声は 1 秒に 6 文字前後なので、少し遅めに見積もる。"""
+    plain = spoken(text, pronounce)
     if not plain:
         return 0.0
     if lang.startswith("ja") or lang.startswith("zh"):
-        chars = len(re.sub(r"\s", "", plain))
-        return chars / 7.2
-    return len(plain.split()) / 2.6
+        chars = len(re.sub(r"[\s、。，．・「」（）()]", "", plain)) + 0.35 * len(re.findall(r"[、。，．]", plain))
+        return chars / 6.2
+    return len(plain.split()) / 2.5
 
 
 def min_seconds(s):
@@ -232,11 +241,12 @@ def plan(spec):
     """場面ごとの長さ（ms）と字幕の時刻を決め、_dur・_cues を書き込む。警告の一覧を返す。"""
     lang = spec.get("lang", "ja")
     rate = float((spec.get("audio") or {}).get("rate", 1.1))
+    pron = (spec.get("audio") or {}).get("pronounce") or {}
     warns = []
     for ci, ch in enumerate(spec["chapters"]):
         for si, s in enumerate(ch["scenes"]):
             text = narration_text(s)
-            speech = speech_seconds(text, lang) / rate * 1.1
+            speech = speech_seconds(text, lang, pron) / rate
             need = max(min_seconds(s), speech + 1.2)
             if s.get("duration"):
                 d = float(s["duration"])
@@ -249,10 +259,12 @@ def plan(spec):
             s["_dur"] = ms
             cues = split_cues(text, lang)
             a0, b0 = 500, max(900, ms - 400)
-            total = sum(len(c) for c in cues) or 1
+            # 字幕の時間は、読み上げる長さ（読みの置き換え後）に比例させる
+            weight = [max(1.0, speech_seconds(c, lang, pron)) for c in cues]
+            total = sum(weight) or 1
             acc, cl = a0, []
-            for c in cues:
-                span = (b0 - a0) * len(c) / total
+            for c, wgt in zip(cues, weight):
+                span = (b0 - a0) * wgt / total
                 cl.append([int(acc), int(acc + span), c])
                 acc += span
             s["_cues"] = cl
@@ -518,7 +530,7 @@ def print_list():
     print("\n# 台本の骨組み")
     print('  {"title":"…","description":"…","lang":"ja","player":"studio","theme":"navy-brass",'
           '"brand":{"name":"…"},"transition":"fade","poster":4300,'
-          '"audio":{"narration":true,"music":"calm|bright|deep|none","sfx":true,"rate":1.1,"pronounce":{"Sodashitsu":"ソダシツ"}},'
+          '"audio":{"narration":true,"music":"calm|bright|deep|none","sfx":true,"rate":1.1,"wait":true,"pronounce":{"Sodashitsu":"ソダシツ"}},'
           '"expression":"mixed","chapters":[{"title":"章の名前","desc":"一覧に出す説明","scenes":[{…場面…}]}]}')
     print("\ncustom の道具は --api、手本は recipes.md")
 

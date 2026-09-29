@@ -739,17 +739,23 @@
     var note = $("mv-voicenote"); if (note) note.hidden = !(started && audioOn && AUD.narration !== false && vs.length && !voice);
   }
   if (synth) { pickVoice(); synth.onvoiceschanged = pickVoice; }
-  function say(text) {
+  /* 読み上げ中の字幕。字幕の終わりに来ても読み終わっていなければ、動画をそこで待たせる（audio.wait: false で無効） */
+  var speaking = null;
+  function say(text, cue) {
     if (!synth || !audioOn || !voice || AUD.narration === false) return;
     try { synth.cancel(); var s = text.replace(/\*\*/g, "");
-      Object.keys(AUD.pronounce || {}).forEach(function (k) { s = s.split(k).join(AUD.pronounce[k]); });
-      var u = new SpeechSynthesisUtterance(s); u.voice = voice; u.lang = voice.lang; u.rate = Math.min(2.4, (AUD.rate || 1.1) * speed); synth.speak(u); } catch (e) {}
+      /* 長い語から置き換える（「ts5250」より先に「5250」を置き換えない。JS は数字だけのキーを先に並べるため順に頼らない） */
+      Object.keys(AUD.pronounce || {}).sort(function (a, b) { return b.length - a.length; }).forEach(function (k) { s = s.split(k).join(AUD.pronounce[k]); });
+      var u = new SpeechSynthesisUtterance(s); u.voice = voice; u.lang = voice.lang; u.rate = Math.min(2.4, (AUD.rate || 1.1) * speed);
+      var me = { u: u, cue: cue || null, started: performance.now(), maxMs: 4000 + s.length * 420 / u.rate };
+      u.onend = u.onerror = function () { if (speaking === me) { speaking = null; root.classList.remove("mv-waiting"); } };
+      speaking = me; synth.speak(u); } catch (e) {}
   }
-  function hush() { try { if (synth) synth.cancel(); } catch (e) {} }
+  function hush() { speaking = null; root.classList.remove("mv-waiting"); try { if (synth) synth.cancel(); } catch (e) {} }
   function crossed(a, b, x) { return a < x && b >= x; }
   function onAdvance(a, b) {
     if (!audioOn) return;
-    CUES.forEach(function (c) { if (crossed(a, b, c.a)) say(c.text); });
+    CUES.forEach(function (c) { if (crossed(a, b, c.a)) say(c.text, c); });
     CHAPTERS.forEach(function (c, i) { if (crossed(a, b, c.t + 120)) bell(i === 0 ? 523.25 : 587.33, .09, 2.2); });
   }
 
@@ -774,7 +780,7 @@
     if (audioOn) startPad();
     playing = true; started = true; lastNow = performance.now();
     var c = CUES.filter(function (c) { return t >= c.a && t < c.b; })[0];
-    if (c && audioOn && (t - c.a) < (c.b - c.a) * .35) say(c.text);
+    if (c && audioOn && (t - c.a) < (c.b - c.a) * .35) say(c.text, c);
     pickVoice(); syncUI(); poke();
   }
   function pause() { playing = false; hush(); stopPad(); syncUI(); poke(); }
@@ -904,7 +910,13 @@
   }
   function frame(now) {
     if (playing) {
-      var prev = t; t = Math.min(DUR, t + Math.min(100, now - lastNow) * speed); onAdvance(prev, t);
+      var nt = Math.min(DUR, t + Math.min(100, now - lastNow) * speed);
+      /* 読み上げが字幕の終わりまでに終わらなければ、読み終わるまで字幕の終わりの手前で待つ（終わりの知らせが来ない時の上限つき） */
+      if (speaking && speaking.cue && AUD.wait !== false) {
+        if (performance.now() - speaking.started > speaking.maxMs) { speaking = null; root.classList.remove("mv-waiting"); }
+        else if (nt > speaking.cue.b - 60) { nt = Math.max(t, speaking.cue.b - 60); root.classList.add("mv-waiting"); }
+      }
+      var prev = t; t = nt; onAdvance(prev, t);
       if (t >= DUR) { if (KIOSK) { t = 0; hush(); } else { playing = false; stopPad(); } }
       syncUI(); needsDraw = true;
     }
@@ -921,5 +933,5 @@
   new ResizeObserver(resize).observe(cv); resize(); syncUI(); requestAnimationFrame(frame);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { needsDraw = true; });
   if (KIOSK && !(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches)) { started = true; playing = true; lastNow = performance.now(); syncUI(); }
-  window.__MV__ = { seek: seek, play: play, pause: pause, get t() { return t; }, DUR: DUR, CHAPTERS: CHAPTERS, CUES: CUES };
+  window.__MV__ = { seek: seek, play: play, pause: pause, get t() { return t; }, get speaking() { return !!speaking; }, DUR: DUR, CHAPTERS: CHAPTERS, CUES: CUES };
 })();
