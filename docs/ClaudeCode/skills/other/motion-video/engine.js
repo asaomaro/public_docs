@@ -529,12 +529,135 @@
   var CUSTOM = new WeakMap();
   R.custom = function (s, lt, d, T) {
     var fn = CUSTOM.get(s);
-    if (!fn) { try { fn = new Function("ctx", "lt", "d", "H", "s", s.code); } catch (e) { fn = function () {}; console.error("custom scene:", e); } CUSTOM.set(s, fn); }
+    if (!fn) { try { fn = new Function("ctx", "lt", "d", "H", "s", Array.isArray(s.code) ? s.code.join("\n") : s.code); } catch (e) { fn = function () {}; console.error("custom scene:", e); } CUSTOM.set(s, fn); }
     heading(s, lt);
     ctx.save(); try { fn(ctx, lt, d, HELP, s); } catch (e) { if (!s._err) { s._err = 1; console.error("custom scene:", e); } } ctx.restore();
   };
+  /* ---- custom と重ねの層で使う道具 ---- */
+  /* 乱数の種で決まる乱数（時刻だけで決まる描画のため。Math.random は使わない） */
+  function rand(seed) { var a = (seed >>> 0) || 1; return function () { a |= 0; a = a + 0x6D2B79F5 | 0; var t2 = Math.imul(a ^ a >>> 15, 1 | a);
+    t2 = t2 + Math.imul(t2 ^ t2 >>> 7, 61 | t2) ^ t2; return ((t2 ^ t2 >>> 14) >>> 0) / 4294967296; }; }
+  function arrow(p0, c, p1, k, o) {
+    o = o || {}; if (k <= 0) return; c = c || { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 };
+    ctx.save(); ctx.strokeStyle = o.color || C.accent2; ctx.lineWidth = o.width || 4; ctx.lineCap = "round"; if (o.dashed) ctx.setLineDash([14, 10]);
+    if (o.glow) { ctx.shadowColor = o.color || C.accent2; ctx.shadowBlur = 24 * o.glow; }
+    ctx.beginPath(); var N = 40; for (var j = 0; j <= N * clamp(k); j++) { var q = qpt(p0, c, p1, j / N); j ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y); } ctx.stroke();
+    ctx.setLineDash([]); ctx.shadowBlur = 0;
+    if (k >= 1 && o.head !== false) { var pe = qpt(p0, c, p1, 1), pb = qpt(p0, c, p1, .96); ctx.translate(pe.x, pe.y); ctx.rotate(Math.atan2(pe.y - pb.y, pe.x - pb.x));
+      ctx.fillStyle = o.color || C.accent2; ctx.beginPath(); ctx.moveTo(6, 0); ctx.lineTo(-16, -11); ctx.lineTo(-16, 11); ctx.closePath(); ctx.fill(); }
+    ctx.restore();
+  }
+  function packet(p0, c, p1, u, label, o) {
+    o = o || {}; if (u <= 0 || u >= 1) return; c = c || { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 };
+    var pt = qpt(p0, c, p1, eio(u)), col = o.color || C.accent; ctx.save(); ctx.shadowColor = col; ctx.shadowBlur = 20; ctx.fillStyle = col;
+    if (label) { var w = tw(label, { size: 20, weight: 700, font: F.mono }) + 24; rr(pt.x - w / 2, pt.y - 20, w, 40, 10); ctx.fill(); ctx.shadowBlur = 0;
+      txt(label, pt.x, pt.y + 7, { size: 20, weight: 700, font: F.mono, align: "center", color: C.onAccent }); }
+    else { ctx.beginPath(); ctx.arc(pt.x, pt.y, o.r || 11, 0, Math.PI * 2); ctx.fill(); }
+    ctx.restore();
+  }
+  function node(x, y, w, h, label, sub, o) {
+    o = o || {}; panel(x, y, w, h, { stroke: o.stroke || (o.hot ? C.accent : C.edge), lw: o.hot ? 3 : 1.5, fill: o.fill || C.panel });
+    var ink = o.ink || C.ink, cx = x + w / 2, cy = y + h / 2;
+    if (o.state) { stateMark(x + 28, y + 28, o.state, o.t || 0, 10); }
+    txt(label, cx, sub ? cy - 2 : cy + 12, { size: o.size || 34, weight: 800, align: "center", color: ink });
+    if (sub) txt(sub, cx, cy + 34, { size: 21, align: "center", color: o.subColor || C.muted, font: F.mono });
+  }
+  function appWindow(x, y, w, h, title, o) {
+    o = o || {}; panel(x, y, w, h, { r: 18 }); ctx.save(); rr(x, y, w, h, 18); ctx.clip();
+    ctx.fillStyle = C.bg1; ctx.fillRect(x, y, w, 46);
+    for (var i = 0; i < 3; i++) { ctx.fillStyle = C.edge; ctx.beginPath(); ctx.arc(x + 26 + i * 22, y + 23, 6.5, 0, Math.PI * 2); ctx.fill(); }
+    txt(title || "", x + w / 2, y + 31, { size: 20, color: C.muted, align: "center" }); ctx.restore();
+    return { x: x + 1, y: y + 47, w: w - 2, h: h - 48 };
+  }
+  function toast(x, y, w, title, sub, kind, k, t0) {
+    if (k <= 0) return; ctx.save(); ctx.globalAlpha *= clamp(k); ctx.translate((1 - Math.min(1, k)) * 80, 0);
+    panel(x, y, w, 96, { stroke: kind === "blocked" ? C.warn : C.ok, lw: 2 }); stateMark(x + 38, y + 36, kind || "done", t0 || 0, 11);
+    txt(title || "", x + 64, y + 44, { size: 23, weight: 700 }); if (sub) txt(sub, x + 64, y + 74, { size: 17, font: F.mono, color: C.muted }); ctx.restore();
+  }
+  function typed(str, k) { str = String(str); return str.slice(0, Math.round(str.length * clamp(k))); }
+  function particles(o, lt) {
+    o = o || {}; var r = rand(o.seed || 7), n = o.n || 60, x = o.x || 0, y = o.y || 0, w = o.w || W, h = o.h || H, sp = o.speed || 1;
+    ctx.save(); ctx.fillStyle = o.color || C.accent2;
+    for (var i = 0; i < n; i++) { var px = r() * w, py = r() * h, vy = (r() * .6 + .2) * sp, ph = r() * Math.PI * 2, sz = (o.size || 3) * (r() * .8 + .4);
+      var yy = (py - lt * vy * .03) % h; if (yy < 0) yy += h; ctx.globalAlpha = (o.alpha || .5) * (.5 + .5 * Math.sin(lt / 700 + ph));
+      ctx.beginPath(); ctx.arc(x + px + Math.sin(lt / 1500 + ph) * 12, y + yy, sz, 0, Math.PI * 2); ctx.fill(); }
+    ctx.restore();
+  }
+  function cursor(x, y, down, lt) {
+    ctx.save(); ctx.translate(x, y);
+    if (down) { ctx.strokeStyle = C.accent; ctx.lineWidth = 3; ctx.globalAlpha = .7; ctx.beginPath(); ctx.arc(0, 0, 18 + (lt % 400) / 20, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1; }
+    ctx.fillStyle = "#ffffff"; ctx.strokeStyle = "#111111"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 34); ctx.lineTo(9, 26); ctx.lineTo(16, 40); ctx.lineTo(22, 37); ctx.lineTo(15, 24); ctx.lineTo(27, 24); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+  /* 部品を縮小して置く（custom で複数の部品を並べる。spec は s の中に置くと配置の計算が使い回される） */
+  function sub(type, spec, lt, d, o) {
+    o = o || {}; var sc = o.scale || 1; ctx.save(); if (o.alpha !== undefined) ctx.globalAlpha *= o.alpha;
+    ctx.translate(o.x || 0, o.y || 0); ctx.scale(sc, sc);
+    if (o.clip) { rr(0, 0, W, H, 24 / sc); ctx.clip(); }
+    (R[type] || R.statement)(spec, Math.max(0, lt), d); drawOverlays(spec, lt, d); ctx.restore();
+  }
+  /* カメラ: [{at:0..1, x, y, zoom}] を場面の進みで補間し、(x,y) を画面の中央に zoom 倍で映す */
+  function camAt(keys, f) {
+    if (!keys || !keys.length) return null;
+    var a = keys[0], b = keys[keys.length - 1];
+    for (var i = 0; i < keys.length - 1; i++) if (f >= (keys[i].at || 0) && f <= (keys[i + 1].at || 1)) { a = keys[i]; b = keys[i + 1]; break; }
+    if (f <= (keys[0].at || 0)) b = a = keys[0];
+    var k = a === b ? 0 : eio(lin(f, a.at || 0, b.at || 1));
+    return { x: mix(a.x === undefined ? 960 : a.x, b.x === undefined ? 960 : b.x, k), y: mix(a.y === undefined ? 540 : a.y, b.y === undefined ? 540 : b.y, k),
+             zoom: mix(a.zoom || 1, b.zoom || 1, k) };
+  }
+  function applyCam(cam) { if (!cam) return; ctx.translate(960, 540); ctx.scale(cam.zoom, cam.zoom); ctx.translate(-cam.x, -cam.y); }
+
+  /* ---- 重ねの層（どの場面にも。座標は 1920×1080、at / until は場面の進み 0..1） ---- */
+  function drawOverlays(s, lt, d) {
+    (s.overlays || []).forEach(function (o) {
+      var a = (o.at || 0) * d, b = o.until !== undefined ? o.until * d : d, k = P(lt, a, a + 450) * (1 - P(lt, b - 350, b));
+      if (k <= 0) return;
+      var kind = o.kind || "note";
+      ctx.save(); ctx.globalAlpha *= k;
+      if (kind === "note") {
+        var lines = wrap(o.text || "", o.width || 420, { size: 28, weight: 700 }), w = Math.min(o.width || 420, Math.max.apply(null, lines.map(function (l) { return tw(l, { size: 28, weight: 700 }); }))) + 40, h = lines.length * 38 + 30;
+        var x = o.x === undefined ? 1400 : o.x, y = o.y === undefined ? 200 : o.y;
+        if (o.target) { var tx = o.target[0], ty = o.target[1], ex = tx < x ? x : tx > x + w ? x + w : tx, ey = ty < y ? y : y + h;
+          ctx.strokeStyle = C.accent; ctx.lineWidth = 2.5; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(mix(ex, tx, P(lt, a, a + 600)), mix(ey, ty, P(lt, a, a + 600))); ctx.stroke(); ctx.setLineDash([]);
+          ctx.fillStyle = C.accent; ctx.beginPath(); ctx.arc(tx, ty, 7 * P(lt, a + 400, a + 700, back), 0, Math.PI * 2); ctx.fill(); }
+        panel(x, y, w, h, { stroke: C.accent, lw: 2 });
+        lines.forEach(function (l, i) { rich(l, x + 20, y + 44 + i * 38, { size: 28, weight: 700 }); });
+      } else if (kind === "arrow") {
+        var p0 = { x: o.from[0], y: o.from[1] }, p1 = { x: o.to[0], y: o.to[1] }, cv2 = o.curve ? { x: (p0.x + p1.x) / 2 - (p1.y - p0.y) * o.curve, y: (p0.y + p1.y) / 2 + (p1.x - p0.x) * o.curve } : null;
+        arrow(p0, cv2, p1, P(lt, a, a + 700, eio), { color: C.accent, width: 5 });
+        if (o.label) { var m = qpt(p0, cv2 || { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 }, p1, .5); txt(o.label, m.x, m.y - 16, { size: 26, weight: 700, color: C.accent, align: "center" }); }
+      } else if (kind === "highlight") {
+        var r = o.rect, pu = .5 + .5 * Math.sin(lt / 260);
+        if (o.spotlight) { ctx.save(); ctx.fillStyle = "rgba(0,0,0," + (.55 * k) + ")"; ctx.beginPath(); ctx.rect(0, 0, W, H); rr(r[0] - 12, r[1] - 12, r[2] + 24, r[3] + 24, 16); ctx.fill("evenodd"); ctx.restore(); }
+        ctx.strokeStyle = C.accent; ctx.lineWidth = 4 + 2 * pu; rr(r[0] - 12, r[1] - 12, r[2] + 24, r[3] + 24, 16); ctx.stroke();
+        if (o.label) txt(o.label, r[0] - 12, r[1] - 26, { size: 26, weight: 700, color: C.accent });
+      } else if (kind === "badge") {
+        var bw = tw(o.text || "", { size: 24, weight: 800 }) + 32, bk = P(lt, a, a + 500, back);
+        ctx.translate(o.x || 0, o.y || 0); ctx.scale(bk, bk); rr(-bw / 2, -22, bw, 44, 22); ctx.fillStyle = o.color === "warn" ? C.warn : C.accent; ctx.fill();
+        txt(o.text || "", 0, 9, { size: 24, weight: 800, align: "center", color: C.onAccent });
+      } else if (kind === "cursor") {
+        var pts = o.path || [[960, 540]], f = lin(lt, a, b - 350), seg = Math.min(pts.length - 2, Math.floor(f * (pts.length - 1))), u = pts.length > 1 ? f * (pts.length - 1) - seg : 0;
+        if (pts.length === 1) seg = 0;
+        var pA = pts[Math.max(0, seg)], pB = pts[Math.min(pts.length - 1, seg + 1)], e = eio(clamp(u)), cx2 = mix(pA[0], pB[0], e), cy2 = mix(pA[1], pB[1], e);
+        var down = (o.click || []).some(function (ci) { var ct = a + (b - 350 - a) * ci / Math.max(1, pts.length - 1); return lt >= ct && lt < ct + 400; });
+        cursor(cx2, cy2, down, lt);
+      } else if (kind === "notify") {
+        var nw = 520, nx = W - nw - 48, ny = o.pos === "br" ? H - 330 : 110, nk = P(lt, a, a + 500);   /* 既定は右上（下は字幕と操作部が重なる） */
+        ctx.translate(0, (1 - nk) * 30);
+        ctx.save(); ctx.shadowColor = "rgba(0,0,0,.35)"; ctx.shadowBlur = 30; rr(nx, ny, nw, 110, 18); ctx.fillStyle = "#eef2f4"; ctx.fill(); ctx.restore();
+        emblem("ring", nx + 52, ny + 55, 24, 0, 1, o.app || SPEC.title);
+        txt(o.app || (SPEC.brand && SPEC.brand.name) || "", nx + 96, ny + 44, { size: 22, weight: 700, color: "#0f2230" });
+        txt(o.text || "", nx + 96, ny + 78, { size: 22, color: "#35505b" });
+      }
+      ctx.restore();
+    });
+  }
   var HELP = { C: C, F: F, W: W, H: H, clamp: clamp, lin: lin, eo: eo, eio: eio, back: back, P: P, mix: mix, rr: rr, txt: txt, tw: tw, wrap: wrap,
-               rich: rich, icon: icon, panel: panel, stateMark: stateMark, emblem: emblem, accentAt: accentAt, slots: slots };
+               rich: rich, icon: icon, panel: panel, stateMark: stateMark, emblem: emblem, accentAt: accentAt, slots: slots,
+               qpt: qpt, rand: rand, arrow: arrow, packet: packet, node: node, appWindow: appWindow, toast: toast, typed: typed, count: fmtNum,
+               particles: particles, cursor: cursor, sub: sub, camAt: camAt, applyCam: applyCam, heading: heading };
 
   /* ================= 背景と 1 コマ ================= */
   function scaleCtx() { ctx.setTransform(cv.width / W, 0, 0, cv.height / H, 0, 0); }
@@ -570,7 +693,11 @@
     ctx.save(); ctx.globalAlpha = Math.min(inK, outK);
     if (tr === "slide") ctx.translate((1 - inK) * 80 - (1 - outK) * 80, 0);
     if (tr === "zoom") { var z = mix(.96, 1, inK) * mix(1.04, 1, outK); ctx.translate(960, 540); ctx.scale(z, z); ctx.translate(-960, -540); }
+    var cam = camAt(sc.s.camera, clamp(lt / d));
+    if (cam) { ctx.save(); applyCam(cam); }
     (R[sc.s.type] || R.statement)(sc.s, Math.max(0, lt), d, t);
+    drawOverlays(sc.s, Math.max(0, lt), d);
+    if (cam) ctx.restore();
     ctx.restore();
   }
   function draw(t) {

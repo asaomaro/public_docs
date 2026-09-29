@@ -112,9 +112,54 @@ SCENE_TYPES = {
     "window": (["panes"], "アプリの画面の模型（pane の状態・通知が変わる）", '{"type":"window","title":"Sodashitsu — api","sidebar":[{"label":"impl","state":"working","active":true}],"panes":[{"title":"impl","tag":"claude","state":"working","states":[{"at":0.4,"state":"done"}],"lines":["› 実装して","  ✓ 24 passed"]}],"toasts":[{"at":0.45,"title":"impl が完了しました","sub":"api · p1","kind":"done"}]}'),
     "image": (["src"], "画像（ゆっくり寄る。src は台本からの相対パス・URL・data URI）", '{"type":"image","src":"shot.png","caption":"画面の例","kenburns":true}'),
     "end": ([], "締め（紋章・コマンドや連絡先の行・題名・一文）", '{"type":"end","title":"Sodashitsu","lines":[{"text":"$ soda serve","note":"ブラウザで開く"}],"tagline":"舵を一つの場所で"}'),
-    "custom": (["code"], "部品に無い絵を JS で描く（本体: (ctx, lt, d, H, s)。H に描画の道具）", '{"type":"custom","code":"H.txt(\\"Hello\\", 960, 540, {size:80, align:\\"center\\", alpha:H.P(lt,0,600)});","duration":5}'),
+    "custom": ([], "JS で自由に描く（本体: (ctx, lt, d, H, s)。道具は --api。code は文字列か行の配列、または src に .js のパス）", '{"type":"custom","src":"scenes/intro.js","duration":8,"narration":"…"}'),
 }
-COMMON = "共通: narration（ナレーション＝字幕。文字列か配列）・duration（秒。省略時は自動）・heading・transition（fade|slide|zoom|cut）"
+COMMON = ("共通: narration（ナレーション＝字幕。文字列か配列）・duration（秒。省略時は自動）・heading・transition（fade|slide|zoom|cut）"
+          "・overlays（重ねの層）・camera（カメラ）")
+
+OVERLAY_KINDS = {
+    "note": (["text"], '注記の吹き出し。target で引き出し線', '{"kind":"note","text":"ここが**新しい**","x":1300,"y":200,"target":[900,420],"at":0.3,"until":0.9}'),
+    "arrow": (["from", "to"], "描かれる矢印（curve で曲げる）", '{"kind":"arrow","from":[400,700],"to":[900,450],"curve":0.2,"label":"完了","at":0.4}'),
+    "highlight": (["rect"], "枠で強調。spotlight で周りを暗く", '{"kind":"highlight","rect":[700,300,500,200],"spotlight":true,"label":"ここ","at":0.5,"until":0.8}'),
+    "badge": (["text"], "弾んで出る札", '{"kind":"badge","text":"NEW","x":1500,"y":260,"at":0.2}'),
+    "cursor": (["path"], "マウスの矢印が点を順にたどる。click はクリックする点の番号", '{"kind":"cursor","path":[[500,800],[900,420],[1200,420]],"click":[1],"at":0.2,"until":0.8}'),
+    "notify": (["text"], "OS 風の通知（右上。pos:br で右下寄り）", '{"kind":"notify","app":"Sodashitsu","text":"impl が完了しました","at":0.3,"until":0.7}'),
+}
+CAMERA_DOC = ('camera: [{"at":0,"x":960,"y":540,"zoom":1},{"at":0.6,"x":1300,"y":480,"zoom":1.6}] — 場面の進み（0..1）で補間し、'
+              '(x,y) を中央に zoom 倍で映す。部品にも custom にも効く。重ねの層もいっしょに動く')
+EXPRESSIONS = {
+    "components": "部品だけで組む。速く安く、毎回ぶれにくい（custom は使わない）",
+    "mixed": "基本は部品で、見せ場だけ custom（既定）",
+    "free": "場面ごとに custom で描く。部品は H.sub で道具として使う",
+}
+
+API_DOC = """custom の本体は (ctx, lt, d, H, s)。座標は 1920×1080、lt は場面の中の経過 ms、d は場面の長さ ms、s は台本の場面。
+描き方は時刻だけで決める（Math.random・Date.now・前のコマの状態は使わない。乱数は H.rand(種)）。
+
+配色と書体
+  H.C.bg0 bg1 ink muted faint accent accent2 warn ok panel panel2 edge code codeInk codeMuted onAccent accents[]
+  H.F.display sans mono      H.accentAt(i) 循環色
+時間
+  H.P(lt, a, b[, 緩急]) a..b ms の進み 0..1（既定 eo）   H.lin H.eo H.eio H.back H.clamp H.mix
+  H.slots(n, d, 先頭ms, 末尾ms) n 個の区切りを場面の長さに割り付けた時刻の配列
+文字
+  H.txt(s, x, y, {size, weight, color, align, font, alpha, spacing})   H.tw(s, 同)=幅
+  H.rich(行, x, y, {…}, 下線の進み) **強調** を色と下線で   H.wrap(s, 最大幅, {size, weight}) 折り返した行の配列
+  H.typed(s, k) 入力中の文字（先頭から k の割合）   H.count("1,240件", k) 数え上げ中の表記
+図形
+  H.rr(x,y,w,h,r) 角丸の経路   H.panel(x,y,w,h,{fill,stroke,lw,r,shadow})   H.icon(絵文字,x,y,size)
+  H.node(x,y,w,h,label,sub,{hot,state,t,fill,stroke,ink})   H.stateMark(x,y,"working|done|blocked|idle",lt)
+  H.appWindow(x,y,w,h,title) → 中の矩形 {x,y,w,h}   H.toast(x,y,w,title,sub,"done|blocked",k,lt)
+  H.emblem("ring|wheel",cx,cy,r,回転,alpha,文字)   H.cursor(x,y,押下,lt)
+線と移動
+  H.qpt(p0,c,p1,u) 二次曲線の点   H.arrow(p0,c,p1,k,{color,width,dashed,glow,head})   H.packet(p0,c,p1,u,ラベル,{color})
+演出
+  H.particles({seed,n,x,y,w,h,color,size,speed,alpha}, lt) 種で決まる粒子   H.heading(s, lt) 左上の見出し
+  H.camAt(keys, 進み) / H.applyCam(cam) カメラを自分で掛ける
+部品を道具に
+  H.sub(type, spec, lt, d, {x, y, scale, alpha, clip}) 部品を縮小して置く（spec は s の中に置くと計算が使い回される）
+手本は recipes.md。"""
+
 
 MIN_SEC = {"title": 8, "statement": 4.5, "bullets": 2.5, "flow": 3, "steps": 2, "terminal": 2.5, "stats": 4.5, "bars": 3.5,
            "compare": 3, "code": 2.5, "window": 7, "image": 5, "end": 4, "custom": 5}
@@ -234,6 +279,28 @@ def validate(spec, base):
             for k in SCENE_TYPES[t][0]:
                 if k not in s:
                     errs.append("%s（%s）: %s が必要です" % (where, t, k))
+            if t == "custom":
+                if s.get("src"):
+                    p = os.path.join(base, s["src"])
+                    if not os.path.isfile(p):
+                        errs.append("%s: custom の src が見つかりません: %s" % (where, p))
+                    else:
+                        s["code"] = open(p, encoding="utf-8").read()
+                if not s.get("code"):
+                    errs.append("%s（custom）: code か src が必要です" % where)
+                elif isinstance(s["code"], list):
+                    s["code"] = "\n".join(s["code"])
+            for oi, o in enumerate(s.get("overlays", [])):
+                k = o.get("kind", "note")
+                if k not in OVERLAY_KINDS:
+                    errs.append("%s: overlays[%d] の kind %r は使えません（%s）" % (where, oi, k, "/".join(OVERLAY_KINDS)))
+                    continue
+                for r in OVERLAY_KINDS[k][0]:
+                    if r not in o:
+                        errs.append("%s: overlays[%d]（%s）に %s が必要です" % (where, oi, k, r))
+            for ki, key in enumerate(s.get("camera", [])):
+                if not isinstance(key, dict) or not any(x in key for x in ("x", "y", "zoom")):
+                    errs.append("%s: camera[%d] は {at, x, y, zoom} の形にしてください" % (where, ki))
             if t == "image" and s.get("src") and not re.match(r"^(data:|https?:)", s["src"]):
                 p = os.path.join(base, s["src"])
                 if not os.path.isfile(p):
@@ -441,11 +508,19 @@ def print_list():
     print("  " + COMMON)
     for k, (req, desc, ex) in SCENE_TYPES.items():
         print("\n  [%s] %s（必須: %s）\n    %s" % (k, desc, ", ".join(req) or "なし", ex))
+    print("\n# 重ねの層（場面の overlays: [...]。座標は 1920×1080、at / until は場面の進み 0..1）")
+    for k, (req, desc, ex) in OVERLAY_KINDS.items():
+        print("  [%s] %s（必須: %s）\n    %s" % (k, desc, ", ".join(req), ex))
+    print("\n# カメラ\n  " + CAMERA_DOC)
+    print("\n# 表現のモード（台本の expression）")
+    for k, d in EXPRESSIONS.items():
+        print("  %-10s %s" % (k, d))
     print("\n# 台本の骨組み")
     print('  {"title":"…","description":"…","lang":"ja","player":"studio","theme":"navy-brass",'
           '"brand":{"name":"…"},"transition":"fade","poster":4300,'
           '"audio":{"narration":true,"music":"calm|bright|deep|none","sfx":true,"rate":1.1,"pronounce":{"Sodashitsu":"ソダシツ"}},'
-          '"chapters":[{"title":"章の名前","desc":"一覧に出す説明","scenes":[{…場面…}]}]}')
+          '"expression":"mixed","chapters":[{"title":"章の名前","desc":"一覧に出す説明","scenes":[{…場面…}]}]}')
+    print("\ncustom の道具は --api、手本は recipes.md")
 
 
 def main():
@@ -456,7 +531,11 @@ def main():
     ap.add_argument("--theme", choices=list(THEMES), help="配色テーマ（台本の theme を上書き）")
     ap.add_argument("--list", action="store_true", help="プレイヤー・配色・場面の部品と台本の書き方を出す")
     ap.add_argument("--timeline", action="store_true", help="HTML を作らず、場面の長さと字幕の時刻を出す")
+    ap.add_argument("--api", action="store_true", help="custom の場面で使える描画の道具（H.*）の一覧を出す")
     args = ap.parse_args()
+    if args.api:
+        print(API_DOC)
+        return
     if args.list or not args.spec:
         print_list()
         return
@@ -474,6 +553,15 @@ def main():
     if theme not in THEMES:
         sys.exit("error: 不明な theme %r（%s）" % (theme, "/".join(THEMES)))
     warns = plan(spec)
+    expr = spec.get("expression", "mixed")
+    if expr not in EXPRESSIONS:
+        warns.append("expression %r は %s のいずれか（mixed として扱います）" % (expr, "/".join(EXPRESSIONS)))
+        expr = "mixed"
+    kinds = [s["type"] for ch in spec["chapters"] for s in ch["scenes"]]
+    if expr == "components" and "custom" in kinds:
+        warns.append("expression=components なのに custom の場面が %d 個あります" % kinds.count("custom"))
+    if expr == "free" and "custom" not in kinds:
+        warns.append("expression=free なのに custom の場面がありません（見せ場は custom で描く）")
     for w in warns:
         print("warn:", w, file=sys.stderr)
     total = sum(s["_dur"] for ch in spec["chapters"] for s in ch["scenes"])

@@ -1,0 +1,423 @@
+{
+  "title": "Sodashitsu 紹介ムービー（混在）",
+  "description": "複数のコーディングエージェントを、ひとつの画面で見渡して動かすための道具を、6 つのチャプターで紹介します。",
+  "lang": "ja",
+  "player": "cinema",
+  "theme": "navy-brass",
+  "brand": {
+    "name": "Sodashitsu"
+  },
+  "audio": {
+    "narration": true,
+    "music": "calm",
+    "sfx": true,
+    "rate": 1.12,
+    "pronounce": {
+      "Sodashitsu": "ソダシツ",
+      "sodactl": "ソダコントロール",
+      "soda serve": "ソーダ サーブ",
+      "soda": "ソーダ",
+      "pane": "ペイン",
+      "SSH": "エスエスエイチ"
+    }
+  },
+  "chapters": [
+    {
+      "title": "操舵室へようこそ",
+      "desc": "Sodashitsu が何のための道具か。",
+      "scenes": [
+        {
+          "type": "title",
+          "mark": "wheel",
+          "title": "Sodashitsu",
+          "subtitle": "操　舵　室",
+          "tagline": "複数のコーディングエージェントを、**ひとつの画面**から。",
+          "narration": [
+            "Sodashitsu（操舵室）は、コーディングエージェントのための操舵室です。",
+            "いくつものエージェントを、ひとつの画面から見渡して、舵を取ります。"
+          ]
+        }
+      ]
+    },
+    {
+      "title": "ワークスペースと pane",
+      "desc": "pane を分けて、エージェントを並べて動かす。",
+      "scenes": [
+        {
+          "type": "custom",
+          "src": "scenes/panes.js",
+          "duration": 12,
+          "panes": [
+            "impl",
+            "reviewer",
+            "tester",
+            "server"
+          ],
+          "lines": [
+            [
+              "› 認証トークンの更新処理を実装して",
+              "  src/auth/token.ts を読んでいます…",
+              "  ✎ refreshToken() を追加",
+              "  ▸ pnpm test auth を実行中",
+              "  ✓ 24 passed"
+            ],
+            [
+              "› 差分をレビューして",
+              "  git diff main --stat",
+              "  ・token.ts:88 例外を握りつぶしています"
+            ],
+            [
+              "› E2E の失敗を調べて",
+              "  ✗ 1 failed: ログイン後の遷移"
+            ],
+            [
+              "$ pnpm dev",
+              "  ready on http://localhost:5173",
+              "  GET /api/session 200 12ms"
+            ]
+          ],
+          "narration": [
+            "ワークスペースを開き、pane を分けて、エージェントを並べて動かします。",
+            "pane ごとに、作業中か、手が空いたか、承認を待っているかが一目で分かります。"
+          ]
+        }
+      ]
+    },
+    {
+      "title": "状態と通知",
+      "desc": "完了・承認待ちを知らせる。ブラウザでも端末でも。",
+      "scenes": [
+        {
+          "type": "window",
+          "title": "Sodashitsu — api-server",
+          "panes": [
+            {
+              "title": "impl",
+              "tag": "claude",
+              "state": "working",
+              "states": [
+                {
+                  "at": 0.15,
+                  "state": "done"
+                }
+              ],
+              "lines": [
+                "  ✓ 24 passed"
+              ]
+            },
+            {
+              "title": "reviewer",
+              "tag": "codex",
+              "state": "working",
+              "lines": [
+                "  ・テストに期限の境界がありません"
+              ]
+            },
+            {
+              "title": "tester",
+              "tag": "claude",
+              "state": "working",
+              "states": [
+                {
+                  "at": 0.4,
+                  "state": "blocked"
+                }
+              ],
+              "lines": [
+                "? 次のコマンドを実行しますか",
+                "  rm -rf .cache  [y/N]"
+              ]
+            },
+            {
+              "title": "server",
+              "lines": [
+                "  POST /api/token 200 21ms"
+              ]
+            }
+          ],
+          "toasts": [
+            {
+              "at": 0.17,
+              "title": "impl が完了しました",
+              "sub": "api-server · p1",
+              "kind": "done",
+              "hold": 5000
+            },
+            {
+              "at": 0.42,
+              "title": "tester が承認を待っています",
+              "sub": "api-server · p3",
+              "kind": "blocked",
+              "hold": 4000
+            }
+          ],
+          "narration": "作業が終わったときや、承認を待っているときは、通知でお知らせします。",
+          "overlays": [
+            {
+              "kind": "notify",
+              "app": "Sodashitsu",
+              "text": "impl が完了しました",
+              "at": 0.2,
+              "until": 0.55
+            },
+            {
+              "kind": "highlight",
+              "rect": [
+                1266,
+                344,
+                480,
+                96
+              ],
+              "label": "承認待ち",
+              "at": 0.45,
+              "until": 0.85
+            }
+          ]
+        },
+        {
+          "type": "custom",
+          "src": "scenes/surfaces.js",
+          "duration": 9,
+          "win": {
+            "type": "window",
+            "title": "Sodashitsu — api-server",
+            "panes": [
+              {
+                "title": "impl",
+                "tag": "claude",
+                "state": "working",
+                "states": [
+                  {
+                    "at": 0.15,
+                    "state": "done"
+                  }
+                ],
+                "lines": [
+                  "  ✓ 24 passed"
+                ]
+              },
+              {
+                "title": "reviewer",
+                "tag": "codex",
+                "state": "working",
+                "lines": [
+                  "  ・テストに期限の境界がありません"
+                ]
+              },
+              {
+                "title": "tester",
+                "tag": "claude",
+                "state": "working",
+                "states": [
+                  {
+                    "at": 0.4,
+                    "state": "blocked"
+                  }
+                ],
+                "lines": [
+                  "? 次のコマンドを実行しますか",
+                  "  rm -rf .cache  [y/N]"
+                ]
+              },
+              {
+                "title": "server",
+                "lines": [
+                  "  POST /api/token 200 21ms"
+                ]
+              }
+            ],
+            "toasts": []
+          },
+          "tui": [
+            "┌ api-server ─────┬ impl p1 ─────────────────┐",
+            "│ ✓ impl       p1 │ ✓ 24 passed",
+            "│ ◐ reviewer   p2 │",
+            "│ ! tester     p3 ├ tester p3 ───────────────┤",
+            "│   server     p4 │ ? 次のコマンドを実行",
+            "│ web-front       │   rm -rf .cache  [y/N]",
+            "│ infra           ├ reviewer p2 ─────────────┤",
+            "│                 │ ・token.ts:88 例外を…",
+            "└─────────────────┴──────────────────────────┘"
+          ],
+          "narration": "ブラウザでも、引数なしの soda で開く端末版でも、同じ画面を操作できます。"
+        }
+      ]
+    },
+    {
+      "title": "連携のグラフ",
+      "desc": "pane をノードにして、線で仕事を受け渡す。",
+      "scenes": [
+        {
+          "type": "flow",
+          "heading": "連携のグラフ",
+          "nodes": [
+            {
+              "id": "impl",
+              "label": "impl",
+              "sub": "p1 · claude",
+              "kind": "start"
+            },
+            {
+              "id": "rev",
+              "label": "reviewer",
+              "sub": "p2 · codex"
+            },
+            {
+              "id": "test",
+              "label": "tester",
+              "sub": "p3 · claude"
+            }
+          ],
+          "edges": [
+            {
+              "from": "impl",
+              "to": "rev",
+              "travel": "{output}",
+              "label": "完了→"
+            },
+            {
+              "from": "rev",
+              "to": "test",
+              "travel": "{output}",
+              "label": "完了→"
+            },
+            {
+              "from": "rev",
+              "to": "impl",
+              "back": true,
+              "dashed": true,
+              "travel": true,
+              "label": "差し戻し"
+            }
+          ],
+          "narration": [
+            "連携のグラフでは、pane をノードにして、マウスで線を結びます。",
+            "実装が終わったら、その出力をレビュー役へ。線はサーバで動くので、ブラウザを閉じても止まりません。"
+          ],
+          "camera": [
+            {
+              "at": 0,
+              "x": 960,
+              "y": 540,
+              "zoom": 1
+            },
+            {
+              "at": 0.55,
+              "x": 960,
+              "y": 540,
+              "zoom": 1
+            },
+            {
+              "at": 0.75,
+              "x": 1150,
+              "y": 560,
+              "zoom": 1.35
+            },
+            {
+              "at": 1,
+              "x": 960,
+              "y": 540,
+              "zoom": 1
+            }
+          ],
+          "overlays": [
+            {
+              "kind": "note",
+              "text": "出力は **{output}** で受け渡す",
+              "x": 1250,
+              "y": 260,
+              "target": [
+                1000,
+                600
+              ],
+              "at": 0.5,
+              "until": 0.95
+            }
+          ]
+        },
+        {
+          "type": "bullets",
+          "heading": "見守るしくみ",
+          "items": [
+            {
+              "text": "**監督役**に、配下の pane と操作方法を知らせる",
+              "icon": "🧭"
+            },
+            {
+              "text": "承認待ちを**代理**で知らせる",
+              "icon": "🔔"
+            },
+            {
+              "text": "回数の**上限**に達したら止まる",
+              "icon": "⏸"
+            }
+          ],
+          "narration": "監督役への知らせ、承認の代理、回数の上限と一時停止で、連携を見守れます。"
+        }
+      ]
+    },
+    {
+      "title": "別のマシンと sodactl",
+      "desc": "SSH のマシンの pane も、コマンドからの操作も。",
+      "scenes": [
+        {
+          "type": "custom",
+          "src": "scenes/machines.js",
+          "duration": 13,
+          "term": {
+            "type": "terminal",
+            "title": "planner の pane（p5）",
+            "lines": [
+              {
+                "cmd": "sodactl --machine gpu-box agent start reviewer --kind codex --pane p7"
+              },
+              {
+                "out": "{\"name\":\"reviewer\",\"paneId\":\"p7\"}"
+              },
+              {
+                "cmd": "sodactl graph link add impl gpu-box:p7 --prompt \"レビューして {output}\""
+              },
+              {
+                "cmd": "sodactl graph show"
+              },
+              {
+                "out": "link  kind     from  to          count\nl1    trigger  impl  gpu-box:p7  1/10"
+              }
+            ]
+          },
+          "narration": [
+            "SSH で登録した別のマシンの pane も、同じように並べて結べます。",
+            "sodactl を使えば、エージェント自身がほかのエージェントを起動し、指示を送り、線を結べます。"
+          ]
+        }
+      ]
+    },
+    {
+      "title": "はじめかた",
+      "desc": "soda serve か soda で開く。",
+      "scenes": [
+        {
+          "type": "end",
+          "mark": "wheel",
+          "title": "Sodashitsu",
+          "lines": [
+            {
+              "text": "$ soda serve",
+              "note": "サーバを起動 → ブラウザで開く"
+            },
+            {
+              "text": "$ soda",
+              "note": "端末版で開く"
+            }
+          ],
+          "tagline": "エージェントたちの舵を、ひとつの場所で。",
+          "narration": [
+            "soda serve で起動してブラウザで開くか、soda だけで端末版を開きます。",
+            "Sodashitsu。エージェントたちの舵を、ひとつの場所で。"
+          ]
+        }
+      ]
+    }
+  ],
+  "expression": "mixed"
+}
