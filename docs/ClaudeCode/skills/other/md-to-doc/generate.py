@@ -267,6 +267,204 @@ THEMES = {
     },
 }
 
+# ──────────────────────────────────────────────────────────────────────────
+# 追加のテーマ（色だけでなく、見出し・罫線・密度・地の模様まで変える）
+#   extra_css は共通の CSS の後に出す（テーマの個性が共通の見た目より優先される）。
+#   mermaid の配色はテーマの色から導く。
+# ──────────────────────────────────────────────────────────────────────────
+_GOTHIC = '"Hiragino Kaku Gothic ProN","Yu Gothic",system-ui,sans-serif'
+_MINCHO = '"Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif'
+_MONO = '"SFMono-Regular",Menlo,Consolas,monospace'
+_UD = '"BIZ UDPGothic","Hiragino Kaku Gothic ProN","Yu Gothic",system-ui,sans-serif'
+
+
+def _mermaid_from(v, dark):
+    return {
+        "theme": "dark" if dark else "base",
+        "themeVariables": dict({
+            "primaryColor": v["--accent-soft"], "primaryBorderColor": v["--accent"],
+            "primaryTextColor": v["--ink"], "lineColor": v["--muted"],
+            "secondaryColor": v["--line"], "tertiaryColor": v["--bg"],
+            "fontFamily": v["--font"].replace('"', ""),
+        }, **({"background": v["--bg"]} if dark else {})),
+    }
+
+
+def _theme(label, default_mode, accents, accents_dark, light, dark, extra=""):
+    dark_full = dict(light)
+    dark_full.update(dark)
+    return {"label": label, "default_mode": default_mode, "accents": accents, "accents_dark": accents_dark,
+            "vars": light, "vars_dark": dark, "extra_css": extra,
+            "mermaid": _mermaid_from(light, False), "mermaid_dark": _mermaid_from(dark_full, True)}
+
+
+# 見出しの番号付け（formal: 1. / 1.1、manual: 札の 1 / 1-1）
+_NUMBERED = """
+.content{counter-reset:h2}
+.content h2.hl{counter-increment:h2;counter-reset:h3}
+.content h3.hl{counter-increment:h3}
+"""
+
+THEMES.update({
+    "formal": _theme(
+        "フォーマル", "system",
+        ["#1f3a68", "#5b6b7f", "#8a6d3b", "#3f5f4f"], ["#9fb6de", "#aab4c2", "#d4b37a", "#8fbfa6"],
+        {"--bg": "#ffffff", "--card": "#ffffff", "--ink": "#111111", "--muted": "#555555", "--line": "#cfcfcf",
+         "--accent": "#1f3a68", "--accent-2": "#1f3a68", "--accent-soft": "#eef1f6", "--on-accent": "#ffffff",
+         "--code-bg": "#1b1f27", "--code-fg": "#e6e6e6", "--radius": "0px", "--shadow": "none",
+         "--font": _GOTHIC, "--font-head": _MINCHO, "--mono": _MONO,
+         "--header-bg": "#ffffff", "--header-fg": "#111111"},
+        {"--bg": "#121416", "--card": "#181b1f", "--ink": "#e8e8e8", "--muted": "#a0a4aa", "--line": "#2e3238",
+         "--accent": "#9fb6de", "--accent-2": "#b9cbe9", "--accent-soft": "#1c2230", "--on-accent": "#0f1420",
+         "--code-bg": "#0c0e11", "--code-fg": "#e6e6e6", "--header-bg": "#121416", "--header-fg": "#e8e8e8"},
+        _NUMBERED + """
+.content h2.hl{border-left:0;padding-left:0;padding-bottom:8px;border-bottom:3px double var(--ink);color:var(--ink);font-size:22px}
+.content h2.hl::before{content:counter(h2) ".";margin-right:.6em;color:var(--accent)}
+.content h3.hl::before{content:counter(h2) "." counter(h3);margin-right:.6em;color:var(--accent)}
+.hero{border-bottom:3px double var(--ink)}
+.hero h1{font-weight:700;letter-spacing:.04em}
+table{box-shadow:none;border-radius:0}
+th,td{border:1px solid var(--line)}
+th{color:var(--ink)}
+.doc-card,.stat,.tabs,.checklist,.defs,.tree,.pc-col,.accordion,.callout,.mermaid-fig{box-shadow:none}
+.doc-card{border-top-width:2px}
+.tl-dot{border-radius:0}
+"""),
+    "manual": _theme(
+        "マニュアル", "system",
+        ["#d9480f", "#2563eb", "#0f766e", "#7c3aed"], ["#ff8a4c", "#6ea1ff", "#2dd4bf", "#b196ff"],
+        {"--bg": "#f3f4f6", "--card": "#ffffff", "--ink": "#1c1f24", "--muted": "#5b616b", "--line": "#d7dbe0",
+         "--accent": "#d9480f", "--accent-2": "#b03a0b", "--accent-soft": "#fff1e8", "--on-accent": "#ffffff",
+         "--code-bg": "#1e2227", "--code-fg": "#e6e8eb", "--radius": "6px", "--shadow": "0 1px 2px rgba(0,0,0,.06)",
+         "--font": _GOTHIC, "--font-head": _GOTHIC, "--mono": _MONO,
+         "--header-bg": "#2b2f36", "--header-fg": "#ffffff"},
+        {"--bg": "#15171a", "--card": "#1d2024", "--ink": "#e7e9ec", "--muted": "#9aa1ab", "--line": "#30343a",
+         "--accent": "#ff8a4c", "--accent-2": "#ffb088", "--accent-soft": "#2a1d15", "--on-accent": "#1a0f08",
+         "--code-bg": "#101214", "--code-fg": "#e6e8eb", "--header-bg": "#0f1113", "--header-fg": "#e7e9ec",
+         "--shadow": "none"},
+        _NUMBERED + """
+body{line-height:1.7}
+.content{font-size:15px}
+.content h2.hl{border:1px solid var(--line);border-top:4px solid var(--accent);background:var(--card);padding:8px 14px;
+  color:var(--ink);font-size:21px;margin-top:36px}
+.content h2.hl::before{content:counter(h2);display:inline-block;min-width:1.7em;margin-right:.6em;padding:0 .4em;border-radius:4px;
+  background:var(--accent);color:var(--on-accent);text-align:center;font-size:.85em}
+.content h3.hl::before{content:counter(h2) "-" counter(h3);color:var(--accent);margin-right:.5em}
+.content p{margin:8px 0}
+.callout{border-left-width:6px}
+.callout-head{font-size:15px}
+.tl-dot{border-radius:8px}
+"""),
+    "contrast": _theme(
+        "高コントラスト", "system",
+        ["#0033aa", "#8a0000", "#005a1e", "#5a1a8a"], ["#ffd400", "#7fd4ff", "#9dff7a", "#ff9ecb"],
+        {"--bg": "#ffffff", "--card": "#ffffff", "--ink": "#000000", "--muted": "#333333", "--line": "#6b6b6b",
+         "--accent": "#0033aa", "--accent-2": "#002277", "--accent-soft": "#e8eeff", "--on-accent": "#ffffff",
+         "--code-bg": "#000000", "--code-fg": "#ffffff", "--radius": "8px", "--shadow": "none",
+         "--font": _UD, "--font-head": _UD, "--mono": '"BIZ UDGothic",Consolas,Menlo,monospace',
+         "--header-bg": "#000000", "--header-fg": "#ffffff"},
+        {"--bg": "#000000", "--card": "#0a0a0a", "--ink": "#ffffff", "--muted": "#d6d6d6", "--line": "#9a9a9a",
+         "--accent": "#ffd400", "--accent-2": "#ffe766", "--accent-soft": "#1f1a00", "--on-accent": "#000000",
+         "--code-bg": "#111111", "--code-fg": "#ffffff", "--header-bg": "#000000", "--header-fg": "#ffffff"},
+        """
+body{font-size:17px;line-height:1.9}
+.content a{text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:3px;border-bottom:0}
+:focus-visible{outline:3px solid var(--accent)!important;outline-offset:3px}
+.content h2.hl{color:var(--ink);border-left-width:8px}
+th{color:var(--ink)}
+.doc-card-tags span,.chip{color:var(--ink)!important}
+table,.doc-card,.stat,.tabs,.checklist,.defs,.tree,.pc-col,.accordion,.callout,.mermaid-fig{border-width:2px}
+"""),
+    "blueprint": _theme(
+        "ブループリント", "system",
+        ["#1d4e89", "#0f7c8c", "#b45309", "#6d28d9"], ["#7fb2ff", "#4fd1e0", "#f5b454", "#b69cff"],
+        {"--bg": "#f4f7fb", "--card": "#ffffff", "--ink": "#0f2540", "--muted": "#4b6584", "--line": "#c5d3e6",
+         "--accent": "#1d4e89", "--accent-2": "#163a66", "--accent-soft": "#e7eef8", "--on-accent": "#ffffff",
+         "--code-bg": "#0f2540", "--code-fg": "#dbe7f6", "--radius": "2px", "--shadow": "none",
+         "--font": _GOTHIC, "--font-head": _MONO.replace("monospace", '"Hiragino Kaku Gothic ProN",monospace'), "--mono": _MONO,
+         "--header-bg": "repeating-linear-gradient(0deg,rgba(255,255,255,.09) 0 1px,transparent 1px 24px),"
+                        "repeating-linear-gradient(90deg,rgba(255,255,255,.09) 0 1px,transparent 1px 24px),#163a66",
+         "--header-fg": "#ffffff"},
+        {"--bg": "#0b1a2e", "--card": "#0f2238", "--ink": "#dbe7f6", "--muted": "#8fa7c4", "--line": "#23405f",
+         "--accent": "#7fb2ff", "--accent-2": "#a9ccff", "--accent-soft": "#12294a", "--on-accent": "#07162a",
+         "--code-bg": "#07121f", "--code-fg": "#dbe7f6",
+         "--header-bg": "repeating-linear-gradient(0deg,rgba(127,178,255,.08) 0 1px,transparent 1px 24px),"
+                        "repeating-linear-gradient(90deg,rgba(127,178,255,.08) 0 1px,transparent 1px 24px),#0f2238",
+         "--header-fg": "#dbe7f6"},
+        """
+body{background-image:linear-gradient(color-mix(in srgb,var(--accent) 7%,transparent) 1px,transparent 1px),
+  linear-gradient(90deg,color-mix(in srgb,var(--accent) 7%,transparent) 1px,transparent 1px);background-size:24px 24px}
+.content h2.hl{border-left:0;padding-left:0;padding-bottom:6px;border-bottom:1px dashed var(--accent);letter-spacing:.02em}
+.content h2.hl::before{content:"// ";color:var(--muted)}
+.mermaid-fig{border:1px solid var(--accent);box-shadow:none;background-color:var(--card);
+  background-image:linear-gradient(color-mix(in srgb,var(--accent) 6%,transparent) 1px,transparent 1px),
+  linear-gradient(90deg,color-mix(in srgb,var(--accent) 6%,transparent) 1px,transparent 1px);background-size:16px 16px}
+.doc-card,.stat,.tabs,.checklist,.defs,.tree,.pc-col,.accordion{box-shadow:none}
+@media print{body,.mermaid-fig{background-image:none}}
+"""),
+    "minimal": _theme(
+        "ミニマル", "system",
+        ["#2f6feb", "#6e6e73", "#0f766e", "#b45309"], ["#6ea0ff", "#a1a1a6", "#2dd4bf", "#f5b454"],
+        {"--bg": "#ffffff", "--card": "#ffffff", "--ink": "#1d1d1f", "--muted": "#6e6e73", "--line": "#e6e6e6",
+         "--accent": "#2f6feb", "--accent-2": "#1d1d1f", "--accent-soft": "#f4f4f2", "--on-accent": "#ffffff",
+         "--code-bg": "#f6f6f4", "--code-fg": "#37352f", "--radius": "6px", "--shadow": "none",
+         "--font": _GOTHIC, "--font-head": _GOTHIC, "--mono": _MONO,
+         "--header-bg": "#ffffff", "--header-fg": "#1d1d1f"},
+        {"--bg": "#191919", "--card": "#202020", "--ink": "#e9e9e7", "--muted": "#9b9a97", "--line": "#2f2f2f",
+         "--accent": "#6ea0ff", "--accent-2": "#e9e9e7", "--accent-soft": "#252525", "--on-accent": "#0d0d0d",
+         "--code-bg": "#252525", "--code-fg": "#e9e9e7", "--header-bg": "#191919", "--header-fg": "#e9e9e7"},
+        """
+.content h2.hl{border-left:0;padding-left:0;padding-bottom:6px;border-bottom:1px solid var(--line);color:var(--ink);font-size:22px;font-weight:700}
+.content h3.hl{font-weight:700}
+.hero{border-bottom:1px solid var(--line);padding-bottom:36px}
+.hero h1{font-weight:700}
+.doc-card{border-top-width:1px}
+.copy-btn{background:var(--card);color:var(--muted);border-color:var(--line)}
+.copy-btn:hover{background:var(--accent-soft)}
+.codeblock pre{border:1px solid var(--line)}
+th{color:var(--ink);background:var(--accent-soft)}
+"""),
+    "paper": _theme(
+        "紙（セピア）", "system",
+        ["#7a4a1e", "#5f6f3a", "#8a3b3b", "#3f5f73"], ["#d9a066", "#b5c47a", "#e39a8f", "#9dbbd0"],
+        {"--bg": "#f6f1e7", "--card": "#fbf8f1", "--ink": "#3b2f24", "--muted": "#7a6a58", "--line": "#e2d7c5",
+         "--accent": "#7a4a1e", "--accent-2": "#5c3714", "--accent-soft": "#efe4d2", "--on-accent": "#fbf8f1",
+         "--code-bg": "#3b2f24", "--code-fg": "#f3eadb", "--radius": "10px", "--shadow": "none",
+         "--font": _GOTHIC, "--font-head": _MINCHO, "--mono": _MONO,
+         "--header-bg": "#efe4d2", "--header-fg": "#3b2f24"},
+        {"--bg": "#1e1a15", "--card": "#25201a", "--ink": "#e9dfcf", "--muted": "#b3a58f", "--line": "#3a3128",
+         "--accent": "#d9a066", "--accent-2": "#e8bd8d", "--accent-soft": "#2e261d", "--on-accent": "#1e1a15",
+         "--code-bg": "#16130f", "--code-fg": "#e9dfcf", "--header-bg": "#25201a", "--header-fg": "#e9dfcf"},
+        """
+:root{--maxw:940px}
+body{line-height:2;font-size:16.5px}
+.content p{margin:16px 0}
+.content h2.hl{border-left:0;padding-left:0;font-size:24px;font-weight:700}
+.content h2.hl::after{content:"";display:block;width:48px;height:2px;background:var(--accent);margin-top:10px}
+.hero h1{font-weight:700}
+"""),
+})
+
+# テーマの一覧（選ばせるときの材料。label は THEMES 側）
+THEME_INFO = {
+    "corporate": ("青基調・カード・万人向け", "資料・報告・社内共有の既定"),
+    "darktech": ("暗背景＋シアン/パープル", "エンジニア向けの技術資料"),
+    "infographic": ("カラフル・丸ゴシック", "インパクト重視の紹介・広報"),
+    "editorial": ("明朝・余白・読み物風", "コラム・解説・読み物"),
+    "pastel": ("丸み・淡色", "社内の親しみやすい共有"),
+    "formal": ("白と墨＋紺・罫線・見出しに 1. / 1.1 の番号", "報告書・稟議・規程・提案書（印刷が最も整う）"),
+    "manual": ("灰色の地＋オレンジ・詰めた組み・見出しに番号の札", "手順書・運用手順・トラブル対応"),
+    "contrast": ("大きな文字・高コントラスト・太い下線のリンク", "社外公開・全社向け・読みやすさ最優先"),
+    "blueprint": ("方眼の地に紺・等幅の見出し・製図風の図枠", "設計書・仕様書・アーキテクチャ説明"),
+    "minimal": ("黒い文字と余白・細い罫線・影なし", "社内メモ・議事録・ナレッジ"),
+    "paper": ("生成りの紙色・焦げ茶・広い行間", "長文の読み物・解説・研修資料"),
+}
+
+
+def theme_extra_css(theme_key):
+    return THEMES[theme_key].get("extra_css", "")
+
+
 COLOR_MODES = ["system", "light", "dark"]
 MODE_STORAGE_KEY = "md2doc-color-mode"
 
@@ -441,12 +639,16 @@ def parse_blocks(lines, headings, used_slugs, mermaid_store, top_level=True, lay
     # このブロック内で現在有効なレイアウト。見出しごとに --layout-map / 既定値で再解決し、
     # `<!-- layout: .. -->` ディレクティブが現れたらそこから上書きする。
     cur_layout = layout
+    lays, head_lay = [], {}      # 出力ブロックごとの節レイアウト（節単位の組み替え用）
+    table_mode = "auto"
 
     def indent_of(s):
         m = re.match(r"[ \t]*", s)
         return len(m.group(0).replace("\t", "    "))
 
     while i < n:
+        while len(lays) < len(out):
+            lays.append(cur_layout)
         line = lines[i]
 
         if not line.strip():
@@ -468,6 +670,7 @@ def parse_blocks(lines, headings, used_slugs, mermaid_store, top_level=True, lay
             # 節が変わったのでレイアウトを再解決（前節のディレクティブを引きずらない）
             if top_level:
                 cur_layout = layout_for_section(txt, slug, layout)
+                head_lay[len(out) - 1] = (level, cur_layout)
             i += 1
             continue
 
@@ -476,6 +679,14 @@ def parse_blocks(lines, headings, used_slugs, mermaid_store, top_level=True, lay
         if directive is not None:
             if top_level and directive:
                 cur_layout = directive
+                for k in sorted(head_lay, reverse=True):      # 見出し直後のディレクティブは節の見せ方にも効く
+                    head_lay[k] = (head_lay[k][0], directive)
+                    break
+            i += 1
+            continue
+        tm = TABLE_DIRECTIVE_RE.match(line)
+        if tm:
+            table_mode = tm.group(1).lower()
             i += 1
             continue
 
@@ -541,16 +752,18 @@ def parse_blocks(lines, headings, used_slugs, mermaid_store, top_level=True, lay
             rows = []
             while i < n and "|" in lines[i] and lines[i].strip():
                 rows.append(cells(lines[i])); i += 1
-            th = "".join("<th>%s</th>" % inline(c) for c in header)
-            trs = "".join("<tr>%s</tr>" % "".join("<td>%s</td>" % inline(c) for c in r) for r in rows)
-            out.append('<div class="tablewrap"><table><thead><tr>%s</tr></thead><tbody>%s</tbody></table></div>'
-                       % (th, trs))
+            out.append(render_table(header, rows, table_mode))
+            table_mode = "auto"
             continue
 
         # リスト
         if re.match(r"^\s*([-*+]|\d+\.)\s+", line):
             # カード/タイムライン（トップレベルの単純箇条書き）は従来のフラット収集
-            if top_level and cur_layout != "plain":
+            if top_level and cur_layout in RICH_LAYOUTS:
+                items, i = collect_top_items(lines, i)
+                out.append(render_rich(items, cur_layout, headings, used_slugs, mermaid_store))
+                continue
+            if top_level and cur_layout in FLAT_LAYOUTS:
                 items = []
                 while i < n and re.match(r"^\s*([-*+]|\d+\.)\s+", lines[i]):
                     lm = re.match(r"^(\s*)([-*+]|\d+\.)\s+(.*)$", lines[i])
@@ -582,6 +795,10 @@ def parse_blocks(lines, headings, used_slugs, mermaid_store, top_level=True, lay
         raw = " ".join(t for t in toks if t)
         out.append("<p>%s</p>" % inline(raw).replace("\x00BR\x00", "<br>"))
 
+    while len(lays) < len(out):
+        lays.append(cur_layout)
+    if top_level:
+        out = regroup_sections(out, lays, head_lay)
     return "\n".join(out)
 
 
@@ -683,6 +900,357 @@ def build_list(items):
     return parse(items[0]["indent"])
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# 追加のレイアウト（tabs / checklist / defs / stats / proscons / chips / tree）と
+# 節の見せ方（walkthrough / summary）、表の強化
+# ──────────────────────────────────────────────────────────────────────────
+_UID = [0]
+
+
+def _uid(prefix):
+    _UID[0] += 1
+    return "%s%d" % (prefix, _UID[0])
+
+
+def collect_top_items(lines, i):
+    """トップレベルの項目ごとに {text, body} を集める（body は項目の中の後続行。コード・段落を含む）。"""
+    n = len(lines)
+    base = _indent_of(lines[i])
+    items = []
+    while i < n:
+        if not lines[i].strip():
+            j = i
+            while j < n and not lines[j].strip():
+                j += 1
+            if j < n and _indent_of(lines[j]) == base and re.match(r"^\s*([-*+]|\d+\.)\s+", lines[j]):
+                i = j
+                continue
+            break
+        if _indent_of(lines[i]) != base:
+            break
+        mk = re.match(r"^(\s*)([-*+]|\d+\.)(\s+)(.*)$", lines[i])
+        if not mk:
+            break
+        ci = len(mk.group(1)) + len(mk.group(2)) + len(mk.group(3))
+        body = []
+        i += 1
+        while i < n:
+            if not lines[i].strip():
+                body.append("")
+                i += 1
+                continue
+            if _indent_of(lines[i]) >= ci:
+                ln = lines[i]
+                body.append(ln[ci:] if len(ln) >= ci else ln.lstrip())
+                i += 1
+            else:
+                break
+        while body and not body[-1].strip():
+            body.pop()
+        items.append({"text": mk.group(4), "body": body, "ordered": bool(re.match(r"\d+\.", mk.group(2)))})
+    return items, i
+
+
+_PROS = re.compile(r"(メリット|良い|良かった|利点|長所|強み|pros?\b|good|できること|うれしい)", re.I)
+_CONS = re.compile(r"(デメリット|懸念|欠点|短所|弱み|リスク|課題|cons?\b|bad|注意|できないこと|困る)", re.I)
+_STAT = re.compile(r"^\s*(?:\*\*)?([+\-−±]?[¥$€]?\d[\d,]*(?:\.\d+)?\s*(?:%|％|倍|件|人|名|社|円|万円|億円|万|億|時間|分|秒|ms|s|x|pt|点|日|週間|週|か月|ヶ月|年|GB|MB|TB|KB|K|M|B|回|本|個|行)?)(?:\*\*)?(?:\s+|$)(.*)$")
+
+
+def _term_desc(text):
+    m = re.match(r"^\*\*(.+?)\*\*\s*[:：—–]?\s*(.*)$", text)
+    if m:
+        return m.group(1), m.group(2)
+    m = re.match(r"^`([^`]+)`\s*[:：—–]\s*(.*)$", text)
+    if m:
+        return "`%s`" % m.group(1), m.group(2)
+    m = re.match(r"^([^:：]{1,40}?)\s*[:：]\s*(.+)$", text)
+    if m and "http" not in m.group(1) and "/" not in m.group(1):
+        return m.group(1), m.group(2)
+    return text, ""
+
+
+def render_rich(items, layout, headings, used_slugs, mermaid_store):
+    def body_html(it):
+        if not it["body"]:
+            return ""
+        return render_item_body(it["body"], headings, used_slugs, mermaid_store, "plain")
+
+    if layout == "tabs":
+        tid = _uid("tabs")
+        btns, panels = [], []
+        for k, it in enumerate(items):
+            icon, tags, text = extract_decorations(it["text"])
+            lab = (html.escape(icon) + " " if icon else "") + inline(text)
+            btns.append('<button type="button" role="tab" id="%s-t%d" aria-controls="%s-p%d" aria-selected="%s" '
+                        'tabindex="%d" style="--ca:%s">%s</button>'
+                        % (tid, k, tid, k, "true" if k == 0 else "false", 0 if k == 0 else -1, _ca(k), lab))
+            panels.append('<section class="tab-panel" role="tabpanel" id="%s-p%d" aria-labelledby="%s-t%d" tabindex="0">'
+                          '<div class="tab-print-h">%s</div>%s</section>' % (tid, k, tid, k, lab, body_html(it)))
+        return ('<div class="tabs" data-tabs><div class="tab-list" role="tablist">%s</div>%s</div>'
+                % ("".join(btns), "".join(panels)))
+
+    if layout == "checklist":
+        key = _uid("ck")
+        rows, done = [], 0
+        for it in items:
+            m = re.match(r"^\[([ xX])\]\s+(.*)$", it["text"])
+            checked = bool(m and m.group(1).lower() == "x")
+            text = m.group(2) if m else it["text"]
+            done += checked
+            b = body_html(it)
+            rows.append('<li><label><input type="checkbox"%s><span class="ck-text">%s</span></label>%s</li>'
+                        % (" checked" if checked else "", inline(text), '<div class="ck-body">%s</div>' % b if b else ""))
+        total = len(items) or 1
+        return ('<div class="checklist" data-checklist="%s"><div class="ck-head"><div class="ck-bar"><i style="width:%d%%"></i></div>'
+                '<span class="ck-count">%d / %d</span><button type="button" class="ck-reset">元に戻す</button></div>'
+                '<ul class="ck-list">%s</ul></div>' % (key, round(100 * done / total), done, len(items), "".join(rows)))
+
+    if layout == "defs":
+        rows = []
+        for it in items:
+            term, desc = _term_desc(it["text"])
+            b = body_html(it)
+            rows.append('<div class="def"><dt>%s</dt><dd>%s%s</dd></div>' % (inline(term), inline(desc) if desc else "", b))
+        filt = ('<input type="search" class="defs-filter" placeholder="用語を絞り込む" aria-label="用語を絞り込む">'
+                if len(items) >= 10 else "")
+        return '<div class="defs-wrap">%s<dl class="defs">%s</dl></div>' % (filt, "".join(rows))
+
+    if layout == "stats":
+        tiles = []
+        for k, it in enumerate(items):
+            m = _STAT.match(it["text"])
+            val, lab = (m.group(1).strip(), m.group(2)) if m else (it["text"], "")
+            b = body_html(it)
+            tiles.append('<div class="stat" style="--ca:%s"><div class="big">%s</div><div class="cap">%s</div>%s</div>'
+                         % (_ca(k), inline(val), inline(lab), '<div class="stat-note">%s</div>' % b if b else ""))
+        return '<div class="stat-row">%s</div>' % "".join(tiles)
+
+    if layout == "proscons":
+        cols = []
+        for k, it in enumerate(items):
+            icon, tags, text = extract_decorations(it["text"])
+            # 「デメリット」は「メリット」を含むので、懸念を先に判定する
+            tone = "con" if _CONS.search(text) else "pro" if _PROS.search(text) else "neutral"
+            ca = ' style="--ca:%s"' % _ca(k) if tone == "neutral" else ""
+            cols.append('<div class="pc-col pc-%s"%s><div class="pc-h">%s%s</div><div class="pc-b">%s</div></div>'
+                        % (tone, ca, (html.escape(icon) + " ") if icon else "", inline(text), body_html(it)))
+        return '<div class="pc-grid" style="--cols:%d">%s</div>' % (min(len(items), 3), "".join(cols))
+    return ""
+
+
+def render_tree(items):
+    pos = [0]
+
+    def node_html(text, children_html):
+        parts = re.split(r"\s+(?:—|–|#|→)\s+", text, 1)
+        name = inline(parts[0].strip())
+        note = '<span class="tree-note">%s</span>' % inline(parts[1]) if len(parts) > 1 else ""
+        is_dir = bool(children_html) or parts[0].strip().rstrip("`").endswith("/")
+        cls = "tree-dir" if is_dir else "tree-file"
+        head = '<span class="tree-name">%s</span>%s' % (name, note)
+        if children_html:
+            return '<li class="%s"><details open><summary>%s</summary>%s</details></li>' % (cls, head, children_html)
+        return '<li class="%s"><span class="tree-row">%s</span></li>' % (cls, head)
+
+    def parse(level):
+        out = []
+        while pos[0] < len(items) and items[pos[0]]["indent"] >= level:
+            it = items[pos[0]]
+            if it["indent"] > level:
+                out.append(parse(it["indent"]))
+                continue
+            pos[0] += 1
+            child = ""
+            if pos[0] < len(items) and items[pos[0]]["indent"] > level:
+                child = parse(items[pos[0]]["indent"])
+            out.append(node_html(it["text"], child))
+        return "<ul>%s</ul>" % "".join(out)
+    inner = parse(items[0]["indent"])
+    return '<div class="tree">%s</div>' % inner
+
+
+_NUM_CELL = re.compile(r"^[+\-−]?[¥$€]?\d[\d,]*(?:\.\d+)?\s*[%％a-zA-Zぁ-んァ-ヶ一-龠]{0,4}$")
+
+
+def _num_value(c):
+    m = re.search(r"[+\-−]?\d[\d,]*(?:\.\d+)?", c)
+    return float(m.group(0).replace(",", "").replace("−", "-")) if m else None
+
+
+def render_table(header, rows, mode="auto"):
+    ncol = len(header)
+    tools = mode == "tools" or (mode == "auto" and len(rows) >= TABLE_TOOLS_ROWS)
+    numeric = []
+    for c in range(ncol):
+        vals = [r[c].strip() for r in rows if c < len(r) and r[c].strip()]
+        # 1 列目は行の見出し（「1月」「v2」など）なので数値の列にしない
+        numeric.append(c > 0 and len(vals) >= 2 and all(_NUM_CELL.match(v.replace("**", "")) for v in vals))
+    maxv = {}
+    for c in range(ncol):
+        if numeric[c]:
+            vs = [_num_value(r[c]) for r in rows if c < len(r) and r[c].strip()]
+            vs = [v for v in vs if v is not None]
+            maxv[c] = max(vs) if vs and max(vs) > 0 and min(vs) >= 0 else None
+    th = "".join('<th%s>%s</th>' % (' class="num"' if numeric[c] else "", inline(h)) for c, h in enumerate(header))
+    trs = []
+    for r in rows:
+        tds = []
+        for c in range(ncol):
+            cell = r[c] if c < len(r) else ""
+            if numeric[c] and cell.strip():
+                v = _num_value(cell)
+                bar = ""
+                if tools and maxv.get(c) and v is not None:
+                    bar = '<span class="nbar" style="--w:%.1f"></span>' % (100.0 * v / maxv[c])   # 単位なしの割合（CSS の calc で使う）
+                tds.append('<td class="num" data-v="%s">%s<span class="nv">%s</span></td>' % (v, bar, inline(cell)))
+            else:
+                tds.append("<td>%s</td>" % inline(cell))
+        trs.append("<tr>%s</tr>" % "".join(tds))
+    return ('<div class="tablewrap%s" data-md2doc-table%s><table><thead><tr>%s</tr></thead><tbody>%s</tbody></table></div>'
+            % (" tools" if tools else "", " data-table-tools" if tools else "", th, "".join(trs)))
+
+
+def regroup_sections(out, lays, head_lay):
+    """節単位の見せ方を組み立てる。
+    walkthrough: 段落とコードが交互に続く所（2 組以上）を「左に説明・右にコード」に並べる。
+    summary: 見出しから次の同じか上の見出しまでを要点の箱で包む。"""
+    def kind(h):
+        if h.startswith('<figure class="codeblock"'):
+            return "code"
+        if re.match(r"<h[1-6]\b", h):
+            return "h"
+        return "text"
+
+    # walkthrough
+    res, i = [], 0
+    while i < len(out):
+        if lays[i] != "walkthrough" or kind(out[i]) == "h":
+            res.append(out[i]); i += 1
+            continue
+        j = i
+        while j < len(out) and lays[j] == "walkthrough" and kind(out[j]) != "h":
+            j += 1
+        seg, rows, cur_t, cur_c = out[i:j], [], [], []
+        for h in seg:
+            if kind(h) == "code":
+                cur_c.append(h)
+            else:
+                if cur_c:
+                    rows.append((cur_t, cur_c)); cur_t, cur_c = [], []
+                cur_t.append(h)
+        if cur_t or cur_c:
+            rows.append((cur_t, cur_c))
+        pairs = [r for r in rows if r[0] and r[1]]
+        if len(pairs) >= 2:
+            html_rows = []
+            for t, c in rows:
+                if t and c:
+                    html_rows.append('<div class="walk-row"><div class="walk-text">%s</div><div class="walk-code">%s</div></div>'
+                                     % ("\n".join(t), "\n".join(c)))
+                else:
+                    html_rows.append('<div class="walk-solo">%s</div>' % "\n".join(t + c))
+            res.append('<div class="walk">%s</div>' % "".join(html_rows))
+        else:
+            res.extend(seg)
+        i = j
+    # summary（見出しの位置は walkthrough で変わらない：見出しは組み替えない）
+    final, i = [], 0
+    heads = {}
+    for n_, h in enumerate(out):
+        if n_ in head_lay:
+            heads[h] = head_lay[n_]
+    while i < len(res):
+        h = res[i]
+        hl = heads.get(h)
+        if hl and hl[1] == "summary":
+            level = hl[0]
+            j = i + 1
+            while j < len(res):
+                m = re.match(r"<h([1-6])\b", res[j])
+                if m and int(m.group(1)) <= level:
+                    break
+                j += 1
+            final.append('<section class="tldr">%s</section>' % "\n".join(res[i:j]))
+            i = j
+            continue
+        final.append(h); i += 1
+    return final
+
+
+def suggest_layouts(lines):
+    """節ごとのレイアウトの割り当て案（3f で提示する材料）。[(節名, レイアウト, 理由)]"""
+    secs, cur, in_fence = [], None, False
+    for ln in lines:
+        if re.match(r"^\s{0,3}(`{3,}|~{3,})", ln):
+            in_fence = not in_fence
+            if cur is not None:
+                cur["lines"].append(ln)
+            continue
+        hm = None if in_fence else re.match(r"^(#{2,3})\s+(.*)$", ln)
+        if hm:
+            cur = {"name": hm.group(2).strip(), "level": len(hm.group(1)), "lines": []}
+            secs.append(cur)
+            continue
+        if cur is not None:
+            cur["lines"].append(ln)
+    out = []
+    for si, sec in enumerate(secs):
+        L = sec["lines"]
+        items, i = [], 0
+        while i < len(L):
+            if re.match(r"^([-*+]|\d+\.)\s+", L[i]):
+                its, i = collect_top_items(L, i)
+                items += its
+            else:
+                i += 1
+        name = sec["name"]
+        texts = [it["text"] for it in items]
+        n = len(items)
+        paras_code, prev, fence = 0, None, False
+        for ln in L:
+            if re.match(r"^(`{3,}|~{3,})", ln):
+                if not fence and prev == "p":
+                    paras_code += 1          # 段落の直後に始まるコード
+                fence = not fence
+                prev = "code"
+            elif not fence and ln.strip() and not re.match(r"^\s*([-*+]|\d+\.|#|>|\|)", ln):
+                prev = "p"
+        frac = lambda f: n and sum(1 for t in texts if f(t)) / n
+        pick = None
+        if re.search(r"^(概要|まとめ|要点|要約|サマリー?|summary|tl;?dr|結論)$", name, re.I) and si <= 1:
+            pick = ("summary", "冒頭の要約の節")
+        elif paras_code >= 2 and n <= 2:
+            pick = ("walkthrough", "説明とコードが %d 組交互に続く" % paras_code)
+        elif n >= 2 and frac(lambda t: re.match(r"^\[[ xX]\]\s", t)) >= .6:
+            pick = ("checklist", "チェックボックスの項目が %d 件" % n)
+        elif n >= 3 and frac(lambda t: bool(_STAT.match(t)) and _STAT.match(t).group(2)) >= .8 and n <= 6:
+            pick = ("stats", "先頭が数値の項目が %d 件" % n)
+        elif n >= 3 and frac(lambda t: bool(re.match(r"^(\*\*.+?\*\*|`[^`]+`|[^:：]{1,30})\s*[:：—–]\s*\S", t))) >= .7:
+            pick = ("defs", "「用語: 説明」の形が %d 件" % n)
+        elif n >= 2 and frac(lambda t: bool(re.search(r"(/|\.[a-z]{1,5}\b)", re.split(r"\s+(?:—|–|#|→)\s+", t)[0]))) >= .6 \
+                and any(it["body"] for it in items):
+            pick = ("tree", "パスの形の入れ子")
+        elif 2 <= n <= 3 and all(it["body"] for it in items) and \
+                (sum(1 for t in texts if _PROS.search(t) or _CONS.search(t)) >= 2 or
+                 re.search(r"(比較|対比|違い|vs)", name, re.I)):
+            pick = ("proscons", "%d 列の対比（小項目あり）" % n)
+        elif 2 <= n <= 6 and all(len(it["body"]) >= 3 or any(re.match(r"^\s*(`{3,}|~{3,})", b) for b in it["body"]) for it in items) \
+                and all(len(re.sub(r"[`*]", "", t)) <= 24 for t in texts):
+            pick = ("tabs", "並列の %d 項目それぞれに長い中身・コード" % n)
+        elif n >= 5 and all(not it["body"] for it in items) and all(len(re.sub(r"[`*]", "", t)) <= 14 for t in texts):
+            pick = ("chips", "短い語が %d 件" % n)
+        elif n >= 3 and all(it["ordered"] for it in items):
+            pick = ("timeline", "番号付きの %d 工程" % n)
+        elif n >= 8 and (sum(1 for it in items if it["body"]) >= n * .6 or
+                         sum(1 for t in texts if re.search(r"[?？]$|^Q[.:：]", t)) >= 3):
+            pick = ("accordion", "項目が %d 件で詳細を畳みたい" % n)
+        elif n >= 3 and sum(1 for it in items if it["body"]) >= n * .6:
+            pick = ("cards", "並列の %d 項目に小項目" % n)
+        if pick:
+            out.append((name, pick[0], pick[1]))
+    return out
+
+
 # 描画中テーマの配色サイクル（convert_file でセット）。
 # hex ではなく var(--aN) を入れる — ライト/ダークで別配色に切り替わるため。
 _ACCENTS = ["var(--a0)"]
@@ -744,7 +1312,15 @@ def _ca(idx):
 #     3. `--layout`（既定値）
 #   freeform は文書全体を Claude が著述するモードなので、セクション単位には指定できない。
 # ──────────────────────────────────────────────────────────────────────────
-DET_LAYOUTS = ("plain", "cards", "timeline", "accordion")
+# リストの見せ方（節の中のトップレベル箇条書きに効く）と、節そのものの見せ方
+LIST_LAYOUTS = ("plain", "cards", "timeline", "accordion",
+                "tabs", "checklist", "defs", "stats", "chips", "tree", "proscons")
+SECTION_LAYOUTS = ("walkthrough", "summary")
+DET_LAYOUTS = LIST_LAYOUTS + SECTION_LAYOUTS
+FLAT_LAYOUTS = ("cards", "timeline", "accordion", "chips", "tree")     # 箇条書きの行だけで組む
+RICH_LAYOUTS = ("tabs", "checklist", "defs", "stats", "proscons")     # 項目の中のコード・段落も使う
+TABLE_DIRECTIVE_RE = re.compile(r"^\s*<!--\s*table\s*[:=]\s*(plain|tools|auto)\s*-->\s*$", re.I)
+TABLE_TOOLS_ROWS = 8
 LAYOUT_DIRECTIVE_RE = re.compile(r"^\s*<!--\s*layout\s*[:=]\s*([\w-]+)\s*-->\s*$", re.I)
 _LAYOUT_MAP = {}         # 正規化した節名/slug -> レイアウト
 _LAYOUT_MAP_HIT = set()  # 実際に当たったキー（未使用キーの警告用）
@@ -840,7 +1416,17 @@ def render_list(items, layout):
     先頭絵文字→アイコン、末尾{タグ}→pill、カード色はテーマ配色を循環。"""
     if layout == "plain":
         return build_list(items)
+    if layout == "tree":
+        return render_tree(items)
     groups = split_top_items(items)
+    if layout == "chips":
+        chips = []
+        for idx, g in enumerate(groups):
+            tip = re.sub(r"<[^>]+>", " ", g["children"]).strip()
+            chips.append('<span class="chip" style="--ca:%s"%s>%s%s</span>'
+                         % (_ca(idx), ' title="%s"' % html.escape(re.sub(r"\s+", " ", tip), quote=True) if tip else "",
+                            (html.escape(g["icon"]) + " ") if g["icon"] else "", g["label"]))
+        return '<div class="chips chips-lg">%s</div>' % "".join(chips)
 
     def tags_html(g):
         if not g["tags"]:
@@ -955,13 +1541,14 @@ def render_mermaid(sources, theme):
                 except Exception:
                     svgs[mode] = None
             if svgs["light"] and svgs["dark"]:
-                result[idx] = ('<figure class="mermaid-fig">'
+                result[idx] = ('<figure class="mermaid-fig" id="md2doc-mm-%d">'
                                '<div class="mm-light">%s</div>'
                                '<div class="mm-dark">%s</div></figure>'
-                               % (svgs["light"], _uniquify_svg_ids(svgs["dark"], "-mmdark")))
+                               % (idx, svgs["light"], _uniquify_svg_ids(svgs["dark"], "-mmdark")))
             elif svgs["light"] or svgs["dark"]:
                 # 片方だけ描けたなら両モードでそれを使う（無いよりまし）
-                result[idx] = '<figure class="mermaid-fig">%s</figure>' % (svgs["light"] or svgs["dark"])
+                result[idx] = '<figure class="mermaid-fig" id="md2doc-mm-%d">%s</figure>' % (
+                    idx, svgs["light"] or svgs["dark"])
             else:
                 result[idx] = None
         return result, True
@@ -1049,6 +1636,37 @@ body{font-family:var(--font);color:var(--ink);background:var(--bg);line-height:1
 .mode-switch button:hover{color:var(--accent);background:var(--accent-soft)}
 .mode-switch button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent)}
 .mode-switch button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* 文字の設定（書体・大きさ）。テーマの変数より後に置いて上書きする */
+.type-switch{position:relative;display:inline-flex}
+.type-btn{height:32px;min-width:40px;padding:0 10px;margin-left:6px;border:1px solid var(--line);border-radius:999px;
+  background:color-mix(in srgb,var(--card) 65%,transparent);color:var(--muted);font:700 13px/1 var(--font-head);cursor:pointer;transition:.15s}
+.type-btn:hover,.type-btn[aria-expanded="true"]{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
+.type-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.type-panel{position:absolute;right:6px;top:calc(100% + 8px);z-index:300;display:flex;flex-direction:column;gap:10px;
+  min-width:286px;padding:12px 14px;background:var(--card);color:var(--ink);border:1px solid var(--line);
+  border-radius:12px;box-shadow:0 10px 28px rgba(0,0,0,.2)}
+.type-panel[hidden]{display:none}
+.type-row{display:flex;align-items:center;gap:10px}
+.type-lab{font-size:12px;font-weight:700;color:var(--muted);min-width:3.6em}
+.type-seg{display:flex;gap:2px;padding:3px;border:1px solid var(--line);border-radius:999px}
+.type-seg button{border:0;background:none;color:var(--muted);font-size:12.5px;line-height:1.2;padding:5px 10px;
+  border-radius:999px;cursor:pointer;white-space:nowrap}
+.type-seg button:hover{color:var(--accent);background:var(--accent-soft)}
+.type-seg button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent)}
+.type-seg button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.type-seg [data-ff="gothic"]{font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif}
+.type-seg [data-ff="mincho"]{font-family:"Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif}
+.type-seg [data-ff="ud"]{font-family:"BIZ UDPGothic","Hiragino Kaku Gothic ProN",sans-serif}
+:root[data-ff="gothic"]{--font:"Hiragino Kaku Gothic ProN","Yu Gothic",system-ui,sans-serif;
+  --font-head:"Hiragino Kaku Gothic ProN","Yu Gothic",system-ui,sans-serif}
+:root[data-ff="mincho"]{--font:"Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif;
+  --font-head:"Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif}
+:root[data-ff="ud"]{--font:"BIZ UDPGothic","Hiragino Kaku Gothic ProN","Yu Gothic",system-ui,sans-serif;
+  --font-head:"BIZ UDPGothic","Hiragino Kaku Gothic ProN","Yu Gothic",system-ui,sans-serif}
+:root[data-fs="s"] .content{zoom:.9}
+:root[data-fs="l"] .content{zoom:1.15}
+:root[data-fs="xl"] .content{zoom:1.3}
+@media(max-width:560px){.type-panel{right:-40px}}
 [id]{scroll-margin-top:calc(var(--nav-h) + 16px)}
 .hero{background:var(--header-bg);color:var(--header-fg);
   padding:calc(var(--nav-h) + 52px) 24px 52px;margin-bottom:8px}
@@ -1219,6 +1837,104 @@ blockquote{margin:16px 0;padding:8px 18px;border-left:3px solid var(--line);colo
   color:var(--on-accent);background:var(--ca,var(--accent))}
 .split{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:18px 0}
 @media(max-width:680px){.split{grid-template-columns:1fr}}
+/* 追加のレイアウト */
+.tabs{margin:18px 0;border:1px solid var(--line);border-radius:var(--radius);background:var(--card);overflow:hidden}
+.tab-list{display:flex;flex-wrap:wrap;gap:2px;border-bottom:1px solid var(--line);background:var(--accent-soft);padding:6px 6px 0}
+.tab-list [role=tab]{font:inherit;font-family:var(--font-head);font-weight:700;font-size:14px;border:0;background:none;
+  color:var(--muted);padding:9px 16px;border-radius:10px 10px 0 0;cursor:pointer;border-bottom:3px solid transparent}
+.tab-list [role=tab][aria-selected=true]{background:var(--card);color:var(--ca,var(--accent-2));border-bottom-color:var(--ca,var(--accent))}
+.tab-list [role=tab]:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.tab-panel{padding:6px 20px 14px}
+.tab-panel:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.tab-print-h{font-family:var(--font-head);font-weight:800;margin:12px 0 4px;color:var(--accent-2)}
+.tabs-js .tab-print-h{display:none}
+.tabs-js .tab-panel[hidden]{display:none}
+.tabs:not(.tabs-js) .tab-list{display:none}
+.tabs:not(.tabs-js) .tab-panel+.tab-panel{border-top:1px solid var(--line)}
+.checklist{margin:18px 0;border:1px solid var(--line);border-radius:var(--radius);background:var(--card);padding:14px 18px}
+.ck-head{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+.ck-bar{flex:1;height:8px;border-radius:99px;background:var(--accent-soft);overflow:hidden}
+.ck-bar i{display:block;height:100%;background:var(--accent);border-radius:99px;transition:width .3s}
+.ck-count{font-family:var(--mono);font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.ck-reset{font:inherit;font-size:12px;border:1px solid var(--line);background:var(--card);color:var(--muted);border-radius:8px;padding:3px 10px;cursor:pointer}
+.content .ck-list{list-style:none;padding:0;margin:0}
+.content .ck-list>li{padding:8px 0 8px 0;border-top:1px solid var(--line);margin:0}
+.content .ck-list>li:first-child{border-top:0}
+.content .ck-list>li::before{display:none}
+.ck-list label{display:flex;gap:10px;align-items:flex-start;cursor:pointer}
+.ck-list input{width:18px;height:18px;margin:3px 0 0;accent-color:var(--accent);flex:0 0 auto}
+.ck-list input:checked+.ck-text{color:var(--muted);text-decoration:line-through}
+.ck-body{padding-left:28px;font-size:14px;color:var(--muted)}
+.defs-wrap{margin:18px 0}
+.defs-filter{font:inherit;font-size:14px;width:100%;max-width:320px;padding:7px 12px;border:1px solid var(--line);
+  border-radius:8px;background:var(--card);color:var(--ink);margin-bottom:10px}
+.defs{margin:0;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;background:var(--card)}
+.def{display:grid;grid-template-columns:minmax(120px,30%) 1fr;border-top:1px solid var(--line)}
+.def:first-child{border-top:0}
+.def dt{font-family:var(--font-head);font-weight:800;color:var(--accent-2);padding:11px 16px;background:var(--accent-soft)}
+.def dd{margin:0;padding:11px 16px;min-width:0}
+.def dd>:first-child{margin-top:0}.def dd>:last-child{margin-bottom:0}
+@media(max-width:560px){.def{grid-template-columns:1fr}.def dt{padding-bottom:4px}}
+.stat-note{margin-top:8px;font-size:12.5px;color:var(--muted);text-align:left}
+.chips-lg{gap:10px;margin:14px 0}
+.chips-lg .chip{font-family:var(--font);font-size:13.5px;color:var(--ca,var(--accent-2));
+  background:color-mix(in srgb,var(--ca,var(--accent)) 12%,var(--card));
+  border-color:color-mix(in srgb,var(--ca,var(--accent)) 35%,transparent);padding:5px 14px;border-radius:999px}
+.tree{margin:18px 0;padding:14px 18px;border:1px solid var(--line);border-radius:var(--radius);background:var(--card);
+  font-family:var(--mono);font-size:13.5px;overflow-x:auto}
+.content .tree ul{list-style:none;margin:0;padding:0}
+.content .tree ul ul{margin-left:8px;padding-left:16px;border-left:1px dashed var(--line)}
+.content .tree li{margin:0;padding:0}
+.content .tree li::before{display:none}
+.tree summary{cursor:pointer;list-style:none;display:flex;gap:10px;align-items:baseline;padding:3px 0}
+.tree summary::-webkit-details-marker{display:none}
+.tree-row{display:flex;gap:10px;align-items:baseline;padding:3px 0}
+.tree-name::before{content:"";display:inline-block;width:10px;height:12px;margin-right:8px;border:1.5px solid var(--muted);
+  border-radius:2px;vertical-align:-1px}
+.tree-dir>details>summary>.tree-name::before,.tree-dir>.tree-row>.tree-name::before{width:14px;height:10px;border:0;
+  border-radius:2px 2px 3px 3px;background:var(--accent);opacity:.85}
+.tree-dir>details:not([open])>summary>.tree-name::before{opacity:.45}
+.tree-dir>details>summary>.tree-name,.tree-dir>.tree-row>.tree-name{font-weight:700;color:var(--accent-2)}
+.tree-note{font-family:var(--font);font-size:12.5px;color:var(--muted)}
+.tree code{background:none;padding:0;color:inherit}
+.pc-grid{display:grid;grid-template-columns:repeat(var(--cols,2),minmax(0,1fr));gap:16px;margin:18px 0}
+@media(max-width:680px){.pc-grid{grid-template-columns:1fr}}
+.pc-col{border:1px solid var(--line);border-radius:var(--radius);background:var(--card);overflow:hidden;
+  border-top:4px solid var(--ca,var(--accent))}
+.pc-pro{--ca:#16a34a}.pc-con{--ca:#dc2626}
+.pc-h{font-family:var(--font-head);font-weight:800;padding:12px 16px 4px;color:var(--ca,var(--accent-2))}
+.pc-b{padding:0 16px 12px;font-size:14px}
+.pc-pro .pc-b ul>li::before{content:"✓";background:none;width:auto;height:auto;top:0;left:0;color:var(--ca);font-weight:800}
+.pc-con .pc-b ul>li::before{content:"!";background:none;width:auto;height:auto;top:0;left:3px;color:var(--ca);font-weight:800}
+.walk{margin:18px 0;display:flex;flex-direction:column;gap:14px}
+.walk-row{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:22px;align-items:start}
+.walk-row .codeblock{margin:0}
+.walk-text>:first-child{margin-top:0}
+@media(max-width:820px){.walk-row{grid-template-columns:1fr;gap:6px}}
+.tldr{margin:10px 0 28px;padding:4px 24px 16px;border-radius:var(--radius);background:var(--accent-soft);
+  border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);border-left:5px solid var(--accent)}
+.tldr>h2.hl,.tldr>h3.hl{margin-top:14px}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+td.num{position:relative}
+td.num .nv{position:relative}
+.nbar{position:absolute;left:6px;top:7px;bottom:7px;width:calc((100% - 12px) * var(--w) / 100);
+  background:color-mix(in srgb,var(--accent) 16%,transparent);border-radius:3px}
+.tablewrap.tools{max-height:560px;overflow:auto;border-radius:var(--radius)}
+.tablewrap.tools thead th{position:sticky;top:0;z-index:1}
+.tablewrap.tools th[aria-sort]{cursor:pointer;user-select:none;white-space:nowrap}
+.tablewrap.tools th[aria-sort]::after{content:"↕";margin-left:6px;font-size:11px;opacity:.45}
+.tablewrap.tools th[aria-sort=ascending]::after{content:"▲";opacity:.9}
+.tablewrap.tools th[aria-sort=descending]::after{content:"▼";opacity:.9}
+.tbl-tools{display:flex;gap:10px;align-items:center;margin:18px 0 -10px}
+.tbl-filter{font:inherit;font-size:13.5px;max-width:280px;width:100%;padding:6px 12px;border:1px solid var(--line);
+  border-radius:8px;background:var(--card);color:var(--ink)}
+.tbl-count{font-size:12.5px;color:var(--muted)}
+@media print{
+  .tabs .tab-list,.ck-reset,.defs-filter,.tbl-tools{display:none!important}
+  .tabs .tab-panel{display:block!important}.tabs .tab-print-h{display:block!important}
+  .tablewrap.tools{max-height:none;overflow:visible}.tablewrap.tools thead th{position:static}
+  .walk-row{grid-template-columns:1fr}
+}
 /* 目次の表示モード */
 .toc-menu .toc,.toc-none .toc{display:none}
 .toc-menu .layout,.toc-none .layout{grid-template-columns:1fr}
@@ -1249,7 +1965,8 @@ footer{max-width:var(--maxw);margin:40px auto 0;padding:24px;text-align:center;
 @media print{
   /* 紙は常にライト配色の図を使う */
   .mm-dark{display:none!important}.mm-light{display:block!important}
-  .topbar,.progress,.backtop,.copy-btn,.hamburger,.mode-switch,.anchor{display:none!important}
+  .topbar,.progress,.backtop,.copy-btn,.hamburger,.mode-switch,.type-switch,.anchor{display:none!important}
+  :root[data-fs] .content{zoom:1}
   .toc{display:none}.layout{grid-template-columns:1fr;display:block}
   [id]{scroll-margin-top:0}body{background:#fff}
   .hero{padding:0 0 18px;background:none!important;color:#000!important;border-bottom:2px solid #000}
@@ -1269,12 +1986,32 @@ MODE_SWITCH_HTML = (
     '<button type="button" data-mode="system" title="システム設定に合わせる"'
     ' aria-label="システム設定に合わせる">◐</button>'
     '</div>'
+) + (
+    # 読み手が書体と文字の大きさを選ぶ（テーマの選択とは別。このブラウザに保存）
+    '<div class="type-switch">'
+    '<button type="button" class="type-btn" aria-haspopup="true" aria-expanded="false" aria-controls="md2doc-type"'
+    ' title="文字の設定（書体・大きさ）" aria-label="文字の設定（書体・大きさ）"><span aria-hidden="true">Aa</span></button>'
+    '<div class="type-panel" id="md2doc-type" hidden>'
+    '<div class="type-row"><span class="type-lab" id="md2doc-type-ff">書体</span>'
+    '<div class="type-seg" role="group" aria-labelledby="md2doc-type-ff">'
+    '<button type="button" data-ff="theme">既定</button><button type="button" data-ff="gothic">ゴシック</button>'
+    '<button type="button" data-ff="mincho">明朝</button><button type="button" data-ff="ud" title="読みやすさを重視した書体">UD</button>'
+    '</div></div>'
+    '<div class="type-row"><span class="type-lab" id="md2doc-type-fs">大きさ</span>'
+    '<div class="type-seg" role="group" aria-labelledby="md2doc-type-fs">'
+    '<button type="button" data-fs="s">小</button><button type="button" data-fs="m">標準</button>'
+    '<button type="button" data-fs="l">大</button><button type="button" data-fs="xl">特大</button>'
+    '</div></div>'
+    '</div></div>'
 )
 
 # <head> 内で先に data-theme を確定させ、ダーク指定時の白フラッシュを防ぐ
 MODE_BOOT_JS = """(function(){try{
 var m=localStorage.getItem('__MODE_KEY__')||'__DEFAULT_MODE__';
 if(m==='light'||m==='dark')document.documentElement.setAttribute('data-theme',m);
+var ff=localStorage.getItem('md2doc-font'),fs=localStorage.getItem('md2doc-size');
+if(ff==='gothic'||ff==='mincho'||ff==='ud')document.documentElement.setAttribute('data-ff',ff);
+if(fs==='s'||fs==='l'||fs==='xl')document.documentElement.setAttribute('data-fs',fs);
 }catch(e){}})();"""
 
 # サイドメニューの開閉状態を、レイアウトが描かれる前に確定させる（初期表示は展開）
@@ -1357,6 +2094,131 @@ MODE_SCRIPT_JS = """(function(){
     apply(m);
   });});
   apply(read());
+})();
+(function(){
+  /* 文字の設定（書体・大きさ）: 「Aa」のパネル。選んだ値はこのブラウザに保存 */
+  var root=document.documentElement,btn=document.querySelector('.type-btn'),panel=document.getElementById('md2doc-type');
+  if(!btn||!panel) return;
+  function get(k,d){try{return localStorage.getItem(k)||d;}catch(e){return d;}}
+  function put(k,v){try{localStorage.setItem(k,v);}catch(e){}}
+  function apply(){
+    var ff=get('md2doc-font','theme'),fs=get('md2doc-size','m');
+    if(ff==='theme')root.removeAttribute('data-ff');else root.setAttribute('data-ff',ff);
+    if(fs==='m')root.removeAttribute('data-fs');else root.setAttribute('data-fs',fs);
+    [].forEach.call(panel.querySelectorAll('[data-ff]'),function(b){b.setAttribute('aria-pressed',String(b.getAttribute('data-ff')===ff));});
+    [].forEach.call(panel.querySelectorAll('[data-fs]'),function(b){b.setAttribute('aria-pressed',String(b.getAttribute('data-fs')===fs));});
+  }
+  function open(on,focus){
+    panel.hidden=!on; btn.setAttribute('aria-expanded',String(on));
+    if(on&&focus){var p=panel.querySelector('[aria-pressed="true"]');if(p)p.focus();}
+    if(!on&&focus)btn.focus();
+  }
+  btn.addEventListener('click',function(){open(panel.hidden,true);});
+  [].forEach.call(panel.querySelectorAll('button'),function(b){b.addEventListener('click',function(){
+    if(b.hasAttribute('data-ff'))put('md2doc-font',b.getAttribute('data-ff'));
+    if(b.hasAttribute('data-fs'))put('md2doc-size',b.getAttribute('data-fs'));
+    apply();
+  });});
+  panel.addEventListener('keydown',function(e){if(e.key==='Escape'){e.preventDefault();open(false,true);}});
+  document.addEventListener('pointerdown',function(e){if(!panel.hidden&&!e.target.closest('.type-switch'))open(false,false);});
+  apply();
+})();"""
+
+LAYOUT_JS = r"""(function(){
+  function each(l,f){[].forEach.call(l,f);}
+  /* タブ: JS 無し・印刷では全部を見出し付きで並べる */
+  each(document.querySelectorAll('.tabs[data-tabs]'),function(t){
+    var tabs=[].slice.call(t.querySelectorAll('[role=tab]')), panels=[].slice.call(t.querySelectorAll('.tab-panel'));
+    t.classList.add('tabs-js');
+    function sel(i,focus){ tabs.forEach(function(b,k){ b.setAttribute('aria-selected',String(k===i)); b.tabIndex=k===i?0:-1; panels[k].hidden=k!==i; });
+      if(focus) tabs[i].focus(); }
+    tabs.forEach(function(b,i){
+      b.addEventListener('click',function(){ sel(i); });
+      b.addEventListener('keydown',function(e){
+        var k={ArrowRight:1,ArrowLeft:-1,Home:'h',End:'e'}[e.key]; if(k===undefined) return;
+        e.preventDefault(); sel(k==='h'?0:k==='e'?tabs.length-1:(i+k+tabs.length)%tabs.length,true); });
+    });
+    sel(0);
+    window.addEventListener('beforeprint',function(){ panels.forEach(function(p){p.hidden=false;}); });
+    window.addEventListener('afterprint',function(){ sel(tabs.findIndex(function(b){return b.getAttribute('aria-selected')==='true';})); });
+  });
+  /* チェックリスト: 進み具合と、チェックの保存（このブラウザだけ） */
+  each(document.querySelectorAll('[data-checklist]'),function(c){
+    var key='md2doc-ck:'+location.pathname+':'+c.getAttribute('data-checklist');
+    var boxes=[].slice.call(c.querySelectorAll('input[type=checkbox]')), init=boxes.map(function(b){return b.checked;});
+    var bar=c.querySelector('.ck-bar i'), cnt=c.querySelector('.ck-count');
+    try{ var saved=JSON.parse(localStorage.getItem(key)||'null'); if(saved&&saved.length===boxes.length) boxes.forEach(function(b,i){b.checked=!!saved[i];}); }catch(e){}
+    function upd(save){ var d=boxes.filter(function(b){return b.checked;}).length;
+      bar.style.width=(boxes.length?100*d/boxes.length:0)+'%'; cnt.textContent=d+' / '+boxes.length;
+      if(save){ try{ localStorage.setItem(key,JSON.stringify(boxes.map(function(b){return b.checked;}))); }catch(e){} } }
+    boxes.forEach(function(b){ b.addEventListener('change',function(){ upd(true); }); });
+    c.querySelector('.ck-reset').addEventListener('click',function(){ boxes.forEach(function(b,i){b.checked=init[i];}); try{localStorage.removeItem(key);}catch(e){} upd(false); });
+    upd(false);
+  });
+  /* 用語の絞り込み */
+  each(document.querySelectorAll('.defs-filter'),function(inp){
+    var rows=[].slice.call(inp.parentNode.querySelectorAll('.def'));
+    inp.addEventListener('input',function(){ var q=inp.value.trim().toLowerCase();
+      rows.forEach(function(r){ r.hidden=!!q&&r.textContent.toLowerCase().indexOf(q)<0; }); });
+  });
+  /* 手で書かれた表（AI 構築）も、スクリプトが組む表と同じ規則で整える:
+     数値の列（1 列目を除く）は右寄せと data-v、8 行以上なら並べ替え・絞り込み・棒。
+     table か .tablewrap に data-table="plain" で止め、"tools" で行数に関係なく付ける */
+  var NUM=/^[+\-−]?[¥$€]?\d[\d,]*(?:\.\d+)?\s*[%％a-zA-Zぁ-んァ-ヶ一-龠]{0,4}$/;
+  function numOf(t){ var m=t.match(/[+\-−]?\d[\d,]*(?:\.\d+)?/); return m?parseFloat(m[0].replace(/,/g,'').replace('−','-')):NaN; }
+  each(document.querySelectorAll('.content table'),function(tbl){
+    var w=tbl.closest('.tablewrap');
+    if(w&&w.hasAttribute('data-md2doc-table')) return;
+    var mode=tbl.getAttribute('data-table')||(w&&w.getAttribute('data-table'))||'auto';
+    if(mode==='plain'||!tbl.tBodies[0]) return;
+    if(!w){ w=document.createElement('div'); w.className='tablewrap'; tbl.parentNode.insertBefore(w,tbl); w.appendChild(tbl); }
+    var rows=[].slice.call(tbl.tBodies[0].rows), head=tbl.tHead?tbl.tHead.rows[0]:null;
+    var tools=mode==='tools'||rows.length>=8, ncol=head?head.cells.length:(rows[0]?rows[0].cells.length:0);
+    for(var c=1;c<ncol;c++){
+      var cells=rows.map(function(r){return r.cells[c];}).filter(function(x){return x&&x.textContent.trim();});
+      if(cells.length<2||!cells.every(function(x){return NUM.test(x.textContent.trim().replace(/\*\*/g,''));})) continue;
+      var vals=cells.map(function(x){return numOf(x.textContent);}), max=Math.max.apply(null,vals), min=Math.min.apply(null,vals);
+      if(head&&head.cells[c]) head.cells[c].classList.add('num');
+      cells.forEach(function(x,k){
+        x.classList.add('num'); x.setAttribute('data-v',vals[k]);
+        if(tools&&max>0&&min>=0&&!x.querySelector('.nbar')){
+          var v=document.createElement('span'); v.className='nv'; while(x.firstChild) v.appendChild(x.firstChild);
+          var b=document.createElement('span'); b.className='nbar'; b.style.setProperty('--w',(100*vals[k]/max).toFixed(1));
+          x.appendChild(b); x.appendChild(v);
+        }
+      });
+    }
+    if(tools){ w.classList.add('tools'); w.setAttribute('data-table-tools',''); }
+    w.setAttribute('data-md2doc-table','');
+  });
+  /* 表: 並べ替え・絞り込み（見出しの固定は CSS） */
+  each(document.querySelectorAll('[data-table-tools]'),function(w){
+    var tb=w.querySelector('tbody'), rows=[].slice.call(tb.rows), ths=[].slice.call(w.querySelectorAll('thead th'));
+    var bar=document.createElement('div'); bar.className='tbl-tools';
+    bar.innerHTML='<input type="search" class="tbl-filter" placeholder="表を絞り込む" aria-label="表を絞り込む"><span class="tbl-count"></span>';
+    w.parentNode.insertBefore(bar,w);
+    var inp=bar.querySelector('input'), cnt=bar.querySelector('.tbl-count');
+    function count(){ var v=rows.filter(function(r){return !r.hidden;}).length; cnt.textContent=v===rows.length?rows.length+' 行':v+' / '+rows.length+' 行'; }
+    inp.addEventListener('input',function(){ var q=inp.value.trim().toLowerCase();
+      rows.forEach(function(r){ r.hidden=!!q&&r.textContent.toLowerCase().indexOf(q)<0; }); count(); });
+    ths.forEach(function(th,c){
+      th.setAttribute('aria-sort','none'); th.tabIndex=0;
+      function go(){
+        var dir=th.getAttribute('aria-sort')==='ascending'?'descending':'ascending';
+        ths.forEach(function(x){x.setAttribute('aria-sort','none');}); th.setAttribute('aria-sort',dir);
+        var num=th.classList.contains('num'), s=dir==='ascending'?1:-1;
+        rows.slice().sort(function(a,b){
+          var x=a.cells[c], y=b.cells[c]; if(!x||!y) return 0;
+          if(num){ var p=parseFloat(x.getAttribute('data-v')), q=parseFloat(y.getAttribute('data-v'));
+            return ((isNaN(p)?-Infinity:p)-(isNaN(q)?-Infinity:q))*s; }
+          return x.textContent.trim().localeCompare(y.textContent.trim(),'ja',{numeric:true})*s;
+        }).forEach(function(r){ tb.appendChild(r); });
+      }
+      th.addEventListener('click',go);
+      th.addEventListener('keydown',function(e){ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); go(); } });
+    });
+    count();
+  });
 })();"""
 
 PAGE = """<!DOCTYPE html>
@@ -1402,6 +2264,7 @@ __STATIC_CSS__
 <script>
 __MODE_SCRIPT_JS__
 __TOC_SCRIPT_JS__
+__LAYOUT_JS__
 (function(){
   var navH=parseInt(getComputedStyle(document.documentElement).getPropertyValue('--nav-h'))||60;
   var links=[].slice.call(document.querySelectorAll('.nav-menu a, .toc a'));
@@ -1473,6 +2336,7 @@ __TOC_SCRIPT_JS__
   onScroll();
 })();
 </script>
+__MOTION__
 </body>
 </html>
 """
@@ -1511,7 +2375,8 @@ def build_toc_html(headings):
 
 
 def build_html(meta, content_html, headings, theme_key, title, brand, footer,
-               toc_mode="sidebar", default_mode="system"):
+               toc_mode="sidebar", default_mode="system", motion="off",
+               motion_tempo="normal"):
     nav = "".join('<a href="#%s">%s</a>' % (h["slug"], html.escape(h["text"]))
                   for h in headings if h["level"] == 2)
     toc = build_toc_html(headings)
@@ -1524,13 +2389,14 @@ def build_html(meta, content_html, headings, theme_key, title, brand, footer,
         tags = '<div class="tags">%s</div>' % "".join("<span>%s</span>" % html.escape(t) for t in tg)
     repl = {
         "__TITLE__": html.escape(title), "__THEMECSS__": theme_css(theme_key),
-        "__STATIC_CSS__": STATIC_CSS, "__BRAND__": html.escape(brand),
+        "__STATIC_CSS__": STATIC_CSS + theme_extra_css(theme_key), "__BRAND__": html.escape(brand),
         "__MODE_SWITCH__": MODE_SWITCH_HTML,
         "__MODE_BOOT_JS__": MODE_BOOT_JS, "__MODE_SCRIPT_JS__": MODE_SCRIPT_JS,
-        "__TOC_BOOT_JS__": TOC_BOOT_JS, "__TOC_SCRIPT_JS__": TOC_SCRIPT_JS,
+        "__TOC_BOOT_JS__": TOC_BOOT_JS, "__TOC_SCRIPT_JS__": TOC_SCRIPT_JS, "__LAYOUT_JS__": LAYOUT_JS,
         "__NAV__": nav, "__TOC__": toc, "__EYEBROW__": eyebrow, "__H1__": h1,
         "__DATE__": date, "__TAGS__": tags, "__CONTENT__": content_html,
         "__FOOTER__": html.escape(footer), "__BODYCLASS__": "toc-" + toc_mode,
+        "__MOTION__": motion_html(motion, motion_tempo),
     }
     page = PAGE
     for k, v in repl.items():
@@ -1540,6 +2406,588 @@ def build_html(meta, content_html, headings, theme_key, title, brand, footer,
                 .replace("__DEFAULT_MODE__", default_mode)
                 .replace("__TOC_KEY__", TOC_STORAGE_KEY))
     return page
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# モーション（説明図の要所を動かす）
+#   決定論的な実行部。Claude は図に data-* の注釈を付けるだけで、動かし方はここで決まる。
+#   - 図が画面に入ったら 1 回再生。図の右上の「↻ 再生」でもう一度。
+#   - prefers-reduced-motion / 印刷 / JS 無し では何もしない（静止した完成図のまま）。
+#   - 図の単位（コンテナ）: <figure data-motion="auto|steps|none">。level=rich は全図が対象。
+#   - 要素の注釈: data-step="N" / data-effect="draw|rise|fade|slide" / data-flow / data-pulse
+# ──────────────────────────────────────────────────────────────────────────
+MOTION_LEVELS = ["off", "key", "rich"]
+
+MOTION_CSS = """
+.mo-fig{position:relative}
+.mo-replay{position:absolute;top:8px;right:8px;z-index:2;font:inherit;font-size:12px;line-height:1;
+  padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:var(--card);
+  color:var(--muted);cursor:pointer;opacity:.0;transition:opacity .2s,color .2s,border-color .2s}
+.mo-fig.mo-played .mo-replay,.mo-replay.mo-click{opacity:.75}
+.mo-fig:hover .mo-replay,.mo-replay:focus-visible{opacity:1;color:var(--accent);border-color:var(--accent)}
+.mo-replay:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* 操作（経路・状態の切り替え）と、関連の強調 */
+.mo-bar{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin:0 0 12px}
+.mo-chip{font:inherit;font-size:12.5px;line-height:1.2;padding:5px 12px;border-radius:999px;border:1px solid var(--line);
+  background:var(--card);color:var(--muted);cursor:pointer}
+.mo-chip:hover{color:var(--accent);border-color:var(--accent)}
+.mo-chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.mo-chip:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+[data-path],[data-node],[data-link]{transition:opacity .25s}
+.mo-dim{opacity:.15}
+[data-node]:focus{outline:none}
+[data-node]:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+/* 変更前／変更後: JS 無し・印刷では並べて表示し、JS があれば 1 つずつ切り替える */
+.mo-states{display:flex;flex-wrap:wrap;gap:18px;justify-content:center;align-items:flex-start}
+.mo-state{flex:1 1 280px;min-width:0}
+.mo-state-label{font-size:13px;font-weight:700;color:var(--muted);margin-bottom:6px}
+.mo-states.mo-js{display:block}
+.mo-states.mo-js .mo-state{display:none}
+.mo-states.mo-js .mo-state.mo-on{display:block}
+.mo-states.mo-js .mo-state-label{display:none}
+@media print{.mo-replay,.mo-bar{display:none!important}.mo-dim{opacity:1!important}}
+"""
+
+MOTION_JS = r"""(function(){
+  var LEVEL='__MOTION_LEVEL__', TEMPO_DEF='__MOTION_TEMPO__';
+  var mq=window.matchMedia?matchMedia('(prefers-reduced-motion: reduce)'):null;
+  var REDUCE=!!(mq&&mq.matches), CAN=!!Element.prototype.animate&&('IntersectionObserver' in window);
+  var NS='http://www.w3.org/2000/svg';
+  var GEOM={rect:1,circle:1,ellipse:1,polygon:1,polyline:1,line:1,path:1,text:1,image:1,use:1,foreignObject:1};
+  var SKIP={defs:1,marker:1,clipPath:1,mask:1,pattern:1,symbol:1,linearGradient:1,radialGradient:1,filter:1,style:1,title:1,desc:1,metadata:1};
+  var ATOMIC=['data-effect','data-stagger','data-travel','data-count','data-focus','data-spin','data-pulse','data-flow'];
+  var TEMPOS={slow:1.45,normal:1,fast:.7};
+  var BASE={draw:760,rise:520,travel:1400,count:1100,type:30,stagger:130,gapSteps:450,gapAuto:380,autoTotal:2600,hold:1500,
+            flow:900,pulse:1800,spin:24000,loopRest:2200,zoomMove:900,zoomHold:1500,toggle:3400,token:900};
+  var EASE='cubic-bezier(.2,.7,.2,1)';
+  function tag(el){return el.localName||el.tagName;}
+  function num(v,d){v=parseFloat(v);return isFinite(v)?v:d;}
+  function each(list,fn){[].forEach.call(list,fn);}
+  function tempoOf(c){return TEMPOS[c.getAttribute('data-tempo')]||TEMPOS[TEMPO_DEF]||1;}
+  function strokeOnly(el){
+    var t=tag(el); if(t!=='path'&&t!=='line'&&t!=='polyline') return false;
+    var cs=getComputedStyle(el);
+    var noFill=t==='line'||cs.fill==='none'||parseFloat(cs.fillOpacity)===0;   // line には塗りが無い
+    return noFill&&cs.stroke!=='none'&&parseFloat(cs.strokeWidth)>0;
+  }
+  function isAtomic(el){ for(var i=0;i<ATOMIC.length;i++) if(el.hasAttribute(ATOMIC[i])) return true; return false; }
+  function shown(el){ return el.getClientRects().length>0; }
+  function outerSvgs(root){ return [].filter.call(root.querySelectorAll('svg'),function(s){ return !s.parentElement.closest('svg'); }); }
+  function el(name,attrs){ var e=document.createElementNS(NS,name); for(var k in attrs) e.setAttribute(k,attrs[k]); return e; }
+  /* 画面上の矩形を svg の座標へ */
+  function toUser(svg,r){
+    var m=svg.getScreenCTM(); if(!m) return null; m=m.inverse();
+    var p=svg.createSVGPoint(); p.x=r.left; p.y=r.top; var a=p.matrixTransform(m);
+    p.x=r.right; p.y=r.bottom; var b=p.matrixTransform(m);
+    return {x:a.x,y:a.y,w:b.x-a.x,h:b.y-a.y};
+  }
+  function vbox(svg){ var v=svg.viewBox&&svg.viewBox.baseVal; return v&&v.width?{x:v.x,y:v.y,w:v.width,h:v.height}:null; }
+
+  /* ================= 注記の吹き出し（data-note） ================= */
+  function notes(svg){
+    if(svg.__moNotes||!shown(svg)) return svg.__moNotes||[];
+    var vb=vbox(svg), out=[];
+    each(svg.querySelectorAll('[data-note]'),function(t){
+      var bb=toUser(svg,t.getBoundingClientRect()); if(!bb||!vb) return;
+      var txt=t.getAttribute('data-note'), lines=[], cur='';
+      for(var i=0;i<txt.length;i++){ cur+=txt[i]; if(cur.length>=18&&i<txt.length-1){ lines.push(cur); cur=''; } }
+      if(cur) lines.push(cur);
+      var g=el('g',{'class':'mo-note','pointer-events':'none'});
+      var box=el('rect',{rx:6,fill:'var(--card)',stroke:'var(--accent)','stroke-width':1.2});
+      var line=el('line',{stroke:'var(--accent)','stroke-width':1.2,'stroke-dasharray':'3 3'});
+      g.appendChild(line); g.appendChild(box);
+      var tx=[]; lines.forEach(function(s){ var x=el('text',{'font-size':12,fill:'var(--ink)','text-anchor':'middle'}); x.textContent=s; g.appendChild(x); tx.push(x); });
+      svg.appendChild(g);
+      var w=0; tx.forEach(function(x){ var l=0; try{l=x.getComputedTextLength();}catch(e){} w=Math.max(w,l||x.textContent.length*12); });
+      w+=16; var h=lines.length*16+10;
+      var pos=t.getAttribute('data-note-pos'), room={top:bb.y-vb.y,bottom:vb.y+vb.h-(bb.y+bb.h),left:bb.x-vb.x,right:vb.x+vb.w-(bb.x+bb.w)};
+      if(!pos){ pos=room.top>=h+14?'top':room.bottom>=h+14?'bottom':room.right>=w+14?'right':room.left>=w+14?'left':'top'; }
+      var cx=bb.x+bb.w/2, cy=bb.y+bb.h/2, ax=cx, ay=cy, lx, ly;
+      if(pos==='top'){ ay=bb.y; lx=cx; ly=bb.y-14-h/2; } else if(pos==='bottom'){ ay=bb.y+bb.h; lx=cx; ly=bb.y+bb.h+14+h/2; }
+      else if(pos==='left'){ ax=bb.x; lx=bb.x-14-w/2; ly=cy; } else { ax=bb.x+bb.w; lx=bb.x+bb.w+14+w/2; ly=cy; }
+      lx=Math.max(vb.x+w/2+2,Math.min(vb.x+vb.w-w/2-2,lx)); ly=Math.max(vb.y+h/2+2,Math.min(vb.y+vb.h-h/2-2,ly));
+      box.setAttribute('x',lx-w/2); box.setAttribute('y',ly-h/2); box.setAttribute('width',w); box.setAttribute('height',h);
+      tx.forEach(function(x,i){ x.setAttribute('x',lx); x.setAttribute('y',ly-h/2+17+i*16); });
+      var ex=pos==='left'?lx+w/2:pos==='right'?lx-w/2:lx, ey=pos==='top'?ly+h/2:pos==='bottom'?ly-h/2:ly;
+      line.setAttribute('x1',ax); line.setAttribute('y1',ay); line.setAttribute('x2',ex); line.setAttribute('y2',ey);
+      t.__moNote=g; out.push(g);
+    });
+    svg.__moNotes=out; return out;
+  }
+  function allNotes(root){ outerSvgs(root).forEach(notes); }
+
+  /* ================= 変更前／変更後（data-toggle） ================= */
+  function setupToggle(f){
+    var wrap=f.querySelector('.mo-states'); if(!wrap) return;
+    var states=[].slice.call(wrap.querySelectorAll(':scope > .mo-state')); if(states.length<2) return;
+    wrap.classList.add('mo-js');
+    var bar=document.createElement('div'); bar.className='mo-bar'; bar.setAttribute('role','group');
+    bar.setAttribute('aria-label','表示する状態');
+    var cur=0, timer=0, user=false, T=tempoOf(f);
+    function show(i,auto){
+      states.forEach(function(s,k){ s.classList.toggle('mo-on',k===i); });
+      each(bar.children,function(b,k){ b.setAttribute('aria-pressed',String(k===i)); });
+      var s=states[i]; outerSvgs(s).forEach(notes);
+      if(!REDUCE&&CAN&&i!==cur){
+        s.animate([{opacity:0},{opacity:1}],{duration:380,easing:'ease-out'});
+        each(s.querySelectorAll('[data-changed]'),function(x,k){
+          x.animate([{opacity:.25},{opacity:1,offset:.35},{opacity:.55,offset:.6},{opacity:1}],{duration:1300*T,delay:200+k*90,easing:'ease-in-out'});
+        });
+      }
+      cur=i;
+    }
+    states.forEach(function(s,i){
+      var b=document.createElement('button'); b.type='button'; b.className='mo-chip'; b.textContent=s.getAttribute('data-state');
+      b.addEventListener('click',function(){ user=true; clearInterval(timer); show(i); });
+      bar.appendChild(b);
+    });
+    wrap.parentNode.insertBefore(bar,wrap);
+    show(0);
+    if(f.hasAttribute('data-toggle-auto')&&!REDUCE&&CAN){
+      var io=new IntersectionObserver(function(en){
+        clearInterval(timer);
+        if(en[0].isIntersecting&&!user) timer=setInterval(function(){ show((cur+1)%states.length,true); },BASE.toggle*T);
+      },{threshold:.4});
+      io.observe(f);
+    }
+    f.__moToggle={wrap:wrap,show:show};
+  }
+
+  /* ================= シナリオの切り替え（data-paths / data-path） ================= */
+  function runTokens(svg,paths,T,gen,f){
+    if(REDUCE||!CAN||!paths.length) return;
+    var i=0;
+    (function next(){
+      if(f.__moGen!==gen||i>=paths.length) return;
+      var p=paths[i++], geo=tag(p)==='g'?p.querySelector('path,line,polyline'):p;
+      var L=0; try{L=geo.getTotalLength();}catch(e){}
+      if(!L){ next(); return; }
+      var g=el('g',{'class':'mo-token','pointer-events':'none'}); g.appendChild(el('circle',{r:6,fill:'var(--accent)',stroke:'var(--card)','stroke-width':2}));
+      geo.parentNode.insertBefore(g,geo.nextSibling);
+      var D=BASE.token*T, t0=performance.now();
+      (function step(now){
+        if(f.__moGen!==gen){ g.remove(); return; }
+        var k=Math.min(1,(now-t0)/D), e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2, pt=geo.getPointAtLength(L*e);
+        g.setAttribute('transform','translate('+pt.x+','+pt.y+')');
+        if(k<1) requestAnimationFrame(step); else { g.remove(); next(); }
+      })(t0);
+    })();
+  }
+  function setupPaths(f){
+    var names=(f.getAttribute('data-paths')||'').split('|').filter(Boolean); if(!names.length) return;
+    var bar=document.createElement('div'); bar.className='mo-bar'; bar.setAttribute('role','group'); bar.setAttribute('aria-label','経路');
+    var T=tempoOf(f);
+    function select(name){
+      f.__moGen=(f.__moGen||0)+1;
+      each(bar.children,function(b){ b.setAttribute('aria-pressed',String(b.__name===name)); });
+      each(f.querySelectorAll('[data-path]'),function(x){
+        var on=!name||x.getAttribute('data-path').split('|').indexOf(name)>=0;
+        x.classList.toggle('mo-dim',!on);
+      });
+      if(!name) return;
+      outerSvgs(f).forEach(function(svg){
+        var list=[].filter.call(svg.querySelectorAll('[data-path]'),function(x){
+          return x.getAttribute('data-path').split('|').indexOf(name)>=0&&(tag(x)==='path'||tag(x)==='line'||tag(x)==='polyline'||(tag(x)==='g'&&x.querySelector('path,line,polyline')&&!x.hasAttribute('data-node')));
+        });
+        list.sort(function(a,b){ return num(a.getAttribute('data-step'),0)-num(b.getAttribute('data-step'),0); });
+        runTokens(svg,list,T,f.__moGen,f);
+      });
+    }
+    ['すべて'].concat(names).forEach(function(n,i){
+      var b=document.createElement('button'); b.type='button'; b.className='mo-chip'; b.textContent=n; b.__name=i?n:'';
+      b.addEventListener('click',function(){ select(b.__name); });
+      bar.appendChild(b);
+    });
+    var anchor=f.querySelector('.mo-states')||outerSvgs(f)[0];
+    if(anchor) anchor.parentNode.insertBefore(bar,anchor);
+    select('');
+    f.__moPaths=select;
+  }
+
+  /* ================= 触れると関連が光る（data-hover） ================= */
+  function setupHover(f){
+    each(outerSvgs(f),function(svg){
+      var nodes=[].slice.call(svg.querySelectorAll('[data-node]')), links=[].slice.call(svg.querySelectorAll('[data-link]'));
+      if(!nodes.length) return;
+      function on(id){
+        var near={}; near[id]=1;
+        links.forEach(function(l){ var e=l.getAttribute('data-link').split(' '); if(e.indexOf(id)>=0){ near[e[0]]=1; near[e[1]]=1; } });
+        nodes.forEach(function(n){ n.classList.toggle('mo-dim',!near[n.getAttribute('data-node')]); });
+        links.forEach(function(l){ l.classList.toggle('mo-dim',l.getAttribute('data-link').split(' ').indexOf(id)<0); });
+      }
+      function off(){ nodes.concat(links).forEach(function(x){ x.classList.remove('mo-dim'); }); }
+      nodes.forEach(function(n){
+        n.setAttribute('tabindex','0'); n.setAttribute('focusable','true');
+        var id=n.getAttribute('data-node');
+        n.addEventListener('pointerenter',function(){ on(id); }); n.addEventListener('pointerleave',off);
+        n.addEventListener('focus',function(){ on(id); }); n.addEventListener('blur',off);
+      });
+    });
+  }
+
+  /* 操作（切り替え・経路・強調）と注記は、動きの設定に関係なく働く */
+  each(document.querySelectorAll('.content figure[data-toggle]'),setupToggle);
+  each(document.querySelectorAll('.content figure[data-paths]'),setupPaths);
+  each(document.querySelectorAll('.content figure[data-hover]'),setupHover);
+  window.addEventListener('beforeprint',function(){
+    each(document.querySelectorAll('.mo-states.mo-js'),function(w){ w.classList.remove('mo-js'); w.classList.add('mo-was-js'); });
+    each(document.querySelectorAll('.mo-dim'),function(x){ x.classList.remove('mo-dim'); });
+    allNotes(document.querySelector('.content')||document);
+  });
+  window.addEventListener('afterprint',function(){
+    each(document.querySelectorAll('.mo-was-js'),function(w){ w.classList.add('mo-js'); w.classList.remove('mo-was-js'); });
+  });
+  var content=document.querySelector('.content')||document.body;
+
+  if(REDUCE||!CAN||LEVEL==='off'&&!document.querySelector('.content [data-motion]:not([data-motion="none"]),.content figure[data-trigger]')){
+    allNotes(content); return;          // 動かさない: 注記は最初から出しておく
+  }
+
+  /* ================= 登場の動き ================= */
+  function containers(){
+    var out=[];
+    function add(c){ if(c&&out.indexOf(c)<0&&c.getAttribute('data-motion')!=='none'&&!c.classList.contains('manual-render')&&c.querySelector('svg')) out.push(c); }
+    each(content.querySelectorAll('[data-motion],figure[data-trigger]'),function(x){ if(!x.closest('svg')) add(x); });   // trigger の指定も動かす意図とみなす
+    if(LEVEL==='rich'){
+      each(content.querySelectorAll('figure'),function(f){ if(!f.parentElement.closest('figure')) add(f); });
+      each(content.querySelectorAll('.auto-fig-slot'),function(s){ if(!s.querySelector('figure')) add(s); });
+    }
+    return out;
+  }
+  function plan(st,svg){
+    var T=st.T, explicit=[].slice.call(svg.querySelectorAll('[data-step]'));
+    if(explicit.length){
+      explicit=explicit.filter(function(x){ return !x.parentElement.closest('[data-step]'); });
+      var nums=explicit.map(function(x){return num(x.getAttribute('data-step'),0);});
+      var uniq=nums.slice().sort(function(a,b){return a-b;}).filter(function(v,i,a){return i===0||v!==a[i-1];});
+      return {units:explicit.map(function(x,i){return {el:x,step:uniq.indexOf(nums[i])};}),gap:BASE.gapSteps*T};
+    }
+    var sr=svg.getBoundingClientRect(), area=sr.width*sr.height, leaves=[];
+    (function walk(node){
+      for(var c=node.firstElementChild;c;c=c.nextElementSibling){
+        var t=tag(c);
+        if(SKIP[t]||(c.classList&&(c.classList.contains('mo-token')||c.classList.contains('mo-note')))) continue;
+        var group=(t==='g'||t==='a'||t==='switch'||(t==='svg'&&c!==svg));
+        if(group&&!isAtomic(c)){ walk(c); continue; }
+        if(!group&&!GEOM[t]) continue;
+        var r=c.getBoundingClientRect();
+        if(r.width===0&&r.height===0) continue;
+        if(r.width*r.height>area*0.8&&!isAtomic(c)) continue;   // 背景の面は動かさない
+        leaves.push({el:c,r:r});
+      }
+    })(svg);
+    if(!leaves.length) return {units:[],gap:0};
+    var dir=st.c.getAttribute('data-motion-dir')||'auto';
+    if(dir==='auto') dir=sr.width>=sr.height*1.15?'x':'y';
+    var cx=sr.left+sr.width/2, cy=sr.top+sr.height/2;
+    leaves.forEach(function(l){
+      var x=l.r.left+l.r.width/2, y=l.r.top+l.r.height/2;
+      l.k= dir==='x'?x : dir==='reverse-x'?-x : dir==='reverse-y'?-y : dir==='radial'?Math.hypot(x-cx,y-cy) : y;
+    });
+    var lo=Infinity,hi=-Infinity; leaves.forEach(function(l){lo=Math.min(lo,l.k);hi=Math.max(hi,l.k);});
+    var n=Math.max(3,Math.min(10,Math.round(leaves.length/3))), band=Math.max(1,(hi-lo)/n);
+    return {units:leaves.map(function(l){return {el:l.el,step:Math.min(n-1,Math.floor((l.k-lo)/band))};}),
+            gap:Math.min(BASE.gapAuto,BASE.autoTotal/n)*T};
+  }
+  function effectOf(x){
+    var e=x.getAttribute('data-effect'); if(e) return e;
+    if(tag(x)==='g') return x.querySelector('path,line,polyline')&&[].every.call(x.querySelectorAll('*'),function(y){return !GEOM[tag(y)]||strokeOnly(y);})?'draw':'rise';
+    return strokeOnly(x)?'draw':'rise';
+  }
+  function track(st,a,end){ a.pause(); st.anims.push(a); st.end=Math.max(st.end,end); return a; }
+  function withBox(st,x,origin){
+    var pb=x.style.transformBox, po=x.style.transformOrigin;
+    x.style.transformBox='fill-box'; x.style.transformOrigin=origin;
+    var back=function(){ x.style.transformBox=pb; x.style.transformOrigin=po; };
+    st.restores.push(back); return back;
+  }
+  /* 進み具合で中身を書き換える部品（数え上げ・入力・移動する印・ズーム）: 見えない代理アニメの進み具合で駆動する */
+  function driven(st,x,dur,delay,fn){
+    var a=x.animate([{},{}],{duration:dur,delay:delay});
+    track(st,a,delay+dur);
+    var d={a:a,fn:fn}; st.drivers.push(d);
+    a.finished.then(function(){ fn(1); },function(){});
+    return a;
+  }
+  function build(st,x,effect,delay){
+    var T=st.T, t0=tag(x);
+    /* 中に注釈のある要素を持つグループは、子ごとに組み立てる（棒の伸び・数え上げを内側で効かせる） */
+    if((t0==='g'||t0==='a')&&!x.hasAttribute('data-effect')&&!x.hasAttribute('data-stagger')&&!x.hasAttribute('data-travel')
+       &&x.querySelector('[data-effect],[data-count],[data-travel],[data-stagger]')){
+      each(x.children,function(k){ var tk=tag(k); if(GEOM[tk]||tk==='g'||tk==='a') build(st,k,effectOf(k),delay); });
+      return;
+    }
+    if(x.hasAttribute('data-stagger')){
+      var kids=[].filter.call(x.children,function(k){return GEOM[tag(k)]||tag(k)==='g';});
+      var gap=num(x.getAttribute('data-stagger'),BASE.stagger)*T, eff=x.getAttribute('data-effect')||'rise';
+      kids.forEach(function(k,i){ build(st,k,k.getAttribute('data-effect')||eff,delay+i*gap); });
+      return;
+    }
+    if(x.hasAttribute('data-count')) count(st,x,delay);
+    if(x.hasAttribute('data-travel')) travel(st,x,delay);
+    var o=getComputedStyle(x).opacity||'1', k0={opacity:0}, k1={opacity:o}, dur=BASE.rise*T, back;
+    switch(effect){
+      case 'none': return;
+      case 'type': type(st,x,delay); return;
+      case 'draw':
+        var paths=t0==='g'?[].slice.call(x.querySelectorAll('path,line,polyline')):[x];
+        if(t0==='g') each(x.querySelectorAll('*'),function(y){ if(GEOM[tag(y)]&&!strokeOnly(y)&&!y.closest('.mo-token')) build(st,y,'fade',delay+BASE.draw*T*0.55); });
+        paths.forEach(function(p){
+          if(!strokeOnly(p)||p.closest('.mo-token')) return;
+          var L=0; try{L=p.getTotalLength();}catch(e){}
+          if(!L){ build(st,p,'fade',delay); return; }
+          var ms=p.getAttribute('marker-start'), me=p.getAttribute('marker-end'), mb=null;
+          if(ms||me){
+            p.removeAttribute('marker-start'); p.removeAttribute('marker-end');
+            mb=function(){ if(ms) p.setAttribute('marker-start',ms); if(me) p.setAttribute('marker-end',me); };
+            st.restores.push(mb);
+          }
+          var d=L+' '+L, a=p.animate([{strokeDasharray:d,strokeDashoffset:L},{strokeDasharray:d,strokeDashoffset:0}],
+                                   {duration:BASE.draw*T,delay:delay,easing:'ease-in-out',fill:'backwards'});
+          track(st,a,delay+BASE.draw*T);
+          if(mb) a.finished.then(mb,function(){});
+        });
+        return;
+      case 'fade': break;
+      case 'slide': k0.translate='-18px 0'; k1.translate='0 0'; break;
+      case 'pop':
+        back=withBox(st,x,'center'); k0.scale='.6'; k1.scale='1';
+        k0.easing='cubic-bezier(.34,1.56,.64,1)'; dur=BASE.rise*T*1.1; break;
+      case 'grow':
+        var g=x.getAttribute('data-grow')||'up';
+        back=withBox(st,x,{up:'50% 100%',down:'50% 0%',right:'0% 50%',left:'100% 50%'}[g]||'50% 100%');
+        k0={opacity:o,scale:(g==='left'||g==='right')?'0 1':'1 0'}; k1={opacity:o,scale:'1 1'};
+        dur=BASE.draw*T*1.15; break;
+      case 'wipe':
+        k0={opacity:o,clipPath:'inset(0 100% 0 0)'}; k1={opacity:o,clipPath:'inset(0 0% 0 0)'};
+        dur=BASE.draw*T; break;
+      default: k0.translate='0 10px'; k1.translate='0 0';   // rise
+    }
+    var a=x.animate([k0,k1],{duration:dur,delay:delay,easing:EASE,fill:'backwards'});
+    track(st,a,delay+dur);
+    if(back) a.finished.then(back,function(){});
+  }
+  function type(st,x,delay){
+    var targets=tag(x)==='text'?[x]:[].slice.call(x.querySelectorAll('text'));
+    var at=delay;
+    targets.forEach(function(t){
+      var orig=t.textContent, n=orig.length, D=Math.max(260,n*BASE.type*st.T);
+      var a=t.animate([{opacity:0},{opacity:1}],{duration:1,delay:at,fill:'backwards'}); track(st,a,at+1);
+      t.__moOrig=orig; st.restores.push(function(){ t.textContent=orig; });
+      driven(st,t,D,at,function(k){ t.textContent=k>=1?orig:orig.slice(0,Math.round(n*k)); });
+      at+=D+60;
+    });
+  }
+  function count(st,x,delay){
+    var t=tag(x)==='text'?x:x.querySelector('text')||x;
+    var orig=t.textContent, m=orig.match(/-?[\d,]*\.?\d+/);
+    if(!m) return;
+    var to=parseFloat(m[0].replace(/,/g,'')), spec=x.getAttribute('data-count')||'', f=spec.split(/→|->/);
+    var from=num(f.length>1?f[0]:spec,0), dec=(m[0].split('.')[1]||'').length, comma=m[0].indexOf(',')>=0;
+    var pre=orig.slice(0,m.index), post=orig.slice(m.index+m[0].length);
+    function fmt(v){ var s=v.toFixed(dec); if(comma){ var p=s.split('.'); p[0]=p[0].replace(/\B(?=(\d{3})+(?!\d))/g,','); s=p.join('.'); } return pre+s+post; }
+    t.textContent=fmt(from);
+    st.restores.push(function(){ t.textContent=orig; });
+    driven(st,x,BASE.count*st.T,delay,function(k){ t.textContent=k>=1?orig:fmt(from+(to-from)*(1-Math.pow(1-k,3))); });
+  }
+  function travel(st,x,delay){
+    var p=tag(x)==='g'?x.querySelector('path,line,polyline'):x;
+    if(!p||!p.getTotalLength) return;
+    var L=0; try{L=p.getTotalLength();}catch(e){} if(!L) return;
+    var g=el('g',{'class':'mo-token','pointer-events':'none',opacity:0});
+    g.appendChild(el('circle',{r:6,fill:'var(--accent)',stroke:'var(--card)','stroke-width':2}));
+    var label=x.getAttribute('data-travel'), bg, tx;
+    if(label){
+      bg=el('rect',{fill:'var(--accent)',rx:6}); tx=el('text',{'font-size':12,fill:'var(--on-accent)','text-anchor':'middle',y:-13,'font-family':'var(--mono)'});
+      tx.textContent=label; g.appendChild(bg); g.appendChild(tx);
+    }
+    p.parentNode.insertBefore(g,p.nextSibling);
+    if(label){ var w=0; try{w=tx.getComputedTextLength();}catch(e){} w=(w||label.length*7)+14;
+      bg.setAttribute('x',-w/2); bg.setAttribute('y',-26); bg.setAttribute('width',w); bg.setAttribute('height',18); }
+    st.restores.push(function(){ if(g.parentNode) g.parentNode.removeChild(g); });
+    var start=delay+(effectOf(x)==='draw'?BASE.draw*st.T*0.9:0);
+    driven(st,g,BASE.travel*st.T,start,function(k){
+      if(k>=1||k<=0){ g.setAttribute('opacity','0'); return; }
+      var e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2, pt=p.getPointAtLength(L*e);
+      g.setAttribute('transform','translate('+pt.x+','+pt.y+')');
+      g.setAttribute('opacity', k<.08?String(k/.08):k>.92?String((1-k)/.08):'1');
+    });
+  }
+  function noteAnims(st,svg,units,gap){
+    notes(svg).forEach(function(g){
+      var target=null; each(svg.querySelectorAll('[data-note]'),function(t){ if(t.__moNote===g) target=t; });
+      if(!target) return;
+      var u=null; units.forEach(function(v){ if(v.el===target||v.el.contains(target)) u=v; });
+      if(!u) return;                                      // 動かない要素の注記は最初から表示
+      var d=u.step*gap+BASE.rise*st.T*0.8;
+      track(st,g.animate([{opacity:0,translate:'0 6px'},{opacity:1,translate:'0 0'}],{duration:BASE.rise*st.T,delay:d,easing:EASE,fill:'backwards'}),d+BASE.rise*st.T);
+    });
+  }
+  function focus(st,svg){
+    var els=[].slice.call(svg.querySelectorAll('[data-focus]'));
+    if(!els.length) return;
+    var ranks=els.map(function(e){return num(e.getAttribute('data-focus'),0);});
+    var uniq=ranks.slice().sort(function(a,b){return a-b;}).filter(function(v,i,a){return i===0||v!==a[i-1];});
+    var n=uniq.length, hold=BASE.hold*st.T, fadeIn=260, D=n*hold+500, delay=st.end+300;
+    els.forEach(function(e,i){
+      var r=uniq.indexOf(ranks[i]), o=num(getComputedStyle(e).opacity,1), kf=[{offset:0,opacity:o}];
+      for(var s=0;s<n;s++){ var v=s===r?o:o*.25;
+        kf.push({offset:(s*hold+fadeIn)/D,opacity:v}); kf.push({offset:((s+1)*hold)/D,opacity:v}); }
+      kf.push({offset:1,opacity:o});
+      track(st,e.animate(kf,{duration:D,delay:delay,easing:'ease-in-out'}),delay+D);
+    });
+  }
+  function zoom(st,svg){
+    var targets=[].slice.call(svg.querySelectorAll('[data-zoom-step]')); if(!targets.length) return;
+    var vb=vbox(svg); if(!vb) return;
+    targets.sort(function(a,b){ return num(a.getAttribute('data-zoom-step'),0)-num(b.getAttribute('data-zoom-step'),0); });
+    var boxes=targets.map(function(t){
+      var b=toUser(svg,t.getBoundingClientRect()); if(!b) return vb;
+      var pad=Math.max(b.w,b.h)*0.45+30, w=b.w+pad*2, h=b.h+pad*2, ar=vb.w/vb.h;
+      if(w/h<ar) w=h*ar; else h=w/ar;
+      w=Math.min(w,vb.w); h=Math.min(h,vb.h);
+      var x=Math.max(vb.x,Math.min(vb.x+vb.w-w,b.x+b.w/2-w/2)), y=Math.max(vb.y,Math.min(vb.y+vb.h-h,b.y+b.h/2-h/2));
+      return {x:x,y:y,w:w,h:h};
+    });
+    var seq=[vb]; boxes.forEach(function(b){ seq.push(b); seq.push(b); }); seq.push(vb);
+    var mv=BASE.zoomMove*st.T, hd=BASE.zoomHold*st.T, segs=[];
+    for(var i=0;i<seq.length-1;i++) segs.push({a:seq[i],b:seq[i+1],d:(i%2===0)?mv:hd});
+    var D=segs.reduce(function(s,g){return s+g.d;},0), orig=svg.getAttribute('viewBox'), delay=st.end+400;
+    st.restores.push(function(){ svg.setAttribute('viewBox',orig); });
+    driven(st,svg,D,delay,function(k){
+      if(k>=1){ svg.setAttribute('viewBox',orig); return; }
+      var t=k*D;
+      for(var j=0;j<segs.length;j++){ if(t<=segs[j].d||j===segs.length-1){
+        var q=Math.min(1,t/segs[j].d); q=q<.5?4*q*q*q:1-Math.pow(-2*q+2,3)/2;
+        var A=segs[j].a, B=segs[j].b;
+        svg.setAttribute('viewBox',[A.x+(B.x-A.x)*q,A.y+(B.y-A.y)*q,A.w+(B.w-A.w)*q,A.h+(B.h-A.h)*q].join(' ')); return; }
+        t-=segs[j].d; }
+    });
+  }
+  function loops(st,svg){
+    each(svg.querySelectorAll('[data-flow]'),function(p){
+      (tag(p)==='g'?[].slice.call(p.querySelectorAll('path,line,polyline')):[p]).forEach(function(x){
+        st.loops.push(x.animate([{strokeDasharray:'10 8',strokeDashoffset:18},{strokeDasharray:'10 8',strokeDashoffset:0}],{duration:BASE.flow*st.T,iterations:Infinity})); });
+    });
+    each(svg.querySelectorAll('[data-pulse]'),function(x){
+      st.loops.push(x.animate([{opacity:1},{opacity:.45},{opacity:1}],{duration:BASE.pulse*st.T,iterations:Infinity,easing:'ease-in-out'}));
+    });
+    each(svg.querySelectorAll('[data-spin]'),function(x){
+      withBox(st,x,'center'); var rev=x.getAttribute('data-spin')==='ccw';
+      st.loops.push(x.animate([{rotate:'0deg'},{rotate:(rev?'-':'')+'360deg'}],{duration:BASE.spin*st.T,iterations:Infinity}));
+    });
+    if(!st.inView) st.loops.forEach(function(a){a.pause();});
+  }
+
+  /* ---- 再生の制御 ---- */
+  var driving=false, states=[];
+  function drive(){
+    var any=false;
+    states.forEach(function(st){ st.drivers.forEach(function(d){
+      if(d.a.playState!=='running') return; any=true;
+      var k=d.a.effect.getComputedTiming().progress; if(k!==null) d.fn(k); }); });
+    if(any) requestAnimationFrame(drive); else driving=false;
+  }
+  function reset(st){
+    clearTimeout(st.timer);
+    st.anims.forEach(function(a){try{a.cancel();}catch(e){}});
+    st.loops.forEach(function(a){try{a.cancel();}catch(e){}});
+    for(var i=st.restores.length-1;i>=0;i--) st.restores[i]();
+    st.anims=[]; st.loops=[]; st.restores=[]; st.drivers=[]; st.svgs=[]; st.end=0;
+  }
+  function arm(st){
+    reset(st);
+    st.T=tempoOf(st.c);
+    try{
+      outerSvgs(st.c).filter(shown).forEach(function(svg){
+        notes(svg);
+        var pl=plan(st,svg);
+        pl.units.forEach(function(u){ build(st,u.el,effectOf(u.el),u.step*pl.gap); });
+        noteAnims(st,svg,pl.units,pl.gap);
+        st.svgs.push(svg);
+      });
+      st.svgs.forEach(function(svg){ focus(st,svg); });
+      var base=st.end; st.svgs.forEach(function(svg){ st.end=base; zoom(st,svg); });
+    }catch(e){ reset(st); }
+  }
+  function play(st){
+    arm(st);
+    var runs=st.anims.slice(), svgs=st.svgs.slice(), gen=++st.gen;
+    runs.forEach(function(a){ a.currentTime=0; a.play(); });
+    if(!driving&&st.drivers.length){ driving=true; requestAnimationFrame(drive); }
+    st.c.classList.add('mo-played');
+    Promise.all(runs.map(function(a){return a.finished;})).then(function(){
+      if(gen!==st.gen) return;
+      for(var i=st.restores.length-1;i>=0;i--) st.restores[i]();
+      st.restores=[];
+      svgs.forEach(function(svg){ loops(st,svg); });
+      if(st.trigger==='loop') st.timer=setTimeout(function(){ if(st.inView) play(st); else st.pending=true; },BASE.loopRest*st.T);
+    },function(){});
+  }
+  /* スクロール連動: 図が画面を通る位置で進み具合を決める */
+  function scrub(st){
+    var r=st.c.getBoundingClientRect(), vh=window.innerHeight||1;
+    var p=Math.max(0,Math.min(1,(vh-r.top)/(vh*0.55+r.height*0.35)));
+    if(p===st.p) return; st.p=p;
+    var t=p*st.end;
+    st.anims.forEach(function(a){ a.currentTime=t; });
+    st.drivers.forEach(function(d){
+      var ct=d.a.effect.getComputedTiming(), k=ct.progress;
+      if(k===null) k=t>=(ct.endTime||0)?1:0;
+      d.fn(k);
+    });
+    if(p>=1&&!st.looped){ st.looped=true; st.svgs.forEach(function(svg){ loops(st,svg); }); }
+  }
+  var scrubbing=[];
+  if(!REDUCE) window.addEventListener('scroll',function(){ scrubbing.forEach(function(st){ if(!st.q){ st.q=true; requestAnimationFrame(function(){ st.q=false; scrub(st); }); } }); },{passive:true});
+  var io=new IntersectionObserver(function(entries){
+    entries.forEach(function(en){
+      var st=en.target.__mo; if(!st) return;
+      st.inView=en.isIntersecting;
+      if(st.trigger==='scroll'){ scrub(st); return; }
+      if(en.isIntersecting&&((!st.played&&st.trigger!=='click')||st.pending)){ st.played=true; st.pending=false; play(st); }
+      st.loops.forEach(function(a){ en.isIntersecting?a.play():a.pause(); });
+    });
+  },{threshold:0.3});
+  containers().forEach(function(c){
+    var st={c:c,anims:[],loops:[],restores:[],drivers:[],svgs:[],end:0,T:1,gen:0,played:false,inView:false,pending:false,
+            trigger:c.getAttribute('data-trigger')||'view',p:-1};
+    c.__mo=st; states.push(st);
+    c.classList.add('mo-fig');
+    if(st.trigger!=='scroll'){
+      var b=document.createElement('button');
+      b.type='button'; b.className='mo-replay'+(st.trigger==='click'?' mo-click':'');
+      b.textContent=st.trigger==='click'?'▶ 動きを再生':'↻ 再生';
+      b.setAttribute('aria-label',st.trigger==='click'?'図の動きを再生':'図の動きをもう一度再生');
+      b.addEventListener('click',function(){ st.played=true; st.pending=false; play(st); });
+      c.appendChild(b);
+    }
+    if(st.trigger==='click') outerSvgs(c).forEach(notes);   // click は完成図のまま待つ
+    else arm(st);                                           // 見えるまでは最初のコマで待機
+    if(st.trigger==='scroll'){ scrubbing.push(st); st.p=-1; scrub(st); }
+    io.observe(c);
+  });
+  /* 印刷: 動きを終わりのコマに揃える（注記は残す） */
+  window.addEventListener('beforeprint',function(){ states.forEach(function(st){
+    st.anims.forEach(function(a){try{a.finish();}catch(e){}});
+    st.drivers.forEach(function(d){ d.fn(1); });
+    st.loops.forEach(function(a){try{a.cancel();}catch(e){}});
+    for(var i=st.restores.length-1;i>=0;i--) st.restores[i]();
+    st.restores=[];
+  }); });
+  if(mq&&mq.addEventListener) mq.addEventListener('change',function(e){ if(e.matches) states.forEach(reset); });
+})();"""
+
+
+MOTION_TEMPOS = ["slow", "normal", "fast"]
+
+
+def motion_html(level, tempo="normal"):
+    # off でも埋め込む: 切り替え・経路・関連の強調・注記は動きの設定と無関係に働く。
+    # off のときは、data-motion を明示した図以外は登場の動きをしない。
+    return "<style>%s</style>\n<script>%s</script>" % (
+        MOTION_CSS, MOTION_JS.replace("__MOTION_LEVEL__", level).replace("__MOTION_TEMPO__", tempo))
+
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -1559,7 +3007,8 @@ def inject_figure_slots(content, headings):
 
 def convert_file(path, theme_key, eyebrow=None, auto_figure="off", toc_mode="sidebar",
                  layout="plain", design="deterministic", default_mode="system",
-                 image_mode="embed", outdir=None, layout_map=None):
+                 image_mode="embed", outdir=None, layout_map=None, motion="off",
+                 motion_tempo="normal"):
     global _IMG_BASE, _IMG_OUTDIR, _IMG_MODE, _LAYOUT_MAP
     if layout_map is not None:
         _LAYOUT_MAP = layout_map
@@ -1602,7 +3051,7 @@ def convert_file(path, theme_key, eyebrow=None, auto_figure="off", toc_mode="sid
         footer = "%s — Generated from Markdown by md-to-doc" % (meta.get("date") or
                  datetime.date.today().isoformat())
         out_html = build_html(meta, content, headings, theme_key, title, brand, footer,
-                              toc_mode, default_mode)
+                              toc_mode, default_mode, motion, motion_tempo)
         return out_html, title, headings, True, []
 
     headings, used, mermaid_store = [], set(), []
@@ -1626,14 +3075,68 @@ def convert_file(path, theme_key, eyebrow=None, auto_figure="off", toc_mode="sid
     footer = "%s — Generated from Markdown by md-to-doc" % (meta.get("date") or
              datetime.date.today().isoformat())
     out_html = build_html(meta, content, headings, theme_key, title, brand, footer,
-                          toc_mode, default_mode)
+                          toc_mode, default_mode, motion, motion_tempo)
     return out_html, title, headings, ok, pending
 
 
+
+# ──────────────────────────────────────────────────────────────────────────
+# AI 構築の仕上げ（--finalize）
+#   Claude が書いた本文の中の <!--MD2DOC-PART layout=…--> … <!--/MD2DOC-PART--> を、
+#   決定論的な部品（リストのレイアウト・表・コード・mermaid）に置き換える。
+# ──────────────────────────────────────────────────────────────────────────
+PART_RE = re.compile(r"<!--\s*MD2DOC-PART(?:\s+layout\s*=\s*([\w-]+))?\s*-->(.*?)<!--\s*/MD2DOC-PART\s*-->", re.S)
+
+
+def finalize_html(path, theme_key, src=None):
+    global _IMG_BASE, _IMG_OUTDIR, _IMG_MODE, _ACCENTS
+    doc = open(path, encoding="utf-8").read()
+    _IMG_BASE = os.path.dirname(os.path.abspath(src)) if src else os.path.dirname(os.path.abspath(path))
+    _IMG_OUTDIR = os.path.dirname(os.path.abspath(path))
+    _ACCENTS = accent_vars(theme_key)
+    store, count, bad = [], [0], []
+
+    def one(m):
+        lay = (m.group(1) or "plain").lower()
+        if lay not in DET_LAYOUTS:
+            bad.append(lay)
+            lay = "plain"
+        md = m.group(2)
+        lines = md.replace("\r\n", "\n").split("\n")
+        # 断片の共通の字下げを外す（HTML の中に字下げして書かれていてもよい）
+        ind = min([len(l) - len(l.lstrip(" ")) for l in lines if l.strip()] or [0])
+        lines = [l[ind:] if len(l) >= ind else l for l in lines]
+        base = len(store)
+        local = []
+        part = parse_blocks(lines, [], set(), local, top_level=True, layout=lay)
+        for k in range(len(local)):
+            part = part.replace("@@MERMAID_%d@@" % k, "@@MERMAID_%d@@" % (base + k))
+        store.extend(local)
+        count[0] += 1
+        return part
+
+    doc = PART_RE.sub(one, doc)
+    rendered, ok = render_mermaid(store, THEMES[theme_key])
+    pending = []
+    for i, src_ in enumerate(store):
+        svg = rendered.get(i)
+        if svg:
+            doc = doc.replace("@@MERMAID_%d@@" % i, svg)
+        else:
+            eid = "md2doc-mm-%d" % i
+            doc = doc.replace("@@MERMAID_%d@@" % i, manual_mermaid_figure(eid, src_))
+            pending.append({"out": path, "id": eid, "source": src_})
+    open(path, "w", encoding="utf-8").write(doc)
+    return count[0], pending, bad, "<!--MD2DOC_CONTENT-->" in doc
+
 def main():
     ap = argparse.ArgumentParser(description="Markdown を視覚的なHTMLドキュメントに変換")
-    ap.add_argument("inputs", nargs="+", help="入力 .md（複数可）")
-    ap.add_argument("--theme", required=True, choices=list(THEMES.keys()))
+    ap.add_argument("inputs", nargs="*", help="入力 .md（複数可）")
+    ap.add_argument("--finalize", metavar="OUT.html", default=None,
+                    help="AI 構築の仕上げ: 本文の <!--MD2DOC-PART layout=…--> を部品に置き換え、mermaid を描く（--theme が要る）")
+    ap.add_argument("--src", default=None, help="--finalize で、断片の中の画像の相対パスの基準にする元の .md")
+    ap.add_argument("--theme", choices=list(THEMES.keys()), help="テーマ（一覧は --list-themes）")
+    ap.add_argument("--list-themes", action="store_true", help="テーマの一覧（キー・名前・性格・向く文書）を出す")
     ap.add_argument("--mode", default="single", choices=["single", "print", "site"])
     ap.add_argument("--outdir", default=None, help="出力先（既定: 入力と同じ場所）")
     ap.add_argument("--eyebrow", default=None, help="ヘッダー上部の小見出し")
@@ -1642,7 +3145,7 @@ def main():
     ap.add_argument("--toc", default="sidebar", choices=["sidebar", "menu", "both", "none"],
                     help="目次の出し方（左サイドのみ/ヘッダーメニューのみ/両方/なし）")
     ap.add_argument("--layout", default="plain",
-                    choices=["plain", "cards", "timeline", "accordion", "freeform"],
+                    choices=list(LIST_LAYOUTS) + ["freeform"],
                     help="本文の見せ方の【既定値】（箇条書き/カード/タイムライン/アコーディオン/完全フリーフォーム）。"
                          "セクション単位の指定が無い節にだけ適用される")
     ap.add_argument("--layout-map", default=None, metavar="節名=レイアウト,...",
@@ -1650,16 +3153,71 @@ def main():
                          "節名は見出しテキストか slug（空白・記号・大小は無視して突き合わせ）。"
                          "値は plain/cards/timeline/accordion。"
                          "優先順は md 内 <!-- layout: .. --> > --layout-map > --layout")
+    ap.add_argument("--suggest-layouts", action="store_true",
+                    help="HTML を作らず、節ごとのレイアウトの割り当て案（3f の材料）と --layout-map の文字列を出す")
     ap.add_argument("--design", default="deterministic", choices=["deterministic", "ai"],
                     help="deterministic=スクリプトが型変換／ai=選んだ形式のテイストでClaudeが作り込む")
     ap.add_argument("--default-mode", default=None, choices=COLOR_MODES,
                     help="初回表示の既定モード（未指定ならテーマの既定。darktech=dark, 他=system）")
+    ap.add_argument("--motion", default="off", choices=MOTION_LEVELS,
+                    help="説明図の動き（off=動かさない／key=Claude が選んだ要所の図だけ／rich=すべての図）。"
+                         "スクロールで見えたとき 1 回再生。reduced-motion・印刷では静止")
+    ap.add_argument("--motion-tempo", default="normal", choices=MOTION_TEMPOS,
+                    help="動きの速さ（slow / normal / fast）。図ごとには data-tempo で上書きできる")
     ap.add_argument("--image-mode", default="embed", choices=["embed", "link"],
                     help="mdのローカル画像リンクの扱い（embed=data URIで埋め込み／link=外部フォルダ参照のまま）")
     args = ap.parse_args()
 
+    if args.list_themes:
+        print("| キー | 名前 | 性格 | 向く文書 |")
+        print("|---|---|---|---|")
+        for k, t in THEMES.items():
+            ch, fit = THEME_INFO.get(k, ("", ""))
+            print("| `%s` | %s | %s | %s |" % (k, t["label"], ch, fit))
+        return
+    if not args.theme:
+        ap.error("--theme を指定してください（一覧は --list-themes）")
     default_mode = default_mode_of(args.theme, args.default_mode)
     layout_map = parse_layout_map(args.layout_map)
+    if args.finalize:
+        n, pending, bad, left = finalize_html(args.finalize, args.theme, args.src)
+        print("OK : %s（部品 %d 個を置き換え）" % (args.finalize, n))
+        for b in bad:
+            print("warn: MD2DOC-PART の layout=%s は使えません（plain で描きました）。%s のいずれか。"
+                  % (b, "/".join(DET_LAYOUTS)), file=sys.stderr)
+        if left:
+            print("warn: <!--MD2DOC_CONTENT--> がまだ残っています。本文を書いてから仕上げてください。", file=sys.stderr)
+        if pending:
+            print("\n===== MERMAID_MANUAL_RENDER_REQUIRED =====")
+            print("mmdc が無いため %d 個の図が未レンダリングです。figkit の flow / sequence に写して" % len(pending))
+            print('"replace": "<id>" で差し込むか、テーマ配色の <svg> を手描きして figure ごと置き換えてください。')
+            print("配色パレット: " + json.dumps(theme_palette(args.theme), ensure_ascii=False))
+            for t in pending:
+                print("\n--- figure id=%s  in  %s ---" % (t["id"], t["out"]))
+                print(t["source"])
+            print("===== /MERMAID_MANUAL_RENDER_REQUIRED =====")
+        return
+    if not args.inputs:
+        ap.error("入力 .md を指定してください（--finalize のときは不要）")
+    if args.suggest_layouts:
+        for path in args.inputs:
+            raw = open(path, encoding="utf-8").read()
+            _, body = split_frontmatter(raw)
+            sug = suggest_layouts(body.replace("\r\n", "\n").split("\n"))
+            print("--- %s" % path)
+            if not sug:
+                print("  （割り当ての候補なし。既定値のまま）")
+                continue
+            print("  | セクション | 割り当て | 理由 |")
+            print("  |---|---|---|")
+            for name, lay, why in sug:
+                print("  | %s | `%s` | %s |" % (name, lay, why))
+            print('  --layout-map "%s"' % ",".join("%s=%s" % (nm, ly) for nm, ly, _ in sug))
+        return
+    if args.motion != "off" and args.mode == "print":
+        print("warn: --mode print では図を動かしません（--motion %s を off として扱います）" % args.motion,
+              file=sys.stderr)
+        args.motion = "off"
 
     produced = []
     todo = []  # 手描きが必要な図 [{out, id, source}]
@@ -1669,14 +3227,16 @@ def main():
         outdir = args.outdir or os.path.dirname(os.path.abspath(path))
         out_html, title, headings, ok, pending = convert_file(
             path, args.theme, args.eyebrow, args.auto_figure, args.toc, args.layout, args.design,
-            default_mode, args.image_mode, outdir, layout_map)
+            default_mode, args.image_mode, outdir, layout_map, args.motion,
+            args.motion_tempo)
         os.makedirs(outdir, exist_ok=True)
         outname = os.path.splitext(os.path.basename(path))[0] + ".html"
         outpath = os.path.join(outdir, outname)
         with open(outpath, "w", encoding="utf-8") as f:
             f.write(out_html)
         entry = {"src": path, "out": outpath, "title": title,
-                 "h2": [h["slug"] for h in headings if h["level"] == 2]}
+                 "h2": [h["slug"] for h in headings if h["level"] == 2],
+                 "figs": re.findall(r'<figure class="mermaid-fig[^"]*" id="([^"]+)"', out_html)}
         if args.layout == "freeform" or args.design == "ai":
             entry["hlist"] = headings
             try:
@@ -1704,7 +3264,7 @@ def main():
                html.escape(p["title"]), html.escape(os.path.basename(p["src"])))
             for p in produced)
         index = INDEX_PAGE.replace("__THEMECSS__", theme_css(args.theme))\
-                          .replace("__STATIC_CSS__", STATIC_CSS)\
+                          .replace("__STATIC_CSS__", STATIC_CSS + theme_extra_css(args.theme))\
                           .replace("__MODE_SWITCH__", MODE_SWITCH_HTML)\
                           .replace("__MODE_BOOT_JS__", MODE_BOOT_JS)\
                           .replace("__MODE_SCRIPT_JS__", MODE_SCRIPT_JS)\
@@ -1750,6 +3310,24 @@ def main():
                 print("[節指定あり: %s] %s" % (os.path.basename(ent["src"]),
                       ", ".join("%s=%s" % (sec, lay) for sec, lay in dirs)))
                 print("  ↑ md 側で明示されている節は、この指定を優先すること。")
+        print("\n[定型の部品はスクリプトに任せる] 本文の中に、Markdown の断片とレイアウトを書く目印を置ける:")
+        print("  <!--MD2DOC-PART layout=tabs-->")
+        print("  - macOS")
+        print("    ```bash … ```")
+        print("  <!--/MD2DOC-PART-->")
+        print("  書き終えたら次を 1 回実行すると、断片が決定論的な部品（リストのレイアウト・表の強化・コード・mermaid）に置き換わる:")
+        print("  python3 %s --finalize <out.html> --theme %s [--src <input.md>]"
+              % (os.path.abspath(__file__), args.theme))
+        print("  layout は %s。見出し（h2/h3）は断片に入れず、Claude が書く。" % " / ".join(DET_LAYOUTS))
+        print("  定型の形（タブ・チェックリスト・用語・数値タイル・タグ・ツリー・対比・説明とコード・表・mermaid）は")
+        print("  手で書かずにこの目印を使い、手作りは構成・強調・独自の部品だけにする（生成コストと書き漏れを減らす）。")
+        print("  手で書いた <table> も、8 行以上ならページ側で並べ替え・絞り込み・数値の棒が付く（止めるなら data-table=\"plain\"）。")
+        for ent in produced:
+            sug = suggest_layouts((ent.get("md") or "").replace("\r\n", "\n").split("\n"))
+            if sug:
+                print("[割り当て案: %s]（参考。崩してよいが、定型に当たる節は MD2DOC-PART を使う）" % os.path.basename(ent["src"]))
+                for name, lay, why in sug:
+                    print("  %s → %s（%s）" % (name, lay, why))
         print("\n[配色] " + json.dumps(pal, ensure_ascii=False))
         print("[使える部品クラス] hero外の本文で利用可:")
         print("  見出し: <h2 id=SLUG class=\"hl\">..</h2> / <h3 id=SLUG class=\"hl\">..</h3>（下記SLUG必須）")
@@ -1757,6 +3335,12 @@ def main():
         print("  特徴グリッド:.feature-grid / 数値:.stat-row>.stat(.big,.cap) / チップ:.chips>.chip / バッジ:.badge")
         print("  タイムライン:.timeline>.tl-item(.tl-dot,.tl-body>.tl-h) / 折りたたみ:.accordion>.acc-item>summary")
         print("  コールアウト:.callout.callout-note(.callout-head,.callout-body) / 表:.tablewrap>table / 2分割:.split")
+        print("  タブ:.tabs[data-tabs]>.tab-list[role=tablist]>button[role=tab]#ID-tN + section.tab-panel#ID-pN>.tab-print-h")
+        print("  チェックリスト:.checklist[data-checklist=KEY]>.ck-head(.ck-bar>i,.ck-count,button.ck-reset)+ul.ck-list>li>label>input[type=checkbox]+span.ck-text")
+        print("  用語:.defs-wrap>dl.defs>.def>dt+dd（10 件以上なら先頭に input.defs-filter）/ 対比:.pc-grid[style=--cols:2]>.pc-col.pc-pro|.pc-con|.pc-neutral>.pc-h+.pc-b")
+        print("  ツリー:.tree>ul>li.tree-dir>details[open]>summary>.tree-name+.tree-note / li.tree-file>.tree-row>.tree-name")
+        print("  説明とコード:.walk>.walk-row>.walk-text+.walk-code / 要点の箱:section.tldr / 大きめのタグ:.chips.chips-lg>.chip")
+        print("  強化した表:.tablewrap.tools[data-table-tools]（数値の列は th.num / td.num[data-v]>.nbar[style=--w:NN（0〜100 の数）]+.nv）")
         print("  ※各要素に style=\"--ca:var(--a0)\" のように付けると、その部品の配色を accents から個別指定できる。")
         print("  ※図は自己完結の <figure class=\"mermaid-fig\"><svg ...></figure> で（外部依存なし・viewBox必須）。")
         print("  ※【重要】色は必ず CSS 変数（var(--accent) / var(--a1) 等）で指定する。SVG の fill/stroke も同様。")
@@ -1791,6 +3375,10 @@ def main():
             print("level=light: 各ドキュメントで最も効果的な1〜2個に絞る。")
         else:
             print("level=rich: 図解できる箇所は積極的に図にする。")
+        print("【推奨】図の多くは figkit で作れる（SVG を手で描かない。JSON の仕様→テーマ配色の図、slot に直接差し込む）:")
+        print("  python3 %s --list  /  python3 %s spec.json --insert <out.html>"
+              % ((os.path.join(os.path.dirname(os.path.abspath(__file__)), "figkit.py"),) * 2))
+        print("  figkit に無い形の図だけ、下の配色で手描きする。")
         print("配色パレット: " + json.dumps(theme_palette(args.theme), ensure_ascii=False))
         for p in produced:
             print("--- %s : sections=%s" % (p["out"], ",".join(p["h2"]) or "(なし)"))
@@ -1815,6 +3403,44 @@ def main():
             print("\n--- figure id=%s  in  %s ---" % (t["id"], t["out"]))
             print(t["source"])
         print("===== /MERMAID_MANUAL_RENDER_REQUIRED =====")
+
+    # motion 有効: Claude が図に動きの注釈を付けるための情報を出力
+    if args.motion != "off" and produced:
+        ai = args.layout == "freeform" or args.design == "ai"
+        kit = os.path.join(os.path.dirname(os.path.abspath(__file__)), "figkit.py")
+        print("\n===== MOTION_ENABLED (level=%s, tempo=%s) =====" % (args.motion, args.motion_tempo))
+        print("説明図を動かす実行部を埋め込みました。動かし方は実行部が決める（決定論的）。")
+        print("Claude が決めるのは『どの図を動かすか』と『(任意の)注釈』だけ。色・座標・style は変えない。")
+        print("再生: 図が画面に入ったとき 1 回（data-trigger で変更可）。reduced-motion・印刷・JS 無しでは静止した完成図。")
+        if args.motion == "key":
+            print("[level=key] 動くのは data-motion を付けた図だけ。各文書で動きが理解を足す図を 1〜2 個選ぶ（0 個でもよい）。")
+            print("  向く: 流れ・手順・状態遷移・段階的に組み上がる構成・数量の変化。向かない: 静的な一覧・単純な階層。")
+        else:
+            print("[level=rich] すべての図が動く（注釈なしの図は位置順に自動で現れる）。邪魔な図は data-motion=\"none\"。")
+        print("[図を作るなら figkit を使う] SVG を手で描かず、JSON の仕様から注釈入りの図を作れる（生成コストが低く、同じ仕様→同じ図）:")
+        print("  python3 %s --list                       # 図の種類と仕様" % kit)
+        print("  python3 %s spec.json --insert <out.html>  # slot / replace / placeholder に差し込む" % kit)
+        print("  種類: flow / steps / cycle / bars / metrics / compare / hub / layers / sequence。")
+        print("  figkit の図は段・現れ方が組み込み済み。key で動かす図は仕様に \"motion\": true を足すだけ。")
+        print("[図の単位] <figure data-motion=\"auto|steps|none\" data-tempo=\"slow|normal|fast\" data-trigger=\"view|click|loop\" data-motion-dir=\"auto|x|y|reverse-x|reverse-y|radial\">")
+        print("[要素の注釈]（svg 内の要素か <g>。すべて任意）")
+        print("  data-step=\"N\"  現れる順番（同じ N は同時）   data-effect=\"draw|rise|fade|slide|pop|grow|wipe|none\"  現れ方")
+        print("  data-grow=\"up|down|left|right\"  grow の向き   data-stagger[=\"ms\"]  <g> の子を 1 つずつ")
+        print("  data-travel=\"ラベル\"  線の上を印が移動（受け渡し）   data-count=\"0\"  文字の数値を 0 から数え上げ")
+        print("  data-flow  線に沿って破線が流れ続ける   data-pulse  ゆっくり明滅   data-spin[=\"ccw\"]  回り続ける（飾りの輪に）")
+        print("  data-focus=\"N\"  現れた後、N の順に 1 つずつ強調し、他の data-focus 要素を薄くする（手順の解説）")
+        print("  ※ mermaid（mmdc 出力）の svg は内部を書き換えず、figure に data-motion 等を足すだけにする。")
+        for p in produced:
+            figs = p.get("figs") or []
+            print("--- %s" % p["out"])
+            print("  mermaid の図: %s" % (", ".join(figs) if figs else "(なし)"))
+            if args.auto_figure != "off":
+                print("  auto-figure のスロット: %s（figkit の slot に指定できる）" % (",".join(p["h2"]) or "-"))
+            if ai:
+                print("  AI 構築: 本文に <!--FIGKIT:名前--> を置き、figkit の placeholder で差し込める")
+            if not figs and args.auto_figure == "off" and not ai:
+                print("  ※ この文書には図がありません（動く対象なし）。")
+        print("===== /MOTION_ENABLED =====")
 
 
 INDEX_PAGE = """<!DOCTYPE html>
