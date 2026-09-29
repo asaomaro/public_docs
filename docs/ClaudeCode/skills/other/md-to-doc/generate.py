@@ -1513,7 +1513,8 @@ def build_toc_html(headings):
 
 
 def build_html(meta, content_html, headings, theme_key, title, brand, footer,
-               toc_mode="sidebar", default_mode="system", motion="off"):
+               toc_mode="sidebar", default_mode="system", motion="off",
+               motion_tempo="normal"):
     nav = "".join('<a href="#%s">%s</a>' % (h["slug"], html.escape(h["text"]))
                   for h in headings if h["level"] == 2)
     toc = build_toc_html(headings)
@@ -1533,7 +1534,7 @@ def build_html(meta, content_html, headings, theme_key, title, brand, footer,
         "__NAV__": nav, "__TOC__": toc, "__EYEBROW__": eyebrow, "__H1__": h1,
         "__DATE__": date, "__TAGS__": tags, "__CONTENT__": content_html,
         "__FOOTER__": html.escape(footer), "__BODYCLASS__": "toc-" + toc_mode,
-        "__MOTION__": motion_html(motion),
+        "__MOTION__": motion_html(motion, motion_tempo),
     }
     page = PAGE
     for k, v in repl.items():
@@ -1560,34 +1561,37 @@ MOTION_CSS = """
 .mo-replay{position:absolute;top:8px;right:8px;z-index:2;font:inherit;font-size:12px;line-height:1;
   padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:var(--card);
   color:var(--muted);cursor:pointer;opacity:.0;transition:opacity .2s,color .2s,border-color .2s}
-.mo-fig.mo-played .mo-replay{opacity:.75}
+.mo-fig.mo-played .mo-replay,.mo-replay.mo-click{opacity:.75}
 .mo-fig:hover .mo-replay,.mo-replay:focus-visible{opacity:1;color:var(--accent);border-color:var(--accent)}
 .mo-replay:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 @media print{.mo-replay{display:none!important}}
 """
 
 MOTION_JS = r"""(function(){
-  var LEVEL='__MOTION_LEVEL__';
+  var LEVEL='__MOTION_LEVEL__', TEMPO_DEF='__MOTION_TEMPO__';
   var mq=window.matchMedia?matchMedia('(prefers-reduced-motion: reduce)'):null;
   if((mq&&mq.matches)||!('IntersectionObserver' in window)||!Element.prototype.animate) return;
   var GEOM={rect:1,circle:1,ellipse:1,polygon:1,polyline:1,line:1,path:1,text:1,image:1,use:1,foreignObject:1};
   var SKIP={defs:1,marker:1,clipPath:1,mask:1,pattern:1,symbol:1,linearGradient:1,radialGradient:1,filter:1,style:1,title:1,desc:1,metadata:1};
-  var DRAW=760, RISE=520, LOOP_FLOW=900, LOOP_PULSE=1800;
+  var ATOMIC=['data-effect','data-stagger','data-travel','data-count','data-focus','data-spin','data-pulse','data-flow'];
+  var TEMPOS={slow:1.45,normal:1,fast:.7};
+  var BASE={draw:760,rise:520,travel:1400,count:1100,stagger:130,gapSteps:450,gapAuto:380,autoTotal:2600,hold:1500,flow:900,pulse:1800,spin:24000,loopRest:2200};
+  var EASE='cubic-bezier(.2,.7,.2,1)';
   function tag(el){return el.localName||el.tagName;}
+  function num(v,d){v=parseFloat(v);return isFinite(v)?v:d;}
   function strokeOnly(el){
     var t=tag(el); if(t!=='path'&&t!=='line'&&t!=='polyline') return false;
     var cs=getComputedStyle(el);
     var noFill=t==='line'||cs.fill==='none'||parseFloat(cs.fillOpacity)===0;   // line には塗りが無い
     return noFill&&cs.stroke!=='none'&&parseFloat(cs.strokeWidth)>0;
   }
-  /* 対象の図（コンテナ）を集める */
+  function isAtomic(el){ for(var i=0;i<ATOMIC.length;i++) if(el.hasAttribute(ATOMIC[i])) return true; return false; }
+
+  /* ---- 対象の図（コンテナ） ---- */
   function containers(){
     var out=[];
     function add(el){ if(el&&out.indexOf(el)<0&&el.getAttribute('data-motion')!=='none'&&!el.classList.contains('manual-render')&&el.querySelector('svg')) out.push(el); }
-    [].forEach.call(document.querySelectorAll('.content [data-motion]'),function(el){
-      if(el.closest('svg')) return;           // svg 内の data-motion は対象外（要素の注釈は data-effect）
-      add(el);
-    });
+    [].forEach.call(document.querySelectorAll('.content [data-motion]'),function(el){ if(!el.closest('svg')) add(el); });
     if(LEVEL==='rich'){
       [].forEach.call(document.querySelectorAll('.content figure'),function(f){ if(!f.parentElement.closest('figure')) add(f); });
       [].forEach.call(document.querySelectorAll('.content .auto-fig-slot'),function(s){ if(!s.querySelector('figure')) add(s); });
@@ -1597,110 +1601,231 @@ MOTION_JS = r"""(function(){
   function visibleSvgs(c){
     return [].filter.call(c.querySelectorAll('svg'),function(s){ return !s.parentElement.closest('svg')&&s.getClientRects().length>0; });
   }
-  /* svg の中の動かす単位と、その段（step） */
-  function plan(svg){
-    var explicit=[].slice.call(svg.querySelectorAll('[data-step]'));
-    var units=[];
+
+  /* ---- 現れる順番（段）を決める ---- */
+  function plan(st,svg){
+    var T=st.T, explicit=[].slice.call(svg.querySelectorAll('[data-step]'));
     if(explicit.length){
-      explicit=explicit.filter(function(el){ return !el.parentElement.closest('[data-step]'); });   // 入れ子は外側だけ
-      var nums=explicit.map(function(el){return parseFloat(el.getAttribute('data-step'))||0;});
+      explicit=explicit.filter(function(el){ return !el.parentElement.closest('[data-step]'); });
+      var nums=explicit.map(function(el){return num(el.getAttribute('data-step'),0);});
       var uniq=nums.slice().sort(function(a,b){return a-b;}).filter(function(v,i,a){return i===0||v!==a[i-1];});
-      explicit.forEach(function(el,i){ units.push({el:el,step:uniq.indexOf(nums[i])}); });
-      return {units:units,steps:uniq.length,gap:450};
+      return {units:explicit.map(function(el,i){return {el:el,step:uniq.indexOf(nums[i])};}),gap:BASE.gapSteps*T};
     }
-    var sr=svg.getBoundingClientRect(), area=sr.width*sr.height;
-    var leaves=[];
+    var sr=svg.getBoundingClientRect(), area=sr.width*sr.height, leaves=[];
     (function walk(node){
       for(var c=node.firstElementChild;c;c=c.nextElementSibling){
         var t=tag(c);
-        if(SKIP[t]) continue;
-        if(t==='g'||t==='a'||t==='switch'||(t==='svg'&&c!==svg)){ walk(c); continue; }
-        if(!GEOM[t]) continue;
+        if(SKIP[t]||(c.classList&&c.classList.contains('mo-token'))) continue;
+        var group=(t==='g'||t==='a'||t==='switch'||(t==='svg'&&c!==svg));
+        if(group&&!isAtomic(c)){ walk(c); continue; }
+        if(!group&&!GEOM[t]) continue;
         var r=c.getBoundingClientRect();
         if(r.width===0&&r.height===0) continue;
-        if(r.width*r.height>area*0.8) continue;  // 背景の面は動かさない
+        if(r.width*r.height>area*0.8&&!isAtomic(c)) continue;   // 背景の面は動かさない
         leaves.push({el:c,r:r});
       }
     })(svg);
-    if(!leaves.length) return {units:[],steps:0,gap:0};
-    var horiz=sr.width>=sr.height*1.15;
-    var lo=Infinity,hi=-Infinity;
-    leaves.forEach(function(l){ l.c=horiz?(l.r.left+l.r.width/2):(l.r.top+l.r.height/2); lo=Math.min(lo,l.c); hi=Math.max(hi,l.c); });
-    var n=Math.max(3,Math.min(10,Math.round(leaves.length/3)));
-    var band=Math.max(1,(hi-lo)/n);
-    leaves.forEach(function(l){ units.push({el:l.el,step:Math.min(n-1,Math.floor((l.c-lo)/band))}); });
-    return {units:units,steps:n,gap:Math.min(380,2600/n)};
+    if(!leaves.length) return {units:[],gap:0};
+    var dir=st.c.getAttribute('data-motion-dir')||'auto';
+    if(dir==='auto') dir=sr.width>=sr.height*1.15?'x':'y';
+    var cx=sr.left+sr.width/2, cy=sr.top+sr.height/2;
+    leaves.forEach(function(l){
+      var x=l.r.left+l.r.width/2, y=l.r.top+l.r.height/2;
+      l.k= dir==='x'?x : dir==='reverse-x'?-x : dir==='reverse-y'?-y : dir==='radial'?Math.hypot(x-cx,y-cy) : y;
+    });
+    var lo=Infinity,hi=-Infinity; leaves.forEach(function(l){lo=Math.min(lo,l.k);hi=Math.max(hi,l.k);});
+    var n=Math.max(3,Math.min(10,Math.round(leaves.length/3))), band=Math.max(1,(hi-lo)/n);
+    return {units:leaves.map(function(l){return {el:l.el,step:Math.min(n-1,Math.floor((l.k-lo)/band))};}),
+            gap:Math.min(BASE.gapAuto,BASE.autoTotal/n)*T};
   }
   function effectOf(el){
     var e=el.getAttribute('data-effect'); if(e) return e;
     if(tag(el)==='g') return el.querySelector('path,line,polyline')&&[].every.call(el.querySelectorAll('*'),function(x){return !GEOM[tag(x)]||strokeOnly(x);})?'draw':'rise';
     return strokeOnly(el)?'draw':'rise';
   }
-  /* 1 要素分のアニメーションを作る（一時停止＝最初のコマで待機） */
+
+  /* ---- 部品 ---- */
+  function track(st,a,end){ a.pause(); st.anims.push(a); st.end=Math.max(st.end,end); return a; }
+  function withBox(st,el,origin){
+    var pb=el.style.transformBox, po=el.style.transformOrigin;
+    el.style.transformBox='fill-box'; el.style.transformOrigin=origin;
+    var back=function(){ el.style.transformBox=pb; el.style.transformOrigin=po; };
+    st.restores.push(back); return back;
+  }
+  /* 進み具合で中身を書き換える部品（数え上げ・移動する印）: 見えない代理アニメの進み具合で駆動する */
+  function driven(st,el,dur,delay,fn,done){
+    var a=el.animate([{},{}],{duration:dur,delay:delay});
+    track(st,a,delay+dur);
+    st.drivers.push({a:a,fn:fn});
+    a.finished.then(function(){ fn(1); if(done) done(); },function(){});
+    return a;
+  }
   function build(st,el,effect,delay){
-    if(effect==='draw'){
-      var paths=tag(el)==='g'?[].slice.call(el.querySelectorAll('path,line,polyline')):[el];
-      if(tag(el)==='g') [].forEach.call(el.querySelectorAll('*'),function(x){ if(GEOM[tag(x)]&&!strokeOnly(x)) build(st,x,'rise',delay+DRAW*0.6); });
-      paths.forEach(function(p){
-        if(!strokeOnly(p)) return;
-        var L=0; try{L=p.getTotalLength();}catch(e){}
-        if(!L){ build(st,p,'fade',delay); return; }
-        var ms=p.getAttribute('marker-start'), me=p.getAttribute('marker-end');
-        if(ms||me){
-          p.removeAttribute('marker-start'); p.removeAttribute('marker-end');
-          var back=function(){ if(ms) p.setAttribute('marker-start',ms); if(me) p.setAttribute('marker-end',me); };
-          st.restores.push(back);
-        }
-        var d=L+' '+L;
-        var a=p.animate([{strokeDasharray:d,strokeDashoffset:L},{strokeDasharray:d,strokeDashoffset:0}],
-                        {duration:DRAW,delay:delay,easing:'ease-in-out',fill:'backwards'});
-        a.pause(); st.anims.push(a);
-        if(back) a.finished.then(back,function(){});
-      });
+    var T=st.T, t0=tag(el);
+    /* 中に注釈のある要素を持つグループは、子ごとに組み立てる（棒の伸び・数え上げを内側で効かせる） */
+    if((t0==='g'||t0==='a')&&!el.hasAttribute('data-effect')&&!el.hasAttribute('data-stagger')&&!el.hasAttribute('data-travel')
+       &&el.querySelector('[data-effect],[data-count],[data-travel],[data-stagger]')){
+      [].forEach.call(el.children,function(k){ var tk=tag(k); if(GEOM[tk]||tk==='g'||tk==='a') build(st,k,effectOf(k),delay); });
       return;
     }
-    var o=getComputedStyle(el).opacity||'1';
-    var k0={opacity:0}, k1={opacity:o};
-    if(effect==='rise'){ k0.translate='0 10px'; k1.translate='0 0'; }
-    if(effect==='slide'){ k0.translate='-16px 0'; k1.translate='0 0'; }
-    var b=el.animate([k0,k1],{duration:RISE,delay:delay,easing:'cubic-bezier(.2,.7,.2,1)',fill:'backwards'});
-    b.pause(); st.anims.push(b);
+    if(el.hasAttribute('data-stagger')){
+      var kids=[].filter.call(el.children,function(k){return GEOM[tag(k)]||tag(k)==='g';});
+      var gap=num(el.getAttribute('data-stagger'),BASE.stagger)*T;
+      var eff=el.getAttribute('data-effect')||'rise';
+      kids.forEach(function(k,i){ build(st,k,k.getAttribute('data-effect')||eff,delay+i*gap); });
+      return;
+    }
+    if(el.hasAttribute('data-count')) count(st,el,delay);
+    if(el.hasAttribute('data-travel')) travel(st,el,delay);
+    var o=getComputedStyle(el).opacity||'1', k0={opacity:0}, k1={opacity:o}, dur=BASE.rise*T, back;
+    switch(effect){
+      case 'none': return;
+      case 'draw':
+        var paths=tag(el)==='g'?[].slice.call(el.querySelectorAll('path,line,polyline')):[el];
+        if(tag(el)==='g') [].forEach.call(el.querySelectorAll('*'),function(x){ if(GEOM[tag(x)]&&!strokeOnly(x)&&!x.closest('.mo-token')) build(st,x,'fade',delay+BASE.draw*T*0.55); });
+        paths.forEach(function(p){
+          if(!strokeOnly(p)||p.closest('.mo-token')) return;
+          var L=0; try{L=p.getTotalLength();}catch(e){}
+          if(!L){ build(st,p,'fade',delay); return; }
+          var ms=p.getAttribute('marker-start'), me=p.getAttribute('marker-end'), mb=null;
+          if(ms||me){
+            p.removeAttribute('marker-start'); p.removeAttribute('marker-end');
+            mb=function(){ if(ms) p.setAttribute('marker-start',ms); if(me) p.setAttribute('marker-end',me); };
+            st.restores.push(mb);
+          }
+          var d=L+' '+L, a=p.animate([{strokeDasharray:d,strokeDashoffset:L},{strokeDasharray:d,strokeDashoffset:0}],
+                                   {duration:BASE.draw*T,delay:delay,easing:'ease-in-out',fill:'backwards'});
+          track(st,a,delay+BASE.draw*T);
+          if(mb) a.finished.then(mb,function(){});
+        });
+        return;
+      case 'fade': break;
+      case 'slide': k0.translate='-18px 0'; k1.translate='0 0'; break;
+      case 'pop':
+        back=withBox(st,el,'center'); k0.scale='.6'; k1.scale='1';
+        k0.easing='cubic-bezier(.34,1.56,.64,1)'; dur=BASE.rise*T*1.1; break;
+      case 'grow':
+        var g=el.getAttribute('data-grow')||'up';
+        back=withBox(st,el,{up:'50% 100%',down:'50% 0%',right:'0% 50%',left:'100% 50%'}[g]||'50% 100%');
+        k0={opacity:o,scale:(g==='left'||g==='right')?'0 1':'1 0'}; k1={opacity:o,scale:'1 1'};
+        dur=BASE.draw*T*1.15; break;
+      case 'wipe':
+        k0={opacity:o,clipPath:'inset(0 100% 0 0)'}; k1={opacity:o,clipPath:'inset(0 0% 0 0)'};
+        dur=BASE.draw*T; break;
+      default: k0.translate='0 10px'; k1.translate='0 0';   // rise
+    }
+    var a=el.animate([k0,k1],{duration:dur,delay:delay,easing:EASE,fill:'backwards'});
+    track(st,a,delay+dur);
+    if(back) a.finished.then(back,function(){});
+  }
+  function count(st,el,delay){
+    var textEl=tag(el)==='text'?el:el.querySelector('text')||el;
+    var orig=textEl.textContent, m=orig.match(/-?[\d,]*\.?\d+/);
+    if(!m) return;
+    var to=parseFloat(m[0].replace(/,/g,'')), spec=el.getAttribute('data-count')||'', f=spec.split(/→|->/);
+    var from=num(f.length>1?f[0]:spec,0), dec=(m[0].split('.')[1]||'').length, comma=m[0].indexOf(',')>=0;
+    var pre=orig.slice(0,m.index), post=orig.slice(m.index+m[0].length);
+    function fmt(v){ var s=v.toFixed(dec); if(comma){ var p=s.split('.'); p[0]=p[0].replace(/\B(?=(\d{3})+(?!\d))/g,','); s=p.join('.'); } return pre+s+post; }
+    textEl.textContent=fmt(from);
+    st.restores.push(function(){ textEl.textContent=orig; });
+    driven(st,el,BASE.count*st.T,delay,function(k){ textEl.textContent=k>=1?orig:fmt(from+(to-from)*(1-Math.pow(1-k,3))); });
+  }
+  function travel(st,el,delay){
+    var p=tag(el)==='g'?el.querySelector('path,line,polyline'):el;
+    if(!p||!p.getTotalLength) return;
+    var L=0; try{L=p.getTotalLength();}catch(e){} if(!L) return;
+    var NS='http://www.w3.org/2000/svg', g=document.createElementNS(NS,'g');
+    g.setAttribute('class','mo-token'); g.setAttribute('pointer-events','none'); g.setAttribute('opacity','0');
+    var dot=document.createElementNS(NS,'circle'); dot.setAttribute('r','6'); dot.setAttribute('fill','var(--accent)');
+    dot.setAttribute('stroke','var(--card)'); dot.setAttribute('stroke-width','2'); g.appendChild(dot);
+    var label=el.getAttribute('data-travel');
+    if(label){
+      var bg=document.createElementNS(NS,'rect'), tx=document.createElementNS(NS,'text');
+      tx.textContent=label; tx.setAttribute('font-size','12'); tx.setAttribute('fill','var(--on-accent)');
+      tx.setAttribute('text-anchor','middle'); tx.setAttribute('y','-13'); tx.setAttribute('font-family','var(--mono)');
+      bg.setAttribute('fill','var(--accent)'); bg.setAttribute('rx','6'); g.appendChild(bg); g.appendChild(tx);
+    }
+    p.parentNode.insertBefore(g,p.nextSibling);
+    if(label){ var w=0; try{w=tx.getComputedTextLength();}catch(e){} w=(w||label.length*7)+14;
+      bg.setAttribute('x',-w/2); bg.setAttribute('y','-26'); bg.setAttribute('width',w); bg.setAttribute('height','18'); }
+    st.restores.push(function(){ if(g.parentNode) g.parentNode.removeChild(g); });
+    var start=delay+(effectOf(el)==='draw'?BASE.draw*st.T*0.9:0);
+    driven(st,g,BASE.travel*st.T,start,function(k){
+      if(k>=1){ g.setAttribute('opacity','0'); return; }
+      var e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2, pt=p.getPointAtLength(L*e);
+      g.setAttribute('transform','translate('+pt.x+','+pt.y+')');
+      g.setAttribute('opacity', k<.08?String(k/.08):k>.92?String((1-k)/.08):'1');
+    });
+  }
+  function focus(st,svg){
+    var els=[].slice.call(svg.querySelectorAll('[data-focus]'));
+    if(!els.length) return;
+    var ranks=els.map(function(e){return num(e.getAttribute('data-focus'),0);});
+    var uniq=ranks.slice().sort(function(a,b){return a-b;}).filter(function(v,i,a){return i===0||v!==a[i-1];});
+    var n=uniq.length, hold=BASE.hold*st.T, fadeIn=260, D=n*hold+500, delay=st.end+300;
+    els.forEach(function(el,i){
+      var r=uniq.indexOf(ranks[i]), o=num(getComputedStyle(el).opacity,1), kf=[{offset:0,opacity:o}];
+      for(var s=0;s<n;s++){ var v=s===r?o:o*.25;
+        kf.push({offset:(s*hold+fadeIn)/D,opacity:v}); kf.push({offset:((s+1)*hold)/D,opacity:v}); }
+      kf.push({offset:1,opacity:o});
+      track(st,el.animate(kf,{duration:D,delay:delay,easing:'ease-in-out'}),delay+D);
+    });
   }
   function loops(st,svg){
     [].forEach.call(svg.querySelectorAll('[data-flow]'),function(p){
-      var list=tag(p)==='g'?[].slice.call(p.querySelectorAll('path,line,polyline')):[p];
-      list.forEach(function(x){ st.loops.push(x.animate([{strokeDasharray:'10 8',strokeDashoffset:18},{strokeDasharray:'10 8',strokeDashoffset:0}],{duration:LOOP_FLOW,iterations:Infinity})); });
+      (tag(p)==='g'?[].slice.call(p.querySelectorAll('path,line,polyline')):[p]).forEach(function(x){
+        st.loops.push(x.animate([{strokeDasharray:'10 8',strokeDashoffset:18},{strokeDasharray:'10 8',strokeDashoffset:0}],{duration:BASE.flow*st.T,iterations:Infinity})); });
     });
     [].forEach.call(svg.querySelectorAll('[data-pulse]'),function(el){
-      st.loops.push(el.animate([{opacity:1},{opacity:.45},{opacity:1}],{duration:LOOP_PULSE,iterations:Infinity,easing:'ease-in-out'}));
+      st.loops.push(el.animate([{opacity:1},{opacity:.45},{opacity:1}],{duration:BASE.pulse*st.T,iterations:Infinity,easing:'ease-in-out'}));
+    });
+    [].forEach.call(svg.querySelectorAll('[data-spin]'),function(el){
+      var back=withBox(st,el,'center'), rev=el.getAttribute('data-spin')==='ccw';
+      st.loops.push(el.animate([{rotate:'0deg'},{rotate:(rev?'-':'')+'360deg'}],{duration:BASE.spin*st.T,iterations:Infinity}));
     });
     if(!st.inView) st.loops.forEach(function(a){a.pause();});
   }
+
+  /* ---- 再生の制御 ---- */
+  var driving=false;
+  function drive(){
+    var any=false;
+    states.forEach(function(st){ st.drivers.forEach(function(d){
+      if(d.a.playState!=='running') return; any=true;
+      var k=d.a.effect.getComputedTiming().progress; if(k!==null) d.fn(k); }); });
+    if(any) requestAnimationFrame(drive); else driving=false;
+  }
   function reset(st){
+    clearTimeout(st.timer);
     st.anims.forEach(function(a){try{a.cancel();}catch(e){}});
     st.loops.forEach(function(a){try{a.cancel();}catch(e){}});
-    st.restores.forEach(function(f){f();});
-    st.anims=[]; st.loops=[]; st.restores=[];
+    for(var i=st.restores.length-1;i>=0;i--) st.restores[i]();
+    st.anims=[]; st.loops=[]; st.restores=[]; st.drivers=[]; st.svgs=[]; st.end=0;
   }
   function arm(st){
     reset(st);
+    st.T=TEMPOS[st.c.getAttribute('data-tempo')]||TEMPOS[TEMPO_DEF]||1;
     try{
       visibleSvgs(st.c).forEach(function(svg){
-        var pl=plan(svg);
+        var pl=plan(st,svg);
         pl.units.forEach(function(u){ build(st,u.el,effectOf(u.el),u.step*pl.gap); });
         st.svgs.push(svg);
       });
+      st.svgs.forEach(function(svg){ focus(st,svg); });
     }catch(e){ reset(st); }
   }
   function play(st){
-    st.svgs=[]; arm(st);
-    var runs=st.anims.slice(), svgs=st.svgs.slice();
+    arm(st);
+    var runs=st.anims.slice(), svgs=st.svgs.slice(), gen=++st.gen;
     runs.forEach(function(a){ a.currentTime=0; a.play(); });
+    if(!driving&&st.drivers.length){ driving=true; requestAnimationFrame(drive); }
     st.c.classList.add('mo-played');
     Promise.all(runs.map(function(a){return a.finished;})).then(function(){
-      st.restores.forEach(function(f){f();}); st.restores=[];
-      if(st.anims.length&&st.anims[0]!==runs[0]) return;   // 途中で再生し直した
+      if(gen!==st.gen) return;
+      for(var i=st.restores.length-1;i>=0;i--) st.restores[i]();
+      st.restores=[];
       svgs.forEach(function(svg){ loops(st,svg); });
+      if(st.trigger==='loop') st.timer=setTimeout(function(){ if(st.inView) play(st); else st.pending=true; },BASE.loopRest*st.T);
     },function(){});
   }
   var states=[];
@@ -1708,20 +1833,22 @@ MOTION_JS = r"""(function(){
     entries.forEach(function(en){
       var st=en.target.__mo; if(!st) return;
       st.inView=en.isIntersecting;
-      if(en.isIntersecting&&!st.played){ st.played=true; play(st); }
+      if(en.isIntersecting&&((!st.played&&st.trigger!=='click')||st.pending)){ st.played=true; st.pending=false; play(st); }
       st.loops.forEach(function(a){ en.isIntersecting?a.play():a.pause(); });
     });
   },{threshold:0.3});
   containers().forEach(function(c){
-    var st={c:c,anims:[],loops:[],restores:[],svgs:[],played:false,inView:false};
+    var st={c:c,anims:[],loops:[],restores:[],drivers:[],svgs:[],end:0,T:1,gen:0,played:false,inView:false,pending:false,
+            trigger:c.getAttribute('data-trigger')||'view'};
     c.__mo=st; states.push(st);
     c.classList.add('mo-fig');
     var b=document.createElement('button');
-    b.type='button'; b.className='mo-replay'; b.textContent='↻ 再生';
-    b.setAttribute('aria-label','図の動きをもう一度再生');
-    b.addEventListener('click',function(){ st.played=true; play(st); });
+    b.type='button'; b.className='mo-replay'+(st.trigger==='click'?' mo-click':'');
+    b.textContent=st.trigger==='click'?'▶ 動きを再生':'↻ 再生';
+    b.setAttribute('aria-label',st.trigger==='click'?'図の動きを再生':'図の動きをもう一度再生');
+    b.addEventListener('click',function(){ st.played=true; st.pending=false; play(st); });
     c.appendChild(b);
-    st.svgs=[]; arm(st);                    // 見えるまでは最初のコマで待機
+    if(st.trigger!=='click') arm(st);          // 見えるまでは最初のコマで待機（click は完成図のまま待つ）
     io.observe(c);
   });
   window.addEventListener('beforeprint',function(){ states.forEach(reset); });
@@ -1729,11 +1856,14 @@ MOTION_JS = r"""(function(){
 })();"""
 
 
-def motion_html(level):
+MOTION_TEMPOS = ["slow", "normal", "fast"]
+
+
+def motion_html(level, tempo="normal"):
     if level == "off":
         return ""
     return "<style>%s</style>\n<script>%s</script>" % (
-        MOTION_CSS, MOTION_JS.replace("__MOTION_LEVEL__", level))
+        MOTION_CSS, MOTION_JS.replace("__MOTION_LEVEL__", level).replace("__MOTION_TEMPO__", tempo))
 
 
 
@@ -1754,7 +1884,8 @@ def inject_figure_slots(content, headings):
 
 def convert_file(path, theme_key, eyebrow=None, auto_figure="off", toc_mode="sidebar",
                  layout="plain", design="deterministic", default_mode="system",
-                 image_mode="embed", outdir=None, layout_map=None, motion="off"):
+                 image_mode="embed", outdir=None, layout_map=None, motion="off",
+                 motion_tempo="normal"):
     global _IMG_BASE, _IMG_OUTDIR, _IMG_MODE, _LAYOUT_MAP
     if layout_map is not None:
         _LAYOUT_MAP = layout_map
@@ -1797,7 +1928,7 @@ def convert_file(path, theme_key, eyebrow=None, auto_figure="off", toc_mode="sid
         footer = "%s — Generated from Markdown by md-to-doc" % (meta.get("date") or
                  datetime.date.today().isoformat())
         out_html = build_html(meta, content, headings, theme_key, title, brand, footer,
-                              toc_mode, default_mode, motion)
+                              toc_mode, default_mode, motion, motion_tempo)
         return out_html, title, headings, True, []
 
     headings, used, mermaid_store = [], set(), []
@@ -1821,7 +1952,7 @@ def convert_file(path, theme_key, eyebrow=None, auto_figure="off", toc_mode="sid
     footer = "%s — Generated from Markdown by md-to-doc" % (meta.get("date") or
              datetime.date.today().isoformat())
     out_html = build_html(meta, content, headings, theme_key, title, brand, footer,
-                          toc_mode, default_mode, motion)
+                          toc_mode, default_mode, motion, motion_tempo)
     return out_html, title, headings, ok, pending
 
 
@@ -1852,6 +1983,8 @@ def main():
     ap.add_argument("--motion", default="off", choices=MOTION_LEVELS,
                     help="説明図の動き（off=動かさない／key=Claude が選んだ要所の図だけ／rich=すべての図）。"
                          "スクロールで見えたとき 1 回再生。reduced-motion・印刷では静止")
+    ap.add_argument("--motion-tempo", default="normal", choices=MOTION_TEMPOS,
+                    help="動きの速さ（slow / normal / fast）。図ごとには data-tempo で上書きできる")
     ap.add_argument("--image-mode", default="embed", choices=["embed", "link"],
                     help="mdのローカル画像リンクの扱い（embed=data URIで埋め込み／link=外部フォルダ参照のまま）")
     args = ap.parse_args()
@@ -1871,7 +2004,8 @@ def main():
         outdir = args.outdir or os.path.dirname(os.path.abspath(path))
         out_html, title, headings, ok, pending = convert_file(
             path, args.theme, args.eyebrow, args.auto_figure, args.toc, args.layout, args.design,
-            default_mode, args.image_mode, outdir, layout_map, args.motion)
+            default_mode, args.image_mode, outdir, layout_map, args.motion,
+            args.motion_tempo)
         os.makedirs(outdir, exist_ok=True)
         outname = os.path.splitext(os.path.basename(path))[0] + ".html"
         outpath = os.path.join(outdir, outname)
@@ -1994,6 +2128,10 @@ def main():
             print("level=light: 各ドキュメントで最も効果的な1〜2個に絞る。")
         else:
             print("level=rich: 図解できる箇所は積極的に図にする。")
+        print("【推奨】図の多くは figkit で作れる（SVG を手で描かない。JSON の仕様→テーマ配色の図、slot に直接差し込む）:")
+        print("  python3 %s --list  /  python3 %s spec.json --insert <out.html>"
+              % ((os.path.join(os.path.dirname(os.path.abspath(__file__)), "figkit.py"),) * 2))
+        print("  figkit に無い形の図だけ、下の配色で手描きする。")
         print("配色パレット: " + json.dumps(theme_palette(args.theme), ensure_ascii=False))
         for p in produced:
             print("--- %s : sections=%s" % (p["out"], ",".join(p["h2"]) or "(なし)"))
@@ -2022,40 +2160,37 @@ def main():
     # motion 有効: Claude が図に動きの注釈を付けるための情報を出力
     if args.motion != "off" and produced:
         ai = args.layout == "freeform" or args.design == "ai"
-        print("\n===== MOTION_ENABLED (level=%s) =====" % args.motion)
-        print("説明図を動かす実行部を埋め込みました。動かし方は実行部が決める（決定論的）ので、")
-        print("Claude が行うのは『どの図を動かすか』と『(任意の)順序・現れ方の注釈』だけです。")
-        print("再生: 図が画面に入ったとき 1 回。図の右上の「↻ 再生」でもう一度。")
-        print("reduced-motion・印刷・JS 無しでは静止した完成図のまま（注釈で見た目は変わらない）。")
+        kit = os.path.join(os.path.dirname(os.path.abspath(__file__)), "figkit.py")
+        print("\n===== MOTION_ENABLED (level=%s, tempo=%s) =====" % (args.motion, args.motion_tempo))
+        print("説明図を動かす実行部を埋め込みました。動かし方は実行部が決める（決定論的）。")
+        print("Claude が決めるのは『どの図を動かすか』と『(任意の)注釈』だけ。色・座標・style は変えない。")
+        print("再生: 図が画面に入ったとき 1 回（data-trigger で変更可）。reduced-motion・印刷・JS 無しでは静止した完成図。")
         if args.motion == "key":
-            print("\n[level=key] 動くのは data-motion を付けた図だけ。各文書で『動きがあると理解が進む』")
-            print("  要所の図を 1〜2 個選び、その <figure> に属性を Edit で足す（例: <figure class=\"mermaid-fig\" id=\"md2doc-mm-0\" data-motion=\"auto\">）。")
-            print("  向く図: 処理・データの流れ / 手順の順序 / 状態の遷移 / 構成が段階的に組み上がる図。")
-            print("  向かない図: 静的な比較表・一覧・単純な階層（動きが理解を足さない）。無理に選ばない。")
+            print("[level=key] 動くのは data-motion を付けた図だけ。各文書で動きが理解を足す図を 1〜2 個選ぶ（0 個でもよい）。")
+            print("  向く: 流れ・手順・状態遷移・段階的に組み上がる構成・数量の変化。向かない: 静的な一覧・単純な階層。")
         else:
-            print("\n[level=rich] すべての図（mermaid・auto-figure・AI 構築の図）が自動で動く。作業は任意。")
-            print("  動きが邪魔な図は <figure ... data-motion=\"none\"> で止める。要の図には下の注釈で順序を明示してよい。")
-        print("\n[図の単位] <figure data-motion=\"auto|steps|none\">（auto-figure で figure で包まない svg はスロット側に付ける）")
-        print("  auto  … 注釈なしで、図の流れの向き（横長なら左→右、縦長なら上→下）に沿って順に現れる。")
-        print("          線だけの path/line は『描かれ』、図形・文字は『浮かび上がる』。")
-        print("  steps … svg 内の data-step の順に現れる（data-step が 1 つでもあれば auto でも steps として扱う）。")
-        print("[要素の注釈]（svg 内の要素か <g> に付ける。任意）")
-        print("  data-step=\"N\"      N の小さい順に現れる（同じ N は同時）。付けた要素だけが動き、他は最初から表示。")
-        print("                      ノードとその文字・つながる矢印は同じ <g> に入れて 1 つの step にすると自然。")
-        print("  data-effect=\"draw|rise|fade|slide\"  現れ方（既定: 線だけの path/line/g は draw、他は rise）。")
-        print("  data-flow          現れた後、線に沿って流れる破線でループ（データ・処理の流れ。1 図に 1〜3 本）。")
-        print("  data-pulse         現れた後、ゆっくり明滅（注目点。1 図に 1 つまで）。")
-        print("  ※ mermaid（mmdc 出力）の svg は注釈を足さず data-motion=\"auto\" だけにする（生成物の内部を書き換えない）。")
-        print("  ※ 注釈は data-* 属性だけ。色・座標・style は変えない。")
+            print("[level=rich] すべての図が動く（注釈なしの図は位置順に自動で現れる）。邪魔な図は data-motion=\"none\"。")
+        print("[図を作るなら figkit を使う] SVG を手で描かず、JSON の仕様から注釈入りの図を作れる（生成コストが低く、同じ仕様→同じ図）:")
+        print("  python3 %s --list                       # 図の種類と仕様" % kit)
+        print("  python3 %s spec.json --insert <out.html>  # slot / replace / placeholder に差し込む" % kit)
+        print("  種類: flow / steps / cycle / bars / metrics / compare / hub / layers / sequence。")
+        print("  figkit の図は段・現れ方が組み込み済み。key で動かす図は仕様に \"motion\": true を足すだけ。")
+        print("[図の単位] <figure data-motion=\"auto|steps|none\" data-tempo=\"slow|normal|fast\" data-trigger=\"view|click|loop\" data-motion-dir=\"auto|x|y|reverse-x|reverse-y|radial\">")
+        print("[要素の注釈]（svg 内の要素か <g>。すべて任意）")
+        print("  data-step=\"N\"  現れる順番（同じ N は同時）   data-effect=\"draw|rise|fade|slide|pop|grow|wipe|none\"  現れ方")
+        print("  data-grow=\"up|down|left|right\"  grow の向き   data-stagger[=\"ms\"]  <g> の子を 1 つずつ")
+        print("  data-travel=\"ラベル\"  線の上を印が移動（受け渡し）   data-count=\"0\"  文字の数値を 0 から数え上げ")
+        print("  data-flow  線に沿って破線が流れ続ける   data-pulse  ゆっくり明滅   data-spin[=\"ccw\"]  回り続ける（飾りの輪に）")
+        print("  data-focus=\"N\"  現れた後、N の順に 1 つずつ強調し、他の data-focus 要素を薄くする（手順の解説）")
+        print("  ※ mermaid（mmdc 出力）の svg は内部を書き換えず、figure に data-motion 等を足すだけにする。")
         for p in produced:
             figs = p.get("figs") or []
             print("--- %s" % p["out"])
             print("  mermaid の図: %s" % (", ".join(figs) if figs else "(なし)"))
             if args.auto_figure != "off":
-                print("  auto-figure: Claude が描く図（スロット data-section=%s）に、描くときに直接付ける"
-                      % (",".join(p["h2"]) or "-"))
+                print("  auto-figure のスロット: %s（figkit の slot に指定できる）" % (",".join(p["h2"]) or "-"))
             if ai:
-                print("  AI 構築: 本文に書く <figure class=\"mermaid-fig\"><svg> に、書くときに直接付ける")
+                print("  AI 構築: 本文に <!--FIGKIT:名前--> を置き、figkit の placeholder で差し込める")
             if not figs and args.auto_figure == "off" and not ai:
                 print("  ※ この文書には図がありません（動く対象なし）。")
         print("===== /MOTION_ENABLED =====")

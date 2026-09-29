@@ -176,6 +176,8 @@ Markdown を、配布しやすい**単一HTML**（外部依存なし）に変換
 - 線だけの要素は「描かれ」、図形・文字は「浮かび上がる」。注釈で順序・現れ方・流れる破線・明滅を指定できる（4d）。
 - OS の「視差効果を減らす（prefers-reduced-motion）」・印刷・JS 無しでは、静止した完成図のまま表示する。
 - 図が 1 つも無い文書では効果が無い（mermaid が無く、図解 `off`、`design=deterministic` のとき）。その場合は聞かなくてよい。
+- **質問はこの 1 問だけ**。速さ（`--motion-tempo`）・図ごとの見せ方・再生のきっかけは聞かず、4d の選び方の表に
+  従って Claude が決める。ユーザーが言葉で指定した場合（「ゆっくり」「クリックで再生」等）だけそれに従う。
 
 ### 3f. セクション別レイアウトの仕分け案を提示して合意を取る ※`design=deterministic` のときだけ
 
@@ -227,7 +229,7 @@ python3 <skill_dir>/generate.py "<input.md>" [さらに.md...] \
   [--toc sidebar|menu|both|none] [--layout plain|cards|timeline|accordion|freeform] \
   [--layout-map "節名=cards,節名2=timeline"] \
   [--design deterministic|ai] [--image-mode embed|link] [--default-mode system|light|dark] \
-  [--motion off|key|rich]
+  [--motion off|key|rich] [--motion-tempo slow|normal|fast]
 ```
 
 - 出力は既定で入力と同じ場所に `<元ファイル名>.html`。別の場所にしたい場合は `--outdir <dir>`。
@@ -237,6 +239,8 @@ python3 <skill_dir>/generate.py "<input.md>" [さらに.md...] \
 - `--image-mode` はローカル画像リンクの扱い（`embed`=data URI で埋め込み／`link`=外部フォルダ参照）。
   省略時は `embed`。3e で `link` を選んだ場合のみ明示する。
 - `--motion` は 3g の選択。`--mode print` と組み合わせた場合は警告を出して `off` として扱う。
+- `--motion-tempo` は動きの速さ（既定 `normal`）。聞かずに決める: 落ち着いた資料・経営向け・読み込む文書は `slow`、
+  説明会の投影・短い紹介は `fast`、迷えば `normal`。図ごとには `data-tempo` で上書きできる。
 - `--default-mode` は初回表示（localStorage 未設定時）の既定モード。省略時はテーマの既定に従う。
   ユーザーから指定がなければ省略してよい。
 
@@ -248,6 +252,9 @@ python3 <skill_dir>/generate.py "<input.md>" [さらに.md...] \
 ... 配色パレット と 各ファイルのセクションslug一覧 ...
 ===== /AUTO_FIGURE_ENABLED =====
 ```
+
+**図はまず figkit で作る**（下の「figkit」節）。SVG を手で描くより生成コストが低く、同じ仕様から同じ図になる。
+figkit に無い形の図だけ、以下の手描きのルールで描く。
 
 このとき **元の Markdown を読み、図解すべき内容のあるセクションだけ**、対応スロット
 `<div class="auto-fig-slot" data-section="SLUG"></div>` の**中身**を、テーマ配色の自己完結 `<svg>` に `Edit` で置き換える：
@@ -281,48 +288,83 @@ python3 <skill_dir>/generate.py "<input.md>" [さらに.md...] \
 - 内容の意味づけ（手順→タイムライン、比較→.split や表、要点→カード、数値→.stat）に合わせ、**メリハリのある誌面**にする。
 
 ### 4d. 図の動き（motion が off 以外のとき）
-スクリプトは動きの実行部を埋め込み、次のマーカーを出す（図の一覧と注釈の語彙が入る）:
-
-```
-===== MOTION_ENABLED (level=...) =====
-... 動かす図の選び方・注釈の語彙・各ファイルの図 id ...
-===== /MOTION_ENABLED =====
-```
-
-**動かし方は実行部が決める**。Claude が行うのは「どの図を動かすか」と「(任意の)注釈」だけで、
+スクリプトは動きの実行部を埋め込み、`MOTION_ENABLED` マーカー（図の一覧・注釈の語彙・figkit の使い方）を出す。
+**動かし方は実行部が決める**。Claude が決めるのは「どの図を動かすか」と「(任意の)注釈」だけで、
 図の色・座標・style は変えない（再現性のため）。4b・5 で図を描き終えてから行う。
 
-- **図の単位**: `<figure data-motion="auto|steps|none">`。
-  - `auto` … 注釈なしで、図の向き（横長なら左→右、縦長なら上→下）に沿って順に現れる。
-  - `steps` … svg 内の `data-step` の順に現れる（`data-step` が 1 つでもあれば `auto` でもこちら）。
-  - `none` … 動かさない（`rich` で個別に止めるとき）。
-- **`key`**: 各文書で動きが理解を足す図を **1〜2 個**選び、その `<figure>` に `data-motion` を足す。
-  向く図は処理・データの流れ、手順の順序、状態の遷移、構成が段階的に組み上がる図。
-  静的な比較・一覧・単純な階層は選ばない（無理に選ばない。0 個でもよい）。
-- **`rich`**: 全図が `auto` で動くので作業は任意。邪魔な図は `data-motion="none"`、要の図は注釈で順序を明示してよい。
-- **要素の注釈**（svg 内の要素か `<g>` に付ける。すべて任意）
+- **`key`**: 各文書で動きが理解を足す図を **1〜2 個**選び、`data-motion` を付ける（figkit なら仕様に `"motion": true`）。
+  0 個でもよい。静的な一覧・単純な階層は選ばない。
+- **`rich`**: 全図が動く。注釈の無い図は位置の順に自動で現れる。邪魔な図は `data-motion="none"`。
+- **mermaid（mmdc 出力）の svg は内部を書き換えない**。figure に `data-motion` 等を足すだけにする。
 
-  | 属性 | 意味 |
-  |---|---|
-  | `data-step="N"` | N の小さい順に現れる（同じ N は同時）。付けた要素だけが動き、他は最初から表示 |
-  | `data-effect="draw\|rise\|fade\|slide"` | 現れ方（既定: 線だけの path/line は `draw`、他は `rise`） |
-  | `data-flow` | 現れた後、線に沿って流れる破線でループ（データ・処理の流れ。1 図に 1〜3 本） |
-  | `data-pulse` | 現れた後、ゆっくり明滅（注目点。1 図に 1 つまで） |
+#### 選び方の表（ユーザーに聞かず、ここから決める）
 
-  ノードとその文字は同じ `<g>` にまとめ、1 つの step にすると自然に見える。
-- **mermaid（mmdc 出力）の svg は内部を書き換えない**。`<figure class="mermaid-fig" id="md2doc-mm-N">` に
-  `data-motion="auto"` を足すだけにする（`steps` の注釈は Claude が手描きした svg にだけ付ける）。
-- auto-figure・AI 構築で Claude が描く図は、描くときに `<figure ... data-motion="...">` と注釈を直接書く
-  （スロットに figure で包まない svg を置く場合は、スロットの `div` に `data-motion` を付ける）。
+| 図の中身 | figkit の type | 動き（figkit は組み込み済み。手描き・mermaid は注釈で） |
+|---|---|---|
+| 処理・データ・依頼の流れ、分岐、差し戻し | `flow` | 段ごとに現れ、矢印が描かれる。受け渡しは `travel`、要のノードは `pulse` |
+| 番号付きの手順・工程 | `steps` | 左から順に。手順を 1 つずつ解説するなら `walkthrough`（`data-focus`） |
+| 循環する工程（PDCA、往復） | `cycle` | 順に現れ、中央の輪が回る（`data-spin`） |
+| 数量の比較・推移 | `bars` | 棒が伸び（`grow`）、値が数え上がる（`data-count`）。強調は `highlight` |
+| 指標の強調（件数・割合・時間） | `metrics` | タイルが弾んで現れ（`pop`）、値が数え上がる |
+| 2〜3 案の対比、Before/After | `compare` | 列ごとに現れ、要点が 1 つずつ（`data-stagger`） |
+| 中核と周り（関係者・連携先） | `hub` | 中心→線→周り。やりとりは `travel` / `flow`、繰り返し見せるなら `"trigger":"loop"` |
+| 層の構成（アーキテクチャ） | `layers` | 下の層から積み上がる |
+| 登場者の間のやりとりの順序 | `sequence` | メッセージが順に、線の上を印が移動 |
+| 上のどれにも当たらない | 手描き svg | `data-motion="auto"`、必要なら `data-step` で順序 |
 
-```html
-<figure class="mermaid-fig" data-motion="steps">
-  <svg viewBox="0 0 640 140" role="img" aria-label="impl から reviewer、tester へ渡る流れ" ...>
-    <g data-step="1"><rect .../><text ...>impl</text></g>
-    <line data-step="2" data-flow ... marker-end="url(#arr)"/>
-    <g data-step="3" data-pulse><rect .../><text ...>reviewer</text></g>
-  </svg>
-</figure>
+- **再生のきっかけ**（`data-trigger`）: 既定は `view`（見えたら 1 回）。常に動いていてほしい全体像（hub 等）だけ `loop`、
+  読み手が自分のペースで見たい長いシーケンスは `click`。1 文書で `loop` は 1 つまで。
+- **強さの目安**: `data-flow`・`data-pulse`・`data-spin` などのループは 1 図に 1〜2 個まで。全図にループを付けない。
+
+#### 注釈の語彙（手描き svg・mermaid の figure に付ける。figkit は組み込み済み）
+
+| 付ける場所 | 属性 | 意味 |
+|---|---|---|
+| figure | `data-motion="auto\|steps\|none"` | 動かし方（auto=位置順、steps=`data-step` 順、none=動かさない） |
+| figure | `data-tempo="slow\|normal\|fast"` | この図の速さ |
+| figure | `data-trigger="view\|click\|loop"` | 再生のきっかけ（見えたら／ボタン／繰り返し） |
+| figure | `data-motion-dir="auto\|x\|y\|reverse-x\|reverse-y\|radial"` | auto の順番の向き（radial=中心から外へ） |
+| 要素・g | `data-step="N"` | 現れる順番（同じ N は同時）。付けた要素だけが動く |
+| 要素・g | `data-effect="draw\|rise\|fade\|slide\|pop\|grow\|wipe\|none"` | 現れ方（描く／浮かぶ／その場で／左から／弾む／伸びる／拭う） |
+| 要素 | `data-grow="up\|down\|left\|right"` | `grow` の向き |
+| g | `data-stagger="ms"` | 子を 1 つずつ（既定 130ms 間隔） |
+| 線・g | `data-travel="ラベル"` | 線の上を印が移動（受け渡し。空文字なら点だけ） |
+| text | `data-count="0"` | 数値を 0（や指定値）から数え上げる。書式（カンマ・小数・単位）は元の文字を保つ |
+| 線・g | `data-flow` | 現れた後、線に沿って破線が流れ続ける |
+| 要素 | `data-pulse` | 現れた後、ゆっくり明滅 |
+| 要素 | `data-spin="cw\|ccw"` | 回り続ける（飾りの輪に。文字には付けない） |
+| 要素・g | `data-focus="N"` | 現れた後、N の順に 1 つずつ強調し、他の `data-focus` を薄くする |
+
+ノードとその文字は同じ `<g>` にまとめ、1 つの step にすると自然に見える。
+`pop`・`grow`・`spin` は要素の中心・端を基準に拡大・回転するので、`transform` 属性で回転・拡大している要素には付けず、`<g>` で包んで付ける。
+
+### figkit — 図の部品（JSON の仕様から図を作る）
+
+同梱の `figkit.py` は、図の種類と中身だけを JSON で受け取り、テーマ配色（CSS 変数）と動きの注釈入りの
+`<figure>` を作って出力 HTML に差し込む。auto-figure（4b）・mermaid の手描きフォールバック（5）・AI 構築（4c）の
+どれでも使える。**手描きより先にこれを使う**。
+
+```bash
+python3 <skill_dir>/figkit.py --list                      # 図の種類と仕様の書き方
+python3 <skill_dir>/figkit.py spec.json --insert out.html # 各図の slot / replace / placeholder に差し込む
+```
+
+- 共通の項目: `type`（必須）/ `id` / `caption` / `aria` / `motion`（`true`=段の順に動く）/ `tempo` / `trigger`、
+  差し込み先は `slot`（auto-figure の `data-section`）・`replace`（置き換える figure の id。mermaid の手描き
+  フォールバック `md2doc-mm-N` に使う）・`placeholder`（AI 構築の本文に置いた `<!--FIGKIT:名前-->`）のどれか。
+- 種類: `flow` / `steps` / `cycle` / `bars` / `metrics` / `compare` / `hub` / `layers` / `sequence`（仕様は `--list`）。
+- 1 つの JSON に複数の図を `{"figures":[...]}` で入れ、1 回で差し込める。
+- mermaid の flowchart・sequenceDiagram は、mmdc が無いとき `flow`・`sequence` の仕様に写して `replace` で差し込める。
+- 動きが `off` の文書でも使える（注釈は data-* 属性だけなので、静止した図として表示される）。
+
+```json
+{"figures": [
+  {"type": "flow", "slot": "処理の流れ", "motion": true, "caption": "実装からレビューへの受け渡し",
+   "nodes": [{"id": "i", "label": "実装", "sub": "impl"}, {"id": "r", "label": "レビュー", "pulse": true}],
+   "edges": [{"from": "i", "to": "r", "travel": "{output}"}]},
+  {"type": "bars", "slot": "月ごとの件数", "unit": "件", "highlight": 2,
+   "items": [{"label": "4月", "value": 320}, {"label": "5月", "value": 480}, {"label": "6月", "value": 1240}]}
+]}
 ```
 
 ### 5. mermaid のフォールバック対応（環境にmmdcが無い場合）
@@ -338,7 +380,9 @@ python3 <skill_dir>/generate.py "<input.md>" [さらに.md...] \
 ===== /MERMAID_MANUAL_RENDER_REQUIRED =====
 ```
 
-このとき **あなた（Claude）が各 mermaid 定義を解釈し、テーマ配色の `<svg>` を手描きして差し替える**：
+このとき **あなた（Claude）が各 mermaid 定義を解釈し、テーマ配色の図に差し替える**。
+flowchart は figkit の `flow`、sequenceDiagram は `sequence` の仕様に写し、`"replace": "md2doc-mm-N"` で差し込むのが
+最も安く確実（figure 全体が置き換わる）。figkit に当たらない図だけ、次の手順で `<svg>` を手描きする：
 
 1. 出力された **配色パレット** の `use`（`var(--accent)` などの CSS 変数参照）をそのまま使う。
    `ref_light` / `ref_dark` は「どんな色か」を把握するための参考値であって、**HTML には書かない**。
@@ -366,6 +410,7 @@ python3 <skill_dir>/generate.py "<input.md>" [さらに.md...] \
 - 生成した HTML の場所を伝える。`SendUserFile` で渡すと確認しやすい。
 - mermaid を手描きフォールバックした場合は「mmdc が無いため図はClaudeが描画した」旨を一言添える。
 - motion が `key` のときは、動かした図（見出し名）を一言添える。
+- figkit を使った場合は、使った図の種類を一言添える（手描きとの区別）。
 - 必要なら「`mmdc` を入れると今後は自動でテーマ配色SVGになる」ことも案内。
 
 ---
