@@ -441,12 +441,16 @@ def parse_blocks(lines, headings, used_slugs, mermaid_store, top_level=True, lay
     # このブロック内で現在有効なレイアウト。見出しごとに --layout-map / 既定値で再解決し、
     # `<!-- layout: .. -->` ディレクティブが現れたらそこから上書きする。
     cur_layout = layout
+    lays, head_lay = [], {}      # 出力ブロックごとの節レイアウト（節単位の組み替え用）
+    table_mode = "auto"
 
     def indent_of(s):
         m = re.match(r"[ \t]*", s)
         return len(m.group(0).replace("\t", "    "))
 
     while i < n:
+        while len(lays) < len(out):
+            lays.append(cur_layout)
         line = lines[i]
 
         if not line.strip():
@@ -468,6 +472,7 @@ def parse_blocks(lines, headings, used_slugs, mermaid_store, top_level=True, lay
             # 節が変わったのでレイアウトを再解決（前節のディレクティブを引きずらない）
             if top_level:
                 cur_layout = layout_for_section(txt, slug, layout)
+                head_lay[len(out) - 1] = (level, cur_layout)
             i += 1
             continue
 
@@ -476,6 +481,14 @@ def parse_blocks(lines, headings, used_slugs, mermaid_store, top_level=True, lay
         if directive is not None:
             if top_level and directive:
                 cur_layout = directive
+                for k in sorted(head_lay, reverse=True):      # 見出し直後のディレクティブは節の見せ方にも効く
+                    head_lay[k] = (head_lay[k][0], directive)
+                    break
+            i += 1
+            continue
+        tm = TABLE_DIRECTIVE_RE.match(line)
+        if tm:
+            table_mode = tm.group(1).lower()
             i += 1
             continue
 
@@ -541,16 +554,18 @@ def parse_blocks(lines, headings, used_slugs, mermaid_store, top_level=True, lay
             rows = []
             while i < n and "|" in lines[i] and lines[i].strip():
                 rows.append(cells(lines[i])); i += 1
-            th = "".join("<th>%s</th>" % inline(c) for c in header)
-            trs = "".join("<tr>%s</tr>" % "".join("<td>%s</td>" % inline(c) for c in r) for r in rows)
-            out.append('<div class="tablewrap"><table><thead><tr>%s</tr></thead><tbody>%s</tbody></table></div>'
-                       % (th, trs))
+            out.append(render_table(header, rows, table_mode))
+            table_mode = "auto"
             continue
 
         # リスト
         if re.match(r"^\s*([-*+]|\d+\.)\s+", line):
             # カード/タイムライン（トップレベルの単純箇条書き）は従来のフラット収集
-            if top_level and cur_layout != "plain":
+            if top_level and cur_layout in RICH_LAYOUTS:
+                items, i = collect_top_items(lines, i)
+                out.append(render_rich(items, cur_layout, headings, used_slugs, mermaid_store))
+                continue
+            if top_level and cur_layout in FLAT_LAYOUTS:
                 items = []
                 while i < n and re.match(r"^\s*([-*+]|\d+\.)\s+", lines[i]):
                     lm = re.match(r"^(\s*)([-*+]|\d+\.)\s+(.*)$", lines[i])
@@ -582,6 +597,10 @@ def parse_blocks(lines, headings, used_slugs, mermaid_store, top_level=True, lay
         raw = " ".join(t for t in toks if t)
         out.append("<p>%s</p>" % inline(raw).replace("\x00BR\x00", "<br>"))
 
+    while len(lays) < len(out):
+        lays.append(cur_layout)
+    if top_level:
+        out = regroup_sections(out, lays, head_lay)
     return "\n".join(out)
 
 
@@ -683,6 +702,357 @@ def build_list(items):
     return parse(items[0]["indent"])
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# 追加のレイアウト（tabs / checklist / defs / stats / proscons / chips / tree）と
+# 節の見せ方（walkthrough / summary）、表の強化
+# ──────────────────────────────────────────────────────────────────────────
+_UID = [0]
+
+
+def _uid(prefix):
+    _UID[0] += 1
+    return "%s%d" % (prefix, _UID[0])
+
+
+def collect_top_items(lines, i):
+    """トップレベルの項目ごとに {text, body} を集める（body は項目の中の後続行。コード・段落を含む）。"""
+    n = len(lines)
+    base = _indent_of(lines[i])
+    items = []
+    while i < n:
+        if not lines[i].strip():
+            j = i
+            while j < n and not lines[j].strip():
+                j += 1
+            if j < n and _indent_of(lines[j]) == base and re.match(r"^\s*([-*+]|\d+\.)\s+", lines[j]):
+                i = j
+                continue
+            break
+        if _indent_of(lines[i]) != base:
+            break
+        mk = re.match(r"^(\s*)([-*+]|\d+\.)(\s+)(.*)$", lines[i])
+        if not mk:
+            break
+        ci = len(mk.group(1)) + len(mk.group(2)) + len(mk.group(3))
+        body = []
+        i += 1
+        while i < n:
+            if not lines[i].strip():
+                body.append("")
+                i += 1
+                continue
+            if _indent_of(lines[i]) >= ci:
+                ln = lines[i]
+                body.append(ln[ci:] if len(ln) >= ci else ln.lstrip())
+                i += 1
+            else:
+                break
+        while body and not body[-1].strip():
+            body.pop()
+        items.append({"text": mk.group(4), "body": body, "ordered": bool(re.match(r"\d+\.", mk.group(2)))})
+    return items, i
+
+
+_PROS = re.compile(r"(メリット|良い|良かった|利点|長所|強み|pros?\b|good|できること|うれしい)", re.I)
+_CONS = re.compile(r"(デメリット|懸念|欠点|短所|弱み|リスク|課題|cons?\b|bad|注意|できないこと|困る)", re.I)
+_STAT = re.compile(r"^\s*(?:\*\*)?([+\-−±]?[¥$€]?\d[\d,]*(?:\.\d+)?\s*(?:%|％|倍|件|人|名|社|円|万円|億円|万|億|時間|分|秒|ms|s|x|pt|点|日|週間|週|か月|ヶ月|年|GB|MB|TB|KB|K|M|B|回|本|個|行)?)(?:\*\*)?(?:\s+|$)(.*)$")
+
+
+def _term_desc(text):
+    m = re.match(r"^\*\*(.+?)\*\*\s*[:：—–]?\s*(.*)$", text)
+    if m:
+        return m.group(1), m.group(2)
+    m = re.match(r"^`([^`]+)`\s*[:：—–]\s*(.*)$", text)
+    if m:
+        return "`%s`" % m.group(1), m.group(2)
+    m = re.match(r"^([^:：]{1,40}?)\s*[:：]\s*(.+)$", text)
+    if m and "http" not in m.group(1) and "/" not in m.group(1):
+        return m.group(1), m.group(2)
+    return text, ""
+
+
+def render_rich(items, layout, headings, used_slugs, mermaid_store):
+    def body_html(it):
+        if not it["body"]:
+            return ""
+        return render_item_body(it["body"], headings, used_slugs, mermaid_store, "plain")
+
+    if layout == "tabs":
+        tid = _uid("tabs")
+        btns, panels = [], []
+        for k, it in enumerate(items):
+            icon, tags, text = extract_decorations(it["text"])
+            lab = (html.escape(icon) + " " if icon else "") + inline(text)
+            btns.append('<button type="button" role="tab" id="%s-t%d" aria-controls="%s-p%d" aria-selected="%s" '
+                        'tabindex="%d" style="--ca:%s">%s</button>'
+                        % (tid, k, tid, k, "true" if k == 0 else "false", 0 if k == 0 else -1, _ca(k), lab))
+            panels.append('<section class="tab-panel" role="tabpanel" id="%s-p%d" aria-labelledby="%s-t%d" tabindex="0">'
+                          '<div class="tab-print-h">%s</div>%s</section>' % (tid, k, tid, k, lab, body_html(it)))
+        return ('<div class="tabs" data-tabs><div class="tab-list" role="tablist">%s</div>%s</div>'
+                % ("".join(btns), "".join(panels)))
+
+    if layout == "checklist":
+        key = _uid("ck")
+        rows, done = [], 0
+        for it in items:
+            m = re.match(r"^\[([ xX])\]\s+(.*)$", it["text"])
+            checked = bool(m and m.group(1).lower() == "x")
+            text = m.group(2) if m else it["text"]
+            done += checked
+            b = body_html(it)
+            rows.append('<li><label><input type="checkbox"%s><span class="ck-text">%s</span></label>%s</li>'
+                        % (" checked" if checked else "", inline(text), '<div class="ck-body">%s</div>' % b if b else ""))
+        total = len(items) or 1
+        return ('<div class="checklist" data-checklist="%s"><div class="ck-head"><div class="ck-bar"><i style="width:%d%%"></i></div>'
+                '<span class="ck-count">%d / %d</span><button type="button" class="ck-reset">元に戻す</button></div>'
+                '<ul class="ck-list">%s</ul></div>' % (key, round(100 * done / total), done, len(items), "".join(rows)))
+
+    if layout == "defs":
+        rows = []
+        for it in items:
+            term, desc = _term_desc(it["text"])
+            b = body_html(it)
+            rows.append('<div class="def"><dt>%s</dt><dd>%s%s</dd></div>' % (inline(term), inline(desc) if desc else "", b))
+        filt = ('<input type="search" class="defs-filter" placeholder="用語を絞り込む" aria-label="用語を絞り込む">'
+                if len(items) >= 10 else "")
+        return '<div class="defs-wrap">%s<dl class="defs">%s</dl></div>' % (filt, "".join(rows))
+
+    if layout == "stats":
+        tiles = []
+        for k, it in enumerate(items):
+            m = _STAT.match(it["text"])
+            val, lab = (m.group(1).strip(), m.group(2)) if m else (it["text"], "")
+            b = body_html(it)
+            tiles.append('<div class="stat" style="--ca:%s"><div class="big">%s</div><div class="cap">%s</div>%s</div>'
+                         % (_ca(k), inline(val), inline(lab), '<div class="stat-note">%s</div>' % b if b else ""))
+        return '<div class="stat-row">%s</div>' % "".join(tiles)
+
+    if layout == "proscons":
+        cols = []
+        for k, it in enumerate(items):
+            icon, tags, text = extract_decorations(it["text"])
+            # 「デメリット」は「メリット」を含むので、懸念を先に判定する
+            tone = "con" if _CONS.search(text) else "pro" if _PROS.search(text) else "neutral"
+            ca = ' style="--ca:%s"' % _ca(k) if tone == "neutral" else ""
+            cols.append('<div class="pc-col pc-%s"%s><div class="pc-h">%s%s</div><div class="pc-b">%s</div></div>'
+                        % (tone, ca, (html.escape(icon) + " ") if icon else "", inline(text), body_html(it)))
+        return '<div class="pc-grid" style="--cols:%d">%s</div>' % (min(len(items), 3), "".join(cols))
+    return ""
+
+
+def render_tree(items):
+    pos = [0]
+
+    def node_html(text, children_html):
+        parts = re.split(r"\s+(?:—|–|#|→)\s+", text, 1)
+        name = inline(parts[0].strip())
+        note = '<span class="tree-note">%s</span>' % inline(parts[1]) if len(parts) > 1 else ""
+        is_dir = bool(children_html) or parts[0].strip().rstrip("`").endswith("/")
+        cls = "tree-dir" if is_dir else "tree-file"
+        head = '<span class="tree-name">%s</span>%s' % (name, note)
+        if children_html:
+            return '<li class="%s"><details open><summary>%s</summary>%s</details></li>' % (cls, head, children_html)
+        return '<li class="%s"><span class="tree-row">%s</span></li>' % (cls, head)
+
+    def parse(level):
+        out = []
+        while pos[0] < len(items) and items[pos[0]]["indent"] >= level:
+            it = items[pos[0]]
+            if it["indent"] > level:
+                out.append(parse(it["indent"]))
+                continue
+            pos[0] += 1
+            child = ""
+            if pos[0] < len(items) and items[pos[0]]["indent"] > level:
+                child = parse(items[pos[0]]["indent"])
+            out.append(node_html(it["text"], child))
+        return "<ul>%s</ul>" % "".join(out)
+    inner = parse(items[0]["indent"])
+    return '<div class="tree">%s</div>' % inner
+
+
+_NUM_CELL = re.compile(r"^[+\-−]?[¥$€]?\d[\d,]*(?:\.\d+)?\s*[%％a-zA-Zぁ-んァ-ヶ一-龠]{0,4}$")
+
+
+def _num_value(c):
+    m = re.search(r"[+\-−]?\d[\d,]*(?:\.\d+)?", c)
+    return float(m.group(0).replace(",", "").replace("−", "-")) if m else None
+
+
+def render_table(header, rows, mode="auto"):
+    ncol = len(header)
+    tools = mode == "tools" or (mode == "auto" and len(rows) >= TABLE_TOOLS_ROWS)
+    numeric = []
+    for c in range(ncol):
+        vals = [r[c].strip() for r in rows if c < len(r) and r[c].strip()]
+        # 1 列目は行の見出し（「1月」「v2」など）なので数値の列にしない
+        numeric.append(c > 0 and len(vals) >= 2 and all(_NUM_CELL.match(v.replace("**", "")) for v in vals))
+    maxv = {}
+    for c in range(ncol):
+        if numeric[c]:
+            vs = [_num_value(r[c]) for r in rows if c < len(r) and r[c].strip()]
+            vs = [v for v in vs if v is not None]
+            maxv[c] = max(vs) if vs and max(vs) > 0 and min(vs) >= 0 else None
+    th = "".join('<th%s>%s</th>' % (' class="num"' if numeric[c] else "", inline(h)) for c, h in enumerate(header))
+    trs = []
+    for r in rows:
+        tds = []
+        for c in range(ncol):
+            cell = r[c] if c < len(r) else ""
+            if numeric[c] and cell.strip():
+                v = _num_value(cell)
+                bar = ""
+                if tools and maxv.get(c) and v is not None:
+                    bar = '<span class="nbar" style="--w:%.1f"></span>' % (100.0 * v / maxv[c])   # 単位なしの割合（CSS の calc で使う）
+                tds.append('<td class="num" data-v="%s">%s<span class="nv">%s</span></td>' % (v, bar, inline(cell)))
+            else:
+                tds.append("<td>%s</td>" % inline(cell))
+        trs.append("<tr>%s</tr>" % "".join(tds))
+    return ('<div class="tablewrap%s"%s><table><thead><tr>%s</tr></thead><tbody>%s</tbody></table></div>'
+            % (" tools" if tools else "", " data-table-tools" if tools else "", th, "".join(trs)))
+
+
+def regroup_sections(out, lays, head_lay):
+    """節単位の見せ方を組み立てる。
+    walkthrough: 段落とコードが交互に続く所（2 組以上）を「左に説明・右にコード」に並べる。
+    summary: 見出しから次の同じか上の見出しまでを要点の箱で包む。"""
+    def kind(h):
+        if h.startswith('<figure class="codeblock"'):
+            return "code"
+        if re.match(r"<h[1-6]\b", h):
+            return "h"
+        return "text"
+
+    # walkthrough
+    res, i = [], 0
+    while i < len(out):
+        if lays[i] != "walkthrough" or kind(out[i]) == "h":
+            res.append(out[i]); i += 1
+            continue
+        j = i
+        while j < len(out) and lays[j] == "walkthrough" and kind(out[j]) != "h":
+            j += 1
+        seg, rows, cur_t, cur_c = out[i:j], [], [], []
+        for h in seg:
+            if kind(h) == "code":
+                cur_c.append(h)
+            else:
+                if cur_c:
+                    rows.append((cur_t, cur_c)); cur_t, cur_c = [], []
+                cur_t.append(h)
+        if cur_t or cur_c:
+            rows.append((cur_t, cur_c))
+        pairs = [r for r in rows if r[0] and r[1]]
+        if len(pairs) >= 2:
+            html_rows = []
+            for t, c in rows:
+                if t and c:
+                    html_rows.append('<div class="walk-row"><div class="walk-text">%s</div><div class="walk-code">%s</div></div>'
+                                     % ("\n".join(t), "\n".join(c)))
+                else:
+                    html_rows.append('<div class="walk-solo">%s</div>' % "\n".join(t + c))
+            res.append('<div class="walk">%s</div>' % "".join(html_rows))
+        else:
+            res.extend(seg)
+        i = j
+    # summary（見出しの位置は walkthrough で変わらない：見出しは組み替えない）
+    final, i = [], 0
+    heads = {}
+    for n_, h in enumerate(out):
+        if n_ in head_lay:
+            heads[h] = head_lay[n_]
+    while i < len(res):
+        h = res[i]
+        hl = heads.get(h)
+        if hl and hl[1] == "summary":
+            level = hl[0]
+            j = i + 1
+            while j < len(res):
+                m = re.match(r"<h([1-6])\b", res[j])
+                if m and int(m.group(1)) <= level:
+                    break
+                j += 1
+            final.append('<section class="tldr">%s</section>' % "\n".join(res[i:j]))
+            i = j
+            continue
+        final.append(h); i += 1
+    return final
+
+
+def suggest_layouts(lines):
+    """節ごとのレイアウトの割り当て案（3f で提示する材料）。[(節名, レイアウト, 理由)]"""
+    secs, cur, in_fence = [], None, False
+    for ln in lines:
+        if re.match(r"^\s{0,3}(`{3,}|~{3,})", ln):
+            in_fence = not in_fence
+            if cur is not None:
+                cur["lines"].append(ln)
+            continue
+        hm = None if in_fence else re.match(r"^(#{2,3})\s+(.*)$", ln)
+        if hm:
+            cur = {"name": hm.group(2).strip(), "level": len(hm.group(1)), "lines": []}
+            secs.append(cur)
+            continue
+        if cur is not None:
+            cur["lines"].append(ln)
+    out = []
+    for si, sec in enumerate(secs):
+        L = sec["lines"]
+        items, i = [], 0
+        while i < len(L):
+            if re.match(r"^([-*+]|\d+\.)\s+", L[i]):
+                its, i = collect_top_items(L, i)
+                items += its
+            else:
+                i += 1
+        name = sec["name"]
+        texts = [it["text"] for it in items]
+        n = len(items)
+        paras_code, prev, fence = 0, None, False
+        for ln in L:
+            if re.match(r"^(`{3,}|~{3,})", ln):
+                if not fence and prev == "p":
+                    paras_code += 1          # 段落の直後に始まるコード
+                fence = not fence
+                prev = "code"
+            elif not fence and ln.strip() and not re.match(r"^\s*([-*+]|\d+\.|#|>|\|)", ln):
+                prev = "p"
+        frac = lambda f: n and sum(1 for t in texts if f(t)) / n
+        pick = None
+        if re.search(r"^(概要|まとめ|要点|要約|サマリー?|summary|tl;?dr|結論)$", name, re.I) and si <= 1:
+            pick = ("summary", "冒頭の要約の節")
+        elif paras_code >= 2 and n <= 2:
+            pick = ("walkthrough", "説明とコードが %d 組交互に続く" % paras_code)
+        elif n >= 2 and frac(lambda t: re.match(r"^\[[ xX]\]\s", t)) >= .6:
+            pick = ("checklist", "チェックボックスの項目が %d 件" % n)
+        elif n >= 3 and frac(lambda t: bool(_STAT.match(t)) and _STAT.match(t).group(2)) >= .8 and n <= 6:
+            pick = ("stats", "先頭が数値の項目が %d 件" % n)
+        elif n >= 3 and frac(lambda t: bool(re.match(r"^(\*\*.+?\*\*|`[^`]+`|[^:：]{1,30})\s*[:：—–]\s*\S", t))) >= .7:
+            pick = ("defs", "「用語: 説明」の形が %d 件" % n)
+        elif n >= 2 and frac(lambda t: bool(re.search(r"(/|\.[a-z]{1,5}\b)", re.split(r"\s+(?:—|–|#|→)\s+", t)[0]))) >= .6 \
+                and any(it["body"] for it in items):
+            pick = ("tree", "パスの形の入れ子")
+        elif 2 <= n <= 3 and all(it["body"] for it in items) and \
+                (sum(1 for t in texts if _PROS.search(t) or _CONS.search(t)) >= 2 or
+                 re.search(r"(比較|対比|違い|vs)", name, re.I)):
+            pick = ("proscons", "%d 列の対比（小項目あり）" % n)
+        elif 2 <= n <= 6 and all(len(it["body"]) >= 3 or any(re.match(r"^\s*(`{3,}|~{3,})", b) for b in it["body"]) for it in items) \
+                and all(len(re.sub(r"[`*]", "", t)) <= 24 for t in texts):
+            pick = ("tabs", "並列の %d 項目それぞれに長い中身・コード" % n)
+        elif n >= 5 and all(not it["body"] for it in items) and all(len(re.sub(r"[`*]", "", t)) <= 14 for t in texts):
+            pick = ("chips", "短い語が %d 件" % n)
+        elif n >= 3 and all(it["ordered"] for it in items):
+            pick = ("timeline", "番号付きの %d 工程" % n)
+        elif n >= 8 and (sum(1 for it in items if it["body"]) >= n * .6 or
+                         sum(1 for t in texts if re.search(r"[?？]$|^Q[.:：]", t)) >= 3):
+            pick = ("accordion", "項目が %d 件で詳細を畳みたい" % n)
+        elif n >= 3 and sum(1 for it in items if it["body"]) >= n * .6:
+            pick = ("cards", "並列の %d 項目に小項目" % n)
+        if pick:
+            out.append((name, pick[0], pick[1]))
+    return out
+
+
 # 描画中テーマの配色サイクル（convert_file でセット）。
 # hex ではなく var(--aN) を入れる — ライト/ダークで別配色に切り替わるため。
 _ACCENTS = ["var(--a0)"]
@@ -744,7 +1114,15 @@ def _ca(idx):
 #     3. `--layout`（既定値）
 #   freeform は文書全体を Claude が著述するモードなので、セクション単位には指定できない。
 # ──────────────────────────────────────────────────────────────────────────
-DET_LAYOUTS = ("plain", "cards", "timeline", "accordion")
+# リストの見せ方（節の中のトップレベル箇条書きに効く）と、節そのものの見せ方
+LIST_LAYOUTS = ("plain", "cards", "timeline", "accordion",
+                "tabs", "checklist", "defs", "stats", "chips", "tree", "proscons")
+SECTION_LAYOUTS = ("walkthrough", "summary")
+DET_LAYOUTS = LIST_LAYOUTS + SECTION_LAYOUTS
+FLAT_LAYOUTS = ("cards", "timeline", "accordion", "chips", "tree")     # 箇条書きの行だけで組む
+RICH_LAYOUTS = ("tabs", "checklist", "defs", "stats", "proscons")     # 項目の中のコード・段落も使う
+TABLE_DIRECTIVE_RE = re.compile(r"^\s*<!--\s*table\s*[:=]\s*(plain|tools|auto)\s*-->\s*$", re.I)
+TABLE_TOOLS_ROWS = 8
 LAYOUT_DIRECTIVE_RE = re.compile(r"^\s*<!--\s*layout\s*[:=]\s*([\w-]+)\s*-->\s*$", re.I)
 _LAYOUT_MAP = {}         # 正規化した節名/slug -> レイアウト
 _LAYOUT_MAP_HIT = set()  # 実際に当たったキー（未使用キーの警告用）
@@ -840,7 +1218,17 @@ def render_list(items, layout):
     先頭絵文字→アイコン、末尾{タグ}→pill、カード色はテーマ配色を循環。"""
     if layout == "plain":
         return build_list(items)
+    if layout == "tree":
+        return render_tree(items)
     groups = split_top_items(items)
+    if layout == "chips":
+        chips = []
+        for idx, g in enumerate(groups):
+            tip = re.sub(r"<[^>]+>", " ", g["children"]).strip()
+            chips.append('<span class="chip" style="--ca:%s"%s>%s%s</span>'
+                         % (_ca(idx), ' title="%s"' % html.escape(re.sub(r"\s+", " ", tip), quote=True) if tip else "",
+                            (html.escape(g["icon"]) + " ") if g["icon"] else "", g["label"]))
+        return '<div class="chips chips-lg">%s</div>' % "".join(chips)
 
     def tags_html(g):
         if not g["tags"]:
@@ -1220,6 +1608,104 @@ blockquote{margin:16px 0;padding:8px 18px;border-left:3px solid var(--line);colo
   color:var(--on-accent);background:var(--ca,var(--accent))}
 .split{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:18px 0}
 @media(max-width:680px){.split{grid-template-columns:1fr}}
+/* 追加のレイアウト */
+.tabs{margin:18px 0;border:1px solid var(--line);border-radius:var(--radius);background:var(--card);overflow:hidden}
+.tab-list{display:flex;flex-wrap:wrap;gap:2px;border-bottom:1px solid var(--line);background:var(--accent-soft);padding:6px 6px 0}
+.tab-list [role=tab]{font:inherit;font-family:var(--font-head);font-weight:700;font-size:14px;border:0;background:none;
+  color:var(--muted);padding:9px 16px;border-radius:10px 10px 0 0;cursor:pointer;border-bottom:3px solid transparent}
+.tab-list [role=tab][aria-selected=true]{background:var(--card);color:var(--ca,var(--accent-2));border-bottom-color:var(--ca,var(--accent))}
+.tab-list [role=tab]:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.tab-panel{padding:6px 20px 14px}
+.tab-panel:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.tab-print-h{font-family:var(--font-head);font-weight:800;margin:12px 0 4px;color:var(--accent-2)}
+.tabs-js .tab-print-h{display:none}
+.tabs-js .tab-panel[hidden]{display:none}
+.tabs:not(.tabs-js) .tab-list{display:none}
+.tabs:not(.tabs-js) .tab-panel+.tab-panel{border-top:1px solid var(--line)}
+.checklist{margin:18px 0;border:1px solid var(--line);border-radius:var(--radius);background:var(--card);padding:14px 18px}
+.ck-head{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+.ck-bar{flex:1;height:8px;border-radius:99px;background:var(--accent-soft);overflow:hidden}
+.ck-bar i{display:block;height:100%;background:var(--accent);border-radius:99px;transition:width .3s}
+.ck-count{font-family:var(--mono);font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.ck-reset{font:inherit;font-size:12px;border:1px solid var(--line);background:var(--card);color:var(--muted);border-radius:8px;padding:3px 10px;cursor:pointer}
+.content .ck-list{list-style:none;padding:0;margin:0}
+.content .ck-list>li{padding:8px 0 8px 0;border-top:1px solid var(--line);margin:0}
+.content .ck-list>li:first-child{border-top:0}
+.content .ck-list>li::before{display:none}
+.ck-list label{display:flex;gap:10px;align-items:flex-start;cursor:pointer}
+.ck-list input{width:18px;height:18px;margin:3px 0 0;accent-color:var(--accent);flex:0 0 auto}
+.ck-list input:checked+.ck-text{color:var(--muted);text-decoration:line-through}
+.ck-body{padding-left:28px;font-size:14px;color:var(--muted)}
+.defs-wrap{margin:18px 0}
+.defs-filter{font:inherit;font-size:14px;width:100%;max-width:320px;padding:7px 12px;border:1px solid var(--line);
+  border-radius:8px;background:var(--card);color:var(--ink);margin-bottom:10px}
+.defs{margin:0;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;background:var(--card)}
+.def{display:grid;grid-template-columns:minmax(120px,30%) 1fr;border-top:1px solid var(--line)}
+.def:first-child{border-top:0}
+.def dt{font-family:var(--font-head);font-weight:800;color:var(--accent-2);padding:11px 16px;background:var(--accent-soft)}
+.def dd{margin:0;padding:11px 16px;min-width:0}
+.def dd>:first-child{margin-top:0}.def dd>:last-child{margin-bottom:0}
+@media(max-width:560px){.def{grid-template-columns:1fr}.def dt{padding-bottom:4px}}
+.stat-note{margin-top:8px;font-size:12.5px;color:var(--muted);text-align:left}
+.chips-lg{gap:10px;margin:14px 0}
+.chips-lg .chip{font-family:var(--font);font-size:13.5px;color:var(--ca,var(--accent-2));
+  background:color-mix(in srgb,var(--ca,var(--accent)) 12%,var(--card));
+  border-color:color-mix(in srgb,var(--ca,var(--accent)) 35%,transparent);padding:5px 14px;border-radius:999px}
+.tree{margin:18px 0;padding:14px 18px;border:1px solid var(--line);border-radius:var(--radius);background:var(--card);
+  font-family:var(--mono);font-size:13.5px;overflow-x:auto}
+.content .tree ul{list-style:none;margin:0;padding:0}
+.content .tree ul ul{margin-left:8px;padding-left:16px;border-left:1px dashed var(--line)}
+.content .tree li{margin:0;padding:0}
+.content .tree li::before{display:none}
+.tree summary{cursor:pointer;list-style:none;display:flex;gap:10px;align-items:baseline;padding:3px 0}
+.tree summary::-webkit-details-marker{display:none}
+.tree-row{display:flex;gap:10px;align-items:baseline;padding:3px 0}
+.tree-name::before{content:"";display:inline-block;width:10px;height:12px;margin-right:8px;border:1.5px solid var(--muted);
+  border-radius:2px;vertical-align:-1px}
+.tree-dir>details>summary>.tree-name::before,.tree-dir>.tree-row>.tree-name::before{width:14px;height:10px;border:0;
+  border-radius:2px 2px 3px 3px;background:var(--accent);opacity:.85}
+.tree-dir>details:not([open])>summary>.tree-name::before{opacity:.45}
+.tree-dir>details>summary>.tree-name,.tree-dir>.tree-row>.tree-name{font-weight:700;color:var(--accent-2)}
+.tree-note{font-family:var(--font);font-size:12.5px;color:var(--muted)}
+.tree code{background:none;padding:0;color:inherit}
+.pc-grid{display:grid;grid-template-columns:repeat(var(--cols,2),minmax(0,1fr));gap:16px;margin:18px 0}
+@media(max-width:680px){.pc-grid{grid-template-columns:1fr}}
+.pc-col{border:1px solid var(--line);border-radius:var(--radius);background:var(--card);overflow:hidden;
+  border-top:4px solid var(--ca,var(--accent))}
+.pc-pro{--ca:#16a34a}.pc-con{--ca:#dc2626}
+.pc-h{font-family:var(--font-head);font-weight:800;padding:12px 16px 4px;color:var(--ca,var(--accent-2))}
+.pc-b{padding:0 16px 12px;font-size:14px}
+.pc-pro .pc-b ul>li::before{content:"✓";background:none;width:auto;height:auto;top:0;left:0;color:var(--ca);font-weight:800}
+.pc-con .pc-b ul>li::before{content:"!";background:none;width:auto;height:auto;top:0;left:3px;color:var(--ca);font-weight:800}
+.walk{margin:18px 0;display:flex;flex-direction:column;gap:14px}
+.walk-row{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:22px;align-items:start}
+.walk-row .codeblock{margin:0}
+.walk-text>:first-child{margin-top:0}
+@media(max-width:820px){.walk-row{grid-template-columns:1fr;gap:6px}}
+.tldr{margin:10px 0 28px;padding:4px 24px 16px;border-radius:var(--radius);background:var(--accent-soft);
+  border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);border-left:5px solid var(--accent)}
+.tldr>h2.hl,.tldr>h3.hl{margin-top:14px}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+td.num{position:relative}
+td.num .nv{position:relative}
+.nbar{position:absolute;left:6px;top:7px;bottom:7px;width:calc((100% - 12px) * var(--w) / 100);
+  background:color-mix(in srgb,var(--accent) 16%,transparent);border-radius:3px}
+.tablewrap.tools{max-height:560px;overflow:auto;border-radius:var(--radius)}
+.tablewrap.tools thead th{position:sticky;top:0;z-index:1}
+.tablewrap.tools th[aria-sort]{cursor:pointer;user-select:none;white-space:nowrap}
+.tablewrap.tools th[aria-sort]::after{content:"↕";margin-left:6px;font-size:11px;opacity:.45}
+.tablewrap.tools th[aria-sort=ascending]::after{content:"▲";opacity:.9}
+.tablewrap.tools th[aria-sort=descending]::after{content:"▼";opacity:.9}
+.tbl-tools{display:flex;gap:10px;align-items:center;margin:18px 0 -10px}
+.tbl-filter{font:inherit;font-size:13.5px;max-width:280px;width:100%;padding:6px 12px;border:1px solid var(--line);
+  border-radius:8px;background:var(--card);color:var(--ink)}
+.tbl-count{font-size:12.5px;color:var(--muted)}
+@media print{
+  .tabs .tab-list,.ck-reset,.defs-filter,.tbl-tools{display:none!important}
+  .tabs .tab-panel{display:block!important}.tabs .tab-print-h{display:block!important}
+  .tablewrap.tools{max-height:none;overflow:visible}.tablewrap.tools thead th{position:static}
+  .walk-row{grid-template-columns:1fr}
+}
 /* 目次の表示モード */
 .toc-menu .toc,.toc-none .toc{display:none}
 .toc-menu .layout,.toc-none .layout{grid-template-columns:1fr}
@@ -1360,6 +1846,73 @@ MODE_SCRIPT_JS = """(function(){
   apply(read());
 })();"""
 
+LAYOUT_JS = r"""(function(){
+  function each(l,f){[].forEach.call(l,f);}
+  /* タブ: JS 無し・印刷では全部を見出し付きで並べる */
+  each(document.querySelectorAll('.tabs[data-tabs]'),function(t){
+    var tabs=[].slice.call(t.querySelectorAll('[role=tab]')), panels=[].slice.call(t.querySelectorAll('.tab-panel'));
+    t.classList.add('tabs-js');
+    function sel(i,focus){ tabs.forEach(function(b,k){ b.setAttribute('aria-selected',String(k===i)); b.tabIndex=k===i?0:-1; panels[k].hidden=k!==i; });
+      if(focus) tabs[i].focus(); }
+    tabs.forEach(function(b,i){
+      b.addEventListener('click',function(){ sel(i); });
+      b.addEventListener('keydown',function(e){
+        var k={ArrowRight:1,ArrowLeft:-1,Home:'h',End:'e'}[e.key]; if(k===undefined) return;
+        e.preventDefault(); sel(k==='h'?0:k==='e'?tabs.length-1:(i+k+tabs.length)%tabs.length,true); });
+    });
+    sel(0);
+    window.addEventListener('beforeprint',function(){ panels.forEach(function(p){p.hidden=false;}); });
+    window.addEventListener('afterprint',function(){ sel(tabs.findIndex(function(b){return b.getAttribute('aria-selected')==='true';})); });
+  });
+  /* チェックリスト: 進み具合と、チェックの保存（このブラウザだけ） */
+  each(document.querySelectorAll('[data-checklist]'),function(c){
+    var key='md2doc-ck:'+location.pathname+':'+c.getAttribute('data-checklist');
+    var boxes=[].slice.call(c.querySelectorAll('input[type=checkbox]')), init=boxes.map(function(b){return b.checked;});
+    var bar=c.querySelector('.ck-bar i'), cnt=c.querySelector('.ck-count');
+    try{ var saved=JSON.parse(localStorage.getItem(key)||'null'); if(saved&&saved.length===boxes.length) boxes.forEach(function(b,i){b.checked=!!saved[i];}); }catch(e){}
+    function upd(save){ var d=boxes.filter(function(b){return b.checked;}).length;
+      bar.style.width=(boxes.length?100*d/boxes.length:0)+'%'; cnt.textContent=d+' / '+boxes.length;
+      if(save){ try{ localStorage.setItem(key,JSON.stringify(boxes.map(function(b){return b.checked;}))); }catch(e){} } }
+    boxes.forEach(function(b){ b.addEventListener('change',function(){ upd(true); }); });
+    c.querySelector('.ck-reset').addEventListener('click',function(){ boxes.forEach(function(b,i){b.checked=init[i];}); try{localStorage.removeItem(key);}catch(e){} upd(false); });
+    upd(false);
+  });
+  /* 用語の絞り込み */
+  each(document.querySelectorAll('.defs-filter'),function(inp){
+    var rows=[].slice.call(inp.parentNode.querySelectorAll('.def'));
+    inp.addEventListener('input',function(){ var q=inp.value.trim().toLowerCase();
+      rows.forEach(function(r){ r.hidden=!!q&&r.textContent.toLowerCase().indexOf(q)<0; }); });
+  });
+  /* 表: 並べ替え・絞り込み（見出しの固定は CSS） */
+  each(document.querySelectorAll('[data-table-tools]'),function(w){
+    var tb=w.querySelector('tbody'), rows=[].slice.call(tb.rows), ths=[].slice.call(w.querySelectorAll('thead th'));
+    var bar=document.createElement('div'); bar.className='tbl-tools';
+    bar.innerHTML='<input type="search" class="tbl-filter" placeholder="表を絞り込む" aria-label="表を絞り込む"><span class="tbl-count"></span>';
+    w.parentNode.insertBefore(bar,w);
+    var inp=bar.querySelector('input'), cnt=bar.querySelector('.tbl-count');
+    function count(){ var v=rows.filter(function(r){return !r.hidden;}).length; cnt.textContent=v===rows.length?rows.length+' 行':v+' / '+rows.length+' 行'; }
+    inp.addEventListener('input',function(){ var q=inp.value.trim().toLowerCase();
+      rows.forEach(function(r){ r.hidden=!!q&&r.textContent.toLowerCase().indexOf(q)<0; }); count(); });
+    ths.forEach(function(th,c){
+      th.setAttribute('aria-sort','none'); th.tabIndex=0;
+      function go(){
+        var dir=th.getAttribute('aria-sort')==='ascending'?'descending':'ascending';
+        ths.forEach(function(x){x.setAttribute('aria-sort','none');}); th.setAttribute('aria-sort',dir);
+        var num=th.classList.contains('num'), s=dir==='ascending'?1:-1;
+        rows.slice().sort(function(a,b){
+          var x=a.cells[c], y=b.cells[c]; if(!x||!y) return 0;
+          if(num){ var p=parseFloat(x.getAttribute('data-v')), q=parseFloat(y.getAttribute('data-v'));
+            return ((isNaN(p)?-Infinity:p)-(isNaN(q)?-Infinity:q))*s; }
+          return x.textContent.trim().localeCompare(y.textContent.trim(),'ja',{numeric:true})*s;
+        }).forEach(function(r){ tb.appendChild(r); });
+      }
+      th.addEventListener('click',go);
+      th.addEventListener('keydown',function(e){ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); go(); } });
+    });
+    count();
+  });
+})();"""
+
 PAGE = """<!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -1403,6 +1956,7 @@ __STATIC_CSS__
 <script>
 __MODE_SCRIPT_JS__
 __TOC_SCRIPT_JS__
+__LAYOUT_JS__
 (function(){
   var navH=parseInt(getComputedStyle(document.documentElement).getPropertyValue('--nav-h'))||60;
   var links=[].slice.call(document.querySelectorAll('.nav-menu a, .toc a'));
@@ -1530,7 +2084,7 @@ def build_html(meta, content_html, headings, theme_key, title, brand, footer,
         "__STATIC_CSS__": STATIC_CSS, "__BRAND__": html.escape(brand),
         "__MODE_SWITCH__": MODE_SWITCH_HTML,
         "__MODE_BOOT_JS__": MODE_BOOT_JS, "__MODE_SCRIPT_JS__": MODE_SCRIPT_JS,
-        "__TOC_BOOT_JS__": TOC_BOOT_JS, "__TOC_SCRIPT_JS__": TOC_SCRIPT_JS,
+        "__TOC_BOOT_JS__": TOC_BOOT_JS, "__TOC_SCRIPT_JS__": TOC_SCRIPT_JS, "__LAYOUT_JS__": LAYOUT_JS,
         "__NAV__": nav, "__TOC__": toc, "__EYEBROW__": eyebrow, "__H1__": h1,
         "__DATE__": date, "__TAGS__": tags, "__CONTENT__": content_html,
         "__FOOTER__": html.escape(footer), "__BODYCLASS__": "toc-" + toc_mode,
@@ -2229,7 +2783,7 @@ def main():
     ap.add_argument("--toc", default="sidebar", choices=["sidebar", "menu", "both", "none"],
                     help="目次の出し方（左サイドのみ/ヘッダーメニューのみ/両方/なし）")
     ap.add_argument("--layout", default="plain",
-                    choices=["plain", "cards", "timeline", "accordion", "freeform"],
+                    choices=list(LIST_LAYOUTS) + ["freeform"],
                     help="本文の見せ方の【既定値】（箇条書き/カード/タイムライン/アコーディオン/完全フリーフォーム）。"
                          "セクション単位の指定が無い節にだけ適用される")
     ap.add_argument("--layout-map", default=None, metavar="節名=レイアウト,...",
@@ -2237,6 +2791,8 @@ def main():
                          "節名は見出しテキストか slug（空白・記号・大小は無視して突き合わせ）。"
                          "値は plain/cards/timeline/accordion。"
                          "優先順は md 内 <!-- layout: .. --> > --layout-map > --layout")
+    ap.add_argument("--suggest-layouts", action="store_true",
+                    help="HTML を作らず、節ごとのレイアウトの割り当て案（3f の材料）と --layout-map の文字列を出す")
     ap.add_argument("--design", default="deterministic", choices=["deterministic", "ai"],
                     help="deterministic=スクリプトが型変換／ai=選んだ形式のテイストでClaudeが作り込む")
     ap.add_argument("--default-mode", default=None, choices=COLOR_MODES,
@@ -2252,6 +2808,21 @@ def main():
 
     default_mode = default_mode_of(args.theme, args.default_mode)
     layout_map = parse_layout_map(args.layout_map)
+    if args.suggest_layouts:
+        for path in args.inputs:
+            raw = open(path, encoding="utf-8").read()
+            _, body = split_frontmatter(raw)
+            sug = suggest_layouts(body.replace("\r\n", "\n").split("\n"))
+            print("--- %s" % path)
+            if not sug:
+                print("  （割り当ての候補なし。既定値のまま）")
+                continue
+            print("  | セクション | 割り当て | 理由 |")
+            print("  |---|---|---|")
+            for name, lay, why in sug:
+                print("  | %s | `%s` | %s |" % (name, lay, why))
+            print('  --layout-map "%s"' % ",".join("%s=%s" % (nm, ly) for nm, ly, _ in sug))
+        return
     if args.motion != "off" and args.mode == "print":
         print("warn: --mode print では図を動かしません（--motion %s を off として扱います）" % args.motion,
               file=sys.stderr)
@@ -2355,6 +2926,12 @@ def main():
         print("  特徴グリッド:.feature-grid / 数値:.stat-row>.stat(.big,.cap) / チップ:.chips>.chip / バッジ:.badge")
         print("  タイムライン:.timeline>.tl-item(.tl-dot,.tl-body>.tl-h) / 折りたたみ:.accordion>.acc-item>summary")
         print("  コールアウト:.callout.callout-note(.callout-head,.callout-body) / 表:.tablewrap>table / 2分割:.split")
+        print("  タブ:.tabs[data-tabs]>.tab-list[role=tablist]>button[role=tab]#ID-tN + section.tab-panel#ID-pN>.tab-print-h")
+        print("  チェックリスト:.checklist[data-checklist=KEY]>.ck-head(.ck-bar>i,.ck-count,button.ck-reset)+ul.ck-list>li>label>input[type=checkbox]+span.ck-text")
+        print("  用語:.defs-wrap>dl.defs>.def>dt+dd（10 件以上なら先頭に input.defs-filter）/ 対比:.pc-grid[style=--cols:2]>.pc-col.pc-pro|.pc-con|.pc-neutral>.pc-h+.pc-b")
+        print("  ツリー:.tree>ul>li.tree-dir>details[open]>summary>.tree-name+.tree-note / li.tree-file>.tree-row>.tree-name")
+        print("  説明とコード:.walk>.walk-row>.walk-text+.walk-code / 要点の箱:section.tldr / 大きめのタグ:.chips.chips-lg>.chip")
+        print("  強化した表:.tablewrap.tools[data-table-tools]（数値の列は th.num / td.num[data-v]>.nbar[style=--w:NN（0〜100 の数）]+.nv）")
         print("  ※各要素に style=\"--ca:var(--a0)\" のように付けると、その部品の配色を accents から個別指定できる。")
         print("  ※図は自己完結の <figure class=\"mermaid-fig\"><svg ...></figure> で（外部依存なし・viewBox必須）。")
         print("  ※【重要】色は必ず CSS 変数（var(--accent) / var(--a1) 等）で指定する。SVG の fill/stroke も同様。")
