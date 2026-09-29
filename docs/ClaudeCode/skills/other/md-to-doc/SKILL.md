@@ -558,6 +558,9 @@ flowchart は figkit の `flow`、sequenceDiagram は `sequence` の仕様に写
     章名がヒットした章は配下の小見出しも全件残る。検索中は畳んだ章も一時的に開き、`Esc` でクリア。
   - **章アコーディオン** — `##` 単位で `###` を開閉。初期状態は全章展開。`###` を持たない章は開閉ボタンを出さない。
 - 表示モードの選択は `localStorage['md2doc-color-mode']`（`system|light|dark`）に保存。
+- ヘッダーの「Aa」で、読み手が書体（既定／ゴシック／明朝／UD）と文字の大きさ（小／標準／大／特大）を選べる。
+  `localStorage['md2doc-font']`・`['md2doc-size']` に保存し、`<head>` で先に反映する（ちらつきなし）。
+  大きさは本文（`.content`）の拡大縮小で、印刷では標準に戻る。テーマの選択とは独立。
   印刷/PDF はモードに関わらず常にライト配色になる。
 - テーマを増やすときは `generate.py` の `THEMES` に1エントリを足す。必要なのは
   `vars`（ライト・全キー）/ `vars_dark`（ダーク上書き）/ `accents`＋`accents_dark`（要素数を揃える）/

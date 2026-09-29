@@ -1636,6 +1636,37 @@ body{font-family:var(--font);color:var(--ink);background:var(--bg);line-height:1
 .mode-switch button:hover{color:var(--accent);background:var(--accent-soft)}
 .mode-switch button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent)}
 .mode-switch button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* 文字の設定（書体・大きさ）。テーマの変数より後に置いて上書きする */
+.type-switch{position:relative;display:inline-flex}
+.type-btn{height:32px;min-width:40px;padding:0 10px;margin-left:6px;border:1px solid var(--line);border-radius:999px;
+  background:color-mix(in srgb,var(--card) 65%,transparent);color:var(--muted);font:700 13px/1 var(--font-head);cursor:pointer;transition:.15s}
+.type-btn:hover,.type-btn[aria-expanded="true"]{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
+.type-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.type-panel{position:absolute;right:6px;top:calc(100% + 8px);z-index:300;display:flex;flex-direction:column;gap:10px;
+  min-width:286px;padding:12px 14px;background:var(--card);color:var(--ink);border:1px solid var(--line);
+  border-radius:12px;box-shadow:0 10px 28px rgba(0,0,0,.2)}
+.type-panel[hidden]{display:none}
+.type-row{display:flex;align-items:center;gap:10px}
+.type-lab{font-size:12px;font-weight:700;color:var(--muted);min-width:3.6em}
+.type-seg{display:flex;gap:2px;padding:3px;border:1px solid var(--line);border-radius:999px}
+.type-seg button{border:0;background:none;color:var(--muted);font-size:12.5px;line-height:1.2;padding:5px 10px;
+  border-radius:999px;cursor:pointer;white-space:nowrap}
+.type-seg button:hover{color:var(--accent);background:var(--accent-soft)}
+.type-seg button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent)}
+.type-seg button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.type-seg [data-ff="gothic"]{font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif}
+.type-seg [data-ff="mincho"]{font-family:"Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif}
+.type-seg [data-ff="ud"]{font-family:"BIZ UDPGothic","Hiragino Kaku Gothic ProN",sans-serif}
+:root[data-ff="gothic"]{--font:"Hiragino Kaku Gothic ProN","Yu Gothic",system-ui,sans-serif;
+  --font-head:"Hiragino Kaku Gothic ProN","Yu Gothic",system-ui,sans-serif}
+:root[data-ff="mincho"]{--font:"Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif;
+  --font-head:"Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif}
+:root[data-ff="ud"]{--font:"BIZ UDPGothic","Hiragino Kaku Gothic ProN","Yu Gothic",system-ui,sans-serif;
+  --font-head:"BIZ UDPGothic","Hiragino Kaku Gothic ProN","Yu Gothic",system-ui,sans-serif}
+:root[data-fs="s"] .content{zoom:.9}
+:root[data-fs="l"] .content{zoom:1.15}
+:root[data-fs="xl"] .content{zoom:1.3}
+@media(max-width:560px){.type-panel{right:-40px}}
 [id]{scroll-margin-top:calc(var(--nav-h) + 16px)}
 .hero{background:var(--header-bg);color:var(--header-fg);
   padding:calc(var(--nav-h) + 52px) 24px 52px;margin-bottom:8px}
@@ -1934,7 +1965,8 @@ footer{max-width:var(--maxw);margin:40px auto 0;padding:24px;text-align:center;
 @media print{
   /* 紙は常にライト配色の図を使う */
   .mm-dark{display:none!important}.mm-light{display:block!important}
-  .topbar,.progress,.backtop,.copy-btn,.hamburger,.mode-switch,.anchor{display:none!important}
+  .topbar,.progress,.backtop,.copy-btn,.hamburger,.mode-switch,.type-switch,.anchor{display:none!important}
+  :root[data-fs] .content{zoom:1}
   .toc{display:none}.layout{grid-template-columns:1fr;display:block}
   [id]{scroll-margin-top:0}body{background:#fff}
   .hero{padding:0 0 18px;background:none!important;color:#000!important;border-bottom:2px solid #000}
@@ -1954,12 +1986,32 @@ MODE_SWITCH_HTML = (
     '<button type="button" data-mode="system" title="システム設定に合わせる"'
     ' aria-label="システム設定に合わせる">◐</button>'
     '</div>'
+) + (
+    # 読み手が書体と文字の大きさを選ぶ（テーマの選択とは別。このブラウザに保存）
+    '<div class="type-switch">'
+    '<button type="button" class="type-btn" aria-haspopup="true" aria-expanded="false" aria-controls="md2doc-type"'
+    ' title="文字の設定（書体・大きさ）" aria-label="文字の設定（書体・大きさ）"><span aria-hidden="true">Aa</span></button>'
+    '<div class="type-panel" id="md2doc-type" hidden>'
+    '<div class="type-row"><span class="type-lab" id="md2doc-type-ff">書体</span>'
+    '<div class="type-seg" role="group" aria-labelledby="md2doc-type-ff">'
+    '<button type="button" data-ff="theme">既定</button><button type="button" data-ff="gothic">ゴシック</button>'
+    '<button type="button" data-ff="mincho">明朝</button><button type="button" data-ff="ud" title="読みやすさを重視した書体">UD</button>'
+    '</div></div>'
+    '<div class="type-row"><span class="type-lab" id="md2doc-type-fs">大きさ</span>'
+    '<div class="type-seg" role="group" aria-labelledby="md2doc-type-fs">'
+    '<button type="button" data-fs="s">小</button><button type="button" data-fs="m">標準</button>'
+    '<button type="button" data-fs="l">大</button><button type="button" data-fs="xl">特大</button>'
+    '</div></div>'
+    '</div></div>'
 )
 
 # <head> 内で先に data-theme を確定させ、ダーク指定時の白フラッシュを防ぐ
 MODE_BOOT_JS = """(function(){try{
 var m=localStorage.getItem('__MODE_KEY__')||'__DEFAULT_MODE__';
 if(m==='light'||m==='dark')document.documentElement.setAttribute('data-theme',m);
+var ff=localStorage.getItem('md2doc-font'),fs=localStorage.getItem('md2doc-size');
+if(ff==='gothic'||ff==='mincho'||ff==='ud')document.documentElement.setAttribute('data-ff',ff);
+if(fs==='s'||fs==='l'||fs==='xl')document.documentElement.setAttribute('data-fs',fs);
 }catch(e){}})();"""
 
 # サイドメニューの開閉状態を、レイアウトが描かれる前に確定させる（初期表示は展開）
@@ -2042,6 +2094,34 @@ MODE_SCRIPT_JS = """(function(){
     apply(m);
   });});
   apply(read());
+})();
+(function(){
+  /* 文字の設定（書体・大きさ）: 「Aa」のパネル。選んだ値はこのブラウザに保存 */
+  var root=document.documentElement,btn=document.querySelector('.type-btn'),panel=document.getElementById('md2doc-type');
+  if(!btn||!panel) return;
+  function get(k,d){try{return localStorage.getItem(k)||d;}catch(e){return d;}}
+  function put(k,v){try{localStorage.setItem(k,v);}catch(e){}}
+  function apply(){
+    var ff=get('md2doc-font','theme'),fs=get('md2doc-size','m');
+    if(ff==='theme')root.removeAttribute('data-ff');else root.setAttribute('data-ff',ff);
+    if(fs==='m')root.removeAttribute('data-fs');else root.setAttribute('data-fs',fs);
+    [].forEach.call(panel.querySelectorAll('[data-ff]'),function(b){b.setAttribute('aria-pressed',String(b.getAttribute('data-ff')===ff));});
+    [].forEach.call(panel.querySelectorAll('[data-fs]'),function(b){b.setAttribute('aria-pressed',String(b.getAttribute('data-fs')===fs));});
+  }
+  function open(on,focus){
+    panel.hidden=!on; btn.setAttribute('aria-expanded',String(on));
+    if(on&&focus){var p=panel.querySelector('[aria-pressed="true"]');if(p)p.focus();}
+    if(!on&&focus)btn.focus();
+  }
+  btn.addEventListener('click',function(){open(panel.hidden,true);});
+  [].forEach.call(panel.querySelectorAll('button'),function(b){b.addEventListener('click',function(){
+    if(b.hasAttribute('data-ff'))put('md2doc-font',b.getAttribute('data-ff'));
+    if(b.hasAttribute('data-fs'))put('md2doc-size',b.getAttribute('data-fs'));
+    apply();
+  });});
+  panel.addEventListener('keydown',function(e){if(e.key==='Escape'){e.preventDefault();open(false,true);}});
+  document.addEventListener('pointerdown',function(e){if(!panel.hidden&&!e.target.closest('.type-switch'))open(false,false);});
+  apply();
 })();"""
 
 LAYOUT_JS = r"""(function(){
