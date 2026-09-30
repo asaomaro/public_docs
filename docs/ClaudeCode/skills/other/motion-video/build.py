@@ -93,6 +93,8 @@ PLAYERS = {
     "presenter": ("プレゼンター", "横にチャプターの目次と説明。研修・講義・長めの解説"),
     "minimal": ("ミニマル", "細いシークバーと最小限のボタン。他は「⋯」にまとめる。埋め込み・短い動画"),
     "kiosk": ("キオスク", "自動再生・繰り返し・音なしで始まる。操作部は触れたときだけ。展示・受付"),
+    "theater": ("シアター", "暗い地に大きな映像、横に文字起こし（クリックでその位置へ・検索）。講演・録画の公開"),
+    "slides": ("スライド", "章の終わりで止まり、「次へ」で進む。発表の場で話しながら送る"),
 }
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -112,9 +114,20 @@ SCENE_TYPES = {
     "window": (["panes"], "アプリの画面の模型（pane の状態・通知が変わる）", '{"type":"window","title":"Sodashitsu — api","sidebar":[{"label":"impl","state":"working","active":true}],"panes":[{"title":"impl","tag":"claude","state":"working","states":[{"at":0.4,"state":"done"}],"lines":["› 実装して","  ✓ 24 passed"]}],"toasts":[{"at":0.45,"title":"impl が完了しました","sub":"api · p1","kind":"done"}]}'),
     "image": (["src"], "画像（ゆっくり寄る。src は台本からの相対パス・URL・data URI）", '{"type":"image","src":"shot.png","caption":"画面の例","kenburns":true}'),
     "end": ([], "締め（紋章・コマンドや連絡先の行・題名・一文）", '{"type":"end","title":"Sodashitsu","lines":[{"text":"$ soda serve","note":"ブラウザで開く"}],"tagline":"舵を一つの場所で"}'),
+    "cards": (["items"], "カードの格子が弾んで現れる（2〜6 枚）", '{"type":"cards","heading":"主な機能","items":[{"title":"MCP","text":"AI から操作","icon":"🤖"},{"title":"Web","text":"ブラウザで"}]}'),
+    "timeline": (["items"], "年表・マイルストーン（線が伸び、点と文字が上下交互に）", '{"type":"timeline","heading":"歩み","items":[{"date":"2024","label":"公開"},{"date":"2026","label":"v1.0","highlight":true}]}'),
+    "chat": (["messages"], "会話の吹き出し（入力中の点のあとに現れる）", '{"type":"chat","messages":[{"from":"user","text":"受注を照会して"},{"from":"AI","text":"**128 件**あります"}]}'),
+    "line": (["labels", "series"], "折れ線（線が伸び、最後の値が数え上がる）", '{"type":"line","heading":"推移","unit":"件","labels":["4月","5月","6月"],"series":[{"name":"件数","values":[120,340,610]}]}'),
+    "donut": (["items"], "ドーナツ（時計回りに埋まり、割合の凡例）", '{"type":"donut","heading":"内訳","unit":"件","items":[{"label":"完了","value":820},{"label":"見送り","value":300}]}'),
+    "table": (["columns", "rows"], "表（行が順に現れ、highlight の行を順に強調。数値の列は右寄せ）", '{"type":"table","heading":"比較","columns":["項目","A","B"],"rows":[["速度","12ms","40ms"],["費用","0円","3万円"]],"highlight":[0,1]}'),
+    "quote": (["text"], "引用・声（大きな引用符、発言者）", '{"type":"quote","text":"画面を**覚えさせる**だけで済んだ","by":"山田さん","role":"情報システム部"}'),
+    "kinetic": (["text"], "キネティック文字（語が 1 つずつ弾んで組み上がる。**強調** は色と下線）", '{"type":"kinetic","text":"AI も 人も **同じ画面** を 見る"}'),
+    "split": (["left", "right"], "左に文章・右に部品（右は type 付きの部品を縮小して置く）", '{"type":"split","heading":"…","left":{"title":"見出し","text":"説明","points":["要点"]},"right":{"type":"stats","items":[{"value":"48","label":"ツール"}]}}'),
+    "beforeafter": (["before", "after"], "前後比較（境目が左から右へ動き、後の姿が現れる）", '{"type":"beforeafter","heading":"導入の前と後","before":{"label":"Before","title":"手作業","points":["毎朝 30 分"],"value":"30 分"},"after":{"label":"After","title":"自動","points":["ボタン 1 つ"],"value":"1 分"}}'),
+    "dom": ([], "HTML・SVG・CSS で自由に描く（html / css / update。src・cssSrc・updateSrc でファイルから）。時刻は CSS 変数 --lt（ms）と --p（0..1）", '{"type":"dom","src":"scenes/intro.html","cssSrc":"scenes/intro.css","updateSrc":"scenes/intro.js","duration":8}'),
     "custom": ([], "JS で自由に描く（本体: (ctx, lt, d, H, s)。道具は --api。code は文字列か行の配列、または src に .js のパス）", '{"type":"custom","src":"scenes/intro.js","duration":8,"narration":"…"}'),
 }
-COMMON = ("共通: narration（ナレーション＝字幕。文字列か配列）・duration（秒。省略時は自動）・heading・transition（fade|slide|zoom|cut）"
+COMMON = ("共通: narration（ナレーション＝字幕。文字列か配列）・duration（秒。省略時は自動）・heading・transition（fade|slide|zoom|wipe|push|cut）"
           "・overlays（重ねの層）・camera（カメラ）")
 
 OVERLAY_KINDS = {
@@ -130,7 +143,7 @@ CAMERA_DOC = ('camera: [{"at":0,"x":960,"y":540,"zoom":1},{"at":0.6,"x":1300,"y"
 EXPRESSIONS = {
     "components": "部品だけで組む。速く安く、毎回ぶれにくい（custom は使わない）",
     "mixed": "基本は部品で、見せ場だけ custom（既定）",
-    "free": "場面ごとに custom で描く。部品は H.sub で道具として使う",
+    "free": "場面ごとに custom（Canvas）か dom（HTML・SVG・CSS）で描く。部品は H.sub で道具として使う。プレイヤー・時間割・字幕・音声だけを使う",
 }
 
 API_DOC = """custom の本体は (ctx, lt, d, H, s)。座標は 1920×1080、lt は場面の中の経過 ms、d は場面の長さ ms、s は台本の場面。
@@ -162,7 +175,9 @@ API_DOC = """custom の本体は (ctx, lt, d, H, s)。座標は 1920×1080、lt 
 
 
 MIN_SEC = {"title": 8, "statement": 4.5, "bullets": 2.5, "flow": 3, "steps": 2, "terminal": 2.5, "stats": 4.5, "bars": 3.5,
-           "compare": 3, "code": 2.5, "window": 7, "image": 5, "end": 4, "custom": 5}
+           "compare": 3, "code": 2.5, "window": 7, "image": 5, "end": 4, "custom": 5,
+           "cards": 3, "timeline": 3, "chat": 2, "line": 6, "donut": 6, "table": 3, "quote": 6, "kinetic": 3, "split": 6,
+           "beforeafter": 7, "dom": 5}
 
 
 def narration_text(s):
@@ -208,6 +223,14 @@ def min_seconds(s):
         base += 2.2 * len(s.get("highlight", []))
     elif t == "end":
         base += 0.8 * len(s.get("lines", [])) + 2.5
+    elif t in ("cards", "timeline"):
+        base += 1.0 * len(s.get("items", []))
+    elif t == "chat":
+        base += sum(1.2 + len(m.get("text", "")) * .03 for m in s.get("messages", []))
+    elif t == "table":
+        base += 0.3 * len(s.get("rows", [])) + 1.8 * len(s.get("highlight", []))
+    elif t == "kinetic":
+        base += 0.35 * len(re.findall(r"\*\*[^*]+\*\*|[^\s*]+", s.get("text", "")))
     elif t == "statement":
         base += 0.6 * len(s.get("lines", [s.get("text", "")]))
     return base
@@ -302,6 +325,16 @@ def validate(spec, base):
                     errs.append("%s（custom）: code か src が必要です" % where)
                 elif isinstance(s["code"], list):
                     s["code"] = "\n".join(s["code"])
+            if t == "dom":
+                for key, fk in (("html", "src"), ("css", "cssSrc"), ("update", "updateSrc")):
+                    if s.get(fk):
+                        p = os.path.join(base, s[fk])
+                        if not os.path.isfile(p):
+                            errs.append("%s: dom の %s が見つかりません: %s" % (where, fk, p))
+                        else:
+                            s[key] = open(p, encoding="utf-8").read()
+                if not s.get("html") and not s.get("update"):
+                    errs.append("%s（dom）: html（src）か update（updateSrc）が必要です" % where)
             for oi, o in enumerate(s.get("overlays", [])):
                 k = o.get("kind", "note")
                 if k not in OVERLAY_KINDS:
@@ -339,19 +372,24 @@ ICON = {
     "fs": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>',
     "more": '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>',
     "big": '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 4l14 8-14 8z"/></svg>',
+    "gear": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>',
 }
 
-CSS = r"""
+PAGE_CSS = r"""
 :root{--bg:#eef1f4;--ink:#131a22;--muted:#56616e;--line:#d3d9e0;--card:#ffffff;--focus:#1a56db}
 @media (prefers-color-scheme:dark){:root{--bg:#0a0d12;--ink:#e6ebf1;--muted:#98a3b0;--line:#222a35;--card:#11161d;--focus:#6ea0ff;color-scheme:dark}}
 *{box-sizing:border-box}
-[hidden]{display:none!important}
 html,body{margin:0}
 body{background:var(--bg);color:var(--ink);font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",system-ui,sans-serif;font-size:15px;line-height:1.7;padding:24px 16px 48px}
 .mv-page{max-width:1120px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
 .mv-head h1{font-size:clamp(22px,3.4vw,32px);line-height:1.25;margin:0;text-wrap:balance}
 .mv-head p{margin:6px 0 0;color:var(--muted);max-width:44em}
-.mv-player{--c-bg:__BG__;--c-bg2:__BG2__;--c-line:__LINE__;--c-ink:__INK__;--c-muted:__MUTED__;--c-accent:__ACCENT__;
+"""
+
+PLAYER_CSS = r"""
+.mv-player,.mv-player *{box-sizing:border-box}
+.mv-player [hidden]{display:none!important}
+.mv-player{font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",system-ui,sans-serif;font-size:15px;line-height:1.7;margin:18px 0;
   position:relative;background:var(--c-bg);color:var(--c-ink);border:1px solid var(--c-line);border-radius:14px;overflow:hidden}
 .mv-player:focus-visible{outline:3px solid var(--focus);outline-offset:3px}
 .mv-main{position:relative;min-width:0}
@@ -421,13 +459,13 @@ body{background:var(--bg);color:var(--ink);font-family:"Hiragino Kaku Gothic Pro
 .mv-keys kbd{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:0 5px;background:var(--card);color:var(--ink)}
 
 /* studio: 操作部は下、チャプターの一覧を下に */
-[data-player="studio"] .mv-side{display:block;padding:14px 18px;border-top:1px solid var(--c-line);background:var(--c-bg)}
+[data-player="studio"] .mv-chapters{display:block;padding:14px 18px;border-top:1px solid var(--c-line);background:var(--c-bg)}
 [data-player="studio"] .mv-chaplist{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));column-gap:24px}
 [data-player="studio"] .mv-chaplist li:nth-child(-n+3) button{border-top:0}
 /* presenter: 横に目次 */
 [data-player="presenter"]{display:grid;grid-template-columns:minmax(0,1fr) 300px}
-[data-player="presenter"] .mv-side{display:block;border-left:1px solid var(--c-line);padding:14px 16px;background:var(--c-bg2);overflow:auto;max-height:100%}
-@media(max-width:860px){[data-player="presenter"]{grid-template-columns:1fr}[data-player="presenter"] .mv-side{border-left:0;border-top:1px solid var(--c-line);max-height:none}}
+[data-player="presenter"] .mv-chapters{display:block;border-left:1px solid var(--c-line);padding:14px 16px;background:var(--c-bg2);overflow:auto;max-height:100%}
+@media(max-width:860px){[data-player="presenter"]{grid-template-columns:1fr}[data-player="presenter"] .mv-chapters{border-left:0;border-top:1px solid var(--c-line);max-height:none}}
 /* 重ねる操作部（cinema・minimal・kiosk） */
 [data-player="cinema"] .mv-controls,[data-player="minimal"] .mv-controls,[data-player="kiosk"] .mv-controls{position:absolute;left:0;right:0;bottom:0;border-top:0;
   background:linear-gradient(to top,color-mix(in srgb,var(--c-bg) 92%,transparent),transparent);padding-top:40px;transition:opacity .25s}
@@ -451,31 +489,83 @@ body{background:var(--bg);color:var(--ink);font-family:"Hiragino Kaku Gothic Pro
 .mv-player:fullscreen .mv-stage{max-height:100vh;margin:0 auto;width:min(100vw,177.78vh)}
 @media(max-width:640px){.mv-chapname{display:none}.mv-controls{padding:8px 10px}}
 @media(prefers-reduced-motion:reduce){.mv-controls,.mv-cap{transition:none}}
+
+/* シークバーのプレビュー（その時刻の画） */
+.mv-tip{display:flex;flex-direction:column;align-items:center;gap:4px;padding:4px}
+.mv-thumb{width:160px;height:90px;border-radius:4px;display:block;background:var(--c-bg)}
+@media(max-width:640px){.mv-thumb{display:none}}
+/* 設定 */
+.mv-set{min-width:300px;padding:10px;gap:6px}
+.mv-setrow{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px;color:var(--c-muted);padding:4px 6px}
+.mv-seg3{display:inline-flex;gap:2px;padding:2px;border:1px solid var(--c-line);border-radius:999px}
+.mv-seg3 button{appearance:none;border:0;background:none;color:var(--c-muted);font:inherit;font-size:12.5px;padding:3px 10px;border-radius:999px;cursor:pointer}
+.mv-seg3 button[aria-pressed="true"]{background:var(--c-accent);color:var(--c-bg)}
+.mv-set button.mv-setitem{display:block;width:100%;text-align:left;grid-template-columns:none}
+.mv-setnote{margin:2px 6px 4px;font-size:11.5px;color:var(--c-muted);line-height:1.5}
+/* 字幕の大きさ */
+.mv-player[data-cap="s"] .mv-cap span{font-size:clamp(11px,1.6vw,19px)}
+.mv-player[data-cap="l"] .mv-cap span{font-size:clamp(14px,2.7vw,32px)}
+/* 続きから・録画中 */
+.mv-resume{position:absolute;left:16px;top:16px;z-index:3;appearance:none;border:1px solid var(--c-line);background:color-mix(in srgb,var(--c-bg) 85%,transparent);
+  color:var(--c-ink);font:inherit;font-size:13px;padding:6px 12px;border-radius:999px;cursor:pointer}
+.mv-resume:hover{border-color:var(--c-accent);color:var(--c-accent)}
+.mv-resume:focus-visible{outline:2px solid var(--c-accent);outline-offset:2px}
+.mv-recbadge{position:absolute;right:16px;top:16px;z-index:3;background:#d7263d;color:#fff;font-size:13px;font-weight:700;padding:4px 10px;border-radius:999px}
+/* HTML・SVG で描く場面（dom）の層。1920×1080 の箱を舞台の大きさに縮める */
+.mv-dom{position:absolute;inset:0;overflow:hidden;pointer-events:none}
+.mv-dom>.mv-domscene{position:absolute;left:0;top:0;width:1920px;height:1080px;transform-origin:0 0}
+/* 文字起こし */
+.mv-transcript{display:none}
+.mv-tsearch{width:100%;font:inherit;font-size:13px;padding:6px 10px;border-radius:8px;border:1px solid var(--c-line);background:color-mix(in srgb,var(--c-ink) 6%,transparent);color:var(--c-ink);margin-bottom:8px}
+.mv-tlist{list-style:none;margin:0;padding:0}
+.mv-tlist button{appearance:none;width:100%;border:0;background:transparent;color:var(--c-muted);font:inherit;font-size:13.5px;line-height:1.6;text-align:left;
+  padding:6px 6px;border-radius:6px;display:grid;grid-template-columns:3.2em 1fr;gap:6px;cursor:pointer}
+.mv-tlist button:hover{background:color-mix(in srgb,var(--c-ink) 8%,transparent)}
+.mv-tlist button:focus-visible{outline:2px solid var(--c-accent);outline-offset:-2px}
+.mv-tlist button[aria-current="true"]{color:var(--c-ink);background:color-mix(in srgb,var(--c-accent) 16%,transparent)}
+.mv-tlist .t{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--c-accent);padding-top:2px}
+/* theater: 横に文字起こし */
+[data-player="theater"]{display:grid;grid-template-columns:minmax(0,1fr) 320px;background:#05070b}
+[data-player="theater"] .mv-transcript{display:block;border-left:1px solid var(--c-line);padding:14px 14px;background:var(--c-bg2);overflow:auto;max-height:100%}
+@media(max-width:860px){[data-player="theater"]{grid-template-columns:1fr}[data-player="theater"] .mv-transcript{border-left:0;border-top:1px solid var(--c-line);max-height:320px}}
+/* slides: 章の終わりで止まる。「次へ」を目立たせる */
+[data-player="slides"] .mv-big{width:auto;height:auto;border-radius:999px;padding:12px 22px;font-size:16px;font-weight:700;gap:8px;display:flex;align-items:center}
+[data-player="slides"] .mv-big svg{width:20px;height:20px;margin:0}
+[data-player="slides"] .mv-big .mv-biglabel{display:inline}
+.mv-biglabel{display:none}
 """
 
 
-def build_html(spec, theme_key, player):
+_UID = [0]
+
+
+def build_fragment(spec, theme_key, player, uid=None):
+    """プレイヤー 1 つ分の HTML（1 ページに何個でも置ける。台本と配色はプレイヤーの中の JSON に入る）。"""
     th = THEMES[theme_key]
     ch = th["chrome"]
-    css = (CSS.replace("__BG__", ch["bg"]).replace("__BG2__", ch["bg2"]).replace("__LINE__", ch["line"])
-              .replace("__INK__", ch["ink"]).replace("__MUTED__", ch["muted"]).replace("__ACCENT__", ch["accent"]))
+    _UID[0] += 1
+    if not uid:
+        # 台本の中身から決める（別々に作った断片を 1 ページに並べても id が重ならない。同じ台本なら同じ id）
+        import hashlib
+        uid = "mv" + hashlib.sha1((json.dumps(spec, ensure_ascii=False, sort_keys=True) + player + str(_UID[0])).encode("utf-8")).hexdigest()[:8]
     theme_js = {"canvas": th["canvas"], "fonts": th["fonts"], "pattern": th["pattern"]}
     title = spec.get("title") or "動画"
-    desc = spec.get("description") or ""
     minimal = player == "minimal"
     btn = lambda id_, label, icon, extra="": ('<button class="mv-btn" id="%s" type="button" aria-label="%s" title="%s"%s>%s</button>'
                                               % (id_, label, label, extra, icon))
     controls = (
         '<div class="mv-controls">'
         '<div class="mv-seek" id="mv-seek" role="slider" tabindex="0" aria-label="再生位置" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0">'
-        '<div class="mv-track" id="mv-track"></div><div class="mv-knob" id="mv-knob"></div><div class="mv-tip" id="mv-tip" hidden></div></div>'
+        '<div class="mv-track" id="mv-track"></div><div class="mv-knob" id="mv-knob"></div>'
+        '<div class="mv-tip" id="mv-tip" hidden><canvas class="mv-thumb" id="mv-thumb" width="256" height="144" aria-hidden="true"></canvas>'
+        '<span id="mv-tiplabel"></span></div></div>'
         '<div class="mv-row">'
         + btn("mv-play", "再生", ICON["play"]) + btn("mv-stop", "停止して最初に戻る", ICON["stop"])
         + btn("mv-prev", "前のチャプター", ICON["prev"]) + btn("mv-next", "次のチャプター", ICON["next"])
         + '<span class="mv-time" id="mv-time"><b>0:00</b> / 0:00</span><span class="mv-chapname" id="mv-chapname"></span>'
         '<span class="mv-spacer"></span>'
         '<div class="mv-morewrap">'
-        + btn("mv-more", "そのほかの操作（音声・字幕・速度・チャプター）", ICON["more"], ' aria-haspopup="true" aria-expanded="false" aria-controls="mv-morepanel"')
+        + btn("mv-more", "そのほかの操作（音声・字幕・速度・チャプター・設定）", ICON["more"], ' aria-haspopup="true" aria-expanded="false" aria-controls="mv-morepanel"')
         + '<div class="mv-sec" id="mv-morepanel"%s>' % (" hidden" if minimal else "")
         + btn("mv-audio", "音声", ICON["audio"], ' aria-pressed="true"')
         + btn("mv-cc", "字幕", ICON["cc"], ' aria-pressed="true"')
@@ -485,28 +575,69 @@ def build_html(spec, theme_key, player):
         '<div class="mv-menuwrap">'
         + btn("mv-chapbtn", "チャプター", ICON["chapters"], ' aria-haspopup="true" aria-expanded="false" aria-controls="mv-chapmenu"')
         + '<div class="mv-menu" id="mv-chapmenu" hidden></div></div>'
+        '<div class="mv-menuwrap">'
+        + btn("mv-setbtn", "設定（字幕の大きさ・小窓・保存）", ICON["gear"], ' aria-haspopup="true" aria-expanded="false" aria-controls="mv-setpanel"')
+        + '<div class="mv-menu mv-set" id="mv-setpanel" hidden>'
+        '<div class="mv-setrow"><span>字幕の大きさ</span><span class="mv-seg3" role="group" aria-label="字幕の大きさ">'
+        '<button type="button" data-cap="s">小</button><button type="button" data-cap="m">標準</button><button type="button" data-cap="l">大</button></span></div>'
+        '<button type="button" class="mv-setitem" id="mv-pip">小窓で再生（ピクチャー・イン・ピクチャー）</button>'
+        '<button type="button" class="mv-setitem" id="mv-rec">動画ファイル（WebM）で保存</button>'
+        '<p class="mv-setnote">保存は最初から 1 倍速で再生して録画します（字幕は映像に焼き込み。読み上げの声は入りません）。</p>'
+        '</div></div>'
         '</div></div>'
         + btn("mv-fs", "全画面", ICON["fs"])
         + '</div><div class="mv-note" id="mv-voicenote" hidden>この端末には読み上げの声が無いため、音声は効果音と音楽だけになります。</div>'
         '</div>')
-    player_html = (
-        '<section class="mv-player" id="mv-player" data-player="%s" tabindex="0" aria-label="%s">'
-        '<div class="mv-main"><div class="mv-stage" id="mv-stage"><canvas id="mv-canvas" aria-hidden="true"></canvas>'
-        '<div class="mv-cap"><span id="mv-captext" hidden></span></div>'
-        '<button class="mv-big" id="mv-big" type="button" aria-label="再生">%s</button></div>%s</div>'
-        '<aside class="mv-side" aria-label="チャプター"><h2>チャプター</h2><ol class="mv-chaplist" id="mv-chaplist"></ol></aside>'
-        '</section>' % (player, html.escape(title, quote=True), ICON["big"], controls))
-    head = '<header class="mv-head"><h1>%s</h1>%s</header>' % (html.escape(title), "<p>%s</p>" % html.escape(desc) if desc else "")
-    keys = ('<p class="mv-keys"><kbd>Space</kbd> 再生・一時停止　<kbd>S</kbd> 停止　<kbd>←</kbd><kbd>→</kbd> 5 秒　'
-            '<kbd>[</kbd><kbd>]</kbd> チャプター　<kbd>&lt;</kbd><kbd>&gt;</kbd> 速度　<kbd>C</kbd> 字幕　<kbd>M</kbd> 音声　<kbd>F</kbd> 全画面</p>')
-    engine = open(os.path.join(HERE, "engine.js"), encoding="utf-8").read()
+    style = ("--c-bg:%s;--c-bg2:%s;--c-line:%s;--c-ink:%s;--c-muted:%s;--c-accent:%s"
+             % (ch["bg"], ch["bg2"], ch["line"], ch["ink"], ch["muted"], ch["accent"]))
     data = json.dumps(spec, ensure_ascii=False).replace("</", "<\\/")
+    frag = (
+        '<section class="mv-player" id="mv-player" data-player="%s" tabindex="0" aria-label="%s" style="%s">'
+        '<script type="application/json" data-mv-spec>%s</script><script type="application/json" data-mv-theme>%s</script>'
+        '<div class="mv-main"><div class="mv-stage" id="mv-stage"><canvas id="mv-canvas" aria-hidden="true"></canvas>'
+        '<div class="mv-dom" id="mv-dom"></div>'
+        '<div class="mv-cap"><span id="mv-captext" hidden></span></div>'
+        '<button class="mv-big" id="mv-big" type="button" aria-label="再生">%s</button>'
+        '<button class="mv-resume" id="mv-resume" type="button" hidden></button>'
+        '<span class="mv-recbadge" id="mv-recbadge" hidden>● 録画中</span></div>%s</div>'
+        '<aside class="mv-side mv-chapters" aria-label="チャプター"><h2>チャプター</h2><ol class="mv-chaplist" id="mv-chaplist"></ol></aside>'
+        '<aside class="mv-side mv-transcript" aria-label="文字起こし"><h2>文字起こし</h2>'
+        '<input type="search" class="mv-tsearch" id="mv-tsearch" placeholder="文字起こしを検索" aria-label="文字起こしを検索">'
+        '<ol class="mv-tlist" id="mv-tlist"></ol></aside>'
+        '</section>' % (player, html.escape(title, quote=True), style, data, json.dumps(theme_js, ensure_ascii=False), ICON["big"] + '<span class="mv-biglabel"></span>', controls))
+    # id はプレイヤーごとの名前にし、エンジンは data-mv で探す
+    frag = re.sub(r'\bid="mv-([\w-]+)"', lambda m: 'data-mv="%s" id="%s-%s"' % (m.group(1), uid, m.group(1)), frag)
+    frag = re.sub(r'aria-controls="mv-([\w-]+)"', lambda m: 'aria-controls="%s-%s"' % (uid, m.group(1)), frag)
+    return frag
+
+
+def player_css():
+    """プレイヤーだけに効く CSS（ページの見た目には触れない。#mv-x は data-mv に読み替える）。"""
+    return re.sub(r"#mv-([\w-]+)", r'[data-mv="\1"]', PLAYER_CSS)
+
+
+def engine_js():
+    return open(os.path.join(HERE, "engine.js"), encoding="utf-8").read()
+
+
+def build_embed(spec, theme_key, player):
+    """ほかの HTML（md-to-doc の文書など）に差し込む断片。CSS と実行部は一度だけ効く。"""
+    return ('<div class="mv-embed">%s<style>%s</style><script>%s</script></div>'
+            % (build_fragment(spec, theme_key, player), player_css(), engine_js()))
+
+
+def build_html(spec, theme_key, player):
+    title = spec.get("title") or "動画"
+    desc = spec.get("description") or ""
+    head = '<header class="mv-head"><h1>%s</h1>%s</header>' % (html.escape(title), "<p>%s</p>" % html.escape(desc) if desc else "")
+    keys = ('<p class="mv-keys"><kbd>Space</kbd> 再生・一時停止　<kbd>S</kbd> 停止　<kbd>←</kbd><kbd>→</kbd> 5 秒　<kbd>J</kbd><kbd>L</kbd> 10 秒　'
+            '<kbd>0</kbd>〜<kbd>9</kbd> 0〜90%　<kbd>[</kbd><kbd>]</kbd> チャプター　<kbd>&lt;</kbd><kbd>&gt;</kbd> 速度　<kbd>C</kbd> 字幕　'
+            '<kbd>M</kbd> 音声　<kbd>F</kbd> 全画面</p>')
     return ("<!doctype html>\n<html lang=\"%s\"><head><meta charset=\"utf-8\">"
             "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>%s</title>"
-            "<style>%s</style></head><body><main class=\"mv-page\">%s%s%s</main>"
-            "<script>window.__MV_SPEC__=%s;window.__MV_THEME__=%s;</script><script>%s</script></body></html>\n"
-            % (html.escape(spec.get("lang", "ja")), html.escape(title), css, head, player_html,
-               keys if player != "kiosk" else "", data, json.dumps(theme_js, ensure_ascii=False), engine))
+            "<style>%s%s</style></head><body><main class=\"mv-page\">%s%s%s</main><script>%s</script></body></html>\n"
+            % (html.escape(spec.get("lang", "ja")), html.escape(title), PAGE_CSS, player_css(), head,
+               build_fragment(spec, theme_key, player, "mv"), keys if player != "kiosk" else "", engine_js()))
 
 
 def print_list():
@@ -544,6 +675,7 @@ def main():
     ap.add_argument("--list", action="store_true", help="プレイヤー・配色・場面の部品と台本の書き方を出す")
     ap.add_argument("--timeline", action="store_true", help="HTML を作らず、場面の長さと字幕の時刻を出す")
     ap.add_argument("--api", action="store_true", help="custom の場面で使える描画の道具（H.*）の一覧を出す")
+    ap.add_argument("--embed", action="store_true", help="ページではなく、ほかの HTML に差し込む断片を出す（md-to-doc の文書など）")
     args = ap.parse_args()
     if args.api:
         print(API_DOC)
@@ -588,8 +720,8 @@ def main():
                 t += s["_dur"]
         print("合計 %s（%d 章・%d 場面）" % (fmt(total), len(spec["chapters"]), sum(len(c["scenes"]) for c in spec["chapters"])))
         return
-    out = args.out or os.path.splitext(os.path.abspath(args.spec))[0] + ".html"
-    open(out, "w", encoding="utf-8").write(build_html(spec, theme, player))
+    out = args.out or os.path.splitext(os.path.abspath(args.spec))[0] + (".embed.html" if args.embed else ".html")
+    open(out, "w", encoding="utf-8").write(build_embed(spec, theme, player) if args.embed else build_html(spec, theme, player))
     print("OK : %s（%s・%s・%s）" % (out, player, theme, fmt(total)))
 
 

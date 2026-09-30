@@ -1,11 +1,11 @@
 /* motion-video engine — 台本（SPEC）から、時刻だけで決まる映像を Canvas に描き、プレイヤーを動かす。
  * build.py が SPEC（durations 計算済み）・THEME・このファイルを 1 つの HTML に埋め込む。
  * 描画は draw(t) の純粋な関数（t = 動画の先頭からの ms）。シーク・倍速・巻き戻しでも同じ画になる。 */
-(function () {
+window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   "use strict";
-  var SPEC = window.__MV_SPEC__, TH = window.__MV_THEME__;
   var W = 1920, H = 1080;
-  var $ = function (id) { return document.getElementById(id); };
+  /* 要素はこのプレイヤーの中から data-mv で探す（1 ページに複数のプレイヤーを置けるように） */
+  var $ = function (id) { return root.querySelector('[data-mv="' + id.replace(/^mv-/, "") + '"]'); };
 
   /* ================= 時間割 ================= */
   var SCENES = [], CHAPTERS = [], CUES = [], DUR = 0;
@@ -67,9 +67,9 @@
     parts.forEach(function (p, i) {
       if (!p) return;
       var em = i % 2 === 1, w = tw(p, o);
-      txt(p, cx, y, { size: o.size, weight: em ? Math.max(700, o.weight || 400) : o.weight, font: o.font, color: em ? C.accent : (o.color || C.ink), alpha: o.alpha });
+      txt(p, cx, y, { size: o.size, weight: em ? Math.max(700, o.weight || 400) : o.weight, font: o.font, color: em ? (o.emColor || C.accent) : (o.color || C.ink), alpha: o.alpha });
       if (em && emK !== undefined) {
-        ctx.save(); ctx.globalAlpha *= (o.alpha === undefined ? 1 : o.alpha); ctx.fillStyle = C.accent;
+        ctx.save(); ctx.globalAlpha *= (o.alpha === undefined ? 1 : o.alpha); ctx.fillStyle = o.emColor || C.accent;
         ctx.fillRect(cx, y + o.size * 0.18, w * clamp(emK), Math.max(3, o.size * 0.07)); ctx.restore();
       }
       cx += w;
@@ -526,6 +526,200 @@
     if (s.tagline) rich(s.tagline, 960, 884, { size: 32, align: "center", color: C.accent, alpha: P(lt, 700 + rows.length * 700 + 900, 700 + rows.length * 700 + 1900) });
   };
 
+  /* ---------- 追加の部品 ---------- */
+  R.cards = function (s, lt, d) {
+    heading(s, lt);
+    var items = s.items || [], n = items.length, cols = s.cols || (n <= 3 ? n : n === 4 ? 2 : 3), rows = Math.ceil(n / cols);
+    var y0 = s.heading ? 290 : 190, gap = 32, cw = (1680 - gap * (cols - 1)) / cols, chh = Math.min(300, (880 - y0 - gap * (rows - 1)) / rows);
+    var at = slots(n, d, 500, Math.max(1200, d * .35));
+    items.forEach(function (it, i) {
+      var c = i % cols, r = Math.floor(i / cols), x = 120 + c * (cw + gap), y = y0 + r * (chh + gap), k = P(lt, at[i], at[i] + 600, back);
+      if (k <= 0) return;
+      ctx.save(); ctx.translate(x + cw / 2, y + chh / 2); ctx.scale(k, k); ctx.translate(-cw / 2, -chh / 2);
+      panel(0, 0, cw, chh, {}); ctx.fillStyle = accentAt(i); ctx.fillRect(0, 0, cw, 6);
+      var ix = 40; if (it.icon) { icon(it.icon, 58, 68, 48); ix = 104; }
+      txt(it.title || "", ix, 84, { size: 42, weight: 800, color: accentAt(i) });
+      wrap(it.text || "", cw - 80, { size: 32 }).slice(0, Math.floor((chh - 130) / 44)).forEach(function (ln, j) { rich(ln, 40, 156 + j * 44, { size: 32, color: C.muted }); });
+      ctx.restore();
+    });
+  };
+  R.timeline = function (s, lt, d) {
+    heading(s, lt);
+    var items = s.items || [], n = items.length, x0 = 170, x1 = 1750, y = s.heading ? 560 : 520;
+    var at = slots(n, d, 900, Math.max(900, d * .2)), cur = -1; at.forEach(function (a, i) { if (lt >= a) cur = i; });
+    ctx.save(); ctx.strokeStyle = C.edge; ctx.lineWidth = 6; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(mix(x0, x1, P(lt, 0, 900, eio)), y); ctx.stroke(); ctx.restore();
+    items.forEach(function (it, i) {
+      var x = n > 1 ? mix(x0 + 60, x1 - 60, i / (n - 1)) : 960, k = P(lt, at[i], at[i] + 600, back), up = i % 2 === 0, act = i === cur;
+      if (k <= 0) return;
+      ctx.save(); ctx.fillStyle = it.highlight || act ? C.accent : accentAt(i); ctx.beginPath(); ctx.arc(x, y, (act ? 18 : 13) * k, 0, Math.PI * 2); ctx.fill();
+      if (it.highlight) { ctx.globalAlpha = .3 + .3 * Math.sin(lt / 260); ctx.beginPath(); ctx.arc(x, y, 30, 0, Math.PI * 2); ctx.fill(); }
+      ctx.restore();
+      var ty = up ? y - 70 : y + 90, a2 = P(lt, at[i] + 150, at[i] + 700);
+      ctx.save(); ctx.strokeStyle = C.edge; ctx.lineWidth = 2; ctx.globalAlpha *= a2; ctx.beginPath(); ctx.moveTo(x, y + (up ? -20 : 20)); ctx.lineTo(x, up ? ty + 16 : ty - 44); ctx.stroke(); ctx.restore();
+      txt(it.date || "", x, up ? ty - 70 : ty, { size: 30, weight: 800, align: "center", color: act ? C.accent : C.ink, alpha: a2, font: F.display });
+      wrap(it.label || "", 300, { size: 26, weight: 700 }).slice(0, 2).forEach(function (ln, j) { txt(ln, x, (up ? ty - 30 : ty + 40) + j * 34, { size: 26, weight: 700, align: "center", alpha: a2 * (act || cur < 0 ? 1 : .75) }); });
+      if (it.sub) txt(it.sub, x, (up ? ty + 36 : ty + 110), { size: 21, align: "center", color: C.muted, alpha: a2 });
+    });
+  };
+  R.chat = function (s, lt, d) {
+    heading(s, lt);
+    var msgs = s.messages || [], at = slots(msgs.length, d, 700, 900), y0 = s.heading ? 280 : 170, bottom = 880, bubbles = [];
+    msgs.forEach(function (m, i) {
+      /* 右: 自分（user・me・side:right）。左: 相手。side を書けばそれに従う */
+      var right = m.side ? m.side === "right" : /^(user|me|自分|ユーザー)$/i.test(m.from || "");
+      var lines = wrap(m.text || "", 900, { size: 30 }), h = lines.length * 42 + 36 + (m.from ? 30 : 0);
+      bubbles.push({ m: m, right: right, lines: lines, h: h, a: at[i] });
+    });
+    var total = 0, shown = [];
+    bubbles.forEach(function (b) { if (lt >= b.a - 700) shown.push(b); });
+    shown.forEach(function (b) { total += b.h + 26; });
+    var y = Math.min(y0, bottom - total);
+    shown.forEach(function (b, i) {
+      var typing = lt < b.a, k = typing ? 1 : P(lt, b.a, b.a + 450, back);
+      var w = typing ? 130 : Math.max.apply(null, b.lines.map(function (l) { return tw(l.replace(/\*\*/g, ""), { size: 30 }); }).concat([tw(b.m.from || "", { size: 20 })])) + 56;
+      var h = typing ? 70 : b.h, x = b.right ? 1780 - w : 140;
+      ctx.save(); ctx.translate(x + (b.right ? w : 0), y); ctx.scale(k, k); ctx.translate(-(b.right ? w : 0), 0);
+      rr(0, 0, w, h, 26); ctx.fillStyle = b.right ? C.accent : C.panel; ctx.fill();
+      if (!b.right) { ctx.strokeStyle = C.edge; ctx.lineWidth = 1.5; ctx.stroke(); }
+      var ink = b.right ? C.onAccent : C.ink;
+      if (typing) { for (var j = 0; j < 3; j++) { ctx.fillStyle = ink; ctx.globalAlpha = .35 + .65 * Math.max(0, Math.sin(lt / 160 - j * .9)); ctx.beginPath(); ctx.arc(40 + j * 26, 35, 8, 0, Math.PI * 2); ctx.fill(); } }
+      else {
+        var ty = 50; if (b.m.from) { txt(b.m.from, 28, 38, { size: 20, weight: 700, color: b.right ? ink : C.accent2 }); ty = 80; }
+        b.lines.forEach(function (ln, j) { rich(ln, 28, ty + j * 42, { size: 30, color: ink, emColor: b.right ? ink : C.accent }, b.right ? 1 : undefined); });
+      }
+      ctx.restore();
+      y += (typing ? 70 : b.h) + 26;
+    });
+  };
+  function niceMax(v) { if (v <= 0) return 1; var e = Math.pow(10, Math.floor(Math.log10(v))); var ms = [1, 2, 2.5, 5, 10]; for (var i = 0; i < ms.length; i++) if (v <= ms[i] * e) return ms[i] * e; return 10 * e; }
+  R.line = function (s, lt, d) {
+    heading(s, lt);
+    var labels = s.labels || [], series = s.series || [], all = []; series.forEach(function (se) { all = all.concat(se.values); });
+    var lo = s.min || 0, hi = niceMax(Math.max.apply(null, all) - lo) + lo, L = 220, Rr = 1700, T0 = s.heading ? 300 : 200, B = 850;
+    var X = function (i) { return L + (Rr - L) * i / Math.max(1, labels.length - 1); }, Y = function (v) { return B - (B - T0) * (v - lo) / (hi - lo || 1); };
+    var gk = P(lt, 0, 700);
+    for (var g = 0; g <= 4; g++) { var gv = lo + (hi - lo) * g / 4, gy = Y(gv);
+      ctx.save(); ctx.globalAlpha *= gk; ctx.strokeStyle = C.edge; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(L, gy); ctx.lineTo(Rr, gy); ctx.stroke(); ctx.restore();
+      txt(fmtNum(String(Math.round(gv)), 1), L - 20, gy + 8, { size: 22, color: C.muted, align: "right", alpha: gk }); }
+    labels.forEach(function (lb, i) { txt(lb, X(i), B + 44, { size: 24, color: C.muted, align: "center", alpha: gk }); });
+    series.forEach(function (se, si) {
+      var a = 700 + si * 500, k = P(lt, a, a + Math.max(1400, d * .35), function (x) { return x; }), col = accentAt(si), n = se.values.length;
+      var upto = k * (n - 1);
+      ctx.save(); ctx.strokeStyle = col; ctx.lineWidth = 6; ctx.lineJoin = "round"; ctx.lineCap = "round"; ctx.beginPath();
+      for (var i = 0; i <= Math.floor(upto); i++) { var px = X(i), py = Y(se.values[i]); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }
+      var fi = Math.floor(upto); if (fi < n - 1) { var f = upto - fi; ctx.lineTo(mix(X(fi), X(fi + 1), f), mix(Y(se.values[fi]), Y(se.values[fi + 1]), f)); }
+      ctx.stroke(); ctx.restore();
+      for (var j = 0; j <= Math.floor(upto); j++) { ctx.save(); ctx.fillStyle = C.bg1; ctx.strokeStyle = col; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(X(j), Y(se.values[j]), 9, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); ctx.restore(); }
+      if (k >= 1) { var lv = se.values[n - 1]; txt(fmtNum(String(lv) + (s.unit || ""), P(lt, a + Math.max(1400, d * .35), a + Math.max(1400, d * .35) + 900)), X(n - 1) + 22, Y(lv) + 10, { size: 34, weight: 800, color: col, font: F.display }); }
+      if (series.length > 1) { txt("● " + (se.name || ""), L + si * 260, T0 - 30, { size: 24, weight: 700, color: col, alpha: gk }); }
+    });
+  };
+  R.donut = function (s, lt, d) {
+    heading(s, lt);
+    var items = s.items || [], total = items.reduce(function (a, it) { return a + (+it.value); }, 0) || 1;
+    var cx = 700, cy = s.heading ? 580 : 540, rad = 250, sw = 90, a = -Math.PI / 2, k = P(lt, 400, 400 + Math.max(1600, d * .35), eio);
+    var sweep = k * Math.PI * 2;
+    items.forEach(function (it, i) {
+      var frac = (+it.value) / total, a1 = a + frac * Math.PI * 2, e = Math.min(a1, -Math.PI / 2 + sweep);
+      if (e > a) { ctx.save(); ctx.strokeStyle = accentAt(i); ctx.lineWidth = sw; ctx.beginPath(); ctx.arc(cx, cy, rad, a + .012, Math.max(a + .012, e - .012)); ctx.stroke(); ctx.restore(); }
+      var lk = P(lt, 800 + i * 300, 1300 + i * 300), ly = cy - (items.length - 1) * 50 + i * 100;
+      ctx.save(); ctx.globalAlpha *= lk; ctx.fillStyle = accentAt(i); rr(1080, ly - 22, 30, 30, 6); ctx.fill(); ctx.restore();
+      txt(it.label || "", 1130, ly + 2, { size: 32, weight: 700, alpha: lk });
+      txt(Math.round(100 * frac) + "%", 1720, ly + 2, { size: 34, weight: 800, color: accentAt(i), align: "right", alpha: lk, font: F.display });
+      a = a1;
+    });
+    var cvv = s.center ? s.center.value : total.toLocaleString("en-US") + (s.unit || ""), cl = s.center ? s.center.label : "合計";
+    txt(fmtNum(cvv, k), cx, cy + 16, { size: 64, weight: 800, align: "center", font: F.display });
+    txt(cl || "", cx, cy + 62, { size: 26, align: "center", color: C.muted });
+  };
+  R.table = function (s, lt, d) {
+    heading(s, lt);
+    var cols = s.columns || [], rows = s.rows || [], n = rows.length, y0 = s.heading ? 290 : 190, rh = Math.min(92, (880 - y0 - 80) / Math.max(1, n));
+    var FS = Math.max(24, Math.min(36, rh * .42));
+    var cw = cols.map(function (c, i) { var m = tw(String(c), { size: FS, weight: 800 }); rows.forEach(function (r) { m = Math.max(m, tw(String(r[i] == null ? "" : r[i]), { size: FS })); }); return m + 80; });
+    var sum = cw.reduce(function (a, b) { return a + b; }, 0), sc = Math.min(1680 / sum, Math.max(1, 1100 / sum)); cw = cw.map(function (w) { return w * sc; });
+    var tot = cw.reduce(function (a, b) { return a + b; }, 0), x0 = 960 - tot / 2;
+    var hl = s.highlight || [], hat = slots(hl.length, d, 900 + n * 200, 800), cur = -1; hat.forEach(function (a, i) { if (lt >= a) cur = hl[i]; });
+    var num = cols.map(function (c, i) { return rows.every(function (r) { return /^[-+]?[¥$€]?[\d,.]+\s*[%％a-zA-Z一-龠ぁ-んァ-ヶ]{0,3}$/.test(String(r[i] || "0")); }); });
+    var hk = P(lt, 0, 500);
+    ctx.save(); ctx.globalAlpha *= hk; rr(x0, y0, tot, FS * 2.3, 12); ctx.fillStyle = C.panel2; ctx.fill(); ctx.restore();
+    var x = x0; cols.forEach(function (c, i) { txt(String(c), num[i] ? x + cw[i] - 36 : x + 36, y0 + FS * 1.5, { size: FS, weight: 800, align: num[i] ? "right" : "left", alpha: hk }); x += cw[i]; });
+    rows.forEach(function (r, j) {
+      var a = 500 + j * Math.min(220, d * .03), k = P(lt, a, a + 450), y = y0 + FS * 2.3 + 8 + j * rh;
+      if (k <= 0) return;
+      ctx.save(); ctx.globalAlpha *= k; ctx.translate(0, (1 - k) * 12);
+      if (cur === j) { rr(x0, y, tot, rh - 6, 10); ctx.fillStyle = C.accent; ctx.globalAlpha *= .18; ctx.fill(); ctx.globalAlpha /= .18; ctx.strokeStyle = C.accent; ctx.lineWidth = 2; ctx.stroke(); }
+      else { ctx.strokeStyle = C.edge; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, y + rh - 3); ctx.lineTo(x0 + tot, y + rh - 3); ctx.stroke(); }
+      var xx = x0; cols.forEach(function (c, i) { txt(String(r[i] == null ? "" : r[i]), num[i] ? xx + cw[i] - 36 : xx + 36, y + rh / 2 + FS * .35, { size: FS, weight: cur === j ? 800 : 400, align: num[i] ? "right" : "left", color: cur === j ? C.ink : (i === 0 ? C.ink : C.muted) }); xx += cw[i]; });
+      ctx.restore();
+    });
+  };
+  R.quote = function (s, lt, d) {
+    var lines = wrap(s.text || "", 1400, { size: 54, weight: 700, font: F.display }), n = lines.length, lh = 80, y0 = 540 - (n - 1) * lh / 2 - 20;
+    txt("“", 240, y0 - 40, { size: 260, weight: 800, color: C.accent, alpha: P(lt, 0, 800) * .8, font: F.display });
+    var at = slots(n, d * .6, 400, 0);
+    lines.forEach(function (ln, i) { var k = P(lt, at[i], at[i] + 700); rich(ln, 360, y0 + i * lh + (1 - k) * 16, { size: 54, weight: 700, font: F.display, alpha: k }, P(lt, at[i] + 400, at[i] + 1100)); });
+    var bk = P(lt, d * .55, d * .55 + 800);
+    ctx.save(); ctx.globalAlpha *= bk; ctx.fillStyle = C.accent; ctx.fillRect(360, y0 + n * lh + 10, 60, 4); ctx.restore();
+    if (s.by) txt(s.by, 440, y0 + n * lh + 26, { size: 32, weight: 800, alpha: bk });
+    if (s.role) txt(s.role, 440, y0 + n * lh + 70, { size: 24, color: C.muted, alpha: bk });
+  };
+  R.kinetic = function (s, lt, d) {
+    var text = s.text || "", toks = [], re = /\*\*([^*]+)\*\*|([^\s*]+)/g, m;
+    while ((m = re.exec(text))) toks.push({ w: m[1] || m[2], em: !!m[1] });
+    if (toks.length === 1 && /[^\x00-\x7f]/.test(toks[0].w)) { toks = toks[0].w.split(/(?<=[、。，．！？])/).map(function (w) { return { w: w, em: false }; }); }
+    var size = s.size || 92, lines = [[]], lw = 0, gap = size * .32, maxW = 1600;
+    toks.forEach(function (t0) { var w = tw(t0.w, { size: t0.em ? size * 1.12 : size, weight: 800, font: F.display }); if (lw + w > maxW && lines[lines.length - 1].length) { lines.push([]); lw = 0; } t0.width = w; lines[lines.length - 1].push(t0); lw += w + gap; });
+    var total = toks.length, per = Math.min(420, (d * .6) / Math.max(1, total)), idx = 0, lh = size * 1.35, y0 = 540 - (lines.length - 1) * lh / 2 + size * .35;
+    lines.forEach(function (ln, li) {
+      var wsum = ln.reduce(function (a, t0) { return a + t0.width; }, 0) + gap * (ln.length - 1), x = 960 - wsum / 2;
+      ln.forEach(function (t0) {
+        var a = 300 + idx * per, k = P(lt, a, a + 520, back), sz = t0.em ? size * 1.12 : size;
+        if (k > 0) { ctx.save(); ctx.translate(x + t0.width / 2, y0 + li * lh); ctx.scale(k, k);
+          txt(t0.w, 0, (1 - Math.min(1, k)) * 30, { size: sz, weight: 800, align: "center", font: F.display, color: t0.em ? C.accent : C.ink });
+          if (t0.em) { ctx.fillStyle = C.accent; ctx.fillRect(-t0.width / 2, sz * .2, t0.width * P(lt, a + 300, a + 800), Math.max(4, sz * .07)); }
+          ctx.restore(); }
+        x += t0.width + gap; idx++;
+      });
+    });
+  };
+  R.split = function (s, lt, d) {
+    heading(s, lt);
+    var y0 = s.heading ? 300 : 200, k = P(lt, 0, 700), L = s.left || {};
+    ctx.save(); ctx.globalAlpha *= k; ctx.translate((1 - k) * -40, 0);
+    var y = y0;
+    if (L.title) { wrap(L.title, 720, { size: 48, weight: 800, font: F.display }).forEach(function (ln) { txt(ln, 120, y + 40, { size: 48, weight: 800, font: F.display }); y += 64; }); y += 20; }
+    if (L.text) { wrap(L.text, 720, { size: 30 }).forEach(function (ln) { rich(ln, 120, y + 30, { size: 30, color: C.muted }); y += 44; }); y += 16; }
+    var pts = L.points || [], at = slots(pts.length, d, 700, d * .3);
+    pts.forEach(function (p, i) { var pk = P(lt, at[i], at[i] + 500); if (pk <= 0) return;
+      ctx.save(); ctx.globalAlpha *= pk; ctx.fillStyle = accentAt(i); ctx.beginPath(); ctx.arc(136, y + 22, 8, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+      wrap(p, 680, { size: 30 }).forEach(function (ln, j) { rich(ln, 164, y + 32 + j * 42, { size: 30, alpha: pk }); }); y += wrap(p, 680, { size: 30 }).length * 42 + 18; });
+    ctx.restore();
+    if (s.right && R[s.right.type] && s.right.type !== "split") {
+      var sub2 = s._rightSpec || (s._rightSpec = Object.assign({}, s.right, { heading: "" }));
+      ctx.save(); ctx.globalAlpha *= P(lt, 300, 1000); ctx.translate(820, y0 - 120); ctx.scale(.58, .58);
+      R[sub2.type](sub2, Math.max(0, lt - 300), d - 300); drawOverlays(sub2, Math.max(0, lt - 300), d - 300); ctx.restore();
+    }
+  };
+  R.beforeafter = function (s, lt, d) {
+    heading(s, lt);
+    var y0 = s.heading ? 280 : 180, x0 = 140, w = 1640, h = 900 - y0, bf = s.before || {}, af = s.after || {};
+    var u = P(lt, d * .35, d * .35 + Math.max(1400, d * .25), eio), sx = x0 + w * u;
+    function side(o, tone, ax) {
+      var col = tone === "good" ? C.ok : tone === "bad" ? C.warn : C.accent2;
+      panel(x0, y0, w, h, { stroke: col, lw: 2.5, shadow: false });
+      txt(o.label || (tone === "good" ? "After" : "Before"), ax, y0 + 64, { size: 30, weight: 800, color: col, align: ax > 960 ? "right" : "left" });
+      if (o.title) txt(o.title, 960, y0 + 170, { size: 56, weight: 800, align: "center", font: F.display });
+      (o.points || []).forEach(function (p, i) { rich(p, 960, y0 + 260 + i * 62, { size: 34, align: "center", color: C.muted }); });
+      if (o.value) txt(o.value, 960, y0 + h - 70, { size: 90, weight: 800, align: "center", color: col, font: F.display });
+    }
+    ctx.save(); ctx.globalAlpha *= P(lt, 0, 600); side(bf, bf.tone || "bad", x0 + 40); ctx.restore();
+    if (u > 0) { ctx.save(); ctx.beginPath(); ctx.rect(x0, y0 - 4, sx - x0, h + 8); ctx.clip(); rr(x0, y0, w, h, 16); ctx.fillStyle = C.bg1; ctx.fill(); side(af, af.tone || "good", x0 + w - 40); ctx.restore();
+      if (u < 1) { ctx.fillStyle = C.accent; ctx.fillRect(sx - 3, y0 - 20, 6, h + 40); ctx.beginPath(); ctx.arc(sx, y0 + h / 2, 22, 0, Math.PI * 2); ctx.fill();
+        txt("⇆", sx, y0 + h / 2 + 10, { size: 26, weight: 800, align: "center", color: C.onAccent }); } }
+  };
+
   var CUSTOM = new WeakMap();
   R.custom = function (s, lt, d, T) {
     var fn = CUSTOM.get(s);
@@ -684,15 +878,19 @@
     txt(CHAPTERS[i].name, 64 + tw("00 / 00", { size: 22, font: F.mono }) + 34, 72, { size: 26, weight: 700, alpha: a });
     if (SPEC.brand && SPEC.brand.name) txt(SPEC.brand.name, W - 64, 72, { size: 22, weight: 700, color: C.muted, align: "right", alpha: .8 });
   }
-  var FADE = 450;
-  function drawScene(k, t) {
-    var sc = SCENES[k], lt = t - sc.t0, d = sc.d, tr = sc.s.transition || SPEC.transition || "fade";
-    var first = k === 0, last = k === SCENES.length - 1;
-    var inK = first ? 1 : P(lt, 0, FADE), outK = last ? 1 : 1 - P(lt, d - FADE, d, eio);
-    if (tr === "cut") { inK = 1; outK = 1; }
+  var FADE = 450, SWEEP = 700;
+  function trOf(k) { return SCENES[k].s.transition || SPEC.transition || "fade"; }
+  function drawScene(k, t, o) {
+    o = o || {};
+    var sc = SCENES[k], lt = o.lt !== undefined ? o.lt : t - sc.t0, d = sc.d, tr = trOf(k);
+    var last = k === SCENES.length - 1, nextTr = last ? "" : trOf(k + 1), sweepIn = tr === "wipe" || tr === "push", sweepOut = nextTr === "wipe" || nextTr === "push";
+    var inK = k === 0 || sweepIn || tr === "cut" ? 1 : P(lt, 0, FADE), outK = last || sweepOut || nextTr === "cut" ? 1 : 1 - P(lt, d - FADE, d, eio);
     ctx.save(); ctx.globalAlpha = Math.min(inK, outK);
-    if (tr === "slide") ctx.translate((1 - inK) * 80 - (1 - outK) * 80, 0);
-    if (tr === "zoom") { var z = mix(.96, 1, inK) * mix(1.04, 1, outK); ctx.translate(960, 540); ctx.scale(z, z); ctx.translate(-960, -540); }
+    if (o.clipX !== undefined) { ctx.beginPath(); ctx.rect(0, 0, o.clipX, H); ctx.clip(); backdrop(t); }
+    if (o.dx) ctx.translate(o.dx, 0);
+    if (tr === "slide") ctx.translate((1 - inK) * 80, 0);
+    if (nextTr === "slide") ctx.translate(-(1 - outK) * 80, 0);
+    if (tr === "zoom" || nextTr === "zoom") { var z = mix(.96, 1, inK) * mix(1.04, 1, outK); ctx.translate(960, 540); ctx.scale(z, z); ctx.translate(-960, -540); }
     var cam = camAt(sc.s.camera, clamp(lt / d));
     if (cam) { ctx.save(); applyCam(cam); }
     (R[sc.s.type] || R.statement)(sc.s, Math.max(0, lt), d, t);
@@ -700,17 +898,58 @@
     if (cam) ctx.restore();
     ctx.restore();
   }
+  function burnCaption(t) {
+    var c = CUES.filter(function (c) { return t >= c.a && t < c.b; })[0]; if (!c) return;
+    var lines = wrap(c.text.replace(/\*\*/g, ""), 1500, { size: 40, weight: 700 }), y0 = H - 70 - (lines.length - 1) * 58;
+    lines.forEach(function (ln, i) { var w = tw(ln, { size: 40, weight: 700 }) + 44;
+      ctx.save(); ctx.fillStyle = "rgba(4,8,12,.8)"; rr(960 - w / 2, y0 + i * 58 - 46, w, 58, 8); ctx.fill(); ctx.restore();
+      txt(ln, 960, y0 + i * 58 - 4, { size: 40, weight: 700, align: "center", color: "#f5f8f9" }); });
+  }
+  var thumbMode = false;
   function draw(t) {
     scaleCtx(); backdrop(t);
-    var k = sceneAt(t);
-    if (k > 0 && t - SCENES[k].t0 < FADE && (SCENES[k].s.transition || SPEC.transition || "fade") !== "cut") drawScene(k - 1, t);
-    drawScene(k, t);
+    var k = sceneAt(t), tr = trOf(k), lt = t - SCENES[k].t0;
+    if (k > 0 && (tr === "wipe" || tr === "push") && lt < SWEEP) {
+      var u = eio(lin(lt, 0, SWEEP)), prevD = SCENES[k - 1].d;
+      if (tr === "push") { drawScene(k - 1, t, { lt: prevD - 1, dx: -W * u }); drawScene(k, t, { dx: W * (1 - u) }); }
+      else { drawScene(k - 1, t, { lt: prevD - 1 }); drawScene(k, t, { clipX: W * u }); ctx.fillStyle = C.accent; ctx.fillRect(W * u - 3, 0, 6, H); }
+    } else {
+      if (k > 0 && lt < FADE && tr !== "cut") drawScene(k - 1, t);
+      drawScene(k, t);
+    }
     chrome(t);
+    if (recording && captions) burnCaption(t);
+    if (!thumbMode) syncDom(t);
   }
+
+  /* ================= HTML・SVG で描く場面（dom） ================= */
+  var domLayer = $("mv-dom"), domEls = {}, domScale = 1;
+  R.dom = function (s, lt) { heading(s, lt); };
+  function syncDom(t) {
+    if (!domLayer) return;
+    var k = sceneAt(t);
+    SCENES.forEach(function (sc, i) {
+      if (sc.s.type !== "dom") return;
+      var el = domEls[i], lt = t - sc.t0, active = i === k || (i === k - 1 && t - SCENES[k].t0 < FADE);
+      if (!active) { if (el) el.style.display = "none"; return; }
+      if (!el) {
+        el = document.createElement("div"); el.className = "mv-domscene";
+        el.innerHTML = (sc.s.css ? "<style>" + sc.s.css + "</style>" : "") + (sc.s.html || "");
+        domLayer.appendChild(el); domEls[i] = el;
+        try { el.__up = sc.s.update ? new Function("el", "lt", "d", "H", "s", sc.s.update) : null; } catch (e) { console.error("dom scene:", e); }
+      }
+      var d = sc.d, inK = i === 0 ? 1 : P(lt, 0, FADE), outK = i === SCENES.length - 1 ? 1 : 1 - P(lt, d - FADE, d, eio);
+      el.style.display = "block"; el.style.transform = "scale(" + domScale + ")"; el.style.opacity = String(Math.min(inK, outK));
+      var cl = Math.max(0, Math.min(lt, d));
+      el.style.setProperty("--lt", String(cl)); el.style.setProperty("--p", String(clamp(cl / d)));
+      if (el.__up) { try { el.__up(el, cl, d, HELP, sc.s); } catch (e) { if (!sc.s._err) { sc.s._err = 1; console.error("dom scene:", e); } } }
+    });
+  }
+
 
   /* ================= 音声（読み上げ・音楽・効果音） ================= */
   var AUD = SPEC.audio || {};
-  var ac = null, master = null, pad = null;
+  var ac = null, master = null, pad = null, recording = null;
   function ensureAudio() { if (ac) return; try { ac = new (window.AudioContext || window.webkitAudioContext)(); master = ac.createGain(); master.gain.value = audioOn ? 1 : 0; master.connect(ac.destination); } catch (e) { ac = null; } }
   var MUSIC = { calm: [73.42, 110, 146.83, 164.81, 220], bright: [98, 146.83, 196, 246.94, 293.66], deep: [55, 82.41, 110, 130.81, 164.81] };
   function startPad() {
@@ -762,15 +1001,17 @@
   /* ================= プレイヤー ================= */
   var store = { get: function (k, d) { try { var v = localStorage.getItem("mv:" + k); return v === null ? d : v; } catch (e) { return d; } },
                 set: function (k, v) { try { localStorage.setItem("mv:" + k, v); } catch (e) {} } };
-  var root = $("mv-player"), KIOSK = root.getAttribute("data-player") === "kiosk";
+  var KIOSK = root.getAttribute("data-player") === "kiosk";
   var t = 0, playing = false, started = false, needsDraw = true, lastNow = 0, dragging = false;
+  var SLIDES = root.getAttribute("data-player") === "slides", lastSave = 0;
+  var POSKEY = "pos:" + location.pathname + ":" + (SPEC.title || "");
   var speed = parseFloat(store.get("speed", "1")) || 1;
   var captions = store.get("cc", "1") === "1";
   var audioOn = KIOSK ? false : store.get("audio", AUD.default === "off" ? "0" : "1") === "1";
   var SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
   var fmt = function (ms) { var s = Math.floor(ms / 1000); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
 
-  function resize() { var r = cv.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio || 1, 2);
+  function resize() { if (recording) return; var r = cv.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio || 1, 2); domScale = r.width / W;
     var w = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(r.height * dpr));
     if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; } needsDraw = true; }
 
@@ -779,12 +1020,14 @@
     ensureAudio(); if (ac && ac.state === "suspended") ac.resume().catch(function () {});
     if (audioOn) startPad();
     playing = true; started = true; lastNow = performance.now();
+    try { document.dispatchEvent(new CustomEvent("mv-exclusive", { detail: root })); } catch (e) {}
+    var rb0 = $("mv-resume"); if (rb0) rb0.hidden = true;
     var c = CUES.filter(function (c) { return t >= c.a && t < c.b; })[0];
     if (c && audioOn && (t - c.a) < (c.b - c.a) * .35) say(c.text, c);
     pickVoice(); syncUI(); poke();
   }
-  function pause() { playing = false; hush(); stopPad(); syncUI(); poke(); }
-  function stop() { playing = false; hush(); stopPad(); t = 0; started = false; needsDraw = true; syncUI(); poke(); }
+  function pause() { playing = false; hush(); stopPad(); cancelRec(); syncUI(); poke(); }
+  function stop() { playing = false; hush(); stopPad(); cancelRec(); t = 0; started = false; needsDraw = true; syncUI(); poke(); }
   function toggle() { playing ? pause() : play(); }
   function seek(ms) { t = clamp(ms, 0, DUR); hush(); needsDraw = true; started = true; if (t >= DUR) { playing = false; stopPad(); } syncUI(); }
   function chapterStep(dir) { var i = chapterAt(t), n = i + dir; if (dir < 0 && t - CHAPTERS[i].t > 2000) n = i;
@@ -801,8 +1044,16 @@
   CHAPTERS.forEach(function (c, i) { var seg = document.createElement("div"); seg.className = "mv-seg"; seg.style.flex = String(chLen(i)); seg.appendChild(document.createElement("i")); track.appendChild(seg); });
   var segs = [].slice.call(track.children);
   function posToMs(x) { var r = seekEl.getBoundingClientRect(); return clamp((x - r.left) / r.width) * DUR; }
+  /* シークバーのプレビュー: 描画は時刻だけで決まるので、その時刻の 1 コマを小さな Canvas に描く */
+  var thumbRaf = 0, thumbAt = 0;
+  function renderThumb(ms) {
+    var tc = $("mv-thumb"); if (!tc || !tc.getClientRects().length) return;
+    var cv0 = cv, ctx0 = ctx; cv = tc; ctx = tc.getContext("2d"); thumbMode = true;
+    try { draw(ms); } catch (e) {} finally { thumbMode = false; cv = cv0; ctx = ctx0; }
+  }
   function showTip(x) { var r = seekEl.getBoundingClientRect(), ms = posToMs(x), tip = $("mv-tip"); tip.hidden = false;
-    tip.innerHTML = "<b>" + fmt(ms) + "</b>" + esc(CHAPTERS[chapterAt(ms)].name);
+    $("mv-tiplabel").innerHTML = "<b>" + fmt(ms) + "</b>" + esc(CHAPTERS[chapterAt(ms)].name);
+    thumbAt = ms; if (!thumbRaf) thumbRaf = requestAnimationFrame(function () { thumbRaf = 0; renderThumb(thumbAt); });
     var half = tip.offsetWidth / 2; tip.style.left = clamp(x - r.left, half, r.width - half) + "px"; }
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
   seekEl.addEventListener("pointerdown", function (e) { dragging = true; seekEl.classList.add("drag"); seekEl.setPointerCapture(e.pointerId); seek(posToMs(e.clientX)); showTip(e.clientX); });
@@ -863,7 +1114,7 @@
   on("mv-fs", "click", function () { try { if (document.fullscreenElement) document.exitFullscreen().catch(function () {}); else if (root.requestFullscreen) root.requestFullscreen().catch(function () {}); } catch (e) {} });
   document.addEventListener("fullscreenchange", function () { setTimeout(resize, 50); });
   root.addEventListener("keydown", function (e) {
-    if (e.target.tagName === "SELECT" || e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT" || e.altKey || e.ctrlKey || e.metaKey) return;
     var k = e.key, done = true;
     if (k === " " || k === "k" || k === "K") { if (e.target.tagName === "BUTTON" && k === " ") done = false; else toggle(); }
     else if (k === "s" || k === "S") stop();
@@ -871,6 +1122,9 @@
     else if (k === "[") chapterStep(-1); else if (k === "]") chapterStep(1);
     else if (k === "c" || k === "C") setCaptions(!captions); else if (k === "m" || k === "M") setAudio(!audioOn);
     else if (k === "f" || k === "F") $("mv-fs").click();
+    else if (/^[0-9]$/.test(k)) seek(DUR * (+k) / 10);
+    else if (k === "j" || k === "J") seek(t - 10000);
+    else if (k === "l" || k === "L") seek(t + 10000);
     else if (k === "<" || k === ",") setSpeed(SPEEDS[Math.max(0, SPEEDS.indexOf(speed) - 1)] || 1);
     else if (k === ">" || k === ".") setSpeed(SPEEDS[Math.min(SPEEDS.length - 1, SPEEDS.indexOf(speed) + 1)] || 1);
     else done = false;
@@ -894,13 +1148,24 @@
   function syncUI() {
     var pb = $("mv-play"); pb.setAttribute("aria-label", playing ? "一時停止" : "再生");
     pb.querySelector(".i-play").hidden = playing; pb.querySelector(".i-pause").hidden = !playing;
-    var big = $("mv-big"); if (big) { big.hidden = playing || (started && t > 0 && t < DUR); big.setAttribute("aria-label", t >= DUR ? "もう一度再生" : "再生"); }
+    var big = $("mv-big");
+    if (big && SLIDES) {
+      var ci0 = chapterAt(t), atStart = t > 0 && t < DUR && Math.abs(t - CHAPTERS[ci0].t) < 50;
+      var lab = !started || t === 0 ? "再生" : t >= DUR ? "もう一度" : atStart ? "次へ：" + CHAPTERS[ci0].name : "続きを再生";
+      big.hidden = playing; big.setAttribute("aria-label", lab); var bl = big.querySelector(".mv-biglabel"); if (bl) bl.textContent = lab;
+    } else if (big) { big.hidden = playing || (started && t > 0 && t < DUR); big.setAttribute("aria-label", t >= DUR ? "もう一度再生" : "再生"); }
     root.classList.toggle("mv-playing", playing);
     $("mv-time").innerHTML = "<b>" + fmt(t) + "</b> / " + fmt(DUR);
     var ci = chapterAt(t);
     if (ci !== lastChap) { lastChap = ci; var cn = $("mv-chapname"); if (cn) cn.textContent = CHAPTERS[ci].name;
-      [].forEach.call(document.querySelectorAll("#mv-chapmenu button, #mv-chaplist button"), function (b) { b.setAttribute("aria-current", String(+b.dataset.i === ci)); });
+      [].forEach.call(root.querySelectorAll('[data-mv="chapmenu"] button, [data-mv="chaplist"] button'), function (b) { b.setAttribute("aria-current", String(+b.dataset.i === ci)); });
       var cur = list && list.querySelector('[aria-current="true"]'); if (cur && root.getAttribute("data-player") === "presenter" && cur.scrollIntoView) cur.scrollIntoView({ block: "nearest" }); }
+    if (tlist) {
+      var cc = -1; CUES.forEach(function (c, i) { if (t >= c.a) cc = i; });
+      if (cc !== lastCue) { lastCue = cc; [].forEach.call(tlist.querySelectorAll("button"), function (b) { b.setAttribute("aria-current", String(+b.dataset.i === cc)); });
+        var cb = tlist.querySelector('[aria-current="true"]'), box = tlist.parentNode;
+        if (cb && box && box.scrollHeight > box.clientHeight) { var r1 = cb.getBoundingClientRect(), r2 = box.getBoundingClientRect(); if (r1.top < r2.top || r1.bottom > r2.bottom) box.scrollTop += r1.top - r2.top - 60; } }
+    }
     segs.forEach(function (s, i) { s.firstChild.style.width = (clamp((t - CHAPTERS[i].t) / chLen(i)) * 100) + "%"; });
     $("mv-knob").style.left = (t / DUR * 100) + "%";
     seekEl.setAttribute("aria-valuemax", String(Math.round(DUR / 1000)));
@@ -916,14 +1181,90 @@
         if (performance.now() - speaking.started > speaking.maxMs) { speaking = null; root.classList.remove("mv-waiting"); }
         else if (nt > speaking.cue.b - 60) { nt = Math.max(t, speaking.cue.b - 60); root.classList.add("mv-waiting"); }
       }
+      /* slides: 章の終わりで止まる（「次へ」で続きを再生） */
+      var slideStop = false;
+      if (SLIDES && !recording && nt < DUR && chapterAt(nt) > chapterAt(t)) { nt = CHAPTERS[chapterAt(nt)].t; slideStop = true; }
       var prev = t; t = nt; onAdvance(prev, t);
-      if (t >= DUR) { if (KIOSK) { t = 0; hush(); } else { playing = false; stopPad(); } }
+      if (now - lastSave > 2000) { lastSave = now; store.set(POSKEY, String(t >= DUR - 3000 ? 0 : Math.round(t))); }
+      if (slideStop) { playing = false; hush(); stopPad(); }
+      if (t >= DUR) { if (KIOSK && !recording) { t = 0; hush(); } else { playing = false; stopPad(); if (recording) finishRec(); } }
       syncUI(); needsDraw = true;
     }
     lastNow = now;
     if (needsDraw) { draw(started || t > 0 ? t : (SPEC.poster !== undefined ? SPEC.poster : Math.min(4300, DUR))); needsDraw = playing; }
     requestAnimationFrame(frame);
   }
+
+  /* 文字起こし（theater で横に出す。クリックでその位置へ・検索） */
+  var tlist = $("mv-tlist"), tsearch = $("mv-tsearch"), lastCue = -2;
+  if (tlist) {
+    CUES.forEach(function (c, i) {
+      var li = document.createElement("li"), b = document.createElement("button"); b.type = "button"; b.dataset.i = i;
+      b.innerHTML = '<span class="t">' + fmt(c.a) + "</span><span>" + esc(c.text.replace(/\*\*/g, "")) + "</span>";
+      b.addEventListener("click", function () { seek(c.a); if (!playing) play(); }); li.appendChild(b); tlist.appendChild(li);
+    });
+    if (tsearch) tsearch.addEventListener("input", function () { var q = tsearch.value.trim().toLowerCase();
+      [].forEach.call(tlist.children, function (li) { li.hidden = !!q && li.textContent.toLowerCase().indexOf(q) < 0; }); });
+  }
+  /* 続きから再生（このブラウザに位置を覚える） */
+  var rb = $("mv-resume"), savedPos = parseFloat(store.get(POSKEY, "0")) || 0;
+  if (rb && !KIOSK && savedPos > 5000 && savedPos < DUR - 5000) {
+    rb.hidden = false; rb.textContent = "▶ 前回の続き（" + fmt(savedPos) + "）から再生";
+    rb.addEventListener("click", function (e) { e.stopPropagation(); rb.hidden = true; seek(savedPos); play(); focusPlayer(); });
+  }
+  /* 設定（字幕の大きさ・小窓・保存） */
+  var setBtn = $("mv-setbtn"), setPanel = $("mv-setpanel");
+  function closeSet(refocus) { if (!setPanel || setPanel.hidden) return; setPanel.hidden = true; setBtn.setAttribute("aria-expanded", "false"); if (refocus) setBtn.focus(); }
+  function setCap(v) { root.setAttribute("data-cap", v); store.set("cap", v);
+    [].forEach.call(root.querySelectorAll("button[data-cap]"), function (b) { b.setAttribute("aria-pressed", String(b.getAttribute("data-cap") === v)); }); }
+  if (setBtn && setPanel) {
+    setBtn.addEventListener("click", function () { var o = setPanel.hidden; setPanel.hidden = !o; setBtn.setAttribute("aria-expanded", String(o)); if (o) { var f = setPanel.querySelector("button"); if (f) f.focus(); } });
+    setPanel.addEventListener("keydown", function (e) { if (e.key === "Escape") { closeSet(true); e.preventDefault(); } e.stopPropagation(); });
+    [].forEach.call(setPanel.querySelectorAll("button[data-cap]"), function (b) { b.addEventListener("click", function () { setCap(b.getAttribute("data-cap")); }); });
+    document.addEventListener("pointerdown", function (e) { if (!setPanel.hidden && !e.target.closest('[data-mv="setpanel"]') && !e.target.closest('[data-mv="setbtn"]')) closeSet(false); });
+  }
+  setCap(store.get("cap", "m"));
+  var pipBtn = $("mv-pip"), pipVideo = null;
+  if (pipBtn) {
+    if (!(document.pictureInPictureEnabled && cv.captureStream)) pipBtn.hidden = true;
+    pipBtn.addEventListener("click", function () {
+      closeSet(false);
+      try {
+        if (document.pictureInPictureElement) { document.exitPictureInPicture(); return; }
+        pipVideo = pipVideo || document.createElement("video"); pipVideo.muted = true; pipVideo.srcObject = cv.captureStream(30);
+        pipVideo.play().then(function () { return pipVideo.requestPictureInPicture(); }).catch(function (e) { console.warn("pip:", e); });
+        if (!playing) play();
+      } catch (e) { console.warn("pip:", e); }
+    });
+  }
+  /* 動画ファイル（WebM）で保存: 最初から 1 倍速で再生しながら Canvas を録画する（字幕は焼き込み。読み上げの声は録れない） */
+  var recBtn = $("mv-rec"), recBadge = $("mv-recbadge");
+  if (recBtn && !(window.MediaRecorder && cv.captureStream)) recBtn.hidden = true;
+  function startRec() {
+    closeSet(false);
+    try {
+      cv.width = 1280; cv.height = 720;
+      var stream = cv.captureStream(30);
+      ensureAudio();
+      if (ac && master && ac.createMediaStreamDestination) { var dest = ac.createMediaStreamDestination(); master.connect(dest); dest.stream.getAudioTracks().forEach(function (tr) { stream.addTrack(tr); }); }
+      var mime = window.MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported("video/webm;codecs=vp9") ? "video/webm;codecs=vp9" : "video/webm";
+      var mr = new MediaRecorder(stream, { mimeType: mime }), chunks = [];
+      mr.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
+      var rec = { mr: mr, cancel: false, speed: speed };
+      mr.onstop = function () {
+        if (recBadge) recBadge.hidden = true;
+        if (!rec.cancel) { var blob = new Blob(chunks, { type: "video/webm" }), a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+          a.download = (SPEC.title || "video").replace(/[\\/:*?"<>|]/g, "_") + ".webm"; document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(function () { URL.revokeObjectURL(a.href); }, 60000); }
+      };
+      setSpeed(1); t = 0; started = true; hush();
+      recording = rec; if (recBadge) recBadge.hidden = false;
+      mr.start(1000); play(); focusPlayer();
+    } catch (e) { console.warn("rec:", e); recording = null; resize(); }
+  }
+  function finishRec() { var r = recording; if (!r) return; recording = null; try { r.mr.stop(); } catch (e) {} setSpeed(r.speed); resize(); }
+  function cancelRec() { if (!recording) return; recording.cancel = true; finishRec(); }
+  if (recBtn) recBtn.addEventListener("click", function () { if (recording) cancelRec(); else startRec(); });
 
   /* 起動 */
   var sel = $("mv-speed"); if (sel) sel.value = String(speed);
@@ -933,5 +1274,21 @@
   new ResizeObserver(resize).observe(cv); resize(); syncUI(); requestAnimationFrame(frame);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { needsDraw = true; });
   if (KIOSK && !(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches)) { started = true; playing = true; lastNow = performance.now(); syncUI(); }
-  window.__MV__ = { seek: seek, play: play, pause: pause, get t() { return t; }, get speaking() { return !!speaking; }, DUR: DUR, CHAPTERS: CHAPTERS, CUES: CUES };
+  /* 同じページのほかのプレイヤーを再生したら、こちらは止める（読み上げの声は 1 つしか無いため） */
+  document.addEventListener("mv-exclusive", function (e) { if (e.detail !== root && playing) pause(); });
+  var api = { seek: seek, play: play, pause: pause, get t() { return t; }, get speaking() { return !!speaking; }, DUR: DUR, CHAPTERS: CHAPTERS, CUES: CUES };
+  root.__mv = api; window.__MV__ = api;
+  return api;
+};
+/* ページの中のプレイヤーを起動する（台本と配色はプレイヤーの中の JSON から読む。同じ HTML を 2 度読み込んでも 1 度だけ） */
+(function () {
+  function boot() {
+    [].forEach.call(document.querySelectorAll(".mv-player:not([data-mv-ready])"), function (el) {
+      var sp = el.querySelector("script[data-mv-spec]"), th = el.querySelector("script[data-mv-theme]");
+      if (!sp || !th) return;
+      el.setAttribute("data-mv-ready", "");
+      try { window.MotionVideo(el, JSON.parse(sp.textContent), JSON.parse(th.textContent)); } catch (e) { console.error("motion-video:", e); }
+    });
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot); else boot();
 })();

@@ -1,0 +1,298 @@
+{
+  "title": "motion-video 部品の見本",
+  "description": "追加した部品・切り替え・HTML/SVG の場面の見本。",
+  "lang": "ja",
+  "player": "theater",
+  "theme": "midnight",
+  "expression": "mixed",
+  "brand": {
+    "name": "motion-video"
+  },
+  "audio": {
+    "narration": true,
+    "music": "deep",
+    "sfx": true
+  },
+  "chapters": [
+    {
+      "title": "カードと年表",
+      "scenes": [
+        {
+          "type": "cards",
+          "heading": "主な機能",
+          "items": [
+            {
+              "title": "MCP",
+              "text": "AI から **5250** を操作",
+              "icon": "🤖"
+            },
+            {
+              "title": "Web",
+              "text": "ブラウザで ACS に近い操作感",
+              "icon": "🖥"
+            },
+            {
+              "title": "SQL",
+              "text": "実行計画のグラフまで",
+              "icon": "🗄"
+            },
+            {
+              "title": "帳票",
+              "text": "日本語の帳票を PDF に",
+              "icon": "🧾"
+            }
+          ],
+          "narration": "カードの部品は、機能を並べて見せるのに向いています。"
+        },
+        {
+          "type": "timeline",
+          "transition": "wipe",
+          "heading": "歩み",
+          "items": [
+            {
+              "date": "2024",
+              "label": "最初の公開"
+            },
+            {
+              "date": "2025",
+              "label": "日本語の帳票"
+            },
+            {
+              "date": "2026",
+              "label": "MCP サーバー",
+              "highlight": true
+            },
+            {
+              "date": "次",
+              "label": "クラウド"
+            }
+          ],
+          "narration": "年表は、線が伸びながら出来事が順に現れます。"
+        }
+      ]
+    },
+    {
+      "title": "会話と数字",
+      "scenes": [
+        {
+          "type": "chat",
+          "transition": "push",
+          "heading": "AI との会話",
+          "messages": [
+            {
+              "from": "user",
+              "text": "今日の受注は何件？"
+            },
+            {
+              "from": "AI",
+              "text": "**128 件**です。前日より 12 件多いです。"
+            },
+            {
+              "from": "user",
+              "text": "一覧を CSV で"
+            },
+            {
+              "from": "AI",
+              "text": "受注一覧.csv を作りました。"
+            }
+          ],
+          "narration": [
+            "チャットの部品は、入力中の点のあとに吹き出しが現れます。",
+            "AI とのやりとりを見せるのに向いています。"
+          ]
+        },
+        {
+          "type": "line",
+          "heading": "月ごとの件数",
+          "unit": "件",
+          "labels": [
+            "4月",
+            "5月",
+            "6月",
+            "7月",
+            "8月"
+          ],
+          "series": [
+            {
+              "name": "受注",
+              "values": [
+                120,
+                340,
+                610,
+                580,
+                920
+              ]
+            },
+            {
+              "name": "出荷",
+              "values": [
+                100,
+                300,
+                560,
+                600,
+                870
+              ]
+            }
+          ],
+          "narration": "折れ線は、線が伸びて最後の値が数え上がります。"
+        },
+        {
+          "type": "donut",
+          "heading": "内訳",
+          "unit": "件",
+          "items": [
+            {
+              "label": "完了",
+              "value": 820
+            },
+            {
+              "label": "見送り",
+              "value": 300
+            },
+            {
+              "label": "失敗",
+              "value": 120
+            }
+          ],
+          "narration": "ドーナツは、時計回りに埋まって割合を示します。"
+        }
+      ]
+    },
+    {
+      "title": "表と声",
+      "scenes": [
+        {
+          "type": "table",
+          "heading": "比較",
+          "columns": [
+            "項目",
+            "ts5250",
+            "従来"
+          ],
+          "rows": [
+            [
+              "起動",
+              "2 秒",
+              "15 秒"
+            ],
+            [
+              "依存",
+              "なし",
+              "Java"
+            ],
+            [
+              "AI 連携",
+              "MCP",
+              "なし"
+            ],
+            [
+              "費用",
+              "0 円",
+              "有償"
+            ]
+          ],
+          "highlight": [
+            0,
+            2
+          ],
+          "narration": [
+            "表の部品は、行が順に現れ、大事な行を順に強調します。"
+          ]
+        },
+        {
+          "type": "quote",
+          "text": "画面を**覚えさせる**だけで、夜間の確認が自動になった。",
+          "by": "山田さん",
+          "role": "情報システム部",
+          "narration": "引用の部品は、利用者の声を見せるのに向いています。"
+        }
+      ]
+    },
+    {
+      "title": "言葉と対比",
+      "scenes": [
+        {
+          "type": "kinetic",
+          "text": "AI も 人も **同じ画面** を 見る",
+          "narration": "キネティック文字は、語が一つずつ組み上がります。"
+        },
+        {
+          "type": "split",
+          "heading": "左右に分けて",
+          "left": {
+            "title": "数字は右に",
+            "text": "左に説明、右に部品を置けます。",
+            "points": [
+              "右は縮小した部品",
+              "左は要点"
+            ]
+          },
+          "right": {
+            "type": "stats",
+            "items": [
+              {
+                "value": "48",
+                "label": "ツール"
+              },
+              {
+                "value": "0",
+                "label": "依存"
+              }
+            ]
+          },
+          "narration": "左右の分割は、説明と数字を同時に見せます。"
+        },
+        {
+          "type": "beforeafter",
+          "transition": "wipe",
+          "heading": "導入の前と後",
+          "before": {
+            "label": "Before",
+            "title": "手作業",
+            "points": [
+              "毎朝 30 分の確認"
+            ],
+            "value": "30 分"
+          },
+          "after": {
+            "label": "After",
+            "title": "自動",
+            "points": [
+              "ボタン一つで確認"
+            ],
+            "value": "1 分"
+          },
+          "narration": [
+            "前後比較は、境目が動いて後の姿が現れます。"
+          ]
+        }
+      ]
+    },
+    {
+      "title": "HTML と SVG",
+      "scenes": [
+        {
+          "type": "dom",
+          "src": "scenes/orbit.html",
+          "cssSrc": "scenes/orbit.css",
+          "updateSrc": "scenes/orbit.js",
+          "duration": 8,
+          "transition": "push",
+          "narration": "HTML や SVG でも、時刻で描けば、シークしても同じ画になります。"
+        },
+        {
+          "type": "end",
+          "title": "motion-video",
+          "lines": [
+            {
+              "text": "$ python3 build.py spec.json",
+              "note": "HTML を作る"
+            }
+          ],
+          "tagline": "部品でも、自由にでも。",
+          "narration": "部品でも、自由にでも。"
+        }
+      ]
+    }
+  ]
+}
