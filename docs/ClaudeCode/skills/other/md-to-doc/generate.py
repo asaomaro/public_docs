@@ -1099,7 +1099,7 @@ def render_more(items, layout, body_html):
     if layout == "hero":
         icon, tags, text = extract_decorations(items[0]["text"])
         chips = "".join('<span class="hero-chip">%s</span>' % html.escape(t) for t in tags)
-        return ('<div class="hero"><span class="hero-glow" aria-hidden="true"></span>%s<div class="hero-h">%s</div>%s%s%s</div>'
+        return ('<div class="blk-hero"><span class="hero-glow" aria-hidden="true"></span>%s<div class="hero-h">%s</div>%s%s%s</div>'
                 % ('<div class="hero-ic">%s</div>' % icon_html(icon, 44) if icon else "", inline(text),
                    "".join('<p class="hero-sub">%s</p>' % inline(it["text"]) for it in items[1:]),
                    '<div class="hero-chips">%s</div>' % chips if chips else "", body_html(items[0])))
@@ -2284,11 +2284,11 @@ footer{max-width:var(--maxw);margin:40px auto 0;padding:24px;text-align:center;
 .ba.ba-js .ba-before .ba-body,.ba.ba-js .ba-before .ba-label{padding-right:52%}
 .ba.ba-js .ba-after .ba-body,.ba.ba-js .ba-after .ba-label{padding-left:52%;text-align:right}
 @media print{.ba.ba-js .ba-body,.ba.ba-js .ba-label{padding:0!important;text-align:left!important}}
-.hero{position:relative;overflow:hidden;margin:22px 0;padding:44px 40px;border-radius:calc(var(--radius) + 6px);
+.blk-hero{position:relative;overflow:hidden;margin:22px 0;padding:44px 40px;border-radius:calc(var(--radius) + 6px);
   background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 16%,var(--card)),var(--card));border:1px solid var(--line)}
 .hero-glow{position:absolute;inset:-40% -20%;background:radial-gradient(closest-side,color-mix(in srgb,var(--accent) 22%,transparent),transparent);
   transform:translateX(-30%);pointer-events:none}
-.hero>*:not(.hero-glow){position:relative}
+.blk-hero>*:not(.hero-glow){position:relative}
 .hero-ic{color:var(--accent);margin-bottom:10px}
 .hero-h{font-family:var(--font-head);font-weight:900;font-size:clamp(26px,4.2vw,40px);line-height:1.3;color:var(--ink)}
 .hero-sub{margin-top:12px;font-size:17px;color:var(--muted)}
@@ -3205,14 +3205,14 @@ MOTION_JS = r"""(function(){
     var fr=FR[S]||FR.gentle, GAP={dynamic:70,cinematic:140,playful:90}[S]||90, DUR=({cinematic:800,dynamic:560}[S]||520)*T;
     var GROUPS=[['.card-grid','.doc-card'],['.stat-row','.stat'],['.timeline','.tl-item'],['.chips','.chip'],['.ck-list','li'],['.pc-grid','.pc-col'],
                 ['dl.defs','.def'],['.accordion','.acc-item'],['.tabs','.tab-list'],['table','tbody > tr'],['.callout',null],['.tree','ul > li'],
-                ['.hero',null],['.pq',null],['.price-grid','.price'],['.stepper',':scope > ol > .st'],['.kanban','.kb-col'],['.faq','.faq-item'],['.ba',null],
+                ['.blk-hero',null],['.pq',null],['.price-grid','.price'],['.stepper',':scope > ol > .st'],['.kanban','.kb-col'],['.faq','.faq-item'],['.ba',null],
                 ['.gal','.gal-item'],['.rm','.rm-lane'],['.pers-grid','.pers'],['.chev-row','.chev'],['.ctr-row','.ctr'],['.rt-list','.rt'],['.dd','.dd-col'],
                 ['.voices','.voice'],['.dt-wrap',null],['.ig-grid','.ig'],['figure.diff',null]];
     var OVER='cubic-bezier(.34,1.56,.64,1)', ACC=cssv('--accent');
     function add(st,x,frames,dur,delay,ease){ var a=x.animate(frames,{duration:dur*T,delay:delay*T,easing:ease||'cubic-bezier(.2,.7,.2,1)',fill:'backwards'}); a.pause(); st.anims.push(a); return a; }
     /* 部品ごとの動き（共通の「項目が順に現れる」に重ねる） */
     var SPECIAL={
-      '.hero':function(c,st){ var h=c.querySelector('.hero-h'), gl=c.querySelector('.hero-glow');
+      '.blk-hero':function(c,st){ var h=c.querySelector('.hero-h'), gl=c.querySelector('.hero-glow');
         if(h) add(st,h,[{clipPath:'inset(0 100% 0 0)'},{clipPath:'inset(0 0% 0 0)'}],900,200,'cubic-bezier(.6,0,.2,1)');
         each(c.querySelectorAll('.hero-ic,.hero-sub,.hero-chips'),function(x,i){ add(st,x,[{opacity:0,translate:'0 14px'},{opacity:1,translate:'0 0'}],600,700+i*160); });
         if(gl) add(st,gl,[{transform:'translateX(-70%)',opacity:0},{transform:'translateX(-30%)',opacity:1}],1800,0,'ease-out'); },
