@@ -13,7 +13,9 @@ figkit がテーマ配色（CSS 変数）と動きの注釈（data-step / data-e
 
 仕様（JSON）: 図 1 つのオブジェクト、図の配列、または {"figures": [...]}。
   共通: type（必須）/ id / caption / aria / motion（true=段の順に動く, "auto", "none", 省略=文書の既定）/
-        tempo（slow|normal|fast）/ trigger（view|click|loop）/
+        tempo（slow|normal|fast）/ trigger（view|click|loop|scroll）/
+        style（動きの性格 gentle|dynamic|playful|cinematic|tech）/ intro（図全体の入り方 punch|zoom-out|drop|tilt|glitch|iris）/
+        dir（現れる順 x|y|radial|in|diagonal|spiral|random）/
         差し込み先: slot（auto-fig-slot の data-section）/ replace（置き換える figure の id）/
                     placeholder（本文の <!--FIGKIT:名前--> を置き換える）
 """
@@ -1138,9 +1140,9 @@ def render(spec, n=0):
         attrs += ' data-motion="steps"'
     elif m in ("auto", "none"):
         attrs += ' data-motion="%s"' % m
-    for k in ("tempo", "trigger"):
+    for k, a in (("tempo", "tempo"), ("trigger", "trigger"), ("intro", "intro"), ("style", "motion-style"), ("dir", "motion-dir")):
         if spec.get(k):
-            attrs += ' data-%s="%s"' % (k, esc(spec[k]))
+            attrs += ' data-%s="%s"' % (a, esc(spec[k]))
     for k, v in figattr.items():
         attrs += (' data-%s' % k) if v is True else ' data-%s="%s"' % (k, esc(v))
     cap = ('<figcaption style="color:var(--muted);font-size:13px;margin-top:10px">%s</figcaption>'
@@ -1198,7 +1200,7 @@ def main():
     ap.add_argument("--list", action="store_true", help="図の種類と仕様の書き方を表示")
     args = ap.parse_args()
     if args.list or not args.spec:
-        print("figkit の図の種類（共通: id / caption / aria / motion / tempo / trigger / slot|replace|placeholder）")
+        print("figkit の図の種類（共通: id / caption / aria / motion / tempo / trigger / style / intro / dir / slot|replace|placeholder）")
         print("項目の共通注釈: note（注記の吹き出し）/ note_pos / changed（toggle で変わった所）")
         print("flow: edges[].paths（経路の名前の配列）でシナリオの切り替え、zoom（寄るノード id の順）、hover（既定: 4 ノード以上）")
         print("hub: zoom（寄る項目の label の順）、hover（既定: 4 項目以上）")
