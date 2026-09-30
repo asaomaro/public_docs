@@ -654,7 +654,8 @@ def prepare(spec, base):
         au["_sfxcfg"] = None
         return errs
     cfg = {} if sfx is True else dict(sfx)
-    kit = cfg.get("kit", "standard")
+    # 効果音の組の既定は、動きの性格（台本の motion）に合わせる
+    kit = cfg.get("kit", {"tech": "digital", "playful": "playful", "cinematic": "cinematic"}.get(spec.get("motion"), "standard"))
     if kit not in KITS:
         errs.append("audio.sfx.kit %r は %s のいずれか" % (kit, "/".join(KITS)))
         kit = "standard"

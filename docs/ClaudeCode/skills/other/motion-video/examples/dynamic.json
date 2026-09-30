@@ -1,0 +1,49 @@
+{
+  "title": "動きの見本（dynamic）",
+  "description": "動きの性格 dynamic と、切り替え・文字の出方・演出の層・動きの強い部品・重ねの層をひととおり使う見本。",
+  "lang": "ja",
+  "player": "cinema",
+  "theme": "midnight",
+  "motion": "dynamic",
+  "brand": { "name": "motion-video" },
+  "audio": { "narration": true, "music": "hype", "rate": 1.1, "pronounce": { "motion-video": "モーションビデオ" } },
+  "chapters": [
+    { "title": "幕開け", "desc": "ロゴ・数え下ろし・叩きつける一語",
+      "scenes": [
+        { "type": "logo", "title": "motion-video", "subtitle": "台本から、動く説明を", "mark": "ring", "fx": ["particles", "rays"],
+          "narration": "破片が集まってロゴになり、題名に光が走ります。" },
+        { "type": "countdown", "from": 3, "label": "スタート", "narration": "数え下ろしのあとに、言葉を叩きつけます。" },
+        { "type": "impact", "text": "**10 倍**速い", "sub": "同じ作業が 3 分で", "narration": "強い一語は、集中線と画面の揺れで見せます。" }
+      ] },
+    { "title": "文字の出方", "desc": "13 種の出方の一部",
+      "scenes": [
+        { "type": "statement", "lines": ["でたらめな文字から", "**定まる**言葉"], "anim": "scramble", "transition": "glitch", "fx": ["scanlines"],
+          "narration": "技術の話なら、でたらめな文字から定まる出方が合います。" },
+        { "type": "statement", "lines": ["1 文字ずつ", "**波打って**出る"], "anim": "wave", "transition": "spin",
+          "narration": "楽しい話なら、1 文字ずつ波打って出ます。" },
+        { "type": "statement", "lines": ["ぼけから", "**合う**"], "anim": "blur", "transition": "zoom-through", "fx": ["bokeh", "vignette"], "camera": "dolly",
+          "narration": "映画のように、ぼけから焦点が合う出方もあります。" },
+        { "type": "kinetic", "text": "並べる 見渡す **任せる**", "anim": "slam", "transition": "iris", "fx": ["speedlines"],
+          "narration": "語ごとに叩きつけることもできます。" }
+      ] },
+    { "title": "部品と層", "desc": "回る項目・流れる帯・判子・紙吹雪",
+      "scenes": [
+        { "type": "orbit", "heading": "つながる道具", "center": { "label": "操舵室", "sub": "Sodashitsu" },
+          "items": [{ "label": "Claude", "icon": "🤖" }, { "label": "Codex" }, { "label": "Gemini" }, { "label": "herdr" }, { "label": "SSH" }],
+          "transition": "blinds", "narration": "中心の周りを項目が回り、関係を見せます。" },
+        { "type": "marquee", "rows": [["並行", "承認", "通知", "SSH"], ["Windows", "TLS", "グラフ", "端末版"], ["録画", "字幕", "音楽"]], "caption": "ぜんぶ、1 つの画面で",
+          "transition": "pixel", "narration": "キーワードの帯を流し、量の多さを伝えます。" },
+        { "type": "cards", "heading": "重ねの層", "items": [{ "title": "判子", "text": "叩きつけて揺れる" }, { "title": "丸囲み", "text": "手書きの丸" }, { "title": "蛍光ペン", "text": "文字の上を塗る" }],
+          "transition": "squeeze",
+          "overlays": [{ "kind": "circle", "rect": [150, 300, 520, 290], "label": "ここ", "at": 0.35 }, { "kind": "marker", "rect": [760, 440, 380, 50], "at": 0.5 },
+                       { "kind": "stamp", "text": "承認", "x": 1500, "y": 760, "at": 0.62, "color": "ok" }, { "kind": "burst", "x": 1500, "y": 760, "at": 0.64 },
+                       { "kind": "ripple", "x": 420, "y": 440, "r": 220, "at": 0.3, "until": 0.6 }],
+          "narration": "丸で囲む、蛍光ペンで塗る、判子を押す。重ねの層で、部品の上に演出を足せます。" }
+      ] },
+    { "title": "締め", "desc": "紙吹雪と締めの札",
+      "scenes": [
+        { "type": "end", "title": "動く説明を、台本から", "lines": ["$ python3 build.py spec.json"], "transition": "flash",
+          "overlays": [{ "kind": "confetti", "at": 0.3 }], "fx": ["particles"], "narration": "動きの性格を 1 つ選べば、ここまでの既定がまとめて決まります。" }
+      ] }
+  ]
+}
