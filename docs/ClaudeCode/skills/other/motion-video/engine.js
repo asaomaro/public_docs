@@ -150,6 +150,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   var R = {};
 
   R.title = function (s, lt, d, T) {
+    sfxEv(250, "title"); if (s.subtitle) sfxEv(2000, "appear", { i: 0 });
     var k = P(lt, 0, 1500, back);
     for (var i = 0; i < 3; i++) { var ph = ((lt / 2600) + i / 3) % 1;
       ctx.save(); ctx.strokeStyle = C.accent2; ctx.globalAlpha *= (1 - ph) * .16 * P(lt, 600, 1600); ctx.lineWidth = 2;
@@ -172,6 +173,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     at.forEach(function (a, i) { if (lt >= a) cur = i; });
     var lh = 112, maxW = 1540;
     items.forEach(function (it, i) {
+      sfxEv(at[i], "appear", { i: i });
       var k = P(lt, at[i], at[i] + 600), text = typeof it === "string" ? it : it.text;
       if (k <= 0) return;
       var lines = wrap(text, maxW - 120, { size: 40, weight: 500 });
@@ -219,6 +221,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       if (e.back || b.r <= a.r) { p0 = { x: a.x, y: a.y + L.nh / 2 }; p1 = { x: b.x, y: b.y + L.nh / 2 + 4 }; c = { x: (a.x + b.x) / 2, y: Math.max(a.y, b.y) + 220 }; }
       else { p0 = { x: a.x + L.nw / 2, y: a.y }; p1 = { x: b.x - L.nw / 2 - 6, y: b.y }; c = { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 - (a.y === b.y ? 0 : 0) }; }
       var st = Math.max(nodeIn(e.from), nodeIn(e.to)) + 300, k = P(lt, st, st + 700, eio);
+      sfxEv(st, "connect", { i: i }); if (e.travel !== undefined && e.travel !== false) { sfxEv(flowAt[i], "travel"); sfxEv(flowAt[i] + 1250, "arrive"); }
       if (k <= 0) return;
       ctx.save(); ctx.strokeStyle = e.color || C.accent2; ctx.lineWidth = 4; if (e.dashed) ctx.setLineDash([14, 10]);
       var glow = lt > flowAt[i] && lt < flowAt[i] + 1400 ? Math.sin(lin(lt, flowAt[i], flowAt[i] + 1400) * Math.PI) : 0;
@@ -246,6 +249,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     });
     Object.keys(L.pos).forEach(function (id, i) {
       var p = L.pos[id], n = byId[id], k = P(lt, nodeIn(id), nodeIn(id) + 600, back);
+      sfxEv(nodeIn(id), "appear", { i: p.r });
       if (k <= 0) return;
       var hot = edges.some(function (e, j) { return e.to === id && lt > flowAt[j] + 1200 && lt < flowAt[j] + 2600; });
       ctx.save(); ctx.translate(p.x, p.y); ctx.scale(k, k);
@@ -267,6 +271,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     ctx.strokeStyle = C.accent; ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(mix(x0, x1, Math.min(1, prog)), y); ctx.stroke(); ctx.restore();
     items.forEach(function (it, i) {
       var x = n > 1 ? mix(x0, x1, i / (n - 1)) : 960, k = P(lt, at[i] - 200, at[i] + 400, back), act = i === cur;
+      sfxEv(at[i], "step", { i: i });
       ctx.save(); ctx.translate(x, y); ctx.scale(Math.max(.001, k) * (act ? 1.12 : 1), Math.max(.001, k) * (act ? 1.12 : 1));
       ctx.fillStyle = i <= cur ? accentAt(i) : C.panel; ctx.beginPath(); ctx.arc(0, 0, 40, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = accentAt(i); ctx.lineWidth = 3; ctx.stroke();
@@ -293,7 +298,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var totalChars = 0; lines.forEach(function (l) { if (l.cmd) totalChars += l.cmd.length; });
     var budget = Math.max(1, d * .75 - 800 - lines.length * 350), rate = Math.min(55, Math.max(14, budget / Math.max(1, totalChars)));
     lines.forEach(function (l) {
-      if (l.cmd) { var dd = l.cmd.length * rate; plan.push({ l: l, a: at, b: at + dd }); at += dd + 300; }
+      if (l.cmd) { var dd = l.cmd.length * rate; plan.push({ l: l, a: at, b: at + dd }); sfxEv(at, "type", { n: l.cmd.length, dur: dd }); sfxEv(at + dd + 60, "enter"); at += dd + 300; }
       else { plan.push({ l: l, a: at, b: at }); at += 220; }
     });
     var row = 0, lh = 44, maxRows = Math.floor((h - 90) / lh), rows = [];
@@ -328,6 +333,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var x = 960 - (tw0 * n + gap * (n - 1)) / 2, y = s.heading ? 380 : 320;
     items.forEach(function (it, i) {
       var a = 500 + i * 350, k = P(lt, a, a + 600, back), c = P(lt, a + 200, a + 1800);
+      sfxEv(a, "appear", { i: i }); if (parseNum(it.value)) { sfxEv(a + 200, "count", { dur: 1500 }); sfxEv(a + 1750, "countEnd", { i: i }); }
       if (k <= 0) return;
       ctx.save(); ctx.translate(x + i * (tw0 + gap) + tw0 / 2, y + 190); ctx.scale(k, k);
       panel(-tw0 / 2, -190, tw0, 380, {}); ctx.fillStyle = accentAt(i); ctx.fillRect(-tw0 / 2, -190, tw0, 8);
@@ -346,6 +352,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var x0 = 140 + lw + 30, bw = 1720 - x0 - 200;
     items.forEach(function (it, i) {
       var y = y0 + i * (bh + 26), a = 500 + i * Math.min(400, d * .06), k = P(lt, a, a + 1100, eio);
+      sfxEv(a, "grow", { i: i }); if (s.highlight === i) sfxEv(a + 1100, "emphasize");
       txt(it.label, x0 - 24, y + bh / 2 + 11, { size: 32, weight: 700, align: "right", alpha: P(lt, a - 200, a + 200) });
       var w = bw * (+it.value) / max * k, hl = s.highlight === i;
       ctx.save(); rr(x0, y, Math.max(2, w), bh, 10); ctx.fillStyle = accentAt(i); if (hl) { ctx.shadowColor = accentAt(i); ctx.shadowBlur = 24 * (.5 + .5 * Math.sin(lt / 300)); } ctx.fill(); ctx.restore();
@@ -361,13 +368,14 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var at = slots(maxN * 2, d, 1200, 900);
     cols.forEach(function (c, ci) {
       var x = ci === 0 ? 150 : 1010, k = P(lt, 200 + ci * 300, 900 + ci * 300);
+      sfxEv(200 + ci * 300, "appear", { i: ci });
       ctx.save(); ctx.globalAlpha *= k; ctx.translate((1 - k) * (ci === 0 ? -80 : 80), 0);
       var col = c.tone === "bad" ? C.warn : c.tone === "good" ? C.ok : accentAt(ci);
       panel(x, y, w, h, { stroke: col, lw: 2.5 });
       ctx.fillStyle = col; ctx.globalAlpha *= .14; rr(x, y, w, 96, 16); ctx.fill(); ctx.globalAlpha /= .14;
       txt(c.title || "", x + w / 2, y + 62, { size: 42, weight: 800, align: "center", color: col });
       pts[ci].forEach(function (p, i) {
-        var a = at[i * 2 + ci], pk = P(lt, a, a + 500); if (pk <= 0) return;
+        var a = at[i * 2 + ci]; sfxEv(a, "appear", { i: i }); var pk = P(lt, a, a + 500); if (pk <= 0) return;
         var lines = wrap(p, w - 120, { size: 34 });
         lines.forEach(function (ln, j) { rich(ln, x + 90, y + 170 + i * 110 + j * 44, { size: 34, alpha: pk }); });
         ctx.save(); ctx.globalAlpha *= pk; ctx.fillStyle = col;
@@ -378,7 +386,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       });
       ctx.restore();
     });
-    var vk = P(lt, 900, 1400, back);
+    var vk = P(lt, 900, 1400, back); if (s.vs !== false) sfxEv(900, "hit");
     if (s.vs !== false && vk > 0) { ctx.save(); ctx.translate(960, y + h / 2); ctx.scale(vk, vk);
       ctx.fillStyle = C.bg1; ctx.beginPath(); ctx.arc(0, 0, 44, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = C.edge; ctx.lineWidth = 2; ctx.stroke();
       txt(s.vs || "VS", 0, 12, { size: 30, weight: 800, align: "center", color: C.muted }); ctx.restore(); }
@@ -390,6 +398,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var at = slots(n, d * .55, 300, 0);
     lines.forEach(function (ln, i) {
       var k = P(lt, at[i], at[i] + 700);
+      sfxEv(at[i], i === 0 ? "hit" : "appear", { i: i }); if (/\*\*/.test(ln)) sfxEv(at[i] + 550, "emphasize");
       rich(ln, 960, y0 + i * lh + (1 - k) * 24, { size: size, weight: 800, align: "center", font: F.display, alpha: k }, P(lt, at[i] + 500, at[i] + 1200));
     });
     if (s.note) txt(s.note, 960, y0 + n * lh + 30, { size: 30, align: "center", color: C.muted, alpha: P(lt, d * .5, d * .5 + 800) });
@@ -416,7 +425,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var h = Math.min(1000 - y, lines.length * lh + 80), x = 160, w = 1600;
     var k = P(lt, 0, 600); ctx.save(); ctx.globalAlpha *= k;
     panel(x, y, w, h, { fill: C.code });
-    var at = slots(hl.length, d, 900, 600), cur = -1; at.forEach(function (a, i) { if (lt >= a) cur = i; });
+    var at = slots(hl.length, d, 900, 600), cur = -1; at.forEach(function (a, i) { if (lt >= a) cur = i; sfxEv(a, "emphasize", { i: i }); });
     lines.forEach(function (ln, i) {
       var yy = y + 60 + i * lh; if (yy > y + h - 10) return;
       var on = cur >= 0 && hl[cur] && i + 1 >= hl[cur].lines[0] && i + 1 <= hl[cur].lines[hl[cur].lines.length - 1];
@@ -457,6 +466,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var cols = n <= 1 ? 1 : 2, rows = Math.ceil(n / cols);
     panes.forEach(function (p, i) {
       var a = 300 + i * Math.min(900, d * .1), pk = P(lt, a, a + 600);
+      sfxEv(a, "appear", { i: i }); (p.states || []).forEach(function (c0) { if ((c0.at || 0) > 0 && /^(done|blocked|working)$/.test(c0.state)) sfxEv(c0.at * d, c0.state); });
       if (pk <= 0) return;
       var c = i % cols, r = Math.floor(i / cols), pw = (gw - 10 * (cols - 1)) / cols, ph = (gh - 10 * (rows - 1)) / rows;
       if (n === 3 && i === 2) { pw = gw; }
@@ -480,6 +490,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     });
     (s.toasts || []).forEach(function (t0, i) {
       var a = (t0.at || .5) * d, tk = P(lt, a, a + 450, back) * (1 - P(lt, a + (t0.hold || 3200), a + (t0.hold || 3200) + 400));
+      sfxEv(a, "toast");
       if (tk <= 0) return;
       var tw0 = 480, th = 96, tx = x + w - tw0 - 24 + (1 - tk) * 80, ty = y + 66 + i * 108;
       ctx.save(); ctx.globalAlpha *= tk; panel(tx, ty, tw0, th, { stroke: t0.kind === "blocked" ? C.warn : C.ok, lw: 2 });
@@ -511,6 +522,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     emblem(s.mark || "ring", 960, 290, 110 * P(lt, 0, 1000, back), lt * .00018, 1, s.title);
     var rows = s.lines || [], y = 470;
     rows.forEach(function (r, i) {
+      sfxEv(700 + i * 700, "appear", { i: i });
       var k = P(lt, 700 + i * 700, 1300 + i * 700); if (k <= 0) return;
       var text = typeof r === "string" ? r : r.text, note = r.note, mono = r.mono !== false && /^[$>]/.test(text);
       ctx.save(); ctx.globalAlpha *= k;
@@ -520,7 +532,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       if (note) txt(note, 960 + w / 2 - 30, y + i * 96 - 2, { size: 24, color: C.muted, align: "right" });
       ctx.restore();
     });
-    var fk = P(lt, 700 + rows.length * 700 + 400, 700 + rows.length * 700 + 1400, eio);
+    var fk = P(lt, 700 + rows.length * 700 + 400, 700 + rows.length * 700 + 1400, eio); sfxEv(700 + rows.length * 700 + 400, "outro");
     /* 字幕（画面の下 1 割）と重ならないよう、下端は 900 までに収める */
     txt(s.title || "", 960, 820, { size: 70, weight: 800, align: "center", font: F.display, alpha: fk });
     if (s.tagline) rich(s.tagline, 960, 884, { size: 32, align: "center", color: C.accent, alpha: P(lt, 700 + rows.length * 700 + 900, 700 + rows.length * 700 + 1900) });
@@ -534,6 +546,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var at = slots(n, d, 500, Math.max(1200, d * .35));
     items.forEach(function (it, i) {
       var c = i % cols, r = Math.floor(i / cols), x = 120 + c * (cw + gap), y = y0 + r * (chh + gap), k = P(lt, at[i], at[i] + 600, back);
+      sfxEv(at[i], "appear", { i: i });
       if (k <= 0) return;
       ctx.save(); ctx.translate(x + cw / 2, y + chh / 2); ctx.scale(k, k); ctx.translate(-cw / 2, -chh / 2);
       panel(0, 0, cw, chh, {}); ctx.fillStyle = accentAt(i); ctx.fillRect(0, 0, cw, 6);
@@ -551,6 +564,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(mix(x0, x1, P(lt, 0, 900, eio)), y); ctx.stroke(); ctx.restore();
     items.forEach(function (it, i) {
       var x = n > 1 ? mix(x0 + 60, x1 - 60, i / (n - 1)) : 960, k = P(lt, at[i], at[i] + 600, back), up = i % 2 === 0, act = i === cur;
+      sfxEv(at[i], it.highlight ? "emphasize" : "tick", { i: i });
       if (k <= 0) return;
       ctx.save(); ctx.fillStyle = it.highlight || act ? C.accent : accentAt(i); ctx.beginPath(); ctx.arc(x, y, (act ? 18 : 13) * k, 0, Math.PI * 2); ctx.fill();
       if (it.highlight) { ctx.globalAlpha = .3 + .3 * Math.sin(lt / 260); ctx.beginPath(); ctx.arc(x, y, 30, 0, Math.PI * 2); ctx.fill(); }
@@ -569,7 +583,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       /* 右: 自分（user・me・side:right）。左: 相手。side を書けばそれに従う */
       var right = m.side ? m.side === "right" : /^(user|me|自分|ユーザー)$/i.test(m.from || "");
       var lines = wrap(m.text || "", 900, { size: 30 }), h = lines.length * 42 + 36 + (m.from ? 30 : 0);
-      bubbles.push({ m: m, right: right, lines: lines, h: h, a: at[i] });
+      bubbles.push({ m: m, right: right, lines: lines, h: h, a: at[i] }); sfxEv(at[i], right ? "send" : "message");
     });
     var total = 0, shown = [];
     bubbles.forEach(function (b) { if (lt >= b.a - 700) shown.push(b); });
@@ -605,6 +619,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     labels.forEach(function (lb, i) { txt(lb, X(i), B + 44, { size: 24, color: C.muted, align: "center", alpha: gk }); });
     series.forEach(function (se, si) {
       var a = 700 + si * 500, k = P(lt, a, a + Math.max(1400, d * .35), function (x) { return x; }), col = accentAt(si), n = se.values.length;
+      sfxEv(a, "grow", { i: si }); sfxEv(a + Math.max(1400, d * .35), "countEnd", { i: si });
       var upto = k * (n - 1);
       ctx.save(); ctx.strokeStyle = col; ctx.lineWidth = 6; ctx.lineJoin = "round"; ctx.lineCap = "round"; ctx.beginPath();
       for (var i = 0; i <= Math.floor(upto); i++) { var px = X(i), py = Y(se.values[i]); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }
@@ -619,8 +634,9 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     heading(s, lt);
     var items = s.items || [], total = items.reduce(function (a, it) { return a + (+it.value); }, 0) || 1;
     var cx = 700, cy = s.heading ? 580 : 540, rad = 250, sw = 90, a = -Math.PI / 2, k = P(lt, 400, 400 + Math.max(1600, d * .35), eio);
-    var sweep = k * Math.PI * 2;
+    var sweep = k * Math.PI * 2; sfxEv(400, "sweep");
     items.forEach(function (it, i) {
+      sfxEv(800 + i * 300, "appear", { i: i });
       var frac = (+it.value) / total, a1 = a + frac * Math.PI * 2, e = Math.min(a1, -Math.PI / 2 + sweep);
       if (e > a) { ctx.save(); ctx.strokeStyle = accentAt(i); ctx.lineWidth = sw; ctx.beginPath(); ctx.arc(cx, cy, rad, a + .012, Math.max(a + .012, e - .012)); ctx.stroke(); ctx.restore(); }
       var lk = P(lt, 800 + i * 300, 1300 + i * 300), ly = cy - (items.length - 1) * 50 + i * 100;
@@ -640,13 +656,14 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var cw = cols.map(function (c, i) { var m = tw(String(c), { size: FS, weight: 800 }); rows.forEach(function (r) { m = Math.max(m, tw(String(r[i] == null ? "" : r[i]), { size: FS })); }); return m + 80; });
     var sum = cw.reduce(function (a, b) { return a + b; }, 0), sc = Math.min(1680 / sum, Math.max(1, 1100 / sum)); cw = cw.map(function (w) { return w * sc; });
     var tot = cw.reduce(function (a, b) { return a + b; }, 0), x0 = 960 - tot / 2;
-    var hl = s.highlight || [], hat = slots(hl.length, d, 900 + n * 200, 800), cur = -1; hat.forEach(function (a, i) { if (lt >= a) cur = hl[i]; });
+    var hl = s.highlight || [], hat = slots(hl.length, d, 900 + n * 200, 800), cur = -1; hat.forEach(function (a, i) { if (lt >= a) cur = hl[i]; sfxEv(a, "emphasize", { i: i }); });
     var num = cols.map(function (c, i) { return rows.every(function (r) { return /^[-+]?[¥$€]?[\d,.]+\s*[%％a-zA-Z一-龠ぁ-んァ-ヶ]{0,3}$/.test(String(r[i] || "0")); }); });
     var hk = P(lt, 0, 500);
     ctx.save(); ctx.globalAlpha *= hk; rr(x0, y0, tot, FS * 2.3, 12); ctx.fillStyle = C.panel2; ctx.fill(); ctx.restore();
     var x = x0; cols.forEach(function (c, i) { txt(String(c), num[i] ? x + cw[i] - 36 : x + 36, y0 + FS * 1.5, { size: FS, weight: 800, align: num[i] ? "right" : "left", alpha: hk }); x += cw[i]; });
     rows.forEach(function (r, j) {
       var a = 500 + j * Math.min(220, d * .03), k = P(lt, a, a + 450), y = y0 + FS * 2.3 + 8 + j * rh;
+      sfxEv(a, "row", { i: j });
       if (k <= 0) return;
       ctx.save(); ctx.globalAlpha *= k; ctx.translate(0, (1 - k) * 12);
       if (cur === j) { rr(x0, y, tot, rh - 6, 10); ctx.fillStyle = C.accent; ctx.globalAlpha *= .18; ctx.fill(); ctx.globalAlpha /= .18; ctx.strokeStyle = C.accent; ctx.lineWidth = 2; ctx.stroke(); }
@@ -658,9 +675,9 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   R.quote = function (s, lt, d) {
     var lines = wrap(s.text || "", 1400, { size: 54, weight: 700, font: F.display }), n = lines.length, lh = 80, y0 = 540 - (n - 1) * lh / 2 - 20;
     txt("“", 240, y0 - 40, { size: 260, weight: 800, color: C.accent, alpha: P(lt, 0, 800) * .8, font: F.display });
-    var at = slots(n, d * .6, 400, 0);
+    var at = slots(n, d * .6, 400, 0); sfxEv(0, "quote");
     lines.forEach(function (ln, i) { var k = P(lt, at[i], at[i] + 700); rich(ln, 360, y0 + i * lh + (1 - k) * 16, { size: 54, weight: 700, font: F.display, alpha: k }, P(lt, at[i] + 400, at[i] + 1100)); });
-    var bk = P(lt, d * .55, d * .55 + 800);
+    var bk = P(lt, d * .55, d * .55 + 800); if (s.by) sfxEv(d * .55, "appear", { i: 0 });
     ctx.save(); ctx.globalAlpha *= bk; ctx.fillStyle = C.accent; ctx.fillRect(360, y0 + n * lh + 10, 60, 4); ctx.restore();
     if (s.by) txt(s.by, 440, y0 + n * lh + 26, { size: 32, weight: 800, alpha: bk });
     if (s.role) txt(s.role, 440, y0 + n * lh + 70, { size: 24, color: C.muted, alpha: bk });
@@ -676,6 +693,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       var wsum = ln.reduce(function (a, t0) { return a + t0.width; }, 0) + gap * (ln.length - 1), x = 960 - wsum / 2;
       ln.forEach(function (t0) {
         var a = 300 + idx * per, k = P(lt, a, a + 520, back), sz = t0.em ? size * 1.12 : size;
+        sfxEv(a, t0.em ? "hit" : "word", { i: idx });
         if (k > 0) { ctx.save(); ctx.translate(x + t0.width / 2, y0 + li * lh); ctx.scale(k, k);
           txt(t0.w, 0, (1 - Math.min(1, k)) * 30, { size: sz, weight: 800, align: "center", font: F.display, color: t0.em ? C.accent : C.ink });
           if (t0.em) { ctx.fillStyle = C.accent; ctx.fillRect(-t0.width / 2, sz * .2, t0.width * P(lt, a + 300, a + 800), Math.max(4, sz * .07)); }
@@ -692,20 +710,20 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     if (L.title) { wrap(L.title, 720, { size: 48, weight: 800, font: F.display }).forEach(function (ln) { txt(ln, 120, y + 40, { size: 48, weight: 800, font: F.display }); y += 64; }); y += 20; }
     if (L.text) { wrap(L.text, 720, { size: 30 }).forEach(function (ln) { rich(ln, 120, y + 30, { size: 30, color: C.muted }); y += 44; }); y += 16; }
     var pts = L.points || [], at = slots(pts.length, d, 700, d * .3);
-    pts.forEach(function (p, i) { var pk = P(lt, at[i], at[i] + 500); if (pk <= 0) return;
+    pts.forEach(function (p, i) { sfxEv(at[i], "appear", { i: i }); var pk = P(lt, at[i], at[i] + 500); if (pk <= 0) return;
       ctx.save(); ctx.globalAlpha *= pk; ctx.fillStyle = accentAt(i); ctx.beginPath(); ctx.arc(136, y + 22, 8, 0, Math.PI * 2); ctx.fill(); ctx.restore();
       wrap(p, 680, { size: 30 }).forEach(function (ln, j) { rich(ln, 164, y + 32 + j * 42, { size: 30, alpha: pk }); }); y += wrap(p, 680, { size: 30 }).length * 42 + 18; });
     ctx.restore();
     if (s.right && R[s.right.type] && s.right.type !== "split") {
       var sub2 = s._rightSpec || (s._rightSpec = Object.assign({}, s.right, { heading: "" }));
       ctx.save(); ctx.globalAlpha *= P(lt, 300, 1000); ctx.translate(820, y0 - 120); ctx.scale(.58, .58);
-      R[sub2.type](sub2, Math.max(0, lt - 300), d - 300); drawOverlays(sub2, Math.max(0, lt - 300), d - 300); ctx.restore();
+      EVOFF += 300; try { R[sub2.type](sub2, Math.max(0, lt - 300), d - 300); drawOverlays(sub2, Math.max(0, lt - 300), d - 300); } finally { EVOFF -= 300; } ctx.restore();
     }
   };
   R.beforeafter = function (s, lt, d) {
     heading(s, lt);
     var y0 = s.heading ? 280 : 180, x0 = 140, w = 1640, h = 900 - y0, bf = s.before || {}, af = s.after || {};
-    var u = P(lt, d * .35, d * .35 + Math.max(1400, d * .25), eio), sx = x0 + w * u;
+    var u = P(lt, d * .35, d * .35 + Math.max(1400, d * .25), eio), sx = x0 + w * u; sfxEv(d * .35, "reveal");
     function side(o, tone, ax) {
       var col = tone === "good" ? C.ok : tone === "bad" ? C.warn : C.accent2;
       panel(x0, y0, w, h, { stroke: col, lw: 2.5, shadow: false });
@@ -789,7 +807,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     o = o || {}; var sc = o.scale || 1; ctx.save(); if (o.alpha !== undefined) ctx.globalAlpha *= o.alpha;
     ctx.translate(o.x || 0, o.y || 0); ctx.scale(sc, sc);
     if (o.clip) { rr(0, 0, W, H, 24 / sc); ctx.clip(); }
-    (R[type] || R.statement)(spec, Math.max(0, lt), d); drawOverlays(spec, lt, d); ctx.restore();
+    EVMUTE++; try { (R[type] || R.statement)(spec, Math.max(0, lt), d); drawOverlays(spec, lt, d); } finally { EVMUTE--; } ctx.restore();
   }
   /* カメラ: [{at:0..1, x, y, zoom}] を場面の進みで補間し、(x,y) を画面の中央に zoom 倍で映す */
   function camAt(keys, f) {
@@ -807,8 +825,12 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   function drawOverlays(s, lt, d) {
     (s.overlays || []).forEach(function (o) {
       var a = (o.at || 0) * d, b = o.until !== undefined ? o.until * d : d, k = P(lt, a, a + 450) * (1 - P(lt, b - 350, b));
-      if (k <= 0) return;
       var kind = o.kind || "note";
+      if (o.sfx !== false) {
+        if (kind === "cursor") (o.click || []).forEach(function (ci) { var pts0 = o.path || [[960, 540]]; sfxEv(a + (b - 350 - a) * ci / Math.max(1, pts0.length - 1), "click"); });
+        else sfxEv(a, typeof o.sfx === "string" ? o.sfx : kind === "notify" ? "notify" : kind === "highlight" ? "highlight" : kind === "badge" ? "badge" : kind === "arrow" ? "arrow" : "note");
+      }
+      if (k <= 0) return;
       ctx.save(); ctx.globalAlpha *= k;
       if (kind === "note") {
         var lines = wrap(o.text || "", o.width || 420, { size: 28, weight: 700 }), w = Math.min(o.width || 420, Math.max.apply(null, lines.map(function (l) { return tw(l, { size: 28, weight: 700 }); }))) + 40, h = lines.length * 38 + 30;
@@ -851,7 +873,8 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   var HELP = { C: C, F: F, W: W, H: H, clamp: clamp, lin: lin, eo: eo, eio: eio, back: back, P: P, mix: mix, rr: rr, txt: txt, tw: tw, wrap: wrap,
                rich: rich, icon: icon, panel: panel, stateMark: stateMark, emblem: emblem, accentAt: accentAt, slots: slots,
                qpt: qpt, rand: rand, arrow: arrow, packet: packet, node: node, appWindow: appWindow, toast: toast, typed: typed, count: fmtNum,
-               particles: particles, cursor: cursor, sub: sub, camAt: camAt, applyCam: applyCam, heading: heading };
+               particles: particles, cursor: cursor, sub: sub, camAt: camAt, applyCam: applyCam, heading: heading,
+               sfx: function (at, what, o) { sfxEv(at, what, o); } };
 
   /* ================= 背景と 1 コマ ================= */
   function scaleCtx() { ctx.setTransform(cv.width / W, 0, 0, cv.height / H, 0, 0); }
@@ -948,29 +971,141 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
 
 
   /* ================= 音声（読み上げ・音楽・効果音） ================= */
-  var AUD = SPEC.audio || {};
-  var ac = null, master = null, pad = null, recording = null;
-  function ensureAudio() { if (ac) return; try { ac = new (window.AudioContext || window.webkitAudioContext)(); master = ac.createGain(); master.gain.value = audioOn ? 1 : 0; master.connect(ac.destination); } catch (e) { ac = null; } }
-  var MUSIC = { calm: [73.42, 110, 146.83, 164.81, 220], bright: [98, 146.83, 196, 246.94, 293.66], deep: [55, 82.41, 110, 130.81, 164.81] };
-  function startPad() {
-    var chord = MUSIC[AUD.music]; if (!ac || pad || !chord) return;
-    var g = ac.createGain(); g.gain.value = 0; g.connect(master);
-    var lp = ac.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = AUD.music === "bright" ? 1400 : 700; lp.connect(g);
-    var oscs = chord.map(function (f, i) { var o = ac.createOscillator(); o.type = i % 2 ? "triangle" : "sine"; o.frequency.value = f; o.detune.value = (i - 2) * 4;
-      var og = ac.createGain(); og.gain.value = .5 / chord.length; o.connect(og); og.connect(lp); o.start(); return o; });
-    var lfo = ac.createOscillator(); lfo.frequency.value = .07; var lg = ac.createGain(); lg.gain.value = 260; lfo.connect(lg); lg.connect(lp.frequency); lfo.start();
-    g.gain.linearRampToValueAtTime(AUD.musicVolume || .07, ac.currentTime + 1.5);
-    pad = { g: g, oscs: oscs.concat([lfo]) };
+  var AUD = SPEC.audio || {}, MA = window.MotionAudio;
+  var ac = null, master = null, recording = null, duckG = null, sfxBus = null;
+  var MUS = AUD._music || {}, SFXD = AUD._sfx || {}, SFXCFG = AUD._sfxcfg || null, INSTX = Object.assign({}, (MA && MA.INST) || {}, AUD.instruments || {});
+  var SFXBUF = {}, SFXFN = {};
+  function ensureAudio() {
+    if (ac || !MA) return;
+    try { ac = new (window.AudioContext || window.webkitAudioContext)(); master = ac.createGain(); master.gain.value = audioOn ? 1 : 0;
+      /* 出口に抑え（音楽・効果音が重なっても割れない） */
+      var lim = ac.createDynamicsCompressor(); lim.threshold.value = -6; lim.knee.value = 6; lim.ratio.value = 12; lim.attack.value = .003; lim.release.value = .2;
+      master.connect(lim); lim.connect(ac.destination);
+      duckG = ac.createGain(); duckG.gain.value = 1; duckG.connect(master);
+      sfxBus = ac.createGain(); sfxBus.gain.value = SFXCFG ? (SFXCFG.volume === undefined ? 1 : SFXCFG.volume) : 1; sfxBus.connect(master);
+      /* ファイルの効果音は先に復号しておく */
+      Object.keys(SFXD).forEach(function (k) { var r = SFXD[k]; if (!r.file) return;
+        fetch(r.file).then(function (x) { return x.arrayBuffer(); }).then(function (buf) { return ac.decodeAudioData(buf); }).then(function (b) { SFXBUF[k] = b; }).catch(function (e) { console.warn("sfx file:", k, e); }); });
+    } catch (e) { ac = null; } }
+
+  /* ---- 音楽: 章ごとに曲の頭から。音符は「章の中の時刻」だけで決まる（MotionAudio.notes）。
+   * 音楽の時計 mt は、読み上げを待って映像が止まっている間も進む（音が途切れない）。シーク・再生・速度の変更で映像の時刻に合わせ直す */
+  var mclock = { mt: 0, upTo: 0, sec: -1, secStart: 0, bus: null, files: {}, fresh: false };
+  var MUSVOL = AUD.musicVolume === undefined ? 1 : AUD.musicVolume;
+  var musicOn = true, sfxOn = true;   /* 見る人の設定（設定の「音楽」「効果音」）。起動時に読み込む */
+  function musicKeyOf(ci) { var ch = SPEC.chapters[ci]; return ch && ch._music !== undefined ? ch._music : AUD._musicKey; }
+  function energyOf(ci) {
+    var ch = SPEC.chapters[ci], n = CHAPTERS.length;
+    if (ch && ch.energy) return ch.energy;
+    if (Array.isArray(AUD.energy) && AUD.energy[ci]) return AUD.energy[ci];
+    if (ci === 0 || (ci === n - 1 && n > 2)) return 1;
+    return ci === n - 2 && n >= 4 ? 3 : 2;
   }
-  function stopPad() { if (!pad || !ac) return; var p = pad; pad = null; p.g.gain.cancelScheduledValues(ac.currentTime);
-    p.g.gain.setValueAtTime(p.g.gain.value, ac.currentTime); p.g.gain.linearRampToValueAtTime(0, ac.currentTime + .4);
-    setTimeout(function () { p.oscs.forEach(function (o) { try { o.stop(); } catch (e) {} }); }, 500); }
-  function bell(freq, vol, len) {
-    if (!ac || !audioOn || AUD.sfx === false) return; var now = ac.currentTime;
-    [1, 2.01, 3.02].forEach(function (m, i) { var o = ac.createOscillator(); o.type = "sine"; o.frequency.value = freq * m;
-      var g = ac.createGain(); g.gain.setValueAtTime(0, now); g.gain.linearRampToValueAtTime(vol / (i + 1), now + .01); g.gain.exponentialRampToValueAtTime(.0001, now + len / (i + 1));
-      o.connect(g); g.connect(master); o.start(now); o.stop(now + len); });
+  function musicStop() {
+    if (!ac) return;
+    if (mclock.bus) { var old = mclock.bus; old.gain.cancelScheduledValues(ac.currentTime); old.gain.setTargetAtTime(0, ac.currentTime, .06);
+      setTimeout(function () { try { old.disconnect(); } catch (e) {} }, 600); }
+    mclock.bus = null; mclock.sec = -1;
+    Object.keys(mclock.files).forEach(function (k) { try { mclock.files[k].el.pause(); } catch (e) {} });
   }
+  function musicReset() { musicStop(); mclock.mt = t; }
+  function fileOf(key, def) {
+    var f = mclock.files[key]; if (f) return f;
+    var el = new Audio(def.file); el.loop = def.loop !== false; el.preservesPitch = true;
+    var g = ac.createGain(); g.gain.value = (def.volume === undefined ? .35 : def.volume) * MUSVOL;
+    try { ac.createMediaElementSource(el).connect(g); g.connect(duckG); } catch (e) { console.warn("music file:", e); }
+    return (mclock.files[key] = { el: el, g: g });
+  }
+  function musicTick(dtReal) {
+    if (!ac || !audioOn || !playing || !MA || !musicOn) return;
+    mclock.mt += dtReal * speed;
+    var ci = chapterAt(t), key = musicKeyOf(ci), def = key ? MUS[key] : null, off = mclock.mt - t;
+    if (ci !== mclock.sec) {
+      mclock.sec = ci; mclock.secStart = CHAPTERS[ci].t + off; mclock.upTo = mclock.mt; mclock.fresh = true;
+      if (!mclock.bus) { mclock.bus = ac.createGain(); mclock.bus.gain.value = MUSVOL * (def && def.g ? def.g : 1); mclock.bus.connect(duckG); }
+      else mclock.bus.gain.setTargetAtTime(MUSVOL * (def && def.g ? def.g : 1), ac.currentTime, .3);
+      Object.keys(mclock.files).forEach(function (k) { if (k !== key) try { mclock.files[k].el.pause(); } catch (e) {} });
+    }
+    if (!def) return;
+    if (def.file) {
+      /* ファイル: 映像の先頭（章の曲なら章の先頭）からの位置に合わせて鳴らし、0.3 秒よりずれたら合わせ直す */
+      var f = fileOf(key, def), pos = (AUD._musicKey === key && !SPEC.chapters[ci]._music ? mclock.mt : mclock.mt - mclock.secStart) / 1000, dur = f.el.duration;
+      if (dur && isFinite(dur)) pos = def.loop === false ? Math.min(pos, dur) : pos % dur;
+      f.el.playbackRate = speed;
+      if (f.el.paused) { try { f.el.currentTime = pos; } catch (e) {} f.el.play().catch(function () {}); }
+      else if (Math.abs(f.el.currentTime - pos) > .3) { try { f.el.currentTime = pos; } catch (e) {} }
+      return;
+    }
+    var secEnd = (ci < CHAPTERS.length - 1 ? CHAPTERS[ci + 1].t : DUR) + off, to = Math.min(mclock.mt + 300 * speed, secEnd), from = mclock.upTo;
+    if (to <= from) return;
+    var info = { ci: ci, energy: energyOf(ci), len: secEnd - mclock.secStart }, lf = from - mclock.secStart;
+    MA.notes(def, info, mclock.fresh ? Math.max(0, lf - 12000) : lf, to - mclock.secStart).forEach(function (n) {
+      var st = n.t, en = n.t + (n.d || 0);
+      if (st < lf) { if (!mclock.fresh || n.drum || en <= lf + 60 || !MA.isSus(n.inst, INSTX)) return; }   /* 途中から: 伸ばしている音だけ */
+      var tv = CHAPTERS[ci].t + st, fade = clamp(tv / 1200 + .15) * clamp((DUR - tv) / 2500);   /* 映像の最初と最後で下げる */
+      if (fade <= 0) return;
+      var when = ac.currentTime + Math.max(0, mclock.secStart + st - mclock.mt) / speed / 1000;
+      MA.note(ac, mclock.bus, n, when, Math.max(.05, (en - Math.max(st, lf)) / speed / 1000), fade, INSTX, st < lf); mclock.count = (mclock.count || 0) + 1;
+    });
+    mclock.fresh = false; mclock.upTo = to;
+  }
+  var duckOn = false;
+  function syncDuck() { if (!duckG) return; var want = !!speaking && AUD.narration !== false; if (want === duckOn) return; duckOn = want;
+    duckG.gain.setTargetAtTime(want ? (AUD.duck === undefined ? .5 : AUD.duck) : 1, ac.currentTime, want ? .08 : .4); }
+
+  /* ---- 効果音: 場面の部品・重ねの層が H.sfx / sfxEv で出来事を知らせる。起動時に場面ごとに一度だけ集めて、時刻の表にする ---- */
+  var EVC = null, EVOFF = 0, EVMUTE = 0, SFXQ = [], sfxCount = 0;
+  function sfxEv(at, ev, o) { if (EVC && !EVMUTE) EVC.push({ at: at + EVOFF, ev: ev, o: o || {} }); }
+  function sfxPlay(name, delay, o) {
+    if (!ac || !audioOn || !sfxOn || !name) return; var r = SFXD[name]; if (!r) return; sfxCount++;
+    o = o || {}; var when = ac.currentTime + Math.max(0, delay || 0);
+    if (r.file) { var b = SFXBUF[name]; if (!b) return; var src = ac.createBufferSource(), g = ac.createGain(); src.buffer = b;
+      src.playbackRate.value = Math.pow(2, (o.pitch || 0) / 12); g.gain.value = (o.v === undefined ? 1 : o.v) * (r.v || 1); src.connect(g); g.connect(sfxBus); src.start(when); return; }
+    if (r.code) { var fn = SFXFN[name]; if (!fn) { try { fn = SFXFN[name] = new Function("ac", "out", "when", "A", "o", r.code); } catch (e) { fn = SFXFN[name] = function () {}; console.error("sfx code:", e); } }
+      try { fn(ac, sfxBus, when, MA, o); } catch (e) { console.error("sfx code:", e); } return; }
+    MA.play(ac, sfxBus, r, when, o);
+  }
+  function buildSfxQueue() {
+    if (!SFXCFG || !MA) return;
+    var KIT = SFXCFG.kit || {}, dens = SFXCFG.density || 2, raw = [];
+    var tc = document.createElement("canvas"); tc.width = 8; tc.height = 8;
+    var cv0 = cv, ctx0 = ctx; cv = tc; ctx = tc.getContext("2d"); thumbMode = true;
+    SCENES.forEach(function (sc, k) {
+      var ss = sc.s.sfx, auto = !(ss === false || (ss && !Array.isArray(ss) && ss.auto === false)), smap = ss && !Array.isArray(ss) && ss.map || {};
+      var push = function (T, ev, o, name) { raw.push({ T: T, ev: ev, o: o || {}, name: name, map: smap, k: k }); };
+      if (k > 0) { if (SCENES[k - 1].ci !== sc.ci) push(sc.t0 + 60, "chapter"); else { var tr = trOf(k); push(sc.t0 - (tr === "cut" ? 0 : 150), "tr." + tr); } }
+      if (auto) {
+        EVC = []; EVOFF = 0; EVMUTE = 0;
+        try { ctx.setTransform(1, 0, 0, 1, 0, 0); (R[sc.s.type] || R.statement)(sc.s, Math.max(0, sc.d - 1), sc.d, sc.t0 + sc.d - 1); drawOverlays(sc.s, Math.max(0, sc.d - 1), sc.d); }
+        catch (e) { console.warn("sfx collect:", e); }
+        EVC.forEach(function (e) { push(sc.t0 + clamp(e.at, 0, sc.d), e.ev, e.o, SFXD[e.ev] ? e.ev : null); });
+        EVC = null;
+      }
+      (Array.isArray(ss) ? ss : ss && ss.add || []).forEach(function (a) {
+        push(sc.t0 + (a.ms !== undefined ? a.ms : (a.at || 0) * sc.d), a.event, { v: a.v, pitch: a.pitch, force: true }, a.name);
+      });
+    });
+    cv = cv0; ctx = ctx0; thumbMode = false;
+    var last = {};
+    raw.forEach(function (r, i) {
+      var name = r.name, v = 1, step = 0, lv = 1;
+      if (!name) {
+        var m = r.map[r.ev] !== undefined ? r.map[r.ev] : KIT[r.ev];
+        if (!m) return;
+        if (typeof m === "string") m = [m, 1, 0, 1];
+        name = m[0]; v = m[1] === undefined ? 1 : m[1]; step = m[2] || 0; lv = m[3] || EVLV[r.ev] || 1;
+        if (lv > dens && !r.o.force) return;
+      }
+      if (!SFXD[name]) return;
+      var o = r.o, pitch = (o.pitch || 0) + (o.i !== undefined ? Math.min(12, o.i * step) : 0), q = { T: r.T, name: name, v: v * (o.v === undefined ? 1 : o.v), pitch: pitch, seed: i + 1 };
+      if (o.n || o.dur) { var rep = Math.max(1, Math.min(40, o.n || Math.round(o.dur / 70))); q.rep = rep; q.gap = (o.dur || rep * 70) / rep / 1000; }
+      if (last[name] !== undefined && Math.abs(last[name] - r.T) < 45) return;   /* 同じ音の重なり（同時に出る項目）は 1 つに */
+      last[name] = r.T; SFXQ.push(q);
+    });
+    SFXQ.sort(function (a, b) { return a.T - b.T; });
+  }
+  var EVLV = { chapter: 1, hit: 1, click: 1, title: 1, outro: 1, countEnd: 1, message: 1, send: 1, toast: 1, notify: 1, done: 1, blocked: 1, reveal: 1, nav: 1, row: 3, working: 3 };
+  function kitPlay(ev, delay) { var m = SFXCFG && SFXCFG.kit[ev]; if (m) sfxPlay(m[0], delay, { v: m[1] }); }
   var synth = "speechSynthesis" in window ? window.speechSynthesis : null, voice = null, LANG = SPEC.lang || "ja";
   function pickVoice() {
     if (!synth) return; var vs = synth.getVoices(), re = new RegExp("^" + LANG, "i");
@@ -995,7 +1130,8 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   function onAdvance(a, b) {
     if (!audioOn) return;
     CUES.forEach(function (c) { if (crossed(a, b, c.a)) say(c.text, c); });
-    CHAPTERS.forEach(function (c, i) { if (crossed(a, b, c.t + 120)) bell(i === 0 ? 523.25 : 587.33, .09, 2.2); });
+    if (b - a > 400) return;   /* 大きく飛んだ（シーク相当）ときは鳴らさない */
+    SFXQ.forEach(function (q) { if (crossed(a, b, q.T)) sfxPlay(q.name, 0, q); });
   }
 
   /* ================= プレイヤー ================= */
@@ -1018,7 +1154,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   function play() {
     if (t >= DUR) t = 0;
     ensureAudio(); if (ac && ac.state === "suspended") ac.resume().catch(function () {});
-    if (audioOn) startPad();
+    musicReset();
     playing = true; started = true; lastNow = performance.now();
     try { document.dispatchEvent(new CustomEvent("mv-exclusive", { detail: root })); } catch (e) {}
     var rb0 = $("mv-resume"); if (rb0) rb0.hidden = true;
@@ -1026,18 +1162,18 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     if (c && audioOn && (t - c.a) < (c.b - c.a) * .35) say(c.text, c);
     pickVoice(); syncUI(); poke();
   }
-  function pause() { playing = false; hush(); stopPad(); cancelRec(); syncUI(); poke(); }
-  function stop() { playing = false; hush(); stopPad(); cancelRec(); t = 0; started = false; needsDraw = true; syncUI(); poke(); }
+  function pause() { playing = false; hush(); musicStop(); cancelRec(); syncUI(); poke(); }
+  function stop() { playing = false; hush(); musicStop(); cancelRec(); t = 0; started = false; needsDraw = true; syncUI(); poke(); }
   function toggle() { playing ? pause() : play(); }
-  function seek(ms) { t = clamp(ms, 0, DUR); hush(); needsDraw = true; started = true; if (t >= DUR) { playing = false; stopPad(); } syncUI(); }
+  function seek(ms) { t = clamp(ms, 0, DUR); hush(); needsDraw = true; started = true; if (playing) musicReset(); if (t >= DUR) { playing = false; musicStop(); } syncUI(); }
   function chapterStep(dir) { var i = chapterAt(t), n = i + dir; if (dir < 0 && t - CHAPTERS[i].t > 2000) n = i;
-    n = clamp(n, 0, CHAPTERS.length - 1); seek(CHAPTERS[n].t); bell(587.33, .07, 1.2); }
-  function setSpeed(v) { speed = v; var sel = $("mv-speed"); if (sel) sel.value = String(v); store.set("speed", String(v)); if (playing) hush(); }
+    n = clamp(n, 0, CHAPTERS.length - 1); seek(CHAPTERS[n].t); ensureAudio(); kitPlay("nav"); }
+  function setSpeed(v) { speed = v; var sel = $("mv-speed"); if (sel) sel.value = String(v); store.set("speed", String(v)); if (playing) { hush(); musicReset(); } }
   function setCaptions(on) { captions = on; store.set("cc", on ? "1" : "0"); var b = $("mv-cc"); if (b) b.setAttribute("aria-pressed", String(on)); syncCaption(true); }
   function setAudio(on) { audioOn = on; store.set("audio", on ? "1" : "0"); var b = $("mv-audio");
     if (b) { b.setAttribute("aria-pressed", String(on)); b.setAttribute("aria-label", on ? "音声をオフにする" : "音声をオンにする"); }
     if (ac && master) master.gain.setTargetAtTime(on ? 1 : 0, ac.currentTime, .05);
-    if (!on) { hush(); stopPad(); } else if (playing) { ensureAudio(); startPad(); } pickVoice(); }
+    if (!on) { hush(); musicStop(); } else if (playing) { ensureAudio(); musicReset(); } pickVoice(); }
 
   /* シークバー（チャプターごとの区切り） */
   var seekEl = $("mv-seek"), track = $("mv-track");
@@ -1184,10 +1320,10 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       /* slides: 章の終わりで止まる（「次へ」で続きを再生） */
       var slideStop = false;
       if (SLIDES && !recording && nt < DUR && chapterAt(nt) > chapterAt(t)) { nt = CHAPTERS[chapterAt(nt)].t; slideStop = true; }
-      var prev = t; t = nt; onAdvance(prev, t);
+      var prev = t; t = nt; onAdvance(prev, t); musicTick(Math.min(100, now - lastNow)); syncDuck();
       if (now - lastSave > 2000) { lastSave = now; store.set(POSKEY, String(t >= DUR - 3000 ? 0 : Math.round(t))); }
-      if (slideStop) { playing = false; hush(); stopPad(); }
-      if (t >= DUR) { if (KIOSK && !recording) { t = 0; hush(); } else { playing = false; stopPad(); if (recording) finishRec(); } }
+      if (slideStop) { playing = false; hush(); musicStop(); }
+      if (t >= DUR) { if (KIOSK && !recording) { t = 0; hush(); musicReset(); } else { playing = false; musicStop(); if (recording) finishRec(); } }
       syncUI(); needsDraw = true;
     }
     lastNow = now;
@@ -1224,6 +1360,14 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     document.addEventListener("pointerdown", function (e) { if (!setPanel.hidden && !e.target.closest('[data-mv="setpanel"]') && !e.target.closest('[data-mv="setbtn"]')) closeSet(false); });
   }
   setCap(store.get("cap", "m"));
+  function setMus(on) { musicOn = on; store.set("mus", on ? "1" : "0");
+    [].forEach.call(root.querySelectorAll("button[data-mus]"), function (b) { b.setAttribute("aria-pressed", String((b.getAttribute("data-mus") === "1") === on)); });
+    if (!on) musicStop(); else if (playing) musicReset(); }
+  function setSfx(on) { sfxOn = on; store.set("sfx", on ? "1" : "0");
+    [].forEach.call(root.querySelectorAll("button[data-sfx]"), function (b) { b.setAttribute("aria-pressed", String((b.getAttribute("data-sfx") === "1") === on)); }); }
+  [].forEach.call(root.querySelectorAll("button[data-mus]"), function (b) { b.addEventListener("click", function () { setMus(b.getAttribute("data-mus") === "1"); }); });
+  [].forEach.call(root.querySelectorAll("button[data-sfx]"), function (b) { b.addEventListener("click", function () { setSfx(b.getAttribute("data-sfx") === "1"); }); });
+  setMus(store.get("mus", "1") === "1"); setSfx(store.get("sfx", "1") === "1");
   var pipBtn = $("mv-pip"), pipVideo = null;
   if (pipBtn) {
     if (!(document.pictureInPictureEnabled && cv.captureStream)) pipBtn.hidden = true;
@@ -1271,12 +1415,14 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   var ccb = $("mv-cc"); if (ccb) ccb.setAttribute("aria-pressed", String(captions));
   var aub = $("mv-audio"); if (aub) { aub.setAttribute("aria-pressed", String(audioOn)); aub.setAttribute("aria-label", audioOn ? "音声をオフにする" : "音声をオンにする"); }
   SCENES.forEach(function (sc) { if (sc.s.type === "image" && sc.s.src && !IMGS[sc.s.src]) { var im = new Image(); im.onload = function () { needsDraw = true; }; im.src = sc.s.src; IMGS[sc.s.src] = im; } });
+  try { buildSfxQueue(); } catch (e) { console.warn("sfx:", e); }
   new ResizeObserver(resize).observe(cv); resize(); syncUI(); requestAnimationFrame(frame);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { needsDraw = true; });
   if (KIOSK && !(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches)) { started = true; playing = true; lastNow = performance.now(); syncUI(); }
   /* 同じページのほかのプレイヤーを再生したら、こちらは止める（読み上げの声は 1 つしか無いため） */
   document.addEventListener("mv-exclusive", function (e) { if (e.detail !== root && playing) pause(); });
-  var api = { seek: seek, play: play, pause: pause, get t() { return t; }, get speaking() { return !!speaking; }, DUR: DUR, CHAPTERS: CHAPTERS, CUES: CUES };
+  var api = { seek: seek, play: play, pause: pause, get t() { return t; }, get speaking() { return !!speaking; }, DUR: DUR, CHAPTERS: CHAPTERS, CUES: CUES, SFX: SFXQ,
+              get audio() { return { ctx: ac, mt: mclock.mt, section: mclock.sec, notes: mclock.count || 0, sfx: sfxCount }; } };
   root.__mv = api; window.__MV__ = api;
   return api;
 };

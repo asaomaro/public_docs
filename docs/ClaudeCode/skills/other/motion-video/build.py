@@ -12,6 +12,8 @@
 import sys, os, re, json, html, base64, argparse, mimetypes
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import sound  # noqa: E402  曲・効果音の定義（同じ場所の sound.py）
 
 # ──────────────────────────────────────────────────────────────────────────
 # 映像の配色テーマ（canvas は映像の中、chrome はプレイヤーの操作部）
@@ -353,6 +355,7 @@ def validate(spec, base):
                 else:
                     mime = mimetypes.guess_type(p)[0] or "image/png"
                     s["src"] = "data:%s;base64,%s" % (mime, base64.b64encode(open(p, "rb").read()).decode("ascii"))
+    errs += sound.prepare(spec, base)
     return errs
 
 
@@ -580,6 +583,10 @@ def build_fragment(spec, theme_key, player, uid=None):
         + '<div class="mv-menu mv-set" id="mv-setpanel" hidden>'
         '<div class="mv-setrow"><span>字幕の大きさ</span><span class="mv-seg3" role="group" aria-label="字幕の大きさ">'
         '<button type="button" data-cap="s">小</button><button type="button" data-cap="m">標準</button><button type="button" data-cap="l">大</button></span></div>'
+        '<div class="mv-setrow"><span>音楽</span><span class="mv-seg3" role="group" aria-label="音楽">'
+        '<button type="button" data-mus="1">入</button><button type="button" data-mus="0">切</button></span></div>'
+        '<div class="mv-setrow"><span>効果音</span><span class="mv-seg3" role="group" aria-label="効果音">'
+        '<button type="button" data-sfx="1">入</button><button type="button" data-sfx="0">切</button></span></div>'
         '<button type="button" class="mv-setitem" id="mv-pip">小窓で再生（ピクチャー・イン・ピクチャー）</button>'
         '<button type="button" class="mv-setitem" id="mv-rec">動画ファイル（WebM）で保存</button>'
         '<p class="mv-setnote">保存は最初から 1 倍速で再生して録画します（字幕は映像に焼き込み。読み上げの声は入りません）。</p>'
@@ -617,7 +624,9 @@ def player_css():
 
 
 def engine_js():
-    return open(os.path.join(HERE, "engine.js"), encoding="utf-8").read()
+    """音の合成（audio.js）と描画・プレイヤー（engine.js）。どちらも 1 ページで 1 度だけ効く。"""
+    return (open(os.path.join(HERE, "audio.js"), encoding="utf-8").read() + "\n"
+            + open(os.path.join(HERE, "engine.js"), encoding="utf-8").read())
 
 
 def build_embed(spec, theme_key, player):
@@ -638,6 +647,99 @@ def build_html(spec, theme_key, player):
             "<style>%s%s</style></head><body><main class=\"mv-page\">%s%s%s</main><script>%s</script></body></html>\n"
             % (html.escape(spec.get("lang", "ja")), html.escape(title), PAGE_CSS, player_css(), head,
                build_fragment(spec, theme_key, player, "mv"), keys if player != "kiosk" else "", engine_js()))
+
+
+def sound_board():
+    """曲と効果音を聞き比べる 1 枚の HTML（audio.js だけを使う。映像は無い）。"""
+    music = {k: v for k, v in sound.MUSIC.items()}
+    kits = {}
+    for k, (n, desc, m) in sound.KITS.items():
+        merged = {}
+        for ev in sound.EVENTS:
+            v = m.get(ev) if ev in m else (None if "**" in m else sound.KITS["standard"][2].get(ev))
+            if v:
+                merged[ev] = v
+        kits[k] = {"name": n, "desc": desc, "map": merged}
+    data = json.dumps({"music": music, "sfx": sound.SFX, "kits": kits, "events": sound.EVENTS,
+                       "mcats": sound.MUSIC_CATS, "scats": sound.SFX_CATS}, ensure_ascii=False).replace("</", "<\\/")
+    audio = open(os.path.join(HERE, "audio.js"), encoding="utf-8").read()
+    return """<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>motion-video の音</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1d2430;--muted:#5d6878;--line:#dde2ea;--accent:#2f6fde;--on:#fff}
+@media (prefers-color-scheme:dark){:root{--bg:#12161c;--card:#1a2029;--ink:#e6ebf2;--muted:#9aa6b6;--line:#2c3542;--accent:#6ea2ff;--on:#0b1220}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 system-ui,"Hiragino Sans","Noto Sans JP",sans-serif}
+main{max-width:1180px;margin:0 auto;padding:24px 16px 80px}h1{font-size:24px;margin:0 0 4px}h2{font-size:19px;margin:34px 0 8px;border-bottom:2px solid var(--line);padding-bottom:6px}
+h3{font-size:14px;color:var(--muted);margin:18px 0 6px}p.lead{color:var(--muted);margin:0 0 14px}
+.bar{position:sticky;top:0;z-index:2;display:flex;flex-wrap:wrap;gap:12px;align-items:center;background:var(--bg);padding:10px 0;border-bottom:1px solid var(--line)}
+.bar label{display:flex;gap:6px;align-items:center;font-size:13px;color:var(--muted)}select,button{font:inherit}
+.bar button{padding:6px 14px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
+.now{font-size:13px;color:var(--accent);font-weight:700}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:8px}
+.m{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;align-items:center;text-align:left;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);cursor:pointer}
+.m:hover,.s:hover{border-color:var(--accent)}.m[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent) inset}
+.m .i{grid-row:span 2;width:30px;height:30px;border-radius:50%;background:var(--accent);color:var(--on);display:grid;place-items:center;font-size:13px}
+.m b{font-size:15px}.m small{color:var(--muted);font-size:12px}.m code,.s code{font-size:11.5px;color:var(--muted)}
+.sg{display:flex;flex-wrap:wrap;gap:6px}.s{padding:6px 10px;border:1px solid var(--line);border-radius:999px;background:var(--card);color:var(--ink);cursor:pointer}
+table{border-collapse:collapse;width:100%;font-size:13px;background:var(--card)}th,td{border:1px solid var(--line);padding:4px 8px;text-align:left}th{background:var(--bg)}
+td button{border:0;background:none;color:var(--accent);cursor:pointer;padding:0}
+@media (max-width:600px){.grid{grid-template-columns:1fr}}
+</style></head><body><main>
+<h1>motion-video の音</h1>
+<p class="lead">曲（__NM__ 曲）と効果音（__NS__ 種）を試し聞きする。どれも Web Audio で合成した音で、同じ台本からは同じ音が鳴る。名前（<code>code</code>）を台本の <code>audio.music</code>・<code>sfx</code> に書く。</p>
+<div class="bar"><label>盛り上がり <select id="en"><option value="1">1（静か）</option><option value="2" selected>2（標準）</option><option value="3">3（山場）</option></select></label>
+<label>章 <select id="ci"><option value="0">1 章目の進行</option><option value="1">2 章目</option><option value="2">3 章目</option></select></label>
+<button type="button" id="stop">■ 止める</button><span class="now" id="now"></span></div>
+<h2>曲</h2><div id="music"></div>
+<h2>効果音</h2><div id="sfx"></div>
+<h2>効果音の組（出来事 → 効果音）</h2><p class="lead">組の名前をクリックすると、主な出来事の音を順に鳴らす。</p><div id="kits"></div>
+</main>
+<script>__AUDIO__</script>
+<script>
+var D = __DATA__, MA = window.MotionAudio, ac = null, cur = null;
+function ensure() { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === "suspended") ac.resume(); }
+function el(t, a, h) { var e = document.createElement(t); if (a) Object.keys(a).forEach(function (k) { e.setAttribute(k, a[k]); }); if (h !== undefined) e.innerHTML = h; return e; }
+function stop() { if (!cur) return; clearInterval(cur.timer); var g = cur.bus; g.gain.setTargetAtTime(0, ac.currentTime, .08); setTimeout(function () { g.disconnect(); }, 800);
+  if (cur.btn) cur.btn.setAttribute("aria-pressed", "false"); cur = null; document.getElementById("now").textContent = ""; }
+function playMusic(id, btn) {
+  var same = cur && cur.id === id; stop(); if (same) return; ensure();
+  var def = JSON.parse(JSON.stringify(D.music[id])), bus = ac.createGain(); bus.gain.value = def.g || 1; bus.connect(ac.destination);
+  var t0 = ac.currentTime + .12, upTo = 0, info = { ci: +document.getElementById("ci").value, energy: +document.getElementById("en").value, len: 1e12 };
+  var tick = function () { var now = (ac.currentTime - t0) * 1000, to = now + 500; if (to <= upTo) return;
+    MA.notes(def, info, upTo, to).forEach(function (n) { MA.note(ac, bus, n, t0 + n.t / 1000, Math.max(.05, (n.d || 0) / 1000), 1); }); upTo = to; };
+  tick(); cur = { id: id, bus: bus, btn: btn, timer: setInterval(tick, 100) }; btn.setAttribute("aria-pressed", "true");
+  document.getElementById("now").textContent = "♪ " + def.name + "（" + id + "）";
+}
+var fx = null;
+function playSfx(id, v, pitch) { ensure(); if (!fx) { fx = ac.createGain(); fx.connect(ac.destination); } MA.play(ac, fx, D.sfx[id], ac.currentTime + .02, { v: v || 1, pitch: pitch || 0, seed: 1 }); }
+D.mcats.forEach(function (cat) {
+  var box = document.getElementById("music"); box.appendChild(el("h3", null, cat)); var g = el("div", { class: "grid" }); box.appendChild(g);
+  Object.keys(D.music).forEach(function (k) { var m = D.music[k]; if (m.cat !== cat) return;
+    var b = el("button", { type: "button", class: "m", "aria-pressed": "false" }, '<span class="i">▶</span><b>' + m.name + ' <code>' + k + '</code></b><small>' + m.bpm + ' BPM・' + m.key + ' ' + m.scale + '・' + m.desc + '</small>');
+    b.addEventListener("click", function () { playMusic(k, b); }); g.appendChild(b); });
+});
+D.scats.forEach(function (cat) {
+  var box = document.getElementById("sfx"); box.appendChild(el("h3", null, cat)); var g = el("div", { class: "sg" }); box.appendChild(g);
+  Object.keys(D.sfx).forEach(function (k) { var s = D.sfx[k]; if (s.cat !== cat) return;
+    var b = el("button", { type: "button", class: "s", title: s.desc }, s.name + ' <code>' + k + '</code>'); b.addEventListener("click", function () { playSfx(k); }); g.appendChild(b); });
+});
+(function () {
+  var evs = Object.keys(D.events), t = el("table"), hr = el("tr"); hr.appendChild(el("th", null, "出来事"));
+  Object.keys(D.kits).forEach(function (k) { var th = el("th"), b = el("button", { type: "button", title: D.kits[k].desc }, "▶ " + D.kits[k].name + "<br><code>" + k + "</code>");
+    b.addEventListener("click", function () { var i = 0; ["title", "chapter", "tr.slide", "appear", "appear", "appear", "step", "connect", "countEnd", "notify", "done", "click", "outro"].forEach(function (ev, j) {
+      var m = D.kits[k].map[ev]; if (!m) return; setTimeout(function () { playSfx(m[0], m[1], (ev === "appear" ? j - 3 : 0) * (m[2] || 0)); }, (i++) * 650); }); });
+    th.appendChild(b); hr.appendChild(th); });
+  t.appendChild(hr);
+  evs.forEach(function (ev) { var tr = el("tr"); tr.appendChild(el("td", null, "<code>" + ev + "</code><br>" + D.events[ev][0]));
+    Object.keys(D.kits).forEach(function (k) { var m = D.kits[k].map[ev], td = el("td");
+      if (m) { var b = el("button", { type: "button" }, m[0]); b.addEventListener("click", function () { playSfx(m[0], m[1]); }); td.appendChild(b); } else td.textContent = "—";
+      tr.appendChild(td); }); t.appendChild(tr); });
+  var wrap = el("div", { style: "overflow-x:auto" }); wrap.appendChild(t); document.getElementById("kits").appendChild(wrap);
+})();
+document.getElementById("stop").addEventListener("click", stop);
+["en", "ci"].forEach(function (id) { document.getElementById(id).addEventListener("change", function () { if (cur) { var c = cur; stop(); playMusic(c.id, c.btn); } }); });
+</script></body></html>
+""".replace("__AUDIO__", audio).replace("__DATA__", data).replace("__NM__", str(len(sound.MUSIC))).replace("__NS__", str(len(sound.SFX)))
 
 
 def print_list():
@@ -661,8 +763,10 @@ def print_list():
     print("\n# 台本の骨組み")
     print('  {"title":"…","description":"…","lang":"ja","player":"studio","theme":"navy-brass",'
           '"brand":{"name":"…"},"transition":"fade","poster":4300,'
-          '"audio":{"narration":true,"music":"calm|bright|deep|none","sfx":true,"rate":1.1,"wait":true,"pronounce":{"Sodashitsu":"ソダシツ"}},'
+          '"audio":{"narration":true,"music":"corporate","sfx":{"kit":"standard","density":"normal"},"rate":1.1,"wait":true,"pronounce":{"Sodashitsu":"ソダシツ"}},'
           '"expression":"mixed","chapters":[{"title":"章の名前","desc":"一覧に出す説明","scenes":[{…場面…}]}]}')
+    print("\n# 音（曲 %d・効果音 %d・効果音の組 %d）\n  一覧と書き方は --list-sounds、聞き比べるページは --sounds -o sounds.html"
+          % (len(sound.MUSIC), len(sound.SFX), len(sound.KITS)))
     print("\ncustom の道具は --api、手本は recipes.md")
 
 
@@ -676,9 +780,19 @@ def main():
     ap.add_argument("--timeline", action="store_true", help="HTML を作らず、場面の長さと字幕の時刻を出す")
     ap.add_argument("--api", action="store_true", help="custom の場面で使える描画の道具（H.*）の一覧を出す")
     ap.add_argument("--embed", action="store_true", help="ページではなく、ほかの HTML に差し込む断片を出す（md-to-doc の文書など）")
+    ap.add_argument("--list-sounds", action="store_true", help="曲・効果音・効果音の組・出来事と、audio の書き方を出す")
+    ap.add_argument("--sounds", action="store_true", help="曲と効果音を聞き比べる HTML を作る（-o で出力先。既定 sounds.html）")
     args = ap.parse_args()
     if args.api:
         print(API_DOC)
+        return
+    if args.list_sounds:
+        sound.print_sounds()
+        return
+    if args.sounds:
+        out = args.out or os.path.abspath("sounds.html")
+        open(out, "w", encoding="utf-8").write(sound_board())
+        print("OK : %s（曲 %d・効果音 %d）" % (out, len(sound.MUSIC), len(sound.SFX)))
         return
     if args.list or not args.spec:
         print_list()
@@ -704,6 +818,10 @@ def main():
     kinds = [s["type"] for ch in spec["chapters"] for s in ch["scenes"]]
     if expr == "components" and "custom" in kinds:
         warns.append("expression=components なのに custom の場面が %d 個あります" % kinds.count("custom"))
+    au = spec.get("audio") or {}
+    own = [k for k in ("music",) if isinstance(au.get(k), dict) and (au[k].get("code") or au[k].get("layers"))] + (["sfxDefs"] if au.get("sfxDefs") else []) + (["instruments"] if au.get("instruments") else [])
+    if expr == "components" and own:
+        warns.append("expression=components なのに自作の音（%s）があります（部品だけのときは用意された曲・効果音を使う）" % ", ".join(own))
     if expr == "free" and "custom" not in kinds:
         warns.append("expression=free なのに custom の場面がありません（見せ場は custom で描く）")
     for w in warns:
@@ -712,7 +830,8 @@ def main():
     if args.timeline:
         t = 0
         for ci, ch in enumerate(spec["chapters"]):
-            print("%s  第 %d 章 %s" % (fmt(t), ci + 1, ch["title"]))
+            mk = ch.get("_music", spec["audio"].get("_musicKey"))
+            print("%s  第 %d 章 %s　♪ %s" % (fmt(t), ci + 1, ch["title"], sound.music_label(ch["music"]) if "music" in ch else sound.music_label(spec["audio"].get("music")) if mk else "なし"))
             for s in ch["scenes"]:
                 print("  %s  %-9s %5.1f 秒  %s" % (fmt(t), s["type"], s["_dur"] / 1000, (s.get("heading") or s.get("title") or "")[:30]))
                 for a, b, c in s["_cues"]:

@@ -115,3 +115,54 @@ el.querySelector(".core").setAttribute("r", String(110 + 8 * Math.sin(lt / 400))
 
 - `setTimeout`・`requestAnimationFrame`・CSS の `transition` は使わない（時刻と無関係に進み、シークで崩れる）。
 - 文字の大きさは px で決めてよい（箱ごと縮むので、画面の大きさに合わせて揃う）。
+
+## 音（作曲・効果音を自作する）
+
+一覧は `python3 build.py --list-sounds`、聞き比べは `python3 build.py --sounds -o sounds.html`。
+まず用意された曲・効果音の組を選び、足りないときだけ自作する（自作するのは表現が `free` のときが基本）。
+
+```json
+"audio": {
+  "music": {"preset": "corporate", "bpm": 92, "key": "E"},
+  "sfx": {"kit": "soft", "density": "low", "map": {"appear": "bubble"}},
+  "energy": [1, 2, 3, 1]
+}
+```
+
+楽器 × 型で一から組む（層の `e` はその盛り上がりから鳴る。和音の記号は音階の度数。`b7` は借りてくる和音、`m`・`7`・`s4` も付けられる）:
+
+```json
+"music": {"bpm": 96, "key": "D", "scale": "dorian", "prog": [["1", "4", "b7", "1"], ["6", "4", "5", "1"]],
+          "layers": [{"inst": "epiano", "pat": "hold", "oct": 4},
+                     {"inst": "bass", "pat": "walk", "oct": 2, "v": .8},
+                     {"inst": "flute", "pat": "melody", "oct": 5, "dens": .4, "e": 2}],
+          "drum": "brush", "swing": .4}
+```
+
+JS で作曲する（小節ごとに呼ばれ、音符の配列を返す。時刻だけで決まるように `M.rand` を使う）:
+
+```js
+// music.js — 本体 (bar, M)。M: bar chapter energy beats bpm key scale prog chord(記号, oct) root(記号, oct) degree(i, oct) rand() hz(midi)
+var out = [], ch = M.chord(M.prog, 4);
+ch.forEach(function (n) { out.push({ at: 0, len: M.beats, n: n, inst: "strings", v: .6 }); });
+for (var i = 0; i < 8; i++) out.push({ at: i * .5, len: .4, n: ch[i % ch.length] + 12, inst: "kalimba", v: .5 + .3 * M.rand() });
+if (M.energy >= 2) out.push({ at: 0, drum: "kick" }, { at: 2, drum: "snare", v: .8 });
+return out;
+```
+
+効果音を層で作る（`audio.sfxDefs`。楽器の `audio.instruments` も同じ書き方で、`f` を書かなければ音符の高さで鳴る）:
+
+```json
+"sfxDefs": {
+  "rise-hit": {"l": [{"w": "noise", "a": .5, "d": .05, "v": .3, "flt": ["highpass", [600, 6000], .7, .5]},
+                     {"w": "sine", "at": .5, "f": [120, 45], "ft": .3, "d": .6, "v": .8}]}
+}
+```
+
+custom の場面から鳴らす（場面の最初に一度だけ集めるので、`if (lt > …)` の中ではなく外で呼ぶ）:
+
+```js
+var at = H.slots(3, d, 600, 900);
+at.forEach(function (a, i) { H.sfx(a, "appear", { i: i }); });   // 出来事（組の音が鳴る。i で少しずつ高く）
+H.sfx(d * .7, "rise-hit");                                        // 効果音の名前をじかに
+```
