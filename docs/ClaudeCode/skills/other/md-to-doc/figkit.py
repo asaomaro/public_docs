@@ -631,8 +631,8 @@ def fig_terminal(spec, cv):
                 rows.append(("out", part))
     CH = 8.6
     maxc = max([len(r[1]) + (len(prompt) + 1 if r[0] == "cmd" else 0) for r in rows] + [30])
-    W = min(820, int(maxc * CH) + 44)
-    per = max(20, int((W - 44) / CH))
+    W = min(820, math.ceil(maxc * CH) + 44)
+    per = max(20, min(maxc, int((W - 44) / CH + 1e-6)))  # 切り捨てで最長の行の末尾が折り返されないように
     wrapped = []
     for kind, s_ in rows:
         first = True
