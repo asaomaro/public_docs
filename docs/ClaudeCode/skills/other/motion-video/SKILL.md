@@ -1,6 +1,6 @@
 ---
 name: motion-video
-description: 紹介・説明の内容から、動画のように再生できるモーショングラフィックスの単一HTMLを作る。再生・停止・倍速・字幕・音声（読み上げ・音楽・効果音）・チャプター・シークバー（その時刻のプレビュー）・文字起こし・続きから再生・小窓・WebM で保存・キー操作・全画面を備えたプレイヤーを 7 種のテンプレート（シネマ/スタジオ/プレゼンター/ミニマル/キオスク/シアター/スライド）から、映像の配色を 6 種から選べる。音楽は 86 曲・効果音は 125 種（Web Audio で合成し、場面の出来事に合わせて自動で鳴る。効果音の組 10 種）。動きの性格（穏やか・ダイナミック・楽しい・映画的・技術）を 1 つ選ぶと、28 種の切り替え・21 種の文字の出方・18 種の演出の層・カメラの型・画面の揺れの既定がまとまって決まる。表現は「部品」（53 種の部品と 6 種の割り付けの型で決定論的に組む。グラフ・スマホやダッシュボードなどの画面・網の目や木などの図を含む。線で描かれて動くアイコン 75 種）「混在」「自由」（プレイヤー・時間割・字幕・音声だけを使い、Claude が Canvas か HTML・SVG・CSS で描く。音楽・効果音も作曲・自作できる）から選ぶ。ほかの HTML（md-to-doc の文書など）にも埋め込める。「紹介動画を作って」「モーショングラフィックスで説明して」「動画っぽいHTMLにして」などと言われたときに使用する。
+description: 紹介・説明の内容から、動画のように再生できるモーショングラフィックスの単一HTMLを作る。再生・停止・倍速・字幕・音声（読み上げ・音楽・効果音）・チャプター・シークバー（その時刻のプレビュー）・文字起こし・続きから再生・小窓・WebM で保存・キー操作・全画面を備えたプレイヤーを 7 種のテンプレート（シネマ/スタジオ/プレゼンター/ミニマル/キオスク/シアター/スライド）から、映像の配色を 6 種から選べる。音楽は 140 曲・効果音は 221 種（Web Audio で合成し、場面の出来事に合わせて自動で鳴る。効果音の組 15 種）。動きの性格（穏やか・ダイナミック・楽しい・映画的・技術）を 1 つ選ぶと、28 種の切り替え・21 種の文字の出方・18 種の演出の層・カメラの型・画面の揺れの既定がまとまって決まる。表現は「部品」（53 種の部品と 6 種の割り付けの型で決定論的に組む。グラフ・スマホやダッシュボードなどの画面・網の目や木などの図を含む。線で描かれて動くアイコン 75 種）「混在」「自由」（プレイヤー・時間割・字幕・音声だけを使い、Claude が Canvas か HTML・SVG・CSS で描く。音楽・効果音も作曲・自作できる）から選ぶ。ほかの HTML（md-to-doc の文書など）にも埋め込める。「紹介動画を作って」「モーショングラフィックスで説明して」「動画っぽいHTMLにして」などと言われたときに使用する。
 ---
 
 # motion-video — 台本から、動画のように再生できる HTML を作る
@@ -187,19 +187,24 @@ description: 紹介・説明の内容から、動画のように再生できる�
 | 内容・雰囲気 | 曲の例 |
 |---|---|
 | 会社・サービスの紹介（定番） | `corporate` `bright` `trust` `pitch` `clean` |
-| 新製品・発表・告知 | `launch` `innovate` `keynote` `hype` `startup` |
-| 技術・開発者・データ | `tech` `data` `circuit` `ai` `robot` `synthwave` `hacker` `cyber` |
-| 落ち着いた解説・研修 | `calm` `study` `lofi` `rain` `documentary` `minimal` |
+| 新製品・発表・告知 | `launch` `innovate` `keynote` `hype` `startup` `rise` |
+| 技術・開発者・データ | `tech` `data` `circuit` `ai` `robot` `synthwave` `hacker` `cyber` `techno` |
+| 落ち着いた解説・研修 | `calm` `study` `lofi` `chillhop` `rain` `documentary` `minimal` `radio` |
 | 課題の提示・危機 → 解決 | 章ごとに `tension` / `mystery` → `hope`（章の `music` で切り替える） |
-| 物語・ビジョン・壮大 | `epic` `hero` `wonder` `trailer` `adventure` `space` |
-| 明るい・楽しい・子ども | `happy` `pop` `kids` `summer` `island` `musicbox` |
-| 和・アジア・民族 | `wa` `kyoto` `matsuri` `zen` `ryukyu` `orient` `celtic` |
-| レトロ・ゲーム | `chiptune` `arcade` `puzzle` `rpg` |
-| 大人・店舗・夜 | `jazz` `bossa` `cafe` `night` `soul` `house` |
-| 力強い・スピード | `rock` `drive` `sport` `funk` `countdown` |
+| 物語・ビジョン・壮大 | `epic` `hero` `wonder` `trailer` `adventure` `space` `anthem` `earth` `aurora` |
+| 謎・不穏・怖い | `mystery` `suspense` `detective` `horror` `creepy` `dungeon` `sneaky` |
+| 明るい・楽しい・子ども | `happy` `pop` `kids` `summer` `island` `musicbox` `nursery` `picnic` `comedy` `lullaby` |
+| 和・アジア・民族 | `wa` `kyoto` `matsuri` `zen` `ryukyu` `orient` `celtic` `gagaku` `enka` `edo` `bon` |
+| 世界の音楽 | `samba` `reggae` `ska` `tango` `musette` `flamenco` `arabian` `raga` `caribbean` `country` |
+| ゲーム | `chiptune` `arcade` `puzzle` `rpg` `town` `battle` `victory` `chipboss` `chiptown` |
+| 大人・店舗・夜 | `jazz` `swing` `blues` `gospel` `bossa` `cafe` `night` `soul` `citypop` |
+| 力強い・スピード・ダンス | `rock` `drive` `sport` `funk` `countdown` `parade` `house` `outrun` `dnb` `trap` `garage` `futurebass` `reggaeton` |
+| 番組風（ニュース・告知・クイズ・締め） | `news` `weather` `variety` `podcast` `quiz` `credits` |
+| 冬・静けさ・瞑想 | `snow` `meditation` `zen` `aurora` |
 
 - 効果音の組（`audio.sfx.kit`）: `standard`（既定）・`soft`（研修・医療・子ども）・`digital`（技術・SaaS）・`retro`・`organic`（手作り・生活）・
-  `cinematic`（予告・ビジョン）・`playful`・`wa`（和）・`news`（報道・レポート）・`minimal`（章・通知・クリックだけ）。曲の雰囲気と揃える。
+  `cinematic`（予告・ビジョン）・`playful`・`wa`（和）・`news`（報道・レポート）・`minimal`（章・通知・クリックだけ）・
+  `scifi`（宇宙・未来）・`horror`（怪談・警告）・`kids`（子ども・絵本）・`game`（RPG 風の案内）・`luxury`（高級・ブランド・式典）。曲の雰囲気と揃える。
 - 量（`audio.sfx.density`）: `low`（章・通知・クリック・数え上げの終わり等だけ）・`normal`（既定。項目が出る・線がつながる等も）・`high`（表の行まで）。
   読み上げのある 2 分以上の動画で、うるさく感じそうなら `low`。
 - 盛り上がり: 章ごとに 1〜3（既定は最初と最後が 1、最後の手前が 3、ほかは 2）。山場の章に `"energy": 3`。
@@ -208,6 +213,9 @@ description: 紹介・説明の内容から、動画のように再生できる�
 - 表現が `free` で、音も作り込むと決めたとき（質問で「作曲・自作」を選んだとき）:
   - 曲は `{"preset": "…", 上書き}` で既存の曲の一部（`bpm`・`key`・`scale`・`prog`・`layers`・`drum`）を変えるか、
     `layers`（楽器 × 型）を一から組む。さらに自由にするなら `{"bpm": 96, "src": "music.js"}`（小節ごとに音符を返す JS）。
+  - 楽器は 76 種（シタール・三味線・スチールドラム・アコーディオン・笙・808 など）、型は 42 種（レゲエの刻み `skank`・ダンスの `pump8`・弦の `tremolo`・
+    `habanera`・`stride`・`gallop`・`tanpura` など）、打楽器の型は 47 種（`boombap` `trap2` `samba` `swing` `techno` `bon` `maqsum` など）、
+    音階は 20 種（`hijaz` `bhairav` `iwato` `dim` など）。打楽器の型の `r`・`t` は刻みの中の 2・3 連打（トラップのハイハット）。
   - 楽器（`audio.instruments`）・効果音（`audio.sfxDefs`）は層（発振器・雑音・包絡・フィルタ）の並びで作る（書き方は `--list-sounds` と `audio.js` の冒頭）。
   - `custom` の場面の中で `H.sfx(ms, "名前か出来事")` を呼べば、その時刻に鳴る（条件の外で呼ぶ）。
   - 自作しても、時刻だけで決まる作りは同じ（`Math.random` は使わず `M.rand`）。
