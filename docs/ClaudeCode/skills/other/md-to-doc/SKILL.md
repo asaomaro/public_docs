@@ -218,7 +218,31 @@ python3 <skill_dir>/generate.py "<input.md>" --theme <key> --suggest-layouts
 | メリット／デメリット、A 案／B 案 | `proscons` | 2〜3 項目に小項目。良い点・懸念は見出しの語で色と印が付く |
 | 説明とコードが交互に続く（コードの解説） | `walkthrough` | 段落→コードが 2 組以上（左に説明・右にコード） |
 | 冒頭の概要・まとめ | `summary` | 最初の節が「概要」「まとめ」「要点」等（節全体を要点の箱で包む） |
+| 冒頭の大見出し・結論のひとこと | `hero` | 1 項目目が見出し（`{…}` で札）、2 項目目以降が補足 |
+| 印象的な一言・引用 | `quote` | `- 引用の文 — 話した人` |
+| 料金・プラン | `pricing` | `- プラン — ¥1,200/月 {おすすめ}` に小項目で機能 |
+| 横に並ぶ短い手順（3〜6） | `stepper` | `- 手順 — 補足`（長い手順は `timeline`） |
+| 状態ごとのタスク | `kanban` | 項目が列（未着手・作業中…）、小項目がカード（`{タグ}`） |
+| よくある質問 | `faq` | 項目が問い、項目の中の段落が答え |
+| 導入の前と後（つまみで見比べる） | `beforeafter` | 2 項目: `- 導入前 — …` `- 導入後 — …`（中に段落も可） |
+| 画面・写真を並べる | `gallery` | `- ![代替](画像) 説明`（押すと拡大） |
+| 今・次・後で | `roadmap` | 項目が時期（1 項目目が「いまここ」）、小項目が中身 |
+| 利用者・関係者・担当 | `persona` | `- 名前 — 役割 {タグ}`（先頭の絵文字か `:icon:` が顔）、中に一言 |
+| 工程の流れ（矢羽根） | `chevron` | `- 工程 — 期間` が 3〜6 件 |
+| 大きな数字（回転して定まる） | `counters` | `stats` と同じ形。見せ場の数字に |
+| 評価・満足度・達成率 | `rating` | `- 項目 — 4.5/5`（星）・`- 項目 — 80%`（棒） |
+| やること・やらないこと | `dodont` | 先頭が `✓`・`✗`（`Do`・`Don't`・`やる`・`やらない` も可） |
+| 利用者の声 | `voices` | `- 声 — 名前（役割）` |
+| 判断の分かれ道 | `decision` | 問いの項目に小項目 `はい → …`・`いいえ → …`（入れ子で続く） |
+| できること・特徴をアイコンで | `icongrid` | `- :bolt: 速い — 3 分で`（アイコンは motion-video の `build.py --list-icons`） |
 | 散文的な補足・注意・前提、項目が2つ以下 | `plain` | — |
+
+- **表・コードの見せ方**: 表の直前に `<!-- table: matrix -->`（機能の比較表。`✓`・`✗`・`△` を記号に、見出しの末尾に `*` を付けた列を強調）・
+  `<!-- table: raci -->`（役割表。R・A・C・I を色の札に）。コードのフェンスを ` ```diff ` にすると追加・削除の行が色分けされる。
+- **アイコン**: リストの項目の先頭に `:名前:`（例 `:rocket:`）を書くと、線で描くアイコンになる（カード・年表・アコーディオン等でも）。
+- 追加の見せ方は、`--motion rich`（か `--motion-blocks on`）のとき、それぞれに合った動きで現れる
+  （料金はおすすめが光る・手順は線が伸びて番号が点く・カンバンはカードが落ちる・前と後はつまみが一往復・数字は回転して定まる・
+  評価は星が点く・声は重なった所から広がる・判断の木は上から枝が出る・比較表は ✓ が描かれる など）。
 
 - `walkthrough`・`summary` は節の見せ方で、節の中の箇条書きは素の箇条書きになる。
 - **文章として読ませるならレイアウト、全体像を一目で見せるなら図（figkit）**。同じ内容を両方で出さない
@@ -430,6 +454,8 @@ figkit に無い形の図だけ、以下の手描きのルールで描く。
 | 要素・g | `data-effect="zoom\|flip\|flip-y\|spin\|roll\|swing\|drop\|bounce\|elastic\|jelly"` | 動きの強い現れ方（大きい所から／裏返る／回る／転がる／振り子／落ちる／跳ねる／伸び縮み／ぷるん） |
 | 要素・g | `data-effect="slide-left\|slide-right\|slide-up\|slide-down\|blur\|iris\|blinds\|glitch\|flicker\|outline"` | 向きのある滑り／ぼけから／円が開く／帯が開く／乱れる／明滅して点く／輪郭を描いてから塗る |
 | text・g | `data-effect="letters\|scramble"` | 1 文字ずつ現れる／でたらめな文字から定まる |
+| 要素・g | `data-effect="mask\|wipe-up\|wipe-down\|wipe-left\|spring\|stamp\|unfold\|twist\|skew\|pop-up\|zoom-blur\|rise-rotate\|tilt-in\|float-in"` | 中央から開く／下・上・右から拭う／ばね／判子／上から開く／ねじれて／傾いて滑る／下から弾む／ぼけて寄る／回りながら浮かぶ／傾きを戻す／斜めに漂って |
+| g | `data-effect="cascade"` | 子が順に上から落ちてくる |
 | 要素・g | `data-attn="shake\|wiggle\|jump\|pop\|tada\|heartbeat\|flash\|glow\|ring\|pulse"` | 登場がすべて終わった後、段の順に 1 回強調する（ring は波紋） |
 | 要素 | `data-burst="粒の数"` | 現れるときに粒が弾ける（結果・達成に） |
 | 要素・g | `data-float="px"`・`data-sway="度"`・`data-blink`・`data-heartbeat`・`data-glow` | 現れた後の繰り返し（漂う／揺れる／瞬く／鼓動／光る） |
@@ -588,7 +614,9 @@ flowchart は figkit の `flow`、sequenceDiagram は `sequence` の仕様に写
 - ディレクティブは**その節の中でだけ有効**。次の見出しでリセットされ、前節の指定を引きずらない。
 - 置く場所は節内のどこでもよいが、**見出しの直後**が読みやすい。出力HTMLには残らない。
 - 値は `plain` / `cards` / `timeline` / `accordion` / `tabs` / `checklist` / `defs` / `stats` / `chips` /
-  `tree` / `proscons` / `walkthrough` / `summary`。`freeform` は文書全体のモードなので節単位には
+  `tree` / `proscons` / `hero` / `quote` / `pricing` / `stepper` / `kanban` / `faq` / `beforeafter` / `gallery` /
+  `roadmap` / `persona` / `chevron` / `counters` / `rating` / `dodont` / `voices` / `decision` / `icongrid` /
+  `walkthrough` / `summary`。`freeform` は文書全体のモードなので節単位には
   指定できず、警告を出して既定値のまま描画される。
 - `--layout-map` の節名が どの見出しとも一致しなかった場合は警告が出る（黙って無視しない）。
 - `design=ai` / `layout=freeform` のときは本文を Claude が著述するので、ディレクティブは
