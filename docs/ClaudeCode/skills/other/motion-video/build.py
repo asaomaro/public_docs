@@ -148,6 +148,10 @@ SCENE_TYPES = {
     "map": (["pins"], "地図とピン（街の地図にピンが落ち、routes で経路）。x・y は 0..1", '{"type":"map","pins":[{"x":0.2,"y":0.6,"label":"東京"},{"x":0.75,"y":0.35,"label":"大阪"}],"routes":[[0,1]]}'),
     "layers": (["items"], "層の構成（下から積み上がり、途中で分かれて見せる）", '{"type":"layers","items":[{"label":"インフラ","sub":"クラウド"},{"label":"サーバ"},{"label":"画面"}]}'),
     "pipeline": (["stages"], "流れ作業（段を印が流れ続け、段ごとの数が増える）", '{"type":"pipeline","stages":[{"label":"受付","icon":"mail"},"設計","実装",{"label":"完了","icon":"check"}],"label":"依頼が次々に流れる"}'),
+    "layout": (["slots"], "場面の割り付けの型（template: trio 3 つ並び・inset 大見出し＋小窓・collage 傾いた写真・fullbleed 全面の写真＋文字・focus 1 つを大きく・split2 左右の比較）。slots は部品の台本の配列（caption で下に一言）",
+               '{"type":"layout","template":"trio","title":"3 つの画面","slots":[{"type":"gauge","value":82,"caption":"満足度"},{"type":"rings","items":[{"label":"達成","value":70}],"caption":"進み"},{"type":"stack","labels":["A","B"],"series":[{"name":"x","values":[3,5]}],"caption":"内訳"}]}'),
+    "wordcloud": (["words"], "語の雲（重い語ほど大きく中央に。順に弾んで現れ、ゆっくり漂う）", '{"type":"wordcloud","words":[{"text":"並行","weight":5},{"text":"承認","weight":4},"通知","SSH","Windows"]}'),
+    "bigtype": (["big"], "画面いっぱいの文字が背景で流れ、前に言葉が出る（text・sub）", '{"type":"bigtype","big":"PARALLEL","text":"並べて、任せる。","sub":"Sodashitsu"}'),
     "icons": (["items"], "アイコンの格子（線で描かれ、現れた後も動く）。items: {icon, label, text}", '{"type":"icons","heading":"できること","items":[{"icon":"rocket","label":"速い","text":"3 分で"},{"icon":"shield","label":"安全"},{"icon":"users","label":"みんなで"}]}'),
     "impact": (["text"], "強い一語を叩きつける（集中線・破片・画面の揺れ）。sub で下に一行", '{"type":"impact","text":"10 倍速い","sub":"同じ作業が 3 分で"}'),
     "countdown": ([], "3・2・1 の数え下ろしと、最後に label を叩きつける（from で始まりの数）", '{"type":"countdown","from":3,"label":"公開！","sub":"10 月 1 日"}'),
@@ -181,15 +185,23 @@ TRANSITIONS = {
     "iris": "中央から円が広がる", "blinds": "横の帯が開く", "split": "前の場面が上下に割れる", "whip": "高速で横に流れる（ぶれと線）",
     "spin": "回って縮み、回って現れる", "flash": "白く光って切り替わる", "glitch": "映像が乱れて切り替わる", "pixel": "モザイクになって切り替わる",
     "squeeze": "箱が回るように", "zoom-through": "前の場面に突っ込んで抜ける",
+    "diagonal": "斜めの境目が流れる", "diamond": "菱形が広がる", "spot": "一点（origin）から円が広がる", "cube": "縦に箱が回る",
+    "page": "ページをめくる", "liquid": "波打つ境目が流れる", "dive": "前の場面の一点（focus）へ飛び込む", "tiles": "タイルが斜めの順に開く",
+    "stripes": "縦の縞が上下から開く", "clock": "時計回りに開く",
 }
 TEXT_ANIMS = {
     "rise": "下から浮かぶ（既定）", "reveal": "左から現れ、カーソルが走る（題名の既定）", "pop": "弾んで出る", "slam": "大きく叩きつけ、画面が揺れる",
     "stretch": "横に伸びた形から縮む（映画の題名）", "blur": "ぼけから合う", "glitch": "色ずれしながら定まる", "neon": "ネオンが点く",
     "type": "1 文字ずつ打つ", "scramble": "でたらめな文字から定まる", "wave": "1 文字ずつ波打って出る", "letters": "1 文字ずつ落ちてくる", "split": "散らばった文字が集まる",
+    "mask": "下から覗くように現れる", "marker": "蛍光ペンが走ってから文字", "drop": "上から落ちて弾む", "zoom": "大きな所から縮んで定まる",
+    "outline": "輪郭だけの文字から塗られる", "roll": "1 文字ずつ下から回り込む", "spin": "1 文字ずつ回って現れる", "shadow": "長い影が伸びる",
 }
+EASES = {"smooth": "なめらか（既定）", "spring": "ばねのように行き過ぎて戻る", "snappy": "素早く決まる", "bouncy": "跳ねて止まる"}
+ORDERS = {"normal": "前から（既定）", "reverse": "後ろから", "center": "中央から外へ", "edges": "両端から中央へ", "random": "ばらばら（毎回同じ順）"}
 FX = {
     "particles": "漂う粒", "stars": "瞬く星", "bokeh": "ぼけた光の玉", "rays": "差し込む光の筋", "speedlines": "中心へ向かう集中線", "grid": "奥へ流れる格子の床",
-    "waves": "下で揺れる波線", "scanlines": "走査線（上）", "confetti": "紙吹雪（上）", "vignette": "周りを暗く（上）", "sweep": "斜めの光が通る（上）", "noise": "フィルムの粒（上）",
+    "waves": "下で揺れる波線", "gradient": "動くグラデーション", "aurora": "流れるオーロラ", "plexus": "点と線の網", "contour": "等高線",
+    "shapes": "漂う図形", "blobs": "ゆらぐ柔らかな塊", "scanlines": "走査線（上）", "confetti": "紙吹雪（上）", "vignette": "周りを暗く（上）", "sweep": "斜めの光が通る（上）", "noise": "フィルムの粒（上）",
 }
 CAMERA_PRESETS = {
     "push-in": "ゆっくり寄る", "pull-out": "寄った所から引く", "pan-left": "左へ流す", "pan-right": "右へ流す", "rise": "上へ上がる",
@@ -245,7 +257,7 @@ API_DOC = """custom の本体は (ctx, lt, d, H, s)。座標は 1920×1080、lt 
 手本は recipes.md。"""
 
 
-MIN_SEC = {"area": 6, "stack": 6, "scatter": 6, "heatmap": 6, "gauge": 5, "rings": 5, "treemap": 6, "radar": 6, "phone": 6, "dashboard": 7,
+MIN_SEC = {"layout": 7, "wordcloud": 5, "bigtype": 4.5, "area": 6, "stack": 6, "scatter": 6, "heatmap": 6, "gauge": 5, "rings": 5, "treemap": 6, "radar": 6, "phone": 6, "dashboard": 7,
            "form": 6, "notifs": 4, "scroll": 6, "drag": 5, "network": 6, "tree": 5, "states": 6, "map": 6, "layers": 6, "pipeline": 7, "icons": 3, "impact": 3.5, "countdown": 4, "orbit": 7, "logo": 6.5, "marquee": 5, "title": 8, "statement": 4.5, "bullets": 2.5, "flow": 3, "steps": 2, "terminal": 2.5, "stats": 4.5, "bars": 3.5,
            "compare": 3, "code": 2.5, "window": 7, "image": 5, "end": 4, "custom": 5,
            "cards": 3, "timeline": 3, "chat": 2, "line": 6, "donut": 6, "table": 3, "quote": 6, "kinetic": 3, "split": 6,
@@ -428,6 +440,15 @@ def validate(spec, base):
             for key, table, name in (("transition", TRANSITIONS, "切り替え"), ("anim", TEXT_ANIMS, "文字の出方")):
                 if s.get(key) and s[key] not in table:
                     errs.append("%s: %s %r は %s のいずれか" % (where, name, s[key], "/".join(table)))
+            for key, table, name in (("ease", EASES, "緩急"), ("order", ORDERS, "現れる順")):
+                if s.get(key) and s[key] not in table:
+                    errs.append("%s: %s %r は %s のいずれか" % (where, name, s[key], "/".join(table)))
+            if t == "layout":
+                for li, sp in enumerate(s.get("slots") or []):
+                    if not isinstance(sp, dict) or sp.get("type") not in SCENE_TYPES or sp.get("type") in ("layout", "dom", "custom"):
+                        errs.append("%s: slots[%d] の type は部品の名前（layout・dom・custom 以外）" % (where, li))
+                if s.get("template", "trio") not in ("trio", "inset", "collage", "fullbleed", "focus", "split2"):
+                    errs.append("%s: template は trio / inset / collage / fullbleed / focus / split2 のいずれか" % where)
             if isinstance(s.get("camera"), str) and s["camera"] not in CAMERA_PRESETS:
                 errs.append("%s: カメラの型 %r は %s のいずれか" % (where, s["camera"], "/".join(CAMERA_PRESETS)))
             for f in (s.get("fx") or []) if isinstance(s.get("fx"), list) else []:
@@ -445,7 +466,7 @@ def validate(spec, base):
             for ki, key in enumerate(s.get("camera", []) if isinstance(s.get("camera"), list) else []):
                 if not isinstance(key, dict) or not any(x in key for x in ("x", "y", "zoom")):
                     errs.append("%s: camera[%d] は {at, x, y, zoom} の形にしてください" % (where, ki))
-            if t == "image" and s.get("src") and not re.match(r"^(data:|https?:)", s["src"]):
+            if t in ("image", "layout") and s.get("src") and not re.match(r"^(data:|https?:)", s["src"]):
                 p = os.path.join(base, s["src"])
                 if not os.path.isfile(p):
                     errs.append("%s: 画像が見つかりません: %s" % (where, p))
@@ -467,6 +488,9 @@ def validate(spec, base):
             walk_icons(s, "第 %d 章の場面 %d" % (ci + 1, si + 1))
     if spec.get("transition") and spec["transition"] not in TRANSITIONS:
         errs.append("transition %r は %s のいずれか" % (spec["transition"], "/".join(TRANSITIONS)))
+    for key, table, name in (("ease", EASES, "緩急"), ("order", ORDERS, "現れる順")):
+        if spec.get(key) and spec[key] not in table:
+            errs.append("%s %r は %s のいずれか" % (name, spec[key], "/".join(table)))
     if spec.get("motion") and spec["motion"] not in MOTION_STYLES:
         errs.append("motion %r は %s のいずれか" % (spec["motion"], "/".join(MOTION_STYLES)))
     for f in spec.get("fx") or []:
@@ -884,6 +908,9 @@ def print_list():
     print("  " + "　".join("%s（%s）" % kv for kv in TRANSITIONS.items()))
     print("\n# 文字の出方（場面の anim）")
     print("  " + "　".join("%s（%s）" % kv for kv in TEXT_ANIMS.items()))
+    print("\n# 動き方（場面の ease・order。台本全体にも書ける）")
+    print("  ease: " + "　".join("%s（%s）" % kv for kv in EASES.items()))
+    print("  order: " + "　".join("%s（%s）" % kv for kv in ORDERS.items()) + "　※ 項目を順に出す部品（bullets・cards・steps など）に効く")
     print("\n# 演出の層（場面の fx・台本の fx。文字列か {kind, color, alpha, n, seed}）")
     print("  " + "　".join("%s（%s）" % kv for kv in FX.items()))
     print("\n# 表現のモード（台本の expression）")

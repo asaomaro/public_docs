@@ -1,6 +1,6 @@
 ---
 name: motion-video
-description: 紹介・説明の内容から、動画のように再生できるモーショングラフィックスの単一HTMLを作る。再生・停止・倍速・字幕・音声（読み上げ・音楽・効果音）・チャプター・シークバー（その時刻のプレビュー）・文字起こし・続きから再生・小窓・WebM で保存・キー操作・全画面を備えたプレイヤーを 7 種のテンプレート（シネマ/スタジオ/プレゼンター/ミニマル/キオスク/シアター/スライド）から、映像の配色を 6 種から選べる。音楽は 86 曲・効果音は 125 種（Web Audio で合成し、場面の出来事に合わせて自動で鳴る。効果音の組 10 種）。動きの性格（穏やか・ダイナミック・楽しい・映画的・技術）を 1 つ選ぶと、18 種の切り替え・13 種の文字の出方・12 種の演出の層・カメラの型・画面の揺れの既定がまとまって決まる。表現は「部品」（50 種の部品で決定論的に組む。グラフ・スマホやダッシュボードなどの画面・網の目や木などの図を含む。線で描かれて動くアイコン 75 種）「混在」「自由」（プレイヤー・時間割・字幕・音声だけを使い、Claude が Canvas か HTML・SVG・CSS で描く。音楽・効果音も作曲・自作できる）から選ぶ。ほかの HTML（md-to-doc の文書など）にも埋め込める。「紹介動画を作って」「モーショングラフィックスで説明して」「動画っぽいHTMLにして」などと言われたときに使用する。
+description: 紹介・説明の内容から、動画のように再生できるモーショングラフィックスの単一HTMLを作る。再生・停止・倍速・字幕・音声（読み上げ・音楽・効果音）・チャプター・シークバー（その時刻のプレビュー）・文字起こし・続きから再生・小窓・WebM で保存・キー操作・全画面を備えたプレイヤーを 7 種のテンプレート（シネマ/スタジオ/プレゼンター/ミニマル/キオスク/シアター/スライド）から、映像の配色を 6 種から選べる。音楽は 86 曲・効果音は 125 種（Web Audio で合成し、場面の出来事に合わせて自動で鳴る。効果音の組 10 種）。動きの性格（穏やか・ダイナミック・楽しい・映画的・技術）を 1 つ選ぶと、28 種の切り替え・21 種の文字の出方・18 種の演出の層・カメラの型・画面の揺れの既定がまとまって決まる。表現は「部品」（53 種の部品と 6 種の割り付けの型で決定論的に組む。グラフ・スマホやダッシュボードなどの画面・網の目や木などの図を含む。線で描かれて動くアイコン 75 種）「混在」「自由」（プレイヤー・時間割・字幕・音声だけを使い、Claude が Canvas か HTML・SVG・CSS で描く。音楽・効果音も作曲・自作できる）から選ぶ。ほかの HTML（md-to-doc の文書など）にも埋め込める。「紹介動画を作って」「モーショングラフィックスで説明して」「動画っぽいHTMLにして」などと言われたときに使用する。
 ---
 
 # motion-video — 台本から、動画のように再生できる HTML を作る
@@ -136,6 +136,9 @@ description: 紹介・説明の内容から、動画のように再生できる�
 | 構成の層（アーキテクチャ） | `layers` |
 | 次々に処理が流れる | `pipeline` |
 | できること・特徴をアイコンで | `icons`（アイコンは `--list-icons`。`bullets`・`cards`・`orbit` 等の `icon` にも名前で書ける） |
+| 複数の部品を 1 画面に（3 つ並び・大見出し＋小窓・写真の重なり・全面の写真・1 つを大きく・左右の比較） | `layout`（`template` と `slots`） |
+| キーワードの広がり | `wordcloud` |
+| 大きな言葉を背景に（標語・ブランド） | `bigtype` |
 | 強い一語・結論（集中線・揺れ） | `impact` |
 | 公開日・開始までの数え下ろし | `countdown` |
 | 中心と周りの関係（生態系・連携先） | `orbit`（項目が中心の周りを回る） |
@@ -156,9 +159,13 @@ description: 紹介・説明の内容から、動画のように再生できる�
 | `tech` | 乱れ・拭き取り・モザイク・帯（乱れ） | でたらめな文字から | 走査線・格子の床 | 技術・データ・開発者向け |
 
 - 性格を選んだら台本全体の `transition` は書かない（書くとそれが全場面に効く）。見せ場の場面だけ `transition`・`anim`・`fx`・`camera`・`shake` で変える。
-- 切り替え（18 種）: `fade` `slide` `zoom` `cut` `wipe` `push` `slide-up` `slide-down` `iris` `blinds` `split` `whip` `spin` `flash` `glitch` `pixel` `squeeze` `zoom-through`。
-- 文字の出方（`anim`。title・statement・quote・end・kinetic・impact・logo）: `rise` `reveal` `pop` `slam` `stretch` `blur` `glitch` `neon` `type` `scramble` `wave` `letters` `split`。
-- 演出の層（`fx`）: `particles` `stars` `bokeh` `rays` `speedlines` `grid` `waves`（部品の下）・`scanlines` `confetti` `vignette` `sweep` `noise`（上）。
+- 切り替え（28 種）: `fade` `slide` `zoom` `cut` `wipe` `push` `slide-up` `slide-down` `iris` `blinds` `split` `whip` `spin` `flash` `glitch` `pixel` `squeeze` `zoom-through`
+  `diagonal` `diamond` `spot`（場面の `origin` から）`cube` `page` `liquid` `dive`（前の場面の `focus` へ飛び込む）`tiles` `stripes` `clock`。
+- 文字の出方（`anim`。title・statement・quote・end・kinetic・impact・logo・layout・bigtype）: `rise` `reveal` `pop` `slam` `stretch` `blur` `glitch` `neon` `type` `scramble` `wave` `letters` `split`
+  `mask` `marker` `drop` `zoom` `outline` `roll` `spin` `shadow`。
+- 演出の層（`fx`）: `particles` `stars` `bokeh` `rays` `speedlines` `grid` `waves` `gradient` `aurora` `plexus` `contour` `shapes` `blobs`（部品の下）・
+  `scanlines` `confetti` `vignette` `sweep` `noise`（上）。
+- 動き方（場面か台本の `ease`・`order`）: 緩急 `smooth`（既定）・`spring`・`snappy`・`bouncy`、現れる順 `reverse`・`center`・`edges`・`random`（項目を順に出す部品に効く）。
   `"fx": false` で性格の既定も止める。1 場面に 1〜2 個まで。
 - カメラの型（`camera` に名前）: `push-in` `pull-out` `pan-left` `pan-right` `rise` `punch` `tilt` `drift` `dolly`。
 - 画面の揺れ: `"shake": [{"at": 0.4, "amp": 18, "dur": 450}]`（`slam`・`impact`・`countdown`・判子は自動で揺れる）。
