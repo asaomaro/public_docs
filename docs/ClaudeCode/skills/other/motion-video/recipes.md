@@ -166,3 +166,18 @@ var at = H.slots(3, d, 600, 900);
 at.forEach(function (a, i) { H.sfx(a, "appear", { i: i }); });   // 出来事（組の音が鳴る。i で少しずつ高く）
 H.sfx(d * .7, "rise-hit");                                        // 効果音の名前をじかに
 ```
+
+## 動きを強くする（custom の中で）
+
+```js
+// 叩きつける題名・揺れ・破片・集中線（揺れと効果音は、場面の最初に一度集めるので条件の外で呼ぶ）
+var hit = 600;
+H.shake(hit, 20, 500); H.sfx(hit, "hit");
+if (lt < hit + 1200) { ctx.save(); ctx.globalAlpha *= H.clamp(1 - (lt - hit) / 1200); H.fx(["speedlines"], lt * 2, d, "under"); ctx.restore(); }
+H.burst(960, 480, lt - hit, { n: 40, seed: 3 });
+H.text("**3 倍**速い", 960, 540, { size: 140, weight: 900, align: "center", font: H.F.display }, "slam", lt, hit - 250, 500);
+H.text("同じ作業が 3 分で", 960, 660, { size: 40, align: "center", color: H.C.accent }, "scramble", lt, hit + 500, 900);
+```
+
+- 文字の出方は `--list` の一覧（`rise` `pop` `slam` `stretch` `blur` `glitch` `neon` `type` `scramble` `wave` `letters` `split` `reveal`）。
+- 場面の外側（台本）で足りるなら、`anim`・`fx`・`camera`・`shake`・重ねの層（`burst` `stamp` `confetti` `ripple` `circle` `marker`）を先に使う。

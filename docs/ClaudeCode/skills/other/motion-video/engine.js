@@ -156,11 +156,8 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       ctx.save(); ctx.strokeStyle = C.accent2; ctx.globalAlpha *= (1 - ph) * .16 * P(lt, 600, 1600); ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(960, 400, 190 + ph * 260, 0, Math.PI * 2); ctx.stroke(); ctx.restore(); }
     emblem(s.mark || "ring", 960, 400, 160 * k, (1 - P(lt, 0, 2000)) * -2.4 + lt * .00012, clamp(k * 1.4), s.title);
-    ctx.save(); ctx.font = font({ size: 116, weight: 800, font: F.display });
-    var w = ctx.measureText(s.title).width, rv = P(lt, 1200, 2600, eio);
-    ctx.beginPath(); ctx.rect(960 - w / 2 - 10, 600, (w + 20) * rv, 160); ctx.clip();
-    txt(s.title, 960, 722, { size: 116, weight: 800, align: "center", font: F.display }); ctx.restore();
-    if (rv > 0 && rv < 1) { ctx.fillStyle = C.accent2; ctx.fillRect(960 - w / 2 - 10 + (w + 20) * rv, 618, 5, 118); }
+    var ta = animOf(s, "title"); textShake(ta, 1200, 16);
+    animText(s.title, 960, 722, { size: 116, weight: 800, align: "center", font: F.display }, ta, lt, 1200, 1400);
     if (s.subtitle) txt(s.subtitle, 960, 806, { size: 42, weight: 700, align: "center", color: C.accent, alpha: P(lt, 2000, 2900), spacing: 8 });
     var tg = P(lt, 3200, 4200);
     if (s.tagline) rich(s.tagline, 960, 888 + (1 - tg) * 16, { size: 36, align: "center", color: C.muted, alpha: tg });
@@ -399,7 +396,8 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     lines.forEach(function (ln, i) {
       var k = P(lt, at[i], at[i] + 700);
       sfxEv(at[i], i === 0 ? "hit" : "appear", { i: i }); if (/\*\*/.test(ln)) sfxEv(at[i] + 550, "emphasize");
-      rich(ln, 960, y0 + i * lh + (1 - k) * 24, { size: size, weight: 800, align: "center", font: F.display, alpha: k }, P(lt, at[i] + 500, at[i] + 1200));
+      var sa = animOf(s, "text"); textShake(sa, at[i], 10);
+      animText(ln, 960, y0 + i * lh, { size: size, weight: 800, align: "center", font: F.display }, sa, lt, at[i], 700, P(lt, at[i] + 500, at[i] + 1200));
     });
     if (s.note) txt(s.note, 960, y0 + n * lh + 30, { size: 30, align: "center", color: C.muted, alpha: P(lt, d * .5, d * .5 + 800) });
   };
@@ -534,7 +532,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     });
     var fk = P(lt, 700 + rows.length * 700 + 400, 700 + rows.length * 700 + 1400, eio); sfxEv(700 + rows.length * 700 + 400, "outro");
     /* 字幕（画面の下 1 割）と重ならないよう、下端は 900 までに収める */
-    txt(s.title || "", 960, 820, { size: 70, weight: 800, align: "center", font: F.display, alpha: fk });
+    animText(s.title || "", 960, 820, { size: 70, weight: 800, align: "center", font: F.display }, animOf(s, "text"), lt, 700 + rows.length * 700 + 400, 1000);
     if (s.tagline) rich(s.tagline, 960, 884, { size: 32, align: "center", color: C.accent, alpha: P(lt, 700 + rows.length * 700 + 900, 700 + rows.length * 700 + 1900) });
   };
 
@@ -676,7 +674,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var lines = wrap(s.text || "", 1400, { size: 54, weight: 700, font: F.display }), n = lines.length, lh = 80, y0 = 540 - (n - 1) * lh / 2 - 20;
     txt("“", 240, y0 - 40, { size: 260, weight: 800, color: C.accent, alpha: P(lt, 0, 800) * .8, font: F.display });
     var at = slots(n, d * .6, 400, 0); sfxEv(0, "quote");
-    lines.forEach(function (ln, i) { var k = P(lt, at[i], at[i] + 700); rich(ln, 360, y0 + i * lh + (1 - k) * 16, { size: 54, weight: 700, font: F.display, alpha: k }, P(lt, at[i] + 400, at[i] + 1100)); });
+    lines.forEach(function (ln, i) { animText(ln, 360, y0 + i * lh, { size: 54, weight: 700, font: F.display }, animOf(s, "text"), lt, at[i], 700, P(lt, at[i] + 400, at[i] + 1100)); });
     var bk = P(lt, d * .55, d * .55 + 800); if (s.by) sfxEv(d * .55, "appear", { i: 0 });
     ctx.save(); ctx.globalAlpha *= bk; ctx.fillStyle = C.accent; ctx.fillRect(360, y0 + n * lh + 10, 60, 4); ctx.restore();
     if (s.by) txt(s.by, 440, y0 + n * lh + 26, { size: 32, weight: 800, alpha: bk });
@@ -692,9 +690,10 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     lines.forEach(function (ln, li) {
       var wsum = ln.reduce(function (a, t0) { return a + t0.width; }, 0) + gap * (ln.length - 1), x = 960 - wsum / 2;
       ln.forEach(function (t0) {
-        var a = 300 + idx * per, k = P(lt, a, a + 520, back), sz = t0.em ? size * 1.12 : size;
-        sfxEv(a, t0.em ? "hit" : "word", { i: idx });
-        if (k > 0) { ctx.save(); ctx.translate(x + t0.width / 2, y0 + li * lh); ctx.scale(k, k);
+        var a = 300 + idx * per, k = P(lt, a, a + 520, back), sz = t0.em ? size * 1.12 : size, wa = s.anim || (MS.text === "rise" ? "pop" : MS.text);
+        sfxEv(a, t0.em ? "hit" : "word", { i: idx }); if (t0.em && (wa === "slam" || SPEC.motion === "dynamic")) shakeEv(a + 220, 9, 320);
+        if (wa !== "pop") animText(t0.w, x + t0.width / 2, y0 + li * lh, { size: sz, weight: 800, align: "center", font: F.display, color: t0.em ? C.accent : C.ink }, wa, lt, a, 520);
+        else if (k > 0) { ctx.save(); ctx.translate(x + t0.width / 2, y0 + li * lh); ctx.scale(k, k);
           txt(t0.w, 0, (1 - Math.min(1, k)) * 30, { size: sz, weight: 800, align: "center", font: F.display, color: t0.em ? C.accent : C.ink });
           if (t0.em) { ctx.fillStyle = C.accent; ctx.fillRect(-t0.width / 2, sz * .2, t0.width * P(lt, a + 300, a + 800), Math.max(4, sz * .07)); }
           ctx.restore(); }
@@ -736,6 +735,92 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     if (u > 0) { ctx.save(); ctx.beginPath(); ctx.rect(x0, y0 - 4, sx - x0, h + 8); ctx.clip(); rr(x0, y0, w, h, 16); ctx.fillStyle = C.bg1; ctx.fill(); side(af, af.tone || "good", x0 + w - 40); ctx.restore();
       if (u < 1) { ctx.fillStyle = C.accent; ctx.fillRect(sx - 3, y0 - 20, 6, h + 40); ctx.beginPath(); ctx.arc(sx, y0 + h / 2, 22, 0, Math.PI * 2); ctx.fill();
         txt("⇆", sx, y0 + h / 2 + 10, { size: 26, weight: 800, align: "center", color: C.onAccent }); } }
+  };
+
+  /* ---------- 動きの強い部品 ---------- */
+  R.impact = function (s, lt, d) {
+    var hit = 350; sfxEv(hit, "hit"); shakeEv(hit, s.shake === undefined ? 22 : s.shake, 520);
+    var sp = clamp(1 - lin(lt, hit + 250, hit + 1500)); if (sp > 0) { ctx.save(); ctx.globalAlpha *= sp; drawFx(["speedlines"], lt * 2.2, d, "under"); ctx.restore(); }
+    burstAt(960, 470, lt - hit, { n: 40, seed: s.seed || 3 });
+    animText(s.text || "", 960, 530, { size: s.size || 150, weight: 900, align: "center", font: F.display, color: s.tone === "accent" ? C.accent : C.ink }, s.anim || "slam", lt, hit - 250, 520);
+    if (s.sub) animText(s.sub, 960, 650, { size: 42, weight: 700, align: "center", color: C.accent }, "rise", lt, hit + 600, 600);
+  };
+  R.countdown = function (s, lt, d) {
+    var from = s.from || 3, a0 = 300, seg = Math.max(500, Math.min(1000, (d - 1800) / from)), goA = a0 + from * seg, i;
+    for (i = 0; i < from; i++) { sfxEv(a0 + i * seg, "tick", { i: i }); shakeEv(a0 + i * seg + 120, 6 + i * 3, 260); }
+    if (s.label) { sfxEv(goA, "hit"); shakeEv(goA + 150, 18, 450); }
+    var ci = Math.floor((lt - a0) / seg);
+    if (lt >= a0 && ci < from) {
+      var local = lt - a0 - ci * seg, q = local / seg, n = from - ci, e = lin(local, 0, 260);
+      ctx.save(); ctx.lineCap = "round"; ctx.strokeStyle = C.edge; ctx.lineWidth = 14; ctx.beginPath(); ctx.arc(960, 480, 260, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = accentAt(ci); ctx.beginPath(); ctx.arc(960, 480, 260, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * eo(q)); ctx.stroke();
+      var rk = lin(local, 100, 800); if (rk > 0 && rk < 1) { ctx.globalAlpha = (1 - rk) * .6; ctx.lineWidth = 6; ctx.strokeStyle = accentAt(ci); ctx.beginPath(); ctx.arc(960, 480, 260 + rk * 360, 0, Math.PI * 2); ctx.stroke(); }
+      ctx.restore();
+      var sc = mix(2.3, 1, eo(e)) * (1 - .1 * lin(local, seg * .6, seg));
+      ctx.save(); ctx.translate(960, 480); ctx.scale(sc, sc); ctx.globalAlpha *= clamp(e * 3) * (1 - lin(local, seg * .82, seg));
+      txt(String(n), 0, 110, { size: 320, weight: 900, align: "center", font: F.display }); ctx.restore();
+    }
+    if (s.label && lt >= goA - 200) { burstAt(960, 470, lt - goA, { n: 44, seed: 9 });
+      animText(s.label, 960, 530, { size: s.size || 150, weight: 900, align: "center", font: F.display, color: C.accent }, "slam", lt, goA - 200, 460);
+      if (s.sub) animText(s.sub, 960, 650, { size: 40, weight: 700, align: "center", color: C.muted }, "rise", lt, goA + 500, 600); }
+  };
+  R.orbit = function (s, lt, d) {
+    heading(s, lt);
+    var items = s.items || [], n = items.length, cx = 960, cy = s.heading ? 590 : 540, rx = s.rx || 600, ry = s.ry || 250;
+    var at = slots(n, d, 900, Math.max(1500, d * .35)), spin = lt * (s.speed === undefined ? 1 : s.speed) * .00009 - Math.PI / 2;
+    items.forEach(function (it, i) { sfxEv(at[i], "appear", { i: i }); });
+    var ek = P(lt, 200, 1100, eio);
+    ctx.save(); ctx.strokeStyle = C.edge; ctx.lineWidth = 2; ctx.setLineDash([8, 12]); ctx.beginPath(); ctx.ellipse(cx, cy, Math.max(1, rx * ek), Math.max(1, ry * ek), 0, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+    var pos = items.map(function (it, i) { var an = spin + i * Math.PI * 2 / Math.max(1, n); return { x: cx + Math.cos(an) * rx, y: cy + Math.sin(an) * ry, z: Math.sin(an) }; });
+    var order = items.map(function (_, i) { return i; }).sort(function (a, b) { return pos[a].z - pos[b].z; });
+    items.forEach(function (it, i) { var k = P(lt, at[i], at[i] + 600); if (k <= 0) return;
+      ctx.save(); ctx.strokeStyle = accentAt(i); ctx.globalAlpha *= .35 * k; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(pos[i].x, pos[i].y); ctx.stroke();
+      var u = ((lt - at[i]) / 1600) % 1; ctx.globalAlpha = k; ctx.fillStyle = accentAt(i); ctx.beginPath(); ctx.arc(mix(cx, pos[i].x, u), mix(cy, pos[i].y, u), 6, 0, Math.PI * 2); ctx.fill(); ctx.restore(); });
+    var draw1 = function (i) { var it = items[i], k = P(lt, at[i], at[i] + 600, back); if (k <= 0) return;
+      var p = pos[i], dep = .78 + .22 * (p.z + 1) / 2, label = typeof it === "string" ? it : it.label, sub = it.sub, w = Math.max(tw(label, { size: 30, weight: 800 }), sub ? tw(sub, { size: 20 }) : 0) + 60, h = sub ? 96 : 70;
+      ctx.save(); ctx.translate(p.x, p.y); ctx.scale(k * dep, k * dep); ctx.globalAlpha *= .55 + .45 * dep;
+      var ix = it.icon ? 26 : 0; if (ix) w += 52;
+      panel(-w / 2, -h / 2, w, h, { r: h / 2, stroke: accentAt(i), lw: 2.5 }); if (it.icon) icon(it.icon, -w / 2 + 40, -2, 32);
+      txt(label, ix, sub ? -4 : 11, { size: 30, weight: 800, align: "center" }); if (sub) txt(sub, ix, 28, { size: 20, align: "center", color: C.muted }); ctx.restore(); };
+    order.filter(function (i) { return pos[i].z < 0; }).forEach(draw1);
+    var ck = P(lt, 300, 1000, back), c = s.center || {}, cl = typeof c === "string" ? c : c.label || "";
+    if (ck > 0) { ctx.save(); ctx.translate(cx, cy); ctx.scale(ck, ck); ctx.fillStyle = C.accent; ctx.beginPath(); ctx.arc(0, 0, 110, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha *= .25 + .15 * Math.sin(lt / 400); ctx.beginPath(); ctx.arc(0, 0, 130 + 8 * Math.sin(lt / 400), 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
+      txt(cl, 0, c.sub ? 4 : 14, { size: 36, weight: 800, align: "center", color: C.onAccent, font: F.display }); if (c.sub) txt(c.sub, 0, 40, { size: 20, align: "center", color: C.onAccent }); ctx.restore(); }
+    order.filter(function (i) { return pos[i].z >= 0; }).forEach(draw1);
+  };
+  R.logo = function (s, lt, d) {
+    var cy = 390, R0 = 150, asm = 1400, r = rand(s.seed || 21), N = 28, i;
+    sfxEv(0, "title"); sfxEv(asm, "hit"); shakeEv(asm, 10, 420);
+    for (i = 0; i < N; i++) {
+      var an = i / N * Math.PI * 2, tx = 960 + Math.cos(an) * R0 * .95, ty = cy + Math.sin(an) * R0 * .95, sx = 960 + (r() - .5) * 2800, sy = cy + (r() - .5) * 1700, r0 = (r() - .5) * 10;
+      var k = eio(lin(lt, 100 + i * 20, asm)), fade = 1 - lin(lt, asm, asm + 300); if (k <= 0 || fade <= 0) continue;
+      ctx.save(); ctx.globalAlpha *= .9 * fade; ctx.translate(mix(sx, tx, k), mix(sy, ty, k)); ctx.rotate(mix(r0, an, k)); ctx.fillStyle = accentAt(i);
+      ctx.beginPath(); ctx.moveTo(0, -16); ctx.lineTo(14, 12); ctx.lineTo(-14, 12); ctx.closePath(); ctx.fill(); ctx.restore();
+    }
+    var ek = P(lt, asm - 120, asm + 500, back); emblem(s.mark || "ring", 960, cy, R0 * ek, lt * .00015, clamp(ek * 1.5), s.title);
+    burstAt(960, cy, lt - asm, { n: 52, seed: 5, r: 560 });
+    var ta = animOf(s, "title"), to = { size: 110, weight: 800, align: "center", font: F.display };
+    animText(s.title || "", 960, 720, to, ta, lt, asm + 200, 900);
+    var sw = lin(lt, asm + 1400, asm + 2400);
+    if (sw > 0 && sw < 1) { var tw0 = tw(s.title || "", to), gx = 960 - tw0 / 2 - 200 + sw * (tw0 + 400), g = ctx.createLinearGradient(gx - 120, 0, gx + 120, 0);
+      g.addColorStop(0, "rgba(255,255,255,0)"); g.addColorStop(.5, "rgba(255,255,255,.85)"); g.addColorStop(1, "rgba(255,255,255,0)"); txt(s.title || "", 960, 720, Object.assign({}, to, { color: g })); }
+    if (s.subtitle) animText(s.subtitle, 960, 806, { size: 42, weight: 700, align: "center", color: C.accent, spacing: 6 }, "rise", lt, asm + 1100, 700);
+  };
+  R.marquee = function (s, lt, d) {
+    var rows = s.rows || [[s.text || ""]], n = rows.length, gap = s.gap || 170, y0 = 540 - (n - 1) * gap / 2, size = s.size || 120;
+    rows.forEach(function (row, i) {
+      var str = (Array.isArray(row) ? row : [row]).join("  ·  ") + "  ·  ", o = { size: size, weight: 900, font: F.display }, w = Math.max(200, tw(str, o));
+      var dir = i % 2 ? 1 : -1, sp = (s.speed || 1) * (.12 + .035 * i), off = (lt * sp) % w, x = dir < 0 ? -off : off - w, col = i % 2 ? C.accent : C.ink, outline = s.outline !== false && i % 2 === 1;
+      ctx.save(); ctx.globalAlpha *= P(lt, i * 150, i * 150 + 600) * (s.caption ? .45 : 1);
+      for (var xx = x; xx < W; xx += w) {
+        if (outline) { ctx.font = font(o); ctx.lineWidth = 3; ctx.strokeStyle = col; ctx.strokeText(str, xx, y0 + i * gap + size * .35); }
+        else txt(str, xx, y0 + i * gap + size * .35, Object.assign({}, o, { color: col }));
+      }
+      ctx.restore();
+    });
+    if (s.caption) { sfxEv(600, "appear"); var ck = P(lt, 600, 1200, back), cw = tw(s.caption, { size: 72, weight: 800 }) + 120;
+      ctx.save(); ctx.translate(960, 540); ctx.scale(ck, ck); panel(-cw / 2, -80, cw, 160, { fill: C.accent, stroke: C.accent, r: 80 }); txt(s.caption, 0, 25, { size: 72, weight: 800, align: "center", color: C.onAccent }); ctx.restore(); }
   };
 
   var CUSTOM = new WeakMap();
@@ -809,26 +894,184 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     if (o.clip) { rr(0, 0, W, H, 24 / sc); ctx.clip(); }
     EVMUTE++; try { (R[type] || R.statement)(spec, Math.max(0, lt), d); drawOverlays(spec, lt, d); } finally { EVMUTE--; } ctx.restore();
   }
-  /* カメラ: [{at:0..1, x, y, zoom}] を場面の進みで補間し、(x,y) を画面の中央に zoom 倍で映す */
+  /* カメラ: [{at:0..1, x, y, zoom, rot}] を場面の進みで補間し、(x,y) を画面の中央に zoom 倍・rot 度で映す。文字列なら型（CAMS） */
+  var CAMS = {
+    "push-in": [{ at: 0, zoom: 1 }, { at: 1, zoom: 1.08 }],
+    "pull-out": [{ at: 0, zoom: 1.12 }, { at: 1, zoom: 1 }],
+    "pan-left": [{ at: 0, x: 1020, zoom: 1.07 }, { at: 1, x: 900, zoom: 1.07 }],
+    "pan-right": [{ at: 0, x: 900, zoom: 1.07 }, { at: 1, x: 1020, zoom: 1.07 }],
+    "rise": [{ at: 0, y: 600, zoom: 1.07 }, { at: 1, y: 480, zoom: 1.07 }],
+    "punch": [{ at: 0, zoom: 1 }, { at: .14, zoom: 1 }, { at: .22, zoom: 1.13 }, { at: 1, zoom: 1.05 }],
+    "tilt": [{ at: 0, zoom: 1.1, rot: -2.5 }, { at: 1, zoom: 1.02, rot: 0 }],
+    "drift": [{ at: 0, x: 930, y: 555, zoom: 1.05 }, { at: .5, x: 985, y: 530, zoom: 1.07 }, { at: 1, x: 950, y: 548, zoom: 1.05 }],
+    "dolly": [{ at: 0, zoom: 1.25, rot: 1.5 }, { at: .6, zoom: 1.03, rot: 0 }, { at: 1, zoom: 1 }]
+  };
   function camAt(keys, f) {
+    if (typeof keys === "string") keys = CAMS[keys];
     if (!keys || !keys.length) return null;
     var a = keys[0], b = keys[keys.length - 1];
     for (var i = 0; i < keys.length - 1; i++) if (f >= (keys[i].at || 0) && f <= (keys[i + 1].at || 1)) { a = keys[i]; b = keys[i + 1]; break; }
     if (f <= (keys[0].at || 0)) b = a = keys[0];
     var k = a === b ? 0 : eio(lin(f, a.at || 0, b.at || 1));
     return { x: mix(a.x === undefined ? 960 : a.x, b.x === undefined ? 960 : b.x, k), y: mix(a.y === undefined ? 540 : a.y, b.y === undefined ? 540 : b.y, k),
-             zoom: mix(a.zoom || 1, b.zoom || 1, k) };
+             zoom: mix(a.zoom || 1, b.zoom || 1, k), rot: mix(a.rot || 0, b.rot || 0, k) };
   }
-  function applyCam(cam) { if (!cam) return; ctx.translate(960, 540); ctx.scale(cam.zoom, cam.zoom); ctx.translate(-cam.x, -cam.y); }
+  function applyCam(cam) { if (!cam) return; ctx.translate(960, 540); if (cam.rot) ctx.rotate(cam.rot * Math.PI / 180); ctx.scale(cam.zoom, cam.zoom); ctx.translate(-cam.x, -cam.y); }
+
+  /* ================= 動きの性格（台本の motion）: 切り替え・文字の出方・演出・カメラの既定 ================= */
+  var MSTYLES = {
+    gentle: { tr: ["fade"], ch: "fade", text: "rise", title: "reveal", fx: [], titleFx: [], endFx: [], cam: {} },
+    dynamic: { tr: ["whip", "push", "zoom-through", "slide-up"], ch: "iris", text: "pop", title: "slam", fx: [], titleFx: ["speedlines", "particles"], endFx: ["particles"],
+               cam: { statement: "punch", kinetic: "punch", quote: "push-in", title: "push-in" } },
+    playful: { tr: ["spin", "squeeze", "iris", "slide-up"], ch: "spin", text: "wave", title: "letters", fx: [], titleFx: ["confetti"], endFx: ["confetti"], cam: { title: "tilt" } },
+    cinematic: { tr: ["fade", "zoom-through", "fade"], ch: "flash", text: "blur", title: "stretch", fx: ["vignette"], titleFx: ["bokeh", "rays"], endFx: ["bokeh"],
+                 cam: { "*": "drift", title: "dolly", statement: "push-in", quote: "push-in" } },
+    tech: { tr: ["glitch", "wipe", "pixel", "blinds"], ch: "glitch", text: "scramble", title: "scramble", fx: ["scanlines"], titleFx: ["grid"], endFx: ["grid"], cam: {} }
+  };
+  var MS = MSTYLES[SPEC.motion] || MSTYLES.gentle;
+  function animOf(s, role) { return s.anim || (role === "title" ? MS.title : MS.text); }
+  function camOf(s) { if (s.camera !== undefined) return s.camera; return MS.cam[s.type] || (["custom", "dom", "window", "code", "table", "terminal"].indexOf(s.type) < 0 ? MS.cam["*"] : null) || null; }
+
+  /* ---- 画面の揺れ: 部品と重ねの層が shakeEv で知らせ、起動時に場面ごとに集める（時刻だけで決まる揺れ） ---- */
+  function shakeEv(at, amp, dur) { sfxEv(at, "__shake", { amp: amp, dur: dur || 400 }); }
+  function shakeOff(sc, lt) {
+    var x = 0, y = 0;
+    (sc.shakes || []).forEach(function (s) { var u = (lt - s.at) / s.dur; if (u < 0 || u > 1) return; var e = Math.pow(1 - u, 2) * s.amp;
+      x += e * Math.sin(lt * .085 + s.at) * Math.cos(lt * .031); y += e * Math.cos(lt * .097 + s.at * .7) * Math.sin(lt * .027 + 1); });
+    return x || y ? { x: x, y: y } : null;
+  }
+
+  /* ---- 文字の出方（1 行）: rise pop slam stretch blur glitch neon reveal type scramble wave letters split ---- */
+  var GLYPHS = "ABCDEFGHJKLMNPQRSTUVWXYZ0123456789#$%&*+=?<>アイウエオカキクケコサシスセソ";
+  var CHARPOS = new Map();
+  function charLayout(line, x, o) {
+    var key = line + "|" + x + "|" + font(o) + "|" + (o.align || ""), c = CHARPOS.get(key); if (c) return c;
+    var parts = String(line).split("**"), total = tw(line.replace(/\*\*/g, ""), o), cx = x, out = [];
+    if (o.align === "center") cx = x - total / 2; else if (o.align === "right") cx = x - total;
+    parts.forEach(function (p, i) {
+      if (!p) return; var em = i % 2 === 1, po = { size: o.size, weight: em ? Math.max(700, o.weight || 400) : o.weight, font: o.font }, chars = Array.from(p);
+      chars.forEach(function (ch, j) { out.push({ ch: ch, x: cx + tw(chars.slice(0, j).join(""), po), w: tw(ch, po), em: em, o: po }); });
+      cx += tw(p, po);
+    });
+    if (CHARPOS.size > 600) CHARPOS.clear(); CHARPOS.set(key, out); return out;
+  }
+  function animText(line, x, y, o, anim, lt, a0, dur, emK) {
+    dur = dur || 700; anim = anim || "rise";
+    if (lt < a0 || !line) return;
+    var k = lin(lt, a0, a0 + dur), al = o.alpha === undefined ? 1 : o.alpha, size = o.size || 30;
+    var total = tw(String(line).replace(/\*\*/g, ""), o), mid = o.align === "center" ? x : o.align === "right" ? x - total / 2 : x + total / 2, cy = y - size * .35;
+    var withA = function (m) { return Object.assign({}, o, { alpha: al * m }); };
+    if (anim === "neon") {
+      var fl = [0, 1, .15, 1, .35, 1, 1], on = k >= 1 ? 1 : fl[Math.min(fl.length - 1, Math.floor(k * fl.length))];
+      ctx.save(); ctx.shadowColor = o.emColor || C.accent; ctx.shadowBlur = on * (18 + 8 * Math.sin(lt / 300)); rich(line, x, y, withA(on), emK); ctx.restore(); return;
+    }
+    if (k >= 1) { rich(line, x, y, o, emK); return; }
+    ctx.save();
+    switch (anim) {
+      case "pop": { var e = back(k); ctx.translate(mid, cy); ctx.scale(Math.max(.01, e), Math.max(.01, e)); ctx.translate(-mid, -cy); rich(line, x, y, withA(clamp(k * 2.5))); break; }
+      case "slam": { var e2 = lin(lt, a0, a0 + Math.min(300, dur * .45)), sc = mix(2.6, 1, eo(e2)) * (1 + .05 * Math.sin(clamp(lin(lt, a0 + 300, a0 + dur)) * Math.PI));
+        ctx.translate(mid, cy); ctx.scale(sc, sc); ctx.translate(-mid, -cy); rich(line, x, y, withA(clamp(e2 * 3))); break; }
+      case "stretch": { var e3 = eo(k); ctx.translate(mid, cy); ctx.scale(mix(2.4, 1, e3), mix(.4, 1, e3)); ctx.translate(-mid, -cy); rich(line, x, y, withA(e3)); break; }
+      case "blur": { if ("filter" in ctx) ctx.filter = "blur(" + ((1 - eo(k)) * 16).toFixed(1) + "px)"; rich(line, x + (1 - eo(k)) * 30, y, withA(eo(k))); break; }
+      case "glitch": { var j = 1 - k, r = rand(Math.floor(lt / 45) + 1);
+        rich(line, x + (r() - .5) * 70 * j, y + (r() - .5) * 12 * j, Object.assign({}, o, { color: C.accent2, emColor: C.accent2, alpha: al * .7 * j }));
+        rich(line, x + (r() - .5) * 70 * j, y, Object.assign({}, o, { color: C.accent, emColor: C.accent, alpha: al * .6 * j }));
+        rich(line, x + (r() - .5) * 16 * j, y, withA(clamp(k * 3))); break; }
+      case "reveal": { ctx.beginPath(); ctx.rect(mid - total / 2 - 10, y - size * 1.1, (total + 20) * eio(k), size * 1.5); ctx.clip(); rich(line, x, y, o);
+        ctx.restore(); ctx.save(); ctx.fillStyle = C.accent2; ctx.fillRect(mid - total / 2 - 10 + (total + 20) * eio(k), y - size * .95, 5, size * 1.05); break; }
+      case "type": case "scramble": case "wave": case "letters": case "split": {
+        var cs = charLayout(line, x, o), n = cs.length, per = Math.min(60, dur * .6 / Math.max(1, n)), lastX = null;
+        cs.forEach(function (c, i) {
+          var col = c.em ? (o.emColor || C.accent) : (o.color || C.ink), c0 = a0 + i * per, kk = lin(lt, c0, c0 + Math.max(260, dur * .45)), co = { size: size, weight: c.o.weight, font: c.o.font, color: col };
+          if (anim === "type") { if (lt >= c0) { txt(c.ch, c.x, y, Object.assign(co, { alpha: al })); lastX = c.x + c.w; } }
+          else if (anim === "scramble") {
+            if (lt < a0 + i * 14) return; var res = a0 + dur * .2 + (i / n) * dur * .7, fin = lt >= res || /\s/.test(c.ch);
+            txt(fin ? c.ch : GLYPHS[Math.floor(rand(i * 977 + Math.floor(lt / 55))() * GLYPHS.length)], c.x + c.w / 2, y, Object.assign(co, { align: "center", color: fin ? col : C.accent2, alpha: al })); }
+          else if (anim === "wave") { if (kk <= 0) return; txt(c.ch, c.x, y + (1 - back(kk)) * 44, Object.assign(co, { alpha: al * clamp(kk * 2) })); }
+          else if (anim === "letters") { if (kk <= 0) return; var rr1 = rand(i * 31 + 7); ctx.save(); ctx.translate(c.x + c.w / 2, cy); ctx.rotate((1 - eo(kk)) * (rr1() - .5) * 1.6);
+            ctx.translate(0, -(1 - back(kk)) * 150); txt(c.ch, 0, size * .35, Object.assign(co, { align: "center", alpha: al * clamp(kk * 3) })); ctx.restore(); }
+          else { if (kk <= 0) return; var rr2 = rand(i * 53 + 3), e5 = eo(kk); ctx.save(); ctx.translate(c.x + c.w / 2 + (rr2() - .5) * 1500 * (1 - e5), cy + (rr2() - .5) * 800 * (1 - e5));
+            ctx.rotate((rr2() - .5) * 3 * (1 - e5)); txt(c.ch, 0, size * .35, Object.assign(co, { align: "center", alpha: al * clamp(kk * 2) })); ctx.restore(); }
+        });
+        if (anim === "type" && lastX !== null && Math.floor(lt / 400) % 2 === 0) { ctx.fillStyle = C.accent2; ctx.fillRect(lastX + 4, y - size * .85, Math.max(4, size * .1), size * .95); }
+        break; }
+      default: { var e6 = eo(k); rich(line, x, y + (1 - e6) * 24, withA(e6)); }
+    }
+    ctx.restore();
+  }
+  function textShake(anim, a0, amp) { if (anim === "slam") shakeEv(a0 + 280, amp || 14, 420); }
+
+  /* ---- 破片が弾ける（burst）: t は弾けてからの ms ---- */
+  function burstAt(x, y, t, o) {
+    o = o || {}; if (t < 0 || t > 1100) return;
+    var r = rand(o.seed || 1), n = o.n || 36, u = t / 1000, spread = o.r || 460;
+    ctx.save();
+    for (var i = 0; i < n; i++) {
+      var ang = r() * Math.PI * 2, sp = .45 + r() * .75, sz = 4 + r() * 9, kind = r(), col = o.color || C.accents[i % C.accents.length], rot = r() * 6;
+      var d0 = eo(clamp(u * 1.3)) * spread * sp, px = x + Math.cos(ang) * d0, py = y + Math.sin(ang) * d0 + 120 * u * u;
+      ctx.globalAlpha = clamp(1 - u) * .95; ctx.fillStyle = col;
+      if (kind < .5) { ctx.beginPath(); ctx.arc(px, py, sz * (1 - u * .6) * .6, 0, Math.PI * 2); ctx.fill(); }
+      else { ctx.save(); ctx.translate(px, py); ctx.rotate(rot + u * 8); ctx.fillRect(-sz / 2, -sz / 4, sz, sz / 2); ctx.restore(); }
+    }
+    var rk = clamp(u * 1.6); ctx.globalAlpha = (1 - rk) * .8; ctx.strokeStyle = o.color || C.accent; ctx.lineWidth = 10 * (1 - rk) + 1;
+    ctx.beginPath(); ctx.arc(x, y, 30 + rk * spread * .7, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
+
+  /* ---- 演出の層（fx）: 場面の fx・台本の fx・動きの性格の既定。under は部品の下、ほかは上 ---- */
+  var FX_UNDER = { particles: 1, bokeh: 1, rays: 1, speedlines: 1, grid: 1, waves: 1, stars: 1 };
+  function fxOf(s) {
+    var own = s.fx !== undefined ? s.fx : s.type === "title" || s.type === "logo" ? MS.titleFx : s.type === "end" ? MS.endFx : [];
+    var all = [].concat(SPEC.fx || [], own || [], s.fx === false ? [] : MS.fx), seen = {};
+    return all.filter(function (f) { var kk = typeof f === "string" ? f : f && f.kind; if (!kk || seen[kk]) return false; seen[kk] = 1; return true; });
+  }
+  function drawFx(list, lt, d, layer) {
+    (list || []).forEach(function (f) {
+      var kind = typeof f === "string" ? f : f.kind, o = typeof f === "string" ? {} : f;
+      if (!kind || !!FX_UNDER[kind] !== (layer === "under")) return;
+      var col = C[o.color] || o.color || null, r = rand(o.seed || 5), i, n;
+      ctx.save(); ctx.globalAlpha *= o.alpha === undefined ? 1 : o.alpha;
+      if (kind === "particles") particles({ seed: o.seed || 11, n: o.n || 70, color: col || C.accent2, size: 3, alpha: .4, speed: 1.4 }, lt);
+      else if (kind === "stars") { ctx.fillStyle = col || C.ink; for (i = 0; i < (o.n || 160); i++) { var sx = r() * W, sy = r() * H, ph = r() * 6.28, ss = r() * 1.8 + .6;
+          var xx = ((sx - lt * .006 * ss) % W + W) % W, g0 = ctx.globalAlpha; ctx.globalAlpha = g0 * (.15 + .55 * (.5 + .5 * Math.sin(lt / 600 + ph))); ctx.fillRect(xx, sy, ss * 1.6, ss * 1.6); ctx.globalAlpha = g0; } }
+      else if (kind === "bokeh") { for (i = 0; i < (o.n || 16); i++) { var bx = r() * W, by = r() * H, br = 50 + r() * 110, ph2 = r() * 6.28, bc = i % 2 ? C.accent : C.accent2;
+          var px = bx + Math.sin(lt / 4200 + ph2) * 70, py = by + Math.cos(lt / 5200 + ph2) * 40, gr = ctx.createRadialGradient(px, py, 0, px, py, br);
+          gr.addColorStop(0, bc); gr.addColorStop(1, "rgba(0,0,0,0)"); var g1 = ctx.globalAlpha; ctx.globalAlpha = g1 * (.10 + .08 * Math.sin(lt / 1500 + ph2)); ctx.fillStyle = gr; ctx.fillRect(px - br, py - br, br * 2, br * 2); ctx.globalAlpha = g1; } }
+      else if (kind === "rays") { var ox = o.x === undefined ? 960 : o.x, oy = o.y === undefined ? -120 : o.y, nr = o.n || 12, rot = lt * .00006, gr2 = ctx.createRadialGradient(ox, oy, 0, ox, oy, 1500);
+        gr2.addColorStop(0, col || C.accent); gr2.addColorStop(1, "rgba(0,0,0,0)"); ctx.fillStyle = gr2; ctx.globalAlpha *= .13;
+        for (i = 0; i < nr; i++) { var aa = rot + i * Math.PI * 2 / nr; ctx.beginPath(); ctx.moveTo(ox, oy); ctx.arc(ox, oy, 1600, aa, aa + .09); ctx.closePath(); ctx.fill(); } }
+      else if (kind === "speedlines") { ctx.strokeStyle = col || C.ink; ctx.globalAlpha *= .2; ctx.lineCap = "round";
+        for (i = 0; i < (o.n || 110); i++) { var an = r() * Math.PI * 2, sp = .6 + r() * 1.2, of = r() * 1400, ln = 80 + r() * 260, lw = 1 + r() * 3, dd = (of + lt * sp * 1.1) % 1400 + 140;
+          ctx.lineWidth = lw; ctx.beginPath(); ctx.moveTo(960 + Math.cos(an) * dd, 540 + Math.sin(an) * dd); ctx.lineTo(960 + Math.cos(an) * (dd + ln), 540 + Math.sin(an) * (dd + ln)); ctx.stroke(); } }
+      else if (kind === "grid") { var hy = o.y || 700, gc = col || C.accent2; ctx.strokeStyle = gc; ctx.lineWidth = 2;
+        var hg = ctx.createLinearGradient(0, hy - 120, 0, hy + 20); hg.addColorStop(0, "rgba(0,0,0,0)"); hg.addColorStop(1, gc); var g2 = ctx.globalAlpha; ctx.globalAlpha = g2 * .18; ctx.fillStyle = hg; ctx.fillRect(0, hy - 120, W, 140); ctx.globalAlpha = g2 * .45;
+        for (i = -14; i <= 14; i++) { ctx.beginPath(); ctx.moveTo(960 + i * 30, hy); ctx.lineTo(960 + i * 380, H + 40); ctx.stroke(); }
+        for (i = 0; i < 16; i++) { var z = (i + (lt / 700) % 1) / 16, yy = hy + (H + 40 - hy) * Math.pow(z, 2.2); ctx.globalAlpha = g2 * .45 * z; ctx.beginPath(); ctx.moveTo(0, yy); ctx.lineTo(W, yy); ctx.stroke(); } }
+      else if (kind === "waves") { ctx.strokeStyle = col || C.accent; ctx.lineWidth = 3;
+        for (i = 0; i < 3; i++) { ctx.globalAlpha = .22 - i * .05; ctx.beginPath(); for (var wx = 0; wx <= W; wx += 20) { var wy = (o.y || 930) + i * 30 + Math.sin(wx / (180 + i * 40) + lt / (700 - i * 120) + i) * (14 + i * 5); wx ? ctx.lineTo(wx, wy) : ctx.moveTo(wx, wy); } ctx.stroke(); } }
+      else if (kind === "scanlines") { ctx.fillStyle = "#000"; ctx.globalAlpha *= .09; for (var sy2 = 0; sy2 < H; sy2 += 4) ctx.fillRect(0, sy2, W, 1.2);
+        ctx.globalAlpha = .06; var by2 = (lt * .25) % (H + 240) - 120, sg = ctx.createLinearGradient(0, by2, 0, by2 + 120); sg.addColorStop(0, "rgba(255,255,255,0)"); sg.addColorStop(.5, "#fff"); sg.addColorStop(1, "rgba(255,255,255,0)"); ctx.fillStyle = sg; ctx.fillRect(0, by2, W, 120); }
+      else if (kind === "confetti") { for (i = 0; i < (o.n || 90); i++) { var cx0 = r() * W, v = .12 + r() * .22, y0 = r() * (H + 200), rt = (r() - .5) * .012, cw = 10 + r() * 10, ch2 = 5 + r() * 6, ph3 = r() * 6.28;
+          var yy2 = (y0 + lt * v) % (H + 200) - 100, xx2 = cx0 + Math.sin(lt / 700 + ph3) * 30; ctx.save(); ctx.translate(xx2, yy2); ctx.rotate(lt * rt + ph3); ctx.scale(1, Math.sin(lt / 300 + ph3));
+          ctx.fillStyle = C.accents[i % C.accents.length]; ctx.fillRect(-cw / 2, -ch2 / 2, cw, ch2); ctx.restore(); } }
+      else if (kind === "vignette") { var vg = ctx.createRadialGradient(960, 540, 380, 960, 540, 1150); vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(0,0,0," + (o.strength || .55) + ")"); ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H); }
+      else if (kind === "sweep") { var per2 = o.period || 3600, p2 = (lt % per2) / per2, sx2 = -700 + p2 * (W + 1400); ctx.transform(1, 0, -.35, 1, 0, 0);
+        var swg = ctx.createLinearGradient(sx2, 0, sx2 + 420, 0); swg.addColorStop(0, "rgba(255,255,255,0)"); swg.addColorStop(.5, "rgba(255,255,255,.13)"); swg.addColorStop(1, "rgba(255,255,255,0)"); ctx.fillStyle = swg; ctx.fillRect(sx2, 0, 420 + H * .35, H); }
+      else if (kind === "noise") { var rn = rand(Math.floor(lt / 50) + 1); ctx.fillStyle = col || C.ink; ctx.globalAlpha *= .07; for (i = 0; i < (o.n || 600); i++) ctx.fillRect(rn() * W, rn() * H, 2, 2); }
+      ctx.restore();
+    });
+  }
 
   /* ---- 重ねの層（どの場面にも。座標は 1920×1080、at / until は場面の進み 0..1） ---- */
   function drawOverlays(s, lt, d) {
     (s.overlays || []).forEach(function (o) {
-      var a = (o.at || 0) * d, b = o.until !== undefined ? o.until * d : d, k = P(lt, a, a + 450) * (1 - P(lt, b - 350, b));
-      var kind = o.kind || "note";
+      var kind = o.kind || "note", inst = kind === "burst" || kind === "stamp" || kind === "confetti" || kind === "ripple";
+      var a = (o.at || 0) * d, b = o.until !== undefined ? o.until * d : d, k = inst ? (lt >= a ? 1 : 0) * (1 - P(lt, b - 350, b)) : P(lt, a, a + 450) * (1 - P(lt, b - 350, b));
+      if (kind === "stamp") shakeEv(a + 240, o.shake === undefined ? 12 : o.shake, 360);
       if (o.sfx !== false) {
         if (kind === "cursor") (o.click || []).forEach(function (ci) { var pts0 = o.path || [[960, 540]]; sfxEv(a + (b - 350 - a) * ci / Math.max(1, pts0.length - 1), "click"); });
-        else sfxEv(a, typeof o.sfx === "string" ? o.sfx : kind === "notify" ? "notify" : kind === "highlight" ? "highlight" : kind === "badge" ? "badge" : kind === "arrow" ? "arrow" : "note");
+        else sfxEv(a, typeof o.sfx === "string" ? o.sfx : { notify: "notify", highlight: "highlight", badge: "badge", arrow: "arrow", burst: "hit", stamp: "badge", confetti: "reveal",
+          ripple: "highlight", circle: "emphasize", marker: "emphasize" }[kind] || "note");
       }
       if (k <= 0) return;
       ctx.save(); ctx.globalAlpha *= k;
@@ -859,6 +1102,22 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
         var pA = pts[Math.max(0, seg)], pB = pts[Math.min(pts.length - 1, seg + 1)], e = eio(clamp(u)), cx2 = mix(pA[0], pB[0], e), cy2 = mix(pA[1], pB[1], e);
         var down = (o.click || []).some(function (ci) { var ct = a + (b - 350 - a) * ci / Math.max(1, pts.length - 1); return lt >= ct && lt < ct + 400; });
         cursor(cx2, cy2, down, lt);
+      } else if (kind === "burst") { burstAt(o.x === undefined ? 960 : o.x, o.y === undefined ? 540 : o.y, lt - a, { n: o.n || 36, seed: o.seed || 1, color: C[o.color] || o.color, r: o.r });
+      } else if (kind === "ripple") { var rx0 = o.x === undefined ? 960 : o.x, ry0 = o.y === undefined ? 540 : o.y, rR = o.r || 160;
+        ctx.strokeStyle = C[o.color] || C.accent; ctx.lineWidth = 3;
+        for (var m2 = 0; m2 < 3; m2++) { var q3 = ((lt - a) / 1100 + m2 / 3) % 1; ctx.globalAlpha = k * (1 - q3) * .8; ctx.beginPath(); ctx.arc(rx0, ry0, 16 + q3 * rR, 0, Math.PI * 2); ctx.stroke(); }
+      } else if (kind === "confetti") { drawFx([{ kind: "confetti", seed: o.seed || 3, n: o.n || 110 }], lt - a + 3000, d, "over");
+      } else if (kind === "stamp") { var se = lin(lt, a, a + 260), ssc = mix(3, 1, eo(se)), scol = o.color === "accent" ? C.accent : o.color === "ok" ? C.ok : C.warn;
+        var stw = tw(o.text || "", { size: o.size || 64, weight: 900 }) + 70, sth = (o.size || 64) * 1.6;
+        ctx.globalAlpha *= clamp(se * 3) * .95; ctx.translate(o.x === undefined ? 1400 : o.x, o.y === undefined ? 300 : o.y); ctx.rotate((o.rot === undefined ? -12 : o.rot) * Math.PI / 180); ctx.scale(ssc, ssc);
+        ctx.strokeStyle = scol; ctx.lineWidth = 7; rr(-stw / 2, -sth / 2, stw, sth, 14); ctx.stroke(); ctx.lineWidth = 2.5; rr(-stw / 2 + 10, -sth / 2 + 10, stw - 20, sth - 20, 8); ctx.stroke();
+        txt(o.text || "", 0, (o.size || 64) * .36, { size: o.size || 64, weight: 900, align: "center", color: scol, font: F.display });
+      } else if (kind === "circle") { var cr = o.rect, cp = P(lt, a, a + 700, eio), ccx = cr[0] + cr[2] / 2, ccy = cr[1] + cr[3] / 2, crx = cr[2] / 2 + 34, cry = cr[3] / 2 + 26, sd = o.seed || 2;
+        ctx.strokeStyle = C[o.color] || C.accent; ctx.lineWidth = 6; ctx.lineCap = "round"; ctx.beginPath();
+        for (var th = 0; th <= 2.15 * Math.PI * cp; th += .04) { var wob = 1 + .05 * Math.sin(3 * th + sd) + .03 * th / 6, pxx = ccx + Math.cos(th - 2.2) * crx * wob, pyy = ccy + Math.sin(th - 2.2) * cry * wob; th ? ctx.lineTo(pxx, pyy) : ctx.moveTo(pxx, pyy); }
+        ctx.stroke(); if (o.label) txt(o.label, ccx + crx * .6, cr[1] - 40, { size: 28, weight: 800, color: C[o.color] || C.accent, alpha: P(lt, a + 500, a + 900) });
+      } else if (kind === "marker") { var mr = o.rect, mp = P(lt, a, a + 600, eio); ctx.fillStyle = C[o.color] || C.accent; ctx.globalAlpha *= .3;
+        ctx.beginPath(); ctx.moveTo(mr[0] - 6, mr[1] + 4); ctx.lineTo(mr[0] + mr[2] * mp + 6, mr[1]); ctx.lineTo(mr[0] + mr[2] * mp, mr[1] + mr[3]); ctx.lineTo(mr[0] - 2, mr[1] + mr[3] - 3); ctx.closePath(); ctx.fill();
       } else if (kind === "notify") {
         var nw = 520, nx = W - nw - 48, ny = o.pos === "br" ? H - 330 : 110, nk = P(lt, a, a + 500);   /* 既定は右上（下は字幕と操作部が重なる） */
         ctx.translate(0, (1 - nk) * 30);
@@ -874,7 +1133,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
                rich: rich, icon: icon, panel: panel, stateMark: stateMark, emblem: emblem, accentAt: accentAt, slots: slots,
                qpt: qpt, rand: rand, arrow: arrow, packet: packet, node: node, appWindow: appWindow, toast: toast, typed: typed, count: fmtNum,
                particles: particles, cursor: cursor, sub: sub, camAt: camAt, applyCam: applyCam, heading: heading,
-               sfx: function (at, what, o) { sfxEv(at, what, o); } };
+               sfx: function (at, what, o) { sfxEv(at, what, o); }, shake: shakeEv, burst: burstAt, fx: drawFx, text: animText, cams: CAMS };
 
   /* ================= 背景と 1 コマ ================= */
   function scaleCtx() { ctx.setTransform(cv.width / W, 0, 0, cv.height / H, 0, 0); }
@@ -901,25 +1160,79 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     txt(CHAPTERS[i].name, 64 + tw("00 / 00", { size: 22, font: F.mono }) + 34, 72, { size: 26, weight: 700, alpha: a });
     if (SPEC.brand && SPEC.brand.name) txt(SPEC.brand.name, W - 64, 72, { size: 22, weight: 700, color: C.muted, align: "right", alpha: .8 });
   }
-  var FADE = 450, SWEEP = 700;
-  function trOf(k) { return SCENES[k].s.transition || SPEC.transition || "fade"; }
+  var FADE = 450;
+  /* 前の場面と重ねて描く切り替え（ms）。これ以外（fade・slide・zoom・cut）は場面ごとの透明度で切り替える */
+  var SWEEPS = { wipe: 700, push: 700, iris: 800, blinds: 750, split: 750, whip: 460, spin: 820, flash: 520, glitch: 480, pixel: 720,
+                 squeeze: 700, "slide-up": 650, "slide-down": 650, "zoom-through": 650 };
+  function trOf(k) {
+    var s = SCENES[k].s; if (s.transition) return s.transition; if (SPEC.transition) return SPEC.transition;
+    if (k > 0 && SCENES[k - 1].ci !== SCENES[k].ci) return MS.ch;
+    return MS.tr[k % MS.tr.length];
+  }
   function drawScene(k, t, o) {
     o = o || {};
-    var sc = SCENES[k], lt = o.lt !== undefined ? o.lt : t - sc.t0, d = sc.d, tr = trOf(k);
-    var last = k === SCENES.length - 1, nextTr = last ? "" : trOf(k + 1), sweepIn = tr === "wipe" || tr === "push", sweepOut = nextTr === "wipe" || nextTr === "push";
+    var sc = SCENES[k], lt = o.lt !== undefined ? o.lt : t - sc.t0, d = sc.d, tr = trOf(k), S = sc.s;
+    var last = k === SCENES.length - 1, nextTr = last ? "" : trOf(k + 1), sweepIn = !!SWEEPS[tr], sweepOut = !!SWEEPS[nextTr];
     var inK = k === 0 || sweepIn || tr === "cut" ? 1 : P(lt, 0, FADE), outK = last || sweepOut || nextTr === "cut" ? 1 : 1 - P(lt, d - FADE, d, eio);
-    ctx.save(); ctx.globalAlpha = Math.min(inK, outK);
+    ctx.save(); ctx.globalAlpha = Math.min(inK, outK) * (o.alpha === undefined ? 1 : o.alpha);
     if (o.clipX !== undefined) { ctx.beginPath(); ctx.rect(0, 0, o.clipX, H); ctx.clip(); backdrop(t); }
-    if (o.dx) ctx.translate(o.dx, 0);
+    if (o.dx || o.dy) ctx.translate(o.dx || 0, o.dy || 0);
+    if (o.xf) o.xf();
+    if (o.clip) { o.clip(); if (o.bg !== false) backdrop(t); }
+    if (o.blur && "filter" in ctx) ctx.filter = "blur(" + o.blur.toFixed(1) + "px)";
     if (tr === "slide") ctx.translate((1 - inK) * 80, 0);
     if (nextTr === "slide") ctx.translate(-(1 - outK) * 80, 0);
     if (tr === "zoom" || nextTr === "zoom") { var z = mix(.96, 1, inK) * mix(1.04, 1, outK); ctx.translate(960, 540); ctx.scale(z, z); ctx.translate(-960, -540); }
-    var cam = camAt(sc.s.camera, clamp(lt / d));
+    var sh = shakeOff(sc, lt); if (sh) ctx.translate(sh.x, sh.y);
+    var fx = fxOf(S), clt = Math.max(0, lt);
+    drawFx(fx, clt, d, "under");
+    var cam = camAt(camOf(S), clamp(lt / d));
     if (cam) { ctx.save(); applyCam(cam); }
-    (R[sc.s.type] || R.statement)(sc.s, Math.max(0, lt), d, t);
-    drawOverlays(sc.s, Math.max(0, lt), d);
+    (R[S.type] || R.statement)(S, clt, d, t);
+    drawOverlays(S, clt, d);
     if (cam) ctx.restore();
+    drawFx(fx, clt, d, "over");
     ctx.restore();
+  }
+  var PIX = null;
+  function transition(tr, k, t, lt, SW) {
+    var u = eio(lin(lt, 0, SW)), prevD = SCENES[k - 1].d;
+    var prev = function (o) { drawScene(k - 1, t, Object.assign({ lt: prevD - 1 }, o || {})); }, next = function (o) { drawScene(k, t, o || {}); };
+    var around = function (sc, rot) { return function () { ctx.translate(960, 540); if (rot) ctx.rotate(rot); ctx.scale(sc, sc); ctx.translate(-960, -540); }; };
+    var i, r;
+    switch (tr) {
+      case "push": prev({ dx: -W * u }); next({ dx: W * (1 - u) }); break;
+      case "wipe": prev(); next({ clipX: W * u }); ctx.fillStyle = C.accent; ctx.fillRect(W * u - 3, 0, 6, H); break;
+      case "slide-up": case "slide-down": { var sg = tr === "slide-up" ? -1 : 1; prev({ dy: sg * H * u }); next({ dy: -sg * H * (1 - u) }); break; }
+      case "iris": { prev(); var R0 = Math.hypot(960, 540) * u + .1; next({ clip: function () { ctx.beginPath(); ctx.arc(960, 540, R0, 0, Math.PI * 2); ctx.clip(); } });
+        if (u < 1) { ctx.save(); ctx.globalAlpha = 1 - u; ctx.strokeStyle = C.accent; ctx.lineWidth = 8; ctx.beginPath(); ctx.arc(960, 540, R0, 0, Math.PI * 2); ctx.stroke(); ctx.restore(); } break; }
+      case "blinds": { prev(); var nb = 9, hh = H / nb;
+        next({ clip: function () { ctx.beginPath(); for (var j = 0; j < nb; j++) { var q = eio(clamp(lin(lt, j * SW * .05, SW * .55 + j * SW * .05))); ctx.rect(0, j * hh + hh * (1 - q) / 2, W, hh * q + .5); } ctx.clip(); } }); break; }
+      case "split": { next(); var off = H / 2 * u;
+        prev({ dy: -off, clip: function () { ctx.beginPath(); ctx.rect(0, 0, W, H / 2); ctx.clip(); } });
+        prev({ dy: off, clip: function () { ctx.beginPath(); ctx.rect(0, H / 2, W, H / 2); ctx.clip(); } });
+        ctx.fillStyle = C.accent; ctx.fillRect(0, H / 2 - off - 3, W, 5); ctx.fillRect(0, H / 2 + off - 2, W, 5); break; }
+      case "whip": { var bl = Math.sin(u * Math.PI) * 10; prev({ dx: -W * u, blur: bl }); next({ dx: W * (1 - u), blur: bl });
+        r = rand(7); ctx.save(); ctx.strokeStyle = C.ink; ctx.globalAlpha = Math.sin(u * Math.PI) * .3;
+        for (i = 0; i < 34; i++) { var yy = r() * H, ln = 200 + r() * 700, xx = ((r() * W * 2 - u * W * 3) % (W + ln) + W + ln) % (W + ln) - ln; ctx.lineWidth = 1 + r() * 3; ctx.beginPath(); ctx.moveTo(xx, yy); ctx.lineTo(xx + ln, yy); ctx.stroke(); }
+        ctx.restore(); break; }
+      case "spin": if (u < .5) { var q1 = u * 2; prev({ xf: around(1 - .55 * q1, q1 * .6), alpha: 1 - q1 }); } else { var q2 = (u - .5) * 2; next({ xf: around(1.45 - .45 * q2, -(1 - q2) * .6), alpha: q2 }); } break;
+      case "flash": { if (u < .5) prev(); else next(); ctx.save(); ctx.fillStyle = "#ffffff"; ctx.globalAlpha = (1 - Math.abs(u * 2 - 1)) * .95; ctx.fillRect(0, 0, W, H); ctx.restore(); break; }
+      case "glitch": { var baseF = u < .5 ? prev : next, otherF = u < .5 ? next : prev; baseF(); r = rand(Math.floor(lt / 40) + 7);
+        for (i = 0; i < 7; i++) { (function (y0, h0, dx) { otherF({ dx: dx, clip: function () { ctx.beginPath(); ctx.rect(-dx, y0, W, h0); ctx.clip(); } }); })(r() * H, 20 + r() * 90, (r() - .5) * 180); }
+        ctx.save(); for (i = 0; i < 5; i++) { ctx.globalAlpha = .35; ctx.fillStyle = i % 2 ? C.accent : C.accent2; ctx.fillRect(r() * W, r() * H, 80 + r() * 400, 4 + r() * 14); } ctx.restore(); break; }
+      case "pixel": { var q = 1 - Math.abs(u * 2 - 1), px = Math.max(1, Math.round(1 + q * 46)), which = u < .5 ? prev : next;
+        if (px <= 1) { which(); break; }
+        PIX = PIX || document.createElement("canvas"); var pw = Math.ceil(W / px), ph = Math.ceil(H / px); if (PIX.width !== pw || PIX.height !== ph) { PIX.width = pw; PIX.height = ph; }
+        var cv0 = cv, ctx0 = ctx; cv = PIX; ctx = PIX.getContext("2d"); ctx.setTransform(1 / px, 0, 0, 1 / px, 0, 0);
+        try { backdrop(t); which(); } finally { cv = cv0; ctx = ctx0; }
+        ctx.save(); ctx.imageSmoothingEnabled = false; ctx.drawImage(PIX, 0, 0, pw * px, ph * px); ctx.restore(); break; }
+      case "squeeze": {
+        prev({ xf: function () { ctx.scale(Math.max(.001, 1 - u), 1); } }); next({ xf: function () { ctx.translate(W * (1 - u), 0); ctx.scale(Math.max(.001, u), 1); } });
+        ctx.save(); ctx.fillStyle = "#000"; ctx.globalAlpha = .45 * u; ctx.fillRect(0, 0, W * (1 - u), H); ctx.globalAlpha = .45 * (1 - u); ctx.fillRect(W * (1 - u), 0, W * u, H); ctx.restore(); break; }
+      case "zoom-through": next({ xf: around(mix(.7, 1, u)), alpha: u }); prev({ xf: around(1 + 2.2 * u), alpha: 1 - u, blur: u * 8 }); break;
+      default: prev(); next();
+    }
   }
   function burnCaption(t) {
     var c = CUES.filter(function (c) { return t >= c.a && t < c.b; })[0]; if (!c) return;
@@ -931,13 +1244,10 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   var thumbMode = false;
   function draw(t) {
     scaleCtx(); backdrop(t);
-    var k = sceneAt(t), tr = trOf(k), lt = t - SCENES[k].t0;
-    if (k > 0 && (tr === "wipe" || tr === "push") && lt < SWEEP) {
-      var u = eio(lin(lt, 0, SWEEP)), prevD = SCENES[k - 1].d;
-      if (tr === "push") { drawScene(k - 1, t, { lt: prevD - 1, dx: -W * u }); drawScene(k, t, { dx: W * (1 - u) }); }
-      else { drawScene(k - 1, t, { lt: prevD - 1 }); drawScene(k, t, { clipX: W * u }); ctx.fillStyle = C.accent; ctx.fillRect(W * u - 3, 0, 6, H); }
-    } else {
-      if (k > 0 && lt < FADE && tr !== "cut") drawScene(k - 1, t);
+    var k = sceneAt(t), tr = trOf(k), lt = t - SCENES[k].t0, SW = SWEEPS[tr];
+    if (k > 0 && SW && lt < SW) transition(tr, k, t, lt, SW);
+    else {
+      if (k > 0 && lt < FADE && tr !== "cut" && !SW) drawScene(k - 1, t);
       drawScene(k, t);
     }
     chrome(t);
@@ -1065,27 +1375,35 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       try { fn(ac, sfxBus, when, MA, o); } catch (e) { console.error("sfx code:", e); } return; }
     MA.play(ac, sfxBus, r, when, o);
   }
+  /* 場面ごとに最後のコマを小さな Canvas に一度描き、部品が知らせる出来事（効果音のきっかけ・揺れ）を集める */
+  function collectEvents() {
+    var tc = document.createElement("canvas"); tc.width = 8; tc.height = 8;
+    var cv0 = cv, ctx0 = ctx; cv = tc; ctx = tc.getContext("2d"); thumbMode = true;
+    SCENES.forEach(function (sc) {
+      EVC = []; EVOFF = 0; EVMUTE = 0;
+      try { ctx.setTransform(1, 0, 0, 1, 0, 0); (R[sc.s.type] || R.statement)(sc.s, Math.max(0, sc.d - 1), sc.d, sc.t0 + sc.d - 1); drawOverlays(sc.s, Math.max(0, sc.d - 1), sc.d); }
+      catch (e) { console.warn("event collect:", e); }
+      sc.evs = EVC; EVC = null;
+      sc.shakes = sc.evs.filter(function (e) { return e.ev === "__shake"; }).map(function (e) { return { at: e.at, amp: e.o.amp, dur: e.o.dur }; })
+        .concat((sc.s.shake || []).map(function (s) { return { at: s.ms !== undefined ? s.ms : (s.at || 0) * sc.d, amp: s.amp || 16, dur: s.dur || 450 }; }));
+    });
+    cv = cv0; ctx = ctx0; thumbMode = false;
+  }
+  var TR_EV = { iris: "tr.zoom", spin: "tr.zoom", "zoom-through": "tr.zoom", pixel: "tr.wipe", blinds: "tr.wipe", whip: "tr.push", "slide-up": "tr.push",
+                "slide-down": "tr.push", squeeze: "tr.push", split: "tr.slide", flash: "tr.cut", glitch: "tr.cut" };
   function buildSfxQueue() {
     if (!SFXCFG || !MA) return;
     var KIT = SFXCFG.kit || {}, dens = SFXCFG.density || 2, raw = [];
-    var tc = document.createElement("canvas"); tc.width = 8; tc.height = 8;
-    var cv0 = cv, ctx0 = ctx; cv = tc; ctx = tc.getContext("2d"); thumbMode = true;
     SCENES.forEach(function (sc, k) {
       var ss = sc.s.sfx, auto = !(ss === false || (ss && !Array.isArray(ss) && ss.auto === false)), smap = ss && !Array.isArray(ss) && ss.map || {};
       var push = function (T, ev, o, name) { raw.push({ T: T, ev: ev, o: o || {}, name: name, map: smap, k: k }); };
-      if (k > 0) { if (SCENES[k - 1].ci !== sc.ci) push(sc.t0 + 60, "chapter"); else { var tr = trOf(k); push(sc.t0 - (tr === "cut" ? 0 : 150), "tr." + tr); } }
-      if (auto) {
-        EVC = []; EVOFF = 0; EVMUTE = 0;
-        try { ctx.setTransform(1, 0, 0, 1, 0, 0); (R[sc.s.type] || R.statement)(sc.s, Math.max(0, sc.d - 1), sc.d, sc.t0 + sc.d - 1); drawOverlays(sc.s, Math.max(0, sc.d - 1), sc.d); }
-        catch (e) { console.warn("sfx collect:", e); }
-        EVC.forEach(function (e) { push(sc.t0 + clamp(e.at, 0, sc.d), e.ev, e.o, SFXD[e.ev] ? e.ev : null); });
-        EVC = null;
-      }
+      if (k > 0) { if (SCENES[k - 1].ci !== sc.ci) push(sc.t0 + 60, "chapter"); else { var tr = trOf(k), ev = KIT["tr." + tr] || !TR_EV[tr] ? "tr." + tr : TR_EV[tr];
+        push(sc.t0 - (tr === "cut" || tr === "flash" || tr === "glitch" ? 0 : 150), ev); } }
+      if (auto) (sc.evs || []).forEach(function (e) { if (e.ev !== "__shake") push(sc.t0 + clamp(e.at, 0, sc.d), e.ev, e.o, SFXD[e.ev] ? e.ev : null); });
       (Array.isArray(ss) ? ss : ss && ss.add || []).forEach(function (a) {
         push(sc.t0 + (a.ms !== undefined ? a.ms : (a.at || 0) * sc.d), a.event, { v: a.v, pitch: a.pitch, force: true }, a.name);
       });
     });
-    cv = cv0; ctx = ctx0; thumbMode = false;
     var last = {};
     raw.forEach(function (r, i) {
       var name = r.name, v = 1, step = 0, lv = 1;
@@ -1415,7 +1733,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   var ccb = $("mv-cc"); if (ccb) ccb.setAttribute("aria-pressed", String(captions));
   var aub = $("mv-audio"); if (aub) { aub.setAttribute("aria-pressed", String(audioOn)); aub.setAttribute("aria-label", audioOn ? "音声をオフにする" : "音声をオンにする"); }
   SCENES.forEach(function (sc) { if (sc.s.type === "image" && sc.s.src && !IMGS[sc.s.src]) { var im = new Image(); im.onload = function () { needsDraw = true; }; im.src = sc.s.src; IMGS[sc.s.src] = im; } });
-  try { buildSfxQueue(); } catch (e) { console.warn("sfx:", e); }
+  try { collectEvents(); buildSfxQueue(); } catch (e) { console.warn("sfx:", e); }
   new ResizeObserver(resize).observe(cv); resize(); syncUI(); requestAnimationFrame(frame);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { needsDraw = true; });
   if (KIOSK && !(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches)) { started = true; playing = true; lastNow = performance.now(); syncUI(); }

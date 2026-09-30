@@ -2455,16 +2455,34 @@ MOTION_CSS = """
 """
 
 MOTION_JS = r"""(function(){
-  var LEVEL='__MOTION_LEVEL__', TEMPO_DEF='__MOTION_TEMPO__';
+  var LEVEL='__MOTION_LEVEL__', TEMPO_DEF='__MOTION_TEMPO__', STYLE_DEF='__MOTION_STYLE__', BLOCKS='__MOTION_BLOCKS__';
   var mq=window.matchMedia?matchMedia('(prefers-reduced-motion: reduce)'):null;
   var REDUCE=!!(mq&&mq.matches), CAN=!!Element.prototype.animate&&('IntersectionObserver' in window);
   var NS='http://www.w3.org/2000/svg';
   var GEOM={rect:1,circle:1,ellipse:1,polygon:1,polyline:1,line:1,path:1,text:1,image:1,use:1,foreignObject:1};
   var SKIP={defs:1,marker:1,clipPath:1,mask:1,pattern:1,symbol:1,linearGradient:1,radialGradient:1,filter:1,style:1,title:1,desc:1,metadata:1};
-  var ATOMIC=['data-effect','data-stagger','data-travel','data-count','data-focus','data-spin','data-pulse','data-flow'];
+  var ATOMIC=['data-effect','data-stagger','data-travel','data-count','data-focus','data-spin','data-pulse','data-flow','data-attn','data-burst',
+              'data-float','data-sway','data-blink','data-heartbeat','data-wave','data-march','data-glow','data-orbit','data-ripple','data-stream'];
   var TEMPOS={slow:1.45,normal:1,fast:.7};
   var BASE={draw:760,rise:520,travel:1400,count:1100,type:30,stagger:130,gapSteps:450,gapAuto:380,autoTotal:2600,hold:1500,
-            flow:900,pulse:1800,spin:24000,loopRest:2200,zoomMove:900,zoomHold:1500,toggle:3400,token:900};
+            flow:900,pulse:1800,spin:24000,loopRest:2200,zoomMove:900,zoomHold:1500,toggle:3400,token:900,
+            attn:760,burst:900,float:3200,sway:3000,blink:1600,heartbeat:1300,wave:1600,march:1200,glow:2200,orbit:6000,ripple:2000,stream:2400,intro:720};
+  /* 動きの性格: 注釈の無い要素の現れ方・図全体の入り方・段の間隔を決める（data-motion-style か --motion-style） */
+  var STYLES={gentle:{gap:1},
+    dynamic:{shape:'pop',text:'slide-up',big:'zoom',intro:'punch',gap:.75},
+    playful:{shape:'elastic',text:'bounce',big:'drop',intro:'drop',gap:.9},
+    cinematic:{shape:'blur',text:'blur',big:'blur',intro:'zoom-out',gap:1.35},
+    tech:{shape:'wipe',text:'scramble',big:'wipe',intro:'glitch',gap:.85}};
+  var INTROS={punch:[{scale:'.86',opacity:0},{scale:'1.03',opacity:1,offset:.6},{scale:'1',opacity:1}],
+    'zoom-out':[{scale:'1.18',filter:'blur(6px)',opacity:0},{scale:'1',filter:'blur(0px)',opacity:1}],
+    drop:[{translate:'0 -40px',opacity:0},{translate:'0 6px',opacity:1,offset:.6},{translate:'0 0',opacity:1}],
+    tilt:[{rotate:'-4deg',scale:'.94',opacity:0},{rotate:'0deg',scale:'1',opacity:1}],
+    glitch:[{translate:'-14px 0',opacity:0},{translate:'10px 0',opacity:1,offset:.2},{translate:'-6px 2px',opacity:.4,offset:.4},{translate:'4px 0',opacity:1,offset:.6},{translate:'0 0',opacity:1}],
+    iris:[{clipPath:'circle(0% at 50% 50%)'},{clipPath:'circle(75% at 50% 50%)'}],
+    fade:[{opacity:0},{opacity:1}], rise:[{translate:'0 24px',opacity:0},{translate:'0 0',opacity:1}]};
+  function styleOf(c){ return STYLES[c&&c.getAttribute('data-motion-style')]||STYLES[STYLE_DEF]||STYLES.gentle; }
+  function cssv(n){ return getComputedStyle(document.documentElement).getPropertyValue(n).trim()||'#3b82f6'; }
+  function hrand(i){ var x=Math.sin(i*12.9898+78.233)*43758.5453; return x-Math.floor(x); }
   var EASE='cubic-bezier(.2,.7,.2,1)';
   function tag(el){return el.localName||el.tagName;}
   function num(v,d){v=parseFloat(v);return isFinite(v)?v:d;}
@@ -2645,6 +2663,53 @@ MOTION_JS = r"""(function(){
   });
   var content=document.querySelector('.content')||document.body;
 
+  /* ================= 奥行き（data-depth）: スクロールに合わせて要素がずれる ================= */
+  var depthEls=REDUCE?[]:[].slice.call(content.querySelectorAll('[data-depth]'));
+  if(depthEls.length){
+    var dq=false, par=function(){ dq=false; var vh=window.innerHeight||1;
+      depthEls.forEach(function(x){ var r=(x.closest('figure')||x).getBoundingClientRect(), p=(r.top+r.height/2)/vh-.5; x.style.translate='0 '+(p*-num(x.getAttribute('data-depth'),1)*40).toFixed(1)+'px'; }); };
+    window.addEventListener('scroll',function(){ if(!dq){ dq=true; requestAnimationFrame(par); } },{passive:true}); par();
+    window.addEventListener('beforeprint',function(){ depthEls.forEach(function(x){ x.style.translate=''; }); });
+  }
+
+  /* ================= 部品の登場（カード・数字・年表・チェックリスト・表…）。--motion-blocks ================= */
+  (function(){
+    if(BLOCKS!=='on'||REDUCE||!CAN) return;
+    var S=STYLE_DEF, T=TEMPOS[TEMPO_DEF]||1;
+    var FR={gentle:function(){return [{opacity:0,translate:'0 14px'},{opacity:1,translate:'0 0'}];},
+      dynamic:function(){return [{opacity:0,scale:'.85',translate:'0 26px'},{opacity:1,scale:'1.03',translate:'0 0',offset:.7},{opacity:1,scale:'1',translate:'0 0'}];},
+      playful:function(i){return [{opacity:0,translate:'0 -30px',rotate:(i%2?'3deg':'-3deg')},{opacity:1,translate:'0 6px',rotate:'0deg',offset:.6},{opacity:1,translate:'0 0',rotate:'0deg'}];},
+      cinematic:function(){return [{opacity:0,filter:'blur(6px)',translate:'0 10px'},{opacity:1,filter:'blur(0px)',translate:'0 0'}];},
+      tech:function(){return [{opacity:0,clipPath:'inset(0 100% 0 0)'},{opacity:1,clipPath:'inset(0 0% 0 0)'}];}};
+    var fr=FR[S]||FR.gentle, GAP={dynamic:70,cinematic:140,playful:90}[S]||90, DUR=({cinematic:800,dynamic:560}[S]||520)*T;
+    var GROUPS=[['.card-grid','.doc-card'],['.stat-row','.stat'],['.timeline','.tl-item'],['.chips','.chip'],['.ck-list','li'],['.pc-grid','.pc-col'],
+                ['dl.defs','.def'],['.accordion','.acc-item'],['.tabs','.tab-list'],['table','tbody > tr'],['.callout',null],['.tree','ul > li']];
+    var all=[];
+    GROUPS.forEach(function(g){ each(content.querySelectorAll(g[0]),function(c){
+      if(c.closest('.mo-block')||c.closest('figure')) return;
+      var items=g[1]?[].slice.call(c.querySelectorAll(g[1])).filter(function(x){ return g[0]==='.tree'||x.parentElement===c||g[0]==='table'; }):[c];
+      if(g[0]==='.tree') items=items.slice(0,40);
+      if(g[0]==='table'&&items.length>30) return;
+      if(!items.length) return;
+      c.classList.add('mo-block');
+      var st={c:c,anims:[],drv:[]};
+      items.forEach(function(x,i){ var a=x.animate(fr(i),{duration:DUR,delay:i*GAP*T,easing:'cubic-bezier(.2,.7,.2,1)',fill:'backwards'}); a.pause(); st.anims.push(a); });
+      /* 数字は数え上げ、チェックリストの棒・表の棒は伸びる */
+      each(c.querySelectorAll('.stat .big'),function(b,i){ var orig=b.textContent, m=orig.match(/-?[\d,]*\.?\d+/); if(!m||b.children.length) return;
+        var to=parseFloat(m[0].replace(/,/g,'')), dec=(m[0].split('.')[1]||'').length, comma=m[0].indexOf(',')>=0, pre=orig.slice(0,m.index), post=orig.slice(m.index+m[0].length);
+        st.drv.push({el:b,orig:orig,delay:i*GAP*T+150,fmt:function(k){ var s=(to*k).toFixed(dec); if(comma){ var p=s.split('.'); p[0]=p[0].replace(/\B(?=(\d{3})+(?!\d))/g,','); s=p.join('.'); } return pre+s+post; }}); });
+      each(c.querySelectorAll('.ck-bar i, .nbar'),function(b,i){ var a=b.animate([{scale:'0 1'},{scale:'1 1'}],{duration:900*T,delay:250+i*40*T,easing:'cubic-bezier(.2,.7,.2,1)',fill:'backwards'});
+        b.style.transformOrigin='0 50%'; a.pause(); st.anims.push(a); });
+      all.push(st);
+    }); });
+    function run(st){ st.anims.forEach(function(a){ a.play(); });
+      st.drv.forEach(function(d){ var t0=performance.now()+d.delay, D=1100*T; d.el.textContent=d.fmt(0);
+        (function step(now){ var k=Math.max(0,Math.min(1,(now-t0)/D)); d.el.textContent=k>=1?d.orig:d.fmt(1-Math.pow(1-k,3)); if(k<1) requestAnimationFrame(step); })(performance.now()); }); }
+    var bio=new IntersectionObserver(function(en){ en.forEach(function(e){ if(!e.isIntersecting) return; var st=e.target.__moB; if(st&&!st.done){ st.done=true; run(st); } bio.unobserve(e.target); }); },{threshold:.15});
+    all.forEach(function(st){ st.c.__moB=st; bio.observe(st.c); });
+    window.addEventListener('beforeprint',function(){ all.forEach(function(st){ st.anims.forEach(function(a){ try{a.finish();}catch(e){} }); st.drv.forEach(function(d){ d.el.textContent=d.orig; }); }); });
+  })();
+
   if(REDUCE||!CAN||LEVEL==='off'&&!document.querySelector('.content [data-motion]:not([data-motion="none"]),.content figure[data-trigger]')){
     allNotes(content); return;          // 動かさない: 注記は最初から出しておく
   }
@@ -2686,19 +2751,23 @@ MOTION_JS = r"""(function(){
     var dir=st.c.getAttribute('data-motion-dir')||'auto';
     if(dir==='auto') dir=sr.width>=sr.height*1.15?'x':'y';
     var cx=sr.left+sr.width/2, cy=sr.top+sr.height/2;
-    leaves.forEach(function(l){
+    leaves.forEach(function(l,i){
       var x=l.r.left+l.r.width/2, y=l.r.top+l.r.height/2;
-      l.k= dir==='x'?x : dir==='reverse-x'?-x : dir==='reverse-y'?-y : dir==='radial'?Math.hypot(x-cx,y-cy) : y;
+      l.k= dir==='x'?x : dir==='reverse-x'?-x : dir==='reverse-y'?-y : dir==='radial'||dir==='center-out'?Math.hypot(x-cx,y-cy) : dir==='in'?-Math.hypot(x-cx,y-cy)
+         : dir==='diagonal'?x+y : dir==='spiral'?Math.atan2(y-cy,x-cx) : dir==='random'?hrand(i) : y;
     });
     var lo=Infinity,hi=-Infinity; leaves.forEach(function(l){lo=Math.min(lo,l.k);hi=Math.max(hi,l.k);});
     var n=Math.max(3,Math.min(10,Math.round(leaves.length/3))), band=Math.max(1,(hi-lo)/n);
     return {units:leaves.map(function(l){return {el:l.el,step:Math.min(n-1,Math.floor((l.k-lo)/band))};}),
             gap:Math.min(BASE.gapAuto,BASE.autoTotal/n)*T};
   }
-  function effectOf(x){
+  function effectOf(x,st){
     var e=x.getAttribute('data-effect'); if(e) return e;
-    if(tag(x)==='g') return x.querySelector('path,line,polyline')&&[].every.call(x.querySelectorAll('*'),function(y){return !GEOM[tag(y)]||strokeOnly(y);})?'draw':'rise';
-    return strokeOnly(x)?'draw':'rise';
+    var auto=tag(x)==='g'?(x.querySelector('path,line,polyline')&&[].every.call(x.querySelectorAll('*'),function(y){return !GEOM[tag(y)]||strokeOnly(y);})?'draw':'rise')
+                        :(strokeOnly(x)?'draw':'rise');
+    var S=st&&st.S; if(!S||!S.shape||auto==='draw') return auto;
+    var t=tag(x); if(t==='text'||(t==='g'&&x.querySelector('text')&&!x.querySelector('rect,circle,ellipse,polygon,path'))) return S.text;
+    var r=x.getBoundingClientRect(), sr=st.sr; return sr&&r.width*r.height>sr.width*sr.height*0.12?S.big:S.shape;
   }
   function track(st,a,end){ a.pause(); st.anims.push(a); st.end=Math.max(st.end,end); return a; }
   function withBox(st,x,origin){
@@ -2720,7 +2789,7 @@ MOTION_JS = r"""(function(){
     /* 中に注釈のある要素を持つグループは、子ごとに組み立てる（棒の伸び・数え上げを内側で効かせる） */
     if((t0==='g'||t0==='a')&&!x.hasAttribute('data-effect')&&!x.hasAttribute('data-stagger')&&!x.hasAttribute('data-travel')
        &&x.querySelector('[data-effect],[data-count],[data-travel],[data-stagger]')){
-      each(x.children,function(k){ var tk=tag(k); if(GEOM[tk]||tk==='g'||tk==='a') build(st,k,effectOf(k),delay); });
+      each(x.children,function(k){ var tk=tag(k); if(GEOM[tk]||tk==='g'||tk==='a') build(st,k,effectOf(k,st),delay); });
       return;
     }
     if(x.hasAttribute('data-stagger')){
@@ -2731,10 +2800,40 @@ MOTION_JS = r"""(function(){
     }
     if(x.hasAttribute('data-count')) count(st,x,delay);
     if(x.hasAttribute('data-travel')) travel(st,x,delay);
-    var o=getComputedStyle(x).opacity||'1', k0={opacity:0}, k1={opacity:o}, dur=BASE.rise*T, back;
+    var o=getComputedStyle(x).opacity||'1', k0={opacity:0}, k1={opacity:o}, dur=BASE.rise*T, back, frames=null, OVER='cubic-bezier(.34,1.56,.64,1)';
     switch(effect){
       case 'none': return;
       case 'type': type(st,x,delay); return;
+      case 'letters': letters(st,x,delay); return;
+      case 'scramble': scramble(st,x,delay); return;
+      case 'outline':
+        var L2=0; try{L2=x.getTotalLength();}catch(e){}
+        if(!L2||t0==='text'||t0==='g'){ k0.translate='0 10px'; k1.translate='0 0'; break; }
+        var fo=getComputedStyle(x).fillOpacity||'1', dd=L2+' '+L2, D2=BASE.draw*T*1.5;
+        track(st,x.animate([{strokeDasharray:dd,strokeDashoffset:L2,fillOpacity:0},{strokeDasharray:dd,strokeDashoffset:0,fillOpacity:0,offset:.65},{strokeDasharray:dd,strokeDashoffset:0,fillOpacity:fo}],
+          {duration:D2,delay:delay,easing:'ease-in-out',fill:'backwards'}),delay+D2); return;
+      case 'zoom': back=withBox(st,x,'center'); k0.scale='1.4'; k1.scale='1'; break;
+      case 'flip': back=withBox(st,x,'center'); k0.scale='0 1'; k1.scale='1 1'; k0.easing=OVER; break;
+      case 'flip-y': back=withBox(st,x,'center'); k0.scale='1 0'; k1.scale='1 1'; k0.easing=OVER; break;
+      case 'spin': back=withBox(st,x,'center'); k0.rotate='-200deg'; k0.scale='.3'; k1.rotate='0deg'; k1.scale='1'; dur*=1.3; break;
+      case 'roll': back=withBox(st,x,'center'); k0.translate='-60px 0'; k0.rotate='-120deg'; k1.translate='0 0'; k1.rotate='0deg'; dur*=1.2; break;
+      case 'swing': back=withBox(st,x,'50% 0%'); k0.rotate='-28deg'; k1.rotate='0deg'; k0.easing=OVER; dur*=1.3; break;
+      case 'drop': k0.translate='0 -70px'; k1.translate='0 0'; k0.easing=OVER; dur*=1.2; break;
+      case 'slide-left': k0.translate='40px 0'; k1.translate='0 0'; break;
+      case 'slide-right': k0.translate='-40px 0'; k1.translate='0 0'; break;
+      case 'slide-up': k0.translate='0 30px'; k1.translate='0 0'; break;
+      case 'slide-down': k0.translate='0 -30px'; k1.translate='0 0'; break;
+      case 'blur': k0.filter='blur(8px)'; k1.filter='blur(0px)'; dur*=1.3; break;
+      case 'iris': k0={opacity:o,clipPath:'circle(0% at 50% 50%)'}; k1={opacity:o,clipPath:'circle(75% at 50% 50%)'}; dur=BASE.draw*T; break;
+      case 'blinds': k0={opacity:o,clipPath:'inset(50% 0 50% 0)'}; k1={opacity:o,clipPath:'inset(0% 0 0% 0)'}; dur=BASE.draw*T; break;
+      case 'bounce': frames=[{opacity:0,translate:'0 -60px'},{opacity:o,translate:'0 0',offset:.45},{translate:'0 -18px',offset:.65},{translate:'0 0',offset:.8},{translate:'0 -5px',offset:.9},{opacity:o,translate:'0 0'}];
+        dur*=1.9; break;
+      case 'elastic': back=withBox(st,x,'center'); frames=[{opacity:0,scale:'0'},{opacity:o,scale:'1.25',offset:.35},{scale:'.88',offset:.55},{scale:'1.06',offset:.72},{scale:'.97',offset:.86},{opacity:o,scale:'1'}];
+        dur*=1.8; break;
+      case 'jelly': back=withBox(st,x,'center'); frames=[{opacity:0,scale:'1.3 .7'},{opacity:o,scale:'.85 1.15',offset:.4},{scale:'1.06 .94',offset:.7},{opacity:o,scale:'1 1'}]; dur*=1.6; break;
+      case 'glitch': frames=[{opacity:0,translate:'-12px 0'},{opacity:o,translate:'8px 0',offset:.2},{translate:'-6px 2px',offset:.35},{opacity:.3,offset:.45},{opacity:o,translate:'3px -1px',offset:.6},{opacity:o,translate:'0 0'}];
+        dur*=1.2; break;
+      case 'flicker': frames=[{opacity:0},{opacity:o,offset:.15},{opacity:.1,offset:.25},{opacity:o,offset:.4},{opacity:.3,offset:.5},{opacity:o,offset:.65},{opacity:o}]; dur*=1.6; break;
       case 'draw':
         var paths=t0==='g'?[].slice.call(x.querySelectorAll('path,line,polyline')):[x];
         if(t0==='g') each(x.querySelectorAll('*'),function(y){ if(GEOM[tag(y)]&&!strokeOnly(y)&&!y.closest('.mo-token')) build(st,y,'fade',delay+BASE.draw*T*0.55); });
@@ -2769,9 +2868,83 @@ MOTION_JS = r"""(function(){
         dur=BASE.draw*T; break;
       default: k0.translate='0 10px'; k1.translate='0 0';   // rise
     }
-    var a=x.animate([k0,k1],{duration:dur,delay:delay,easing:EASE,fill:'backwards'});
+    var a=x.animate(frames||[k0,k1],{duration:dur,delay:delay,easing:frames?'linear':EASE,fill:'backwards'});
     track(st,a,delay+dur);
     if(back) a.finished.then(back,function(){});
+  }
+  /* 1 文字ずつ現れる（text を文字ごとの tspan に分け、終わったら元に戻す） */
+  function letters(st,x,delay){
+    var targets=tag(x)==='text'?[x]:[].slice.call(x.querySelectorAll('text')), at=delay;
+    targets.forEach(function(t){
+      if(t.children.length){ build(st,t,'fade',at); return; }
+      var orig=t.textContent, chars=Array.from(orig), n=chars.length, D=Math.max(320,n*55*st.T);
+      t.textContent=''; var spans=chars.map(function(ch){ var s=document.createElementNS(NS,'tspan'); s.textContent=ch; s.setAttribute('fill-opacity','0'); t.appendChild(s); return s; });
+      st.restores.push(function(){ t.textContent=orig; });
+      driven(st,t,D,at,function(k){ spans.forEach(function(s,i){ var q=Math.max(0,Math.min(1,(k*(n+3)-i)/3)); s.setAttribute('fill-opacity',k>=1?'1':q.toFixed(2)); }); });
+      at+=D*.6;
+    });
+  }
+  /* でたらめな文字から定まる */
+  var GLY='ABCDEFGHJKLMNPQRSTUVWXYZ0123456789#$%&*+=?';
+  function scramble(st,x,delay){
+    var targets=tag(x)==='text'?[x]:[].slice.call(x.querySelectorAll('text'));
+    targets.forEach(function(t){
+      if(t.children.length){ build(st,t,'fade',delay); return; }
+      var orig=t.textContent, chars=Array.from(orig), n=chars.length, D=Math.max(420,n*45*st.T);
+      var a=t.animate([{opacity:0},{opacity:1}],{duration:1,delay:delay,fill:'backwards'}); track(st,a,delay+1);
+      st.restores.push(function(){ t.textContent=orig; });
+      driven(st,t,D,delay,function(k){ if(k>=1){ t.textContent=orig; return; } var f=Math.floor(k*30), out='';
+        chars.forEach(function(ch,i){ out+=(i/n<k*1.15-.15||/\s/.test(ch))?ch:GLY[Math.floor(hrand(i*31+f)*GLY.length)]; }); t.textContent=out; });
+    });
+  }
+  /* 破片が弾ける（data-burst）: 要素の中心から粒が散る */
+  function burst(st,svg,x,delay){
+    var bb=toUser(svg,x.getBoundingClientRect()); if(!bb) return;
+    var g=el('g',{'class':'mo-token','pointer-events':'none'}), cx=bb.x+bb.w/2, cy=bb.y+bb.h/2, n=num(x.getAttribute('data-burst'),14)||14, R=Math.max(bb.w,bb.h)*.6+30;
+    svg.appendChild(g); st.restores.push(function(){ if(g.parentNode) g.parentNode.removeChild(g); });
+    for(var i=0;i<n;i++){
+      var an=i/n*Math.PI*2+hrand(i)*.5, rr=R*(.6+hrand(i+9)*.6), c=el('circle',{cx:cx,cy:cy,r:3+hrand(i+3)*3,fill:'var(--a'+(i%4)+', var(--accent))',opacity:0});
+      g.appendChild(c);
+      track(st,c.animate([{translate:'0 0',opacity:1},{translate:(Math.cos(an)*rr).toFixed(1)+'px '+(Math.sin(an)*rr).toFixed(1)+'px',opacity:0}],
+        {duration:BASE.burst*st.T,delay:delay,easing:'cubic-bezier(.1,.8,.3,1)'}),delay+BASE.burst*st.T);   /* 前後は属性の opacity:0 で隠れる */
+    }
+  }
+  /* 波紋（強調の ring・data-ripple）: 要素を囲む円が広がって消える */
+  function ringEl(svg,x){
+    var bb=toUser(svg,x.getBoundingClientRect()); if(!bb) return null;
+    return el('circle',{cx:bb.x+bb.w/2,cy:bb.y+bb.h/2,r:Math.max(bb.w,bb.h)/2+6,fill:'none',stroke:'var(--accent)','stroke-width':2.5,'pointer-events':'none','class':'mo-token',opacity:0,
+                        style:'transform-box:fill-box;transform-origin:center'});
+  }
+  /* 現れた後の強調（data-attn）: 登場がすべて終わってから、段の順に 1 回 */
+  function attn(st,svg){
+    var els=[].slice.call(svg.querySelectorAll('[data-attn]')); if(!els.length) return;
+    els.sort(function(a,b){ return num(a.getAttribute('data-step'),0)-num(b.getAttribute('data-step'),0); });
+    var base=st.end+150, end=st.end, acc=cssv('--accent');
+    els.forEach(function(x,i){
+      var kind=x.getAttribute('data-attn')||'pulse', d=base+i*320, D=BASE.attn*st.T, fr, org='center';
+      if(kind==='ring'){ for(var j=0;j<2;j++){ var c=ringEl(svg,x); if(!c) return; svg.appendChild(c); st.restores.push((function(c){ return function(){ if(c.parentNode) c.parentNode.removeChild(c); }; })(c));
+          track(st,c.animate([{scale:'1',opacity:.9},{scale:'2.2',opacity:0}],{duration:D*1.2,delay:d+j*220,easing:'ease-out'}),d+j*220+D*1.2); }
+        end=Math.max(end,d+D*1.6); return; }
+      switch(kind){
+        case 'shake': fr=[{translate:'0 0'},{translate:'-8px 0',offset:.15},{translate:'8px 0',offset:.3},{translate:'-6px 0',offset:.45},{translate:'6px 0',offset:.6},{translate:'-3px 0',offset:.75},{translate:'0 0'}]; break;
+        case 'wiggle': fr=[{rotate:'0deg'},{rotate:'-8deg',offset:.2},{rotate:'8deg',offset:.4},{rotate:'-5deg',offset:.6},{rotate:'3deg',offset:.8},{rotate:'0deg'}]; break;
+        case 'jump': fr=[{translate:'0 0'},{translate:'0 -18px',offset:.3},{translate:'0 0',offset:.55},{translate:'0 -6px',offset:.75},{translate:'0 0'}]; break;
+        case 'pop': fr=[{scale:'1'},{scale:'1.2',offset:.4},{scale:'.95',offset:.7},{scale:'1'}]; break;
+        case 'tada': fr=[{scale:'1',rotate:'0deg'},{scale:'.9',rotate:'-3deg',offset:.15},{scale:'1.12',rotate:'3deg',offset:.35},{scale:'1.12',rotate:'-3deg',offset:.55},{scale:'1.12',rotate:'3deg',offset:.75},{scale:'1',rotate:'0deg'}]; D*=1.4; break;
+        case 'heartbeat': fr=[{scale:'1'},{scale:'1.15',offset:.15},{scale:'1',offset:.3},{scale:'1.12',offset:.45},{scale:'1'}]; D*=1.3; break;
+        case 'flash': fr=[{opacity:1},{opacity:.15,offset:.25},{opacity:1,offset:.5},{opacity:.15,offset:.75},{opacity:1}]; break;
+        case 'glow': fr=[{filter:'drop-shadow(0 0 0 '+acc+')'},{filter:'drop-shadow(0 0 12px '+acc+')',offset:.5},{filter:'drop-shadow(0 0 0 '+acc+')'}]; D*=1.6; break;
+        default: fr=[{scale:'1'},{scale:'1.08',offset:.25},{scale:'1',offset:.5},{scale:'1.08',offset:.75},{scale:'1'}];
+      }
+      withBox(st,x,org); track(st,x.animate(fr,{duration:D,delay:d,easing:'ease-in-out'}),d+D); end=Math.max(end,d+D);
+    });
+    st.end=end;
+  }
+  /* 図全体の入り方（data-intro・動きの性格）。中の要素はその途中から現れる */
+  function intro(st,svg){
+    var name=st.c.getAttribute('data-intro')||st.S.intro; if(!name||name==='none'||!INTROS[name]) return 0;
+    var D=BASE.intro*st.T; track(st,svg.animate(INTROS[name],{duration:D,easing:'cubic-bezier(.2,.8,.2,1)',fill:'backwards'}),D);
+    return D*.45;
   }
   function type(st,x,delay){
     var targets=tag(x)==='text'?[x]:[].slice.call(x.querySelectorAll('text'));
@@ -2811,7 +2984,7 @@ MOTION_JS = r"""(function(){
     if(label){ var w=0; try{w=tx.getComputedTextLength();}catch(e){} w=(w||label.length*7)+14;
       bg.setAttribute('x',-w/2); bg.setAttribute('y',-26); bg.setAttribute('width',w); bg.setAttribute('height',18); }
     st.restores.push(function(){ if(g.parentNode) g.parentNode.removeChild(g); });
-    var start=delay+(effectOf(x)==='draw'?BASE.draw*st.T*0.9:0);
+    var start=delay+(effectOf(x,st)==='draw'?BASE.draw*st.T*0.9:0);
     driven(st,g,BASE.travel*st.T,start,function(k){
       if(k>=1||k<=0){ g.setAttribute('opacity','0'); return; }
       var e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2, pt=p.getPointAtLength(L*e);
@@ -2819,13 +2992,13 @@ MOTION_JS = r"""(function(){
       g.setAttribute('opacity', k<.08?String(k/.08):k>.92?String((1-k)/.08):'1');
     });
   }
-  function noteAnims(st,svg,units,gap){
+  function noteAnims(st,svg,units,gap,off){
     notes(svg).forEach(function(g){
       var target=null; each(svg.querySelectorAll('[data-note]'),function(t){ if(t.__moNote===g) target=t; });
       if(!target) return;
       var u=null; units.forEach(function(v){ if(v.el===target||v.el.contains(target)) u=v; });
       if(!u) return;                                      // 動かない要素の注記は最初から表示
-      var d=u.step*gap+BASE.rise*st.T*0.8;
+      var d=(off||0)+u.step*gap+BASE.rise*st.T*0.8;
       track(st,g.animate([{opacity:0,translate:'0 6px'},{opacity:1,translate:'0 0'}],{duration:BASE.rise*st.T,delay:d,easing:EASE,fill:'backwards'}),d+BASE.rise*st.T);
     });
   }
@@ -2882,7 +3055,36 @@ MOTION_JS = r"""(function(){
       withBox(st,x,'center'); var rev=x.getAttribute('data-spin')==='ccw';
       st.loops.push(x.animate([{rotate:'0deg'},{rotate:(rev?'-':'')+'360deg'}],{duration:BASE.spin*st.T,iterations:Infinity}));
     });
+    var acc=cssv('--accent'), L=function(x,fr,D,o){ var a=x.animate(fr,Object.assign({duration:D*st.T,iterations:Infinity,easing:'ease-in-out'},o||{})); st.loops.push(a); return a; };
+    each(svg.querySelectorAll('[data-float]'),function(x){ var h=num(x.getAttribute('data-float'),6)||6; L(x,[{translate:'0 0'},{translate:'0 -'+h+'px'},{translate:'0 0'}],BASE.float); });
+    each(svg.querySelectorAll('[data-sway]'),function(x){ withBox(st,x,'50% 0%'); var dg=num(x.getAttribute('data-sway'),4)||4; L(x,[{rotate:'-'+dg+'deg'},{rotate:dg+'deg'},{rotate:'-'+dg+'deg'}],BASE.sway); });
+    each(svg.querySelectorAll('[data-blink]'),function(x){ L(x,[{opacity:1},{opacity:1,offset:.6},{opacity:.15,offset:.75},{opacity:1}],BASE.blink); });
+    each(svg.querySelectorAll('[data-heartbeat]'),function(x){ withBox(st,x,'center'); L(x,[{scale:'1'},{scale:'1.12',offset:.12},{scale:'1',offset:.25},{scale:'1.09',offset:.38},{scale:'1',offset:.55},{scale:'1'}],BASE.heartbeat); });
+    each(svg.querySelectorAll('[data-glow]'),function(x){ L(x,[{filter:'drop-shadow(0 0 0 '+acc+')'},{filter:'drop-shadow(0 0 10px '+acc+')'},{filter:'drop-shadow(0 0 0 '+acc+')'}],BASE.glow); });
+    each(svg.querySelectorAll('[data-march]'),function(x){ (tag(x)==='g'?[].slice.call(x.querySelectorAll('rect,circle,ellipse,polygon,path,line,polyline')):[x]).forEach(function(y){
+      L(y,[{strokeDasharray:'8 6',strokeDashoffset:14},{strokeDasharray:'8 6',strokeDashoffset:0}],BASE.march,{easing:'linear'}); }); });
+    each(svg.querySelectorAll('[data-wave]'),function(x){ [].filter.call(x.children,function(k){return GEOM[tag(k)]||tag(k)==='g';}).forEach(function(k,i){
+      L(k,[{translate:'0 0'},{translate:'0 -8px',offset:.25},{translate:'0 0',offset:.5},{translate:'0 0'}],BASE.wave,{delay:-i*140*st.T}); }); });
+    each(svg.querySelectorAll('[data-orbit]'),function(x){ var r=num(x.getAttribute('data-orbit'),10)||10, fr=[];
+      for(var i=0;i<=12;i++){ var an=i/12*Math.PI*2; fr.push({translate:(Math.cos(an)*r).toFixed(1)+'px '+(Math.sin(an)*r).toFixed(1)+'px'}); }
+      L(x,fr,BASE.orbit,{easing:'linear'}); });
+    each(svg.querySelectorAll('[data-ripple]'),function(x){ for(var j=0;j<2;j++){ var c=ringEl(svg,x); if(!c) return; svg.appendChild(c); st.loopEls.push(c);
+      L(c,[{scale:'1',opacity:.7},{scale:'2.4',opacity:0}],BASE.ripple,{easing:'ease-out',delay:-j*BASE.ripple*st.T/2}); } });
+    each(svg.querySelectorAll('[data-stream]'),function(x){ var p=tag(x)==='g'?x.querySelector('path,line,polyline'):x, Ln=0; try{Ln=p.getTotalLength();}catch(e){} if(!Ln) return;
+      var n=num(x.getAttribute('data-stream'),3)||3; for(var j=0;j<n;j++){ var g=el('g',{'class':'mo-token','pointer-events':'none'}); g.appendChild(el('circle',{r:4.5,fill:'var(--accent)'}));
+        p.parentNode.insertBefore(g,p.nextSibling); st.loopEls.push(g); st.streams.push({g:g,p:p,L:Ln,ph:j/n}); } });
+    if(st.streams.length) streamKick();
     if(!st.inView) st.loops.forEach(function(a){a.pause();});
+  }
+  /* 線の上を印が流れ続ける（data-stream）: 見えている図だけ動かす */
+  var streaming=false;
+  function streamKick(){ if(streaming) return; streaming=true; requestAnimationFrame(streamTick); }
+  function streamTick(now){
+    var any=false;
+    states.forEach(function(st){ if(!st.inView||!st.streams.length) return; any=true;
+      st.streams.forEach(function(s){ var k=((now/(BASE.stream*st.T))+s.ph)%1, pt=s.p.getPointAtLength(s.L*k); s.g.setAttribute('transform','translate('+pt.x+','+pt.y+')');
+        s.g.setAttribute('opacity',k<.08?String(k/.08):k>.92?String((1-k)/.08):'1'); }); });
+    if(any) requestAnimationFrame(streamTick); else streaming=false;
   }
 
   /* ---- 再生の制御 ---- */
@@ -2899,19 +3101,23 @@ MOTION_JS = r"""(function(){
     st.anims.forEach(function(a){try{a.cancel();}catch(e){}});
     st.loops.forEach(function(a){try{a.cancel();}catch(e){}});
     for(var i=st.restores.length-1;i>=0;i--) st.restores[i]();
-    st.anims=[]; st.loops=[]; st.restores=[]; st.drivers=[]; st.svgs=[]; st.end=0;
+    (st.loopEls||[]).forEach(function(e){ if(e.parentNode) e.parentNode.removeChild(e); });
+    st.anims=[]; st.loops=[]; st.restores=[]; st.drivers=[]; st.svgs=[]; st.end=0; st.loopEls=[]; st.streams=[];
   }
   function arm(st){
     reset(st);
-    st.T=tempoOf(st.c);
+    st.T=tempoOf(st.c); st.S=styleOf(st.c);
     try{
       outerSvgs(st.c).filter(shown).forEach(function(svg){
         notes(svg);
-        var pl=plan(st,svg);
-        pl.units.forEach(function(u){ build(st,u.el,effectOf(u.el),u.step*pl.gap); });
-        noteAnims(st,svg,pl.units,pl.gap);
+        st.sr=svg.getBoundingClientRect();
+        var pl=plan(st,svg), off=intro(st,svg), gap=pl.gap*(st.S.gap||1);
+        pl.units.forEach(function(u){ build(st,u.el,effectOf(u.el,st),off+u.step*gap);
+          (u.el.hasAttribute('data-burst')?[u.el]:[].slice.call(u.el.querySelectorAll('[data-burst]'))).forEach(function(b){ burst(st,svg,b,off+u.step*gap+BASE.rise*st.T*.6); }); });
+        noteAnims(st,svg,pl.units,gap,off);
         st.svgs.push(svg);
       });
+      st.svgs.forEach(function(svg){ attn(st,svg); });
       st.svgs.forEach(function(svg){ focus(st,svg); });
       var base=st.end; st.svgs.forEach(function(svg){ st.end=base; zoom(st,svg); });
     }catch(e){ reset(st); }
@@ -2953,10 +3159,11 @@ MOTION_JS = r"""(function(){
       if(st.trigger==='scroll'){ scrub(st); return; }
       if(en.isIntersecting&&((!st.played&&st.trigger!=='click')||st.pending)){ st.played=true; st.pending=false; play(st); }
       st.loops.forEach(function(a){ en.isIntersecting?a.play():a.pause(); });
+      if(en.isIntersecting&&st.streams.length) streamKick();
     });
   },{threshold:0.3});
   containers().forEach(function(c){
-    var st={c:c,anims:[],loops:[],restores:[],drivers:[],svgs:[],end:0,T:1,gen:0,played:false,inView:false,pending:false,
+    var st={c:c,anims:[],loops:[],restores:[],drivers:[],svgs:[],end:0,T:1,gen:0,played:false,inView:false,pending:false,loopEls:[],streams:[],S:STYLES.gentle,
             trigger:c.getAttribute('data-trigger')||'view',p:-1};
     c.__mo=st; states.push(st);
     c.classList.add('mo-fig');
@@ -2986,13 +3193,20 @@ MOTION_JS = r"""(function(){
 
 
 MOTION_TEMPOS = ["slow", "normal", "fast"]
+MOTION_STYLES = ["gentle", "dynamic", "playful", "cinematic", "tech"]
+# 動きの性格と部品の登場（main で CLI の値に書き換える。convert_file の引数を増やさないため）
+MOTION_OPTS = {"style": "gentle", "blocks": "auto"}
 
 
 def motion_html(level, tempo="normal"):
     # off でも埋め込む: 切り替え・経路・関連の強調・注記は動きの設定と無関係に働く。
     # off のときは、data-motion を明示した図以外は登場の動きをしない。
+    blocks = MOTION_OPTS["blocks"]
+    if blocks == "auto":
+        blocks = "on" if level == "rich" else "off"
     return "<style>%s</style>\n<script>%s</script>" % (
-        MOTION_CSS, MOTION_JS.replace("__MOTION_LEVEL__", level).replace("__MOTION_TEMPO__", tempo))
+        MOTION_CSS, MOTION_JS.replace("__MOTION_LEVEL__", level).replace("__MOTION_TEMPO__", tempo)
+                              .replace("__MOTION_STYLE__", MOTION_OPTS["style"]).replace("__MOTION_BLOCKS__", blocks))
 
 
 
@@ -3238,9 +3452,16 @@ def main():
                          "スクロールで見えたとき 1 回再生。reduced-motion・印刷では静止")
     ap.add_argument("--motion-tempo", default="normal", choices=MOTION_TEMPOS,
                     help="動きの速さ（slow / normal / fast）。図ごとには data-tempo で上書きできる")
+    ap.add_argument("--motion-style", default="gentle", choices=MOTION_STYLES,
+                    help="動きの性格（gentle=穏やか／dynamic=弾む・寄る／playful=跳ねる・落ちる／cinematic=ぼけから・ゆっくり／tech=拭き取り・でたらめな文字から）。"
+                         "図ごとには data-motion-style で上書き")
+    ap.add_argument("--motion-blocks", default="auto", choices=["auto", "on", "off"],
+                    help="カード・数字・年表・チェックリスト・表などの部品も、見えたときに現れる（auto=--motion rich のときだけ）")
     ap.add_argument("--image-mode", default="embed", choices=["embed", "link"],
                     help="mdのローカル画像リンクの扱い（embed=data URIで埋め込み／link=外部フォルダ参照のまま）")
     args = ap.parse_args()
+    MOTION_OPTS["style"] = args.motion_style
+    MOTION_OPTS["blocks"] = args.motion_blocks
 
     if args.list_themes:
         print("| キー | 名前 | 性格 | 向く文書 |")
@@ -3496,9 +3717,22 @@ def main():
         print("  python3 %s spec.json --insert <out.html>  # slot / replace / placeholder に差し込む" % kit)
         print("  種類: flow / steps / cycle / bars / metrics / compare / hub / layers / sequence。")
         print("  figkit の図は段・現れ方が組み込み済み。key で動かす図は仕様に \"motion\": true を足すだけ。")
-        print("[図の単位] <figure data-motion=\"auto|steps|none\" data-tempo=\"slow|normal|fast\" data-trigger=\"view|click|loop\" data-motion-dir=\"auto|x|y|reverse-x|reverse-y|radial\">")
+        print("[動きの性格] --motion-style=%s（図ごとに data-motion-style で変える: gentle|dynamic|playful|cinematic|tech）。" % MOTION_OPTS["style"]
+              + " 注釈の無い要素の現れ方・図全体の入り方・段の間隔が性格で決まる")
+        print("[部品の登場] --motion-blocks=%s（カード・数字の数え上げ・年表・チェックリスト・表の行と棒）" % MOTION_OPTS["blocks"])
+        print("[図の単位] <figure data-motion=\"auto|steps|none\" data-tempo=\"slow|normal|fast\" data-trigger=\"view|click|loop|scroll\"")
+        print("           data-motion-dir=\"auto|x|y|reverse-x|reverse-y|radial|in|diagonal|spiral|random\" data-motion-style=\"…\"")
+        print("           data-intro=\"punch|zoom-out|drop|tilt|glitch|iris|fade|rise|none\"（図全体の入り方）>")
         print("[要素の注釈]（svg 内の要素か <g>。すべて任意）")
-        print("  data-step=\"N\"  現れる順番（同じ N は同時）   data-effect=\"draw|rise|fade|slide|pop|grow|wipe|none\"  現れ方")
+        print("  data-step=\"N\"  現れる順番（同じ N は同時）")
+        print("  data-effect=  現れ方: draw rise fade slide pop grow wipe / zoom flip flip-y spin roll swing drop bounce elastic jelly")
+        print("                slide-left slide-right slide-up slide-down blur iris blinds glitch flicker outline（輪郭を描いてから塗る）")
+        print("                type letters scramble（文字） none")
+        print("  data-attn=\"shake|wiggle|jump|pop|tada|heartbeat|flash|glow|ring|pulse\"  現れた後に 1 回強調（登場がすべて終わってから段の順）")
+        print("  data-burst[=\"粒の数\"]  現れるときに粒が弾ける（達成・結果の強調に 1 図 1 か所）")
+        print("  繰り返し: data-float[=px] 漂う  data-sway[=度] 揺れる  data-blink 瞬く  data-heartbeat 鼓動  data-glow 光る  data-march 輪郭の点線が回る")
+        print("           data-wave（<g> の子が波打つ）  data-orbit=\"半径\" 小さく回る  data-ripple 波紋  data-stream=\"数\" 線の上を印が流れ続ける")
+        print("  data-depth=\"-2〜2\"  スクロールで奥行きのようにずれる（背景の飾りに）")
         print("  data-grow=\"up|down|left|right\"  grow の向き   data-stagger[=\"ms\"]  <g> の子を 1 つずつ")
         print("  data-travel=\"ラベル\"  線の上を印が移動（受け渡し）   data-count=\"0\"  文字の数値を 0 から数え上げ")
         print("  data-flow  線に沿って破線が流れ続ける   data-pulse  ゆっくり明滅   data-spin[=\"ccw\"]  回り続ける（飾りの輪に）")

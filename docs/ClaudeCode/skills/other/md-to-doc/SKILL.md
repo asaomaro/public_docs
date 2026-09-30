@@ -173,7 +173,7 @@ python3 <skill_dir>/generate.py --list-themes
 
 ### 3g. 説明図の動き（motion）を選ばせる ※出力モードが `print` 以外のとき
 `AskUserQuestion`（header 例: 「動き」）。動画ではなく読み物なので、**説明図の要所に動きを付けるか**を聞く。
-動くのは図（mermaid・3 の図解・AI 構築で書く図）だけで、本文・カード等は動かさない。
+動くのは図（mermaid・3 の図解・AI 構築で書く図）。`rich` ではカード・数字（数え上げ）・年表・チェックリスト・表の行と棒も、見えたときに現れる（`--motion-blocks`）。本文の段落は動かさない。
 
 - **動かさない**（`off`）— 静止した図のみ（既定）。
 - **要所だけ動かす**（`key`）— 流れ・手順・状態遷移など、動きで理解が進む図を Claude が各文書 1〜2 個選んで動かす。
@@ -184,8 +184,8 @@ python3 <skill_dir>/generate.py --list-themes
 - 線だけの要素は「描かれ」、図形・文字は「浮かび上がる」。注釈で順序・現れ方・流れる破線・明滅を指定できる（4d）。
 - OS の「視差効果を減らす（prefers-reduced-motion）」・印刷・JS 無しでは、静止した完成図のまま表示する。
 - 図が 1 つも無い文書では効果が無い（mermaid が無く、図解 `off`、`design=deterministic` のとき）。その場合は聞かなくてよい。
-- **質問はこの 1 問だけ**。速さ（`--motion-tempo`）・図ごとの見せ方・再生のきっかけは聞かず、4d の選び方の表に
-  従って Claude が決める。ユーザーが言葉で指定した場合（「ゆっくり」「クリックで再生」等）だけそれに従う。
+- **質問はこの 1 問だけ**。速さ（`--motion-tempo`）・動きの性格（`--motion-style`）・図ごとの見せ方・再生のきっかけは聞かず、
+  4d の選び方の表に従って Claude が決める。ユーザーが言葉で指定した場合（「ゆっくり」「ダイナミックに」「クリックで再生」等）だけそれに従う。
 
 ### 3f. セクション別レイアウトの仕分け案を提示して合意を取る ※`design=deterministic` のときだけ
 
@@ -259,7 +259,8 @@ python3 <skill_dir>/generate.py "<input.md>" [さらに.md...] \
   [--toc sidebar|menu|both|none] [--layout plain|cards|timeline|accordion|freeform] \
   [--layout-map "節名=cards,節名2=timeline"] \
   [--design deterministic|ai] [--image-mode embed|link] [--default-mode system|light|dark] \
-  [--motion off|key|rich] [--motion-tempo slow|normal|fast]
+  [--motion off|key|rich] [--motion-tempo slow|normal|fast] \
+  [--motion-style gentle|dynamic|playful|cinematic|tech] [--motion-blocks auto|on|off]
 ```
 
 - 出力は既定で入力と同じ場所に `<元ファイル名>.html`。別の場所にしたい場合は `--outdir <dir>`。
@@ -271,6 +272,11 @@ python3 <skill_dir>/generate.py "<input.md>" [さらに.md...] \
 - `--motion` は 3g の選択。`--mode print` と組み合わせた場合は警告を出して `off` として扱う。
 - `--motion-tempo` は動きの速さ（既定 `normal`）。聞かずに決める: 落ち着いた資料・経営向け・読み込む文書は `slow`、
   説明会の投影・短い紹介は `fast`、迷えば `normal`。図ごとには `data-tempo` で上書きできる。
+- `--motion-style` は動きの性格（既定 `gentle`）。聞かずに決める: 製品紹介・発表・勢いを出したい資料は `dynamic`、
+  子ども・イベント・親しみやすい案内は `playful`、ビジョン・物語・経営向けの語りは `cinematic`、技術・データ・開発者向けは `tech`、
+  手順書・規程・読み込む文書は `gentle`。図ごとには `data-motion-style` で上書きできる。
+- `--motion-blocks` はカード・数字・年表・チェックリスト・表などの部品の登場（既定 `auto` = `--motion rich` のときだけ）。
+  `key` でも部品を動かしたいときは `on`、`rich` でも図だけにしたいときは `off`。
 - `--default-mode` は初回表示（localStorage 未設定時）の既定モード。省略時はテーマの既定に従う。
   ユーザーから指定がなければ省略してよい。
 
@@ -397,6 +403,17 @@ figkit に無い形の図だけ、以下の手描きのルールで描く。
   `--motion off` や「視差効果を減らす」でも使える（動きだけが止まり、切り替えは即座になる）。
   ただし注記と経路は JS が要るので、**本文の理解に欠かせない情報は本文か caption にも書く**。
 - **強さの目安**: `data-flow`・`data-pulse`・`data-spin` などのループは 1 図に 1〜2 個まで。全図にループを付けない。
+  `data-attn`（現れた後の強調）と `data-burst`（弾ける粒）は、結論・結果など 1 図に 1 か所だけ。
+- **動きの性格**（`--motion-style` / figure の `data-motion-style`）: 注釈の無い要素の現れ方・図全体の入り方・段の間隔を決める。
+  注釈（`data-effect` 等）を付けた要素は注釈が優先。
+
+| 性格 | 図形 | 文字 | 大きな面 | 図全体の入り方 | 段の間隔 |
+|---|---|---|---|---|---|
+| `gentle`（既定） | 浮かぶ | 浮かぶ | 浮かぶ | なし | 標準 |
+| `dynamic` | 弾む（pop） | 下から滑る | 寄る（zoom） | punch（縮んだ所から弾む） | 詰める |
+| `playful` | 伸び縮み（elastic） | 跳ねる（bounce） | 落ちる（drop） | drop | やや詰める |
+| `cinematic` | ぼけから（blur） | ぼけから | ぼけから | zoom-out（大きくぼけた所から） | ゆったり |
+| `tech` | 拭き取り（wipe） | でたらめな文字から（scramble） | 拭き取り | glitch（乱れて定まる） | やや詰める |
 
 #### 注釈の語彙（手描き svg・mermaid の figure に付ける。figkit は組み込み済み）
 
@@ -405,9 +422,22 @@ figkit に無い形の図だけ、以下の手描きのルールで描く。
 | figure | `data-motion="auto\|steps\|none"` | 動かし方（auto=位置順、steps=`data-step` 順、none=動かさない） |
 | figure | `data-tempo="slow\|normal\|fast"` | この図の速さ |
 | figure | `data-trigger="view\|click\|loop"` | 再生のきっかけ（見えたら／ボタン／繰り返し） |
-| figure | `data-motion-dir="auto\|x\|y\|reverse-x\|reverse-y\|radial"` | auto の順番の向き（radial=中心から外へ） |
+| figure | `data-motion-dir="auto\|x\|y\|reverse-x\|reverse-y\|radial\|in\|diagonal\|spiral\|random"` | auto の順番の向き（radial=中心から外へ、in=外から中心へ、spiral=中心の周りを回る順） |
+| figure | `data-motion-style="gentle\|dynamic\|playful\|cinematic\|tech"` | この図の動きの性格（上の表） |
+| figure | `data-intro="punch\|zoom-out\|drop\|tilt\|glitch\|iris\|fade\|rise\|none"` | 図全体の入り方（中の要素はその途中から現れる） |
 | 要素・g | `data-step="N"` | 現れる順番（同じ N は同時）。付けた要素だけが動く |
 | 要素・g | `data-effect="draw\|rise\|fade\|slide\|pop\|grow\|wipe\|none"` | 現れ方（描く／浮かぶ／その場で／左から／弾む／伸びる／拭う） |
+| 要素・g | `data-effect="zoom\|flip\|flip-y\|spin\|roll\|swing\|drop\|bounce\|elastic\|jelly"` | 動きの強い現れ方（大きい所から／裏返る／回る／転がる／振り子／落ちる／跳ねる／伸び縮み／ぷるん） |
+| 要素・g | `data-effect="slide-left\|slide-right\|slide-up\|slide-down\|blur\|iris\|blinds\|glitch\|flicker\|outline"` | 向きのある滑り／ぼけから／円が開く／帯が開く／乱れる／明滅して点く／輪郭を描いてから塗る |
+| text・g | `data-effect="letters\|scramble"` | 1 文字ずつ現れる／でたらめな文字から定まる |
+| 要素・g | `data-attn="shake\|wiggle\|jump\|pop\|tada\|heartbeat\|flash\|glow\|ring\|pulse"` | 登場がすべて終わった後、段の順に 1 回強調する（ring は波紋） |
+| 要素 | `data-burst="粒の数"` | 現れるときに粒が弾ける（結果・達成に） |
+| 要素・g | `data-float="px"`・`data-sway="度"`・`data-blink`・`data-heartbeat`・`data-glow` | 現れた後の繰り返し（漂う／揺れる／瞬く／鼓動／光る） |
+| 図形・g | `data-march` | 輪郭の点線が回り続ける（処理中・選択中） |
+| g | `data-wave` | 子が順に波打ち続ける（点・並んだ項目） |
+| 要素 | `data-orbit="半径"`・`data-ripple` | 小さく回り続ける／波紋が広がり続ける |
+| 線・g | `data-stream="数"` | 線の上を印が流れ続ける（`travel` の繰り返し版） |
+| 要素 | `data-depth="-2〜2"` | スクロールに合わせてずれる（背景の飾りに奥行き） |
 | 要素 | `data-grow="up\|down\|left\|right"` | `grow` の向き |
 | g | `data-stagger="ms"` | 子を 1 つずつ（既定 130ms 間隔） |
 | 線・g | `data-travel="ラベル"` | 線の上を印が移動（受け渡し。空文字なら点だけ） |

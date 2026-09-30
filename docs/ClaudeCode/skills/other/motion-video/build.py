@@ -127,10 +127,16 @@ SCENE_TYPES = {
     "split": (["left", "right"], "左に文章・右に部品（右は type 付きの部品を縮小して置く）", '{"type":"split","heading":"…","left":{"title":"見出し","text":"説明","points":["要点"]},"right":{"type":"stats","items":[{"value":"48","label":"ツール"}]}}'),
     "beforeafter": (["before", "after"], "前後比較（境目が左から右へ動き、後の姿が現れる）", '{"type":"beforeafter","heading":"導入の前と後","before":{"label":"Before","title":"手作業","points":["毎朝 30 分"],"value":"30 分"},"after":{"label":"After","title":"自動","points":["ボタン 1 つ"],"value":"1 分"}}'),
     "dom": ([], "HTML・SVG・CSS で自由に描く（html / css / update。src・cssSrc・updateSrc でファイルから）。時刻は CSS 変数 --lt（ms）と --p（0..1）", '{"type":"dom","src":"scenes/intro.html","cssSrc":"scenes/intro.css","updateSrc":"scenes/intro.js","duration":8}'),
+    "impact": (["text"], "強い一語を叩きつける（集中線・破片・画面の揺れ）。sub で下に一行", '{"type":"impact","text":"10 倍速い","sub":"同じ作業が 3 分で"}'),
+    "countdown": ([], "3・2・1 の数え下ろしと、最後に label を叩きつける（from で始まりの数）", '{"type":"countdown","from":3,"label":"公開！","sub":"10 月 1 日"}'),
+    "orbit": (["items"], "中心の周りを項目が回る（関係・生態系）。center は中心の名前", '{"type":"orbit","heading":"つながる道具","center":{"label":"Sodashitsu","sub":"操舵室"},"items":[{"label":"Claude","icon":"🤖"},"Codex","Gemini","herdr"]}'),
+    "logo": (["title"], "破片が集まってロゴになり、題名に光が走る（公開・発表の頭と締め）", '{"type":"logo","title":"Sodashitsu","subtitle":"AI エージェントの操舵室","mark":"wheel"}'),
+    "marquee": (["rows"], "大きな文字の帯が左右に流れる（キーワードの洪水）。caption で中央に札", '{"type":"marquee","rows":[["並行","承認","通知"],["SSH","Windows","TLS"]],"caption":"ぜんぶ、1 つの画面で"}'),
     "custom": ([], "JS で自由に描く（本体: (ctx, lt, d, H, s)。道具は --api。code は文字列か行の配列、または src に .js のパス）", '{"type":"custom","src":"scenes/intro.js","duration":8,"narration":"…"}'),
 }
-COMMON = ("共通: narration（ナレーション＝字幕。文字列か配列）・duration（秒。省略時は自動）・heading・transition（fade|slide|zoom|wipe|push|cut）"
-          "・overlays（重ねの層）・camera（カメラ）")
+COMMON = ("共通: narration（ナレーション＝字幕。文字列か配列）・duration（秒。省略時は自動）・heading・transition（切り替え。下の一覧）"
+          "・overlays（重ねの層）・camera（カメラ。型の名前か keyframe）・anim（文字の出方。title・statement・quote・end・kinetic・impact・logo）"
+          "・fx（演出の層の配列。false で性格の既定も止める）・shake（[{at, amp, dur}] 画面の揺れ）・sfx（効果音）")
 
 OVERLAY_KINDS = {
     "note": (["text"], '注記の吹き出し。target で引き出し線', '{"kind":"note","text":"ここが**新しい**","x":1300,"y":200,"target":[900,420],"at":0.3,"until":0.9}'),
@@ -139,9 +145,43 @@ OVERLAY_KINDS = {
     "badge": (["text"], "弾んで出る札", '{"kind":"badge","text":"NEW","x":1500,"y":260,"at":0.2}'),
     "cursor": (["path"], "マウスの矢印が点を順にたどる。click はクリックする点の番号", '{"kind":"cursor","path":[[500,800],[900,420],[1200,420]],"click":[1],"at":0.2,"until":0.8}'),
     "notify": (["text"], "OS 風の通知（右上。pos:br で右下寄り）", '{"kind":"notify","app":"Sodashitsu","text":"impl が完了しました","at":0.3,"until":0.7}'),
+    "burst": ([], "破片が弾ける（x, y。n で数・r で広がり）", '{"kind":"burst","x":1300,"y":420,"at":0.4}'),
+    "ripple": ([], "波紋がくり返し広がる（x, y, r）", '{"kind":"ripple","x":900,"y":500,"r":180,"at":0.3,"until":0.8}'),
+    "confetti": ([], "紙吹雪が降る（祝い・達成）", '{"kind":"confetti","at":0.5}'),
+    "stamp": (["text"], "判子が叩きつけられる（x, y, rot 度, color: warn|accent|ok）。画面が揺れる", '{"kind":"stamp","text":"承認","x":1450,"y":320,"at":0.6,"color":"ok"}'),
+    "circle": (["rect"], "手書きの丸で囲む（label で添え書き）", '{"kind":"circle","rect":[700,380,420,120],"label":"ここ","at":0.4}'),
+    "marker": (["rect"], "蛍光ペンで塗る（文字の上に重なる半透明）", '{"kind":"marker","rect":[620,470,560,60],"at":0.5}'),
 }
-CAMERA_DOC = ('camera: [{"at":0,"x":960,"y":540,"zoom":1},{"at":0.6,"x":1300,"y":480,"zoom":1.6}] — 場面の進み（0..1）で補間し、'
-              '(x,y) を中央に zoom 倍で映す。部品にも custom にも効く。重ねの層もいっしょに動く')
+TRANSITIONS = {
+    "fade": "重ねて入れ替える（既定）", "slide": "少し横にずれながら", "zoom": "少し寄りながら", "cut": "すぐ切り替える",
+    "wipe": "境目が左から右へ", "push": "前の場面を横に押し出す", "slide-up": "上に押し出す", "slide-down": "下に押し出す",
+    "iris": "中央から円が広がる", "blinds": "横の帯が開く", "split": "前の場面が上下に割れる", "whip": "高速で横に流れる（ぶれと線）",
+    "spin": "回って縮み、回って現れる", "flash": "白く光って切り替わる", "glitch": "映像が乱れて切り替わる", "pixel": "モザイクになって切り替わる",
+    "squeeze": "箱が回るように", "zoom-through": "前の場面に突っ込んで抜ける",
+}
+TEXT_ANIMS = {
+    "rise": "下から浮かぶ（既定）", "reveal": "左から現れ、カーソルが走る（題名の既定）", "pop": "弾んで出る", "slam": "大きく叩きつけ、画面が揺れる",
+    "stretch": "横に伸びた形から縮む（映画の題名）", "blur": "ぼけから合う", "glitch": "色ずれしながら定まる", "neon": "ネオンが点く",
+    "type": "1 文字ずつ打つ", "scramble": "でたらめな文字から定まる", "wave": "1 文字ずつ波打って出る", "letters": "1 文字ずつ落ちてくる", "split": "散らばった文字が集まる",
+}
+FX = {
+    "particles": "漂う粒", "stars": "瞬く星", "bokeh": "ぼけた光の玉", "rays": "差し込む光の筋", "speedlines": "中心へ向かう集中線", "grid": "奥へ流れる格子の床",
+    "waves": "下で揺れる波線", "scanlines": "走査線（上）", "confetti": "紙吹雪（上）", "vignette": "周りを暗く（上）", "sweep": "斜めの光が通る（上）", "noise": "フィルムの粒（上）",
+}
+CAMERA_PRESETS = {
+    "push-in": "ゆっくり寄る", "pull-out": "寄った所から引く", "pan-left": "左へ流す", "pan-right": "右へ流す", "rise": "上へ上がる",
+    "punch": "言い切りで素早く寄る", "tilt": "傾きを戻しながら", "drift": "ゆらゆら漂う", "dolly": "大きく寄った所から回りながら引く",
+}
+MOTION_STYLES = {
+    "gentle": "穏やか（既定）。fade・浮かぶ文字・題名はカーソルで現れる",
+    "dynamic": "ダイナミック。whip・push・突っ込む切り替え、文字は弾む・題名は叩きつける、集中線、言い切りで寄る",
+    "playful": "楽しい。回る・箱・円の切り替え、文字は波打つ・題名は落ちてくる、紙吹雪",
+    "cinematic": "映画的。fade と突っ込む切り替え・章は白く光る、文字はぼけから・題名は伸びから、光の玉・光の筋・周りを暗く、ゆっくり漂うカメラ",
+    "tech": "技術。乱れ・モザイク・帯の切り替え、文字はでたらめから定まる、走査線・格子の床",
+}
+CAMERA_DOC = ('camera: [{"at":0,"x":960,"y":540,"zoom":1,"rot":0},{"at":0.6,"x":1300,"y":480,"zoom":1.6}] — 場面の進み（0..1）で補間し、'
+              '(x,y) を中央に zoom 倍・rot 度で映す。部品にも custom にも効く。重ねの層もいっしょに動く。'
+              '型の名前でもよい: ' + " ".join(CAMERA_PRESETS))
 EXPRESSIONS = {
     "components": "部品だけで組む。速く安く、毎回ぶれにくい（custom は使わない）",
     "mixed": "基本は部品で、見せ場だけ custom（既定）",
@@ -173,10 +213,16 @@ API_DOC = """custom の本体は (ctx, lt, d, H, s)。座標は 1920×1080、lt 
   H.camAt(keys, 進み) / H.applyCam(cam) カメラを自分で掛ける
 部品を道具に
   H.sub(type, spec, lt, d, {x, y, scale, alpha, clip}) 部品を縮小して置く（spec は s の中に置くと計算が使い回される）
+動きを強く
+  H.text(行, x, y, {size, weight, font, align, color}, 出方, lt, 始まり ms, 長さ ms) 文字の出方（--list の一覧）で 1 行を出す
+  H.burst(x, y, 弾けてからの ms, {n, seed, r, color}) 破片が弾ける   H.fx(["speedlines", …], lt, d, "under"|"over") 演出の層を描く
+  H.shake(ms, 強さ, 長さ ms) その時刻に画面を揺らす（効果音と同じく条件の外で呼ぶ）   H.cams カメラの型の表
+音
+  H.sfx(ms, "名前か出来事", {v, pitch}) その時刻に効果音（条件の外で呼ぶ）
 手本は recipes.md。"""
 
 
-MIN_SEC = {"title": 8, "statement": 4.5, "bullets": 2.5, "flow": 3, "steps": 2, "terminal": 2.5, "stats": 4.5, "bars": 3.5,
+MIN_SEC = {"impact": 3.5, "countdown": 4, "orbit": 7, "logo": 6.5, "marquee": 5, "title": 8, "statement": 4.5, "bullets": 2.5, "flow": 3, "steps": 2, "terminal": 2.5, "stats": 4.5, "bars": 3.5,
            "compare": 3, "code": 2.5, "window": 7, "image": 5, "end": 4, "custom": 5,
            "cards": 3, "timeline": 3, "chat": 2, "line": 6, "donut": 6, "table": 3, "quote": 6, "kinetic": 3, "split": 6,
            "beforeafter": 7, "dom": 5}
@@ -233,6 +279,10 @@ def min_seconds(s):
         base += 0.3 * len(s.get("rows", [])) + 1.8 * len(s.get("highlight", []))
     elif t == "kinetic":
         base += 0.35 * len(re.findall(r"\*\*[^*]+\*\*|[^\s*]+", s.get("text", "")))
+    elif t == "countdown":
+        base += 1.0 * s.get("from", 3) + (1.5 if s.get("label") else 0)
+    elif t == "orbit":
+        base += 0.9 * len(s.get("items", []))
     elif t == "statement":
         base += 0.6 * len(s.get("lines", [s.get("text", "")]))
     return base
@@ -337,6 +387,15 @@ def validate(spec, base):
                             s[key] = open(p, encoding="utf-8").read()
                 if not s.get("html") and not s.get("update"):
                     errs.append("%s（dom）: html（src）か update（updateSrc）が必要です" % where)
+            for key, table, name in (("transition", TRANSITIONS, "切り替え"), ("anim", TEXT_ANIMS, "文字の出方")):
+                if s.get(key) and s[key] not in table:
+                    errs.append("%s: %s %r は %s のいずれか" % (where, name, s[key], "/".join(table)))
+            if isinstance(s.get("camera"), str) and s["camera"] not in CAMERA_PRESETS:
+                errs.append("%s: カメラの型 %r は %s のいずれか" % (where, s["camera"], "/".join(CAMERA_PRESETS)))
+            for f in (s.get("fx") or []) if isinstance(s.get("fx"), list) else []:
+                fk = f if isinstance(f, str) else (f or {}).get("kind")
+                if fk not in FX:
+                    errs.append("%s: fx %r は %s のいずれか" % (where, fk, "/".join(FX)))
             for oi, o in enumerate(s.get("overlays", [])):
                 k = o.get("kind", "note")
                 if k not in OVERLAY_KINDS:
@@ -345,7 +404,7 @@ def validate(spec, base):
                 for r in OVERLAY_KINDS[k][0]:
                     if r not in o:
                         errs.append("%s: overlays[%d]（%s）に %s が必要です" % (where, oi, k, r))
-            for ki, key in enumerate(s.get("camera", [])):
+            for ki, key in enumerate(s.get("camera", []) if isinstance(s.get("camera"), list) else []):
                 if not isinstance(key, dict) or not any(x in key for x in ("x", "y", "zoom")):
                     errs.append("%s: camera[%d] は {at, x, y, zoom} の形にしてください" % (where, ki))
             if t == "image" and s.get("src") and not re.match(r"^(data:|https?:)", s["src"]):
@@ -355,6 +414,14 @@ def validate(spec, base):
                 else:
                     mime = mimetypes.guess_type(p)[0] or "image/png"
                     s["src"] = "data:%s;base64,%s" % (mime, base64.b64encode(open(p, "rb").read()).decode("ascii"))
+    if spec.get("transition") and spec["transition"] not in TRANSITIONS:
+        errs.append("transition %r は %s のいずれか" % (spec["transition"], "/".join(TRANSITIONS)))
+    if spec.get("motion") and spec["motion"] not in MOTION_STYLES:
+        errs.append("motion %r は %s のいずれか" % (spec["motion"], "/".join(MOTION_STYLES)))
+    for f in spec.get("fx") or []:
+        fk = f if isinstance(f, str) else (f or {}).get("kind")
+        if fk not in FX:
+            errs.append("fx %r は %s のいずれか" % (fk, "/".join(FX)))
     errs += sound.prepare(spec, base)
     return errs
 
@@ -757,12 +824,21 @@ def print_list():
     for k, (req, desc, ex) in OVERLAY_KINDS.items():
         print("  [%s] %s（必須: %s）\n    %s" % (k, desc, ", ".join(req), ex))
     print("\n# カメラ\n  " + CAMERA_DOC)
+    print("\n# 動きの性格（台本の motion。切り替え・文字の出方・演出・カメラの既定をまとめて決める。場面の指定が優先）")
+    for k, d in MOTION_STYLES.items():
+        print("  %-10s %s" % (k, d))
+    print("\n# 場面の切り替え（transition。台本全体か場面ごと。省くと motion の既定）")
+    print("  " + "　".join("%s（%s）" % kv for kv in TRANSITIONS.items()))
+    print("\n# 文字の出方（場面の anim）")
+    print("  " + "　".join("%s（%s）" % kv for kv in TEXT_ANIMS.items()))
+    print("\n# 演出の層（場面の fx・台本の fx。文字列か {kind, color, alpha, n, seed}）")
+    print("  " + "　".join("%s（%s）" % kv for kv in FX.items()))
     print("\n# 表現のモード（台本の expression）")
     for k, d in EXPRESSIONS.items():
         print("  %-10s %s" % (k, d))
     print("\n# 台本の骨組み")
     print('  {"title":"…","description":"…","lang":"ja","player":"studio","theme":"navy-brass",'
-          '"brand":{"name":"…"},"transition":"fade","poster":4300,'
+          '"brand":{"name":"…"},"motion":"dynamic","poster":4300,'
           '"audio":{"narration":true,"music":"corporate","sfx":{"kit":"standard","density":"normal"},"rate":1.1,"wait":true,"pronounce":{"Sodashitsu":"ソダシツ"}},'
           '"expression":"mixed","chapters":[{"title":"章の名前","desc":"一覧に出す説明","scenes":[{…場面…}]}]}')
     print("\n# 音（曲 %d・効果音 %d・効果音の組 %d）\n  一覧と書き方は --list-sounds、聞き比べるページは --sounds -o sounds.html"
