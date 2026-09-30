@@ -94,3 +94,24 @@ H.emblem("ring", 960, 420, 150 * H.P(lt, 0, 1200, H.back), lt * .0002, 1, "S");
   { "kind": "notify", "app": "Sodashitsu", "text": "impl が完了しました", "at": 0.2, "until": 0.55 }
 ]
 ```
+
+## HTML・SVG・CSS で描く（dom）
+
+`dom` の場面は、HTML の箱（1920×1080）を舞台に重ねる。時刻は CSS 変数 `--lt`（ms）と `--p`（0..1）で届く。
+実物は `examples/scenes/orbit.html`・`orbit.css`・`orbit.js`（`examples/showcase.json` から使っている）。
+
+```css
+/* CSS のアニメーションを一時停止にし、遅れを --lt で与える → シークしても同じ画 */
+.ring { animation: draw 1.4s ease-out both paused; animation-delay: calc(var(--lt) * -1ms); }
+.ring.late { animation-delay: calc(var(--lt) * -1ms + 400ms); }   /* 400ms 遅れて始まる */
+.title { opacity: calc(min(1, var(--lt) / 800)); }                  /* 0.8 秒で浮かぶ */
+@keyframes draw { to { stroke-dashoffset: 0; } }
+```
+
+```js
+// updateSrc の本体 (el, lt, d, H, s): 毎コマ呼ばれる。JS で動かすときは lt から決める
+el.querySelector(".core").setAttribute("r", String(110 + 8 * Math.sin(lt / 400)));
+```
+
+- `setTimeout`・`requestAnimationFrame`・CSS の `transition` は使わない（時刻と無関係に進み、シークで崩れる）。
+- 文字の大きさは px で決めてよい（箱ごと縮むので、画面の大きさに合わせて揃う）。

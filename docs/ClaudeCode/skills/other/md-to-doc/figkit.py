@@ -663,6 +663,382 @@ def fig_terminal(spec, cv):
     return W, H
 
 
+def wrap(s, width, size=FONT):
+    """見積もりの文字幅で折り返す（英字は空白で切る。句読点・閉じ括弧は行頭に置かない）。"""
+    lines = []
+    for para in str(s).split("\n"):
+        cur = ""
+        for ch in para:
+            if cur and tw(cur + ch, size) > width and ch not in "、。，．）」』】！？!?,.)":
+                k = cur.rfind(" ")
+                if ch != " " and ord(ch) < 0x2E80 and k > 0 and ord(cur[-1]) < 0x2E80:
+                    lines.append(cur[:k])
+                    cur = cur[k + 1:] + ch
+                else:
+                    lines.append(cur.rstrip())
+                    cur = "" if ch == " " else ch
+            else:
+                cur += ch
+        lines.append(cur)
+    return lines
+
+
+def _disp(it, unit=""):
+    v = it["value"]
+    return it.get("display") or ("{:,}".format(v) if isinstance(v, int) else str(v)) + unit
+
+
+def fig_chat(spec, cv):
+    msgs = spec["messages"]
+    FS, LH, PX, PY, AV, M, MAXT = 14, 21, 14, 10, 30, 10, 340
+    names = {"user": "ユーザー", "ai": "AI"}
+    speakers = []
+    rows = []
+    for m in msgs:
+        f = str(m.get("from", ""))
+        side = m.get("side") or ("right" if f.lower() in ("user", "me", "ユーザー", "あなた", "自分") else "left")
+        if f not in speakers:
+            speakers.append(f)
+        lines = wrap(m.get("text", ""), MAXT, FS)
+        bw = max(tw(l, FS) for l in lines) + 2 * PX
+        rows.append((m, f, side, lines, max(bw, 44)))
+    # 注記は吹き出しの空いている側（左の吹き出しは右、右は左）に出し、その分だけ幅を取る
+    anyn = any(m.get("note") for m in msgs)
+    W = max(460, max(r[4] for r in rows) + 2 * (M + AV + 12) + (250 if anyn else 90))
+    y = 6
+    prev = None
+    for i, (m, f, side, lines, bw) in enumerate(rows):
+        same = prev == (f, side)
+        disp = names.get(f.lower(), f)
+        bh = 2 * PY + LH * (len(lines) - 1) + 16
+        head = 0 if same else 18
+        by = y + head
+        if side == "right":
+            bx = W - M - AV - 12 - bw
+            ax = W - M - AV / 2
+            fill, ink = "var(--accent)", "var(--on-accent)"
+            tail = "%.1f,%.1f %.1f,%.1f %.1f,%.1f" % (bx + bw - 1, by + 9, bx + bw + 7, by + 13, bx + bw - 1, by + 20)
+            nx, nanchor = bx + bw, "end"
+        else:
+            bx = M + AV + 12
+            ax = M + AV / 2
+            fill, ink = "var(--accent-soft)", "var(--ink)"
+            tail = "%.1f,%.1f %.1f,%.1f %.1f,%.1f" % (bx + 1, by + 9, bx - 7, by + 13, bx + 1, by + 20)
+            nx, nanchor = bx, "start"
+        k = speakers.index(f)
+        av = m.get("avatar") or (disp[:2] if disp.isascii() else disp[:1])
+        top = ""
+        if not same:
+            top = (text(nx, y + 12, disp, SUB, "700", "var(--muted)", nanchor)
+                   + '<circle cx="%.1f" cy="%.1f" r="%d" fill="%s"/>' % (ax, by + AV / 2, AV / 2, acc(k))
+                   + text(ax, by + AV / 2 + 4.5, av, 12 if len(av) > 1 else 13, "700", "var(--on-accent)"))
+        body = "".join(text(bx + PX, by + PY + 13 + j * LH, l, FS, fill=ink, anchor="start") for j, l in enumerate(lines))
+        cv.add('<g data-step="%d" data-effect="rise"%s>%s<polygon points="%s" fill="%s"/><rect x="%.1f" y="%.1f" width="%.1f" '
+               'height="%.1f" rx="14" fill="%s"/>%s</g>'
+               % (i, ann(dict(m, note_pos=m.get("note_pos") or ("left" if side == "right" else "right"))),
+                  top, tail, fill, bx, by, bw, bh, fill, body))
+        y = by + max(bh, AV if not same else 0) + (8 if i + 1 < len(rows) and rows[i + 1][1:3] == (f, side) else 14)
+        prev = (f, side)
+    return W, y
+
+
+def fig_funnel(spec, cv):
+    items = spec["items"]
+    unit = spec.get("unit", "")
+    n = len(items)
+    vals = [float(it["value"]) for it in items]
+    vmax = max(vals) or 1
+    FW, SH, G = 380, 46, 6
+    MINW = max(110, max(tw(_disp(it, unit), FONT) for it in items) + 30)
+    widths = [max(MINW, FW * v / vmax) for v in vals]
+    lw = max(tw(it["label"], 14) for it in items) + 20
+    cx = lw + 10 + FW / 2
+    show_ratio = spec.get("ratio", True)
+    RW = 110 if show_ratio else 10
+    W, H = lw + 10 + FW + RW, n * (SH + G) + 6
+    for i, it in enumerate(items):
+        y = 4 + i * (SH + G)
+        w0 = widths[i]
+        w1 = min(w0, widths[i + 1]) if i + 1 < n else max(MINW * 0.9, w0 * 0.86)
+        poly = ('<polygon points="%.1f,%.1f %.1f,%.1f %.1f,%.1f %.1f,%.1f" fill="%s" data-effect="rise"%s/>'
+                % (cx - w0 / 2, y, cx + w0 / 2, y, cx + w1 / 2, y + SH, cx - w1 / 2, y + SH, acc(i),
+                   " data-pulse" if spec.get("highlight") == i else ""))
+        lab = text(lw, y + SH / 2 + 5, it["label"], 14, anchor="end")
+        val = text(cx, y + SH / 2 + 5.5, _disp(it, unit), FONT, "700", "var(--on-accent)", extra=' data-count="0" data-effect="fade"')
+        rat = ""
+        if show_ratio and i > 0 and vals[i - 1]:
+            p = 100 * vals[i] / vals[i - 1]
+            rat = text(lw + 10 + FW + 14, y + SH / 2 + 4.5, "前段の %s%%" % ("%.1f" % p if p < 10 else "%.0f" % p), SUB,
+                       fill="var(--muted)", anchor="start", extra=' data-effect="fade"')
+        cv.add('<g data-step="%d"%s>%s%s%s%s</g>' % (i, ann(it), lab, poly, val, rat))
+    return W, H
+
+
+def _venn_fit(c, R, others, bw, bh, m=5):
+    """円 c の中で、他の円に掛からずに bw×bh の箱が入る中心を探す（入らなければ最も近いもの）。"""
+    best, bs = None, -1e9
+    step = max(3.0, R / 30)
+    k = int(2 * R / step) + 1
+    for a in range(k):
+        for b in range(k):
+            px, py = c[0] - R + a * step, c[1] - R + b * step
+            score = 1e9
+            for dx in (-bw / 2, 0, bw / 2):
+                for dy in (-bh / 2, 0, bh / 2):
+                    qx, qy = px + dx, py + dy
+                    score = min(score, R - m - math.hypot(qx - c[0], qy - c[1]))
+                    for o in others:
+                        score = min(score, math.hypot(qx - o[0], qy - o[1]) - R - m)
+            if score > bs:
+                best, bs = (px, py), score
+    return best, bs >= 0
+
+
+def fig_venn(spec, cv):
+    sets = spec["sets"][:3]
+    n = len(sets)
+    if n < 2:
+        raise SystemExit("figkit: venn の sets は 2〜3 個です")
+    WR = 150 if n == 2 else 118
+    blocks = []
+    for s in sets:
+        lines = [l for it in s.get("items", []) for l in wrap(it, WR, 13)]
+        bw = max([tw(s["label"], FONT)] + [tw(l, 13) for l in lines]) + 4
+        blocks.append((lines, bw, 22 + 18 * len(lines)))
+    ratio = 1.0 if n == 2 else 1.08
+    PAD = 14
+    R = 110.0
+    while True:
+        d = ratio * R
+        if n == 2:
+            cs = [(PAD + R, PAD + R), (PAD + R + d, PAD + R)]
+        else:
+            cs = [(PAD + R, PAD + R), (PAD + R + d, PAD + R), (PAD + R + d / 2, PAD + R + d * 0.866)]
+        spots = [_venn_fit(cs[i], R, cs[:i] + cs[i + 1:], blocks[i][1], blocks[i][2]) for i in range(n)]
+        if all(ok for _, ok in spots) or R >= 260:
+            break
+        R += 8
+    W = cs[1][0] + R + PAD
+    H = (cs[2][1] if n == 3 else cs[0][1]) + R + PAD
+    for i, s in enumerate(sets):
+        cv.add('<g data-step="%d" data-effect="pop"%s><circle cx="%.1f" cy="%.1f" r="%.1f" fill="%s" fill-opacity=".16" '
+               'stroke="%s" stroke-width="2"/></g>' % (i, ann(s), cs[i][0], cs[i][1], R, acc(i), acc(i)))
+    for i, s in enumerate(sets):
+        (px, py), _ = spots[i]
+        lines, bw, bh = blocks[i]
+        y0 = py - bh / 2 + 15
+        t = text(px, y0, s["label"], FONT, "700", acc(i))
+        t += "".join(text(px, y0 + 21 + j * 18, l, 13) for j, l in enumerate(lines))
+        cv.add('<g data-step="%d" data-effect="fade">%s</g>' % (i, t))
+    ov = spec.get("overlap")
+    if ov:
+        o = ov if isinstance(ov, dict) else {"label": ov}
+        if n == 2:
+            ox, oy, ow = (cs[0][0] + cs[1][0]) / 2, cs[0][1], max(60, min(2 * R - d - 16, 150))
+        else:
+            ox, oy, ow = sum(c[0] for c in cs) / 3, sum(c[1] for c in cs) / 3, 110
+        lines = wrap(o["label"], ow, 13)
+        pw = max(tw(l, 13) for l in lines) + 18
+        ph = 18 * len(lines) + 10
+        t = "".join(text(ox, oy - ph / 2 + 18 + j * 18, l, 13, "700") for j, l in enumerate(lines))
+        cv.add('<g data-step="%d" data-effect="pop"%s><rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="8" fill="var(--card)" '
+               'stroke="var(--line)"/>%s</g>' % (n, ann(o), ox - pw / 2, oy - ph / 2, pw, ph, t))
+    return W, H
+
+
+def fig_matrix(spec, cv):
+    xl = spec.get("x") or ["低", "高"]
+    yl = spec.get("y") or ["低", "高"]
+    PW, PH = 440, 340
+    L = max(tw(yl[0], SUB), tw(yl[1], SUB)) + 24
+    T, B, RM = 34, 52, 22
+    W, H = L + PW + RM, T + PH + B
+    X = lambda v: L + max(0.0, min(1.0, float(v))) * PW
+    Y = lambda v: T + (1 - max(0.0, min(1.0, float(v)))) * PH
+    mk = cv.marker()
+    cv.add('<g data-step="0" data-effect="draw">'
+           '<path d="M%.1f,%.1f H%.1f" fill="none" stroke="var(--muted)" stroke-width="1.8" marker-end="url(#%s)"/>'
+           '<path d="M%.1f,%.1f V%.1f" fill="none" stroke="var(--muted)" stroke-width="1.8" marker-end="url(#%s)"/>'
+           '<path d="M%.1f,%.1f V%.1f M%.1f,%.1f H%.1f" fill="none" stroke="var(--line)" stroke-width="1.2" stroke-dasharray="5 5"/></g>'
+           % (L, T + PH, L + PW + 10, mk, L, T + PH, T - 12, mk, L + PW / 2, T, T + PH, L, T + PH / 2, L + PW))
+    ticks = (text(X(.25), T + PH + 20, xl[0], SUB, fill="var(--muted)") + text(X(.75), T + PH + 20, xl[1], SUB, fill="var(--muted)")
+             + text(L - 10, Y(.25) + 4, yl[0], SUB, fill="var(--muted)", anchor="end")
+             + text(L - 10, Y(.75) + 4, yl[1], SUB, fill="var(--muted)", anchor="end"))
+    if spec.get("xlabel"):
+        ticks += text(L + PW + 10, T + PH + 42, spec["xlabel"] + " →", 13, "700", "var(--muted)", "end")
+    if spec.get("ylabel"):
+        ticks += text(L + 12, T - 10, "↑ " + spec["ylabel"], 13, "700", "var(--muted)", "start")
+    cv.add('<g data-step="0" data-effect="fade">%s</g>' % ticks)
+    taken = []
+    quads = spec.get("quadrants") or []
+    qs = []
+    for q, name in enumerate(quads[:4]):
+        qx, qy = L + (q % 2) * PW / 2, T + (q // 2) * PH / 2
+        lines = wrap(name, PW / 2 - 28, 14)
+        taken.append((qx + 8, qy + 6, max(tw(l, 14) for l in lines) + 10, 20 * len(lines) + 4))
+        qs.append('<g><rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" fill="%s" fill-opacity=".07"/>%s</g>'
+                  % (qx + 1, qy + 1, PW / 2 - 2, PH / 2 - 2, acc(q),
+                     "".join(text(qx + 12, qy + 22 + j * 20, l, 14, "700", acc(q), "start") for j, l in enumerate(lines))))
+    if qs:
+        cv.add('<g data-step="1" data-stagger="120" data-effect="fade">%s</g>' % "".join(qs))
+    for k, it in enumerate(spec.get("items", [])):
+        px, py = X(it["x"]), Y(it["y"])
+        lw, lh = tw(it["label"], 13) + 6, 18
+        cands = []
+        for dy in (0, 14, -14, 26, -26):
+            cands += [(px + 11, py - lh / 2 + dy), (px - 11 - lw, py - lh / 2 + dy)]
+        cands += [(px - lw / 2, py - 12 - lh), (px - lw / 2, py + 12), (px - lw / 2, py - 30 - lh), (px - lw / 2, py + 30)]
+
+        def cost(c):
+            x, y = c
+            if x < L + 2 or x + lw > L + PW - 2 or y < T + 2 or y + lh > T + PH - 2:
+                return 1e9
+            return sum(max(0, min(x + lw, a + w) - max(x, a)) * max(0, min(y + lh, b + h) - max(y, b)) for a, b, w, h in taken)
+        pick = min(cands, key=cost)   # 重ならない候補（同点なら先の候補）、無ければ重なりが最も小さいもの
+        taken.append((pick[0], pick[1], lw, lh))
+        taken.append((px - 8, py - 8, 16, 16))
+        cv.add('<g data-step="%d"%s><circle cx="%.1f" cy="%.1f" r="7" fill="%s" stroke="var(--card)" stroke-width="2" data-effect="pop"%s/>%s</g>'
+               % (2 + k, ann(it), px, py, acc(k), " data-pulse" if it.get("pulse") else "",
+                  text(pick[0] + 3, pick[1] + 13.5, it["label"], 13, "700", anchor="start", extra=' data-effect="fade"')))
+    return W, H
+
+
+def fig_timeline(spec, cv):
+    items = spec["items"]
+    n = len(items)
+    BW = 170
+    blocks = []
+    for it in items:
+        lab = wrap(it.get("label", ""), BW, 14)
+        sub = wrap(it["sub"], BW, SUB) if it.get("sub") else []
+        w = max([tw(it.get("date", ""), 14)] + [tw(l, 14) for l in lab] + [tw(l, SUB) for l in sub]) + 12
+        blocks.append((lab, sub, w, 18 + 19 * len(lab) + 16 * len(sub)))
+    # 同じ側の 2 つ隣と重ならない間隔
+    gap = max([(blocks[i][2] + blocks[i + 2][2]) / 4 + 8 for i in range(n - 2)] + [blocks[i][2] / 2 + 6 for i in range(n)] + [70])
+    STEM, PAD = 26, 12
+    up = max([blocks[i][3] for i in range(0, n, 2)] + [0])
+    dn = max([blocks[i][3] for i in range(1, n, 2)] + [0])
+    AY = PAD + up + STEM + 6
+    x0 = PAD + max(blocks[0][2] / 2, 24)
+    xs = [x0 + gap * i for i in range(n)]
+    W = xs[-1] + max(blocks[-1][2] / 2, 24) + PAD + 12
+    H = AY + (dn + STEM + 6 if n > 1 else 10) + PAD
+    cv.add('<path data-step="0" data-effect="draw" d="M%.1f,%.1f H%.1f" fill="none" stroke="var(--muted)" stroke-width="2.5" '
+           'stroke-opacity=".6" stroke-linecap="round" marker-end="url(#%s)"/>' % (6, AY, W - 6, cv.marker()))
+    for i, it in enumerate(items):
+        lab, sub, w, h = blocks[i]
+        x = xs[i]
+        top = i % 2 == 0
+        hl = bool(it.get("highlight"))
+        col = "var(--accent)" if hl else acc(i)
+        sy = AY - 8 - STEM if top else AY + 8 + STEM
+        y0 = sy - h + 13 if top else sy + 15
+        t = text(x, y0, it.get("date", ""), 14, "800", col)
+        t += "".join(text(x, y0 + 19 * (j + 1), l, 14, "700") for j, l in enumerate(lab))
+        t += "".join(text(x, y0 + 19 * len(lab) + 16 * (j + 1), l, SUB, fill="var(--muted)") for j, l in enumerate(sub))
+        ring = ('<circle cx="%.1f" cy="%.1f" r="13" fill="none" stroke="var(--accent)" stroke-width="2" data-effect="pop" data-pulse/>'
+                % (x, AY)) if hl else ""
+        cv.add('<g data-step="%d"%s><line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="%s" stroke-width="1.6" stroke-dasharray="3 3"/>'
+               '<circle cx="%.1f" cy="%.1f" r="%d" fill="%s" stroke="var(--card)" stroke-width="2.5" data-effect="pop"/>%s'
+               '<g data-effect="fade">%s</g></g>'
+               % (1 + i, ann(it), x, AY + (-8 if top else 8), x, sy, col, x, AY, 9 if hl else 7, col, ring, t))
+    return W, H
+
+
+def fig_org(spec, cv):
+    root = spec["root"]
+    VG = 58
+    MAXW = spec.get("max_width", 900)
+    nodes = []   # (node, depth, parent index, branch)
+
+    def walk(nd, d, p, br):
+        k = len(nodes)
+        nodes.append((nd, d, p, br))
+        for j, c in enumerate(nd.get("children", [])):
+            walk(c, d + 1, k, j if d == 0 else br)
+    walk(root, 0, None, 0)
+    kids = {k: [j for j, t in enumerate(nodes) if t[2] == k] for k in range(len(nodes))}
+    # 葉だけを子に持つ親は、幅が足りないとき子を縦に積む（左の縦線から枝を出す）
+    leafpar = [k for k in kids if len(kids[k]) >= 2 and all(not kids[c] for c in kids[k])]
+    IND = 26
+
+    def layout(gap, minw, pad, stacked):
+        size = []
+        for nd, d, p, br in nodes:
+            w = max(minw, tw(nd["label"], FONT) + pad, tw(nd.get("sub", ""), SUB) + pad)
+            size.append((min(w, 240), 62 if nd.get("sub") else 46))
+        span = {}
+
+        def width(k):
+            cs = kids[k]
+            if k in stacked:
+                span[k] = max(size[k][0], IND + max(size[c][0] for c in cs))
+                for c in cs:
+                    span[c] = size[c][0]
+            elif cs:
+                span[k] = max(size[k][0], sum(width(c) for c in cs) + gap * (len(cs) - 1))
+            else:
+                span[k] = size[k][0]
+            return span[k]
+        return size, span, width(0)
+
+    tries = [(26, 110, 36, False), (14, 84, 26, False), (14, 84, 26, True), (8, 60, 18, True), (4, 0, 12, True)]
+    for gap, minw, pad, allow in tries:
+        stacked = set()
+        size, span, total = layout(gap, minw, pad, stacked)
+        while allow and total + 24 > MAXW and len(stacked) < len(leafpar):
+            stacked.add(max((k for k in leafpar if k not in stacked), key=lambda k: span.get(k, 0)))
+            size, span, total = layout(gap, minw, pad, stacked)
+        if total + 24 <= MAXW:
+            break
+    depth = max(t[1] for t in nodes)
+    rowh = [max(size[k][1] for k in range(len(nodes)) if nodes[k][1] == d) for d in range(depth + 1)]
+    rowy = [12 + sum(rowh[:d]) + VG * d for d in range(depth + 1)]
+    pos = {}
+    spine = {}
+
+    def place(k, left):
+        cx = left + span[k] / 2
+        cs = kids[k]
+        d = nodes[k][1]
+        if k in stacked:
+            y = rowy[d + 1]
+            spine[k] = left + 10
+            for c in cs:
+                pos[c] = (left + IND, y, size[c][0], size[c][1])
+                y += size[c][1] + 10
+        elif cs:
+            inner = sum(span[c] for c in cs) + gap * (len(cs) - 1)
+            x = cx - inner / 2
+            for c in cs:
+                place(c, x)
+                x += span[c] + gap
+        w, h = size[k]
+        pos[k] = (cx - w / 2, rowy[d] + (rowh[d] - h) / 2, w, h)
+    place(0, 12)
+    W, H = total + 24, max(y + h for x, y, w, h in pos.values()) + 12
+    if spec.get("hover", len(nodes) >= 8):
+        cv.fig["hover"] = True
+    for k, (nd, d, p, br) in enumerate(nodes):
+        if p is None:
+            continue
+        px, py, pw, ph = pos[p]
+        cx_, cy_, cw, ch = pos[k]
+        my = rowy[d] - VG / 2
+        if p in stacked:
+            dd = "M%.1f,%.1f V%.1f H%.1f V%.1f H%.1f" % (px + pw / 2, py + ph, my, spine[p], cy_ + ch / 2, cx_ - 1)
+        else:
+            dd = "M%.1f,%.1f V%.1f H%.1f V%.1f" % (px + pw / 2, py + ph, my, cx_ + cw / 2, cy_)
+        cv.add('<path data-step="%d" data-effect="draw" data-link="o%d o%d" d="%s" fill="none" '
+               'stroke="var(--accent-2)" stroke-width="1.8"/>' % (2 * d - 1, p, k, dd))
+    for k, (nd, d, p, br) in enumerate(nodes):
+        x, y, w, h = pos[k]
+        a = ' data-step="%d" data-effect="pop"%s' % (2 * d, " data-pulse" if nd.get("pulse") else "")
+        cv.add(box(x, y, w, h, nd["label"], nd.get("sub"), "start" if d == 0 else "normal",
+                   ci=None if d == 0 else br, attrs=a + ann(nd, node="o%d" % k)))
+    return W, H
+
+
 TYPES = {
     "flow": (fig_flow, "ノードと矢印の流れ（処理・データ・依頼の流れ、分岐、差し戻し）",
              '{"type":"flow","dir":"LR|TB","nodes":[{"id":"a","label":"実装","sub":"impl","kind":"start|end|decision|normal","pulse":false}],'
@@ -700,6 +1076,24 @@ TYPES = {
     "sequence": (fig_sequence, "やりとりの順序（登場者の間のメッセージ。矢印の上を印が移動）",
                  '{"type":"sequence","actors":["利用者","サーバ"],'
                  '"messages":[{"from":"利用者","to":"サーバ","label":"ログイン"},{"from":"サーバ","to":"利用者","label":"トークン","reply":true}]}'),
+    "chat": (fig_chat, "会話の吹き出し（順に現れる。side 省略時は from が user なら右、他は左。長い文は折り返す）",
+             '{"type":"chat","messages":[{"from":"user","text":"この PR を要約して"},'
+             '{"from":"ai","text":"変更は 3 点です。…","side":"left"}]}'),
+    "funnel": (fig_funnel, "漏斗（段が上から順に現れ値が数え上がる。幅は値に比例・最小幅あり、右に前段からの割合）",
+               '{"type":"funnel","unit":"件","ratio":true,"highlight":null,'
+               '"items":[{"label":"訪問","value":12000},{"label":"登録","value":3400},{"label":"購入","value":820}]}'),
+    "venn": (fig_venn, "2〜3 円のベン図（円が順に弾んで現れ、重なりのラベルは最後）",
+             '{"type":"venn","sets":[{"label":"Web","items":["画面","ルーティング"]},{"label":"CLI","items":["引数","終了コード"]}],'
+             '"overlap":"共通の設定ファイル"}'),
+    "matrix": (fig_matrix, "2×2 マトリクス（軸が描かれ、象限の名前、点が順に弾む。quadrants は 左上・右上・左下・右下 の順、x/y は 0〜1）",
+               '{"type":"matrix","x":["低","高"],"y":["低","高"],"xlabel":"効果","ylabel":"工数",'
+               '"quadrants":["後回し","大きな賭け","保留","すぐやる"],"items":[{"label":"案A","x":0.8,"y":0.3,"pulse":false}]}'),
+    "timeline": (fig_timeline, "年表・マイルストーン（横。軸が伸び、点と文字が上下交互に順に現れる。highlight は明滅）",
+                 '{"type":"timeline","items":[{"date":"2024","label":"試作","sub":"社内のみ"},'
+                 '{"date":"2025","label":"公開","highlight":true}]}'),
+    "org": (fig_org, "組織図・階層（上から下の木。段ごとに現れ、親子の線が描かれる。葉が多いと間隔を詰め、それでも収まらなければ葉を縦に積む。max_width で幅の上限）",
+            '{"type":"org","max_width":900,"root":{"label":"CTO","sub":"技術","children":['
+            '{"label":"基盤","children":[{"label":"SRE"}]},{"label":"製品","pulse":false}]}}'),
 }
 
 
