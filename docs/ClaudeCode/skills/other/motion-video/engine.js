@@ -75,7 +75,39 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       cx += w;
     });
   }
-  function icon(s, x, y, size, col) {
+  /* ---- 線で描くアイコン（icons.py から台本で使う分だけ埋め込まれる）。k は描けた割合、lt で繰り返しの動き ---- */
+  var ICO = (function () { var el = root.querySelector("script[data-mv-icons]"); try { return el ? JSON.parse(el.textContent) : {}; } catch (e) { return {}; } })(), ICOC = {};
+  function icoPrep(n) {
+    var c = ICOC[n]; if (c) return c; var I = ICO[n]; if (!I) return null;
+    c = { a: I.a, paths: I.d.map(function (d) { var L = 30; try { var pe = document.createElementNS("http://www.w3.org/2000/svg", "path"); pe.setAttribute("d", d); L = pe.getTotalLength() || 30; } catch (e) {} return { p: new Path2D(d), L: L + 1 }; }) };
+    return (ICOC[n] = c);
+  }
+  function drawIcon(n, x, y, size, o) {
+    o = o || {}; var c = icoPrep(n); if (!c) return false;
+    var k = o.k === undefined ? 1 : o.k, lt = o.lt || 0, an = o.anim || c.a, col = o.color || C.accent, m = c.paths.length;
+    if (k <= 0) return true;
+    ctx.save(); ctx.translate(x, y);
+    if (k >= 1 && an && an !== "none") {
+      if (an === "spin") ctx.rotate(lt * .0012);
+      else if (an === "swing") { ctx.translate(0, -size * .42); ctx.rotate(Math.sin(lt / 320) * .22); ctx.translate(0, size * .42); }
+      else if (an === "beat") { var bs = 1 + .14 * Math.pow(Math.max(0, Math.sin(lt / 260)), 6); ctx.scale(bs, bs); }
+      else if (an === "float") ctx.translate(0, Math.sin(lt / 600) * size * .07);
+      else if (an === "blink") ctx.globalAlpha *= .55 + .45 * (.5 + .5 * Math.sin(lt / 350));
+      else if (an === "glow") { ctx.shadowColor = col; ctx.shadowBlur = size * .3 * (.5 + .5 * Math.sin(lt / 500)); }
+      else if (an === "pulse") { var ps = 1 + .07 * Math.sin(lt / 400); ctx.scale(ps, ps); }
+      else if (an === "shake") { var ph = lt % 2400; if (ph < 420) ctx.rotate(Math.sin(ph * .09) * .16 * (1 - ph / 420)); }
+      else if (an === "bounce") ctx.translate(0, -Math.abs(Math.sin(lt / 360)) * size * .09);
+      else if (an === "flip") ctx.scale(Math.cos(lt / 900), 1);
+      else if (an === "twinkle") { var ts = 1 + .13 * Math.sin(lt / 260); ctx.scale(ts, ts); ctx.rotate(Math.sin(lt / 520) * .12); }
+    }
+    var sc = size / 24; ctx.scale(sc, sc); ctx.translate(-12, -12);
+    ctx.strokeStyle = col; ctx.lineWidth = o.width || 2; ctx.lineCap = "round"; ctx.lineJoin = "round";
+    c.paths.forEach(function (q, i) { var kk = clamp(k * (1 + .45 * (m - 1)) - i * .45); if (kk <= 0) return;
+      ctx.setLineDash(kk < 1 ? [q.L * kk, q.L * 2] : []); ctx.stroke(q.p); });
+    ctx.restore(); return true;
+  }
+  function icon(s, x, y, size, col, k, lt) {
+    if (s && ICO[s]) { drawIcon(s, x, y, size * 1.05, { color: col || C.accent, k: k === undefined ? 1 : k, lt: lt || 0 }); return; }
     if (!s) { ctx.save(); ctx.fillStyle = col || C.accent; ctx.beginPath(); ctx.arc(x, y, size * .22, 0, Math.PI * 2); ctx.fill(); ctx.restore(); return; }
     txt(s, x, y + size * .35, { size: size, align: "center", color: col || C.ink, font: '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",' + F.sans });
   }
@@ -178,7 +210,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       ctx.save(); ctx.globalAlpha *= k * (act || cur < 0 ? 1 : .55);
       ctx.translate((1 - k) * -40, 0);
       if (act) { rr(96, yy - 58, 1728, lines.length * 54 + 44, 16); ctx.fillStyle = C.panel; ctx.fill(); ctx.fillStyle = C.accent; ctx.fillRect(96, yy - 58, 6, lines.length * 54 + 44); }
-      icon(it.icon, 160, yy - 14, 44, accentAt(i));
+      icon(it.icon, 160, yy - 14, 44, accentAt(i), P(lt, at[i], at[i] + 900), lt);
       lines.forEach(function (ln, j) { rich(ln, 220, yy + j * 54, { size: 40, weight: 500 }, act ? P(lt, at[i] + 300, at[i] + 900) : 1); });
       ctx.restore();
       y += lines.length * 54 + 58;
@@ -548,7 +580,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       if (k <= 0) return;
       ctx.save(); ctx.translate(x + cw / 2, y + chh / 2); ctx.scale(k, k); ctx.translate(-cw / 2, -chh / 2);
       panel(0, 0, cw, chh, {}); ctx.fillStyle = accentAt(i); ctx.fillRect(0, 0, cw, 6);
-      var ix = 40; if (it.icon) { icon(it.icon, 58, 68, 48); ix = 104; }
+      var ix = 40; if (it.icon) { icon(it.icon, 58, 68, 48, accentAt(i), P(lt, at[i] + 150, at[i] + 1000), lt); ix = 104; }
       txt(it.title || "", ix, 84, { size: 42, weight: 800, color: accentAt(i) });
       wrap(it.text || "", cw - 80, { size: 32 }).slice(0, Math.floor((chh - 130) / 44)).forEach(function (ln, j) { rich(ln, 40, 156 + j * 44, { size: 32, color: C.muted }); });
       ctx.restore();
@@ -737,6 +769,22 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
         txt("⇆", sx, y0 + h / 2 + 10, { size: 26, weight: 800, align: "center", color: C.onAccent }); } }
   };
 
+  /* ---------- アイコンの格子 ---------- */
+  R.icons = function (s, lt, d) {
+    heading(s, lt);
+    var items = s.items || [], n = items.length, cols = s.cols || Math.min(n, n <= 4 ? n : n <= 6 ? 3 : 4), rows = Math.ceil(n / cols);
+    var y0 = s.heading ? 300 : 200, cw = 1600 / cols, ch = Math.min(320, (860 - y0) / rows), at = slots(n, d, 500, Math.max(1200, d * .35));
+    items.forEach(function (it, i) {
+      sfxEv(at[i], "appear", { i: i });
+      var c = i % cols, r = Math.floor(i / cols), cx = 160 + cw * (c + .5), cy = y0 + ch * r + ch * .38, k = P(lt, at[i], at[i] + 500, back);
+      if (k <= 0) return;
+      ctx.save(); ctx.globalAlpha *= clamp(k * 2); ctx.fillStyle = accentAt(i); ctx.globalAlpha *= .14;
+      ctx.beginPath(); ctx.arc(cx, cy, 78 * k, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+      if (!drawIcon(it.icon, cx, cy, 84, { color: accentAt(i), k: P(lt, at[i] + 100, at[i] + 1100), lt: lt, width: 1.8 })) icon(it.icon, cx, cy, 80);
+      txt(it.label || "", cx, cy + 128, { size: 34, weight: 800, align: "center", alpha: P(lt, at[i] + 300, at[i] + 800) });
+      if (it.text) txt(it.text, cx, cy + 172, { size: 24, align: "center", color: C.muted, alpha: P(lt, at[i] + 450, at[i] + 950) });
+    });
+  };
   /* ---------- 動きの強い部品 ---------- */
   R.impact = function (s, lt, d) {
     var hit = 350; sfxEv(hit, "hit"); shakeEv(hit, s.shake === undefined ? 22 : s.shake, 520);
@@ -780,7 +828,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       var p = pos[i], dep = .78 + .22 * (p.z + 1) / 2, label = typeof it === "string" ? it : it.label, sub = it.sub, w = Math.max(tw(label, { size: 30, weight: 800 }), sub ? tw(sub, { size: 20 }) : 0) + 60, h = sub ? 96 : 70;
       ctx.save(); ctx.translate(p.x, p.y); ctx.scale(k * dep, k * dep); ctx.globalAlpha *= .55 + .45 * dep;
       var ix = it.icon ? 26 : 0; if (ix) w += 52;
-      panel(-w / 2, -h / 2, w, h, { r: h / 2, stroke: accentAt(i), lw: 2.5 }); if (it.icon) icon(it.icon, -w / 2 + 40, -2, 32);
+      panel(-w / 2, -h / 2, w, h, { r: h / 2, stroke: accentAt(i), lw: 2.5 }); if (it.icon) icon(it.icon, -w / 2 + 40, -2, 32, accentAt(i), P(lt, at[i] + 150, at[i] + 900), lt);
       txt(label, ix, sub ? -4 : 11, { size: 30, weight: 800, align: "center" }); if (sub) txt(sub, ix, 28, { size: 20, align: "center", color: C.muted }); ctx.restore(); };
     order.filter(function (i) { return pos[i].z < 0; }).forEach(draw1);
     var ck = P(lt, 300, 1000, back), c = s.center || {}, cl = typeof c === "string" ? c : c.label || "";
@@ -1071,7 +1119,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       if (o.sfx !== false) {
         if (kind === "cursor") (o.click || []).forEach(function (ci) { var pts0 = o.path || [[960, 540]]; sfxEv(a + (b - 350 - a) * ci / Math.max(1, pts0.length - 1), "click"); });
         else sfxEv(a, typeof o.sfx === "string" ? o.sfx : { notify: "notify", highlight: "highlight", badge: "badge", arrow: "arrow", burst: "hit", stamp: "badge", confetti: "reveal",
-          ripple: "highlight", circle: "emphasize", marker: "emphasize" }[kind] || "note");
+          ripple: "highlight", circle: "emphasize", marker: "emphasize", icon: "appear" }[kind] || "note");
       }
       if (k <= 0) return;
       ctx.save(); ctx.globalAlpha *= k;
@@ -1102,6 +1150,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
         var pA = pts[Math.max(0, seg)], pB = pts[Math.min(pts.length - 1, seg + 1)], e = eio(clamp(u)), cx2 = mix(pA[0], pB[0], e), cy2 = mix(pA[1], pB[1], e);
         var down = (o.click || []).some(function (ci) { var ct = a + (b - 350 - a) * ci / Math.max(1, pts.length - 1); return lt >= ct && lt < ct + 400; });
         cursor(cx2, cy2, down, lt);
+      } else if (kind === "icon") { drawIcon(o.name, o.x === undefined ? 960 : o.x, o.y === undefined ? 540 : o.y, o.size || 120, { color: C[o.color] || o.color || C.accent, k: P(lt, a, a + 900), lt: lt, anim: o.anim });
       } else if (kind === "burst") { burstAt(o.x === undefined ? 960 : o.x, o.y === undefined ? 540 : o.y, lt - a, { n: o.n || 36, seed: o.seed || 1, color: C[o.color] || o.color, r: o.r });
       } else if (kind === "ripple") { var rx0 = o.x === undefined ? 960 : o.x, ry0 = o.y === undefined ? 540 : o.y, rR = o.r || 160;
         ctx.strokeStyle = C[o.color] || C.accent; ctx.lineWidth = 3;
@@ -1133,7 +1182,11 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
                rich: rich, icon: icon, panel: panel, stateMark: stateMark, emblem: emblem, accentAt: accentAt, slots: slots,
                qpt: qpt, rand: rand, arrow: arrow, packet: packet, node: node, appWindow: appWindow, toast: toast, typed: typed, count: fmtNum,
                particles: particles, cursor: cursor, sub: sub, camAt: camAt, applyCam: applyCam, heading: heading,
-               sfx: function (at, what, o) { sfxEv(at, what, o); }, shake: shakeEv, burst: burstAt, fx: drawFx, text: animText, cams: CAMS };
+               sfx: function (at, what, o) { sfxEv(at, what, o); }, shake: shakeEv, burst: burstAt, fx: drawFx, text: animText, cams: CAMS,
+               icon: function (n, x, y, size, o) { return drawIcon(n, x, y, size, o); }, drawIcon: drawIcon, iconAny: icon, cursor: cursor, fmtNum: fmtNum, parseNum: parseNum,
+               g: function () { return ctx; }, sfxEv: sfxEv, shakeEv: shakeEv };
+  /* 別ファイルの部品（parts-*.js）を登録する: push(function (R, X) { R.xxx = … }) */
+  (window.MotionVideoParts || []).forEach(function (fn) { try { fn(R, HELP); } catch (e) { console.error("parts:", e); } });
 
   /* ================= 背景と 1 コマ ================= */
   function scaleCtx() { ctx.setTransform(cv.width / W, 0, 0, cv.height / H, 0, 0); }

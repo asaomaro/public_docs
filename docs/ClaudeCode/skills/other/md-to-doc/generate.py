@@ -986,7 +986,7 @@ def render_rich(items, layout, headings, used_slugs, mermaid_store):
         btns, panels = [], []
         for k, it in enumerate(items):
             icon, tags, text = extract_decorations(it["text"])
-            lab = (html.escape(icon) + " " if icon else "") + inline(text)
+            lab = (icon_html(icon, 18) + " " if icon else "") + inline(text)
             btns.append('<button type="button" role="tab" id="%s-t%d" aria-controls="%s-p%d" aria-selected="%s" '
                         'tabindex="%d" style="--ca:%s">%s</button>'
                         % (tid, k, tid, k, "true" if k == 0 else "false", 0 if k == 0 else -1, _ca(k), lab))
@@ -1039,7 +1039,7 @@ def render_rich(items, layout, headings, used_slugs, mermaid_store):
             tone = "con" if _CONS.search(text) else "pro" if _PROS.search(text) else "neutral"
             ca = ' style="--ca:%s"' % _ca(k) if tone == "neutral" else ""
             cols.append('<div class="pc-col pc-%s"%s><div class="pc-h">%s%s</div><div class="pc-b">%s</div></div>'
-                        % (tone, ca, (html.escape(icon) + " ") if icon else "", inline(text), body_html(it)))
+                        % (tone, ca, (icon_html(icon) + " ") if icon else "", inline(text), body_html(it)))
         return '<div class="pc-grid" style="--cols:%d">%s</div>' % (min(len(items), 3), "".join(cols))
     return ""
 
@@ -1265,12 +1265,44 @@ _ACCENTS = ["var(--a0)"]
 _EMOJI = re.compile(r"^\s*([\U0001F000-\U0001FAFF☀-➿⬀-⯿←-⇿️⃣]+)\s+")
 
 
+_ICONS = [None]
+
+
+def _icons():
+    """隣の motion-video スキルの icons.py（線で描くアイコン集）を読み込む（無ければ None）。"""
+    if _ICONS[0] is None:
+        import importlib.util
+        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "motion-video", "icons.py")
+        if not os.path.isfile(path):
+            _ICONS[0] = False
+        else:
+            spec = importlib.util.spec_from_file_location("motion_video_icons", path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            _ICONS[0] = mod
+    return _ICONS[0] or None
+
+
+_ICON_TOKEN = re.compile(r"^:([a-z][a-z0-9-]*):\s*")
+
+
+def icon_html(icon, size=22):
+    """項目の icon（絵文字か :名前:）を HTML に。:名前: はアイコン集の SVG（無い名前はそのまま文字で）。"""
+    if not icon:
+        return ""
+    m = _ICON_TOKEN.match(icon)
+    ic = _icons()
+    if m and ic and m.group(1) in ic.ICONS:
+        return ic.svg(m.group(1), size)
+    return html.escape(icon)
+
+
 def extract_decorations(text):
-    """項目テキストから 先頭絵文字(icon) と 末尾 {タグ} 群 を取り出す。"""
+    """項目テキストから 先頭絵文字 か :アイコン名:（icon）と 末尾 {タグ} 群 を取り出す。"""
     icon = ""
-    m = _EMOJI.match(text)
+    m = _EMOJI.match(text) or _ICON_TOKEN.match(text)
     if m:
-        icon = m.group(1); text = text[m.end():]
+        icon = m.group(0).strip() if m.re is _ICON_TOKEN else m.group(1); text = text[m.end():]
     tags = []
     tm = re.search(r"((?:\s*\{[^{}]+\})+)\s*$", text)
     if tm:
@@ -1431,7 +1463,7 @@ def render_list(items, layout):
             tip = re.sub(r"<[^>]+>", " ", g["children"]).strip()
             chips.append('<span class="chip" style="--ca:%s"%s>%s%s</span>'
                          % (_ca(idx), ' title="%s"' % html.escape(re.sub(r"\s+", " ", tip), quote=True) if tip else "",
-                            (html.escape(g["icon"]) + " ") if g["icon"] else "", g["label"]))
+                            (icon_html(g["icon"], 16) + " ") if g["icon"] else "", g["label"]))
         return '<div class="chips chips-lg">%s</div>' % "".join(chips)
 
     def tags_html(g):
@@ -1443,7 +1475,7 @@ def render_list(items, layout):
     if layout == "cards":
         cards = []
         for idx, g in enumerate(groups):
-            ic = '<span class="doc-card-ic">%s</span>' % html.escape(g["icon"]) if g["icon"] else ""
+            ic = '<span class="doc-card-ic">%s</span>' % icon_html(g["icon"], 26) if g["icon"] else ""
             body = '<div class="doc-card-b">%s</div>' % g["children"] if g["children"] else ""
             cards.append(
                 '<div class="doc-card" style="--ca:%s">'
@@ -1454,7 +1486,7 @@ def render_list(items, layout):
     if layout == "timeline":
         nodes = []
         for idx, g in enumerate(groups):
-            badge = html.escape(g["icon"]) if g["icon"] else str(idx + 1)
+            badge = icon_html(g["icon"], 18) if g["icon"] else str(idx + 1)
             nodes.append(
                 '<div class="tl-item" style="--ca:%s"><div class="tl-dot">%s</div>'
                 '<div class="tl-body"><div class="tl-h">%s</div>%s%s</div></div>'
@@ -1464,7 +1496,7 @@ def render_list(items, layout):
     if layout == "accordion":
         rows = []
         for idx, g in enumerate(groups):
-            ic = (html.escape(g["icon"]) + " ") if g["icon"] else ""
+            ic = (icon_html(g["icon"], 18) + " ") if g["icon"] else ""
             body = '<div class="acc-body">%s</div>' % g["children"] if g["children"] else ""
             rows.append(
                 '<details class="acc-item" style="--ca:%s"%s><summary>%s%s%s</summary>%s</details>'
@@ -1796,6 +1828,8 @@ blockquote{margin:16px 0;padding:8px 18px;border-left:3px solid var(--line);colo
 .doc-card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
   padding:20px 22px;box-shadow:var(--shadow);border-top:4px solid var(--ca,var(--accent))}
 .doc-card-top{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+.ico{display:inline-block;vertical-align:-.2em;flex:none;overflow:visible}
+.doc-card-ic .ico{color:var(--ca,var(--accent))}
 .doc-card-ic{flex:0 0 auto;width:42px;height:42px;border-radius:12px;display:flex;align-items:center;
   justify-content:center;font-size:22px;background:color-mix(in srgb,var(--ca,var(--accent)) 15%,var(--card))}
 .doc-card-h{font-family:var(--font-head);font-weight:800;font-size:16px;color:var(--ca,var(--accent-2));line-height:1.4}
@@ -2452,6 +2486,32 @@ MOTION_CSS = """
 .mo-states.mo-js .mo-state.mo-on{display:block}
 .mo-states.mo-js .mo-state-label{display:none}
 @media print{.mo-replay,.mo-bar{display:none!important}.mo-dim{opacity:1!important}}
+/* アイコンの繰り返しの動き（部品が現れた後に .ico-live を付ける） */
+@keyframes ico-spin{to{transform:rotate(360deg)}}
+@keyframes ico-swing{0%,100%{transform:rotate(-12deg)}50%{transform:rotate(12deg)}}
+@keyframes ico-beat{0%,45%,100%{transform:scale(1)}15%{transform:scale(1.16)}30%{transform:scale(1.04)}}
+@keyframes ico-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-9%)}}
+@keyframes ico-blink{0%,100%{opacity:1}50%{opacity:.4}}
+@keyframes ico-glow{0%,100%{filter:none}50%{filter:drop-shadow(0 0 4px currentColor)}}
+@keyframes ico-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.1)}}
+@keyframes ico-shake{0%,78%,100%{transform:rotate(0)}82%{transform:rotate(-12deg)}86%{transform:rotate(12deg)}90%{transform:rotate(-7deg)}94%{transform:rotate(4deg)}}
+@keyframes ico-bounce{0%,100%{transform:translateY(0)}40%{transform:translateY(-14%)}60%{transform:translateY(0)}}
+@keyframes ico-flip{0%,40%,100%{transform:scaleX(1)}70%{transform:scaleX(-1)}}
+@keyframes ico-twinkle{0%,100%{transform:scale(1) rotate(0)}50%{transform:scale(1.18) rotate(10deg)}}
+.ico.ico-live{transform-origin:50% 50%;transform-box:fill-box}
+.ico.ico-live[data-ico-anim="spin"]{animation:ico-spin 8s linear infinite}
+.ico.ico-live[data-ico-anim="swing"]{transform-origin:50% 8%;animation:ico-swing 2.4s ease-in-out infinite}
+.ico.ico-live[data-ico-anim="beat"]{animation:ico-beat 1.6s ease-in-out infinite}
+.ico.ico-live[data-ico-anim="float"]{animation:ico-float 3.2s ease-in-out infinite}
+.ico.ico-live[data-ico-anim="blink"]{animation:ico-blink 2.2s ease-in-out infinite}
+.ico.ico-live[data-ico-anim="glow"]{animation:ico-glow 2.6s ease-in-out infinite}
+.ico.ico-live[data-ico-anim="pulse"]{animation:ico-pulse 2s ease-in-out infinite}
+.ico.ico-live[data-ico-anim="shake"]{animation:ico-shake 3.2s ease-in-out infinite}
+.ico.ico-live[data-ico-anim="bounce"]{animation:ico-bounce 2s ease-in-out infinite}
+.ico.ico-live[data-ico-anim="flip"]{animation:ico-flip 3.6s ease-in-out infinite}
+.ico.ico-live[data-ico-anim="twinkle"]{animation:ico-twinkle 2.2s ease-in-out infinite}
+@media (prefers-reduced-motion:reduce){.ico.ico-live{animation:none!important}}
+@media print{.ico.ico-live{animation:none!important}}
 """
 
 MOTION_JS = r"""(function(){
@@ -2693,7 +2753,10 @@ MOTION_JS = r"""(function(){
       if(!items.length) return;
       c.classList.add('mo-block');
       var st={c:c,anims:[],drv:[]};
-      items.forEach(function(x,i){ var a=x.animate(fr(i),{duration:DUR,delay:i*GAP*T,easing:'cubic-bezier(.2,.7,.2,1)',fill:'backwards'}); a.pause(); st.anims.push(a); });
+      items.forEach(function(x,i){ var a=x.animate(fr(i),{duration:DUR,delay:i*GAP*T,easing:'cubic-bezier(.2,.7,.2,1)',fill:'backwards'}); a.pause(); st.anims.push(a);
+        /* 中のアイコンは線が描かれ、終わったら繰り返しの動き */
+        each(x.querySelectorAll('svg.ico path'),function(pa,j){ var L=0; try{L=pa.getTotalLength();}catch(e){} if(!L) return; var dd=L+' '+L;
+          var b=pa.animate([{strokeDasharray:dd,strokeDashoffset:L},{strokeDasharray:dd,strokeDashoffset:0}],{duration:650*T,delay:i*GAP*T+160+j*90*T,easing:'ease-in-out',fill:'backwards'}); b.pause(); st.anims.push(b); }); });
       /* 数字は数え上げ、チェックリストの棒・表の棒は伸びる */
       each(c.querySelectorAll('.stat .big'),function(b,i){ var orig=b.textContent, m=orig.match(/-?[\d,]*\.?\d+/); if(!m||b.children.length) return;
         var to=parseFloat(m[0].replace(/,/g,'')), dec=(m[0].split('.')[1]||'').length, comma=m[0].indexOf(',')>=0, pre=orig.slice(0,m.index), post=orig.slice(m.index+m[0].length);
@@ -2703,6 +2766,7 @@ MOTION_JS = r"""(function(){
       all.push(st);
     }); });
     function run(st){ st.anims.forEach(function(a){ a.play(); });
+      Promise.all(st.anims.map(function(a){ return a.finished; })).then(function(){ each(st.c.querySelectorAll('svg.ico'),function(s){ s.classList.add('ico-live'); }); },function(){});
       st.drv.forEach(function(d){ var t0=performance.now()+d.delay, D=1100*T; d.el.textContent=d.fmt(0);
         (function step(now){ var k=Math.max(0,Math.min(1,(now-t0)/D)); d.el.textContent=k>=1?d.orig:d.fmt(1-Math.pow(1-k,3)); if(k<1) requestAnimationFrame(step); })(performance.now()); }); }
     var bio=new IntersectionObserver(function(en){ en.forEach(function(e){ if(!e.isIntersecting) return; var st=e.target.__moB; if(st&&!st.done){ st.done=true; run(st); } bio.unobserve(e.target); }); },{threshold:.15});

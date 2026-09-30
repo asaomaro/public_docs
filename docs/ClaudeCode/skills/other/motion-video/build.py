@@ -14,6 +14,7 @@ import sys, os, re, json, html, base64, argparse, mimetypes
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import sound  # noqa: E402  曲・効果音の定義（同じ場所の sound.py）
+import icons  # noqa: E402  線で描くアイコン集（同じ場所の icons.py。md-to-doc と共有）
 
 # ──────────────────────────────────────────────────────────────────────────
 # 映像の配色テーマ（canvas は映像の中、chrome はプレイヤーの操作部）
@@ -127,6 +128,27 @@ SCENE_TYPES = {
     "split": (["left", "right"], "左に文章・右に部品（右は type 付きの部品を縮小して置く）", '{"type":"split","heading":"…","left":{"title":"見出し","text":"説明","points":["要点"]},"right":{"type":"stats","items":[{"value":"48","label":"ツール"}]}}'),
     "beforeafter": (["before", "after"], "前後比較（境目が左から右へ動き、後の姿が現れる）", '{"type":"beforeafter","heading":"導入の前と後","before":{"label":"Before","title":"手作業","points":["毎朝 30 分"],"value":"30 分"},"after":{"label":"After","title":"自動","points":["ボタン 1 つ"],"value":"1 分"}}'),
     "dom": ([], "HTML・SVG・CSS で自由に描く（html / css / update。src・cssSrc・updateSrc でファイルから）。時刻は CSS 変数 --lt（ms）と --p（0..1）", '{"type":"dom","src":"scenes/intro.html","cssSrc":"scenes/intro.css","updateSrc":"scenes/intro.js","duration":8}'),
+    "area": (["labels", "series"], "面グラフ（左から塗られる。stacked で積み上げ）", '{"type":"area","heading":"利用者の推移","labels":["1月","2月","3月","4月"],"series":[{"name":"新規","values":[120,180,260,340]}],"unit":"人"}'),
+    "stack": (["labels", "series"], "積み上げ棒（段ごとに伸び、合計が数え上がる）", '{"type":"stack","labels":["Q1","Q2","Q3"],"series":[{"name":"国内","values":[30,40,55]},{"name":"海外","values":[10,18,30]}],"unit":"億"}'),
+    "scatter": (["points"], "散布図（点が弾み、highlight で 1 点を強調、trend で傾向の線）", '{"type":"scatter","xLabel":"工数","yLabel":"効果","points":[{"x":2,"y":8,"label":"A"},{"x":6,"y":5,"label":"B"}],"highlight":0,"trend":true}'),
+    "heatmap": (["rows", "cols", "values"], "ヒートマップ（斜めの波で塗られ、最大のマスを強調）", '{"type":"heatmap","rows":["月","火","水"],"cols":["9時","12時","18時"],"values":[[3,8,5],[2,9,6],[4,7,9]]}'),
+    "gauge": (["value"], "メーター（針が振れて止まる。zones で色の帯）", '{"type":"gauge","value":82,"max":100,"unit":"点","label":"満足度","zones":[{"from":0,"to":60,"tone":"bad"},{"from":80,"to":100,"tone":"good"}]}'),
+    "rings": (["items"], "進捗の輪（並べて塗られ、数え上がる）", '{"type":"rings","items":[{"label":"設計","value":100},{"label":"実装","value":70},{"label":"試験","value":35}]}'),
+    "treemap": (["items"], "ツリーマップ（大きい順に面が現れる）", '{"type":"treemap","items":[{"label":"国内","value":52},{"label":"北米","value":28},{"label":"欧州","value":14}],"unit":"%"}'),
+    "radar": (["axes", "series"], "レーダー（網が張られ、多角形が中心から広がる）", '{"type":"radar","axes":["速さ","安さ","安全","使いやすさ","拡張"],"series":[{"name":"新","values":[9,7,8,9,8]},{"name":"旧","values":[5,6,7,4,5]}],"max":10}'),
+    "phone": ([], "スマホの画面（項目が現れ、screens で画面が横に送られる。notify・tap・points）", '{"type":"phone","screens":[{"title":"今日","items":[{"title":"会議","sub":"10:00","icon":"calendar"},{"title":"レビュー","badge":"3"}]}],"notify":{"at":0.6,"title":"承認待ち","text":"impl が待っています"},"points":["通知で気づける","その場で承認"]}'),
+    "dashboard": ([], "ダッシュボードが組み上がる（kpis・bars・rows）", '{"type":"dashboard","title":"運用","kpis":[{"label":"処理件数","value":"1,240","delta":"+12%"},{"label":"平均時間","value":"3 分"}],"bars":[3,5,4,7,8,11],"rows":["impl 完了",{"text":"review 待ち","state":"blocked"}]}'),
+    "form": (["fields"], "フォームに順に入力して送信する（カーソル・打鍵・選択・チェック・完了）", '{"type":"form","title":"申し込み","fields":[{"label":"名前","value":"山田 太郎"},{"label":"プラン","type":"select","value":"Pro","options":["Free","Pro"]},{"label":"規約","type":"check","value":"同意する"}],"submit":"送信","done":"受け付けました"}'),
+    "notifs": (["items"], "通知が上から積み重なる（text で左に一言）", '{"type":"notifs","text":"AI からの連絡を 1 か所に","items":[{"app":"Claude","title":"impl が完了","icon":"check"},{"app":"Codex","title":"承認待ち","icon":"bell"}]}'),
+    "scroll": (["sections"], "ページが節ごとにスクロールする（focus の節を強調）", '{"type":"scroll","url":"docs.example.com","sections":[{"heading":"はじめに","text":"…"},{"heading":"設定","text":"…","image":"画面"}],"focus":1}'),
+    "drag": (["columns"], "カンバンのカードをドラッグで移す（moves: [{card, to}]）", '{"type":"drag","columns":[{"title":"未着手","cards":["設計"]},{"title":"作業中","cards":[]},{"title":"完了","cards":[]}],"moves":[{"card":"設計","to":"作業中"}]}'),
+    "network": (["nodes", "edges"], "網の目のつながり（自動で配置し、線の上を印が流れる）", '{"type":"network","nodes":[{"id":"a","label":"操舵室"},{"id":"b","label":"Claude"},{"id":"c","label":"Codex"}],"edges":[["a","b"],["a","c"]]}'),
+    "tree": (["root"], "木（上の段から枝が伸びる）", '{"type":"tree","root":{"label":"製品","children":[{"label":"Web","children":["画面","API"]},{"label":"CLI"}]}}'),
+    "states": (["states"], "状態の遷移（丸と矢印。path の順に印が移り、今の状態が光る）", '{"type":"states","states":[{"id":"idle","label":"待機"},{"id":"work","label":"作業"},{"id":"done","label":"完了"}],"transitions":[{"from":"idle","to":"work","label":"依頼"},{"from":"work","to":"done"}],"path":["idle","work","done"]}'),
+    "map": (["pins"], "地図とピン（街の地図にピンが落ち、routes で経路）。x・y は 0..1", '{"type":"map","pins":[{"x":0.2,"y":0.6,"label":"東京"},{"x":0.75,"y":0.35,"label":"大阪"}],"routes":[[0,1]]}'),
+    "layers": (["items"], "層の構成（下から積み上がり、途中で分かれて見せる）", '{"type":"layers","items":[{"label":"インフラ","sub":"クラウド"},{"label":"サーバ"},{"label":"画面"}]}'),
+    "pipeline": (["stages"], "流れ作業（段を印が流れ続け、段ごとの数が増える）", '{"type":"pipeline","stages":[{"label":"受付","icon":"mail"},"設計","実装",{"label":"完了","icon":"check"}],"label":"依頼が次々に流れる"}'),
+    "icons": (["items"], "アイコンの格子（線で描かれ、現れた後も動く）。items: {icon, label, text}", '{"type":"icons","heading":"できること","items":[{"icon":"rocket","label":"速い","text":"3 分で"},{"icon":"shield","label":"安全"},{"icon":"users","label":"みんなで"}]}'),
     "impact": (["text"], "強い一語を叩きつける（集中線・破片・画面の揺れ）。sub で下に一行", '{"type":"impact","text":"10 倍速い","sub":"同じ作業が 3 分で"}'),
     "countdown": ([], "3・2・1 の数え下ろしと、最後に label を叩きつける（from で始まりの数）", '{"type":"countdown","from":3,"label":"公開！","sub":"10 月 1 日"}'),
     "orbit": (["items"], "中心の周りを項目が回る（関係・生態系）。center は中心の名前", '{"type":"orbit","heading":"つながる道具","center":{"label":"Sodashitsu","sub":"操舵室"},"items":[{"label":"Claude","icon":"🤖"},"Codex","Gemini","herdr"]}'),
@@ -145,6 +167,7 @@ OVERLAY_KINDS = {
     "badge": (["text"], "弾んで出る札", '{"kind":"badge","text":"NEW","x":1500,"y":260,"at":0.2}'),
     "cursor": (["path"], "マウスの矢印が点を順にたどる。click はクリックする点の番号", '{"kind":"cursor","path":[[500,800],[900,420],[1200,420]],"click":[1],"at":0.2,"until":0.8}'),
     "notify": (["text"], "OS 風の通知（右上。pos:br で右下寄り）", '{"kind":"notify","app":"Sodashitsu","text":"impl が完了しました","at":0.3,"until":0.7}'),
+    "icon": (["name"], "アイコンを線で描き、動かす（x, y, size, color, anim）", '{"kind":"icon","name":"bell","x":1500,"y":300,"size":120,"at":0.3}'),
     "burst": ([], "破片が弾ける（x, y。n で数・r で広がり）", '{"kind":"burst","x":1300,"y":420,"at":0.4}'),
     "ripple": ([], "波紋がくり返し広がる（x, y, r）", '{"kind":"ripple","x":900,"y":500,"r":180,"at":0.3,"until":0.8}'),
     "confetti": ([], "紙吹雪が降る（祝い・達成）", '{"kind":"confetti","at":0.5}'),
@@ -222,7 +245,8 @@ API_DOC = """custom の本体は (ctx, lt, d, H, s)。座標は 1920×1080、lt 
 手本は recipes.md。"""
 
 
-MIN_SEC = {"impact": 3.5, "countdown": 4, "orbit": 7, "logo": 6.5, "marquee": 5, "title": 8, "statement": 4.5, "bullets": 2.5, "flow": 3, "steps": 2, "terminal": 2.5, "stats": 4.5, "bars": 3.5,
+MIN_SEC = {"area": 6, "stack": 6, "scatter": 6, "heatmap": 6, "gauge": 5, "rings": 5, "treemap": 6, "radar": 6, "phone": 6, "dashboard": 7,
+           "form": 6, "notifs": 4, "scroll": 6, "drag": 5, "network": 6, "tree": 5, "states": 6, "map": 6, "layers": 6, "pipeline": 7, "icons": 3, "impact": 3.5, "countdown": 4, "orbit": 7, "logo": 6.5, "marquee": 5, "title": 8, "statement": 4.5, "bullets": 2.5, "flow": 3, "steps": 2, "terminal": 2.5, "stats": 4.5, "bars": 3.5,
            "compare": 3, "code": 2.5, "window": 7, "image": 5, "end": 4, "custom": 5,
            "cards": 3, "timeline": 3, "chat": 2, "line": 6, "donut": 6, "table": 3, "quote": 6, "kinetic": 3, "split": 6,
            "beforeafter": 7, "dom": 5}
@@ -279,6 +303,20 @@ def min_seconds(s):
         base += 0.3 * len(s.get("rows", [])) + 1.8 * len(s.get("highlight", []))
     elif t == "kinetic":
         base += 0.35 * len(re.findall(r"\*\*[^*]+\*\*|[^\s*]+", s.get("text", "")))
+    elif t == "form":
+        base += 1.8 * len(s.get("fields", []))
+    elif t == "drag":
+        base += 2.2 * len(s.get("moves", [s.get("move")] if s.get("move") else []))
+    elif t in ("notifs", "rings", "treemap", "scatter"):
+        base += 0.6 * len(s.get("items", s.get("points", [])))
+    elif t == "states":
+        base += 0.5 * len(s.get("states", [])) + 1.3 * len(s.get("path", []))
+    elif t == "phone":
+        base += 2.5 * (len(s.get("screens", [])) or 1)
+    elif t == "scroll":
+        base += 1.4 * len(s.get("sections", []))
+    elif t == "icons":
+        base += 0.7 * len(s.get("items", []))
     elif t == "countdown":
         base += 1.0 * s.get("from", 3) + (1.5 if s.get("label") else 0)
     elif t == "orbit":
@@ -414,6 +452,19 @@ def validate(spec, base):
                 else:
                     mime = mimetypes.guess_type(p)[0] or "image/png"
                     s["src"] = "data:%s;base64,%s" % (mime, base64.b64encode(open(p, "rb").read()).decode("ascii"))
+    def walk_icons(o, where):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if k in ("icon", "name") and isinstance(v, str) and re.match(r"^[a-z][a-z0-9]*(-[a-z0-9]+)+$|^[a-z]{3,}$", v) and (k == "icon" or o.get("kind") == "icon"):
+                    if v not in icons.ICONS and not (k == "name" and o.get("kind") != "icon"):
+                        errs.append("%s: アイコン %r は無い（--list-icons。絵文字も使える）" % (where, v))
+                walk_icons(v, where)
+        elif isinstance(o, list):
+            for v in o:
+                walk_icons(v, where)
+    for ci, ch in enumerate(spec.get("chapters") or []):
+        for si, s in enumerate(ch.get("scenes") or []):
+            walk_icons(s, "第 %d 章の場面 %d" % (ci + 1, si + 1))
     if spec.get("transition") and spec["transition"] not in TRANSITIONS:
         errs.append("transition %r は %s のいずれか" % (spec["transition"], "/".join(TRANSITIONS)))
     if spec.get("motion") and spec["motion"] not in MOTION_STYLES:
@@ -668,6 +719,7 @@ def build_fragment(spec, theme_key, player, uid=None):
     frag = (
         '<section class="mv-player" id="mv-player" data-player="%s" tabindex="0" aria-label="%s" style="%s">'
         '<script type="application/json" data-mv-spec>%s</script><script type="application/json" data-mv-theme>%s</script>'
+        '<script type="application/json" data-mv-icons>%s</script>'
         '<div class="mv-main"><div class="mv-stage" id="mv-stage"><canvas id="mv-canvas" aria-hidden="true"></canvas>'
         '<div class="mv-dom" id="mv-dom"></div>'
         '<div class="mv-cap"><span id="mv-captext" hidden></span></div>'
@@ -678,7 +730,8 @@ def build_fragment(spec, theme_key, player, uid=None):
         '<aside class="mv-side mv-transcript" aria-label="文字起こし"><h2>文字起こし</h2>'
         '<input type="search" class="mv-tsearch" id="mv-tsearch" placeholder="文字起こしを検索" aria-label="文字起こしを検索">'
         '<ol class="mv-tlist" id="mv-tlist"></ol></aside>'
-        '</section>' % (player, html.escape(title, quote=True), style, data, json.dumps(theme_js, ensure_ascii=False), ICON["big"] + '<span class="mv-biglabel"></span>', controls))
+        '</section>' % (player, html.escape(title, quote=True), style, data, json.dumps(theme_js, ensure_ascii=False),
+                        json.dumps(icons.pick(icons.used_in(data)), ensure_ascii=False), ICON["big"] + '<span class="mv-biglabel"></span>', controls))
     # id はプレイヤーごとの名前にし、エンジンは data-mv で探す
     frag = re.sub(r'\bid="mv-([\w-]+)"', lambda m: 'data-mv="%s" id="%s-%s"' % (m.group(1), uid, m.group(1)), frag)
     frag = re.sub(r'aria-controls="mv-([\w-]+)"', lambda m: 'aria-controls="%s-%s"' % (uid, m.group(1)), frag)
@@ -691,9 +744,9 @@ def player_css():
 
 
 def engine_js():
-    """音の合成（audio.js）と描画・プレイヤー（engine.js）。どちらも 1 ページで 1 度だけ効く。"""
-    return (open(os.path.join(HERE, "audio.js"), encoding="utf-8").read() + "\n"
-            + open(os.path.join(HERE, "engine.js"), encoding="utf-8").read())
+    """音の合成（audio.js）・部品（parts-*.js）・描画とプレイヤー（engine.js）。1 ページで 1 度だけ効く。"""
+    parts = sorted(f for f in os.listdir(HERE) if f.startswith("parts-") and f.endswith(".js"))
+    return "\n".join(open(os.path.join(HERE, f), encoding="utf-8").read() for f in ["audio.js"] + parts + ["engine.js"])
 
 
 def build_embed(spec, theme_key, player):
@@ -841,6 +894,7 @@ def print_list():
           '"brand":{"name":"…"},"motion":"dynamic","poster":4300,'
           '"audio":{"narration":true,"music":"corporate","sfx":{"kit":"standard","density":"normal"},"rate":1.1,"wait":true,"pronounce":{"Sodashitsu":"ソダシツ"}},'
           '"expression":"mixed","chapters":[{"title":"章の名前","desc":"一覧に出す説明","scenes":[{…場面…}]}]}')
+    print("\n# アイコン（部品の icon・重ねの層の icon・H.icon）\n  %d 種。一覧は --list-icons。icon には絵文字も書ける" % len(icons.ICONS))
     print("\n# 音（曲 %d・効果音 %d・効果音の組 %d）\n  一覧と書き方は --list-sounds、聞き比べるページは --sounds -o sounds.html"
           % (len(sound.MUSIC), len(sound.SFX), len(sound.KITS)))
     print("\ncustom の道具は --api、手本は recipes.md")
@@ -857,6 +911,7 @@ def main():
     ap.add_argument("--api", action="store_true", help="custom の場面で使える描画の道具（H.*）の一覧を出す")
     ap.add_argument("--embed", action="store_true", help="ページではなく、ほかの HTML に差し込む断片を出す（md-to-doc の文書など）")
     ap.add_argument("--list-sounds", action="store_true", help="曲・効果音・効果音の組・出来事と、audio の書き方を出す")
+    ap.add_argument("--list-icons", action="store_true", help="線で描くアイコンの一覧を出す")
     ap.add_argument("--sounds", action="store_true", help="曲と効果音を聞き比べる HTML を作る（-o で出力先。既定 sounds.html）")
     args = ap.parse_args()
     if args.api:
@@ -864,6 +919,9 @@ def main():
         return
     if args.list_sounds:
         sound.print_sounds()
+        return
+    if args.list_icons:
+        icons.print_icons()
         return
     if args.sounds:
         out = args.out or os.path.abspath("sounds.html")
