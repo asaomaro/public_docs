@@ -1,0 +1,24 @@
+---
+title: ずんだもんと学ぶ「並行作業」
+cast: zundamon, metan
+theme: daylight
+motion: playful
+music: calm
+pronounce: {"Sodashitsu": "ソダシツ"}
+---
+# 導入
+@board title: 並行作業のコツ | ずんだもんと四国めたん
+zundamon: ずんだもんなのだ！ [!]
+metan(smile): 四国めたんよ。今日は並行作業のコツを話すわね。
+zundamon: 並行作業って、一度にいろいろやることなのだ？ [?]
+(間 0.6)
+
+# 仕組み
+@board bullets: 3 つのコツ | 並べて見る | 待ちを知らせる | 任せる
+metan: コツは 3 つあるの。
+zundamon(surprised, shake): えっ、3 つもあるのだ！ [!?]
+metan(smile): 順に見ていきましょう。
+
+@board stats: 効果 | 3倍 速さ | 50% 待ち時間
+metan: まとめて見渡せると、待ち時間が半分になるの。
+zundamon(smile): それはすごいのだ♪ [♪]

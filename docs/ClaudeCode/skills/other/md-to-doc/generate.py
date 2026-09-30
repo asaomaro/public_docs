@@ -711,6 +711,12 @@ def parse_blocks(lines, headings, used_slugs, mermaid_store, top_level=True, lay
                 key = "@@MERMAID_%d@@" % len(mermaid_store)
                 mermaid_store.append(code)
                 out.append(key)
+            elif lang == "diff":
+                def dline(ln):
+                    cls = "dl-add" if ln.startswith("+") and not ln.startswith("+++") else "dl-del" if ln.startswith("-") and not ln.startswith("---") else "dl-hunk" if ln.startswith("@@") else "dl-ctx"
+                    return '<span class="dl %s">%s\n</span>' % (cls, html.escape(ln))
+                out.append('<figure class="codeblock diff"><button class="copy-btn" type="button">コピー</button>'
+                           '<pre><code class="lang-diff">%s</code></pre></figure>' % "".join(dline(ln) for ln in code.split("\n")))
             else:
                 out.append(
                     '<figure class="codeblock"><button class="copy-btn" type="button">コピー</button>'
@@ -986,7 +992,7 @@ def render_rich(items, layout, headings, used_slugs, mermaid_store):
         btns, panels = [], []
         for k, it in enumerate(items):
             icon, tags, text = extract_decorations(it["text"])
-            lab = (html.escape(icon) + " " if icon else "") + inline(text)
+            lab = (icon_html(icon, 18) + " " if icon else "") + inline(text)
             btns.append('<button type="button" role="tab" id="%s-t%d" aria-controls="%s-p%d" aria-selected="%s" '
                         'tabindex="%d" style="--ca:%s">%s</button>'
                         % (tid, k, tid, k, "true" if k == 0 else "false", 0 if k == 0 else -1, _ca(k), lab))
@@ -1039,8 +1045,210 @@ def render_rich(items, layout, headings, used_slugs, mermaid_store):
             tone = "con" if _CONS.search(text) else "pro" if _PROS.search(text) else "neutral"
             ca = ' style="--ca:%s"' % _ca(k) if tone == "neutral" else ""
             cols.append('<div class="pc-col pc-%s"%s><div class="pc-h">%s%s</div><div class="pc-b">%s</div></div>'
-                        % (tone, ca, (html.escape(icon) + " ") if icon else "", inline(text), body_html(it)))
+                        % (tone, ca, (icon_html(icon) + " ") if icon else "", inline(text), body_html(it)))
         return '<div class="pc-grid" style="--cols:%d">%s</div>' % (min(len(items), 3), "".join(cols))
+    return render_more(items, layout, body_html)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# 追加の見せ方（hero・quote・pricing・stepper・kanban・faq・beforeafter・gallery・roadmap・persona・
+#   chevron・counters・rating・dodont・voices・decision・icongrid）。動きは MOTION_JS の部品の登場で付く
+# ──────────────────────────────────────────────────────────────────────────
+def _split_dash(text):
+    """「A — B」「A - B」「A：B」を (A, B) に。"""
+    m = re.split(r"\s+(?:—|–|-{1,2})\s+|：", text, 1)
+    return (m[0].strip(), m[1].strip()) if len(m) > 1 else (text.strip(), "")
+
+
+def _tree_nodes(lines):
+    """インデントした箇条書きの行から [{text, kids}] の木を作る。"""
+    rows = []
+    for ln in lines:
+        m = re.match(r"^(\s*)(?:[-*+]|\d+\.)\s+(.*)$", ln)
+        if m:
+            rows.append((len(m.group(1).replace("\t", "    ")), m.group(2).strip()))
+    root, stack = [], [(-1, {"kids": None})]
+    stack[0][1]["kids"] = root
+    for ind, text in rows:
+        node = {"text": text, "kids": []}
+        while stack and stack[-1][0] >= ind:
+            stack.pop()
+        stack[-1][1]["kids"].append(node)
+        stack.append((ind, node))
+    return root
+
+
+def _sub(body):
+    """項目の中の、いちばん浅い箇条書きの文（カードの中身・機能の一覧など）。"""
+    return [n["text"] for n in _tree_nodes(body)]
+
+
+def _ico(name, size=18, fallback=""):
+    h = icon_html(":%s:" % name, size)
+    return h if h.startswith("<svg") else fallback
+
+
+_REC = re.compile(r"おすすめ|推奨|人気|recommended|popular|best", re.I)
+_DO = re.compile(r"^\s*(?:[✓✔○◯◎]|do\b|やる|すべき|良い|good|ok\b)\s*[:：]?\s*", re.I)
+_DONT = re.compile(r"^\s*(?:[✗✕×☓]|don'?t\b|やらない|避ける|しない|悪い|bad|ng\b)\s*[:：]?\s*", re.I)
+
+
+def render_more(items, layout, body_html):
+    if not items:
+        return ""
+    if layout == "hero":
+        icon, tags, text = extract_decorations(items[0]["text"])
+        chips = "".join('<span class="hero-chip">%s</span>' % html.escape(t) for t in tags)
+        return ('<div class="hero"><span class="hero-glow" aria-hidden="true"></span>%s<div class="hero-h">%s</div>%s%s%s</div>'
+                % ('<div class="hero-ic">%s</div>' % icon_html(icon, 44) if icon else "", inline(text),
+                   "".join('<p class="hero-sub">%s</p>' % inline(it["text"]) for it in items[1:]),
+                   '<div class="hero-chips">%s</div>' % chips if chips else "", body_html(items[0])))
+    if layout == "quote":
+        out = []
+        for it in items:
+            q, by = _split_dash(it["text"])
+            segs = [q] if re.search(r"\*\*|`|\[", q) else (re.findall(r"[^、。，．！？,.!?\s]+[、。，．！？,.!?]*\s*", q) or [q])
+            out.append('<figure class="pq"><span class="pq-mark" aria-hidden="true">“</span><blockquote>%s</blockquote>%s%s</figure>'
+                       % ("".join('<span class="w">%s</span>' % inline(sg) for sg in segs),
+                          '<figcaption>— %s</figcaption>' % inline(by) if by else "", body_html(it)))
+        return "".join(out)
+    if layout == "pricing":
+        cards = []
+        for k, it in enumerate(items):
+            icon, tags, text = extract_decorations(it["text"])
+            name, price = _split_dash(text)
+            rec = any(_REC.search(t) for t in tags)
+            m = re.match(r"^(.*?\d[\d,]*(?:\.\d+)?)(.*)$", price)
+            amt = '%s<span class="price-unit">%s</span>' % (inline(m.group(1)), inline(m.group(2))) if m else inline(price)
+            feats = "".join('<li>%s<span>%s</span></li>' % (_ico("check", 16, "✓"), inline(f)) for f in _sub(it["body"]))
+            cards.append('<div class="price%s" style="--ca:%s">%s%s<div class="price-name">%s</div><div class="price-amt">%s</div><ul class="price-feats">%s</ul></div>'
+                         % (" is-rec" if rec else "", _ca(k), '<span class="price-badge">%s</span>' % html.escape(tags[0]) if rec else "",
+                            '<div class="price-ic">%s</div>' % icon_html(icon, 26) if icon else "", inline(name), amt, feats))
+        return '<div class="price-grid" style="--cols:%d">%s</div>' % (min(len(items), 4), "".join(cards))
+    if layout == "stepper":
+        steps = []
+        for k, it in enumerate(items):
+            icon, tags, text = extract_decorations(it["text"])
+            a, b = _split_dash(text)
+            steps.append('<li class="st" style="--ca:%s"><span class="st-dot">%s</span><div class="st-t">%s</div>%s</li>'
+                         % (_ca(k), icon_html(icon, 18) if icon else k + 1, inline(a), '<div class="st-d">%s</div>' % inline(b) if b else ""))
+        return '<div class="stepper" style="--n:%d"><div class="st-line" aria-hidden="true"><i></i></div><ol>%s</ol></div>' % (len(items), "".join(steps))
+    if layout == "kanban":
+        cols = []
+        for k, it in enumerate(items):
+            icon, tags, text = extract_decorations(it["text"])
+            cards = []
+            for c in _sub(it["body"]):
+                ci, ct, cx = extract_decorations(c)
+                cards.append('<div class="kb-card">%s<span>%s</span>%s</div>' % (icon_html(ci, 16) + " " if ci else "", inline(cx),
+                             "".join('<em class="kb-tag">%s</em>' % html.escape(t) for t in ct)))
+            cols.append('<div class="kb-col" style="--ca:%s"><div class="kb-h">%s%s<span class="kb-n">%d</span></div>%s</div>'
+                        % (_ca(k), icon_html(icon, 16) + " " if icon else "", inline(text), len(cards), "".join(cards)))
+        return '<div class="kanban" style="--cols:%d">%s</div>' % (len(items), "".join(cols))
+    if layout == "faq":
+        return '<div class="faq">%s</div>' % "".join(
+            '<details class="faq-item"%s><summary><span class="faq-q">Q</span><span>%s</span></summary><div class="faq-a"><span class="faq-al">A</span><div>%s</div></div></details>'
+            % (" open" if k == 0 else "", inline(it["text"]), body_html(it)) for k, it in enumerate(items))
+    if layout == "beforeafter":
+        if len(items) < 2:
+            return render_more(items, "quote", body_html)
+        panes = []
+        for k, it in enumerate(items[:2]):
+            lab, rest = _split_dash(it["text"])
+            panes.append('<div class="ba-pane ba-%s"><div class="ba-label">%s</div><div class="ba-body">%s%s</div></div>'
+                         % ("before" if k == 0 else "after", inline(lab), '<p>%s</p>' % inline(rest) if rest else "", body_html(it)))
+        return ('<div class="ba" data-ba><div class="ba-stage">%s<div class="ba-handle" aria-hidden="true"><span>⇆</span></div></div>'
+                '<input class="ba-range" type="range" min="0" max="100" value="50" aria-label="前と後の境目"></div>' % "".join(panes))
+    if layout == "gallery":
+        figs = []
+        for it in items:
+            h = inline(it["text"])
+            imgs = re.findall(r"<img[^>]*>", h)
+            cap = re.sub(r"<img[^>]*>", "", h).strip()
+            figs.append('<figure class="gal-item">%s<figcaption>%s</figcaption></figure>'
+                        % ('<button type="button" class="gal-btn" aria-label="拡大">%s</button>' % imgs[0] if imgs else '<div class="gal-ph">%s</div>' % cap, cap if imgs else ""))
+        return '<div class="gal">%s</div>' % "".join(figs)
+    if layout == "roadmap":
+        lanes = []
+        for k, it in enumerate(items):
+            icon, tags, text = extract_decorations(it["text"])
+            lis = "".join('<li>%s</li>' % inline(x) for x in _sub(it["body"]))
+            lanes.append('<div class="rm-lane%s" style="--ca:%s"><div class="rm-h">%s%s%s</div><ul>%s</ul></div>'
+                         % (" is-now" if k == 0 else "", _ca(k), icon_html(icon, 18) + " " if icon else "", inline(text),
+                            '<span class="rm-now">いまここ</span>' if k == 0 else "", lis))
+        return '<div class="rm" style="--cols:%d">%s</div>' % (len(items), "".join(lanes))
+    if layout == "persona":
+        out = []
+        for k, it in enumerate(items):
+            icon, tags, text = extract_decorations(it["text"])
+            name, role = _split_dash(text)
+            av = icon_html(icon, 34) if icon else html.escape(re.sub(r"[*`\[\]]", "", name)[:1])
+            out.append('<div class="pers" style="--ca:%s"><div class="pers-av">%s</div><div class="pers-name">%s</div>%s%s<div class="pers-b">%s</div></div>'
+                       % (_ca(k), av, inline(name), '<div class="pers-role">%s</div>' % inline(role) if role else "",
+                          '<div class="pers-tags">%s</div>' % "".join('<span>%s</span>' % html.escape(t) for t in tags) if tags else "", body_html(it)))
+        return '<div class="pers-grid">%s</div>' % "".join(out)
+    if layout == "chevron":
+        return '<ol class="chev-row" style="--n:%d">%s</ol>' % (len(items), "".join(
+            '<li class="chev" style="--ca:%s"><span class="chev-t">%s</span>%s</li>'
+            % (_ca(k), inline(_split_dash(it["text"])[0]), '<span class="chev-d">%s</span>' % inline(_split_dash(it["text"])[1]) if _split_dash(it["text"])[1] else "")
+            for k, it in enumerate(items)))
+    if layout == "counters":
+        tiles = []
+        for k, it in enumerate(items):
+            m = _STAT.match(it["text"])
+            val, lab = (m.group(1).strip(), m.group(2)) if m else (it["text"], "")
+            lab = re.sub(r"^\s*(?:—|–|-)\s*", "", lab)
+            digits = "".join('<span class="od" style="--d:%s"><span class="od-s">%s</span></span>' % (ch, "".join("<span>%d</span>" % i for i in range(10)))
+                             if ch.isdigit() else '<span class="od-c">%s</span>' % html.escape(ch) for ch in val)
+            tiles.append('<div class="ctr" style="--ca:%s"><div class="ctr-v" aria-label="%s"><span aria-hidden="true">%s</span></div><div class="ctr-l">%s</div></div>'
+                         % (_ca(k), html.escape(val, quote=True), digits, inline(lab)))
+        return '<div class="ctr-row">%s</div>' % "".join(tiles)
+    if layout == "rating":
+        rows = []
+        for k, it in enumerate(items):
+            lab, val = _split_dash(it["text"])
+            m = re.match(r"^([\d.]+)\s*(?:/\s*([\d.]+))?\s*(%|％)?", val)
+            v = float(m.group(1)) if m else 0.0
+            mx = float(m.group(2)) if m and m.group(2) else (100.0 if m and m.group(3) else 5.0)
+            f = max(0.0, min(1.0, v / mx if mx else 0))
+            meter = ('<span class="rt-stars" aria-hidden="true"><span class="rt-base">★★★★★</span><span class="rt-fill" style="width:%.1f%%">★★★★★</span></span>' % (f * 100)
+                     if mx == 5 else '<span class="rt-bar" aria-hidden="true"><i style="width:%.1f%%"></i></span>' % (f * 100))
+            rows.append('<div class="rt" style="--ca:%s"><span class="rt-l">%s</span>%s<span class="rt-v">%s</span></div>' % (_ca(k), inline(lab), meter, html.escape(val)))
+        return '<div class="rt-list">%s</div>' % "".join(rows)
+    if layout == "dodont":
+        do, dont = [], []
+        for it in items:
+            t = it["text"]
+            if _DONT.match(t):
+                dont.append(_DONT.sub("", t, 1))
+            else:
+                do.append(_DO.sub("", t, 1))
+        col = lambda cls, head, ico, fb, rows: ('<div class="dd-col dd-%s"><div class="dd-h">%s%s</div><ul>%s</ul></div>'
+                                                % (cls, _ico(ico, 20, fb) + " ", head, "".join('<li>%s<span>%s</span></li>' % (_ico(ico, 16, fb), inline(r)) for r in rows)))
+        return '<div class="dd">%s%s</div>' % (col("do", "やること", "check", "✓", do), col("dont", "やらないこと", "x", "✗", dont))
+    if layout == "voices":
+        out = []
+        for k, it in enumerate(items):
+            q, by = _split_dash(it["text"])
+            out.append('<figure class="voice" style="--ca:%s;--r:%s"><blockquote>%s</blockquote>%s</figure>'
+                       % (_ca(k), ["-3deg", "2deg", "-1.5deg", "3deg"][k % 4], inline(q),
+                          '<figcaption><span class="voice-av">%s</span>%s</figcaption>' % (html.escape(re.sub(r"[*`]", "", by)[:1]), inline(by)) if by else ""))
+        return '<div class="voices">%s</div>' % "".join(out)
+    if layout == "decision":
+        def node(n, depth):
+            t = n["text"]
+            b = re.split(r"\s*(?:→|->|⇒)\s*", t, 1)
+            head = ('<span class="dt-b">%s</span>%s' % (inline(b[0]), inline(b[1])) if len(b) > 1 else inline(t))
+            cls = "dt-q" if n["kids"] else "dt-leaf"
+            kids = '<ul>%s</ul>' % "".join(node(c, depth + 1) for c in n["kids"]) if n["kids"] else ""
+            return '<li><div class="dt-n %s" data-depth="%d">%s</div>%s</li>' % (cls, depth, head, kids)
+        return "".join('<div class="dt-wrap"><ul class="dt">%s</ul></div>' % node({"text": it["text"], "kids": _tree_nodes(it["body"])}, 0) for it in items)
+    if layout == "icongrid":
+        return '<div class="ig-grid">%s</div>' % "".join(
+            '<div class="ig" style="--ca:%s"><div class="ig-ic">%s</div><div class="ig-t">%s</div>%s</div>'
+            % (_ca(k), icon_html(extract_decorations(it["text"])[0], 30) or "•", inline(_split_dash(extract_decorations(it["text"])[2])[0]),
+               '<div class="ig-d">%s</div>' % inline(_split_dash(extract_decorations(it["text"])[2])[1]) if _split_dash(extract_decorations(it["text"])[2])[1] else "")
+            for k, it in enumerate(items))
     return ""
 
 
@@ -1083,7 +1291,54 @@ def _num_value(c):
     return float(m.group(0).replace(",", "").replace("−", "-")) if m else None
 
 
+_MX_YES = re.compile(r"^(?:[✓✔◯○◎]|yes|y|あり|有|対応|可)$", re.I)
+_MX_NO = re.compile(r"^(?:[✗✕×☓-]|no|n|なし|無|非対応|不可)$", re.I)
+
+
+def render_matrix(header, rows):
+    """機能の比較表: ✓・✗ を記号で描く。見出しの末尾に * を付けた列を強調する。"""
+    hl = [c.strip().endswith("*") for c in header]
+    th = "".join('<th%s>%s</th>' % (' class="mx-hl"' if hl[c] else "", inline(h.strip().rstrip("*").strip())) for c, h in enumerate(header))
+    trs = []
+    for r in rows:
+        tds = []
+        for c in range(len(header)):
+            v = (r[c] if c < len(r) else "").strip()
+            if c == 0:
+                cell = inline(v)
+            elif _MX_YES.match(v):
+                cell = '<span class="mx-y">%s</span>' % _ico("check", 20, "✓")
+            elif _MX_NO.match(v):
+                cell = '<span class="mx-n">%s</span>' % _ico("x", 18, "✗")
+            elif v in ("△", "▲", "一部"):
+                cell = '<span class="mx-p">△</span>'
+            else:
+                cell = inline(v)
+            tds.append('<td%s>%s</td>' % (' class="mx-hl"' if hl[c] else "", cell))
+        trs.append("<tr>%s</tr>" % "".join(tds))
+    return '<div class="table-wrap"><table class="mx"><thead><tr>%s</tr></thead><tbody>%s</tbody></table></div>' % (th, "".join(trs))
+
+
+def render_raci(header, rows):
+    """役割表（RACI）: R・A・C・I を色の札にする。"""
+    th = "".join("<th>%s</th>" % inline(h) for h in header)
+    trs = []
+    for r in rows:
+        tds = ["<td>%s</td>" % inline(r[0] if r else "")]
+        for c in range(1, len(header)):
+            v = (r[c] if c < len(r) else "").strip().upper()
+            tds.append("<td>%s</td>" % "".join('<span class="raci raci-%s">%s</span>' % (ch.lower(), ch) for ch in re.findall(r"[RACI]", v)))
+        trs.append("<tr>%s</tr>" % "".join(tds))
+    legend = ('<div class="raci-legend"><span class="raci raci-r">R</span>実行 <span class="raci raci-a">A</span>説明責任 '
+              '<span class="raci raci-c">C</span>相談 <span class="raci raci-i">I</span>報告</div>')
+    return '<div class="table-wrap"><table class="raci-t"><thead><tr>%s</tr></thead><tbody>%s</tbody></table></div>%s' % (th, "".join(trs), legend)
+
+
 def render_table(header, rows, mode="auto"):
+    if mode == "matrix":
+        return render_matrix(header, rows)
+    if mode == "raci":
+        return render_raci(header, rows)
     ncol = len(header)
     tools = mode == "tools" or (mode == "auto" and len(rows) >= TABLE_TOOLS_ROWS)
     numeric = []
@@ -1265,12 +1520,44 @@ _ACCENTS = ["var(--a0)"]
 _EMOJI = re.compile(r"^\s*([\U0001F000-\U0001FAFF☀-➿⬀-⯿←-⇿️⃣]+)\s+")
 
 
+_ICONS = [None]
+
+
+def _icons():
+    """隣の motion-video スキルの icons.py（線で描くアイコン集）を読み込む（無ければ None）。"""
+    if _ICONS[0] is None:
+        import importlib.util
+        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "motion-video", "icons.py")
+        if not os.path.isfile(path):
+            _ICONS[0] = False
+        else:
+            spec = importlib.util.spec_from_file_location("motion_video_icons", path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            _ICONS[0] = mod
+    return _ICONS[0] or None
+
+
+_ICON_TOKEN = re.compile(r"^:([a-z][a-z0-9-]*):\s*")
+
+
+def icon_html(icon, size=22):
+    """項目の icon（絵文字か :名前:）を HTML に。:名前: はアイコン集の SVG（無い名前はそのまま文字で）。"""
+    if not icon:
+        return ""
+    m = _ICON_TOKEN.match(icon)
+    ic = _icons()
+    if m and ic and m.group(1) in ic.ICONS:
+        return ic.svg(m.group(1), size)
+    return html.escape(icon)
+
+
 def extract_decorations(text):
-    """項目テキストから 先頭絵文字(icon) と 末尾 {タグ} 群 を取り出す。"""
+    """項目テキストから 先頭絵文字 か :アイコン名:（icon）と 末尾 {タグ} 群 を取り出す。"""
     icon = ""
-    m = _EMOJI.match(text)
+    m = _EMOJI.match(text) or _ICON_TOKEN.match(text)
     if m:
-        icon = m.group(1); text = text[m.end():]
+        icon = m.group(0).strip() if m.re is _ICON_TOKEN else m.group(1); text = text[m.end():]
     tags = []
     tm = re.search(r"((?:\s*\{[^{}]+\})+)\s*$", text)
     if tm:
@@ -1319,13 +1606,15 @@ def _ca(idx):
 #   freeform は文書全体を Claude が著述するモードなので、セクション単位には指定できない。
 # ──────────────────────────────────────────────────────────────────────────
 # リストの見せ方（節の中のトップレベル箇条書きに効く）と、節そのものの見せ方
+MORE_LAYOUTS = ("hero", "quote", "pricing", "stepper", "kanban", "faq", "beforeafter", "gallery", "roadmap", "persona",
+                "chevron", "counters", "rating", "dodont", "voices", "decision", "icongrid")
 LIST_LAYOUTS = ("plain", "cards", "timeline", "accordion",
-                "tabs", "checklist", "defs", "stats", "chips", "tree", "proscons")
+                "tabs", "checklist", "defs", "stats", "chips", "tree", "proscons") + MORE_LAYOUTS
 SECTION_LAYOUTS = ("walkthrough", "summary")
 DET_LAYOUTS = LIST_LAYOUTS + SECTION_LAYOUTS
 FLAT_LAYOUTS = ("cards", "timeline", "accordion", "chips", "tree")     # 箇条書きの行だけで組む
-RICH_LAYOUTS = ("tabs", "checklist", "defs", "stats", "proscons")     # 項目の中のコード・段落も使う
-TABLE_DIRECTIVE_RE = re.compile(r"^\s*<!--\s*table\s*[:=]\s*(plain|tools|auto)\s*-->\s*$", re.I)
+RICH_LAYOUTS = ("tabs", "checklist", "defs", "stats", "proscons") + MORE_LAYOUTS     # 項目の中のコード・段落も使う
+TABLE_DIRECTIVE_RE = re.compile(r"^\s*<!--\s*table\s*[:=]\s*(plain|tools|auto|matrix|raci)\s*-->\s*$", re.I)
 TABLE_TOOLS_ROWS = 8
 LAYOUT_DIRECTIVE_RE = re.compile(r"^\s*<!--\s*layout\s*[:=]\s*([\w-]+)\s*-->\s*$", re.I)
 _LAYOUT_MAP = {}         # 正規化した節名/slug -> レイアウト
@@ -1431,7 +1720,7 @@ def render_list(items, layout):
             tip = re.sub(r"<[^>]+>", " ", g["children"]).strip()
             chips.append('<span class="chip" style="--ca:%s"%s>%s%s</span>'
                          % (_ca(idx), ' title="%s"' % html.escape(re.sub(r"\s+", " ", tip), quote=True) if tip else "",
-                            (html.escape(g["icon"]) + " ") if g["icon"] else "", g["label"]))
+                            (icon_html(g["icon"], 16) + " ") if g["icon"] else "", g["label"]))
         return '<div class="chips chips-lg">%s</div>' % "".join(chips)
 
     def tags_html(g):
@@ -1443,7 +1732,7 @@ def render_list(items, layout):
     if layout == "cards":
         cards = []
         for idx, g in enumerate(groups):
-            ic = '<span class="doc-card-ic">%s</span>' % html.escape(g["icon"]) if g["icon"] else ""
+            ic = '<span class="doc-card-ic">%s</span>' % icon_html(g["icon"], 26) if g["icon"] else ""
             body = '<div class="doc-card-b">%s</div>' % g["children"] if g["children"] else ""
             cards.append(
                 '<div class="doc-card" style="--ca:%s">'
@@ -1454,7 +1743,7 @@ def render_list(items, layout):
     if layout == "timeline":
         nodes = []
         for idx, g in enumerate(groups):
-            badge = html.escape(g["icon"]) if g["icon"] else str(idx + 1)
+            badge = icon_html(g["icon"], 18) if g["icon"] else str(idx + 1)
             nodes.append(
                 '<div class="tl-item" style="--ca:%s"><div class="tl-dot">%s</div>'
                 '<div class="tl-body"><div class="tl-h">%s</div>%s%s</div></div>'
@@ -1464,7 +1753,7 @@ def render_list(items, layout):
     if layout == "accordion":
         rows = []
         for idx, g in enumerate(groups):
-            ic = (html.escape(g["icon"]) + " ") if g["icon"] else ""
+            ic = (icon_html(g["icon"], 18) + " ") if g["icon"] else ""
             body = '<div class="acc-body">%s</div>' % g["children"] if g["children"] else ""
             rows.append(
                 '<details class="acc-item" style="--ca:%s"%s><summary>%s%s%s</summary>%s</details>'
@@ -1796,6 +2085,8 @@ blockquote{margin:16px 0;padding:8px 18px;border-left:3px solid var(--line);colo
 .doc-card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
   padding:20px 22px;box-shadow:var(--shadow);border-top:4px solid var(--ca,var(--accent))}
 .doc-card-top{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+.ico{display:inline-block;vertical-align:-.2em;flex:none;overflow:visible}
+.doc-card-ic .ico{color:var(--ca,var(--accent))}
 .doc-card-ic{flex:0 0 auto;width:42px;height:42px;border-radius:12px;display:flex;align-items:center;
   justify-content:center;font-size:22px;background:color-mix(in srgb,var(--ca,var(--accent)) 15%,var(--card))}
 .doc-card-h{font-family:var(--font-head);font-weight:800;font-size:16px;color:var(--ca,var(--accent-2));line-height:1.4}
@@ -1982,6 +2273,188 @@ footer{max-width:var(--maxw);margin:40px auto 0;padding:24px;text-align:center;
   a{color:#000;border:none}.codeblock pre{background:#f4f4f4;color:#111;border:1px solid #ccc}
   .copy-btn{display:none}
 }
+/* ---------- 追加の見せ方 ---------- */
+.content .price-feats,.content .dd ul,.content .stepper ol,.content .chev-row,.content .dt,.content .dt ul{padding-left:0;margin-left:0}
+.content .price-feats>li,.content .dd ul>li,.content .stepper ol>li,.content .chev-row>li{padding-left:0}
+.content .price-feats>li::before,.content .dd ul>li::before,.content .stepper ol>li::before,.content .chev-row>li::before{display:none}
+.content .dt li{margin:0;padding-left:8px}
+.content .dt li::before,.content .dt li::after{left:auto;width:50%;height:22px;background:none;border-radius:0;top:0}
+.content .dt li::before{right:50%}
+.content .dt li::after{left:50%}
+.ba.ba-js .ba-before .ba-body,.ba.ba-js .ba-before .ba-label{padding-right:52%}
+.ba.ba-js .ba-after .ba-body,.ba.ba-js .ba-after .ba-label{padding-left:52%;text-align:right}
+@media print{.ba.ba-js .ba-body,.ba.ba-js .ba-label{padding:0!important;text-align:left!important}}
+.hero{position:relative;overflow:hidden;margin:22px 0;padding:44px 40px;border-radius:calc(var(--radius) + 6px);
+  background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 16%,var(--card)),var(--card));border:1px solid var(--line)}
+.hero-glow{position:absolute;inset:-40% -20%;background:radial-gradient(closest-side,color-mix(in srgb,var(--accent) 22%,transparent),transparent);
+  transform:translateX(-30%);pointer-events:none}
+.hero>*:not(.hero-glow){position:relative}
+.hero-ic{color:var(--accent);margin-bottom:10px}
+.hero-h{font-family:var(--font-head);font-weight:900;font-size:clamp(26px,4.2vw,40px);line-height:1.3;color:var(--ink)}
+.hero-sub{margin-top:12px;font-size:17px;color:var(--muted)}
+.hero-chips{margin-top:18px;display:flex;flex-wrap:wrap;gap:8px}
+.hero-chip{padding:6px 14px;border-radius:999px;background:var(--accent);color:var(--on-accent);font-weight:700;font-size:13px}
+.pq{position:relative;margin:26px 0;padding:18px 24px 18px 70px}
+.pq-mark{position:absolute;left:8px;top:-18px;font-family:Georgia,serif;font-size:96px;line-height:1;color:var(--accent);opacity:.8}
+.pq blockquote{border:0;margin:0;padding:0;font-family:var(--font-head);font-size:clamp(20px,2.6vw,26px);font-weight:700;line-height:1.6;color:var(--ink)}
+.pq .w{display:inline}
+.pq figcaption{margin-top:12px;color:var(--muted);font-weight:700}
+.price-grid{display:grid;grid-template-columns:repeat(var(--cols,3),minmax(0,1fr));gap:18px;margin:22px 0;align-items:stretch}
+@media(max-width:760px){.price-grid{grid-template-columns:1fr}}
+.price{position:relative;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:24px 22px;box-shadow:var(--shadow)}
+.price.is-rec{border:2px solid var(--ca,var(--accent));transform:translateY(-6px)}
+.price-badge{position:absolute;top:-12px;left:50%;transform:translateX(-50%);padding:3px 14px;border-radius:999px;background:var(--ca,var(--accent));color:var(--on-accent);font-size:12px;font-weight:800;white-space:nowrap}
+.price-ic{color:var(--ca,var(--accent))}
+.price-name{font-family:var(--font-head);font-weight:800;font-size:18px;color:var(--ca,var(--accent-2))}
+.price-amt{font-family:var(--font-head);font-weight:900;font-size:34px;margin:6px 0 12px}
+.price-unit{font-size:14px;font-weight:600;color:var(--muted);margin-left:4px}
+.price-feats{list-style:none;padding:0;margin:0}
+.price-feats li{display:flex;gap:8px;align-items:flex-start;padding:5px 0;border-top:1px dashed var(--line);font-size:14px}
+.price-feats li .ico{color:var(--ca,var(--accent));margin-top:3px}
+.stepper{position:relative;margin:26px 0}
+.st-line{position:absolute;left:calc(50% / var(--n));right:calc(50% / var(--n));top:21px;height:4px;background:var(--line);border-radius:2px}
+.st-line i{display:block;height:100%;background:var(--accent);border-radius:2px;transform-origin:0 50%}
+.stepper ol{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(var(--n),minmax(0,1fr));gap:10px}
+.st{text-align:center;position:relative}
+.st-dot{display:inline-flex;align-items:center;justify-content:center;width:46px;height:46px;border-radius:50%;background:var(--ca,var(--accent));color:var(--on-accent);font-weight:800;box-shadow:0 0 0 5px var(--bg)}
+.st-t{margin-top:10px;font-weight:800}
+.st-d{font-size:13px;color:var(--muted)}
+@media(max-width:680px){.stepper ol{grid-template-columns:1fr;text-align:left}.st{display:grid;grid-template-columns:46px 1fr;gap:4px 12px;text-align:left}.st-d{grid-column:2}.st-line{display:none}}
+.kanban{display:grid;grid-template-columns:repeat(var(--cols,3),minmax(0,1fr));gap:14px;margin:22px 0}
+@media(max-width:760px){.kanban{grid-template-columns:1fr}}
+.kb-col{background:color-mix(in srgb,var(--ca,var(--accent)) 7%,var(--bg));border:1px solid var(--line);border-radius:var(--radius);padding:12px}
+.kb-h{display:flex;align-items:center;gap:6px;font-weight:800;margin:2px 4px 10px;color:var(--ca,var(--accent-2))}
+.kb-n{margin-left:auto;font-size:12px;color:var(--muted);background:var(--card);border-radius:999px;padding:1px 9px}
+.kb-card{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--ca,var(--accent));border-radius:10px;padding:9px 12px;margin-top:8px;font-size:14px;box-shadow:var(--shadow)}
+.kb-tag{display:inline-block;margin-left:6px;font-style:normal;font-size:11px;padding:1px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent)}
+.faq{margin:18px 0}
+.faq-item{border:1px solid var(--line);border-radius:var(--radius);background:var(--card);margin:10px 0;overflow:hidden}
+.faq-item summary{list-style:none;cursor:pointer;display:flex;gap:12px;align-items:flex-start;padding:14px 18px;font-weight:700}
+.faq-item summary::-webkit-details-marker{display:none}
+.faq-q,.faq-al{flex:none;width:28px;height:28px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:900;font-size:14px}
+.faq-q{background:var(--accent);color:var(--on-accent)}
+.faq-a{display:flex;gap:12px;padding:0 18px 14px}
+.faq-al{background:var(--accent-soft);color:var(--accent)}
+.faq-item[open] .faq-a{animation:faq-in .3s ease-out}
+@keyframes faq-in{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.faq-item[open] .faq-a{animation:none}}
+.ba{margin:22px 0}
+.ba-stage{display:flex;gap:14px}
+.ba-pane{flex:1;border:1px solid var(--line);border-radius:var(--radius);background:var(--card);padding:20px}
+.ba-after{background:color-mix(in srgb,var(--accent) 8%,var(--card))}
+.ba-label{font-weight:900;font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.ba-after .ba-label{color:var(--accent)}
+.ba-handle,.ba-range{display:none}
+.ba.ba-js .ba-stage{display:grid;position:relative;gap:0}
+.ba.ba-js .ba-pane{grid-area:1/1}
+.ba.ba-js .ba-after{clip-path:inset(0 0 0 var(--p,50%))}
+.ba.ba-js .ba-handle{display:block;position:absolute;top:0;bottom:0;left:var(--p,50%);width:3px;margin-left:-1.5px;background:var(--accent);pointer-events:none}
+.ba.ba-js .ba-handle span{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:36px;height:36px;border-radius:50%;background:var(--accent);color:var(--on-accent);display:flex;align-items:center;justify-content:center;font-weight:900}
+.ba.ba-js .ba-range{display:block;width:100%;margin-top:10px;accent-color:var(--accent)}
+@media print{.ba.ba-js .ba-stage{display:flex;gap:14px}.ba.ba-js .ba-after{clip-path:none}.ba.ba-js .ba-handle,.ba.ba-js .ba-range{display:none}}
+.gal{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin:22px 0}
+.gal-item{margin:0}
+.gal-btn{display:block;width:100%;padding:0;border:0;background:none;cursor:zoom-in;border-radius:12px;overflow:hidden}
+.gal-btn img{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;transition:transform .3s}
+.gal-btn:hover img{transform:scale(1.04)}
+.gal-item figcaption{font-size:13px;color:var(--muted);margin-top:6px}
+.gal-ph{aspect-ratio:4/3;border-radius:12px;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;color:var(--accent);font-weight:700;padding:10px;text-align:center}
+.gal-box{position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.82);display:flex;align-items:center;justify-content:center;padding:4vw;cursor:zoom-out}
+.gal-box img{max-width:100%;max-height:100%;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.rm{display:grid;grid-template-columns:repeat(var(--cols,3),minmax(0,1fr));gap:14px;margin:22px 0}
+@media(max-width:760px){.rm{grid-template-columns:1fr}}
+.rm-lane{border-top:5px solid var(--ca,var(--accent));background:var(--card);border-radius:0 0 var(--radius) var(--radius);border-left:1px solid var(--line);border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:14px 16px}
+.rm-lane.is-now{background:color-mix(in srgb,var(--ca,var(--accent)) 9%,var(--card))}
+.rm-h{display:flex;align-items:center;gap:6px;font-family:var(--font-head);font-weight:800;color:var(--ca,var(--accent-2))}
+.rm-now{margin-left:auto;font-size:11px;font-weight:800;color:var(--on-accent);background:var(--ca,var(--accent));padding:2px 10px;border-radius:999px}
+.rm-lane ul{margin:10px 0 0;padding-left:1.1em}
+.pers-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:22px 0}
+.pers{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:22px 20px;text-align:center;box-shadow:var(--shadow)}
+.pers-av{width:74px;height:74px;margin:0 auto 10px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  background:color-mix(in srgb,var(--ca,var(--accent)) 18%,var(--card));color:var(--ca,var(--accent));font-size:30px;font-weight:900;border:3px solid var(--ca,var(--accent))}
+.pers-name{font-family:var(--font-head);font-weight:800;font-size:17px}
+.pers-role{font-size:13px;color:var(--muted)}
+.pers-tags{margin-top:8px;display:flex;flex-wrap:wrap;justify-content:center;gap:6px}
+.pers-tags span{font-size:11px;padding:1px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent)}
+.pers-b{text-align:left;font-size:14px;margin-top:10px}
+.chev-row{list-style:none;padding:0;margin:22px 0;display:grid;grid-template-columns:repeat(var(--n),minmax(0,1fr));gap:4px}
+.chev{position:relative;background:var(--ca,var(--accent));color:var(--on-accent);padding:14px 26px 14px 30px;min-height:64px;display:flex;flex-direction:column;justify-content:center;
+  clip-path:polygon(0 0,calc(100% - 18px) 0,100% 50%,calc(100% - 18px) 100%,0 100%,18px 50%)}
+.chev:first-child{clip-path:polygon(0 0,calc(100% - 18px) 0,100% 50%,calc(100% - 18px) 100%,0 100%);padding-left:18px;border-radius:10px 0 0 10px}
+.chev-t{font-weight:800}
+.chev-d{font-size:12px;opacity:.9}
+@media(max-width:680px){.chev-row{grid-template-columns:1fr}.chev,.chev:first-child{clip-path:none;border-radius:10px}}
+.ctr-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:16px;margin:22px 0}
+.ctr{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:20px;text-align:center;border-top:4px solid var(--ca,var(--accent))}
+.ctr-v{font-family:var(--font-head);font-weight:900;font-size:40px;line-height:1;color:var(--ca,var(--accent));display:flex;justify-content:center;align-items:flex-end}
+.od{display:inline-block;height:1em;overflow:hidden;line-height:1}
+.od-s{display:flex;flex-direction:column;transform:translateY(calc(var(--d) * -1em))}
+.od-s span{height:1em;display:block}
+.od-c{display:inline-block;line-height:1}
+.ctr-l{margin-top:10px;font-size:13px;color:var(--muted);font-weight:700}
+.rt-list{margin:18px 0}
+.rt{display:grid;grid-template-columns:minmax(120px,30%) 1fr auto;gap:14px;align-items:center;padding:9px 0;border-bottom:1px dashed var(--line)}
+.rt-l{font-weight:700}
+.rt-v{font-weight:800;color:var(--ca,var(--accent));font-variant-numeric:tabular-nums}
+.rt-bar{height:10px;border-radius:5px;background:var(--line);overflow:hidden}
+.rt-bar i{display:block;height:100%;border-radius:5px;background:var(--ca,var(--accent));transform-origin:0 50%}
+.rt-stars{position:relative;display:inline-block;font-size:22px;letter-spacing:2px;line-height:1}
+.rt-base{color:var(--line)}
+.rt-fill{position:absolute;left:0;top:0;overflow:hidden;white-space:nowrap;color:var(--ca,var(--accent))}
+.dd{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:22px 0}
+@media(max-width:680px){.dd{grid-template-columns:1fr}}
+.dd-col{border-radius:var(--radius);padding:16px 18px;border:1px solid var(--line)}
+.dd-do{background:color-mix(in srgb,var(--ok,#16a34a) 8%,var(--card));border-top:4px solid var(--ok,#16a34a)}
+.dd-dont{background:color-mix(in srgb,var(--ng,#dc2626) 7%,var(--card));border-top:4px solid var(--ng,#dc2626)}
+.dd-h{display:flex;align-items:center;font-weight:900;margin-bottom:8px}
+.dd-do .dd-h,.dd-do li .ico{color:var(--ok,#16a34a)}
+.dd-dont .dd-h,.dd-dont li .ico{color:var(--ng,#dc2626)}
+.dd ul{list-style:none;padding:0;margin:0}
+.dd li{display:flex;gap:8px;padding:5px 0;align-items:flex-start}
+.dd li .ico{margin-top:4px}
+.voices{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px;margin:26px 0}
+.voice{margin:0;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow);border-left:5px solid var(--ca,var(--accent))}
+.voice blockquote{border:0;margin:0;padding:0;font-size:15px}
+.voice figcaption{display:flex;align-items:center;gap:10px;margin-top:12px;font-size:13px;font-weight:700;color:var(--muted)}
+.voice-av{width:32px;height:32px;border-radius:50%;background:var(--ca,var(--accent));color:var(--on-accent);display:inline-flex;align-items:center;justify-content:center;font-weight:900}
+.dt-wrap{overflow-x:auto;margin:22px 0;padding-bottom:6px}
+.dt,.dt ul{list-style:none;margin:0;padding:0;display:flex;justify-content:center}
+.dt ul{padding-top:22px;position:relative}
+.dt li{position:relative;padding:22px 8px 0;text-align:center}
+.dt li::before,.dt li::after{content:"";position:absolute;top:0;right:50%;width:50%;height:22px;border-top:2px solid var(--line)}
+.dt li::after{right:auto;left:50%;border-left:2px solid var(--line)}
+.dt li:only-child::before,.dt li:only-child::after{display:none}
+.dt li:only-child{padding-top:0}
+.dt li:first-child::before,.dt li:last-child::after{border:0}
+.dt li:last-child::before{border-right:2px solid var(--line);border-radius:0 8px 0 0}
+.dt li:first-child::after{border-radius:8px 0 0 0}
+.dt ul::before{content:"";position:absolute;top:0;left:50%;height:22px;border-left:2px solid var(--line)}
+.dt>li{padding-top:0}.dt>li::before,.dt>li::after{display:none}
+.dt-n{display:inline-block;padding:9px 14px;border-radius:12px;border:2px solid var(--accent);background:var(--card);font-weight:700;font-size:14px;max-width:220px}
+.dt-q{background:var(--accent);color:var(--on-accent)}
+.dt-leaf{border-style:dashed}
+.dt-b{display:block;font-size:11px;font-weight:900;color:var(--accent);margin-bottom:2px}
+.dt-q .dt-b{color:var(--on-accent);opacity:.85}
+.ig-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:16px;margin:22px 0}
+.ig{text-align:center;padding:18px 12px;border-radius:var(--radius);background:var(--card);border:1px solid var(--line)}
+.ig-ic{width:64px;height:64px;margin:0 auto 10px;border-radius:18px;display:flex;align-items:center;justify-content:center;color:var(--ca,var(--accent));
+  background:color-mix(in srgb,var(--ca,var(--accent)) 14%,var(--card))}
+.ig-t{font-weight:800}
+.ig-d{font-size:13px;color:var(--muted)}
+table.mx td,table.mx th{text-align:center}
+table.mx td:first-child,table.mx th:first-child{text-align:left}
+.mx-hl{background:color-mix(in srgb,var(--accent) 9%,transparent)}
+th.mx-hl{color:var(--accent)}
+.mx-y{color:var(--ok,#16a34a)}.mx-n{color:var(--muted);opacity:.7}.mx-p{color:var(--accent-2);font-weight:900}
+.raci{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:7px;font-weight:900;font-size:13px;margin:1px;color:#fff}
+.raci-r{background:var(--accent)}.raci-a{background:var(--ng,#dc2626)}.raci-c{background:var(--accent-2)}.raci-i{background:var(--muted)}
+.raci-legend{font-size:12px;color:var(--muted);margin:-8px 0 18px;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center}
+.raci-legend .raci{width:20px;height:20px;font-size:11px}
+.diff .dl{display:block}
+.diff .dl-add{background:color-mix(in srgb,var(--ok,#16a34a) 18%,transparent)}
+.diff .dl-del{background:color-mix(in srgb,var(--ng,#dc2626) 16%,transparent);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--ng,#dc2626) 50%,transparent)}
+.diff .dl-hunk{color:var(--accent);opacity:.8}
+
 """
 
 # 表示モード切替のUIと、そのブート/操作スクリプト（INDEX_PAGE と共用）
@@ -2225,6 +2698,24 @@ LAYOUT_JS = r"""(function(){
     });
     count();
   });
+  /* 前と後（つまみで境目を動かす）。JS 無し・印刷では左右に並べる */
+  each(document.querySelectorAll('.ba[data-ba]'),function(b){
+    var r=b.querySelector('.ba-range'); if(!r) return; b.classList.add('ba-js');
+    var set=function(v){ b.style.setProperty('--p',v+'%'); }; set(r.value);
+    r.addEventListener('input',function(){ set(r.value); });
+    b.__baSet=function(v){ r.value=v; set(v); };
+  });
+  /* ギャラリー: 押すと大きく表示（Esc・クリックで閉じる） */
+  each(document.querySelectorAll('.gal-btn'),function(btn){
+    btn.addEventListener('click',function(){
+      var img=btn.querySelector('img'); if(!img) return;
+      var box=document.createElement('div'); box.className='gal-box'; box.setAttribute('role','dialog'); box.setAttribute('aria-label',img.alt||'画像');
+      var big=img.cloneNode(); box.appendChild(big); document.body.appendChild(box);
+      var close=function(){ box.remove(); document.removeEventListener('keydown',key); btn.focus(); }, key=function(e){ if(e.key==='Escape') close(); };
+      box.addEventListener('click',close); document.addEventListener('keydown',key);
+      if(big.animate&&!(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches)) big.animate([{transform:'scale(.85)',opacity:0},{transform:'none',opacity:1}],{duration:220,easing:'ease-out'});
+    });
+  });
 })();"""
 
 PAGE = """<!DOCTYPE html>
@@ -2452,6 +2943,36 @@ MOTION_CSS = """
 .mo-states.mo-js .mo-state.mo-on{display:block}
 .mo-states.mo-js .mo-state-label{display:none}
 @media print{.mo-replay,.mo-bar{display:none!important}.mo-dim{opacity:1!important}}
+/* アイコンの繰り返しの動き（部品が現れた後に .ico-live を付ける） */
+@keyframes ico-spin{to{transform:rotate(360deg)}}
+@keyframes ico-swing{0%,100%{transform:rotate(-12deg)}50%{transform:rotate(12deg)}}
+@keyframes ico-beat{0%,45%,100%{transform:scale(1)}15%{transform:scale(1.16)}30%{transform:scale(1.04)}}
+@keyframes ico-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-9%)}}
+@keyframes ico-blink{0%,100%{opacity:1}50%{opacity:.4}}
+@keyframes ico-glow{0%,100%{filter:none}50%{filter:drop-shadow(0 0 4px currentColor)}}
+@keyframes ico-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.1)}}
+@keyframes ico-shake{0%,78%,100%{transform:rotate(0)}82%{transform:rotate(-12deg)}86%{transform:rotate(12deg)}90%{transform:rotate(-7deg)}94%{transform:rotate(4deg)}}
+@keyframes ico-bounce{0%,100%{transform:translateY(0)}40%{transform:translateY(-14%)}60%{transform:translateY(0)}}
+@keyframes ico-flip{0%,40%,100%{transform:scaleX(1)}70%{transform:scaleX(-1)}}
+@keyframes ico-twinkle{0%,100%{transform:scale(1) rotate(0)}50%{transform:scale(1.18) rotate(10deg)}}
+.ico.ico-live{transform-origin:50% 50%;transform-box:fill-box}
+.ico.ico-live[data-ico-anim="spin"]{animation:ico-spin 8s linear infinite}
+.ico.ico-live[data-ico-anim="swing"]{transform-origin:50% 8%;animation:ico-swing 2.4s ease-in-out infinite}
+.ico.ico-live[data-ico-anim="beat"]{animation:ico-beat 1.6s ease-in-out infinite}
+.ico.ico-live[data-ico-anim="float"]{animation:ico-float 3.2s ease-in-out infinite}
+.ico.ico-live[data-ico-anim="blink"]{animation:ico-blink 2.2s ease-in-out infinite}
+.ico.ico-live[data-ico-anim="glow"]{animation:ico-glow 2.6s ease-in-out infinite}
+.ico.ico-live[data-ico-anim="pulse"]{animation:ico-pulse 2s ease-in-out infinite}
+.ico.ico-live[data-ico-anim="shake"]{animation:ico-shake 3.2s ease-in-out infinite}
+.ico.ico-live[data-ico-anim="bounce"]{animation:ico-bounce 2s ease-in-out infinite}
+.ico.ico-live[data-ico-anim="flip"]{animation:ico-flip 3.6s ease-in-out infinite}
+.ico.ico-live[data-ico-anim="twinkle"]{animation:ico-twinkle 2.2s ease-in-out infinite}
+.mo-live .rm-now{animation:rm-pulse 1.8s ease-in-out infinite}
+@keyframes rm-pulse{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 60%,transparent)}50%{box-shadow:0 0 0 7px transparent}}
+.mo-live .hero-glow{animation:hero-drift 9s ease-in-out infinite alternate}
+@keyframes hero-drift{from{transform:translateX(-30%)}to{transform:translateX(10%)}}
+@media (prefers-reduced-motion:reduce){.ico.ico-live,.mo-live .rm-now,.mo-live .hero-glow{animation:none!important}}
+@media print{.ico.ico-live{animation:none!important}}
 """
 
 MOTION_JS = r"""(function(){
@@ -2683,26 +3204,69 @@ MOTION_JS = r"""(function(){
       tech:function(){return [{opacity:0,clipPath:'inset(0 100% 0 0)'},{opacity:1,clipPath:'inset(0 0% 0 0)'}];}};
     var fr=FR[S]||FR.gentle, GAP={dynamic:70,cinematic:140,playful:90}[S]||90, DUR=({cinematic:800,dynamic:560}[S]||520)*T;
     var GROUPS=[['.card-grid','.doc-card'],['.stat-row','.stat'],['.timeline','.tl-item'],['.chips','.chip'],['.ck-list','li'],['.pc-grid','.pc-col'],
-                ['dl.defs','.def'],['.accordion','.acc-item'],['.tabs','.tab-list'],['table','tbody > tr'],['.callout',null],['.tree','ul > li']];
+                ['dl.defs','.def'],['.accordion','.acc-item'],['.tabs','.tab-list'],['table','tbody > tr'],['.callout',null],['.tree','ul > li'],
+                ['.hero',null],['.pq',null],['.price-grid','.price'],['.stepper',':scope > ol > .st'],['.kanban','.kb-col'],['.faq','.faq-item'],['.ba',null],
+                ['.gal','.gal-item'],['.rm','.rm-lane'],['.pers-grid','.pers'],['.chev-row','.chev'],['.ctr-row','.ctr'],['.rt-list','.rt'],['.dd','.dd-col'],
+                ['.voices','.voice'],['.dt-wrap',null],['.ig-grid','.ig'],['figure.diff',null]];
+    var OVER='cubic-bezier(.34,1.56,.64,1)', ACC=cssv('--accent');
+    function add(st,x,frames,dur,delay,ease){ var a=x.animate(frames,{duration:dur*T,delay:delay*T,easing:ease||'cubic-bezier(.2,.7,.2,1)',fill:'backwards'}); a.pause(); st.anims.push(a); return a; }
+    /* 部品ごとの動き（共通の「項目が順に現れる」に重ねる） */
+    var SPECIAL={
+      '.hero':function(c,st){ var h=c.querySelector('.hero-h'), gl=c.querySelector('.hero-glow');
+        if(h) add(st,h,[{clipPath:'inset(0 100% 0 0)'},{clipPath:'inset(0 0% 0 0)'}],900,200,'cubic-bezier(.6,0,.2,1)');
+        each(c.querySelectorAll('.hero-ic,.hero-sub,.hero-chips'),function(x,i){ add(st,x,[{opacity:0,translate:'0 14px'},{opacity:1,translate:'0 0'}],600,700+i*160); });
+        if(gl) add(st,gl,[{transform:'translateX(-70%)',opacity:0},{transform:'translateX(-30%)',opacity:1}],1800,0,'ease-out'); },
+      '.pq':function(c,st){ var m=c.querySelector('.pq-mark'), ws=c.querySelectorAll('.w'); if(m) add(st,m,[{opacity:0,transform:'translateY(-40px) rotate(-25deg)'},{opacity:.8,transform:'none'}],650,0,OVER);
+        each(ws,function(w,i){ add(st,w,[{opacity:0,filter:'blur(4px)'},{opacity:1,filter:'blur(0px)'}],450,300+i*150); });
+        var f=c.querySelector('figcaption'); if(f) add(st,f,[{opacity:0,translate:'16px 0'},{opacity:1,translate:'0 0'}],500,450+ws.length*150); },
+      '.price-grid':function(c,st){ each(c.querySelectorAll('.price.is-rec'),function(p){ add(st,p,[{boxShadow:'0 0 0 0 transparent'},{boxShadow:'0 16px 44px '+ACC,offset:.5},{boxShadow:'0 6px 18px transparent'}],1600,900);
+        var bd=p.querySelector('.price-badge'); if(bd) add(st,bd,[{transform:'translateX(-50%) scale(0)'},{transform:'translateX(-50%) scale(1)'}],500,800,OVER); }); },
+      '.stepper':function(c,st){ var n=c.querySelectorAll('.st').length, L=c.querySelector('.st-line i'); if(L) add(st,L,[{transform:'scaleX(0)'},{transform:'scaleX(1)'}],n*380,200,'linear');
+        each(c.querySelectorAll('.st-dot'),function(d,i){ add(st,d,[{transform:'scale(0)'},{transform:'scale(1.22)',offset:.7},{transform:'scale(1)'}],450,200+i*380); }); },
+      '.kanban':function(c,st){ each(c.querySelectorAll('.kb-col'),function(col,i){ each(col.querySelectorAll('.kb-card'),function(cd,j){ add(st,cd,[{opacity:0,transform:'translateY(-26px) rotate(-3deg)'},{opacity:1,transform:'none'}],480,350+i*160+j*150,OVER); }); }); },
+      '.ba':function(c,st){ st.after.push(function(){ if(!c.__baSet) return; var t0=performance.now(), D=2200*T;
+        (function step(now){ var k=Math.min(1,(now-t0)/D), v=k<.45?100*(k/.45):k<.8?100-70*((k-.45)/.35):30+20*((k-.8)/.2); c.__baSet(Math.round(v)); if(k<1) requestAnimationFrame(step); })(t0); }); },
+      '.gal':function(c,st){ each(c.querySelectorAll('.gal-btn img,.gal-ph'),function(im,i){ add(st,im,[{transform:'scale(1.3)',filter:'blur(8px)'},{transform:'scale(1)',filter:'blur(0px)'}],800,i*GAP); }); },
+      '.pers-grid':function(c,st){ each(c.querySelectorAll('.pers-av'),function(av,i){ add(st,av,[{transform:'scale(0) rotate(-30deg)'},{transform:'scale(1.15) rotate(6deg)',offset:.6},{transform:'none'}],650,120+i*GAP,'ease-out'); }); },
+      '.ctr-row':function(c,st){ each(c.querySelectorAll('.od-s'),function(s,i){ var d=parseInt(s.parentElement.style.getPropertyValue('--d'),10)||0;
+        add(st,s,[{transform:'translateY(0)'},{transform:'translateY(-'+d+'em)'}],1100+i*120,150,'cubic-bezier(.15,.7,.25,1)'); }); },
+      '.rt-list':function(c,st){ each(c.querySelectorAll('.rt-bar i'),function(b,i){ add(st,b,[{transform:'scaleX(0)'},{transform:'scaleX(1)'}],900,200+i*GAP); });
+        each(c.querySelectorAll('.rt-fill'),function(f,i){ add(st,f,[{width:'0%'},{width:f.style.width}],1000,200+i*GAP,'steps(10,end)'); }); },
+      '.dd':function(c,st){ each(c.querySelectorAll('.dd-col'),function(col,i){ add(st,col,[{translate:(i?'40px':'-40px')+' 0'},{translate:'0 0'}],600,0);
+        each(col.querySelectorAll('li'),function(li,j){ add(st,li,[{opacity:0,translate:'0 8px'},{opacity:1,translate:'0 0'}],400,300+j*120+i*80); }); }); },
+      '.voices':function(c,st){ var vs=[].slice.call(c.querySelectorAll('.voice')), r0=vs.length?vs[0].getBoundingClientRect():null;
+        vs.forEach(function(v,i){ var r=v.getBoundingClientRect(), dx=r0?r0.left-r.left:0, dy=r0?r0.top-r.top:0, rot=getComputedStyle(v).getPropertyValue('--r')||'0deg';
+          add(st,v,[{transform:'translate('+dx+'px,'+(dy+10)+'px) rotate('+rot+')'},{transform:'translate('+dx+'px,'+dy+'px) rotate('+rot+')',offset:.35},{transform:'none'}],1100,200+i*60,'cubic-bezier(.3,.8,.3,1)'); }); },
+      '.dt-wrap':function(c,st){ each(c.querySelectorAll('.dt-n'),function(nd,i){ var dep=+nd.getAttribute('data-depth')||0; add(st,nd,[{opacity:0,transform:'translateY(-12px) scale(.9)'},{opacity:1,transform:'none'}],450,200+dep*380+(i%4)*60,OVER); }); },
+      '.ig-grid':function(c,st){ each(c.querySelectorAll('.ig-ic'),function(ic,i){ add(st,ic,[{transform:'scale(0) rotate(-20deg)',borderRadius:'50%'},{transform:'scale(1.12)',offset:.6},{transform:'none',borderRadius:'18px'}],650,i*GAP,'ease-out'); }); },
+      'figure.diff':function(c,st){ each(c.querySelectorAll('.dl-add,.dl-del'),function(l,i){ var bg=getComputedStyle(l).backgroundColor;
+        add(st,l,[{backgroundColor:'transparent',translate:'-8px 0'},{backgroundColor:bg,translate:'0 0'}],420,300+i*110); }); },
+      'table':function(c,st){ each(c.querySelectorAll('.raci'),function(r,i){ add(st,r,[{transform:'scale(0)'},{transform:'scale(1)'}],380,300+i*45,OVER); }); }
+    };
     var all=[];
     GROUPS.forEach(function(g){ each(content.querySelectorAll(g[0]),function(c){
-      if(c.closest('.mo-block')||c.closest('figure')) return;
-      var items=g[1]?[].slice.call(c.querySelectorAll(g[1])).filter(function(x){ return g[0]==='.tree'||x.parentElement===c||g[0]==='table'; }):[c];
+      var par=c.parentElement; if(c.closest('.mo-block')||(par&&par.closest('figure'))||(g[0]!=='figure.diff'&&c.tagName==='FIGURE'&&g[0]!=='.pq')) return;
+      var items=g[1]?[].slice.call(c.querySelectorAll(g[1])).filter(function(x){ return g[0]==='.tree'||g[1].indexOf(':scope')===0||x.parentElement===c||g[0]==='table'; }):[c];
       if(g[0]==='.tree') items=items.slice(0,40);
       if(g[0]==='table'&&items.length>30) return;
       if(!items.length) return;
       c.classList.add('mo-block');
-      var st={c:c,anims:[],drv:[]};
-      items.forEach(function(x,i){ var a=x.animate(fr(i),{duration:DUR,delay:i*GAP*T,easing:'cubic-bezier(.2,.7,.2,1)',fill:'backwards'}); a.pause(); st.anims.push(a); });
+      var st={c:c,anims:[],drv:[],after:[]};
+      items.forEach(function(x,i){ var a=x.animate(fr(i),{duration:DUR,delay:i*GAP*T,easing:'cubic-bezier(.2,.7,.2,1)',fill:'backwards'}); a.pause(); st.anims.push(a);
+        /* 中のアイコンは線が描かれ、終わったら繰り返しの動き */
+        each(x.querySelectorAll('svg.ico path'),function(pa,j){ var L=0; try{L=pa.getTotalLength();}catch(e){} if(!L) return; var dd=L+' '+L;
+          var b=pa.animate([{strokeDasharray:dd,strokeDashoffset:L},{strokeDasharray:dd,strokeDashoffset:0}],{duration:650*T,delay:i*GAP*T+160+j*90*T,easing:'ease-in-out',fill:'backwards'}); b.pause(); st.anims.push(b); }); });
       /* 数字は数え上げ、チェックリストの棒・表の棒は伸びる */
       each(c.querySelectorAll('.stat .big'),function(b,i){ var orig=b.textContent, m=orig.match(/-?[\d,]*\.?\d+/); if(!m||b.children.length) return;
         var to=parseFloat(m[0].replace(/,/g,'')), dec=(m[0].split('.')[1]||'').length, comma=m[0].indexOf(',')>=0, pre=orig.slice(0,m.index), post=orig.slice(m.index+m[0].length);
         st.drv.push({el:b,orig:orig,delay:i*GAP*T+150,fmt:function(k){ var s=(to*k).toFixed(dec); if(comma){ var p=s.split('.'); p[0]=p[0].replace(/\B(?=(\d{3})+(?!\d))/g,','); s=p.join('.'); } return pre+s+post; }}); });
       each(c.querySelectorAll('.ck-bar i, .nbar'),function(b,i){ var a=b.animate([{scale:'0 1'},{scale:'1 1'}],{duration:900*T,delay:250+i*40*T,easing:'cubic-bezier(.2,.7,.2,1)',fill:'backwards'});
         b.style.transformOrigin='0 50%'; a.pause(); st.anims.push(a); });
+      if(SPECIAL[g[0]]) try{ SPECIAL[g[0]](c,st); }catch(e){}
       all.push(st);
     }); });
-    function run(st){ st.anims.forEach(function(a){ a.play(); });
+    function run(st){ st.anims.forEach(function(a){ a.play(); }); st.after.forEach(function(f){ f(); });
+      Promise.all(st.anims.map(function(a){ return a.finished; })).then(function(){ each(st.c.querySelectorAll('svg.ico'),function(s){ s.classList.add('ico-live'); }); st.c.classList.add('mo-live'); },function(){});
       st.drv.forEach(function(d){ var t0=performance.now()+d.delay, D=1100*T; d.el.textContent=d.fmt(0);
         (function step(now){ var k=Math.max(0,Math.min(1,(now-t0)/D)); d.el.textContent=k>=1?d.orig:d.fmt(1-Math.pow(1-k,3)); if(k<1) requestAnimationFrame(step); })(performance.now()); }); }
     var bio=new IntersectionObserver(function(en){ en.forEach(function(e){ if(!e.isIntersecting) return; var st=e.target.__moB; if(st&&!st.done){ st.done=true; run(st); } bio.unobserve(e.target); }); },{threshold:.15});
@@ -2834,6 +3398,24 @@ MOTION_JS = r"""(function(){
       case 'glitch': frames=[{opacity:0,translate:'-12px 0'},{opacity:o,translate:'8px 0',offset:.2},{translate:'-6px 2px',offset:.35},{opacity:.3,offset:.45},{opacity:o,translate:'3px -1px',offset:.6},{opacity:o,translate:'0 0'}];
         dur*=1.2; break;
       case 'flicker': frames=[{opacity:0},{opacity:o,offset:.15},{opacity:.1,offset:.25},{opacity:o,offset:.4},{opacity:.3,offset:.5},{opacity:o,offset:.65},{opacity:o}]; dur*=1.6; break;
+      case 'mask': k0={opacity:o,clipPath:'inset(0 50% 0 50%)'}; k1={opacity:o,clipPath:'inset(0 0% 0 0%)'}; dur=BASE.draw*T; break;
+      case 'wipe-up': k0={opacity:o,clipPath:'inset(100% 0 0 0)'}; k1={opacity:o,clipPath:'inset(0% 0 0 0)'}; dur=BASE.draw*T; break;
+      case 'wipe-down': k0={opacity:o,clipPath:'inset(0 0 100% 0)'}; k1={opacity:o,clipPath:'inset(0 0 0% 0)'}; dur=BASE.draw*T; break;
+      case 'wipe-left': k0={opacity:o,clipPath:'inset(0 0 0 100%)'}; k1={opacity:o,clipPath:'inset(0 0 0 0%)'}; dur=BASE.draw*T; break;
+      case 'spring': back=withBox(st,x,'center'); frames=[{opacity:0,scale:'0'},{opacity:o,scale:'1.3',offset:.3},{scale:'.85',offset:.5},{scale:'1.08',offset:.68},{scale:'.97',offset:.84},{opacity:o,scale:'1'}]; dur*=2; break;
+      case 'stamp': back=withBox(st,x,'center'); frames=[{opacity:0,scale:'2.2',rotate:'-8deg'},{opacity:o,scale:'.94',rotate:'0deg',offset:.55},{opacity:o,scale:'1',rotate:'0deg'}]; dur*=.9; break;
+      case 'unfold': back=withBox(st,x,'50% 0%'); frames=[{opacity:o,scale:'1 0'},{opacity:o,scale:'1 1.08',offset:.7},{opacity:o,scale:'1 1'}]; dur*=1.3; break;
+      case 'twist': back=withBox(st,x,'center'); k0.rotate='90deg'; k0.scale='.4'; k1.rotate='0deg'; k1.scale='1'; k0.easing=OVER; dur*=1.3; break;
+      case 'skew': k0.translate='-40px 0'; k0.transform='skewX(-20deg)'; k1.translate='0 0'; k1.transform='skewX(0deg)'; break;
+      case 'pop-up': back=withBox(st,x,'50% 100%'); k0.translate='0 40px'; k0.scale='.7'; k1.translate='0 0'; k1.scale='1'; k0.easing=OVER; dur*=1.2; break;
+      case 'zoom-blur': back=withBox(st,x,'center'); k0.scale='1.6'; k0.filter='blur(10px)'; k1.scale='1'; k1.filter='blur(0px)'; dur*=1.3; break;
+      case 'rise-rotate': back=withBox(st,x,'center'); k0.translate='0 30px'; k0.rotate='-8deg'; k1.translate='0 0'; k1.rotate='0deg'; break;
+      case 'tilt-in': back=withBox(st,x,'0% 100%'); k0.rotate='-12deg'; k1.rotate='0deg'; k0.easing=OVER; dur*=1.2; break;
+      case 'float-in': k0.translate='-30px 20px'; k0.filter='blur(3px)'; k1.translate='0 0'; k1.filter='blur(0px)'; dur*=1.5; break;
+      case 'cascade':
+        var ks=[].filter.call(x.children,function(k){return GEOM[tag(k)]||tag(k)==='g';});
+        if(ks.length){ ks.forEach(function(k,i){ build(st,k,'drop',delay+i*90*T); }); return; }
+        k0.translate='0 -40px'; k1.translate='0 0'; k0.easing=OVER; break;
       case 'draw':
         var paths=t0==='g'?[].slice.call(x.querySelectorAll('path,line,polyline')):[x];
         if(t0==='g') each(x.querySelectorAll('*'),function(y){ if(GEOM[tag(y)]&&!strokeOnly(y)&&!y.closest('.mo-token')) build(st,y,'fade',delay+BASE.draw*T*0.55); });
@@ -3727,6 +4309,7 @@ def main():
         print("  data-step=\"N\"  現れる順番（同じ N は同時）")
         print("  data-effect=  現れ方: draw rise fade slide pop grow wipe / zoom flip flip-y spin roll swing drop bounce elastic jelly")
         print("                slide-left slide-right slide-up slide-down blur iris blinds glitch flicker outline（輪郭を描いてから塗る）")
+        print("                mask wipe-up wipe-down wipe-left spring stamp unfold twist skew pop-up zoom-blur rise-rotate tilt-in float-in cascade（<g> の子が順に落ちる）")
         print("                type letters scramble（文字） none")
         print("  data-attn=\"shake|wiggle|jump|pop|tada|heartbeat|flash|glow|ring|pulse\"  現れた後に 1 回強調（登場がすべて終わってから段の順）")
         print("  data-burst[=\"粒の数\"]  現れるときに粒が弾ける（達成・結果の強調に 1 図 1 か所）")

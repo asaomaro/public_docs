@@ -14,6 +14,7 @@ import sys, os, re, json, html, base64, argparse, mimetypes
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import sound  # noqa: E402  曲・効果音の定義（同じ場所の sound.py）
+import icons  # noqa: E402  線で描くアイコン集（同じ場所の icons.py。md-to-doc と共有）
 
 # ──────────────────────────────────────────────────────────────────────────
 # 映像の配色テーマ（canvas は映像の中、chrome はプレイヤーの操作部）
@@ -127,6 +128,33 @@ SCENE_TYPES = {
     "split": (["left", "right"], "左に文章・右に部品（右は type 付きの部品を縮小して置く）", '{"type":"split","heading":"…","left":{"title":"見出し","text":"説明","points":["要点"]},"right":{"type":"stats","items":[{"value":"48","label":"ツール"}]}}'),
     "beforeafter": (["before", "after"], "前後比較（境目が左から右へ動き、後の姿が現れる）", '{"type":"beforeafter","heading":"導入の前と後","before":{"label":"Before","title":"手作業","points":["毎朝 30 分"],"value":"30 分"},"after":{"label":"After","title":"自動","points":["ボタン 1 つ"],"value":"1 分"}}'),
     "dom": ([], "HTML・SVG・CSS で自由に描く（html / css / update。src・cssSrc・updateSrc でファイルから）。時刻は CSS 変数 --lt（ms）と --p（0..1）", '{"type":"dom","src":"scenes/intro.html","cssSrc":"scenes/intro.css","updateSrc":"scenes/intro.js","duration":8}'),
+    "area": (["labels", "series"], "面グラフ（左から塗られる。stacked で積み上げ）", '{"type":"area","heading":"利用者の推移","labels":["1月","2月","3月","4月"],"series":[{"name":"新規","values":[120,180,260,340]}],"unit":"人"}'),
+    "stack": (["labels", "series"], "積み上げ棒（段ごとに伸び、合計が数え上がる）", '{"type":"stack","labels":["Q1","Q2","Q3"],"series":[{"name":"国内","values":[30,40,55]},{"name":"海外","values":[10,18,30]}],"unit":"億"}'),
+    "scatter": (["points"], "散布図（点が弾み、highlight で 1 点を強調、trend で傾向の線）", '{"type":"scatter","xLabel":"工数","yLabel":"効果","points":[{"x":2,"y":8,"label":"A"},{"x":6,"y":5,"label":"B"}],"highlight":0,"trend":true}'),
+    "heatmap": (["rows", "cols", "values"], "ヒートマップ（斜めの波で塗られ、最大のマスを強調）", '{"type":"heatmap","rows":["月","火","水"],"cols":["9時","12時","18時"],"values":[[3,8,5],[2,9,6],[4,7,9]]}'),
+    "gauge": (["value"], "メーター（針が振れて止まる。zones で色の帯）", '{"type":"gauge","value":82,"max":100,"unit":"点","label":"満足度","zones":[{"from":0,"to":60,"tone":"bad"},{"from":80,"to":100,"tone":"good"}]}'),
+    "rings": (["items"], "進捗の輪（並べて塗られ、数え上がる）", '{"type":"rings","items":[{"label":"設計","value":100},{"label":"実装","value":70},{"label":"試験","value":35}]}'),
+    "treemap": (["items"], "ツリーマップ（大きい順に面が現れる）", '{"type":"treemap","items":[{"label":"国内","value":52},{"label":"北米","value":28},{"label":"欧州","value":14}],"unit":"%"}'),
+    "radar": (["axes", "series"], "レーダー（網が張られ、多角形が中心から広がる）", '{"type":"radar","axes":["速さ","安さ","安全","使いやすさ","拡張"],"series":[{"name":"新","values":[9,7,8,9,8]},{"name":"旧","values":[5,6,7,4,5]}],"max":10}'),
+    "phone": ([], "スマホの画面（項目が現れ、screens で画面が横に送られる。notify・tap・points）", '{"type":"phone","screens":[{"title":"今日","items":[{"title":"会議","sub":"10:00","icon":"calendar"},{"title":"レビュー","badge":"3"}]}],"notify":{"at":0.6,"title":"承認待ち","text":"impl が待っています"},"points":["通知で気づける","その場で承認"]}'),
+    "dashboard": ([], "ダッシュボードが組み上がる（kpis・bars・rows）", '{"type":"dashboard","title":"運用","kpis":[{"label":"処理件数","value":"1,240","delta":"+12%"},{"label":"平均時間","value":"3 分"}],"bars":[3,5,4,7,8,11],"rows":["impl 完了",{"text":"review 待ち","state":"blocked"}]}'),
+    "form": (["fields"], "フォームに順に入力して送信する（カーソル・打鍵・選択・チェック・完了）", '{"type":"form","title":"申し込み","fields":[{"label":"名前","value":"山田 太郎"},{"label":"プラン","type":"select","value":"Pro","options":["Free","Pro"]},{"label":"規約","type":"check","value":"同意する"}],"submit":"送信","done":"受け付けました"}'),
+    "notifs": (["items"], "通知が上から積み重なる（text で左に一言）", '{"type":"notifs","text":"AI からの連絡を 1 か所に","items":[{"app":"Claude","title":"impl が完了","icon":"check"},{"app":"Codex","title":"承認待ち","icon":"bell"}]}'),
+    "scroll": (["sections"], "ページが節ごとにスクロールする（focus の節を強調）", '{"type":"scroll","url":"docs.example.com","sections":[{"heading":"はじめに","text":"…"},{"heading":"設定","text":"…","image":"画面"}],"focus":1}'),
+    "drag": (["columns"], "カンバンのカードをドラッグで移す（moves: [{card, to}]）", '{"type":"drag","columns":[{"title":"未着手","cards":["設計"]},{"title":"作業中","cards":[]},{"title":"完了","cards":[]}],"moves":[{"card":"設計","to":"作業中"}]}'),
+    "network": (["nodes", "edges"], "網の目のつながり（自動で配置し、線の上を印が流れる）", '{"type":"network","nodes":[{"id":"a","label":"操舵室"},{"id":"b","label":"Claude"},{"id":"c","label":"Codex"}],"edges":[["a","b"],["a","c"]]}'),
+    "tree": (["root"], "木（上の段から枝が伸びる）", '{"type":"tree","root":{"label":"製品","children":[{"label":"Web","children":["画面","API"]},{"label":"CLI"}]}}'),
+    "states": (["states"], "状態の遷移（丸と矢印。path の順に印が移り、今の状態が光る）", '{"type":"states","states":[{"id":"idle","label":"待機"},{"id":"work","label":"作業"},{"id":"done","label":"完了"}],"transitions":[{"from":"idle","to":"work","label":"依頼"},{"from":"work","to":"done"}],"path":["idle","work","done"]}'),
+    "map": (["pins"], "地図とピン（街の地図にピンが落ち、routes で経路）。x・y は 0..1", '{"type":"map","pins":[{"x":0.2,"y":0.6,"label":"東京"},{"x":0.75,"y":0.35,"label":"大阪"}],"routes":[[0,1]]}'),
+    "layers": (["items"], "層の構成（下から積み上がり、途中で分かれて見せる）", '{"type":"layers","items":[{"label":"インフラ","sub":"クラウド"},{"label":"サーバ"},{"label":"画面"}]}'),
+    "pipeline": (["stages"], "流れ作業（段を印が流れ続け、段ごとの数が増える）", '{"type":"pipeline","stages":[{"label":"受付","icon":"mail"},"設計","実装",{"label":"完了","icon":"check"}],"label":"依頼が次々に流れる"}'),
+    "layout": (["slots"], "場面の割り付けの型（template: trio 3 つ並び・inset 大見出し＋小窓・collage 傾いた写真・fullbleed 全面の写真＋文字・focus 1 つを大きく・split2 左右の比較）。slots は部品の台本の配列（caption で下に一言）",
+               '{"type":"layout","template":"trio","title":"3 つの画面","slots":[{"type":"gauge","value":82,"caption":"満足度"},{"type":"rings","items":[{"label":"達成","value":70}],"caption":"進み"},{"type":"stack","labels":["A","B"],"series":[{"name":"x","values":[3,5]}],"caption":"内訳"}]}'),
+    "wordcloud": (["words"], "語の雲（重い語ほど大きく中央に。順に弾んで現れ、ゆっくり漂う）", '{"type":"wordcloud","words":[{"text":"並行","weight":5},{"text":"承認","weight":4},"通知","SSH","Windows"]}'),
+    "bigtype": (["big"], "画面いっぱいの文字が背景で流れ、前に言葉が出る（text・sub）", '{"type":"bigtype","big":"PARALLEL","text":"並べて、任せる。","sub":"Sodashitsu"}'),
+    "talk": ([], "掛け合い（ゆっくり解説など）。lines: [{who, text, face, emote, voice, shake, pause}] と、中央の黒板 board（部品の台本・{type:image,src}・文字列）、背景 bg。登場人物は台本の cast",
+             '{"type":"talk","board":{"type":"bullets","heading":"3 つの特徴","items":["速い","安い","うまい"]},"lines":[{"who":"a","text":"今日は〇〇を解説するよ。"},{"who":"b","text":"よろしくなのだ！","face":"smile","emote":"!"}]}'),
+    "icons": (["items"], "アイコンの格子（線で描かれ、現れた後も動く）。items: {icon, label, text}", '{"type":"icons","heading":"できること","items":[{"icon":"rocket","label":"速い","text":"3 分で"},{"icon":"shield","label":"安全"},{"icon":"users","label":"みんなで"}]}'),
     "impact": (["text"], "強い一語を叩きつける（集中線・破片・画面の揺れ）。sub で下に一行", '{"type":"impact","text":"10 倍速い","sub":"同じ作業が 3 分で"}'),
     "countdown": ([], "3・2・1 の数え下ろしと、最後に label を叩きつける（from で始まりの数）", '{"type":"countdown","from":3,"label":"公開！","sub":"10 月 1 日"}'),
     "orbit": (["items"], "中心の周りを項目が回る（関係・生態系）。center は中心の名前", '{"type":"orbit","heading":"つながる道具","center":{"label":"Sodashitsu","sub":"操舵室"},"items":[{"label":"Claude","icon":"🤖"},"Codex","Gemini","herdr"]}'),
@@ -145,6 +173,7 @@ OVERLAY_KINDS = {
     "badge": (["text"], "弾んで出る札", '{"kind":"badge","text":"NEW","x":1500,"y":260,"at":0.2}'),
     "cursor": (["path"], "マウスの矢印が点を順にたどる。click はクリックする点の番号", '{"kind":"cursor","path":[[500,800],[900,420],[1200,420]],"click":[1],"at":0.2,"until":0.8}'),
     "notify": (["text"], "OS 風の通知（右上。pos:br で右下寄り）", '{"kind":"notify","app":"Sodashitsu","text":"impl が完了しました","at":0.3,"until":0.7}'),
+    "icon": (["name"], "アイコンを線で描き、動かす（x, y, size, color, anim）", '{"kind":"icon","name":"bell","x":1500,"y":300,"size":120,"at":0.3}'),
     "burst": ([], "破片が弾ける（x, y。n で数・r で広がり）", '{"kind":"burst","x":1300,"y":420,"at":0.4}'),
     "ripple": ([], "波紋がくり返し広がる（x, y, r）", '{"kind":"ripple","x":900,"y":500,"r":180,"at":0.3,"until":0.8}'),
     "confetti": ([], "紙吹雪が降る（祝い・達成）", '{"kind":"confetti","at":0.5}'),
@@ -158,15 +187,23 @@ TRANSITIONS = {
     "iris": "中央から円が広がる", "blinds": "横の帯が開く", "split": "前の場面が上下に割れる", "whip": "高速で横に流れる（ぶれと線）",
     "spin": "回って縮み、回って現れる", "flash": "白く光って切り替わる", "glitch": "映像が乱れて切り替わる", "pixel": "モザイクになって切り替わる",
     "squeeze": "箱が回るように", "zoom-through": "前の場面に突っ込んで抜ける",
+    "diagonal": "斜めの境目が流れる", "diamond": "菱形が広がる", "spot": "一点（origin）から円が広がる", "cube": "縦に箱が回る",
+    "page": "ページをめくる", "liquid": "波打つ境目が流れる", "dive": "前の場面の一点（focus）へ飛び込む", "tiles": "タイルが斜めの順に開く",
+    "stripes": "縦の縞が上下から開く", "clock": "時計回りに開く",
 }
 TEXT_ANIMS = {
     "rise": "下から浮かぶ（既定）", "reveal": "左から現れ、カーソルが走る（題名の既定）", "pop": "弾んで出る", "slam": "大きく叩きつけ、画面が揺れる",
     "stretch": "横に伸びた形から縮む（映画の題名）", "blur": "ぼけから合う", "glitch": "色ずれしながら定まる", "neon": "ネオンが点く",
     "type": "1 文字ずつ打つ", "scramble": "でたらめな文字から定まる", "wave": "1 文字ずつ波打って出る", "letters": "1 文字ずつ落ちてくる", "split": "散らばった文字が集まる",
+    "mask": "下から覗くように現れる", "marker": "蛍光ペンが走ってから文字", "drop": "上から落ちて弾む", "zoom": "大きな所から縮んで定まる",
+    "outline": "輪郭だけの文字から塗られる", "roll": "1 文字ずつ下から回り込む", "spin": "1 文字ずつ回って現れる", "shadow": "長い影が伸びる",
 }
+EASES = {"smooth": "なめらか（既定）", "spring": "ばねのように行き過ぎて戻る", "snappy": "素早く決まる", "bouncy": "跳ねて止まる"}
+ORDERS = {"normal": "前から（既定）", "reverse": "後ろから", "center": "中央から外へ", "edges": "両端から中央へ", "random": "ばらばら（毎回同じ順）"}
 FX = {
     "particles": "漂う粒", "stars": "瞬く星", "bokeh": "ぼけた光の玉", "rays": "差し込む光の筋", "speedlines": "中心へ向かう集中線", "grid": "奥へ流れる格子の床",
-    "waves": "下で揺れる波線", "scanlines": "走査線（上）", "confetti": "紙吹雪（上）", "vignette": "周りを暗く（上）", "sweep": "斜めの光が通る（上）", "noise": "フィルムの粒（上）",
+    "waves": "下で揺れる波線", "gradient": "動くグラデーション", "aurora": "流れるオーロラ", "plexus": "点と線の網", "contour": "等高線",
+    "shapes": "漂う図形", "blobs": "ゆらぐ柔らかな塊", "scanlines": "走査線（上）", "confetti": "紙吹雪（上）", "vignette": "周りを暗く（上）", "sweep": "斜めの光が通る（上）", "noise": "フィルムの粒（上）",
 }
 CAMERA_PRESETS = {
     "push-in": "ゆっくり寄る", "pull-out": "寄った所から引く", "pan-left": "左へ流す", "pan-right": "右へ流す", "rise": "上へ上がる",
@@ -222,10 +259,53 @@ API_DOC = """custom の本体は (ctx, lt, d, H, s)。座標は 1920×1080、lt 
 手本は recipes.md。"""
 
 
-MIN_SEC = {"impact": 3.5, "countdown": 4, "orbit": 7, "logo": 6.5, "marquee": 5, "title": 8, "statement": 4.5, "bullets": 2.5, "flow": 3, "steps": 2, "terminal": 2.5, "stats": 4.5, "bars": 3.5,
+MIN_SEC = {"talk": 2, "layout": 7, "wordcloud": 5, "bigtype": 4.5, "area": 6, "stack": 6, "scatter": 6, "heatmap": 6, "gauge": 5, "rings": 5, "treemap": 6, "radar": 6, "phone": 6, "dashboard": 7,
+           "form": 6, "notifs": 4, "scroll": 6, "drag": 5, "network": 6, "tree": 5, "states": 6, "map": 6, "layers": 6, "pipeline": 7, "icons": 3, "impact": 3.5, "countdown": 4, "orbit": 7, "logo": 6.5, "marquee": 5, "title": 8, "statement": 4.5, "bullets": 2.5, "flow": 3, "steps": 2, "terminal": 2.5, "stats": 4.5, "bars": 3.5,
            "compare": 3, "code": 2.5, "window": 7, "image": 5, "end": 4, "custom": 5,
            "cards": 3, "timeline": 3, "chat": 2, "line": 6, "donut": 6, "table": 3, "quote": 6, "kinetic": 3, "split": 6,
            "beforeafter": 7, "dom": 5}
+
+
+def wav_info(path, step_ms=50):
+    """WAV の長さ（ms）と、step_ms ごとの音量（0..1。口パクに使う）。PCM 8/16/32bit のみ。"""
+    import wave, array
+    with wave.open(path, "rb") as w:
+        n, sr, ch, sw = w.getnframes(), w.getframerate(), w.getnchannels(), w.getsampwidth()
+        raw = w.readframes(n)
+    dur = n * 1000.0 / sr
+    if sw == 2:
+        a = array.array("h", raw); full = 32768.0
+    elif sw == 4:
+        a = array.array("i", raw); full = 2147483648.0
+    else:
+        a = array.array("B", raw); a = array.array("h", [(x - 128) * 256 for x in a]); full = 32768.0
+    if sys.byteorder == "big" and sw > 1:
+        a.byteswap()
+    per = max(1, int(sr * step_ms / 1000)) * ch
+    env = []
+    for i in range(0, len(a), per):
+        seg = a[i:i + per]
+        if not seg:
+            break
+        rms = (sum(x * x for x in seg[::4]) / max(1, len(seg[::4]))) ** .5 / full
+        env.append(rms)
+    mx = max(env) if env else 1
+    return dur, [round(v / mx, 2) if mx else 0 for v in env]
+
+
+def _embed(path, base, default="image/png"):
+    if not path or re.match(r"^(data:|https?:)", path):
+        return path, None
+    p = os.path.join(base, path)
+    if not os.path.isfile(p):
+        return None, p
+    mime = mimetypes.guess_type(p)[0] or default
+    return "data:%s;base64,%s" % (mime, base64.b64encode(open(p, "rb").read()).decode("ascii")), None
+
+
+def is_dialogue(s):
+    """掛け合いの場面か（lines に話し手 who 付きのせりふがある。end・statement の lines とは別）。"""
+    return isinstance(s.get("lines"), list) and any(isinstance(ln, dict) and ln.get("who") for ln in s["lines"])
 
 
 def narration_text(s):
@@ -279,6 +359,20 @@ def min_seconds(s):
         base += 0.3 * len(s.get("rows", [])) + 1.8 * len(s.get("highlight", []))
     elif t == "kinetic":
         base += 0.35 * len(re.findall(r"\*\*[^*]+\*\*|[^\s*]+", s.get("text", "")))
+    elif t == "form":
+        base += 1.8 * len(s.get("fields", []))
+    elif t == "drag":
+        base += 2.2 * len(s.get("moves", [s.get("move")] if s.get("move") else []))
+    elif t in ("notifs", "rings", "treemap", "scatter"):
+        base += 0.6 * len(s.get("items", s.get("points", [])))
+    elif t == "states":
+        base += 0.5 * len(s.get("states", [])) + 1.3 * len(s.get("path", []))
+    elif t == "phone":
+        base += 2.5 * (len(s.get("screens", [])) or 1)
+    elif t == "scroll":
+        base += 1.4 * len(s.get("sections", []))
+    elif t == "icons":
+        base += 0.7 * len(s.get("items", []))
     elif t == "countdown":
         base += 1.0 * s.get("from", 3) + (1.5 if s.get("label") else 0)
     elif t == "orbit":
@@ -318,8 +412,24 @@ def plan(spec):
     rate = float((spec.get("audio") or {}).get("rate", 1.1))
     pron = (spec.get("audio") or {}).get("pronounce") or {}
     warns = []
+    cast = spec.get("cast") or {}
     for ci, ch in enumerate(spec["chapters"]):
         for si, s in enumerate(ch["scenes"]):
+            if is_dialogue(s):
+                # 掛け合い: せりふごとに、音声ファイルの長さか読み上げの見積もりで時間を割り付ける
+                t, cl = 400.0, []
+                for li, ln in enumerate(s["lines"]):
+                    if ln.get("_vdur"):
+                        dur = ln["_vdur"]
+                    else:
+                        vr = float(((cast.get(ln.get("who")) or {}).get("voice") or {}).get("rate", rate))
+                        dur = max(900.0, speech_seconds(ln.get("text", ""), lang, pron) / vr * 1000 + 250)
+                    cl.append([int(t), int(t + dur), ln.get("text", ""), ln.get("who"), li])
+                    t += dur + float(ln.get("pause", .3)) * 1000
+                ms = int(max(t + 500, min_seconds(s) * 1000, float(s.get("duration", 0)) * 1000))
+                s["_dur"] = ms
+                s["_cues"] = cl
+                continue
             text = narration_text(s)
             speech = speech_seconds(text, lang, pron) / rate
             need = max(min_seconds(s), speech + 1.2)
@@ -390,6 +500,15 @@ def validate(spec, base):
             for key, table, name in (("transition", TRANSITIONS, "切り替え"), ("anim", TEXT_ANIMS, "文字の出方")):
                 if s.get(key) and s[key] not in table:
                     errs.append("%s: %s %r は %s のいずれか" % (where, name, s[key], "/".join(table)))
+            for key, table, name in (("ease", EASES, "緩急"), ("order", ORDERS, "現れる順")):
+                if s.get(key) and s[key] not in table:
+                    errs.append("%s: %s %r は %s のいずれか" % (where, name, s[key], "/".join(table)))
+            if t == "layout":
+                for li, sp in enumerate(s.get("slots") or []):
+                    if not isinstance(sp, dict) or sp.get("type") not in SCENE_TYPES or sp.get("type") in ("layout", "dom", "custom"):
+                        errs.append("%s: slots[%d] の type は部品の名前（layout・dom・custom 以外）" % (where, li))
+                if s.get("template", "trio") not in ("trio", "inset", "collage", "fullbleed", "focus", "split2"):
+                    errs.append("%s: template は trio / inset / collage / fullbleed / focus / split2 のいずれか" % where)
             if isinstance(s.get("camera"), str) and s["camera"] not in CAMERA_PRESETS:
                 errs.append("%s: カメラの型 %r は %s のいずれか" % (where, s["camera"], "/".join(CAMERA_PRESETS)))
             for f in (s.get("fx") or []) if isinstance(s.get("fx"), list) else []:
@@ -407,21 +526,80 @@ def validate(spec, base):
             for ki, key in enumerate(s.get("camera", []) if isinstance(s.get("camera"), list) else []):
                 if not isinstance(key, dict) or not any(x in key for x in ("x", "y", "zoom")):
                     errs.append("%s: camera[%d] は {at, x, y, zoom} の形にしてください" % (where, ki))
-            if t == "image" and s.get("src") and not re.match(r"^(data:|https?:)", s["src"]):
+            if t in ("image", "layout") and s.get("src") and not re.match(r"^(data:|https?:)", s["src"]):
                 p = os.path.join(base, s["src"])
                 if not os.path.isfile(p):
                     errs.append("%s: 画像が見つかりません: %s" % (where, p))
                 else:
                     mime = mimetypes.guess_type(p)[0] or "image/png"
                     s["src"] = "data:%s;base64,%s" % (mime, base64.b64encode(open(p, "rb").read()).decode("ascii"))
+    def walk_icons(o, where):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if k in ("icon", "name") and isinstance(v, str) and re.match(r"^[a-z][a-z0-9]*(-[a-z0-9]+)+$|^[a-z]{3,}$", v) and (k == "icon" or o.get("kind") == "icon"):
+                    if v not in icons.ICONS and not (k == "name" and o.get("kind") != "icon"):
+                        errs.append("%s: アイコン %r は無い（--list-icons。絵文字も使える）" % (where, v))
+                walk_icons(v, where)
+        elif isinstance(o, list):
+            for v in o:
+                walk_icons(v, where)
+    for ci, ch in enumerate(spec.get("chapters") or []):
+        for si, s in enumerate(ch.get("scenes") or []):
+            walk_icons(s, "第 %d 章の場面 %d" % (ci + 1, si + 1))
     if spec.get("transition") and spec["transition"] not in TRANSITIONS:
         errs.append("transition %r は %s のいずれか" % (spec["transition"], "/".join(TRANSITIONS)))
+    for key, table, name in (("ease", EASES, "緩急"), ("order", ORDERS, "現れる順")):
+        if spec.get(key) and spec[key] not in table:
+            errs.append("%s %r は %s のいずれか" % (name, spec[key], "/".join(table)))
     if spec.get("motion") and spec["motion"] not in MOTION_STYLES:
         errs.append("motion %r は %s のいずれか" % (spec["motion"], "/".join(MOTION_STYLES)))
     for f in spec.get("fx") or []:
         fk = f if isinstance(f, str) else (f or {}).get("kind")
         if fk not in FX:
             errs.append("fx %r は %s のいずれか" % (fk, "/".join(FX)))
+    # 登場人物（cast）: 立ち絵の画像を埋め込む。images は {表情: 画像} か {表情: {closed, open, half, blink}}
+    for cid, c in (spec.get("cast") or {}).items():
+        for face, v in list((c.get("images") or {}).items()):
+            vals = v if isinstance(v, dict) else {"_": v}
+            for key, path in list(vals.items()):
+                uri, miss = _embed(path, base)
+                if miss:
+                    errs.append("cast.%s.images.%s: 画像が見つかりません: %s" % (cid, face, miss))
+                elif isinstance(v, dict):
+                    v[key] = uri
+                else:
+                    c["images"][face] = uri
+    for ci, ch in enumerate(spec.get("chapters") or []):
+        for si, s in enumerate(ch.get("scenes") or []):
+            where = "第 %d 章の場面 %d" % (ci + 1, si + 1)
+            for key in ("bg",):
+                if s.get(key):
+                    uri, miss = _embed(s[key], base)
+                    if miss:
+                        errs.append("%s: %s の画像が見つかりません: %s" % (where, key, miss))
+                    else:
+                        s[key] = uri
+            if isinstance(s.get("board"), dict) and s["board"].get("type") == "image" and s["board"].get("src"):
+                uri, miss = _embed(s["board"]["src"], base)
+                if miss:
+                    errs.append("%s: board の画像が見つかりません: %s" % (where, miss))
+                else:
+                    s["board"]["src"] = uri
+            for li, ln in enumerate(s.get("lines") if is_dialogue(s) else []):
+                if ln.get("who") and spec.get("cast") and ln["who"] not in spec["cast"]:
+                    errs.append("%s: lines[%d] の who %r は cast に無い" % (where, li, ln["who"]))
+                if ln.get("voice") and not str(ln["voice"]).startswith("data:"):
+                    p = os.path.join(base, ln["voice"])
+                    if not os.path.isfile(p):
+                        errs.append("%s: lines[%d] の音声ファイルが見つかりません: %s" % (where, li, p))
+                        continue
+                    try:
+                        dur, env = wav_info(p)
+                        ln["_vdur"], ln["_env"] = int(dur), env
+                    except Exception as e:  # WAV 以外（mp3 など）: 長さは読み上げの見積もり、口は文字の拍
+                        errs.append("%s: lines[%d] の音声は WAV（PCM）にしてください（%s）" % (where, li, e))
+                        continue
+                    ln["voice"], _ = _embed(p, base, "audio/wav")
     errs += sound.prepare(spec, base)
     return errs
 
@@ -668,6 +846,7 @@ def build_fragment(spec, theme_key, player, uid=None):
     frag = (
         '<section class="mv-player" id="mv-player" data-player="%s" tabindex="0" aria-label="%s" style="%s">'
         '<script type="application/json" data-mv-spec>%s</script><script type="application/json" data-mv-theme>%s</script>'
+        '<script type="application/json" data-mv-icons>%s</script>'
         '<div class="mv-main"><div class="mv-stage" id="mv-stage"><canvas id="mv-canvas" aria-hidden="true"></canvas>'
         '<div class="mv-dom" id="mv-dom"></div>'
         '<div class="mv-cap"><span id="mv-captext" hidden></span></div>'
@@ -678,7 +857,8 @@ def build_fragment(spec, theme_key, player, uid=None):
         '<aside class="mv-side mv-transcript" aria-label="文字起こし"><h2>文字起こし</h2>'
         '<input type="search" class="mv-tsearch" id="mv-tsearch" placeholder="文字起こしを検索" aria-label="文字起こしを検索">'
         '<ol class="mv-tlist" id="mv-tlist"></ol></aside>'
-        '</section>' % (player, html.escape(title, quote=True), style, data, json.dumps(theme_js, ensure_ascii=False), ICON["big"] + '<span class="mv-biglabel"></span>', controls))
+        '</section>' % (player, html.escape(title, quote=True), style, data, json.dumps(theme_js, ensure_ascii=False),
+                        json.dumps(icons.pick(icons.used_in(data)), ensure_ascii=False), ICON["big"] + '<span class="mv-biglabel"></span>', controls))
     # id はプレイヤーごとの名前にし、エンジンは data-mv で探す
     frag = re.sub(r'\bid="mv-([\w-]+)"', lambda m: 'data-mv="%s" id="%s-%s"' % (m.group(1), uid, m.group(1)), frag)
     frag = re.sub(r'aria-controls="mv-([\w-]+)"', lambda m: 'aria-controls="%s-%s"' % (uid, m.group(1)), frag)
@@ -691,9 +871,9 @@ def player_css():
 
 
 def engine_js():
-    """音の合成（audio.js）と描画・プレイヤー（engine.js）。どちらも 1 ページで 1 度だけ効く。"""
-    return (open(os.path.join(HERE, "audio.js"), encoding="utf-8").read() + "\n"
-            + open(os.path.join(HERE, "engine.js"), encoding="utf-8").read())
+    """音の合成（audio.js）・部品（parts-*.js）・描画とプレイヤー（engine.js）。1 ページで 1 度だけ効く。"""
+    parts = sorted(f for f in os.listdir(HERE) if f.startswith("parts-") and f.endswith(".js"))
+    return "\n".join(open(os.path.join(HERE, f), encoding="utf-8").read() for f in ["audio.js"] + parts + ["engine.js"])
 
 
 def build_embed(spec, theme_key, player):
@@ -831,6 +1011,9 @@ def print_list():
     print("  " + "　".join("%s（%s）" % kv for kv in TRANSITIONS.items()))
     print("\n# 文字の出方（場面の anim）")
     print("  " + "　".join("%s（%s）" % kv for kv in TEXT_ANIMS.items()))
+    print("\n# 動き方（場面の ease・order。台本全体にも書ける）")
+    print("  ease: " + "　".join("%s（%s）" % kv for kv in EASES.items()))
+    print("  order: " + "　".join("%s（%s）" % kv for kv in ORDERS.items()) + "　※ 項目を順に出す部品（bullets・cards・steps など）に効く")
     print("\n# 演出の層（場面の fx・台本の fx。文字列か {kind, color, alpha, n, seed}）")
     print("  " + "　".join("%s（%s）" % kv for kv in FX.items()))
     print("\n# 表現のモード（台本の expression）")
@@ -841,6 +1024,7 @@ def print_list():
           '"brand":{"name":"…"},"motion":"dynamic","poster":4300,'
           '"audio":{"narration":true,"music":"corporate","sfx":{"kit":"standard","density":"normal"},"rate":1.1,"wait":true,"pronounce":{"Sodashitsu":"ソダシツ"}},'
           '"expression":"mixed","chapters":[{"title":"章の名前","desc":"一覧に出す説明","scenes":[{…場面…}]}]}')
+    print("\n# アイコン（部品の icon・重ねの層の icon・H.icon）\n  %d 種。一覧は --list-icons。icon には絵文字も書ける" % len(icons.ICONS))
     print("\n# 音（曲 %d・効果音 %d・効果音の組 %d）\n  一覧と書き方は --list-sounds、聞き比べるページは --sounds -o sounds.html"
           % (len(sound.MUSIC), len(sound.SFX), len(sound.KITS)))
     print("\ncustom の道具は --api、手本は recipes.md")
@@ -857,6 +1041,7 @@ def main():
     ap.add_argument("--api", action="store_true", help="custom の場面で使える描画の道具（H.*）の一覧を出す")
     ap.add_argument("--embed", action="store_true", help="ページではなく、ほかの HTML に差し込む断片を出す（md-to-doc の文書など）")
     ap.add_argument("--list-sounds", action="store_true", help="曲・効果音・効果音の組・出来事と、audio の書き方を出す")
+    ap.add_argument("--list-icons", action="store_true", help="線で描くアイコンの一覧を出す")
     ap.add_argument("--sounds", action="store_true", help="曲と効果音を聞き比べる HTML を作る（-o で出力先。既定 sounds.html）")
     args = ap.parse_args()
     if args.api:
@@ -864,6 +1049,9 @@ def main():
         return
     if args.list_sounds:
         sound.print_sounds()
+        return
+    if args.list_icons:
+        icons.print_icons()
         return
     if args.sounds:
         out = args.out or os.path.abspath("sounds.html")
@@ -910,8 +1098,9 @@ def main():
             print("%s  第 %d 章 %s　♪ %s" % (fmt(t), ci + 1, ch["title"], sound.music_label(ch["music"]) if "music" in ch else sound.music_label(spec["audio"].get("music")) if mk else "なし"))
             for s in ch["scenes"]:
                 print("  %s  %-9s %5.1f 秒  %s" % (fmt(t), s["type"], s["_dur"] / 1000, (s.get("heading") or s.get("title") or "")[:30]))
-                for a, b, c in s["_cues"]:
-                    print("        %s–%s  %s" % (fmt(t + a), fmt(t + b), c))
+                for cu in s["_cues"]:
+                    who = (spec.get("cast") or {}).get(cu[3], {}).get("name", cu[3]) + "：" if len(cu) > 3 and cu[3] else ""
+                    print("        %s–%s  %s%s" % (fmt(t + cu[0]), fmt(t + cu[1]), who, cu[2]))
                 t += s["_dur"]
         print("合計 %s（%d 章・%d 場面）" % (fmt(total), len(spec["chapters"]), sum(len(c["scenes"]) for c in spec["chapters"])))
         return

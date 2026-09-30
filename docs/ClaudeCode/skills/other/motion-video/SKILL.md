@@ -1,6 +1,6 @@
 ---
 name: motion-video
-description: 紹介・説明の内容から、動画のように再生できるモーショングラフィックスの単一HTMLを作る。再生・停止・倍速・字幕・音声（読み上げ・音楽・効果音）・チャプター・シークバー（その時刻のプレビュー）・文字起こし・続きから再生・小窓・WebM で保存・キー操作・全画面を備えたプレイヤーを 7 種のテンプレート（シネマ/スタジオ/プレゼンター/ミニマル/キオスク/シアター/スライド）から、映像の配色を 6 種から選べる。音楽は 86 曲・効果音は 125 種（Web Audio で合成し、場面の出来事に合わせて自動で鳴る。効果音の組 10 種）。動きの性格（穏やか・ダイナミック・楽しい・映画的・技術）を 1 つ選ぶと、18 種の切り替え・13 種の文字の出方・12 種の演出の層・カメラの型・画面の揺れの既定がまとまって決まる。表現は「部品」（29 種の部品で決定論的に組む）「混在」「自由」（プレイヤー・時間割・字幕・音声だけを使い、Claude が Canvas か HTML・SVG・CSS で描く。音楽・効果音も作曲・自作できる）から選ぶ。ほかの HTML（md-to-doc の文書など）にも埋め込める。「紹介動画を作って」「モーショングラフィックスで説明して」「動画っぽいHTMLにして」などと言われたときに使用する。
+description: 紹介・説明の内容から、動画のように再生できるモーショングラフィックスの単一HTMLを作る。再生・停止・倍速・字幕・音声（読み上げ・音楽・効果音）・チャプター・シークバー（その時刻のプレビュー）・文字起こし・続きから再生・小窓・WebM で保存・キー操作・全画面を備えたプレイヤーを 7 種のテンプレート（シネマ/スタジオ/プレゼンター/ミニマル/キオスク/シアター/スライド）から、映像の配色を 6 種から選べる。音楽は 86 曲・効果音は 125 種（Web Audio で合成し、場面の出来事に合わせて自動で鳴る。効果音の組 10 種）。動きの性格（穏やか・ダイナミック・楽しい・映画的・技術）を 1 つ選ぶと、28 種の切り替え・21 種の文字の出方・18 種の演出の層・カメラの型・画面の揺れの既定がまとまって決まる。表現は「部品」（53 種の部品と 6 種の割り付けの型で決定論的に組む。グラフ・スマホやダッシュボードなどの画面・網の目や木などの図を含む。線で描かれて動くアイコン 75 種）「混在」「自由」（プレイヤー・時間割・字幕・音声だけを使い、Claude が Canvas か HTML・SVG・CSS で描く。音楽・効果音も作曲・自作できる）から選ぶ。ほかの HTML（md-to-doc の文書など）にも埋め込める。「紹介動画を作って」「モーショングラフィックスで説明して」「動画っぽいHTMLにして」などと言われたときに使用する。
 ---
 
 # motion-video — 台本から、動画のように再生できる HTML を作る
@@ -116,6 +116,30 @@ description: 紹介・説明の内容から、動画のように再生できる�
 | 短い主張を語ごとに組み上げる | `kinetic`（`statement` より動きが強い） |
 | 説明と数字・図を左右に | `split`（右に部品を縮小して置く） |
 | 導入の前と後 | `beforeafter`（境目が動いて後の姿が現れる） |
+| 推移（面）・内訳の推移 | `area`（`stacked` で積み上げ）・`stack`（積み上げ棒） |
+| 2 つの量の関係・位置づけ | `scatter`（`trend` で傾向の線） |
+| 曜日×時間などの濃淡 | `heatmap` |
+| 1 つの指標の水準（満足度・稼働率） | `gauge` |
+| 複数の進み具合・達成率 | `rings` |
+| 構成比（面積で） | `treemap` |
+| 多面的な比較（性能の軸） | `radar` |
+| スマホアプリの画面・通知 | `phone`（`screens` で画面を送る・`notify`・`points` で横に説明） |
+| 管理画面・数字の集まり | `dashboard` |
+| 入力・申し込みの手順 | `form`（カーソルが順に入力して送信） |
+| 通知・連絡が次々に来る | `notifs` |
+| 文書・サイトの中を見せる | `scroll` |
+| タスクを移す・並べ替える | `drag`（カンバン） |
+| 関係のつながり（多対多） | `network` |
+| 階層・分類 | `tree` |
+| 状態の移り変わり | `states`（`path` の順に印が移る） |
+| 拠点・場所・経路 | `map` |
+| 構成の層（アーキテクチャ） | `layers` |
+| 次々に処理が流れる | `pipeline` |
+| できること・特徴をアイコンで | `icons`（アイコンは `--list-icons`。`bullets`・`cards`・`orbit` 等の `icon` にも名前で書ける） |
+| 複数の部品を 1 画面に（3 つ並び・大見出し＋小窓・写真の重なり・全面の写真・1 つを大きく・左右の比較） | `layout`（`template` と `slots`） |
+| キーワードの広がり | `wordcloud` |
+| 大きな言葉を背景に（標語・ブランド） | `bigtype` |
+| 2 人の掛け合いで解説（ゆっくり解説・ずんだもん解説など） | `talk`（`lines` と中央の黒板 `board`。登場人物は台本の `cast`。台本づくりは **yukkuri-kaisetsu** スキル） |
 | 強い一語・結論（集中線・揺れ） | `impact` |
 | 公開日・開始までの数え下ろし | `countdown` |
 | 中心と周りの関係（生態系・連携先） | `orbit`（項目が中心の周りを回る） |
@@ -136,9 +160,13 @@ description: 紹介・説明の内容から、動画のように再生できる�
 | `tech` | 乱れ・拭き取り・モザイク・帯（乱れ） | でたらめな文字から | 走査線・格子の床 | 技術・データ・開発者向け |
 
 - 性格を選んだら台本全体の `transition` は書かない（書くとそれが全場面に効く）。見せ場の場面だけ `transition`・`anim`・`fx`・`camera`・`shake` で変える。
-- 切り替え（18 種）: `fade` `slide` `zoom` `cut` `wipe` `push` `slide-up` `slide-down` `iris` `blinds` `split` `whip` `spin` `flash` `glitch` `pixel` `squeeze` `zoom-through`。
-- 文字の出方（`anim`。title・statement・quote・end・kinetic・impact・logo）: `rise` `reveal` `pop` `slam` `stretch` `blur` `glitch` `neon` `type` `scramble` `wave` `letters` `split`。
-- 演出の層（`fx`）: `particles` `stars` `bokeh` `rays` `speedlines` `grid` `waves`（部品の下）・`scanlines` `confetti` `vignette` `sweep` `noise`（上）。
+- 切り替え（28 種）: `fade` `slide` `zoom` `cut` `wipe` `push` `slide-up` `slide-down` `iris` `blinds` `split` `whip` `spin` `flash` `glitch` `pixel` `squeeze` `zoom-through`
+  `diagonal` `diamond` `spot`（場面の `origin` から）`cube` `page` `liquid` `dive`（前の場面の `focus` へ飛び込む）`tiles` `stripes` `clock`。
+- 文字の出方（`anim`。title・statement・quote・end・kinetic・impact・logo・layout・bigtype）: `rise` `reveal` `pop` `slam` `stretch` `blur` `glitch` `neon` `type` `scramble` `wave` `letters` `split`
+  `mask` `marker` `drop` `zoom` `outline` `roll` `spin` `shadow`。
+- 演出の層（`fx`）: `particles` `stars` `bokeh` `rays` `speedlines` `grid` `waves` `gradient` `aurora` `plexus` `contour` `shapes` `blobs`（部品の下）・
+  `scanlines` `confetti` `vignette` `sweep` `noise`（上）。
+- 動き方（場面か台本の `ease`・`order`）: 緩急 `smooth`（既定）・`spring`・`snappy`・`bouncy`、現れる順 `reverse`・`center`・`edges`・`random`（項目を順に出す部品に効く）。
   `"fx": false` で性格の既定も止める。1 場面に 1〜2 個まで。
 - カメラの型（`camera` に名前）: `push-in` `pull-out` `pan-left` `pan-right` `rise` `punch` `tilt` `drift` `dolly`。
 - 画面の揺れ: `"shake": [{"at": 0.4, "amp": 18, "dur": 450}]`（`slam`・`impact`・`countdown`・判子は自動で揺れる）。
@@ -254,6 +282,23 @@ python3 <skill_dir>/build.py spec.json -o out.html      # HTML を作る（--pla
   （最初から 1 倍速で再生しながら録画。字幕は映像に焼き込み、音楽と効果音は入り、読み上げの声は入らない）。
 - **キー**: `J`・`L` で 10 秒、`0`〜`9` で 0〜90% の位置へ（上の表の操作に加えて）。
 - **1 ページに複数のプレイヤー**: 1 つを再生すると、ほかは止まる。
+
+## 掛け合い（登場人物・せりふ）
+
+```json
+"cast": {"zunda": {"name": "ずんだもん", "color": "#5fae45", "side": "right", "height": 520,
+                   "images": {"normal": {"closed": "chars/z/normal.png", "open": "chars/z/normal_open.png", "blink": "chars/z/normal_blink.png"}, "smile": "chars/z/smile.png"},
+                   "voice": {"pitch": 1.35, "rate": 1.15}}},
+"castAlways": true,
+"chapters": [{"title": "導入", "scenes": [{"type": "talk", "board": {"type": "bullets", "items": ["…"]}, "bg": "bg/room.png",
+  "lines": [{"who": "zunda", "text": "解説するのだ！", "face": "smile", "emote": "!", "voice": "voices/001.wav", "shake": true, "pause": 0.5}]}]}]
+```
+
+- `lines` のある場面では、登場人物が左右に立ち、話している方が弾んで口が動き、ほかの方は少し薄くなる。まばたきする。字幕は話し手の色の帯と名札で映像に描く。
+- 口は、`voice`（WAV）があれば音量に合わせて、無ければ文字の拍で動く（どちらも時刻だけで決まる）。`voice` のある場面は WAV の長さで時間を割り付ける。
+- 画像が無い登場人物は、仮のキャラクター（`color` の丸顔。smile・surprised・angry を描き分け）で描く。
+- `castAlways: true` なら、掛け合いでない場面にも登場人物を出したままにする（締めの `end` を除く）。
+- 声が無いせりふはブラウザの読み上げで、`cast.<名前>.voice` の `pitch`・`rate` で話し手ごとに変える。
 
 ## ほかの HTML に埋め込む
 
