@@ -14,7 +14,8 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     ch.scenes.forEach(function (s) {
       var d = s._dur;
       SCENES.push({ s: s, t0: DUR, d: d, ci: ci });
-      (s._cues || []).forEach(function (c) { CUES.push({ a: DUR + c[0], b: DUR + c[1], text: c[2] }); });
+      (s._cues || []).forEach(function (c) { var ln = c[3] !== undefined && s.lines ? s.lines[c[4]] || {} : null;
+        CUES.push({ a: DUR + c[0], b: DUR + c[1], text: c[2], who: c[3] || null, line: ln, key: ln ? SCENES.length + ":" + c[4] : null }); });
       DUR += d;
     });
   });
@@ -1371,7 +1372,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     }
   }
   function burnCaption(t) {
-    var c = CUES.filter(function (c) { return t >= c.a && t < c.b; })[0]; if (!c) return;
+    var c = CUES.filter(function (c) { return t >= c.a && t < c.b; })[0]; if (!c || c.who) return;
     var lines = wrap(c.text.replace(/\*\*/g, ""), 1500, { size: 40, weight: 700 }), y0 = H - 70 - (lines.length - 1) * 58;
     lines.forEach(function (ln, i) { var w = tw(ln, { size: 40, weight: 700 }) + 44;
       ctx.save(); ctx.fillStyle = "rgba(4,8,12,.8)"; rr(960 - w / 2, y0 + i * 58 - 46, w, 58, 8); ctx.fill(); ctx.restore();
@@ -1386,10 +1387,95 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       if (k > 0 && lt < FADE && tr !== "cut" && !SW) drawScene(k - 1, t);
       drawScene(k, t);
     }
+    drawCast(t);
     chrome(t);
     if (recording && captions) burnCaption(t);
     if (!thumbMode) syncDom(t);
   }
+
+
+  /* ================= 掛け合い（登場人物・せりふ・黒板） ================= */
+  var CAST = SPEC.cast || {}, CASTIDS = Object.keys(CAST);
+  function isTalk(s) { return Array.isArray(s.lines) && s.lines.some(function (l) { return l && l.who; }); }
+  var FIRST_TALK = (function () { for (var i = 0; i < SCENES.length; i++) if (isTalk(SCENES[i].s)) return SCENES[i].t0; return -1; })();
+  function cueAt(tt) { for (var i = 0; i < CUES.length; i++) if (tt >= CUES[i].a && tt < CUES[i].b) return CUES[i]; return null; }
+  function lastCueOf(id, tt) { var r = null; for (var i = 0; i < CUES.length; i++) { if (CUES[i].a > tt) break; if (CUES[i].who === id) r = CUES[i]; } return r; }
+  /* 口の開き 0..1: 音声ファイルは音量の並び（50ms ごと）から、読み上げ・無音は文字の拍から。時刻だけで決まる */
+  function mouthOf(c, tt) {
+    if (!c) return 0; var lt2 = tt - c.a, env = c.line && c.line._env;
+    if (env && env.length) { var v = env[Math.min(env.length - 1, Math.floor(lt2 / 50))] || 0; return v > .55 ? 1 : v > .18 ? .5 : 0; }
+    var ch = (c.text || "").replace(/\*\*/g, ""), per = Math.max(60, (c.b - c.a) / Math.max(1, ch.length)), i = Math.floor(lt2 / per), cc = ch.charAt(i);
+    if (/[、。，．！？!?\s…]/.test(cc)) return 0; return Math.floor(lt2 / 95) % 3 === 0 ? 0 : Math.floor(lt2 / 95) % 3 === 1 ? 1 : .5;
+  }
+  function blinkOf(id, tt) { var ph = (rand(CASTIDS.indexOf(id) * 97 + 11)() * 3000) | 0, q = (tt + ph) % 3600; return q < 110 || (q > 260 && q < 340 && (CASTIDS.indexOf(id) % 2)); }
+  function pickImg(ch, face, open, blink) {
+    var im = ch.images || {}, f = im[face] || im.normal || im[Object.keys(im)[0]]; if (!f) return null;
+    if (typeof f === "string") return IMGS[f];
+    var key = blink && f.blink ? "blink" : open >= 1 && f.open ? "open" : open > 0 && f.half ? "half" : open > 0 && f.open ? "open" : "closed";
+    return IMGS[f[key] || f.closed || f.open];
+  }
+  /* 仮のキャラクター（画像が無いとき）: 丸い顔・髪の帯・目・口。色は cast の color */
+  function drawDummy(ch, x, by, h, open, blink, face) {
+    var col = ch.color || C.accent, r = h * .22, cy = by - h + r + 20;
+    ctx.save(); ctx.fillStyle = col; rr(x - r * .95, cy + r * .7, r * 1.9, h - r * 1.7 - 20, r * .6); ctx.fill();
+    ctx.fillStyle = "#fde7d6"; ctx.beginPath(); ctx.arc(x, cy, r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, cy - r * .15, r * 1.04, Math.PI * 1.05, Math.PI * 1.95); ctx.fill();
+    ctx.fillStyle = "#2a2230"; var ey = cy + r * .05;
+    [-1, 1].forEach(function (sd) { if (blink) { ctx.fillRect(x + sd * r * .38 - r * .14, ey, r * .28, 4); } else { ctx.beginPath(); ctx.ellipse(x + sd * r * .38, ey, r * .1, r * (face === "surprised" ? .2 : .15), 0, 0, Math.PI * 2); ctx.fill(); } });
+    ctx.fillStyle = "#9b2d3a"; var mh = r * (.04 + .22 * open), mw = r * (face === "smile" ? .34 : .26);
+    ctx.beginPath(); ctx.ellipse(x, cy + r * .5, mw, Math.max(2, mh), 0, 0, Math.PI * 2); ctx.fill();
+    if (face === "smile" && open === 0) { ctx.strokeStyle = "#9b2d3a"; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(x, cy + r * .38, r * .22, .2, Math.PI - .2); ctx.stroke(); }
+    if (face === "angry") { ctx.strokeStyle = "#2a2230"; ctx.lineWidth = 5; [-1, 1].forEach(function (sd) { ctx.beginPath(); ctx.moveTo(x + sd * r * .55, ey - r * .32); ctx.lineTo(x + sd * r * .2, ey - r * .2); ctx.stroke(); }); }
+    ctx.restore();
+  }
+  var EMOTES = { "!": "！", "?": "？", "!?": "！？", "♪": "♪", "💦": "💦", "💢": "💢", "…": "…" };
+  function drawCast(tt) {
+    var k = sceneAt(tt), S = SCENES[k].s, show = isTalk(S) || (SPEC.castAlways && S.type !== "end" && FIRST_TALK >= 0 && tt >= FIRST_TALK); if (!show || !CASTIDS.length) return;
+    var cur = cueAt(tt), onIds = S.cast || CASTIDS, lt0 = FIRST_TALK >= 0 ? tt - FIRST_TALK : 0, sideN = { left: 0, right: 0 };
+    onIds.forEach(function (id, i) {
+      var ch = CAST[id]; if (!ch) return;
+      var side = ch.side || (i % 2 ? "right" : "left"), h = ch.height || 520, img0 = pickImg(ch, "normal", 0, false), w = img0 && img0.naturalWidth ? h * img0.naturalWidth / img0.naturalHeight : h * .62;
+      var nth = sideN[side === "right" ? "right" : "left"]++, x = (side === "right" ? 1920 - 40 - w / 2 - nth * w * .75 : 40 + w / 2 + nth * w * .75), by = 1080 + (ch.offsetY || 0) - nth * 30, speakingNow = cur && cur.who === id;
+      var lc = lastCueOf(id, tt), face = (speakingNow ? cur.line && cur.line.face : lc && lc.line && lc.line.face) || "normal";
+      var ent = P(lt0, i * 200, i * 200 + 700, back), dx = (1 - Math.min(1, ent)) * (side === "right" ? 1 : -1) * (w + 80);
+      var bob = speakingNow ? Math.abs(Math.sin((tt - cur.a) / 180)) * -10 : 0, shake = speakingNow && cur.line && cur.line.shake ? Math.sin((tt - cur.a) / 25) * 10 * clamp(1 - (tt - cur.a) / 500) : 0;
+      var open = speakingNow ? mouthOf(cur, tt) : 0, blink = blinkOf(id, tt);
+      ctx.save(); ctx.translate(dx + shake, bob); if (!speakingNow && cur && cur.who) ctx.globalAlpha *= .82;
+      var im = pickImg(ch, face, open, blink);
+      if (im && im.complete && im.naturalWidth) { ctx.save(); ctx.translate(x, by); if (ch.flip) ctx.scale(-1, 1); ctx.drawImage(im, -w / 2, -h, w, h); ctx.restore(); }
+      else drawDummy(ch, x, by, h, open, blink, face);
+      /* 気持ちの印（せりふの emote） */
+      var em = speakingNow && cur.line && cur.line.emote;
+      if (em) { var ek = P(tt, cur.a, cur.a + 350, back); ctx.save(); ctx.translate(x + (side === "right" ? -w * .3 : w * .3), by - h - 10); ctx.scale(ek, ek);
+        txt(EMOTES[em] || em, 0, 0, { size: 96, weight: 900, align: "center", color: em === "💢" ? C.warn : ch.color || C.accent }); ctx.restore(); }
+      ctx.restore();
+    });
+    /* 字幕の帯（話し手の色で縁取り、名札） */
+    if (cur && cur.who && (captions || recording)) {
+      var sp = CAST[cur.who] || {}, col = sp.color || C.accent, lines = wrap(cur.text.replace(/\*\*/g, ""), 1080, { size: 46, weight: 800 }).slice(0, 2);
+      var bh = 60 + lines.length * 62, by0 = 1060 - bh, bx = 400, bw = 1120, ck = P(tt, cur.a, cur.a + 200);
+      ctx.save(); ctx.globalAlpha *= ck; rr(bx, by0, bw, bh, 18); ctx.fillStyle = "rgba(255,255,255,.92)"; ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = 6; ctx.stroke();
+      var nw = tw(sp.name || cur.who, { size: 26, weight: 800 }) + 40; rr(bx + 24, by0 - 22, nw, 44, 22); ctx.fillStyle = col; ctx.fill();
+      txt(sp.name || cur.who, bx + 24 + nw / 2, by0 + 9, { size: 26, weight: 800, align: "center", color: "#ffffff" });
+      lines.forEach(function (ln, i) { ctx.save(); ctx.font = font({ size: 46, weight: 800 }); ctx.textAlign = "center"; ctx.lineJoin = "round"; ctx.lineWidth = 9; ctx.strokeStyle = col;
+        ctx.strokeText(ln, 960, by0 + 70 + i * 62); ctx.fillStyle = "#ffffff"; ctx.fillText(ln, 960, by0 + 70 + i * 62); ctx.restore(); });
+      ctx.restore();
+    }
+  }
+  /* 掛け合いの場面: 背景（bg）と中央の黒板（board: 部品の台本・画像・文字列） */
+  R.talk = function (s, lt, d) {
+    var bgi = IMGS[s.bg];
+    if (bgi && bgi.complete && bgi.naturalWidth) { var sc = Math.max(W / bgi.naturalWidth, H / bgi.naturalHeight); ctx.drawImage(bgi, 960 - bgi.naturalWidth * sc / 2, 540 - bgi.naturalHeight * sc / 2, bgi.naturalWidth * sc, bgi.naturalHeight * sc); }
+    var b = s.board; if (!b) return;
+    var bx = 330, byy = 70, bw = 1260, bh = bw * 9 / 16 * .92, k = P(lt, 0, 500);
+    ctx.save(); ctx.globalAlpha *= k; ctx.translate(0, (1 - k) * 20);
+    panel(bx - 16, byy - 16, bw + 32, bh + 32, { r: 24, fill: s.boardColor || C.panel, stroke: C.accent, lw: 6 });
+    ctx.save(); rr(bx, byy, bw, bh, 14); ctx.clip();
+    if (typeof b === "string") { var ls = wrap(b, bw - 120, { size: 64, weight: 800, font: F.display }); ls.forEach(function (ln, i) { rich(ln, bx + bw / 2, byy + bh / 2 - (ls.length - 1) * 42 + i * 84 + 22, { size: 64, weight: 800, font: F.display, align: "center" }); }); }
+    else if (b.type === "image") { var im = IMGS[b.src]; if (im && im.complete && im.naturalWidth) { var s2 = Math.min(bw / im.naturalWidth, bh / im.naturalHeight); ctx.drawImage(im, bx + (bw - im.naturalWidth * s2) / 2, byy + (bh - im.naturalHeight * s2) / 2, im.naturalWidth * s2, im.naturalHeight * s2); } }
+    else sub(b.type || "statement", b, lt, d, { x: bx, y: byy - bh * .02, scale: bw / 1920 });
+    ctx.restore(); ctx.restore();
+  };
 
   /* ================= HTML・SVG で描く場面（dom） ================= */
   var domLayer = $("mv-dom"), domEls = {}, domScale = 1;
@@ -1429,6 +1515,9 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       master.connect(lim); lim.connect(ac.destination);
       duckG = ac.createGain(); duckG.gain.value = 1; duckG.connect(master);
       sfxBus = ac.createGain(); sfxBus.gain.value = SFXCFG ? (SFXCFG.volume === undefined ? 1 : SFXCFG.volume) : 1; sfxBus.connect(master);
+      /* せりふの音声ファイル（WAV）を復号しておく */
+      CUES.forEach(function (c) { if (!c.line || !c.line.voice || VBUF[c.key]) return; var key = c.key; VBUF[key] = null;
+        fetch(c.line.voice).then(function (x) { return x.arrayBuffer(); }).then(function (buf) { return ac.decodeAudioData(buf); }).then(function (b) { VBUF[key] = b; }).catch(function (e) { console.warn("voice:", e); }); });
       /* ファイルの効果音は先に復号しておく */
       Object.keys(SFXD).forEach(function (k) { var r = SFXD[k]; if (!r.file) return;
         fetch(r.file).then(function (x) { return x.arrayBuffer(); }).then(function (buf) { return ac.decodeAudioData(buf); }).then(function (b) { SFXBUF[k] = b; }).catch(function (e) { console.warn("sfx file:", k, e); }); });
@@ -1569,17 +1658,28 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   if (synth) { pickVoice(); synth.onvoiceschanged = pickVoice; }
   /* 読み上げ中の字幕。字幕の終わりに来ても読み終わっていなければ、動画をそこで待たせる（audio.wait: false で無効） */
   var speaking = null;
+  var VBUF = {}, vsrc = null;
+  function playVoice(cue, off) {
+    if (!ac || !audioOn || AUD.narration === false) return false; var b = VBUF[cue.key]; if (!b) return !!(cue.line && cue.line.voice);
+    stopVoice(); var s = ac.createBufferSource(), g0 = ac.createGain(); s.buffer = b; s.playbackRate.value = speed; g0.gain.value = cue.line.volume === undefined ? 1 : cue.line.volume;
+    s.connect(g0); g0.connect(master); try { s.start(0, Math.max(0, off || 0) / 1000); } catch (e) { return true; }
+    var me = { cue: cue, file: true, started: performance.now(), maxMs: 1e9 }; speaking = me; vsrc = s;
+    s.onended = function () { if (speaking === me) speaking = null; if (vsrc === s) vsrc = null; }; return true;
+  }
+  function stopVoice() { if (vsrc) { try { vsrc.stop(); } catch (e) {} vsrc = null; } }
   function say(text, cue) {
+    if (cue && cue.line && cue.line.voice) { playVoice(cue, 0); return; }
     if (!synth || !audioOn || !voice || AUD.narration === false) return;
     try { synth.cancel(); var s = text.replace(/\*\*/g, "");
       /* 長い語から置き換える（「ts5250」より先に「5250」を置き換えない。JS は数字だけのキーを先に並べるため順に頼らない） */
       Object.keys(AUD.pronounce || {}).sort(function (a, b) { return b.length - a.length; }).forEach(function (k) { s = s.split(k).join(AUD.pronounce[k]); });
-      var u = new SpeechSynthesisUtterance(s); u.voice = voice; u.lang = voice.lang; u.rate = Math.min(2.4, (AUD.rate || 1.1) * speed);
+      var u = new SpeechSynthesisUtterance(s), cv0 = cue && cue.who && CAST[cue.who] && CAST[cue.who].voice || {};
+      u.voice = voice; u.lang = voice.lang; u.rate = Math.min(2.4, (cv0.rate || AUD.rate || 1.1) * speed); if (cv0.pitch) u.pitch = cv0.pitch;
       var me = { u: u, cue: cue || null, started: performance.now(), maxMs: 4000 + s.length * 420 / u.rate };
       u.onend = u.onerror = function () { if (speaking === me) { speaking = null; root.classList.remove("mv-waiting"); } };
       speaking = me; synth.speak(u); } catch (e) {}
   }
-  function hush() { speaking = null; root.classList.remove("mv-waiting"); try { if (synth) synth.cancel(); } catch (e) {} }
+  function hush() { speaking = null; stopVoice(); root.classList.remove("mv-waiting"); try { if (synth) synth.cancel(); } catch (e) {} }
   function crossed(a, b, x) { return a < x && b >= x; }
   function onAdvance(a, b) {
     if (!audioOn) return;
@@ -1613,13 +1713,15 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     try { document.dispatchEvent(new CustomEvent("mv-exclusive", { detail: root })); } catch (e) {}
     var rb0 = $("mv-resume"); if (rb0) rb0.hidden = true;
     var c = CUES.filter(function (c) { return t >= c.a && t < c.b; })[0];
-    if (c && audioOn && (t - c.a) < (c.b - c.a) * .35) say(c.text, c);
+    if (c && audioOn && c.line && c.line.voice) playVoice(c, t - c.a);
+    else if (c && audioOn && (t - c.a) < (c.b - c.a) * .35) say(c.text, c);
     pickVoice(); syncUI(); poke();
   }
   function pause() { playing = false; hush(); musicStop(); cancelRec(); syncUI(); poke(); }
   function stop() { playing = false; hush(); musicStop(); cancelRec(); t = 0; started = false; needsDraw = true; syncUI(); poke(); }
   function toggle() { playing ? pause() : play(); }
-  function seek(ms) { t = clamp(ms, 0, DUR); hush(); needsDraw = true; started = true; if (playing) musicReset(); if (t >= DUR) { playing = false; musicStop(); } syncUI(); }
+  function seek(ms) { t = clamp(ms, 0, DUR); hush(); needsDraw = true; started = true; if (playing) musicReset(); if (t >= DUR) { playing = false; musicStop(); }
+    else if (playing) { var cq = CUES.filter(function (c) { return t >= c.a && t < c.b; })[0]; if (cq && cq.line && cq.line.voice) playVoice(cq, t - cq.a); } syncUI(); }
   function chapterStep(dir) { var i = chapterAt(t), n = i + dir; if (dir < 0 && t - CHAPTERS[i].t > 2000) n = i;
     n = clamp(n, 0, CHAPTERS.length - 1); seek(CHAPTERS[n].t); ensureAudio(); kitPlay("nav"); }
   function setSpeed(v) { speed = v; var sel = $("mv-speed"); if (sel) sel.value = String(v); store.set("speed", String(v)); if (playing) { hush(); musicReset(); } }
@@ -1732,6 +1834,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
 
   var lastCap = null, lastChap = -1;
   function syncCaption(force) {
+    var cw = CUES.filter(function (c) { return t >= c.a && t < c.b; })[0]; if (cw && cw.who) { if (lastCap !== "" || force) { lastCap = ""; var el0 = $("mv-captext"); el0.textContent = ""; el0.hidden = true; } return; }
     var c = CUES.filter(function (c) { return t >= c.a && t < c.b; })[0], text = captions && started && c ? c.text.replace(/\*\*/g, "") : "";
     if (text !== lastCap || force) { lastCap = text; var el = $("mv-captext"); el.textContent = text; el.hidden = !text; }
   }
@@ -1767,7 +1870,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     if (playing) {
       var nt = Math.min(DUR, t + Math.min(100, now - lastNow) * speed);
       /* 読み上げが字幕の終わりまでに終わらなければ、読み終わるまで字幕の終わりの手前で待つ（終わりの知らせが来ない時の上限つき） */
-      if (speaking && speaking.cue && AUD.wait !== false) {
+      if (speaking && speaking.cue && !speaking.file && AUD.wait !== false) {
         if (performance.now() - speaking.started > speaking.maxMs) { speaking = null; root.classList.remove("mv-waiting"); }
         else if (nt > speaking.cue.b - 60) { nt = Math.max(t, speaking.cue.b - 60); root.classList.add("mv-waiting"); }
       }
@@ -1790,7 +1893,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   if (tlist) {
     CUES.forEach(function (c, i) {
       var li = document.createElement("li"), b = document.createElement("button"); b.type = "button"; b.dataset.i = i;
-      b.innerHTML = '<span class="t">' + fmt(c.a) + "</span><span>" + esc(c.text.replace(/\*\*/g, "")) + "</span>";
+      b.innerHTML = '<span class="t">' + fmt(c.a) + "</span><span>" + (c.who && CAST[c.who] ? "<b>" + esc(CAST[c.who].name || c.who) + "：</b>" : "") + esc(c.text.replace(/\*\*/g, "")) + "</span>";
       b.addEventListener("click", function () { seek(c.a); if (!playing) play(); }); li.appendChild(b); tlist.appendChild(li);
     });
     if (tsearch) tsearch.addEventListener("input", function () { var q = tsearch.value.trim().toLowerCase();
@@ -1868,10 +1971,16 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   var sel = $("mv-speed"); if (sel) sel.value = String(speed);
   var ccb = $("mv-cc"); if (ccb) ccb.setAttribute("aria-pressed", String(captions));
   var aub = $("mv-audio"); if (aub) { aub.setAttribute("aria-pressed", String(audioOn)); aub.setAttribute("aria-label", audioOn ? "音声をオフにする" : "音声をオンにする"); }
+  var preload = function (src) { if (!src || IMGS[src]) return; var im = new Image(); im.onload = function () { needsDraw = true; }; im.src = src; IMGS[src] = im; };
+  Object.keys(CAST).forEach(function (id) { var im = CAST[id].images || {}; Object.keys(im).forEach(function (f) { var v = im[f]; if (typeof v === "string") preload(v); else Object.keys(v || {}).forEach(function (s2) { preload(v[s2]); }); }); });
+  SCENES.forEach(function (sc) { preload(sc.s.bg); if (sc.s.board && sc.s.board.type === "image") preload(sc.s.board.src); });
   SCENES.forEach(function (sc) { if ((sc.s.type === "image" || sc.s.type === "layout") && sc.s.src && !IMGS[sc.s.src]) { var im = new Image(); im.onload = function () { needsDraw = true; }; im.src = sc.s.src; IMGS[sc.s.src] = im; } });
   try { collectEvents(); buildSfxQueue(); } catch (e) { console.warn("sfx:", e); }
   new ResizeObserver(resize).observe(cv); resize(); syncUI(); requestAnimationFrame(frame);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { needsDraw = true; });
+  /* 使う書体・太さを先に読み込む（初めて使う組み合わせを仮の書体で測って、最初の 1 コマだけ幅がずれるのを防ぐ） */
+  if (document.fonts && document.fonts.load) { var fl = []; [F.sans, F.display, F.mono].forEach(function (fam) { [400, 600, 700, 800, 900].forEach(function (w) { fl.push(document.fonts.load(w + " 30px " + fam, "あA1")); }); });
+    Promise.all(fl).then(function () { CHARPOS.clear(); needsDraw = true; }, function () {}); }
   if (KIOSK && !(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches)) { started = true; playing = true; lastNow = performance.now(); syncUI(); }
   /* 同じページのほかのプレイヤーを再生したら、こちらは止める（読み上げの声は 1 つしか無いため） */
   document.addEventListener("mv-exclusive", function (e) { if (e.detail !== root && playing) pause(); });

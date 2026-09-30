@@ -139,6 +139,7 @@ description: 紹介・説明の内容から、動画のように再生できる�
 | 複数の部品を 1 画面に（3 つ並び・大見出し＋小窓・写真の重なり・全面の写真・1 つを大きく・左右の比較） | `layout`（`template` と `slots`） |
 | キーワードの広がり | `wordcloud` |
 | 大きな言葉を背景に（標語・ブランド） | `bigtype` |
+| 2 人の掛け合いで解説（ゆっくり解説・ずんだもん解説など） | `talk`（`lines` と中央の黒板 `board`。登場人物は台本の `cast`。台本づくりは **yukkuri-kaisetsu** スキル） |
 | 強い一語・結論（集中線・揺れ） | `impact` |
 | 公開日・開始までの数え下ろし | `countdown` |
 | 中心と周りの関係（生態系・連携先） | `orbit`（項目が中心の周りを回る） |
@@ -281,6 +282,23 @@ python3 <skill_dir>/build.py spec.json -o out.html      # HTML を作る（--pla
   （最初から 1 倍速で再生しながら録画。字幕は映像に焼き込み、音楽と効果音は入り、読み上げの声は入らない）。
 - **キー**: `J`・`L` で 10 秒、`0`〜`9` で 0〜90% の位置へ（上の表の操作に加えて）。
 - **1 ページに複数のプレイヤー**: 1 つを再生すると、ほかは止まる。
+
+## 掛け合い（登場人物・せりふ）
+
+```json
+"cast": {"zunda": {"name": "ずんだもん", "color": "#5fae45", "side": "right", "height": 520,
+                   "images": {"normal": {"closed": "chars/z/normal.png", "open": "chars/z/normal_open.png", "blink": "chars/z/normal_blink.png"}, "smile": "chars/z/smile.png"},
+                   "voice": {"pitch": 1.35, "rate": 1.15}}},
+"castAlways": true,
+"chapters": [{"title": "導入", "scenes": [{"type": "talk", "board": {"type": "bullets", "items": ["…"]}, "bg": "bg/room.png",
+  "lines": [{"who": "zunda", "text": "解説するのだ！", "face": "smile", "emote": "!", "voice": "voices/001.wav", "shake": true, "pause": 0.5}]}]}]
+```
+
+- `lines` のある場面では、登場人物が左右に立ち、話している方が弾んで口が動き、ほかの方は少し薄くなる。まばたきする。字幕は話し手の色の帯と名札で映像に描く。
+- 口は、`voice`（WAV）があれば音量に合わせて、無ければ文字の拍で動く（どちらも時刻だけで決まる）。`voice` のある場面は WAV の長さで時間を割り付ける。
+- 画像が無い登場人物は、仮のキャラクター（`color` の丸顔。smile・surprised・angry を描き分け）で描く。
+- `castAlways: true` なら、掛け合いでない場面にも登場人物を出したままにする（締めの `end` を除く）。
+- 声が無いせりふはブラウザの読み上げで、`cast.<名前>.voice` の `pitch`・`rate` で話し手ごとに変える。
 
 ## ほかの HTML に埋め込む
 

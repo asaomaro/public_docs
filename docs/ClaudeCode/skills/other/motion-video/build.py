@@ -152,6 +152,8 @@ SCENE_TYPES = {
                '{"type":"layout","template":"trio","title":"3 つの画面","slots":[{"type":"gauge","value":82,"caption":"満足度"},{"type":"rings","items":[{"label":"達成","value":70}],"caption":"進み"},{"type":"stack","labels":["A","B"],"series":[{"name":"x","values":[3,5]}],"caption":"内訳"}]}'),
     "wordcloud": (["words"], "語の雲（重い語ほど大きく中央に。順に弾んで現れ、ゆっくり漂う）", '{"type":"wordcloud","words":[{"text":"並行","weight":5},{"text":"承認","weight":4},"通知","SSH","Windows"]}'),
     "bigtype": (["big"], "画面いっぱいの文字が背景で流れ、前に言葉が出る（text・sub）", '{"type":"bigtype","big":"PARALLEL","text":"並べて、任せる。","sub":"Sodashitsu"}'),
+    "talk": ([], "掛け合い（ゆっくり解説など）。lines: [{who, text, face, emote, voice, shake, pause}] と、中央の黒板 board（部品の台本・{type:image,src}・文字列）、背景 bg。登場人物は台本の cast",
+             '{"type":"talk","board":{"type":"bullets","heading":"3 つの特徴","items":["速い","安い","うまい"]},"lines":[{"who":"a","text":"今日は〇〇を解説するよ。"},{"who":"b","text":"よろしくなのだ！","face":"smile","emote":"!"}]}'),
     "icons": (["items"], "アイコンの格子（線で描かれ、現れた後も動く）。items: {icon, label, text}", '{"type":"icons","heading":"できること","items":[{"icon":"rocket","label":"速い","text":"3 分で"},{"icon":"shield","label":"安全"},{"icon":"users","label":"みんなで"}]}'),
     "impact": (["text"], "強い一語を叩きつける（集中線・破片・画面の揺れ）。sub で下に一行", '{"type":"impact","text":"10 倍速い","sub":"同じ作業が 3 分で"}'),
     "countdown": ([], "3・2・1 の数え下ろしと、最後に label を叩きつける（from で始まりの数）", '{"type":"countdown","from":3,"label":"公開！","sub":"10 月 1 日"}'),
@@ -257,11 +259,53 @@ API_DOC = """custom の本体は (ctx, lt, d, H, s)。座標は 1920×1080、lt 
 手本は recipes.md。"""
 
 
-MIN_SEC = {"layout": 7, "wordcloud": 5, "bigtype": 4.5, "area": 6, "stack": 6, "scatter": 6, "heatmap": 6, "gauge": 5, "rings": 5, "treemap": 6, "radar": 6, "phone": 6, "dashboard": 7,
+MIN_SEC = {"talk": 2, "layout": 7, "wordcloud": 5, "bigtype": 4.5, "area": 6, "stack": 6, "scatter": 6, "heatmap": 6, "gauge": 5, "rings": 5, "treemap": 6, "radar": 6, "phone": 6, "dashboard": 7,
            "form": 6, "notifs": 4, "scroll": 6, "drag": 5, "network": 6, "tree": 5, "states": 6, "map": 6, "layers": 6, "pipeline": 7, "icons": 3, "impact": 3.5, "countdown": 4, "orbit": 7, "logo": 6.5, "marquee": 5, "title": 8, "statement": 4.5, "bullets": 2.5, "flow": 3, "steps": 2, "terminal": 2.5, "stats": 4.5, "bars": 3.5,
            "compare": 3, "code": 2.5, "window": 7, "image": 5, "end": 4, "custom": 5,
            "cards": 3, "timeline": 3, "chat": 2, "line": 6, "donut": 6, "table": 3, "quote": 6, "kinetic": 3, "split": 6,
            "beforeafter": 7, "dom": 5}
+
+
+def wav_info(path, step_ms=50):
+    """WAV の長さ（ms）と、step_ms ごとの音量（0..1。口パクに使う）。PCM 8/16/32bit のみ。"""
+    import wave, array
+    with wave.open(path, "rb") as w:
+        n, sr, ch, sw = w.getnframes(), w.getframerate(), w.getnchannels(), w.getsampwidth()
+        raw = w.readframes(n)
+    dur = n * 1000.0 / sr
+    if sw == 2:
+        a = array.array("h", raw); full = 32768.0
+    elif sw == 4:
+        a = array.array("i", raw); full = 2147483648.0
+    else:
+        a = array.array("B", raw); a = array.array("h", [(x - 128) * 256 for x in a]); full = 32768.0
+    if sys.byteorder == "big" and sw > 1:
+        a.byteswap()
+    per = max(1, int(sr * step_ms / 1000)) * ch
+    env = []
+    for i in range(0, len(a), per):
+        seg = a[i:i + per]
+        if not seg:
+            break
+        rms = (sum(x * x for x in seg[::4]) / max(1, len(seg[::4]))) ** .5 / full
+        env.append(rms)
+    mx = max(env) if env else 1
+    return dur, [round(v / mx, 2) if mx else 0 for v in env]
+
+
+def _embed(path, base, default="image/png"):
+    if not path or re.match(r"^(data:|https?:)", path):
+        return path, None
+    p = os.path.join(base, path)
+    if not os.path.isfile(p):
+        return None, p
+    mime = mimetypes.guess_type(p)[0] or default
+    return "data:%s;base64,%s" % (mime, base64.b64encode(open(p, "rb").read()).decode("ascii")), None
+
+
+def is_dialogue(s):
+    """掛け合いの場面か（lines に話し手 who 付きのせりふがある。end・statement の lines とは別）。"""
+    return isinstance(s.get("lines"), list) and any(isinstance(ln, dict) and ln.get("who") for ln in s["lines"])
 
 
 def narration_text(s):
@@ -368,8 +412,24 @@ def plan(spec):
     rate = float((spec.get("audio") or {}).get("rate", 1.1))
     pron = (spec.get("audio") or {}).get("pronounce") or {}
     warns = []
+    cast = spec.get("cast") or {}
     for ci, ch in enumerate(spec["chapters"]):
         for si, s in enumerate(ch["scenes"]):
+            if is_dialogue(s):
+                # 掛け合い: せりふごとに、音声ファイルの長さか読み上げの見積もりで時間を割り付ける
+                t, cl = 400.0, []
+                for li, ln in enumerate(s["lines"]):
+                    if ln.get("_vdur"):
+                        dur = ln["_vdur"]
+                    else:
+                        vr = float(((cast.get(ln.get("who")) or {}).get("voice") or {}).get("rate", rate))
+                        dur = max(900.0, speech_seconds(ln.get("text", ""), lang, pron) / vr * 1000 + 250)
+                    cl.append([int(t), int(t + dur), ln.get("text", ""), ln.get("who"), li])
+                    t += dur + float(ln.get("pause", .3)) * 1000
+                ms = int(max(t + 500, min_seconds(s) * 1000, float(s.get("duration", 0)) * 1000))
+                s["_dur"] = ms
+                s["_cues"] = cl
+                continue
             text = narration_text(s)
             speech = speech_seconds(text, lang, pron) / rate
             need = max(min_seconds(s), speech + 1.2)
@@ -497,6 +557,49 @@ def validate(spec, base):
         fk = f if isinstance(f, str) else (f or {}).get("kind")
         if fk not in FX:
             errs.append("fx %r は %s のいずれか" % (fk, "/".join(FX)))
+    # 登場人物（cast）: 立ち絵の画像を埋め込む。images は {表情: 画像} か {表情: {closed, open, half, blink}}
+    for cid, c in (spec.get("cast") or {}).items():
+        for face, v in list((c.get("images") or {}).items()):
+            vals = v if isinstance(v, dict) else {"_": v}
+            for key, path in list(vals.items()):
+                uri, miss = _embed(path, base)
+                if miss:
+                    errs.append("cast.%s.images.%s: 画像が見つかりません: %s" % (cid, face, miss))
+                elif isinstance(v, dict):
+                    v[key] = uri
+                else:
+                    c["images"][face] = uri
+    for ci, ch in enumerate(spec.get("chapters") or []):
+        for si, s in enumerate(ch.get("scenes") or []):
+            where = "第 %d 章の場面 %d" % (ci + 1, si + 1)
+            for key in ("bg",):
+                if s.get(key):
+                    uri, miss = _embed(s[key], base)
+                    if miss:
+                        errs.append("%s: %s の画像が見つかりません: %s" % (where, key, miss))
+                    else:
+                        s[key] = uri
+            if isinstance(s.get("board"), dict) and s["board"].get("type") == "image" and s["board"].get("src"):
+                uri, miss = _embed(s["board"]["src"], base)
+                if miss:
+                    errs.append("%s: board の画像が見つかりません: %s" % (where, miss))
+                else:
+                    s["board"]["src"] = uri
+            for li, ln in enumerate(s.get("lines") if is_dialogue(s) else []):
+                if ln.get("who") and spec.get("cast") and ln["who"] not in spec["cast"]:
+                    errs.append("%s: lines[%d] の who %r は cast に無い" % (where, li, ln["who"]))
+                if ln.get("voice") and not str(ln["voice"]).startswith("data:"):
+                    p = os.path.join(base, ln["voice"])
+                    if not os.path.isfile(p):
+                        errs.append("%s: lines[%d] の音声ファイルが見つかりません: %s" % (where, li, p))
+                        continue
+                    try:
+                        dur, env = wav_info(p)
+                        ln["_vdur"], ln["_env"] = int(dur), env
+                    except Exception as e:  # WAV 以外（mp3 など）: 長さは読み上げの見積もり、口は文字の拍
+                        errs.append("%s: lines[%d] の音声は WAV（PCM）にしてください（%s）" % (where, li, e))
+                        continue
+                    ln["voice"], _ = _embed(p, base, "audio/wav")
     errs += sound.prepare(spec, base)
     return errs
 
@@ -995,8 +1098,9 @@ def main():
             print("%s  第 %d 章 %s　♪ %s" % (fmt(t), ci + 1, ch["title"], sound.music_label(ch["music"]) if "music" in ch else sound.music_label(spec["audio"].get("music")) if mk else "なし"))
             for s in ch["scenes"]:
                 print("  %s  %-9s %5.1f 秒  %s" % (fmt(t), s["type"], s["_dur"] / 1000, (s.get("heading") or s.get("title") or "")[:30]))
-                for a, b, c in s["_cues"]:
-                    print("        %s–%s  %s" % (fmt(t + a), fmt(t + b), c))
+                for cu in s["_cues"]:
+                    who = (spec.get("cast") or {}).get(cu[3], {}).get("name", cu[3]) + "：" if len(cu) > 3 and cu[3] else ""
+                    print("        %s–%s  %s%s" % (fmt(t + cu[0]), fmt(t + cu[1]), who, cu[2]))
                 t += s["_dur"]
         print("合計 %s（%d 章・%d 場面）" % (fmt(total), len(spec["chapters"]), sum(len(c["scenes"]) for c in spec["chapters"])))
         return
