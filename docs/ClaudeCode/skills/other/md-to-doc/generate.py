@@ -684,6 +684,11 @@ def parse_blocks(lines, headings, used_slugs, mermaid_store, top_level=True, lay
                     break
             i += 1
             continue
+        vm = VIDEO_RE.match(line.strip())
+        if vm:
+            out.append(video_fragment(video_attrs(vm.group(1)), _IMG_BASE, _DOC_THEME[0]))
+            i += 1
+            continue
         tm = TABLE_DIRECTIVE_RE.match(line)
         if tm:
             table_mode = tm.group(1).lower()
@@ -905,6 +910,7 @@ def build_list(items):
 # 節の見せ方（walkthrough / summary）、表の強化
 # ──────────────────────────────────────────────────────────────────────────
 _UID = [0]
+_DOC_THEME = ["corporate"]
 
 
 def _uid(prefix):
@@ -3041,6 +3047,7 @@ def convert_file(path, theme_key, eyebrow=None, auto_figure="off", toc_mode="sid
 
     global _ACCENTS
     _ACCENTS = accent_vars(theme_key)
+    _DOC_THEME[0] = theme_key
 
     # AI設計（freeform もしくは design=ai）: 本文は Claude が後段で著述する。
     # ガワだけ生成し中身はプレースホルダにする。
@@ -3116,6 +3123,8 @@ def finalize_html(path, theme_key, src=None):
         return part
 
     doc = PART_RE.sub(one, doc)
+    _DOC_THEME[0] = theme_key
+    doc = replace_videos(doc, _IMG_BASE, theme_key)
     rendered, ok = render_mermaid(store, THEMES[theme_key])
     pending = []
     for i, src_ in enumerate(store):
@@ -3128,6 +3137,71 @@ def finalize_html(path, theme_key, src=None):
             pending.append({"out": path, "id": eid, "source": src_})
     open(path, "w", encoding="utf-8").write(doc)
     return count[0], pending, bad, "<!--MD2DOC_CONTENT-->" in doc
+
+# ──────────────────────────────────────────────────────────────────────────
+# 動画の埋め込み（motion-video のプレイヤーを文書の中に置く）
+#   <!--MD2DOC-VIDEO src="intro.json" player="minimal" theme="midnight"-->
+#   台本は motion-video の形式（部品・混在・自由のどれでも）。プレイヤー・時間割・字幕・音声は motion-video が受け持つ。
+# ──────────────────────────────────────────────────────────────────────────
+VIDEO_RE = re.compile(r'<!--\s*MD2DOC-VIDEO\s+([^>]*?)\s*-->')
+VIDEO_THEME = {"corporate": "daylight", "darktech": "midnight", "infographic": "vivid", "editorial": "paper", "pastel": "daylight",
+               "formal": "daylight", "manual": "daylight", "contrast": "mono", "blueprint": "navy-brass", "minimal": "daylight",
+               "paper": "paper"}
+_MV = [None]
+
+
+def _motion_video():
+    """隣の motion-video スキルの build.py を読み込む（無ければ None）。"""
+    if _MV[0] is None:
+        import importlib.util
+        here = os.path.dirname(os.path.realpath(__file__))
+        path = os.path.join(here, "..", "motion-video", "build.py")
+        if not os.path.isfile(path):
+            _MV[0] = False
+        else:
+            spec = importlib.util.spec_from_file_location("motion_video_build", path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            _MV[0] = mod
+    return _MV[0] or None
+
+
+def video_attrs(text):
+    return dict(re.findall(r'(\w+)\s*=\s*"([^"]*)"', text))
+
+
+def video_fragment(attrs, base, doc_theme):
+    mv = _motion_video()
+    if not mv:
+        return '<div class="callout callout-warning"><div class="callout-body">motion-video スキルが見つからないため、動画を埋め込めませんでした。</div></div>'
+    src = attrs.get("src", "")
+    path = src if os.path.isabs(src) else os.path.join(base or ".", src)
+    if not os.path.isfile(path):
+        print("warn: MD2DOC-VIDEO の台本が見つかりません: %s" % path, file=sys.stderr)
+        return '<div class="callout callout-warning"><div class="callout-body">動画の台本が見つかりません: %s</div></div>' % html.escape(src)
+    spec = json.load(open(path, encoding="utf-8"))
+    errs = mv.validate(spec, os.path.dirname(os.path.abspath(path)))
+    if errs:
+        for e in errs:
+            print("warn: 動画 %s: %s" % (src, e), file=sys.stderr)
+        return '<div class="callout callout-warning"><div class="callout-body">動画の台本に誤りがあります（%s）。</div></div>' % html.escape(src)
+    for w in mv.plan(spec):
+        print("warn: 動画 %s: %s" % (src, w), file=sys.stderr)
+    player = attrs.get("player") or spec.get("player") or "minimal"
+    theme = attrs.get("theme") or spec.get("theme") or VIDEO_THEME.get(doc_theme, "daylight")
+    if player not in mv.PLAYERS:
+        player = "minimal"
+    if theme not in mv.THEMES:
+        theme = VIDEO_THEME.get(doc_theme, "daylight")
+    cap = attrs.get("caption") or ""
+    frag = mv.build_embed(spec, theme, player)
+    return '<figure class="md2doc-video">%s%s</figure>' % (
+        frag, '<figcaption style="color:var(--muted);font-size:13px;margin-top:6px">%s</figcaption>' % html.escape(cap) if cap else "")
+
+
+def replace_videos(doc, base, doc_theme):
+    return VIDEO_RE.sub(lambda m: video_fragment(video_attrs(m.group(1)), base, doc_theme), doc)
+
 
 def main():
     ap = argparse.ArgumentParser(description="Markdown を視覚的なHTMLドキュメントに変換")

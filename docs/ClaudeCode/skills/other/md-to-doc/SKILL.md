@@ -376,6 +376,12 @@ figkit に無い形の図だけ、以下の手描きのルールで描く。
 | 割合・内訳 | `donut` | 時計回りに埋まり、合計が数え上がる |
 | 予定・工程表・マイルストーン | `gantt` | バーが伸び、今日の線が引かれる |
 | コマンドの実行例・セットアップ | `terminal` | コマンドが 1 文字ずつ打たれ、出力が続く。長い手順は `"trigger":"click"` |
+| 会話・問い合わせ・AI とのやりとりの例 | `chat` | 吹き出しが順に現れる。`side` 省略時は `user` が右、他は左。長い文は折り返す |
+| 段ごとに減る件数（訪問→登録→購入） | `funnel` | 段が上から順に現れ、値が数え上がる。右に前段からの割合。要の段は `highlight` |
+| 2〜3 の集合の重なり・共通点 | `venn` | 円が順に弾んで現れ、重なりのラベル（`overlap`）が最後に出る |
+| 2 軸での位置づけ（効果×工数など） | `matrix` | 軸が描かれ、象限の名前、点が順に弾む。`quadrants` は左上・右上・左下・右下の順 |
+| 年表・マイルストーン（日付の点） | `timeline` | 軸が伸び、点と文字が上下交互に順に現れる。節目は `highlight`（明滅） |
+| 組織図・階層（親子の木） | `org` | 上の段から順に現れ、親子の線が描かれる。葉が多いと間隔を詰め、縦に積む |
 | 移行・改善・設計変更 | `toggle` | 変更前／変更後をボタンで切り替え、変わった所（`changed`）が光る。印刷は並べて表示 |
 | 1 枚の流れで複数の経路（正常系・異常系） | `flow` ＋ `edges[].paths` | 経路のボタンで、その経路だけが光り印が流れる |
 | 大きな構成図の要所を順に説明 | `flow`・`hub` ＋ `zoom` | 全体→部分へ寄り、次へ移って全体へ戻る（小さな図には使わない） |
@@ -435,7 +441,8 @@ python3 <skill_dir>/figkit.py spec.json --insert out.html # 各図の slot / rep
   差し込み先は `slot`（auto-figure の `data-section`）・`replace`（置き換える figure の id。mermaid の手描き
   フォールバック `md2doc-mm-N` に使う）・`placeholder`（AI 構築の本文に置いた `<!--FIGKIT:名前-->`）のどれか。
 - 種類: `flow` / `steps` / `cycle` / `bars` / `metrics` / `compare` / `hub` / `layers` / `sequence` /
-  `line` / `donut` / `gantt` / `terminal` / `toggle`（仕様は `--list`）。
+  `line` / `donut` / `gantt` / `terminal` / `toggle` / `chat` / `funnel` / `venn` / `matrix` / `timeline` / `org`
+  （仕様は `--list`）。
 - 項目の共通の注釈: `note`（吹き出し）・`note_pos`・`changed`（toggle で変わった所）。
   `flow` は `edges[].paths`（経路）・`zoom`（寄るノード id の順）・`hover`、`hub` は `zoom`（label の順）・`hover`。
 - `toggle` は `states` に他の type の仕様を 2 つ以上並べる（`labels` で状態の名前）。
@@ -452,6 +459,22 @@ python3 <skill_dir>/figkit.py spec.json --insert out.html # 各図の slot / rep
    "items": [{"label": "4月", "value": 320}, {"label": "5月", "value": 480}, {"label": "6月", "value": 1240}]}
 ]}
 ```
+
+### 4e. 動画を埋め込む（任意）
+
+文書の中に、動画のように再生できる説明（motion-video のプレイヤー）を置ける。
+**プレイヤー・時間割・字幕・音声は motion-video が受け持ち、中身は Claude が作る**（部品でも、`custom`・`dom` で自由にでも）。
+
+```markdown
+<!--MD2DOC-VIDEO src="intro.json" player="minimal" caption="概要（1 分）"-->
+```
+
+- `src` は motion-video の台本（md からの相対パス）。書き方は motion-video スキルの SKILL.md と `build.py --list`。
+- `player` の既定は `minimal`（文書に馴染む）。`theme` を省くと文書のテーマに近い配色になる
+  （corporate→daylight、darktech→midnight、editorial・paper→paper、contrast→mono、blueprint→navy-brass など）。
+- 決定論的な構築（md に書く）でも、AI 構築（本文に書いて `--finalize`）でも同じ書き方で効く。
+- 向くのは、手順の実演・画面の変化・全体像を順に見せる説明。文章と図で足りる節には使わない（1 文書に 1〜2 本まで）。
+- motion-video スキルが無い環境では、注意の枠に置き換わる。
 
 ### 5. mermaid のフォールバック対応（環境にmmdcが無い場合）
 スクリプトは mermaid 図を、`@mermaid-js/mermaid-cli`（`mmdc`）があれば**選択テーマの配色でSVG化**して埋め込む。
