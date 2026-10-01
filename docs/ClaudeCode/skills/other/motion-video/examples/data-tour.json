@@ -1,0 +1,76 @@
+{
+  "title": "データの動きと画面の解説",
+  "description": "時間とともに動くデータの部品と、スクリーンショットで操作を解説する部品の見本",
+  "lang": "ja",
+  "player": "studio",
+  "theme": "daylight",
+  "motion": "dynamic",
+  "audio": { "narration": true, "music": "calm", "sfx": true, "rate": 1.1 },
+  "chapters": [
+    { "title": "順位の入れ替わり", "desc": "race・linerace",
+      "scenes": [
+        { "type": "race", "heading": "地域別の利用者数", "unit": "万", "top": 6,
+          "periods": ["2019", "2020", "2021", "2022", "2023", "2024"],
+          "items": [
+            { "label": "東京", "values": [42, 48, 55, 61, 66, 70] },
+            { "label": "大阪", "values": [30, 35, 47, 58, 69, 82] },
+            { "label": "名古屋", "values": [25, 27, 30, 33, 37, 41] },
+            { "label": "福岡", "values": [12, 18, 29, 44, 63, 77] },
+            { "label": "札幌", "values": [20, 22, 24, 27, 29, 30] },
+            { "label": "仙台", "values": [9, 11, 14, 18, 22, 27] },
+            { "label": "広島", "values": [15, 16, 17, 19, 21, 23] }
+          ],
+          "narration": "2019年は東京が首位でしたが、福岡と大阪が急速に伸び、2024年には大阪が首位に立ちました。" },
+        { "type": "linerace", "heading": "月ごとの処理件数", "unit": "件",
+          "labels": ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月"],
+          "series": [ { "name": "自動", "values": [20, 45, 90, 160, 240, 330, 420, 520] },
+                      { "name": "手作業", "values": [120, 125, 118, 110, 96, 84, 70, 60] } ],
+          "narration": ["自動で処理した件数は、月を追うごとに伸びています。", "手作業の件数は、少しずつ減っていきました。"] }
+      ] },
+    { "title": "割合と分布", "desc": "bubble・regions・waffle",
+      "scenes": [
+        { "type": "bubble", "heading": "費用と効果", "xLabel": "費用", "yLabel": "効果",
+          "periods": ["2022", "2023", "2024"],
+          "items": [ { "label": "案 A", "x": [20, 35, 50], "y": [30, 52, 80], "r": [4, 7, 11] },
+                     { "label": "案 B", "x": [70, 62, 55], "y": [40, 45, 52], "r": [9, 8, 7] },
+                     { "label": "案 C", "x": [40, 30, 22], "y": [20, 32, 60], "r": [3, 5, 9] } ],
+          "narration": "案 A は費用が増えても、それ以上に効果が伸びています。" },
+        { "type": "regions", "heading": "地方ごとの導入社数", "preset": "japan", "unit": "社",
+          "items": [ { "label": "関東", "value": 420 }, { "label": "近畿", "value": 260 }, { "label": "中部", "value": 180 },
+                     { "label": "九州・沖縄", "value": 140 }, { "label": "東北", "value": 70 }, { "label": "中国", "value": 60 },
+                     { "label": "北海道", "value": 55 }, { "label": "四国", "value": 25 } ],
+          "note": "**関東**と**近畿**で半分を超える",
+          "narration": "導入している会社は、関東と近畿に集まっています。" },
+        { "type": "waffle", "heading": "依頼の結末",
+          "items": [ { "label": "自動で完了", "value": 72 }, { "label": "確認が必要", "value": 20 }, { "label": "失敗", "value": 8 } ],
+          "narration": ["依頼の 7 割は自動で完了します。", "2 割は人の確認が必要で、", "失敗は 1 割未満です。"] }
+      ] },
+    { "title": "流れと変化", "desc": "sankey・slope・odometer",
+      "scenes": [
+        { "type": "sankey", "heading": "訪問から契約まで", "unit": "人",
+          "flows": [ { "from": "訪問", "to": "登録", "value": 600 }, { "from": "訪問", "to": "離脱", "value": 400 },
+                     { "from": "登録", "to": "有料", "value": 150 }, { "from": "登録", "to": "無料のまま", "value": 450 } ],
+          "narration": ["訪問した千人のうち、六百人が登録し、", "そのうち百五十人が有料の契約に進みました。"] },
+        { "type": "slope", "heading": "導入の前と後", "from": "導入前", "to": "導入後",
+          "items": [ { "label": "待ち時間（分）", "a": 30, "b": 5 }, { "label": "満足度", "a": 62, "b": 88 }, { "label": "差し戻し（件）", "a": 18, "b": 6 } ],
+          "narration": ["待ち時間は 30 分から 5 分に減り、", "満足度は 88 点に上がりました。", "差し戻しも 3 分の 1 です。"] },
+        { "type": "odometer", "heading": "これまでの実績",
+          "items": [ { "label": "処理した依頼", "value": 128450, "unit": "件" }, { "label": "削れた作業時間", "value": 3200, "unit": "時間" } ],
+          "narration": ["処理した依頼は 12 万件を超え、", "削れた作業時間は 3200 時間です。"] }
+      ] },
+    { "title": "画面の解説", "desc": "tour・scrollshot・swipe",
+      "scenes": [
+        { "type": "tour", "src": "assets/app.png", "frame": "browser", "url": "taskboard.example.com",
+          "steps": [ { "rect": [1330, 80, 260, 70], "note": "右上の**新規作成**から依頼を追加します", "click": true },
+                     { "rect": [270, 150, 1300, 110], "note": "状態ごとの件数が、上にまとめて出ます" },
+                     { "rect": [270, 280, 1300, 260], "note": "遅れている依頼は**赤い札**で目立ちます" } ],
+          "narration": ["まず、右上の新規作成から依頼を追加します。", "上には、状態ごとの件数がまとめて出ます。", "遅れている依頼は、赤い札で目立つようになっています。"] },
+        { "type": "scrollshot", "src": "assets/docs-long.jpg", "url": "docs.taskboard.example.com",
+          "stops": [ { "y": 0.35, "note": "設定ファイルの書き方" }, { "y": 0.8, "note": "よくある質問もここに" } ],
+          "narration": ["ドキュメントには、設定ファイルの書き方があり、", "下には、よくある質問もまとめています。"] },
+        { "type": "swipe", "heading": "画面の新旧", "before": "assets/app-old.png", "after": "assets/app.png", "labels": ["今まで", "これから"],
+          "caption": "状態と件数がひと目で分かるように",
+          "narration": "新しい画面では、依頼の状態と件数がひと目で分かります。" }
+      ] }
+  ]
+}

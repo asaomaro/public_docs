@@ -173,6 +173,20 @@ SCENE_TYPES = {
     "marquee": (["rows"], "大きな文字の帯が左右に流れる（キーワードの洪水）。caption で中央に札", '{"type":"marquee","rows":[["並行","承認","通知"],["SSH","Windows","TLS"]],"caption":"ぜんぶ、1 つの画面で"}'),
     "custom": ([], "JS で自由に描く（本体: (ctx, lt, d, H, s)。道具は --api。code は文字列か行の配列、または src に .js のパス）", '{"type":"custom","src":"scenes/intro.js","duration":8,"narration":"…"}'),
 }
+# 立体・奥行きと文字の演出（parts-depth.js）
+SCENE_TYPES.update({
+    "cube": (["faces"], "箱が回って面ごとに見せる（2〜4 面。faces: {title, text, icon} か文字列）", '{"type":"cube","heading":"3 つの顔","faces":[{"title":"速い","text":"3 分で始められる","icon":"rocket"},{"title":"安全","icon":"shield"},{"title":"みんなで","icon":"users"}]}'),
+    "carousel": (["items"], "カードの輪が奥行きの中で回り、今の 1 枚が手前に来る（caption で下に一言）", '{"type":"carousel","heading":"使える道具","items":[{"title":"Claude","icon":"bolt"},{"title":"Codex","icon":"code"},{"title":"Gemini","icon":"star"},{"title":"herdr","icon":"terminal"}]}'),
+    "explode": (["layers"], "層の構成を斜め上から見た板で積み、間が開いて分かれる（下から。text で横に注記）", '{"type":"explode","heading":"仕組みの層","layers":[{"title":"インフラ","text":"クラウド"},{"title":"サーバ","icon":"server"},{"title":"画面","text":"ブラウザ・端末"}]}'),
+    "tunnel": (["items"], "奥に並んだ枠の中を進み、1 つずつ通り抜ける（手順・章立て）", '{"type":"tunnel","items":[{"title":"計画","icon":"pencil"},{"title":"実装","text":"並べて進める"},{"title":"公開","icon":"rocket"}]}'),
+    "parallax": ([], "奥行きのある風景（scene: hills|city|space）を横に移り、手前ほど速く動く。中央に title・text", '{"type":"parallax","scene":"city","title":"どこからでも","text":"別のマシンの作業も 1 画面で"}'),
+    "swarm": (["words"], "粒が集まって言葉になり、次の言葉へ形を変える（2〜4 語。短い語ほどきれい）", '{"type":"swarm","words":["並べる","知らせる","任せる"],"text":"3 つの動き"}'),
+    "morph": (["items"], "形（circle square triangle diamond hexagon star arrow plus heart）が次の形へ変わり、横の名前が入れ替わる", '{"type":"morph","heading":"育つ流れ","items":[{"shape":"circle","label":"種","text":"思いつき"},{"shape":"triangle","label":"芽"},{"shape":"star","label":"花"}]}'),
+    "barrage": (["phrases"], "短い言葉を大きく連打する（言葉ごとに組み方が変わる: stack punch slide spread。**強調** は差し色）", '{"type":"barrage","phrases":["待たない。","**並べる**。","気づく、すぐに。","任せて、**進む**。"]}'),
+    "rotator": (["words"], "前後の言葉は止まったまま、間の語だけが入れ替わる（before・after・text）", '{"type":"rotator","before":"AI と","words":["速く","安全に","楽しく"],"after":"作る","text":"Sodashitsu で"}'),
+    "textpath": (["text"], "文字が線（path: circle wave arc spiral）に沿って並び、流れる。中央に center・icon・sub", '{"type":"textpath","path":"circle","text":"SODASHITSU · AGENT COCKPIT","center":"操舵室","sub":"AI の作業を 1 画面で"}'),
+    "emphasis": (["text"], "文章は静かに置き、**強調** の語だけが順に光って動く（強調の数とナレーションの文の数をそろえると、話す順に光る）", '{"type":"emphasis","text":"作業を**並べて見る**。待ちは**通知で知る**。あとは**任せる**だけ。"}'),
+})
 COMMON = ("共通: narration（ナレーション＝字幕。文字列か配列）・duration（秒。省略時は自動）・heading・transition（切り替え。下の一覧）"
           "・overlays（重ねの層）・camera（カメラ。型の名前か keyframe）・anim（文字の出方。title・statement・quote・end・kinetic・impact・logo）"
           "・fx（演出の層の配列。false で性格の既定も止める）・shake（[{at, amp, dur}] 画面の揺れ）・sfx（効果音）")
@@ -206,6 +220,7 @@ TRANSITIONS = {
     "rings": "同心円の輪が開く", "stack": "次の場面が横から重なり、前の場面が沈む", "shrink": "前の場面が縮んで左上へ飛ぶ", "flood": "波打つ水面が下から満ちる",
     "focus": "ぼけて入れ替わる", "dissolve": "細かい四角がばらばらに入れ替わる", "columns": "縦の帯が開く",
 }
+TRANSITIONS.update({"depth": "前の場面が奥へ沈み、次が手前から定まる（立体）", "swing": "前の場面が左端を軸に扉のように奥へ開く（立体）"})
 TEXT_ANIMS = {
     "rise": "下から浮かぶ（既定）", "reveal": "左から現れ、カーソルが走る（題名の既定）", "pop": "弾んで出る", "slam": "大きく叩きつけ、画面が揺れる",
     "stretch": "横に伸びた形から縮む（映画の題名）", "blur": "ぼけから合う", "glitch": "色ずれしながら定まる", "neon": "ネオンが点く",
@@ -216,6 +231,7 @@ TEXT_ANIMS = {
     "flicker": "1 文字ずつ瞬いて点く（古い看板）", "words": "語ごとに下から覗く", "halves": "上半分と下半分が左右から合わさる", "swing": "1 文字ずつ上を軸に振れて止まる",
     "elastic": "ゴムのように伸び縮みして定まる", "tracking": "広い字間から詰まる（上品）", "skew": "斜めに傾いて滑り込む（ニュース）",
 }
+TEXT_ANIMS.update({"depth": "1 文字ずつ奥から迫って定まる（立体）", "unfold": "下を軸に、寝た状態から起き上がる（立体）", "swirl": "渦を巻いて集まる"})
 EASES = {"smooth": "なめらか（既定）", "spring": "ばねのように行き過ぎて戻る", "snappy": "素早く決まる", "bouncy": "跳ねて止まる",
          "elastic": "ゴムのように震えて止まる", "calm": "ゆっくり出てゆっくり止まる"}
 ORDERS = {"normal": "前から（既定）", "reverse": "後ろから", "center": "中央から外へ", "edges": "両端から中央へ", "random": "ばらばら（毎回同じ順）",
@@ -228,6 +244,7 @@ FX = {
     "bubbles": "昇る泡", "matrix": "流れ落ちる文字", "rain": "雨（上）", "snow": "雪（上）", "film": "古いフィルムの傷とちらつき（上）",
     "leaks": "光漏れ（上）", "spotlight": "動くスポットライト（上）", "sparkles": "きらめき（上）",
 }
+FX.update({"cubes": "奥行きの中を回りながら漂う針金の箱"})
 CAMERA_PRESETS = {
     "push-in": "ゆっくり寄る", "pull-out": "寄った所から引く", "pan-left": "左へ流す", "pan-right": "右へ流す", "rise": "上へ上がる",
     "punch": "言い切りで素早く寄る", "tilt": "傾きを戻しながら", "drift": "ゆらゆら漂う", "dolly": "大きく寄った所から回りながら引く",
@@ -281,6 +298,11 @@ API_DOC = """custom の本体は (ctx, lt, d, H, s)。座標は 1920×1080、lt 
   H.camAt(keys, 進み) / H.applyCam(cam) カメラを自分で掛ける
 部品を道具に
   H.sub(type, spec, lt, d, {x, y, scale, alpha, clip}) 部品を縮小して置く（spec は s の中に置くと計算が使い回される）
+立体（parts-depth.js。透視の焦点 1400、中心が原点・z は奥が正）
+  H.p3(x, y, z[, cx, cy]) 3D の点を画面へ → {x, y, s（縮尺）}   H.rot3([x,y,z], 傾き ax, 回転 ay) 縦軸で回してから横軸で傾ける
+  H.plane(左上, 右上, 左下, w, h, function (ctx) {…w×h の絵…}, {cx, cy, both}) 3D の面に 2D の絵を貼る（裏向きは描かない。both で両面）
+  H.textPoints(文字, n, {size, weight, font, y}) 文字の形の点 n 個   H.shapePoints(形, n) circle square triangle diamond hexagon star arrow plus heart
+  H.morph(点の並び A, B, 進み) 形の変身   H.mixColor(色, 色, 進み)
 動きを強く
   H.text(行, x, y, {size, weight, font, align, color}, 出方, lt, 始まり ms, 長さ ms) 文字の出方（--list の一覧）で 1 行を出す
   H.burst(x, y, 弾けてからの ms, {n, seed, r, color}) 破片が弾ける   H.fx(["speedlines", …], lt, d, "under"|"over") 演出の層を描く
@@ -290,11 +312,40 @@ API_DOC = """custom の本体は (ctx, lt, d, H, s)。座標は 1920×1080、lt 
 手本は recipes.md。"""
 
 
+# 時間とともに動くデータと、画面の解説（parts-motion-data.js）
+SCENE_TYPES.update({
+    "race": (["periods", "items"], "順位が入れ替わる棒（バーチャートレース。期間ごとの値で棒が伸び縮みし、順位が滑って入れ替わる。top で見せる数）",
+             '{"type":"race","heading":"利用者数の推移","periods":["2021","2022","2023","2024"],"items":[{"label":"A","values":[10,30,45,60]},{"label":"B","values":[25,28,50,52]},{"label":"C","values":[30,26,32,70]}],"top":8,"unit":"万"}'),
+    "bubble": (["periods", "items"], "時間とともに動く泡（x・y・大きさが期間ごとに動き、軌跡が残る）",
+               '{"type":"bubble","periods":["2022","2023","2024"],"xLabel":"費用","yLabel":"効果","items":[{"label":"A","x":[10,30,50],"y":[20,40,70],"r":[5,8,12]},{"label":"B","x":[60,55,40],"y":[30,35,60],"r":[10,9,8]}]}'),
+    "linerace": (["labels", "series"], "伸びていく線（線の先に名前と値が付いて走り、縦軸が伸び縮みする）",
+                 '{"type":"linerace","labels":["1月","2月","3月","4月"],"series":[{"name":"新","values":[10,40,90,160]},{"name":"旧","values":[30,45,60,70]}],"unit":"件"}'),
+    "regions": (["items"], "地域の塗り分け（タイルの地図。値が大きいほど濃く、大きい順に塗られる。preset: japan（8 地方）か tiles: [{label, col, row, w, h}]）",
+                '{"type":"regions","preset":"japan","items":[{"label":"関東","value":420},{"label":"近畿","value":260},{"label":"中部","value":180}],"unit":"社","note":"**関東**が最多"}'),
+    "sankey": (["flows"], "流れ（サンキー図。列はつながりから自動。帯が列ごとに伸び、粒が流れ続ける）",
+               '{"type":"sankey","flows":[{"from":"訪問","to":"登録","value":600},{"from":"訪問","to":"離脱","value":400},{"from":"登録","to":"有料","value":150},{"from":"登録","to":"無料","value":450}],"unit":"人"}'),
+    "odometer": (["items"], "回る数字（機械式のカウンターのように桁が回って止まる。1〜4 個）",
+                 '{"type":"odometer","items":[{"label":"処理した依頼","value":128450,"from":0,"unit":"件"},{"label":"削れた時間","value":3200,"unit":"時間"}]}'),
+    "waffle": (["items"], "升目で割合（10×10 の升目が種類ごとに埋まる。icon で線のアイコンの升目）",
+               '{"type":"waffle","items":[{"label":"自動で完了","value":72},{"label":"確認が必要","value":20},{"label":"失敗","value":8}],"total":100}'),
+    "slope": (["items"], "傾きで変化（左右 2 時点の値を線で結び、平らな所から傾く。上がりは ok・下がりは warn の色）",
+              '{"type":"slope","from":"導入前","to":"導入後","items":[{"label":"待ち時間","a":30,"b":5},{"label":"満足度","a":62,"b":88}],"unit":""}'),
+    "tour": (["src", "steps"], "画面の解説（スクリーンショットの上をカメラが移り、寄って枠・番号・注記・カーソルとクリックで手順を見せる。rect・cursor は画素か 0..1。frame: browser）",
+             '{"type":"tour","src":"shot.png","frame":"browser","url":"app.example.com","steps":[{"rect":[0.05,0.1,0.3,0.2],"note":"ここで**新規作成**","click":true},{"rect":[0.6,0.5,0.3,0.3],"note":"結果がここに出る"}]}'),
+    "scrollshot": (["src", "stops"], "長い画面のスクロール（縦に長いスクリーンショットを窓の中でスクロールし、stops で止まって枠と注記）",
+                   '{"type":"scrollshot","src":"page.png","url":"docs.example.com","stops":[{"y":0.3,"note":"設定の節"},{"y":0.8,"note":"よくある質問","rect":[0.1,0.82,0.8,0.08]}]}'),
+    "swipe": (["before", "after"], "前と後の画面をなぞって比べる（境目が動いて見比べ、最後は後の画面に）",
+              '{"type":"swipe","before":"old.png","after":"new.png","labels":["今まで","これから"],"caption":"画面が 1 枚にまとまった"}'),
+})
+
 MIN_SEC = {"funnel": 4, "pyramid": 4, "venn": 5.5, "cycle": 5, "matrix": 5, "calendar": 5, "checklist": 3, "versus": 6, "ranking": 4, "keys": 3, "talk": 2, "layout": 7, "wordcloud": 5, "bigtype": 4.5, "area": 6, "stack": 6, "scatter": 6, "heatmap": 6, "gauge": 5, "rings": 5, "treemap": 6, "radar": 6, "phone": 6, "dashboard": 7,
            "form": 6, "notifs": 4, "scroll": 6, "drag": 5, "network": 6, "tree": 5, "states": 6, "map": 6, "layers": 6, "pipeline": 7, "icons": 3, "impact": 3.5, "countdown": 4, "orbit": 7, "logo": 6.5, "marquee": 5, "title": 8, "statement": 4.5, "bullets": 2.5, "flow": 3, "steps": 2, "terminal": 2.5, "stats": 4.5, "bars": 3.5,
            "compare": 3, "code": 2.5, "window": 7, "image": 5, "end": 4, "custom": 5,
            "cards": 3, "timeline": 3, "chat": 2, "line": 6, "donut": 6, "table": 3, "quote": 6, "kinetic": 3, "split": 6,
            "beforeafter": 7, "dom": 5}
+MIN_SEC.update({"cube": 5, "carousel": 5, "explode": 5, "tunnel": 6, "parallax": 4, "swarm": 5, "morph": 5, "barrage": 4, "rotator": 4, "textpath": 4.5, "emphasis": 4})
+
+MIN_SEC.update({"race": 8, "bubble": 8, "linerace": 7, "regions": 6, "sankey": 7, "odometer": 5, "waffle": 5, "slope": 5, "tour": 4, "scrollshot": 4, "swipe": 7})
 
 
 def wav_info(path, step_ms=50):
@@ -418,6 +469,14 @@ def min_seconds(s):
         base += 0.4 * (len(s.get("left", {}).get("points", [])) + len(s.get("right", {}).get("points", [])))
     elif t == "statement":
         base += 0.6 * len(s.get("lines", [s.get("text", "")]))
+    elif t == "tour":
+        base += 2.8 * len(s.get("steps", []))
+    elif t == "scrollshot":
+        base += 2.6 * len(s.get("stops", []))
+    elif t in ("race", "bubble"):
+        base = max(base, 1.3 * len(s.get("periods", [])) + 3)
+    elif t in ("odometer", "slope", "waffle"):
+        base += 1.2 * len(s.get("items", []))
     return base
 
 
@@ -658,6 +717,18 @@ def validate(spec, base):
             for ki, key in enumerate(s.get("camera", []) if isinstance(s.get("camera"), list) else []):
                 if not isinstance(key, dict) or not any(x in key for x in ("x", "y", "zoom")):
                     errs.append("%s: camera[%d] は {at, x, y, zoom} の形にしてください" % (where, ki))
+            for key in {"tour": ["src"], "scrollshot": ["src"], "swipe": ["before", "after"]}.get(t, []):
+                if isinstance(s.get(key), str) and s[key] and not re.match(r"^(data:|https?:)", s[key]):
+                    uri, miss = _embed(s[key], base)
+                    if miss:
+                        errs.append("%s（%s）: %s の画像が見つかりません: %s" % (where, t, key, miss))
+                    else:
+                        s[key] = uri
+            if t in ("race", "bubble") and s.get("periods"):
+                for ii, it in enumerate(s.get("items") or []):
+                    for vk in (("values",) if t == "race" else ("x", "y")):
+                        if isinstance(it, dict) and len(it.get(vk) or []) != len(s["periods"]):
+                            errs.append("%s（%s）: items[%d] の %s は periods と同じ数（%d 個）にしてください" % (where, t, ii, vk, len(s["periods"])))
             if t in ("image", "layout") and s.get("src") and not re.match(r"^(data:|https?:)", s["src"]):
                 p = os.path.join(base, s["src"])
                 if not os.path.isfile(p):
