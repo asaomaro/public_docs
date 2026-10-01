@@ -235,6 +235,22 @@ python3 <skill_dir>/generate.py "<input.md>" --theme <key> --suggest-layouts
 | 利用者の声 | `voices` | `- 声 — 名前（役割）` |
 | 判断の分かれ道 | `decision` | 問いの項目に小項目 `はい → …`・`いいえ → …`（入れ子で続く） |
 | できること・特徴をアイコンで | `icongrid` | `- :bolt: 速い — 3 分で`（アイコンは motion-video の `build.py --list-icons`） |
+| 段階・階層（上ほど少なく重要） | `pyramid` | `- 頂点 — 説明` を上から順に 3〜5 件 |
+| 繰り返す工程（PDCA など） | `cycle` | `- 工程 — 説明` を 3〜8 件。`{中心}` を付けた項目は輪の中央に |
+| 2 軸で 4 つに分ける | `quad` | 4 項目（左上・右上・左下・右下の順）。1 項目目に `{x: 効果 →, y: 工数 →}` で軸、`{おすすめ}` で強調 |
+| やりとり・問答 | `chat` | `- 話し手: せりふ`（最初の話し手が左、次が右…） |
+| 日付のある予定 | `calendar` | `- 2026-10-06 — 予定`（`10/6` も可。年が無ければ他の項目の年か今年）。月ごとの暦と一覧 |
+| 2 つを対決させる | `versus` | 2 項目 `- 名前 — 一言` に小項目。`{おすすめ}` で勝ち札 |
+| お知らせ・告知 | `banner` | `- :megaphone: 告知 {お知らせ}`（中に段落も可） |
+| 担当をまたぐ流れ | `swimlane` | 項目が担当、小項目が `- 番号: 作業`（番号が列。全体の順番になる） |
+| 特徴を絵と交互に | `zigzag` | `- :rocket: 見出し — 説明 {札}`（`![](画像)` でも可。中に段落） |
+| 進み具合・達成率 | `rings` | `- 項目 — 72%`（`3/5` も可）。輪が埋まり数え上がる |
+| 流れる見出し（新着・話題） | `ticker` | 短い項目 3〜8 件（`{新着}` で札）。触れると止まる |
+| 読ませる番号付きの要点 | `bignum` | `- 見出し — 説明` を 3〜5 件（大きな 01・02…） |
+| 付箋に書き出した課題・意見 | `sticky` | `- 見出し — 補足 {札}` |
+| 用語・問いと答え（めくる） | `flip` | `- :key: 用語 — 説明`（触れる・フォーカスで裏返る。印刷は表裏を並べる） |
+| 当日の時間割 | `agenda` | `- 10:00 — 題 — 説明 {札}`（`休憩`・`昼食` は淡く） |
+| 結論・要点に蛍光ペン | `marker` | `- 待ち時間は **半分** になった`（`**…**` の所に線が引かれる。無ければ文全体） |
 | 散文的な補足・注意・前提、項目が2つ以下 | `plain` | — |
 
 - **表・コードの見せ方**: 表の直前に `<!-- table: matrix -->`（機能の比較表。`✓`・`✗`・`△` を記号に、見出しの末尾に `*` を付けた列を強調）・
@@ -242,7 +258,11 @@ python3 <skill_dir>/generate.py "<input.md>" --theme <key> --suggest-layouts
 - **アイコン**: リストの項目の先頭に `:名前:`（例 `:rocket:`）を書くと、線で描くアイコンになる（カード・年表・アコーディオン等でも）。
 - 追加の見せ方は、`--motion rich`（か `--motion-blocks on`）のとき、それぞれに合った動きで現れる
   （料金はおすすめが光る・手順は線が伸びて番号が点く・カンバンはカードが落ちる・前と後はつまみが一往復・数字は回転して定まる・
-  評価は星が点く・声は重なった所から広がる・判断の木は上から枝が出る・比較表は ✓ が描かれる など）。
+  評価は星が点く・声は重なった所から広がる・判断の木は上から枝が出る・比較表は ✓ が描かれる・
+  ピラミッドは下から積み上がる・循環は輪が回って工程が順に点く・2×2 は軸が伸びて象限が中央から開く・会話は入力中の点の後に吹き出しが出る・
+  暦は升目が斜めに並んで予定が入る・対決は左右からぶつかって VS が押される・お知らせは帯が開いて光が走る・担当の流れは作業が番号順に置かれる・
+  交互の特徴は左右から差し込む・進み具合は輪が埋まる・大きな番号は下からせり上がる・付箋は落ちて貼られる・めくるカードは裏から表に返る・
+  時間割は線が下へ伸びて点が点く・蛍光ペンは線が引かれる など）。
 
 - `walkthrough`・`summary` は節の見せ方で、節の中の箇条書きは素の箇条書きになる。
 - **文章として読ませるならレイアウト、全体像を一目で見せるなら図（figkit）**。同じ内容を両方で出さない
@@ -284,7 +304,7 @@ python3 <skill_dir>/generate.py "<input.md>" [さらに.md...] \
   [--layout-map "節名=cards,節名2=timeline"] \
   [--design deterministic|ai] [--image-mode embed|link] [--default-mode system|light|dark] \
   [--motion off|key|rich] [--motion-tempo slow|normal|fast] \
-  [--motion-style gentle|dynamic|playful|cinematic|tech] [--motion-blocks auto|on|off]
+  [--motion-style gentle|dynamic|playful|cinematic|tech|retro|elegant|news] [--motion-blocks auto|on|off]
 ```
 
 - 出力は既定で入力と同じ場所に `<元ファイル名>.html`。別の場所にしたい場合は `--outdir <dir>`。
@@ -298,6 +318,7 @@ python3 <skill_dir>/generate.py "<input.md>" [さらに.md...] \
   説明会の投影・短い紹介は `fast`、迷えば `normal`。図ごとには `data-tempo` で上書きできる。
 - `--motion-style` は動きの性格（既定 `gentle`）。聞かずに決める: 製品紹介・発表・勢いを出したい資料は `dynamic`、
   子ども・イベント・親しみやすい案内は `playful`、ビジョン・物語・経営向けの語りは `cinematic`、技術・データ・開発者向けは `tech`、
+  懐かしさ・遊び心のある社内向けは `retro`、ブランド・式典・上質さを出したい案内は `elegant`、速報・週報・変更のお知らせは `news`、
   手順書・規程・読み込む文書は `gentle`。図ごとには `data-motion-style` で上書きできる。
 - `--motion-blocks` はカード・数字・年表・チェックリスト・表などの部品の登場（既定 `auto` = `--motion rich` のときだけ）。
   `key` でも部品を動かしたいときは `on`、`rich` でも図だけにしたいときは `off`。
@@ -412,6 +433,14 @@ figkit に無い形の図だけ、以下の手描きのルールで描く。
 | 2 軸での位置づけ（効果×工数など） | `matrix` | 軸が描かれ、象限の名前、点が順に弾む。`quadrants` は左上・右上・左下・右下の順 |
 | 年表・マイルストーン（日付の点） | `timeline` | 軸が伸び、点と文字が上下交互に順に現れる。節目は `highlight`（明滅） |
 | 組織図・階層（親子の木） | `org` | 上の段から順に現れ、親子の線が描かれる。葉が多いと間隔を詰め、縦に積む |
+| 割合を直感的に（100 人中 62 人） | `waffle` | 100 マスが色の塊ごとに順に弾む |
+| 目標に対する実績（KPI の達成） | `bullet` | 良し悪しの帯の上で棒が伸び、目標の線が落ちてくる |
+| 2 時点の順位・値の入れ替わり | `slope` | 左右の軸の間に線が描かれる。要の 1 本は `highlight` |
+| 項目ごとの前後の差（導入前→後） | `dumbbell` | 前の点→後の点へ線が伸び、増減が色と数字で付く |
+| 複数の指標の推移をまとめて | `sparks` | 小さなタイルの線が描かれ、最新の値が数え上がる（`lower_is_better`） |
+| 複数の進み具合・達成率 | `radial` | 同心の輪が外から順に描かれる |
+| 流入元から行き先への配分 | `sankey` | 値に比例した帯が左から右へ拭われる（2 段まで） |
+| 曜日×時間などの濃淡 | `heatmap` | 行ごとに升目が弾み、値が大きいほど濃い |
 | 移行・改善・設計変更 | `toggle` | 変更前／変更後をボタンで切り替え、変わった所（`changed`）が光る。印刷は並べて表示 |
 | 1 枚の流れで複数の経路（正常系・異常系） | `flow` ＋ `edges[].paths` | 経路のボタンで、その経路だけが光り印が流れる |
 | 大きな構成図の要所を順に説明 | `flow`・`hub` ＋ `zoom` | 全体→部分へ寄り、次へ移って全体へ戻る（小さな図には使わない） |
@@ -438,6 +467,9 @@ figkit に無い形の図だけ、以下の手描きのルールで描く。
 | `playful` | 伸び縮み（elastic） | 跳ねる（bounce） | 落ちる（drop） | drop | やや詰める |
 | `cinematic` | ぼけから（blur） | ぼけから | ぼけから | zoom-out（大きくぼけた所から） | ゆったり |
 | `tech` | 拭き取り（wipe） | でたらめな文字から（scramble） | 拭き取り | glitch（乱れて定まる） | やや詰める |
+| `retro` | コマ送りで拭う（pixel） | 1 文字ずつ打つ（type） | 帯が開く（blinds） | crt（ブラウン管が点くように） | やや詰める |
+| `elegant` | 斜めに漂って（float-in） | 1 文字ずつ（letters） | ぼけから | unfold（上下に開く） | ゆったり |
+| `news` | 勢いよく滑り込む（swoosh） | 右へ滑る | 拭き取り | wipe（左から拭う） | 詰める |
 
 #### 注釈の語彙（手描き svg・mermaid の figure に付ける。figkit は組み込み済み）
 
@@ -447,8 +479,8 @@ figkit に無い形の図だけ、以下の手描きのルールで描く。
 | figure | `data-tempo="slow\|normal\|fast"` | この図の速さ |
 | figure | `data-trigger="view\|click\|loop"` | 再生のきっかけ（見えたら／ボタン／繰り返し） |
 | figure | `data-motion-dir="auto\|x\|y\|reverse-x\|reverse-y\|radial\|in\|diagonal\|spiral\|random"` | auto の順番の向き（radial=中心から外へ、in=外から中心へ、spiral=中心の周りを回る順） |
-| figure | `data-motion-style="gentle\|dynamic\|playful\|cinematic\|tech"` | この図の動きの性格（上の表） |
-| figure | `data-intro="punch\|zoom-out\|drop\|tilt\|glitch\|iris\|fade\|rise\|none"` | 図全体の入り方（中の要素はその途中から現れる） |
+| figure | `data-motion-style="gentle\|dynamic\|playful\|cinematic\|tech\|retro\|elegant\|news"` | この図の動きの性格（上の表） |
+| figure | `data-intro="punch\|zoom-out\|drop\|tilt\|glitch\|iris\|crt\|wipe\|unfold\|fade\|rise\|none"` | 図全体の入り方（中の要素はその途中から現れる） |
 | 要素・g | `data-step="N"` | 現れる順番（同じ N は同時）。付けた要素だけが動く |
 | 要素・g | `data-effect="draw\|rise\|fade\|slide\|pop\|grow\|wipe\|none"` | 現れ方（描く／浮かぶ／その場で／左から／弾む／伸びる／拭う） |
 | 要素・g | `data-effect="zoom\|flip\|flip-y\|spin\|roll\|swing\|drop\|bounce\|elastic\|jelly"` | 動きの強い現れ方（大きい所から／裏返る／回る／転がる／振り子／落ちる／跳ねる／伸び縮み／ぷるん） |
@@ -456,6 +488,7 @@ figkit に無い形の図だけ、以下の手描きのルールで描く。
 | text・g | `data-effect="letters\|scramble"` | 1 文字ずつ現れる／でたらめな文字から定まる |
 | 要素・g | `data-effect="mask\|wipe-up\|wipe-down\|wipe-left\|spring\|stamp\|unfold\|twist\|skew\|pop-up\|zoom-blur\|rise-rotate\|tilt-in\|float-in"` | 中央から開く／下・上・右から拭う／ばね／判子／上から開く／ねじれて／傾いて滑る／下から弾む／ぼけて寄る／回りながら浮かぶ／傾きを戻す／斜めに漂って |
 | g | `data-effect="cascade"` | 子が順に上から落ちてくる |
+| 要素・g | `data-effect="diamond\|corner\|rubber\|slide-bounce\|swirl\|shake-in\|pixel\|hinge\|swoosh\|wobble\|lift\|pendulum"` | 菱形に開く／角から円が広がる／ゴムのように伸び縮み／滑り込んで弾む／渦を巻いて／震えながら／コマ送りで拭う／蝶番で振れて止まる／勢いよく滑り込む／ぐらついて立つ／持ち上がって置かれる／振り子が減衰して止まる |
 | 要素・g | `data-attn="shake\|wiggle\|jump\|pop\|tada\|heartbeat\|flash\|glow\|ring\|pulse"` | 登場がすべて終わった後、段の順に 1 回強調する（ring は波紋） |
 | 要素 | `data-burst="粒の数"` | 現れるときに粒が弾ける（結果・達成に） |
 | 要素・g | `data-float="px"`・`data-sway="度"`・`data-blink`・`data-heartbeat`・`data-glow` | 現れた後の繰り返し（漂う／揺れる／瞬く／鼓動／光る） |
@@ -463,6 +496,9 @@ figkit に無い形の図だけ、以下の手描きのルールで描く。
 | g | `data-wave` | 子が順に波打ち続ける（点・並んだ項目） |
 | 要素 | `data-orbit="半径"`・`data-ripple` | 小さく回り続ける／波紋が広がり続ける |
 | 線・g | `data-stream="数"` | 線の上を印が流れ続ける（`travel` の繰り返し版） |
+| 要素・g | `data-breathe`・`data-shine`・`data-jiggle`・`data-hop="px"`・`data-hue` | 現れた後の繰り返し（息づく／ときどき光る／ときどき震える／弾む／色相が巡る） |
+| 要素 | `data-tick="刻み"`（`data-tick-origin="50% 100%"`） | 時計の針のように刻んで回る（針の根元を origin に） |
+| 線・g | `data-redraw` | 線が消えては描かれ直す（処理中・繰り返しの流れ） |
 | 要素 | `data-depth="-2〜2"` | スクロールに合わせてずれる（背景の飾りに奥行き） |
 | 要素 | `data-grow="up\|down\|left\|right"` | `grow` の向き |
 | g | `data-stagger="ms"` | 子を 1 つずつ（既定 130ms 間隔） |
@@ -493,11 +529,14 @@ python3 <skill_dir>/figkit.py --list                      # 図の種類と仕�
 python3 <skill_dir>/figkit.py spec.json --insert out.html # 各図の slot / replace / placeholder に差し込む
 ```
 
-- 共通の項目: `type`（必須）/ `id` / `caption` / `aria` / `motion`（`true`=段の順に動く）/ `tempo` / `trigger`、
+- 共通の項目: `type`（必須）/ `id` / `caption` / `aria` / `motion`（`true`=段の順に動く）/ `tempo` / `trigger` /
+  `style`（動きの性格）/ `intro`（図全体の入り方）/ `dir`（現れる順の向き）、
   差し込み先は `slot`（auto-figure の `data-section`）・`replace`（置き換える figure の id。mermaid の手描き
   フォールバック `md2doc-mm-N` に使う）・`placeholder`（AI 構築の本文に置いた `<!--FIGKIT:名前-->`）のどれか。
 - 種類: `flow` / `steps` / `cycle` / `bars` / `metrics` / `compare` / `hub` / `layers` / `sequence` /
-  `line` / `donut` / `gantt` / `terminal` / `toggle` / `chat` / `funnel` / `venn` / `matrix` / `timeline` / `org`
+  `line` / `donut` / `gantt` / `terminal` / `toggle` / `chat` / `funnel` / `venn` / `matrix` / `timeline` / `org` /
+  `waffle`（100 マスの割合）/ `bullet`（目標に対する実績）/ `slope`（2 時点の変化）/ `dumbbell`（前後の差）/
+  `sparks`（小さな推移のタイル）/ `radial`（同心円の進み具合）/ `sankey`（左から右への配分）/ `heatmap`（表の濃淡）
   （仕様は `--list`）。
 - 項目の共通の注釈: `note`（吹き出し）・`note_pos`・`changed`（toggle で変わった所）。
   `flow` は `edges[].paths`（経路）・`zoom`（寄るノード id の順）・`hover`、`hub` は `zoom`（label の順）・`hover`。
@@ -616,6 +655,8 @@ flowchart は figkit の `flow`、sequenceDiagram は `sequence` の仕様に写
 - 値は `plain` / `cards` / `timeline` / `accordion` / `tabs` / `checklist` / `defs` / `stats` / `chips` /
   `tree` / `proscons` / `hero` / `quote` / `pricing` / `stepper` / `kanban` / `faq` / `beforeafter` / `gallery` /
   `roadmap` / `persona` / `chevron` / `counters` / `rating` / `dodont` / `voices` / `decision` / `icongrid` /
+  `pyramid` / `cycle` / `quad` / `chat` / `calendar` / `versus` / `banner` / `swimlane` / `zigzag` / `rings` /
+  `ticker` / `bignum` / `sticky` / `flip` / `agenda` / `marker` /
   `walkthrough` / `summary`。`freeform` は文書全体のモードなので節単位には
   指定できず、警告を出して既定値のまま描画される。
 - `--layout-map` の節名が どの見出しとも一致しなかった場合は警告が出る（黙って無視しない）。
