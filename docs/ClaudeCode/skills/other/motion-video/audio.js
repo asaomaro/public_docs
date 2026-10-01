@@ -60,7 +60,8 @@ window.MotionAudio = window.MotionAudio || (function () {
     synthbass: { l: [{ w: "square", sus: 1, a: .003, d: .08, v: .07, flt: ["lowpass", [1400, 300], 2, .15] }, { w: "sine", sus: 1, a: .003, d: .08, v: .18 }] },
     acid: { l: [{ w: "sawtooth", sus: 1, a: .003, d: .08, v: .09, flt: ["lowpass", [2600, 250], 12, .18] }] },
     upright: { l: [{ w: "triangle", a: .004, d: .5, v: .3, flt: ["lowpass", 900, .8] }, { w: "sine", a: .004, d: .4, v: .15 }] },
-    crackle: { l: [{ w: "noise", sus: 1, a: .2, d: .2, v: .012, flt: ["highpass", 3000, .5], nr: .6 }] },
+    /* レコードの雑音: 続く「サー」（白い雑音に聞こえる）ではなく、まばらな「プツッ」という短い粒にする */
+    crackle: { l: [{ w: "noise", a: .0005, d: .005, v: .07, flt: ["bandpass", 2600, 1.4], rep: 6, gap: .32, rj: .26, vj: .85 }] },
     steel: { l: [{ w: "sine", a: .003, d: .9, v: .2, pe: [1.01, .03] }, { w: "sine", fr: 2, a: .003, d: .35, v: .08 }, { w: "sine", fr: 3.01, a: .002, d: .15, v: .035 }, { w: "triangle", fr: 4, a: .002, d: .06, v: .025 }] },
     sitar: { l: [{ w: "sawtooth", a: .003, d: 1.4, v: .08, pe: [.97, .08], fk: 1, flt: ["bandpass", [4, 2], 3, .5] }, { w: "sawtooth", fr: 1.003, a: .003, d: 1.1, v: .035, flt: ["highpass", 1500, 4] },
       { w: "sine", fr: 2, a: .25, d: 1.4, v: .02 }] },
