@@ -2158,6 +2158,30 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     document.addEventListener("pointerdown", function (e) { if (!setPanel.hidden && !e.target.closest('[data-mv="setpanel"]') && !e.target.closest('[data-mv="setbtn"]')) closeSet(false); });
   }
   setCap(store.get("cap", "m"));
+  /* プレイヤーの表示（操作部・一覧・メニュー・設定の色）。映像の中はテーマの色のまま。
+     テーマ = 台本の配色のまま / ライト / ダーク / システム（OS の設定に従い、変わればその場で追う） */
+  var UI0 = {}, UIV = ["bg", "bg2", "line", "ink", "muted", "accent"];
+  UIV.forEach(function (k) { UI0[k] = root.style.getPropertyValue("--c-" + k).trim(); });
+  function lum(hex) { var m = /^#?([0-9a-f]{6})$/i.exec(hex || ""); if (!m) return .5; var n = parseInt(m[1], 16);
+    return (.2126 * (n >> 16 & 255) + .7152 * (n >> 8 & 255) + .0722 * (n & 255)) / 255; }
+  var UI_NATIVE = lum(UI0.bg) < .5 ? "dark" : "light";
+  var UIPAL = { light: { bg: "#ffffff", bg2: "#f3f6fa", line: "#d6dde7", ink: "#18212c", muted: "#5b6777" },
+                dark: { bg: "#0e141b", bg2: "#151d27", line: "#2a3542", ink: "#e7edf4", muted: "#98a6b4" } };
+  var uiMQ = window.matchMedia ? matchMedia("(prefers-color-scheme: dark)") : null, uiPref = "";
+  function applyUI() {
+    var want = uiPref === "system" ? (uiMQ && uiMQ.matches ? "dark" : "light") : uiPref || UI_NATIVE;
+    root.setAttribute("data-uimode", want);
+    if (want === UI_NATIVE) { UIV.forEach(function (k) { root.style.setProperty("--c-" + k, UI0[k]); }); return; }
+    var P = UIPAL[want]; UIV.forEach(function (k) { if (P[k]) root.style.setProperty("--c-" + k, P[k]); });
+    /* テーマの差し色は、逆の明るさの地でも読めるように寄せる */
+    root.style.setProperty("--c-accent", "color-mix(in srgb," + UI0.accent + (want === "light" ? " 72%,#000)" : " 62%,#fff)"));
+  }
+  function setUI(v) { uiPref = v || ""; store.set("ui", uiPref);
+    [].forEach.call(root.querySelectorAll("button[data-ui]"), function (b) { b.setAttribute("aria-pressed", String(b.getAttribute("data-ui") === uiPref)); });
+    applyUI(); }
+  [].forEach.call(root.querySelectorAll("button[data-ui]"), function (b) { b.addEventListener("click", function () { setUI(b.getAttribute("data-ui")); }); });
+  if (uiMQ) { var onMQ = function () { if (uiPref === "system") applyUI(); }; if (uiMQ.addEventListener) uiMQ.addEventListener("change", onMQ); else if (uiMQ.addListener) uiMQ.addListener(onMQ); }
+  setUI(store.get("ui", ""));
   /* 書体（映像の文字と字幕）。OS に入っている書体だけを選べるようにする。描画は時刻と台本だけで決まるので、選び直してもそのまま描き直せる */
   var F0 = { sans: F.sans, display: F.display };
   var FONTS = [
