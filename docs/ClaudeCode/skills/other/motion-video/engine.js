@@ -1944,7 +1944,8 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   var t = 0, playing = false, started = false, needsDraw = true, lastNow = 0, dragging = false;
   var SLIDES = root.getAttribute("data-player") === "slides", lastSave = 0;
   var POSKEY = "pos:" + location.pathname + ":" + (SPEC.title || "");
-  var speed = parseFloat(store.get("speed", "1")) || 1;
+  /* 文書の図（SPEC.figure）は、ほかの動画で選んだ倍速に引きずられず、いつも 1 倍速 */
+  var speed = SPEC.figure ? 1 : parseFloat(store.get("speed", "1")) || 1;
   var captions = store.get("cc", "1") === "1";
   var audioOn = KIOSK ? false : store.get("audio", AUD.default === "off" ? "0" : "1") === "1";
   var SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
