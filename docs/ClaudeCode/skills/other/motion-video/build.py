@@ -312,12 +312,40 @@ API_DOC = """custom の本体は (ctx, lt, d, H, s)。座標は 1920×1080、lt 
 手本は recipes.md。"""
 
 
+# 時間とともに動くデータと、画面の解説（parts-motion-data.js）
+SCENE_TYPES.update({
+    "race": (["periods", "items"], "順位が入れ替わる棒（バーチャートレース。期間ごとの値で棒が伸び縮みし、順位が滑って入れ替わる。top で見せる数）",
+             '{"type":"race","heading":"利用者数の推移","periods":["2021","2022","2023","2024"],"items":[{"label":"A","values":[10,30,45,60]},{"label":"B","values":[25,28,50,52]},{"label":"C","values":[30,26,32,70]}],"top":8,"unit":"万"}'),
+    "bubble": (["periods", "items"], "時間とともに動く泡（x・y・大きさが期間ごとに動き、軌跡が残る）",
+               '{"type":"bubble","periods":["2022","2023","2024"],"xLabel":"費用","yLabel":"効果","items":[{"label":"A","x":[10,30,50],"y":[20,40,70],"r":[5,8,12]},{"label":"B","x":[60,55,40],"y":[30,35,60],"r":[10,9,8]}]}'),
+    "linerace": (["labels", "series"], "伸びていく線（線の先に名前と値が付いて走り、縦軸が伸び縮みする）",
+                 '{"type":"linerace","labels":["1月","2月","3月","4月"],"series":[{"name":"新","values":[10,40,90,160]},{"name":"旧","values":[30,45,60,70]}],"unit":"件"}'),
+    "regions": (["items"], "地域の塗り分け（タイルの地図。値が大きいほど濃く、大きい順に塗られる。preset: japan（8 地方）か tiles: [{label, col, row, w, h}]）",
+                '{"type":"regions","preset":"japan","items":[{"label":"関東","value":420},{"label":"近畿","value":260},{"label":"中部","value":180}],"unit":"社","note":"**関東**が最多"}'),
+    "sankey": (["flows"], "流れ（サンキー図。列はつながりから自動。帯が列ごとに伸び、粒が流れ続ける）",
+               '{"type":"sankey","flows":[{"from":"訪問","to":"登録","value":600},{"from":"訪問","to":"離脱","value":400},{"from":"登録","to":"有料","value":150},{"from":"登録","to":"無料","value":450}],"unit":"人"}'),
+    "odometer": (["items"], "回る数字（機械式のカウンターのように桁が回って止まる。1〜4 個）",
+                 '{"type":"odometer","items":[{"label":"処理した依頼","value":128450,"from":0,"unit":"件"},{"label":"削れた時間","value":3200,"unit":"時間"}]}'),
+    "waffle": (["items"], "升目で割合（10×10 の升目が種類ごとに埋まる。icon で線のアイコンの升目）",
+               '{"type":"waffle","items":[{"label":"自動で完了","value":72},{"label":"確認が必要","value":20},{"label":"失敗","value":8}],"total":100}'),
+    "slope": (["items"], "傾きで変化（左右 2 時点の値を線で結び、平らな所から傾く。上がりは ok・下がりは warn の色）",
+              '{"type":"slope","from":"導入前","to":"導入後","items":[{"label":"待ち時間","a":30,"b":5},{"label":"満足度","a":62,"b":88}],"unit":""}'),
+    "tour": (["src", "steps"], "画面の解説（スクリーンショットの上をカメラが移り、寄って枠・番号・注記・カーソルとクリックで手順を見せる。rect・cursor は画素か 0..1。frame: browser）",
+             '{"type":"tour","src":"shot.png","frame":"browser","url":"app.example.com","steps":[{"rect":[0.05,0.1,0.3,0.2],"note":"ここで**新規作成**","click":true},{"rect":[0.6,0.5,0.3,0.3],"note":"結果がここに出る"}]}'),
+    "scrollshot": (["src", "stops"], "長い画面のスクロール（縦に長いスクリーンショットを窓の中でスクロールし、stops で止まって枠と注記）",
+                   '{"type":"scrollshot","src":"page.png","url":"docs.example.com","stops":[{"y":0.3,"note":"設定の節"},{"y":0.8,"note":"よくある質問","rect":[0.1,0.82,0.8,0.08]}]}'),
+    "swipe": (["before", "after"], "前と後の画面をなぞって比べる（境目が動いて見比べ、最後は後の画面に）",
+              '{"type":"swipe","before":"old.png","after":"new.png","labels":["今まで","これから"],"caption":"画面が 1 枚にまとまった"}'),
+})
+
 MIN_SEC = {"funnel": 4, "pyramid": 4, "venn": 5.5, "cycle": 5, "matrix": 5, "calendar": 5, "checklist": 3, "versus": 6, "ranking": 4, "keys": 3, "talk": 2, "layout": 7, "wordcloud": 5, "bigtype": 4.5, "area": 6, "stack": 6, "scatter": 6, "heatmap": 6, "gauge": 5, "rings": 5, "treemap": 6, "radar": 6, "phone": 6, "dashboard": 7,
            "form": 6, "notifs": 4, "scroll": 6, "drag": 5, "network": 6, "tree": 5, "states": 6, "map": 6, "layers": 6, "pipeline": 7, "icons": 3, "impact": 3.5, "countdown": 4, "orbit": 7, "logo": 6.5, "marquee": 5, "title": 8, "statement": 4.5, "bullets": 2.5, "flow": 3, "steps": 2, "terminal": 2.5, "stats": 4.5, "bars": 3.5,
            "compare": 3, "code": 2.5, "window": 7, "image": 5, "end": 4, "custom": 5,
            "cards": 3, "timeline": 3, "chat": 2, "line": 6, "donut": 6, "table": 3, "quote": 6, "kinetic": 3, "split": 6,
            "beforeafter": 7, "dom": 5}
 MIN_SEC.update({"cube": 5, "carousel": 5, "explode": 5, "tunnel": 6, "parallax": 4, "swarm": 5, "morph": 5, "barrage": 4, "rotator": 4, "textpath": 4.5, "emphasis": 4})
+
+MIN_SEC.update({"race": 8, "bubble": 8, "linerace": 7, "regions": 6, "sankey": 7, "odometer": 5, "waffle": 5, "slope": 5, "tour": 4, "scrollshot": 4, "swipe": 7})
 
 
 def wav_info(path, step_ms=50):
@@ -441,6 +469,14 @@ def min_seconds(s):
         base += 0.4 * (len(s.get("left", {}).get("points", [])) + len(s.get("right", {}).get("points", [])))
     elif t == "statement":
         base += 0.6 * len(s.get("lines", [s.get("text", "")]))
+    elif t == "tour":
+        base += 2.8 * len(s.get("steps", []))
+    elif t == "scrollshot":
+        base += 2.6 * len(s.get("stops", []))
+    elif t in ("race", "bubble"):
+        base = max(base, 1.3 * len(s.get("periods", [])) + 3)
+    elif t in ("odometer", "slope", "waffle"):
+        base += 1.2 * len(s.get("items", []))
     return base
 
 
@@ -681,6 +717,18 @@ def validate(spec, base):
             for ki, key in enumerate(s.get("camera", []) if isinstance(s.get("camera"), list) else []):
                 if not isinstance(key, dict) or not any(x in key for x in ("x", "y", "zoom")):
                     errs.append("%s: camera[%d] は {at, x, y, zoom} の形にしてください" % (where, ki))
+            for key in {"tour": ["src"], "scrollshot": ["src"], "swipe": ["before", "after"]}.get(t, []):
+                if isinstance(s.get(key), str) and s[key] and not re.match(r"^(data:|https?:)", s[key]):
+                    uri, miss = _embed(s[key], base)
+                    if miss:
+                        errs.append("%s（%s）: %s の画像が見つかりません: %s" % (where, t, key, miss))
+                    else:
+                        s[key] = uri
+            if t in ("race", "bubble") and s.get("periods"):
+                for ii, it in enumerate(s.get("items") or []):
+                    for vk in (("values",) if t == "race" else ("x", "y")):
+                        if isinstance(it, dict) and len(it.get(vk) or []) != len(s["periods"]):
+                            errs.append("%s（%s）: items[%d] の %s は periods と同じ数（%d 個）にしてください" % (where, t, ii, vk, len(s["periods"])))
             if t in ("image", "layout") and s.get("src") and not re.match(r"^(data:|https?:)", s["src"]):
                 p = os.path.join(base, s["src"])
                 if not os.path.isfile(p):
