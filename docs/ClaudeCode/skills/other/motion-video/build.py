@@ -747,8 +747,9 @@ PLAYER_CSS = r"""
 [data-player="studio"] .mv-chaplist li:nth-child(-n+3) button{border-top:0}
 /* presenter: 横に目次 */
 [data-player="presenter"]{display:grid;grid-template-columns:minmax(0,1fr) 300px}
-[data-player="presenter"] .mv-chapters{display:block;border-left:1px solid var(--c-line);padding:14px 16px;background:var(--c-bg2);overflow:auto;max-height:100%}
-@media(max-width:860px){[data-player="presenter"]{grid-template-columns:1fr}[data-player="presenter"] .mv-chapters{border-left:0;border-top:1px solid var(--c-line);max-height:none}}
+/* 一覧は映像と同じ高さにし、中だけスクロールする（contain:size で行の高さを押し広げない） */
+[data-player="presenter"] .mv-chapters{display:block;border-left:1px solid var(--c-line);padding:14px 16px;background:var(--c-bg2);overflow:auto;contain:size;min-height:0}
+@media(max-width:860px){[data-player="presenter"]{grid-template-columns:1fr}[data-player="presenter"] .mv-chapters{border-left:0;border-top:1px solid var(--c-line);contain:none;max-height:320px}}
 /* 重ねる操作部（cinema・minimal・kiosk） */
 [data-player="cinema"] .mv-controls,[data-player="minimal"] .mv-controls,[data-player="kiosk"] .mv-controls{position:absolute;left:0;right:0;bottom:0;border-top:0;
   background:linear-gradient(to top,color-mix(in srgb,var(--c-bg) 92%,transparent),transparent);padding-top:40px;transition:opacity .25s}
@@ -809,8 +810,8 @@ PLAYER_CSS = r"""
 .mv-tlist .t{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--c-accent);padding-top:2px}
 /* theater: 横に文字起こし */
 [data-player="theater"]{display:grid;grid-template-columns:minmax(0,1fr) 320px;background:#05070b}
-[data-player="theater"] .mv-transcript{display:block;border-left:1px solid var(--c-line);padding:14px 14px;background:var(--c-bg2);overflow:auto;max-height:100%}
-@media(max-width:860px){[data-player="theater"]{grid-template-columns:1fr}[data-player="theater"] .mv-transcript{border-left:0;border-top:1px solid var(--c-line);max-height:320px}}
+[data-player="theater"] .mv-transcript{display:block;border-left:1px solid var(--c-line);padding:14px 14px;background:var(--c-bg2);overflow:auto;contain:size;min-height:0}
+@media(max-width:860px){[data-player="theater"]{grid-template-columns:1fr}[data-player="theater"] .mv-transcript{border-left:0;border-top:1px solid var(--c-line);contain:none;max-height:320px}}
 /* slides: 章の終わりで止まる。「次へ」を目立たせる */
 [data-player="slides"] .mv-big{width:auto;height:auto;border-radius:999px;padding:12px 22px;font-size:16px;font-weight:700;gap:8px;display:flex;align-items:center}
 [data-player="slides"] .mv-big svg{width:20px;height:20px;margin:0}
