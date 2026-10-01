@@ -2182,7 +2182,8 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     if (!(k in FONTOK)) k = "";
     var list = FONTOK[k], stack = list ? list.join(",") + "," + (k === "mincho" ? "serif" : "sans-serif") : null;
     F.sans = stack || F0.sans; F.display = stack || F0.display;
-    if (stack) root.style.setProperty("--mv-capfont", stack); else root.style.removeProperty("--mv-capfont");
+    /* 字幕とプレイヤーの文字（チャプターの一覧・メニュー・設定・文字起こし）も同じ書体に。時刻などの等幅はそのまま */
+    ["--mv-capfont", "--mv-uifont"].forEach(function (v) { if (stack) root.style.setProperty(v, stack); else root.style.removeProperty(v); });
     store.set("font", k); if (fontSel) fontSel.value = k; needsDraw = true;
   }
   if (fontSel) fontSel.addEventListener("change", function () { setFont(fontSel.value); });
