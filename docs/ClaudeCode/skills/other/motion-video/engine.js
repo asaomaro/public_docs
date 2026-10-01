@@ -1914,7 +1914,10 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     SCENES.forEach(function (sc, i) {
       var rel = sc.cues.map(function (ci) { return [CUES[ci].a - sc.t0, CUES[ci].b - sc.t0]; });
       if (i >= from) { var r = planScene(sc, k); if (r) { if (r.d !== sc.d) changed = true; sc.d = r.d; if (r.rel.length === rel.length) rel = r.rel; } }
-      sc.t0 = T; sc.cues.forEach(function (ci, j) { CUES[ci].a = Math.round(T + rel[j][0]); CUES[ci].b = Math.round(T + rel[j][1]); });
+      sc.t0 = T; sc.cues.forEach(function (ci, j) { CUES[ci].a = Math.round(T + rel[j][0]); CUES[ci].b = Math.round(T + rel[j][1]);
+        /* 台本の s._cues（場面の中の ms）も直す。custom が s._cues を読んでいても、直した後の時刻になる */
+        var c = sc.s._cues && sc.s._cues[j]; if (c) { c[0] = Math.round(rel[j][0]); c[1] = Math.round(rel[j][1]); } });
+      sc.s._dur = sc.d;
       T += sc.d;
     });
     if (!changed) return false;
