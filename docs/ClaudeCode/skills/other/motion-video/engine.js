@@ -1926,7 +1926,10 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   var SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
   var fmt = function (ms) { var s = Math.floor(ms / 1000); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
 
-  function resize() { if (recording) return; var r = cv.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio || 1, 2); domScale = r.width / W;
+  /* チャプター名が … で省略されているときだけ、ツールチップで全部の名前を出す */
+  function chapTip() { var cn = $("mv-chapname"); if (!cn) return;
+    if (cn.scrollWidth > cn.clientWidth + 1) cn.title = cn.textContent; else cn.removeAttribute("title"); }
+  function resize() { chapTip(); if (recording) return; var r = cv.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio || 1, 2); domScale = r.width / W;
     var w = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(r.height * dpr));
     if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; } needsDraw = true; }
 
@@ -2091,7 +2094,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     root.classList.toggle("mv-playing", playing);
     $("mv-time").innerHTML = "<b>" + fmt(t) + "</b> / " + fmt(DUR);
     var ci = chapterAt(t);
-    if (ci !== lastChap) { lastChap = ci; var cn = $("mv-chapname"); if (cn) cn.textContent = CHAPTERS[ci].name;
+    if (ci !== lastChap) { lastChap = ci; var cn = $("mv-chapname"); if (cn) { cn.textContent = CHAPTERS[ci].name; chapTip(); }
       [].forEach.call(root.querySelectorAll('[data-mv="chapmenu"] button, [data-mv="chaplist"] button'), function (b) { b.setAttribute("aria-current", String(+b.dataset.i === ci)); });
       var cur = list && list.querySelector('[aria-current="true"]'); if (cur && root.getAttribute("data-player") === "presenter" && cur.scrollIntoView) cur.scrollIntoView({ block: "nearest" }); }
     if (tlist) {

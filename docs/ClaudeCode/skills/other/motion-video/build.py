@@ -792,8 +792,10 @@ PLAYER_CSS = r"""
 .mv-tip{position:absolute;bottom:26px;transform:translateX(-50%);background:var(--c-bg);color:var(--c-ink);font-size:12px;line-height:1.4;padding:4px 8px;
   border-radius:6px;white-space:nowrap;pointer-events:none;border:1px solid var(--c-line)}
 .mv-tip b{font-family:ui-monospace,Menlo,monospace;color:var(--c-accent);margin-right:6px}
-.mv-row{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
-.mv-spacer{flex:1}
+/* 操作の行は 1 行に保つ。狭いときはチャプター名から縮め（… で省略）、さらに狭いと順に隠す（幅はプレイヤーの映像の側で見る） */
+.mv-row{display:flex;align-items:center;gap:4px;flex-wrap:nowrap;min-width:0}
+.mv-row>*{flex-shrink:0}
+.mv-spacer{flex:1 1 0;min-width:0}
 .mv-btn{appearance:none;border:0;background:transparent;color:var(--c-ink);height:36px;min-width:36px;padding:0 8px;border-radius:8px;
   display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;font:inherit;font-size:13px}
 .mv-btn:hover{background:color-mix(in srgb,var(--c-ink) 10%,transparent)}
@@ -803,7 +805,18 @@ PLAYER_CSS = r"""
 #mv-cc[aria-pressed="true"]{color:var(--c-accent)}
 .mv-time{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;color:var(--c-muted);font-variant-numeric:tabular-nums;padding:0 6px;white-space:nowrap}
 .mv-time b{color:var(--c-ink);font-weight:600}
-.mv-chapname{font-size:13px;color:var(--c-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:16em;padding-left:4px}
+.mv-row>.mv-chapname{flex:0 1 auto;min-width:0}
+.mv-chapname{font-size:13px;color:var(--c-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:24em;padding-left:4px}
+/* 狭いときに隠す順（キー操作・ほかの場所で代わりがあるものから）: チャプター名 → 音量のつまみ（スピーカーで入切） → 停止（S）
+   → 前・次のチャプター（[ ]・チャプターの一覧） → 小窓 → 速度（< >） → チャプターのメニュー（シークバーの区切り・一覧） */
+@container (max-width:780px){.mv-chapname{display:none}}
+@container (max-width:730px){.mv-vol{display:none}}
+@container (max-width:650px){#mv-stop{display:none}}
+@container (max-width:600px){#mv-prev,#mv-next{display:none}}
+@container (max-width:520px){#mv-pip{display:none}}
+@container (max-width:470px){.mv-speed{display:none}}
+@container (max-width:400px){.mv-controls{padding-left:6px;padding-right:6px}.mv-row{gap:0}.mv-time{padding:0 2px}}
+@container (max-width:330px){.mv-menuwrap:has(#mv-chapbtn){display:none}}
 .mv-sec{display:flex;align-items:center;gap:4px}
 .mv-morewrap{position:relative;display:flex;align-items:center;gap:4px}
 #mv-more{display:none}
