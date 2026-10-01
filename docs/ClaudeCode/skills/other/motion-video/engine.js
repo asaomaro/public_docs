@@ -1064,6 +1064,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var k = lin(lt, a0, a0 + dur), al = o.alpha === undefined ? 1 : o.alpha, size = o.size || 30;
     var total = tw(String(line).replace(/\*\*/g, ""), o), mid = o.align === "center" ? x : o.align === "right" ? x - total / 2 : x + total / 2, cy = y - size * .35;
     var withA = function (m) { return Object.assign({}, o, { alpha: al * m }); };
+    if (TEXTX[anim]) { if (k >= 1) { rich(line, x, y, o, emK); return; } ctx.save(); try { TEXTX[anim](line, x, y, o, k, lt, a0, dur); } finally { ctx.restore(); } return; }
     if (anim === "neon") {
       var fl = [0, 1, .15, 1, .35, 1, 1], on = k >= 1 ? 1 : fl[Math.min(fl.length - 1, Math.floor(k * fl.length))];
       ctx.save(); ctx.shadowColor = o.emColor || C.accent; ctx.shadowBlur = on * (18 + 8 * Math.sin(lt / 300)); rich(line, x, y, withA(on), emK); ctx.restore(); return;
@@ -1191,7 +1192,8 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       if (!kind || !!FX_UNDER[kind] !== (layer === "under")) return;
       var col = C[o.color] || o.color || null, r = rand(o.seed || 5), i, n;
       ctx.save(); ctx.globalAlpha *= o.alpha === undefined ? 1 : o.alpha; var GA = ctx.globalAlpha;
-      if (kind === "particles") particles({ seed: o.seed || 11, n: o.n || 70, color: col || C.accent2, size: 3, alpha: .4, speed: 1.4 }, lt);
+      if (FXX[kind]) FXX[kind](o, lt, d, r, col);
+      else if (kind === "particles") particles({ seed: o.seed || 11, n: o.n || 70, color: col || C.accent2, size: 3, alpha: .4, speed: 1.4 }, lt);
       else if (kind === "stars") { ctx.fillStyle = col || C.ink; for (i = 0; i < (o.n || 160); i++) { var sx = r() * W, sy = r() * H, ph = r() * 6.28, ss = r() * 1.8 + .6;
           var xx = ((sx - lt * .006 * ss) % W + W) % W, g0 = ctx.globalAlpha; ctx.globalAlpha = g0 * (.15 + .55 * (.5 + .5 * Math.sin(lt / 600 + ph))); ctx.fillRect(xx, sy, ss * 1.6, ss * 1.6); ctx.globalAlpha = g0; } }
       else if (kind === "bokeh") { for (i = 0; i < (o.n || 16); i++) { var bx = r() * W, by = r() * H, br = 50 + r() * 110, ph2 = r() * 6.28, bc = i % 2 ? C.accent : C.accent2;
@@ -1358,7 +1360,10 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       ctx.restore();
     });
   }
+  /* 部品のファイル（parts-*.js）が足す文字の出方・切り替え・演出の層（X.textAnims・X.transitions・X.fxs に登録する） */
+  var TEXTX = {}, TRX = {}, FXX = {};
   var HELP = { C: C, F: F, W: W, H: H, clamp: clamp, lin: lin, linear: linear, eo: eo,
+               textAnims: TEXTX, transitions: TRX, fxs: FXX, fxUnder: FX_UNDER, charLayout: charLayout, eases: EASES,
                cue: function (i) { return cueStart(i); }, cueEnd: function (i) { return cueEnd(i); }, cues: function () { return CUR_CUES ? CUR_CUES.slice() : []; }, eio: eio, back: back, P: P, mix: mix, rr: rr, txt: txt, tw: tw, wrap: wrap,
                rich: rich, icon: icon, panel: panel, stateMark: stateMark, emblem: emblem, accentAt: accentAt, slots: slots,
                qpt: qpt, rand: rand, arrow: arrow, packet: packet, node: node, appWindow: appWindow, toast: toast, typed: typed, count: fmtNum,
@@ -1401,6 +1406,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
                  diagonal: 750, diamond: 800, spot: 850, cube: 750, page: 850, liquid: 900, dive: 800, tiles: 900, stripes: 750, clock: 800,
                  doors: 800, shatter: 1100, fan: 850, "spin-zoom": 700, bars: 900, cover: 900, ink: 1000, flip: 800, rings: 900,
                  stack: 750, shrink: 850, flood: 900, focus: 800, dissolve: 850, columns: 800 };
+  Object.keys(TRX).forEach(function (k2) { SWEEPS[k2] = TRX[k2].ms || 800; });
   function trOf(k) {
     var s = SCENES[k].s; if (s.transition) return s.transition; if (SPEC.transition) return SPEC.transition;
     if (k > 0 && SCENES[k - 1].ci !== SCENES[k].ci) return MS.ch;
@@ -1563,7 +1569,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
         next({ clip: function () { ctx.beginPath(); for (var di = 0; di < dc * dr; di++) if (u >= th0[di] || u >= .999) ctx.rect((di % dc) * dw, Math.floor(di / dc) * dh, dw + .5, dh + .5); ctx.clip(); } }); break; }
       case "columns": { prev(); var nc = 12, cw3 = W / nc;
         next({ clip: function () { ctx.beginPath(); for (var ci = 0; ci < nc; ci++) { var q = eio(clamp(lin(lt, ci * SW * .04, SW * .52 + ci * SW * .04))); ctx.rect(ci * cw3 + cw3 * (1 - q) / 2, 0, cw3 * q + .5, H); } ctx.clip(); } }); break; }
-      default: prev(); next();
+      default: if (TRX[tr]) TRX[tr].draw(prev, next, u, lt, SW); else { prev(); next(); }
     }
   }
   function burnCaption(t) {

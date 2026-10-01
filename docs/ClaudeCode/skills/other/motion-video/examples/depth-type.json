@@ -1,0 +1,259 @@
+{
+ "title": "立体と文字の演出",
+ "description": "motion-video の立体・奥行きと文字の演出の見本",
+ "lang": "ja",
+ "player": "studio",
+ "theme": "midnight",
+ "motion": "cinematic",
+ "fx": [
+  "cubes"
+ ],
+ "audio": {
+  "narration": true,
+  "music": "space",
+  "sfx": true
+ },
+ "chapters": [
+  {
+   "title": "文字が主役",
+   "scenes": [
+    {
+     "type": "title",
+     "title": "立体と文字",
+     "subtitle": "motion-video",
+     "anim": "swirl",
+     "mark": "ring",
+     "narration": "立体と文字の演出を見ていきます。"
+    },
+    {
+     "type": "textpath",
+     "path": "circle",
+     "text": "SODASHITSU · AGENT COCKPIT",
+     "center": "操舵室",
+     "sub": "AI の作業を 1 画面で",
+     "transition": "depth",
+     "narration": "操舵室へようこそ。"
+    },
+    {
+     "type": "barrage",
+     "phrases": [
+      "待たない。",
+      "**並べる**。",
+      "気づく、すぐに。",
+      "任せて、**進む**。"
+     ],
+     "transition": "swing",
+     "narration": [
+      "待たない。",
+      "並べる。",
+      "気づく、すぐに。",
+      "任せて、進む。"
+     ]
+    },
+    {
+     "type": "rotator",
+     "before": "AI と",
+     "words": [
+      "速く",
+      "安全に",
+      "楽しく"
+     ],
+     "after": "作る",
+     "text": "Sodashitsu で",
+     "narration": [
+      "AI と速く作る。",
+      "安全に作る。",
+      "楽しく作る。"
+     ]
+    },
+    {
+     "type": "emphasis",
+     "text": "作業を**並べて見る**。待ちは**通知で知る**。あとは**任せる**だけ。",
+     "transition": "depth",
+     "narration": [
+      "まず、作業を並べて見ます。",
+      "待ちは通知で知ります。",
+      "あとは任せるだけです。"
+     ]
+    }
+   ]
+  },
+  {
+   "title": "奥行き",
+   "scenes": [
+    {
+     "type": "cube",
+     "heading": "3 つの顔",
+     "faces": [
+      {
+       "title": "速い",
+       "text": "3 分で始められる",
+       "icon": "rocket"
+      },
+      {
+       "title": "安全",
+       "icon": "shield"
+      },
+      {
+       "title": "みんなで",
+       "icon": "users"
+      }
+     ],
+     "transition": "swing",
+     "narration": [
+      "速く始められます。",
+      "安全に使えます。",
+      "みんなで使えます。"
+     ]
+    },
+    {
+     "type": "carousel",
+     "heading": "使える道具",
+     "items": [
+      {
+       "title": "Claude",
+       "icon": "bolt"
+      },
+      {
+       "title": "Codex",
+       "icon": "code"
+      },
+      {
+       "title": "Gemini",
+       "icon": "star"
+      },
+      {
+       "title": "herdr",
+       "icon": "terminal"
+      }
+     ],
+     "narration": [
+      "Claude も。",
+      "Codex も。",
+      "Gemini も。",
+      "herdr も並べられます。"
+     ]
+    },
+    {
+     "type": "explode",
+     "heading": "仕組みの層",
+     "layers": [
+      {
+       "title": "インフラ",
+       "text": "クラウド"
+      },
+      {
+       "title": "サーバ",
+       "icon": "server"
+      },
+      {
+       "title": "画面",
+       "text": "ブラウザ・端末"
+      }
+     ],
+     "transition": "depth",
+     "narration": [
+      "土台はクラウドです。",
+      "その上にサーバ。",
+      "いちばん上が画面です。"
+     ]
+    },
+    {
+     "type": "tunnel",
+     "items": [
+      {
+       "title": "計画",
+       "icon": "pencil"
+      },
+      {
+       "title": "実装",
+       "text": "並べて進める"
+      },
+      {
+       "title": "公開",
+       "icon": "rocket"
+      }
+     ],
+     "narration": [
+      "計画して、",
+      "実装して、",
+      "公開します。"
+     ]
+    }
+   ]
+  },
+  {
+   "title": "形と粒",
+   "scenes": [
+    {
+     "type": "morph",
+     "heading": "育つ流れ",
+     "items": [
+      {
+       "shape": "circle",
+       "label": "種",
+       "text": "思いつき"
+      },
+      {
+       "shape": "triangle",
+       "label": "芽"
+      },
+      {
+       "shape": "star",
+       "label": "花"
+      }
+     ],
+     "transition": "swing",
+     "narration": [
+      "思いつきの種が、",
+      "芽を出し、",
+      "花になります。"
+     ]
+    },
+    {
+     "type": "swarm",
+     "words": [
+      "並べる",
+      "知らせる",
+      "任せる"
+     ],
+     "text": "3 つの動き",
+     "narration": [
+      "並べる。",
+      "知らせる。",
+      "任せる。"
+     ]
+    },
+    {
+     "type": "parallax",
+     "scene": "city",
+     "title": "どこからでも",
+     "text": "別のマシンの作業も 1 画面で",
+     "transition": "depth",
+     "narration": "どこからでも、別のマシンの作業を一つの画面で。"
+    },
+    {
+     "type": "statement",
+     "lines": [
+      "奥行きで、**伝わる**。"
+     ],
+     "anim": "unfold",
+     "transition": "swing",
+     "narration": "奥行きで伝わります。"
+    },
+    {
+     "type": "end",
+     "title": "立体と文字",
+     "anim": "depth",
+     "transition": "depth",
+     "lines": [
+      {
+       "text": "examples/depth-type.json"
+      }
+     ],
+     "narration": "以上です。"
+    }
+   ]
+  }
+ ]
+}
