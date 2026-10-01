@@ -2173,7 +2173,11 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       closeSet(false);
       try {
         if (document.pictureInPictureElement) { document.exitPictureInPicture(); return; }
-        pipVideo = pipVideo || document.createElement("video"); pipVideo.muted = true; pipVideo.srcObject = cv.captureStream(30);
+        if (!pipVideo) { pipVideo = document.createElement("video"); pipVideo.muted = true;
+          /* 小窓の間はボタンを押された状態にする（小窓の × で閉じたときも戻す） */
+          pipVideo.addEventListener("enterpictureinpicture", function () { pipBtn.setAttribute("aria-pressed", "true"); pipBtn.setAttribute("aria-label", "小窓を閉じる"); });
+          pipVideo.addEventListener("leavepictureinpicture", function () { pipBtn.setAttribute("aria-pressed", "false"); pipBtn.setAttribute("aria-label", "小窓で再生（ピクチャー・イン・ピクチャー）"); }); }
+        pipVideo.srcObject = cv.captureStream(30);
         pipVideo.play().then(function () { return pipVideo.requestPictureInPicture(); }).catch(function (e) { console.warn("pip:", e); });
         if (!playing) play();
       } catch (e) { console.warn("pip:", e); }

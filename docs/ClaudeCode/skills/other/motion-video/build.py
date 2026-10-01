@@ -746,6 +746,7 @@ ICON = {
              '<svg class="off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M17 9.5l5 5M22 9.5l-5 5"/></svg>',
     "cc": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5.5" width="18" height="13" rx="2.5"/><path d="M10.5 10.2a2.4 2.4 0 100 3.6M17 10.2a2.4 2.4 0 100 3.6" stroke-linecap="round"/></svg>',
     "chapters": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h10M4 18h13"/></svg>',
+    "pip": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><rect x="12" y="12" width="7" height="5" rx="1" fill="currentColor" stroke="none"/></svg>',
     "fs": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>',
     "more": '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>',
     "big": '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 4l14 8-14 8z"/></svg>',
@@ -969,7 +970,7 @@ def build_fragment(spec, theme_key, player, uid=None):
         + btn("mv-chapbtn", "チャプター", ICON["chapters"], ' aria-haspopup="true" aria-expanded="false" aria-controls="mv-chapmenu"')
         + '<div class="mv-menu" id="mv-chapmenu" hidden></div></div>'
         '<div class="mv-menuwrap">'
-        + btn("mv-setbtn", "設定（字幕の大きさ・小窓・保存）", ICON["gear"], ' aria-haspopup="true" aria-expanded="false" aria-controls="mv-setpanel"')
+        + btn("mv-setbtn", "設定（字幕の大きさ・音楽・効果音・保存）", ICON["gear"], ' aria-haspopup="true" aria-expanded="false" aria-controls="mv-setpanel"')
         + '<div class="mv-menu mv-set" id="mv-setpanel" hidden>'
         '<div class="mv-setrow"><span>字幕の大きさ</span><span class="mv-seg3" role="group" aria-label="字幕の大きさ">'
         '<button type="button" data-cap="s">小</button><button type="button" data-cap="m">標準</button><button type="button" data-cap="l">大</button></span></div>'
@@ -977,13 +978,13 @@ def build_fragment(spec, theme_key, player, uid=None):
         '<button type="button" data-mus="1">入</button><button type="button" data-mus="0">切</button></span></div>'
         '<div class="mv-setrow"><span>効果音</span><span class="mv-seg3" role="group" aria-label="効果音">'
         '<button type="button" data-sfx="1">入</button><button type="button" data-sfx="0">切</button></span></div>'
-        '<button type="button" class="mv-setitem" id="mv-pip" title="ピクチャー・イン・ピクチャー">小窓で再生</button>'
         '<button type="button" class="mv-setitem" id="mv-rec">動画ファイル（WebM）で保存</button>'
         + '<p class="mv-setnote">保存は最初から 1 倍速で再生して録画します（字幕は映像に焼き込み。%s）。</p>' % (
             "前もって作った声も入ります" if any(s_.get("_voices") for c_ in spec["chapters"] for s_ in c_["scenes"]) else "読み上げの声は入りません")
         + ''
         '</div></div>'
         '</div></div>'
+        + btn("mv-pip", "小窓で再生（ピクチャー・イン・ピクチャー）", ICON["pip"], ' aria-pressed="false"')
         + btn("mv-fs", "全画面", ICON["fs"])
         + '</div><div class="mv-note" id="mv-voicenote" hidden>この端末には読み上げの声が無いため、音声は効果音と音楽だけになります。</div>'
         + ('<div class="mv-note mv-credit">音声: %s</div>' % html.escape("・".join(spec["_credits"])) if spec.get("_credits") else "")
