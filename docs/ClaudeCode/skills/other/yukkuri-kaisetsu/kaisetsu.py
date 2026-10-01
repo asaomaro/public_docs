@@ -233,6 +233,20 @@ def assign_voice_files(spec, vdir):
 # ──────────────────────────────────────────────────────────────────────────
 # 台本（motion-video の JSON）を組む
 # ──────────────────────────────────────────────────────────────────────────
+def sample_credit(spec):
+    """motion-video の曲が録音の楽器の音（samples.py）を使うなら、そのクレジット。audio.samples: false・曲なし・音声ファイルの曲では無し。"""
+    au = spec.get("audio") or {}
+    if au.get("samples", True) is False:
+        return None
+    sys.path.insert(0, os.path.join(HERE, "..", "motion-video"))
+    import sound, samples
+    names = [au.get("music")] + [ch.get("music") for ch in spec.get("chapters", [])]
+    for n in names:
+        if isinstance(n, str) and n in sound.MUSIC and any(L.get("inst") in samples.MAP for L in sound.MUSIC[n].get("layers", [])):
+            return samples.CREDIT
+    return None
+
+
 def make_credits(meta, cast, vv_used):
     """締めに出すクレジット。VOICEVOX の表記は、実際に VOICEVOX で声を作ったときだけ（ほかの声は voice_credit: に書く）。"""
     credits = []
@@ -304,9 +318,12 @@ def main():
         n = voicevox_lines(spec, a.voicevox_url, os.path.join(base, os.path.splitext(os.path.basename(a.script))[0] + "_voices"), spec["audio"]["pronounce"])
         print("VOICEVOX: %d 個のせりふの声を作りました（作り済みは使い回し）" % n)
     credits = make_credits(meta, cast, a.voicevox)
+    sc_ = sample_credit(spec)
+    if sc_:
+        credits.append(sc_)
     last = spec["chapters"][-1]["scenes"][-1]
     if last.get("type") == "end":
-        last["lines"] = credits[:6]
+        last["lines"] = credits[:7]
     if a.voices_dir:
         used, have = assign_voice_files(spec, os.path.join(base, a.voices_dir) if not os.path.isabs(a.voices_dir) else a.voices_dir)
         print("WAV: %d 個をせりふに当てました（フォルダに %d 個）" % (used, have))

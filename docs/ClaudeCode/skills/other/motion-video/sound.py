@@ -10,6 +10,7 @@ import copy
 import mimetypes
 import os
 import re
+import sys
 
 # ──────────────────────────────────────────────────────────────────────────
 # audio.js と揃える名前（楽器・型・打楽器・音階・調）
@@ -937,6 +938,18 @@ def prepare(spec, base):
         if "energy" in ch and ch["energy"] not in (1, 2, 3):
             errs.append("第 %d 章の energy は 1・2・3 のいずれか" % (ci + 1))
     au["_music"] = table
+    # 楽器の音: 録音の音（samples.py）に差し替えられる楽器は、使う音域だけ埋め込む（audio.samples: false で合成の音のまま）
+    au.pop("_samples", None)
+    if au.get("samples", True) is not False and table:
+        import samples as _smp
+        w = []
+        au["_samples"] = _smp.build(table, custom=set((au.get("instruments") or {}).keys()), warn=w)
+        for x in w:
+            print("warn:", x, file=sys.stderr)
+        if au["_samples"]:
+            cr = spec.setdefault("_credits", [])
+            if _smp.CREDIT not in cr:
+                cr.append(_smp.CREDIT)
     # 効果音
     sfx = au.get("sfx", True)
     defs = dict(SFX)

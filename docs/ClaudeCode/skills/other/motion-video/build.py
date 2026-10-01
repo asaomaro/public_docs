@@ -1086,7 +1086,7 @@ def build_fragment(spec, theme_key, player, uid=None):
         + btn("mv-pip", "小窓で再生（ピクチャー・イン・ピクチャー）", ICON["pip"], ' aria-pressed="false"')
         + btn("mv-fs", "全画面", ICON["fs"])
         + '</div><div class="mv-note" id="mv-voicenote" hidden>この端末には読み上げの声が無いため、音声は効果音と音楽だけになります。</div>'
-        + ('<div class="mv-note mv-credit">音声: %s</div>' % html.escape("・".join(spec["_credits"])) if spec.get("_credits") else "")
+        + ('<div class="mv-note mv-credit">%s</div>' % html.escape("　".join(spec["_credits"])) if spec.get("_credits") else "")
         + ''
         '</div>')
     style = ("--c-bg:%s;--c-bg2:%s;--c-line:%s;--c-ink:%s;--c-muted:%s;--c-accent:%s"
@@ -1318,7 +1318,8 @@ def main():
     base = os.path.dirname(os.path.abspath(args.spec))
     if (args.voicevox or args.voices_dir) and isinstance(spec.get("chapters"), list):
         out_v = args.voices_out or os.path.splitext(os.path.abspath(args.spec))[0] + "_voices"
-        verrs, spec["_credits"] = prepare_voices(spec, base, "voicevox" if args.voicevox else "files", args.voicevox_url, args.voices_dir, out_v)
+        verrs, vcred = prepare_voices(spec, base, "voicevox" if args.voicevox else "files", args.voicevox_url, args.voices_dir, out_v)
+        spec["_credits"] = ["音声: " + "・".join(vcred)] if vcred else []
         for e in verrs:
             print("error:", e, file=sys.stderr)
         if verrs:
