@@ -1716,6 +1716,8 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       master.connect(lim); lim.connect(ac.destination);
       duckG = ac.createGain(); duckG.gain.value = 1; duckG.connect(master);
       sfxBus = ac.createGain(); sfxBus.gain.value = SFXCFG ? (SFXCFG.volume === undefined ? 1 : SFXCFG.volume) : 1; sfxBus.connect(master);
+      /* 楽器の録音の音（sound.py の samples）を復号しておく。復号が済むまでの音は合成の音で鳴る */
+      if (AUD._samples && MA.loadSamples) MA.loadSamples(ac, AUD._samples);
       /* せりふの音声ファイル（WAV）を復号しておく */
       CUES.forEach(function (c) { if (!c.line || !c.line.voice || VBUF[c.key]) return; var key = c.key; VBUF[key] = null;
         fetch(c.line.voice).then(function (x) { return x.arrayBuffer(); }).then(function (buf) { return ac.decodeAudioData(buf); }).then(function (b) { VBUF[key] = b; }).catch(function (e) { console.warn("voice:", e); }); });

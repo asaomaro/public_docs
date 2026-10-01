@@ -416,12 +416,42 @@ window.MotionAudio = window.MotionAudio || (function () {
     return out;
   }
   /* 音符を鳴らす（INSTX は台本の instruments を足した楽器の表） */
+  /* ---- 録音の楽器の音（samples）: 楽器ごとに 4 半音おきの録音を持ち、一番近い音を再生の速さで高さに合わせる ---- */
+  var SMP = {};
+  function loadSamples(ac, map) {
+    Object.keys(map || {}).forEach(function (inst) {
+      var e = map[inst], s = SMP[inst] = { k: e.k, g: e.g || 1, buf: {} };
+      Object.keys(e.n || {}).forEach(function (m) {
+        fetch(e.n[m]).then(function (r) { return r.arrayBuffer(); }).then(function (b) { return ac.decodeAudioData(b); })
+          .then(function (ab) { s.buf[m] = ab; }).catch(function (err) { console.warn("sample:", inst, m, err); });
+      });
+    });
+  }
+  function sampleNote(ac, out, n, when, durS, vol) {
+    var s = SMP[n.inst]; if (!s) return 0;
+    var m = n.m !== undefined ? n.m : n.f ? 69 + 12 * Math.log(n.f / 440) / Math.LN2 : 60, best = null, bd = 99;
+    Object.keys(s.buf).forEach(function (k) { var d = Math.abs(+k - m); if (d < bd) { bd = d; best = k; } });
+    if (best === null || bd > 6) return 0;   /* まだ復号できていない・音域の外は合成の音で */
+    var b = s.buf[best], src = ac.createBufferSource(), g = ac.createGain(), v = (n.v === undefined ? 1 : n.v) * (vol === undefined ? 1 : vol) * s.g;
+    src.buffer = b; src.playbackRate.value = Math.pow(2, (m - +best) / 12);
+    var t0 = Math.max(when, ac.currentTime), dur = Math.max(.05, durS || .3), sus = s.k === "s";
+    /* 伸ばす楽器は音符の長さだけ鳴らして離す。減衰する楽器（ピアノ・弦をはじく音）は少し余韻を残して離す */
+    var rel = sus ? .22 : .35, end = Math.min(t0 + b.duration / src.playbackRate.value, t0 + (sus ? dur : Math.max(dur, .25) + .25) + rel * 3);
+    g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(v, t0 + (sus ? .03 : .004));
+    g.gain.setTargetAtTime(0, Math.max(t0 + .01, end - rel * 3), rel);
+    src.connect(g); g.connect(out); src.start(t0); src.stop(end + .05);
+    return end;
+  }
   function note(ac, out, n, when, durS, vol, INSTX, fast) {
+    /* 録音の音がある楽器はそれで鳴らす（台本で同じ名前の楽器を自作したときは sound.py が録音を入れない） */
+    var se = SMP[n.inst] ? sampleNote(ac, out, n, when, durS, vol) : 0; if (se) return se;
     var R = (INSTX && INSTX[n.inst]) || INST[n.inst]; if (!R) return;
     return play(ac, out, R, when, { f: n.f || hz(n.m === undefined ? 60 : n.m), dur: durS, v: n.v * (vol === undefined ? 1 : vol), fast: fast });
   }
   function isSus(inst, INSTX) { var R = (INSTX && INSTX[inst]) || INST[inst]; return !!(R && R.l && R.l.some(function (L) { return L.sus; })); }
   function barMs(def) { return 60000 / (def.bpm || 90) * (def.beats || 4); }
 
-  return { INST: INST, DRUMS: DRUMS, SCALES: SCALES, KEYS: KEYS, hz: hz, rng: rng, hash: hash, play: play, note: note, notes: notes, chord: chord, isSus: isSus, barMs: barMs };
+  /* 復号が済んだ録音の音の数（楽器ごと）。確かめる用 */
+  function samplesReady() { var o = {}; Object.keys(SMP).forEach(function (k) { o[k] = Object.keys(SMP[k].buf).length; }); return o; }
+  return { loadSamples: loadSamples, sampleNote: sampleNote, samplesReady: samplesReady, INST: INST, DRUMS: DRUMS, SCALES: SCALES, KEYS: KEYS, hz: hz, rng: rng, hash: hash, play: play, note: note, notes: notes, chord: chord, isSus: isSus, barMs: barMs };
 })();
