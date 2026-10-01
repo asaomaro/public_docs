@@ -2299,10 +2299,13 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   var ccb = $("mv-cc"); if (ccb) ccb.setAttribute("aria-pressed", String(captions));
   setVol(parseFloat(store.get("vol", "1")));
   var aub = $("mv-audio"); if (aub) { aub.setAttribute("aria-pressed", String(audioOn)); aub.setAttribute("aria-label", audioOn ? "音声をオフにする" : "音声をオンにする"); }
+  var IMG_TYPES = { tour: ["src"], scrollshot: ["src"], swipe: ["before", "after"] };
   var preload = function (src) { if (!src || IMGS[src]) return; var im = new Image(); im.onload = function () { needsDraw = true; }; im.src = src; IMGS[src] = im; };
   Object.keys(CAST).forEach(function (id) { var im = CAST[id].images || {}; Object.keys(im).forEach(function (f) { var v = im[f]; if (typeof v === "string") preload(v); else Object.keys(v || {}).forEach(function (s2) { preload(v[s2]); }); }); });
   SCENES.forEach(function (sc) { preload(sc.s.bg); if (sc.s.board && sc.s.board.type === "image") preload(sc.s.board.src); });
   SCENES.forEach(function (sc) { if ((sc.s.type === "image" || sc.s.type === "layout") && sc.s.src && !IMGS[sc.s.src]) { var im = new Image(); im.onload = function () { needsDraw = true; }; im.src = sc.s.src; IMGS[sc.s.src] = im; } });
+  /* 画面の解説の部品（tour・scrollshot・swipe）の画像 */
+  SCENES.forEach(function (sc) { if (IMG_TYPES[sc.s.type]) IMG_TYPES[sc.s.type].forEach(function (k) { if (typeof sc.s[k] === "string") preload(sc.s[k]); }); });
   try { collectEvents(); buildSfxQueue(); } catch (e) { console.warn("sfx:", e); }
   new ResizeObserver(resize).observe(cv); resize(); syncUI(); requestAnimationFrame(frame);
   uiReady = true; applyStoredVoiceRate();
