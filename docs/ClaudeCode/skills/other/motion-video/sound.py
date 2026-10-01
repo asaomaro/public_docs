@@ -955,6 +955,8 @@ def prepare(spec, base):
             defs[k] = r
     au["_sfx"] = {k: {x: y for x, y in r.items() if x not in ("cat", "name", "desc")} for k, r in defs.items()}
     if sfx is False:
+        # 効果音を使わないときは音色の表を埋め込まない（全部で約 40 KB。動画・文書の図ごとに入っていた）
+        au["_sfx"] = {}
         au["_sfxcfg"] = None
         return errs
     cfg = {} if sfx is True else dict(sfx)

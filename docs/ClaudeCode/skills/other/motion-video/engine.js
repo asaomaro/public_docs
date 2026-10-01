@@ -1927,7 +1927,8 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     refreshTimes();
     return true;
   }
-  function hush() { speaking = null; stopVoice(); root.classList.remove("mv-waiting"); try { if (synth) synth.cancel(); } catch (e) {} }
+  /* 文書の図（figure.js。SPEC.figure）は声を持たないので、ページ全体の読み上げを止めない */
+  function hush() { speaking = null; stopVoice(); root.classList.remove("mv-waiting"); if (SPEC.figure) return; try { if (synth) synth.cancel(); } catch (e) {} }
   function crossed(a, b, x) { return a < x && b >= x; }
   function onAdvance(a, b) {
     if (!audioOn) return;
@@ -1943,7 +1944,8 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   var t = 0, playing = false, started = false, needsDraw = true, lastNow = 0, dragging = false;
   var SLIDES = root.getAttribute("data-player") === "slides", lastSave = 0;
   var POSKEY = "pos:" + location.pathname + ":" + (SPEC.title || "");
-  var speed = parseFloat(store.get("speed", "1")) || 1;
+  /* 文書の図（SPEC.figure）は、ほかの動画で選んだ倍速に引きずられず、いつも 1 倍速 */
+  var speed = SPEC.figure ? 1 : parseFloat(store.get("speed", "1")) || 1;
   var captions = store.get("cc", "1") === "1";
   var audioOn = KIOSK ? false : store.get("audio", AUD.default === "off" ? "0" : "1") === "1";
   var SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -2310,7 +2312,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     Promise.all(fl).then(function () { CHARPOS.clear(); needsDraw = true; }, function () {}); }
   if (KIOSK && !(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches)) { started = true; playing = true; lastNow = performance.now(); syncUI(); }
   /* 同じページのほかのプレイヤーを再生したら、こちらは止める（読み上げの声は 1 つしか無いため） */
-  document.addEventListener("mv-exclusive", function (e) { if (e.detail !== root && playing) pause(); });
+  document.addEventListener("mv-exclusive", function (e) { if (e.detail !== root && playing && !SPEC.figure) pause(); });
   var api = { seek: seek, play: play, pause: pause, get t() { return t; }, get speaking() { return !!speaking; }, get DUR() { return DUR; }, CHAPTERS: CHAPTERS,
               get voiceRate() { return VK; }, retime: retime, CUES: CUES, SFX: SFXQ,
               get audio() { return { ctx: ac, mt: mclock.mt, section: mclock.sec, notes: mclock.count || 0, sfx: sfxCount, vol: VOL, gain: master ? master.gain.value : null }; } };
