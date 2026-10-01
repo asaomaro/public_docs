@@ -154,6 +154,16 @@ SCENE_TYPES = {
     "bigtype": (["big"], "画面いっぱいの文字が背景で流れ、前に言葉が出る（text・sub）", '{"type":"bigtype","big":"PARALLEL","text":"並べて、任せる。","sub":"Sodashitsu"}'),
     "talk": ([], "掛け合い（ゆっくり解説など）。lines: [{who, text, face, emote, voice, shake, pause}] と、中央の黒板 board（部品の台本・{type:image,src}・文字列）、背景 bg。登場人物は台本の cast",
              '{"type":"talk","board":{"type":"bullets","heading":"3 つの特徴","items":["速い","安い","うまい"]},"lines":[{"who":"a","text":"今日は〇〇を解説するよ。"},{"who":"b","text":"よろしくなのだ！","face":"smile","emote":"!"}]}'),
+    "funnel": (["items"], "漏斗（段が上から落ちて重なり、段の間に歩留まりの %）", '{"type":"funnel","heading":"申し込みまで","items":[{"label":"訪問","value":12000},{"label":"試用","value":3200},{"label":"申し込み","value":860}],"unit":"人"}'),
+    "pyramid": (["items"], "ピラミッド（下の段から積み上がる。items は上から順。text で右に説明）", '{"type":"pyramid","heading":"支える仕組み","items":[{"label":"体験","text":"画面"},{"label":"機能","text":"API"},{"label":"基盤","text":"サーバ"}]}'),
+    "venn": (["sets"], "ベン図（2〜3 の円が外から寄って重なり、center の言葉が弾む）", '{"type":"venn","sets":[{"label":"速さ","text":"すぐ返る"},{"label":"安さ"},{"label":"安全"}],"center":"ここ"}'),
+    "cycle": (["items"], "循環（項目が輪に並び、矢印が順につながり、印が回り続ける。center で中心の言葉）", '{"type":"cycle","center":"改善","items":[{"label":"計画","icon":"pencil"},{"label":"実行","icon":"rocket"},{"label":"評価","icon":"chart-line"},{"label":"改善","icon":"refresh"}]}'),
+    "matrix": (["items"], "四象限（軸が伸び、象限の名前、点が置かれる。x・y は 0..1、quadrants は 左上・右上・左下・右下、highlight で象限を光らせる）", '{"type":"matrix","xLabel":"効果","yLabel":"手軽さ","quadrants":["すぐやる","計画","保留","見送り"],"highlight":1,"items":[{"label":"自動化","x":0.8,"y":0.7},{"label":"刷新","x":0.85,"y":0.2}]}'),
+    "calendar": ([], "ひと月の暦（マスが斜めの波で並び、events の日に印。start は 1 日の曜日 0=日、side で右に一覧）", '{"type":"calendar","month":"2026年10月","days":31,"start":4,"events":[{"day":1,"label":"公開"},{"day":15,"label":"説明会"}],"highlight":1,"side":true}'),
+    "checklist": (["items"], "チェックリスト（印が描かれ、進み具合が伸びる。done:false は未完了、note で右に一言）", '{"type":"checklist","heading":"公開の前に","items":["テスト",{"text":"文書","note":"済"},{"text":"告知","done":false,"note":"来週"}]}'),
+    "versus": (["left", "right"], "対決（左右が斜めの境目で滑り込み、VS が叩きつけられる。winner: left|right で勝者が光る）", '{"type":"versus","left":{"label":"手作業","value":"30 分","points":["毎朝の確認"]},"right":{"label":"自動","value":"1 分","icon":"bolt"},"winner":"right"}'),
+    "ranking": (["items"], "順位（下の順位から棒が伸び、1 位が最後に光る。sort:false で並べ替えない）", '{"type":"ranking","heading":"よく使う機能","unit":"回","items":[{"label":"承認","value":1240},{"label":"通知","value":860},{"label":"検索","value":520}]}'),
+    "keys": ([], "キー操作（キーの頭が落ちてきて押し込まれる。keys と label、または combos: [{keys, label}]）", '{"type":"keys","combos":[{"keys":["Ctrl","K"],"label":"コマンドを開く"},{"keys":["Ctrl","Shift","P"],"label":"すべての操作"}]}'),
     "icons": (["items"], "アイコンの格子（線で描かれ、現れた後も動く）。items: {icon, label, text}", '{"type":"icons","heading":"できること","items":[{"icon":"rocket","label":"速い","text":"3 分で"},{"icon":"shield","label":"安全"},{"icon":"users","label":"みんなで"}]}'),
     "impact": (["text"], "強い一語を叩きつける（集中線・破片・画面の揺れ）。sub で下に一行", '{"type":"impact","text":"10 倍速い","sub":"同じ作業が 3 分で"}'),
     "countdown": ([], "3・2・1 の数え下ろしと、最後に label を叩きつける（from で始まりの数）", '{"type":"countdown","from":3,"label":"公開！","sub":"10 月 1 日"}'),
@@ -190,6 +200,10 @@ TRANSITIONS = {
     "diagonal": "斜めの境目が流れる", "diamond": "菱形が広がる", "spot": "一点（origin）から円が広がる", "cube": "縦に箱が回る",
     "page": "ページをめくる", "liquid": "波打つ境目が流れる", "dive": "前の場面の一点（focus）へ飛び込む", "tiles": "タイルが斜めの順に開く",
     "stripes": "縦の縞が上下から開く", "clock": "時計回りに開く",
+    "doors": "前の場面が左右の扉のように開く", "shatter": "前の場面がガラスのように割れて落ちる", "fan": "扇が 6 枚開く", "spin-zoom": "回りながら突っ込み、回りながら定まる",
+    "bars": "色の帯が横に走って覆い、抜ける", "cover": "色の幕が上から下りて上がる（ブランド名が出る）", "ink": "墨が滲むように広がる", "flip": "カードのように裏返る",
+    "rings": "同心円の輪が開く", "stack": "次の場面が横から重なり、前の場面が沈む", "shrink": "前の場面が縮んで左上へ飛ぶ", "flood": "波打つ水面が下から満ちる",
+    "focus": "ぼけて入れ替わる", "dissolve": "細かい四角がばらばらに入れ替わる", "columns": "縦の帯が開く",
 }
 TEXT_ANIMS = {
     "rise": "下から浮かぶ（既定）", "reveal": "左から現れ、カーソルが走る（題名の既定）", "pop": "弾んで出る", "slam": "大きく叩きつけ、画面が揺れる",
@@ -197,17 +211,27 @@ TEXT_ANIMS = {
     "type": "1 文字ずつ打つ", "scramble": "でたらめな文字から定まる", "wave": "1 文字ずつ波打って出る", "letters": "1 文字ずつ落ちてくる", "split": "散らばった文字が集まる",
     "mask": "下から覗くように現れる", "marker": "蛍光ペンが走ってから文字", "drop": "上から落ちて弾む", "zoom": "大きな所から縮んで定まる",
     "outline": "輪郭だけの文字から塗られる", "roll": "1 文字ずつ下から回り込む", "spin": "1 文字ずつ回って現れる", "shadow": "長い影が伸びる",
+    "flip": "1 文字ずつ上下に裏返る", "rotate": "左端を軸に起き上がる", "bounce": "1 文字ずつ落ちて跳ねる", "box": "色の箱が走り、抜けた後に文字",
+    "flicker": "1 文字ずつ瞬いて点く（古い看板）", "words": "語ごとに下から覗く", "halves": "上半分と下半分が左右から合わさる", "swing": "1 文字ずつ上を軸に振れて止まる",
+    "elastic": "ゴムのように伸び縮みして定まる", "tracking": "広い字間から詰まる（上品）", "skew": "斜めに傾いて滑り込む（ニュース）",
 }
-EASES = {"smooth": "なめらか（既定）", "spring": "ばねのように行き過ぎて戻る", "snappy": "素早く決まる", "bouncy": "跳ねて止まる"}
-ORDERS = {"normal": "前から（既定）", "reverse": "後ろから", "center": "中央から外へ", "edges": "両端から中央へ", "random": "ばらばら（毎回同じ順）"}
+EASES = {"smooth": "なめらか（既定）", "spring": "ばねのように行き過ぎて戻る", "snappy": "素早く決まる", "bouncy": "跳ねて止まる",
+         "elastic": "ゴムのように震えて止まる", "calm": "ゆっくり出てゆっくり止まる"}
+ORDERS = {"normal": "前から（既定）", "reverse": "後ろから", "center": "中央から外へ", "edges": "両端から中央へ", "random": "ばらばら（毎回同じ順）",
+          "alternate": "1 つおき（奇数の後に偶数）", "zigzag": "前と後ろを交互に"}
 FX = {
     "particles": "漂う粒", "stars": "瞬く星", "bokeh": "ぼけた光の玉", "rays": "差し込む光の筋", "speedlines": "中心へ向かう集中線", "grid": "奥へ流れる格子の床",
     "waves": "下で揺れる波線", "gradient": "動くグラデーション", "aurora": "流れるオーロラ", "plexus": "点と線の網", "contour": "等高線",
     "shapes": "漂う図形", "blobs": "ゆらぐ柔らかな塊", "scanlines": "走査線（上）", "confetti": "紙吹雪（上）", "vignette": "周りを暗く（上）", "sweep": "斜めの光が通る（上）", "noise": "フィルムの粒（上）",
+    "embers": "舞い上がる火の粉", "halftone": "網点の模様（x, y が濃い所）", "warp": "奥から迫る星（ワープ）", "pulse": "レーダーの輪と走査",
+    "bubbles": "昇る泡", "matrix": "流れ落ちる文字", "rain": "雨（上）", "snow": "雪（上）", "film": "古いフィルムの傷とちらつき（上）",
+    "leaks": "光漏れ（上）", "spotlight": "動くスポットライト（上）", "sparkles": "きらめき（上）",
 }
 CAMERA_PRESETS = {
     "push-in": "ゆっくり寄る", "pull-out": "寄った所から引く", "pan-left": "左へ流す", "pan-right": "右へ流す", "rise": "上へ上がる",
     "punch": "言い切りで素早く寄る", "tilt": "傾きを戻しながら", "drift": "ゆらゆら漂う", "dolly": "大きく寄った所から回りながら引く",
+    "crash-zoom": "寄った所から一瞬で引く", "orbit": "回り込むように横へ", "pan-reveal": "左上に寄った所から全体へ", "rack-focus": "ぼけからピントが合う",
+    "breathe": "呼吸するように寄り引き", "sink": "下へ沈む", "handheld": "手持ちの揺れ",
 }
 MOTION_STYLES = {
     "gentle": "穏やか（既定）。fade・浮かぶ文字・題名はカーソルで現れる",
@@ -215,6 +239,9 @@ MOTION_STYLES = {
     "playful": "楽しい。回る・箱・円の切り替え、文字は波打つ・題名は落ちてくる、紙吹雪",
     "cinematic": "映画的。fade と突っ込む切り替え・章は白く光る、文字はぼけから・題名は伸びから、光の玉・光の筋・周りを暗く、ゆっくり漂うカメラ",
     "tech": "技術。乱れ・モザイク・帯の切り替え、文字はでたらめから定まる、走査線・格子の床",
+    "retro": "レトロ。モザイク・ばらばら・縞の切り替え、文字は瞬いて点く・題名は落ちて跳ねる、古いフィルム・網点、手持ちのカメラ",
+    "elegant": "上品。ぼけ・色の幕の切り替え、字間が詰まる文字、光漏れ・きらめき、呼吸するカメラ・ピントが合う題名",
+    "news": "報道。色の帯・押し出し・重なる切り替え、箱が走る文字・斜めの題名、レーダーの輪、言い切りで一瞬で引く",
 }
 CAMERA_DOC = ('camera: [{"at":0,"x":960,"y":540,"zoom":1,"rot":0},{"at":0.6,"x":1300,"y":480,"zoom":1.6}] — 場面の進み（0..1）で補間し、'
               '(x,y) を中央に zoom 倍・rot 度で映す。部品にも custom にも効く。重ねの層もいっしょに動く。'
@@ -259,7 +286,7 @@ API_DOC = """custom の本体は (ctx, lt, d, H, s)。座標は 1920×1080、lt 
 手本は recipes.md。"""
 
 
-MIN_SEC = {"talk": 2, "layout": 7, "wordcloud": 5, "bigtype": 4.5, "area": 6, "stack": 6, "scatter": 6, "heatmap": 6, "gauge": 5, "rings": 5, "treemap": 6, "radar": 6, "phone": 6, "dashboard": 7,
+MIN_SEC = {"funnel": 4, "pyramid": 4, "venn": 5.5, "cycle": 5, "matrix": 5, "calendar": 5, "checklist": 3, "versus": 6, "ranking": 4, "keys": 3, "talk": 2, "layout": 7, "wordcloud": 5, "bigtype": 4.5, "area": 6, "stack": 6, "scatter": 6, "heatmap": 6, "gauge": 5, "rings": 5, "treemap": 6, "radar": 6, "phone": 6, "dashboard": 7,
            "form": 6, "notifs": 4, "scroll": 6, "drag": 5, "network": 6, "tree": 5, "states": 6, "map": 6, "layers": 6, "pipeline": 7, "icons": 3, "impact": 3.5, "countdown": 4, "orbit": 7, "logo": 6.5, "marquee": 5, "title": 8, "statement": 4.5, "bullets": 2.5, "flow": 3, "steps": 2, "terminal": 2.5, "stats": 4.5, "bars": 3.5,
            "compare": 3, "code": 2.5, "window": 7, "image": 5, "end": 4, "custom": 5,
            "cards": 3, "timeline": 3, "chat": 2, "line": 6, "donut": 6, "table": 3, "quote": 6, "kinetic": 3, "split": 6,
@@ -377,6 +404,14 @@ def min_seconds(s):
         base += 1.0 * s.get("from", 3) + (1.5 if s.get("label") else 0)
     elif t == "orbit":
         base += 0.9 * len(s.get("items", []))
+    elif t in ("funnel", "pyramid", "cycle", "matrix", "ranking", "checklist"):
+        base += 0.8 * len(s.get("items", []))
+    elif t == "calendar":
+        base += 0.8 * len(s.get("events", []))
+    elif t == "keys":
+        base += 1.6 * len(s.get("combos", [1]))
+    elif t == "versus":
+        base += 0.4 * (len(s.get("left", {}).get("points", [])) + len(s.get("right", {}).get("points", [])))
     elif t == "statement":
         base += 0.6 * len(s.get("lines", [s.get("text", "")]))
     return base

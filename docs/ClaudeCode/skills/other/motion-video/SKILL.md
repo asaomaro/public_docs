@@ -1,6 +1,6 @@
 ---
 name: motion-video
-description: 紹介・説明の内容から、動画のように再生できるモーショングラフィックスの単一HTMLを作る。再生・停止・倍速・字幕・音声（読み上げ・音楽・効果音）・チャプター・シークバー（その時刻のプレビュー）・文字起こし・続きから再生・小窓・WebM で保存・キー操作・全画面を備えたプレイヤーを 7 種のテンプレート（シネマ/スタジオ/プレゼンター/ミニマル/キオスク/シアター/スライド）から、映像の配色を 6 種から選べる。音楽は 140 曲・効果音は 221 種（Web Audio で合成し、場面の出来事に合わせて自動で鳴る。効果音の組 15 種）。動きの性格（穏やか・ダイナミック・楽しい・映画的・技術）を 1 つ選ぶと、28 種の切り替え・21 種の文字の出方・18 種の演出の層・カメラの型・画面の揺れの既定がまとまって決まる。表現は「部品」（53 種の部品と 6 種の割り付けの型で決定論的に組む。グラフ・スマホやダッシュボードなどの画面・網の目や木などの図を含む。線で描かれて動くアイコン 75 種）「混在」「自由」（プレイヤー・時間割・字幕・音声だけを使い、Claude が Canvas か HTML・SVG・CSS で描く。音楽・効果音も作曲・自作できる）から選ぶ。ほかの HTML（md-to-doc の文書など）にも埋め込める。「紹介動画を作って」「モーショングラフィックスで説明して」「動画っぽいHTMLにして」などと言われたときに使用する。
+description: 紹介・説明の内容から、動画のように再生できるモーショングラフィックスの単一HTMLを作る。再生・停止・倍速・字幕・音声（読み上げ・音楽・効果音）・チャプター・シークバー（その時刻のプレビュー）・文字起こし・続きから再生・小窓・WebM で保存・キー操作・全画面を備えたプレイヤーを 7 種のテンプレート（シネマ/スタジオ/プレゼンター/ミニマル/キオスク/シアター/スライド）から、映像の配色を 6 種から選べる。音楽は 140 曲・効果音は 221 種（Web Audio で合成し、場面の出来事に合わせて自動で鳴る。効果音の組 15 種）。動きの性格（穏やか・ダイナミック・楽しい・映画的・技術・レトロ・上品・報道）を 1 つ選ぶと、43 種の切り替え・32 種の文字の出方・30 種の演出の層・16 種のカメラの型・画面の揺れの既定がまとまって決まる。表現は「部品」（63 種の部品と 6 種の割り付けの型で決定論的に組む。グラフ・スマホやダッシュボードなどの画面・網の目や木・漏斗・ベン図・四象限などの図を含む。線で描かれて動くアイコン 105 種）「混在」「自由」（プレイヤー・時間割・字幕・音声だけを使い、Claude が Canvas か HTML・SVG・CSS で描く。音楽・効果音も作曲・自作できる）から選ぶ。ほかの HTML（md-to-doc の文書など）にも埋め込める。「紹介動画を作って」「モーショングラフィックスで説明して」「動画っぽいHTMLにして」などと言われたときに使用する。
 ---
 
 # motion-video — 台本から、動画のように再生できる HTML を作る
@@ -145,6 +145,16 @@ description: 紹介・説明の内容から、動画のように再生できる�
 | 中心と周りの関係（生態系・連携先） | `orbit`（項目が中心の周りを回る） |
 | ロゴ・製品名の登場（頭・締め） | `logo`（破片が集まり、題名に光が走る） |
 | キーワードの多さ・勢い | `marquee`（大きな文字の帯が流れる。`caption` で中央に札） |
+| 集客・選考などの絞り込み（段ごとの歩留まり） | `funnel` |
+| 土台から積み上がる構成・優先度 | `pyramid` |
+| 2〜3 の性質の重なり | `venn`（`center` で重なりの言葉） |
+| 繰り返す工程（PDCA など） | `cycle` |
+| 2 軸での位置づけ（優先度の判断） | `matrix`（四象限） |
+| 日程・予定 | `calendar` |
+| 確認項目・完了の数 | `checklist` |
+| 2 つの対決・乗り換え | `versus`（`winner` で勝者が光る） |
+| 順位・人気 | `ranking` |
+| キーボードの操作・ショートカット | `keys` |
 | 上のどれにも当たらない絵 | `custom`（最後の手段。下記） |
 
 - 同じ type を 3 場面続けない。
@@ -158,17 +168,22 @@ description: 紹介・説明の内容から、動画のように再生できる�
 | `playful` | 回る・箱・円・上へ（回る） | 波打つ（落ちてくる） | 題名と締めに紙吹雪 | 子ども・イベント・親しみやすい案内 |
 | `cinematic` | fade・突っ込む（白く光る） | ぼけから（伸びから縮む） | 光の玉・光の筋・周りを暗く、ゆっくり漂う | ビジョン・物語・ブランド |
 | `tech` | 乱れ・拭き取り・モザイク・帯（乱れ） | でたらめな文字から | 走査線・格子の床 | 技術・データ・開発者向け |
+| `retro` | モザイク・ばらばら・縞・縦の帯（タイル） | 瞬いて点く（落ちて跳ねる） | 古いフィルム・網点、題名は手持ちのカメラ | 懐かしさ・ゲーム・昭和風・遊び心 |
+| `elegant` | ぼけ・fade・色の幕（色の幕） | 字間が詰まる（同じ） | 光漏れ・きらめき、呼吸するカメラ・ピントが合う題名 | 高級感・ブランド・式典・招待 |
+| `news` | 色の帯・押し出し・重なる・扉（色の帯） | 箱が走る（斜めに滑り込む） | レーダーの輪、言い切りで一瞬で引く | 速報・発表・社内報・数字の報告 |
 
 - 性格を選んだら台本全体の `transition` は書かない（書くとそれが全場面に効く）。見せ場の場面だけ `transition`・`anim`・`fx`・`camera`・`shake` で変える。
-- 切り替え（28 種）: `fade` `slide` `zoom` `cut` `wipe` `push` `slide-up` `slide-down` `iris` `blinds` `split` `whip` `spin` `flash` `glitch` `pixel` `squeeze` `zoom-through`
-  `diagonal` `diamond` `spot`（場面の `origin` から）`cube` `page` `liquid` `dive`（前の場面の `focus` へ飛び込む）`tiles` `stripes` `clock`。
+- 切り替え（43 種）: `fade` `slide` `zoom` `cut` `wipe` `push` `slide-up` `slide-down` `iris` `blinds` `split` `whip` `spin` `flash` `glitch` `pixel` `squeeze` `zoom-through`
+  `diagonal` `diamond` `spot`（場面の `origin` から）`cube` `page` `liquid` `dive`（前の場面の `focus` へ飛び込む）`tiles` `stripes` `clock`
+  `doors` `shatter`（ガラスのように割れる）`fan` `spin-zoom` `bars` `cover`（色の幕。ブランド名が出る）`ink` `flip` `rings` `stack` `shrink` `flood` `focus` `dissolve` `columns`。
 - 文字の出方（`anim`。title・statement・quote・end・kinetic・impact・logo・layout・bigtype）: `rise` `reveal` `pop` `slam` `stretch` `blur` `glitch` `neon` `type` `scramble` `wave` `letters` `split`
-  `mask` `marker` `drop` `zoom` `outline` `roll` `spin` `shadow`。
-- 演出の層（`fx`）: `particles` `stars` `bokeh` `rays` `speedlines` `grid` `waves` `gradient` `aurora` `plexus` `contour` `shapes` `blobs`（部品の下）・
-  `scanlines` `confetti` `vignette` `sweep` `noise`（上）。
-- 動き方（場面か台本の `ease`・`order`）: 緩急 `smooth`（既定）・`spring`・`snappy`・`bouncy`、現れる順 `reverse`・`center`・`edges`・`random`（項目を順に出す部品に効く）。
+  `mask` `marker` `drop` `zoom` `outline` `roll` `spin` `shadow` `flip` `rotate` `bounce` `box` `flicker` `words` `halves` `swing` `elastic` `tracking` `skew`。
+- 演出の層（`fx`）: `particles` `stars` `bokeh` `rays` `speedlines` `grid` `waves` `gradient` `aurora` `plexus` `contour` `shapes` `blobs`
+  `embers` `halftone` `warp` `pulse` `bubbles` `matrix`（部品の下）・`scanlines` `confetti` `vignette` `sweep` `noise` `rain` `snow` `film` `leaks` `spotlight` `sparkles`（上）。
+- 動き方（場面か台本の `ease`・`order`）: 緩急 `smooth`（既定）・`spring`・`snappy`・`bouncy`・`elastic`・`calm`、現れる順 `reverse`・`center`・`edges`・`random`・`alternate`・`zigzag`（項目を順に出す部品に効く）。
   `"fx": false` で性格の既定も止める。1 場面に 1〜2 個まで。
-- カメラの型（`camera` に名前）: `push-in` `pull-out` `pan-left` `pan-right` `rise` `punch` `tilt` `drift` `dolly`。
+- カメラの型（`camera` に名前）: `push-in` `pull-out` `pan-left` `pan-right` `rise` `punch` `tilt` `drift` `dolly` `crash-zoom` `orbit` `pan-reveal` `rack-focus`（ぼけから合う）`breathe` `sink` `handheld`。
+  自分で書くときも、鍵の点に `blur`（px）を書けばピントが動く。
 - 画面の揺れ: `"shake": [{"at": 0.4, "amp": 18, "dur": 450}]`（`slam`・`impact`・`countdown`・判子は自動で揺れる）。
 - 強い動き（`slam`・揺れ・破片・`flash`・`glitch`）は見せ場だけに使う。全場面を強くすると、どれも強調にならない。
 
@@ -187,24 +202,19 @@ description: 紹介・説明の内容から、動画のように再生できる�
 | 内容・雰囲気 | 曲の例 |
 |---|---|
 | 会社・サービスの紹介（定番） | `corporate` `bright` `trust` `pitch` `clean` |
-| 新製品・発表・告知 | `launch` `innovate` `keynote` `hype` `startup` `rise` |
-| 技術・開発者・データ | `tech` `data` `circuit` `ai` `robot` `synthwave` `hacker` `cyber` `techno` |
-| 落ち着いた解説・研修 | `calm` `study` `lofi` `chillhop` `rain` `documentary` `minimal` `radio` |
+| 新製品・発表・告知 | `launch` `innovate` `keynote` `hype` `startup` |
+| 技術・開発者・データ | `tech` `data` `circuit` `ai` `robot` `synthwave` `hacker` `cyber` |
+| 落ち着いた解説・研修 | `calm` `study` `lofi` `rain` `documentary` `minimal` |
 | 課題の提示・危機 → 解決 | 章ごとに `tension` / `mystery` → `hope`（章の `music` で切り替える） |
-| 物語・ビジョン・壮大 | `epic` `hero` `wonder` `trailer` `adventure` `space` `anthem` `earth` `aurora` |
-| 謎・不穏・怖い | `mystery` `suspense` `detective` `horror` `creepy` `dungeon` `sneaky` |
-| 明るい・楽しい・子ども | `happy` `pop` `kids` `summer` `island` `musicbox` `nursery` `picnic` `comedy` `lullaby` |
-| 和・アジア・民族 | `wa` `kyoto` `matsuri` `zen` `ryukyu` `orient` `celtic` `gagaku` `enka` `edo` `bon` |
-| 世界の音楽 | `samba` `reggae` `ska` `tango` `musette` `flamenco` `arabian` `raga` `caribbean` `country` |
-| ゲーム | `chiptune` `arcade` `puzzle` `rpg` `town` `battle` `victory` `chipboss` `chiptown` |
-| 大人・店舗・夜 | `jazz` `swing` `blues` `gospel` `bossa` `cafe` `night` `soul` `citypop` |
-| 力強い・スピード・ダンス | `rock` `drive` `sport` `funk` `countdown` `parade` `house` `outrun` `dnb` `trap` `garage` `futurebass` `reggaeton` |
-| 番組風（ニュース・告知・クイズ・締め） | `news` `weather` `variety` `podcast` `quiz` `credits` |
-| 冬・静けさ・瞑想 | `snow` `meditation` `zen` `aurora` |
+| 物語・ビジョン・壮大 | `epic` `hero` `wonder` `trailer` `adventure` `space` |
+| 明るい・楽しい・子ども | `happy` `pop` `kids` `summer` `island` `musicbox` |
+| 和・アジア・民族 | `wa` `kyoto` `matsuri` `zen` `ryukyu` `orient` `celtic` |
+| レトロ・ゲーム | `chiptune` `arcade` `puzzle` `rpg` |
+| 大人・店舗・夜 | `jazz` `bossa` `cafe` `night` `soul` `house` |
+| 力強い・スピード | `rock` `drive` `sport` `funk` `countdown` |
 
 - 効果音の組（`audio.sfx.kit`）: `standard`（既定）・`soft`（研修・医療・子ども）・`digital`（技術・SaaS）・`retro`・`organic`（手作り・生活）・
-  `cinematic`（予告・ビジョン）・`playful`・`wa`（和）・`news`（報道・レポート）・`minimal`（章・通知・クリックだけ）・
-  `scifi`（宇宙・未来）・`horror`（怪談・警告）・`kids`（子ども・絵本）・`game`（RPG 風の案内）・`luxury`（高級・ブランド・式典）。曲の雰囲気と揃える。
+  `cinematic`（予告・ビジョン）・`playful`・`wa`（和）・`news`（報道・レポート）・`minimal`（章・通知・クリックだけ）。曲の雰囲気と揃える。
 - 量（`audio.sfx.density`）: `low`（章・通知・クリック・数え上げの終わり等だけ）・`normal`（既定。項目が出る・線がつながる等も）・`high`（表の行まで）。
   読み上げのある 2 分以上の動画で、うるさく感じそうなら `low`。
 - 盛り上がり: 章ごとに 1〜3（既定は最初と最後が 1、最後の手前が 3、ほかは 2）。山場の章に `"energy": 3`。
@@ -213,9 +223,6 @@ description: 紹介・説明の内容から、動画のように再生できる�
 - 表現が `free` で、音も作り込むと決めたとき（質問で「作曲・自作」を選んだとき）:
   - 曲は `{"preset": "…", 上書き}` で既存の曲の一部（`bpm`・`key`・`scale`・`prog`・`layers`・`drum`）を変えるか、
     `layers`（楽器 × 型）を一から組む。さらに自由にするなら `{"bpm": 96, "src": "music.js"}`（小節ごとに音符を返す JS）。
-  - 楽器は 76 種（シタール・三味線・スチールドラム・アコーディオン・笙・808 など）、型は 42 種（レゲエの刻み `skank`・ダンスの `pump8`・弦の `tremolo`・
-    `habanera`・`stride`・`gallop`・`tanpura` など）、打楽器の型は 47 種（`boombap` `trap2` `samba` `swing` `techno` `bon` `maqsum` など）、
-    音階は 20 種（`hijaz` `bhairav` `iwato` `dim` など）。打楽器の型の `r`・`t` は刻みの中の 2・3 連打（トラップのハイハット）。
   - 楽器（`audio.instruments`）・効果音（`audio.sfxDefs`）は層（発振器・雑音・包絡・フィルタ）の並びで作る（書き方は `--list-sounds` と `audio.js` の冒頭）。
   - `custom` の場面の中で `H.sfx(ms, "名前か出来事")` を呼べば、その時刻に鳴る（条件の外で呼ぶ）。
   - 自作しても、時刻だけで決まる作りは同じ（`Math.random` は使わず `M.rand`）。

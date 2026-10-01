@@ -1,0 +1,444 @@
+{
+ "title": "動きの見本（追加の部品・切り替え・文字・演出・カメラ）",
+ "lang": "ja",
+ "player": "studio",
+ "theme": "midnight",
+ "motion": "gentle",
+ "brand": {
+  "name": "motion-video"
+ },
+ "audio": {
+  "narration": false,
+  "music": "calm",
+  "sfx": true
+ },
+ "chapters": [
+  {
+   "title": "部品",
+   "scenes": [
+    {
+     "type": "title",
+     "title": "新しい動き",
+     "subtitle": "showcase",
+     "duration": 5
+    },
+    {
+     "type": "icons",
+     "heading": "追加のアイコン",
+     "items": [
+      {
+       "icon": "send",
+       "label": "send"
+      },
+      {
+       "icon": "mic",
+       "label": "mic"
+      },
+      {
+       "icon": "music",
+       "label": "music"
+      },
+      {
+       "icon": "camera",
+       "label": "camera"
+      },
+      {
+       "icon": "truck",
+       "label": "truck"
+      },
+      {
+       "icon": "building",
+       "label": "building"
+      },
+      {
+       "icon": "wrench",
+       "label": "wrench"
+      },
+      {
+       "icon": "flask",
+       "label": "flask"
+      }
+     ],
+     "transition": "fade"
+    },
+    {
+     "type": "funnel",
+     "heading": "申し込みまで",
+     "items": [
+      {
+       "label": "訪問",
+       "value": 12000
+      },
+      {
+       "label": "試用",
+       "value": 3200
+      },
+      {
+       "label": "申し込み",
+       "value": 860
+      }
+     ],
+     "unit": "人",
+     "transition": "doors"
+    },
+    {
+     "type": "pyramid",
+     "heading": "支える仕組み",
+     "items": [
+      {
+       "label": "体験",
+       "text": "画面"
+      },
+      {
+       "label": "機能",
+       "text": "API"
+      },
+      {
+       "label": "基盤",
+       "text": "サーバ"
+      }
+     ],
+     "transition": "shatter"
+    },
+    {
+     "type": "venn",
+     "sets": [
+      {
+       "label": "速さ",
+       "text": "すぐ返る"
+      },
+      {
+       "label": "安さ"
+      },
+      {
+       "label": "安全"
+      }
+     ],
+     "center": "ここ",
+     "transition": "fan"
+    },
+    {
+     "type": "cycle",
+     "center": "改善",
+     "items": [
+      {
+       "label": "計画",
+       "icon": "pencil"
+      },
+      {
+       "label": "実行",
+       "icon": "rocket"
+      },
+      {
+       "label": "評価",
+       "icon": "chart-line"
+      },
+      {
+       "label": "改善",
+       "icon": "refresh"
+      }
+     ],
+     "transition": "spin-zoom",
+     "ease": "elastic"
+    },
+    {
+     "type": "matrix",
+     "xLabel": "効果",
+     "yLabel": "手軽さ",
+     "quadrants": [
+      "すぐやる",
+      "計画",
+      "保留",
+      "見送り"
+     ],
+     "highlight": 1,
+     "items": [
+      {
+       "label": "自動化",
+       "x": 0.8,
+       "y": 0.7
+      },
+      {
+       "label": "刷新",
+       "x": 0.85,
+       "y": 0.2
+      }
+     ],
+     "transition": "bars"
+    },
+    {
+     "type": "calendar",
+     "month": "2026年10月",
+     "days": 31,
+     "start": 4,
+     "events": [
+      {
+       "day": 1,
+       "label": "公開"
+      },
+      {
+       "day": 15,
+       "label": "説明会"
+      }
+     ],
+     "highlight": 1,
+     "side": true,
+     "transition": "cover"
+    },
+    {
+     "type": "checklist",
+     "heading": "公開の前に",
+     "items": [
+      "テスト",
+      {
+       "text": "文書",
+       "note": "済"
+      },
+      {
+       "text": "告知",
+       "done": false,
+       "note": "来週"
+      }
+     ],
+     "transition": "ink",
+     "order": "zigzag"
+    },
+    {
+     "type": "versus",
+     "left": {
+      "label": "手作業",
+      "value": "30 分",
+      "points": [
+       "毎朝の確認"
+      ]
+     },
+     "right": {
+      "label": "自動",
+      "value": "1 分",
+      "icon": "bolt"
+     },
+     "winner": "right",
+     "transition": "flip"
+    },
+    {
+     "type": "ranking",
+     "heading": "よく使う機能",
+     "unit": "回",
+     "items": [
+      {
+       "label": "承認",
+       "value": 1240
+      },
+      {
+       "label": "通知",
+       "value": 860
+      },
+      {
+       "label": "検索",
+       "value": 520
+      }
+     ],
+     "transition": "rings",
+     "ease": "elastic"
+    },
+    {
+     "type": "keys",
+     "combos": [
+      {
+       "keys": [
+        "Ctrl",
+        "K"
+       ],
+       "label": "コマンドを開く"
+      },
+      {
+       "keys": [
+        "Ctrl",
+        "Shift",
+        "P"
+       ],
+       "label": "すべての操作"
+      }
+     ],
+     "transition": "stack"
+    }
+   ]
+  },
+  {
+   "title": "文字と演出",
+   "scenes": [
+    {
+     "type": "statement",
+     "lines": [
+      "flip と embers",
+      "**強調**の語も入る一行"
+     ],
+     "anim": "flip",
+     "fx": [
+      "embers"
+     ],
+     "transition": "shrink",
+     "duration": 4.5,
+     "camera": "crash-zoom"
+    },
+    {
+     "type": "statement",
+     "lines": [
+      "rotate と halftone",
+      "**強調**の語も入る一行"
+     ],
+     "anim": "rotate",
+     "fx": [
+      "halftone"
+     ],
+     "transition": "flood",
+     "duration": 4.5,
+     "camera": "orbit"
+    },
+    {
+     "type": "statement",
+     "lines": [
+      "bounce と warp",
+      "**強調**の語も入る一行"
+     ],
+     "anim": "bounce",
+     "fx": [
+      "warp"
+     ],
+     "transition": "focus",
+     "duration": 4.5,
+     "camera": "pan-reveal"
+    },
+    {
+     "type": "statement",
+     "lines": [
+      "box と pulse",
+      "**強調**の語も入る一行"
+     ],
+     "anim": "box",
+     "fx": [
+      "pulse"
+     ],
+     "transition": "dissolve",
+     "duration": 4.5,
+     "camera": "rack-focus"
+    },
+    {
+     "type": "statement",
+     "lines": [
+      "flicker と bubbles",
+      "**強調**の語も入る一行"
+     ],
+     "anim": "flicker",
+     "fx": [
+      "bubbles"
+     ],
+     "transition": "columns",
+     "duration": 4.5,
+     "camera": "breathe"
+    },
+    {
+     "type": "statement",
+     "lines": [
+      "words と matrix",
+      "**強調**の語も入る一行"
+     ],
+     "anim": "words",
+     "fx": [
+      "matrix"
+     ],
+     "transition": "doors",
+     "duration": 4.5,
+     "camera": "sink"
+    },
+    {
+     "type": "statement",
+     "lines": [
+      "halves と rain",
+      "**強調**の語も入る一行"
+     ],
+     "anim": "halves",
+     "fx": [
+      "rain"
+     ],
+     "transition": "shatter",
+     "duration": 4.5,
+     "camera": "handheld"
+    },
+    {
+     "type": "statement",
+     "lines": [
+      "swing と snow",
+      "**強調**の語も入る一行"
+     ],
+     "anim": "swing",
+     "fx": [
+      "snow"
+     ],
+     "transition": "fan",
+     "duration": 4.5
+    },
+    {
+     "type": "statement",
+     "lines": [
+      "elastic と film",
+      "**強調**の語も入る一行"
+     ],
+     "anim": "elastic",
+     "fx": [
+      "film"
+     ],
+     "transition": "spin-zoom",
+     "duration": 4.5
+    },
+    {
+     "type": "statement",
+     "lines": [
+      "tracking と leaks",
+      "**強調**の語も入る一行"
+     ],
+     "anim": "tracking",
+     "fx": [
+      "leaks"
+     ],
+     "transition": "bars",
+     "duration": 4.5
+    },
+    {
+     "type": "statement",
+     "lines": [
+      "skew と spotlight",
+      "**強調**の語も入る一行"
+     ],
+     "anim": "skew",
+     "fx": [
+      "spotlight"
+     ],
+     "transition": "cover",
+     "duration": 4.5
+    },
+    {
+     "type": "statement",
+     "lines": [
+      "flip と sparkles",
+      "**強調**の語も入る一行"
+     ],
+     "anim": "flip",
+     "fx": [
+      "sparkles"
+     ],
+     "transition": "ink",
+     "duration": 4.5
+    },
+    {
+     "type": "end",
+     "lines": [
+      "おわり"
+     ],
+     "duration": 4
+    }
+   ]
+  }
+ ],
+ "description": "追加した 10 の部品・15 の切り替え・11 の文字の出方・12 の演出の層・7 のカメラの型をひととおり使う見本。motion を retro・elegant・news に変えて見比べられる。"
+}

@@ -34,7 +34,9 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   /* 緩急（ease）と現れる順（order）は場面ごとに差し替える（drawScene・collectEvents が設定する） */
   var EASES = { smooth: eo, spring: function (x) { return x >= 1 ? 1 : 1 - Math.cos(x * Math.PI * 2.5) * Math.exp(-6 * x); },
                 snappy: function (x) { return 1 - Math.pow(1 - x, 5); },
-                bouncy: function (x) { var n = 7.5625, d1 = 2.75; if (x < 1 / d1) return n * x * x; if (x < 2 / d1) return n * (x -= 1.5 / d1) * x + .75; if (x < 2.5 / d1) return n * (x -= 2.25 / d1) * x + .9375; return n * (x -= 2.625 / d1) * x + .984375; } };
+                bouncy: function (x) { var n = 7.5625, d1 = 2.75; if (x < 1 / d1) return n * x * x; if (x < 2 / d1) return n * (x -= 1.5 / d1) * x + .75; if (x < 2.5 / d1) return n * (x -= 2.25 / d1) * x + .9375; return n * (x -= 2.625 / d1) * x + .984375; },
+                elastic: function (x) { return x <= 0 ? 0 : x >= 1 ? 1 : Math.pow(2, -10 * x) * Math.sin((x * 10 - .75) * (2 * Math.PI / 3)) + 1; },
+                calm: function (x) { return -(Math.cos(Math.PI * x) - 1) / 2; } };
   var CUR_EASE = eo, CUR_ORDER = "";
   var P = function (x, a, b, e) { return (e || CUR_EASE)(lin(x, a, b)); };
   var mix = function (a, b, k) { return a + (b - a) * k; };
@@ -157,7 +159,11 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var a = lead || 500, b = Math.max(a + 200, d - (tail || 900)), out = [];
     for (var i = 0; i < n; i++) out.push(a + (b - a) * i / Math.max(1, n));
     if (!CUR_ORDER || CUR_ORDER === "normal" || n < 2) return out;
-    /* 現れる順を並べ替える: reverse 後ろから・center 中央から・edges 両端から・random ばらばら（種は項目の数） */
+    /* 現れる順を並べ替える: reverse 後ろから・center 中央から・edges 両端から・random ばらばら（種は項目の数）・alternate 1 つおき・zigzag 前後交互 */
+    if (CUR_ORDER === "alternate" || CUR_ORDER === "zigzag") { var seq = [], i2;
+      if (CUR_ORDER === "alternate") { for (i2 = 0; i2 < n; i2 += 2) seq.push(i2); for (i2 = 1; i2 < n; i2 += 2) seq.push(i2); }
+      else for (i2 = 0; seq.length < n; i2++) { seq.push(i2); if (seq.length < n) seq.push(n - 1 - i2); }
+      var res2 = []; seq.forEach(function (i, j) { res2[i] = out[j]; }); return res2; }
     var idx = out.map(function (_, i) { return i; }), m = (n - 1) / 2, r = rand(n * 7919 + 13), key = idx.map(function () { return r(); });
     idx.sort(function (p, q) { return CUR_ORDER === "reverse" ? q - p : CUR_ORDER === "center" ? Math.abs(p - m) - Math.abs(q - m) || p - q
       : CUR_ORDER === "edges" ? Math.abs(q - m) - Math.abs(p - m) || p - q : key[p] - key[q]; });
@@ -964,7 +970,14 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     "punch": [{ at: 0, zoom: 1 }, { at: .14, zoom: 1 }, { at: .22, zoom: 1.13 }, { at: 1, zoom: 1.05 }],
     "tilt": [{ at: 0, zoom: 1.1, rot: -2.5 }, { at: 1, zoom: 1.02, rot: 0 }],
     "drift": [{ at: 0, x: 930, y: 555, zoom: 1.05 }, { at: .5, x: 985, y: 530, zoom: 1.07 }, { at: 1, x: 950, y: 548, zoom: 1.05 }],
-    "dolly": [{ at: 0, zoom: 1.25, rot: 1.5 }, { at: .6, zoom: 1.03, rot: 0 }, { at: 1, zoom: 1 }]
+    "dolly": [{ at: 0, zoom: 1.25, rot: 1.5 }, { at: .6, zoom: 1.03, rot: 0 }, { at: 1, zoom: 1 }],
+    "crash-zoom": [{ at: 0, zoom: 1.45, rot: -1 }, { at: .1, zoom: 1.02, rot: 0 }, { at: 1, zoom: 1.06 }],
+    "orbit": [{ at: 0, x: 900, zoom: 1.08, rot: -2 }, { at: .5, x: 960, y: 520, zoom: 1.1, rot: 0 }, { at: 1, x: 1020, zoom: 1.08, rot: 2 }],
+    "pan-reveal": [{ at: 0, x: 620, y: 420, zoom: 1.5 }, { at: .55, x: 960, y: 540, zoom: 1 }, { at: 1, zoom: 1 }],
+    "rack-focus": [{ at: 0, zoom: 1.06, blur: 9 }, { at: .28, zoom: 1.03, blur: 0 }, { at: 1, zoom: 1.05, blur: 0 }],
+    "breathe": [{ at: 0, zoom: 1.02 }, { at: .25, zoom: 1.06 }, { at: .5, zoom: 1.02 }, { at: .75, zoom: 1.06 }, { at: 1, zoom: 1.02 }],
+    "sink": [{ at: 0, y: 440, zoom: 1.08 }, { at: 1, y: 620, zoom: 1.08 }],
+    "handheld": (function () { var k = []; for (var i = 0; i <= 24; i++) k.push({ at: i / 24, x: 960 + 12 * Math.sin(i * 1.7) + 6 * Math.sin(i * .63), y: 540 + 8 * Math.cos(i * 1.3) + 4 * Math.sin(i * 2.9), zoom: 1.05, rot: .45 * Math.sin(i * .9) }); return k; })()
   };
   function camAt(keys, f) {
     if (typeof keys === "string") keys = CAMS[keys];
@@ -974,9 +987,11 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     if (f <= (keys[0].at || 0)) b = a = keys[0];
     var k = a === b ? 0 : eio(lin(f, a.at || 0, b.at || 1));
     return { x: mix(a.x === undefined ? 960 : a.x, b.x === undefined ? 960 : b.x, k), y: mix(a.y === undefined ? 540 : a.y, b.y === undefined ? 540 : b.y, k),
-             zoom: mix(a.zoom || 1, b.zoom || 1, k), rot: mix(a.rot || 0, b.rot || 0, k) };
+             zoom: mix(a.zoom || 1, b.zoom || 1, k), rot: mix(a.rot || 0, b.rot || 0, k), blur: mix(a.blur || 0, b.blur || 0, k) };
   }
-  function applyCam(cam) { if (!cam) return; ctx.translate(960, 540); if (cam.rot) ctx.rotate(cam.rot * Math.PI / 180); ctx.scale(cam.zoom, cam.zoom); ctx.translate(-cam.x, -cam.y); }
+  function applyCam(cam) { if (!cam) return;
+    if (cam.blur > .05 && "filter" in ctx) ctx.filter = (ctx.filter && ctx.filter !== "none" ? ctx.filter + " " : "") + "blur(" + cam.blur.toFixed(1) + "px)";
+    ctx.translate(960, 540); if (cam.rot) ctx.rotate(cam.rot * Math.PI / 180); ctx.scale(cam.zoom, cam.zoom); ctx.translate(-cam.x, -cam.y); }
 
   /* ================= 動きの性格（台本の motion）: 切り替え・文字の出方・演出・カメラの既定 ================= */
   var MSTYLES = {
@@ -986,7 +1001,12 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     playful: { tr: ["spin", "squeeze", "iris", "slide-up"], ch: "spin", text: "wave", title: "letters", fx: [], titleFx: ["confetti"], endFx: ["confetti"], cam: { title: "tilt" } },
     cinematic: { tr: ["fade", "zoom-through", "fade"], ch: "flash", text: "blur", title: "stretch", fx: ["vignette"], titleFx: ["bokeh", "rays"], endFx: ["bokeh"],
                  cam: { "*": "drift", title: "dolly", statement: "push-in", quote: "push-in" } },
-    tech: { tr: ["glitch", "wipe", "pixel", "blinds"], ch: "glitch", text: "scramble", title: "scramble", fx: ["scanlines"], titleFx: ["grid"], endFx: ["grid"], cam: {} }
+    tech: { tr: ["glitch", "wipe", "pixel", "blinds"], ch: "glitch", text: "scramble", title: "scramble", fx: ["scanlines"], titleFx: ["grid"], endFx: ["grid"], cam: {} },
+    retro: { tr: ["pixel", "dissolve", "stripes", "columns"], ch: "tiles", text: "flicker", title: "bounce", fx: ["film"], titleFx: ["halftone"], endFx: ["halftone"], cam: { title: "handheld" } },
+    elegant: { tr: ["focus", "fade", "cover"], ch: "cover", text: "tracking", title: "tracking", fx: ["leaks"], titleFx: ["sparkles"], endFx: ["sparkles"],
+               cam: { "*": "breathe", title: "rack-focus", quote: "push-in" } },
+    news: { tr: ["bars", "push", "stack", "doors"], ch: "bars", text: "box", title: "skew", fx: [], titleFx: ["pulse"], endFx: ["pulse"],
+            cam: { statement: "crash-zoom", impact: "crash-zoom", title: "push-in" } }
   };
   var MS = MSTYLES[SPEC.motion] || MSTYLES.gentle;
   function animOf(s, role) { return s.anim || (role === "title" ? MS.title : MS.text); }
@@ -1073,6 +1093,44 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
         });
         if (anim === "type" && lastX !== null && Math.floor(lt / 400) % 2 === 0) { ctx.fillStyle = C.accent2; ctx.fillRect(lastX + 4, y - size * .85, Math.max(4, size * .1), size * .95); }
         break; }
+      case "rotate": { var ex0 = o.align === "center" ? mid - total / 2 : o.align === "right" ? x - total : x, er = back(k);
+        ctx.translate(ex0, y); ctx.rotate((1 - er) * -.5); ctx.translate(-ex0, -y); rich(line, x, y, withA(clamp(k * 2.5))); break; }
+      case "box": { var bk1 = eio(clamp(k * 2)), bk2 = eio(clamp(k * 2 - 1)), bx0 = mid - total / 2 - 12, bw = total + 24;
+        if (k > .5) { ctx.save(); ctx.beginPath(); ctx.rect(bx0, y - size * 1.1, bw, size * 1.5); ctx.clip(); rich(line, x, y, o); ctx.restore(); }
+        ctx.fillStyle = o.emColor || C.accent; ctx.fillRect(bx0 + bw * bk2, y - size * .95, bw * (bk1 - bk2), size * 1.2); break; }
+      case "halves": { var eh = eo(k), hy = y - size * .38;
+        ctx.save(); ctx.beginPath(); ctx.rect(0, y - size * 1.4, W, size * 1.02); ctx.clip(); rich(line, x - (1 - eh) * 260, y, withA(clamp(k * 2))); ctx.restore();
+        ctx.beginPath(); ctx.rect(0, hy, W, size * .9); ctx.clip(); rich(line, x + (1 - eh) * 260, y, withA(clamp(k * 2))); break; }
+      case "elastic": { var ee = EASES.elastic(k); ctx.translate(mid, cy); ctx.scale(Math.max(.01, ee), Math.max(.01, 2 - Math.max(.2, ee))); ctx.translate(-mid, -cy); rich(line, x, y, withA(clamp(k * 3))); break; }
+      case "skew": { var es = eo(k); ctx.translate(mid, cy); ctx.transform(1, 0, -(1 - es) * .9, 1, 0, 0); ctx.translate(-mid - (1 - es) * 340, -cy); rich(line, x, y, withA(clamp(k * 2))); break; }
+      case "words": {
+        /* 語ごと（空白で区切る。空白の無い行は 3 文字ずつ）に、下から覗くように */
+        var cs4 = charLayout(line, x, o), grp = [], cur4 = null, sp4 = /\s/.test(String(line).replace(/\*\*/g, "").trim());
+        cs4.forEach(function (c, i) { var brk = sp4 ? /\s/.test(c.ch) : i % 3 === 0; if (sp4 && /\s/.test(c.ch)) { cur4 = null; return; }
+          if (!cur4 || (!sp4 && brk)) { cur4 = []; grp.push(cur4); } cur4.push(c); });
+        grp.forEach(function (gq, wi) { var a1 = a0 + wi * dur * .5 / grp.length, kk = lin(lt, a1, a1 + dur * .5); if (kk <= 0) return;
+          var gx0 = gq[0].x, gx1 = gq[gq.length - 1].x + gq[gq.length - 1].w;
+          ctx.save(); ctx.beginPath(); ctx.rect(gx0 - 4, y - size * 1.15, gx1 - gx0 + 8, size * 1.5); ctx.clip();
+          gq.forEach(function (c) { txt(c.ch, c.x, y + (1 - eo(kk)) * size * 1.25, { size: size, weight: c.o.weight, font: c.o.font, color: c.em ? (o.emColor || C.accent) : (o.color || C.ink), alpha: al }); });
+          ctx.restore(); });
+        break; }
+      case "flip": case "bounce": case "flicker": case "swing": case "tracking": {
+        var cs3 = charLayout(line, x, o), n3 = cs3.length, per3 = Math.min(55, dur * .55 / Math.max(1, n3));
+        cs3.forEach(function (c, i) {
+          var col = c.em ? (o.emColor || C.accent) : (o.color || C.ink), c0 = anim === "tracking" ? a0 : a0 + i * per3, kk = lin(lt, c0, c0 + (anim === "tracking" ? dur : Math.max(280, dur * .45)));
+          var co = { size: size, weight: c.o.weight, font: c.o.font, color: col, align: "center" }, cxx = c.x + c.w / 2;
+          if (anim === "flicker") { var rf = rand(i * 71 + 5), set = a0 + rf() * dur * .8, on = lt >= set || (lt >= a0 + rf() * dur * .5 && Math.floor(lt / 60 + i) % 3 === 0);
+            if (on) { ctx.save(); if (lt < set) { ctx.shadowColor = C.accent2; ctx.shadowBlur = 14; } txt(c.ch, cxx, y, Object.assign(co, { alpha: al * (lt >= set ? 1 : .55) })); ctx.restore(); } return; }
+          if (kk <= 0) return;
+          if (anim === "tracking") { var et = eo(kk); txt(c.ch, mid + (cxx - mid) * (1 + (1 - et) * 1.4), y, Object.assign(co, { alpha: al * et })); return; }
+          ctx.save();
+          if (anim === "flip") { ctx.translate(cxx, cy); ctx.scale(1, Math.max(.02, Math.abs(Math.cos((1 - eo(kk)) * Math.PI)))); ctx.translate(0, -cy);
+            txt(c.ch, 0, y, Object.assign(co, { alpha: al * clamp(kk * 3), color: kk < .5 ? C.accent2 : col })); }
+          else if (anim === "bounce") txt(c.ch, cxx, y - (1 - EASES.bouncy(kk)) * size * 2.2, Object.assign(co, { alpha: al * clamp(kk * 4) }));
+          else { var ty = y - size * .9; ctx.translate(cxx, ty); ctx.rotate((1 - back(kk)) * -1.3); ctx.translate(-cxx, -ty); txt(c.ch, cxx, y, Object.assign(co, { alpha: al * clamp(kk * 3) })); }
+          ctx.restore();
+        });
+        break; }
       default: { var e6 = eo(k); rich(line, x, y + (1 - e6) * 24, withA(e6)); }
     }
     ctx.restore();
@@ -1097,7 +1155,8 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   }
 
   /* ---- 演出の層（fx）: 場面の fx・台本の fx・動きの性格の既定。under は部品の下、ほかは上 ---- */
-  var FX_UNDER = { particles: 1, bokeh: 1, rays: 1, speedlines: 1, grid: 1, waves: 1, stars: 1, gradient: 1, aurora: 1, plexus: 1, contour: 1, shapes: 1, blobs: 1 };
+  var FX_UNDER = { particles: 1, bokeh: 1, rays: 1, speedlines: 1, grid: 1, waves: 1, stars: 1, gradient: 1, aurora: 1, plexus: 1, contour: 1, shapes: 1, blobs: 1,
+                   embers: 1, halftone: 1, warp: 1, pulse: 1, bubbles: 1, matrix: 1 };
   function fxOf(s) {
     var own = s.fx !== undefined ? s.fx : s.type === "title" || s.type === "logo" ? MS.titleFx : s.type === "end" ? MS.endFx : [];
     var all = [].concat(SPEC.fx || [], own || [], s.fx === false ? [] : MS.fx), seen = {};
@@ -1108,7 +1167,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       var kind = typeof f === "string" ? f : f.kind, o = typeof f === "string" ? {} : f;
       if (!kind || !!FX_UNDER[kind] !== (layer === "under")) return;
       var col = C[o.color] || o.color || null, r = rand(o.seed || 5), i, n;
-      ctx.save(); ctx.globalAlpha *= o.alpha === undefined ? 1 : o.alpha;
+      ctx.save(); ctx.globalAlpha *= o.alpha === undefined ? 1 : o.alpha; var GA = ctx.globalAlpha;
       if (kind === "particles") particles({ seed: o.seed || 11, n: o.n || 70, color: col || C.accent2, size: 3, alpha: .4, speed: 1.4 }, lt);
       else if (kind === "stars") { ctx.fillStyle = col || C.ink; for (i = 0; i < (o.n || 160); i++) { var sx = r() * W, sy = r() * H, ph = r() * 6.28, ss = r() * 1.8 + .6;
           var xx = ((sx - lt * .006 * ss) % W + W) % W, g0 = ctx.globalAlpha; ctx.globalAlpha = g0 * (.15 + .55 * (.5 + .5 * Math.sin(lt / 600 + ph))); ctx.fillRect(xx, sy, ss * 1.6, ss * 1.6); ctx.globalAlpha = g0; } }
@@ -1160,6 +1219,47 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
           ctx.save(); ctx.fillStyle = C.accents[i % C.accents.length]; ctx.globalAlpha *= .1; ctx.beginPath();
           for (var bj = 0; bj <= 12; bj++) { var ba = bj / 12 * Math.PI * 2, bR = brr * (1 + .12 * Math.sin(ba * 3 + lt / 1300 + i) + .06 * Math.sin(ba * 5 - lt / 900)), bpx = bcx + Math.cos(ba) * bR, bpy = bcy + Math.sin(ba) * bR; bj ? ctx.lineTo(bpx, bpy) : ctx.moveTo(bpx, bpy); }
           ctx.closePath(); ctx.fill(); ctx.restore(); } }
+      else if (kind === "rain") { ctx.strokeStyle = col || C.ink; ctx.lineCap = "round"; ctx.globalAlpha *= .22;
+        for (i = 0; i < (o.n || 140); i++) { var rx = r() * (W + 300), rs = 1.1 + r() * .9, rl = 30 + r() * 50, ry = (r() * (H + 200) + lt * rs) % (H + 200) - 100, rxx = rx - (ry + 100) * .18;
+          ctx.lineWidth = 1 + r() * 1.5; ctx.beginPath(); ctx.moveTo(rxx, ry); ctx.lineTo(rxx - rl * .18, ry + rl); ctx.stroke(); } }
+      else if (kind === "snow") { ctx.fillStyle = col || "#ffffff";
+        for (i = 0; i < (o.n || 120); i++) { var fx0 = r() * W, fv = .03 + r() * .06, fr = 2 + r() * 4, fph = r() * 6.28, fy = (r() * (H + 60) + lt * fv) % (H + 60) - 30;
+          ctx.globalAlpha = GA * (.35 + fr / 12); ctx.beginPath(); ctx.arc(fx0 + Math.sin(lt / 1300 + fph) * 40, fy, fr, 0, Math.PI * 2); ctx.fill(); } }
+      else if (kind === "embers") { for (i = 0; i < (o.n || 70); i++) { var ex = r() * W, ev0 = .05 + r() * .09, er0 = 1.5 + r() * 3, eph = r() * 6.28, life = (r() * (H + 100) + lt * ev0) % (H + 100);
+          var eyy = H + 50 - life, eaa = Math.sin(Math.PI * life / (H + 100)); ctx.fillStyle = i % 3 ? C.accent2 : C.warn; ctx.globalAlpha = GA * eaa * .75 * (.6 + .4 * Math.sin(lt / 150 + eph));
+          ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 10; ctx.beginPath(); ctx.arc(ex + Math.sin(lt / 700 + eph) * 30 + life * .08, eyy, er0, 0, Math.PI * 2); ctx.fill(); } }
+      else if (kind === "film") { var rf2 = rand(Math.floor(lt / 42) + 3); ctx.fillStyle = "#000"; ctx.globalAlpha *= .05 + .04 * rf2(); ctx.fillRect(0, 0, W, H);
+        ctx.globalAlpha = GA * .08; ctx.fillStyle = col || C.ink; for (i = 0; i < 500; i++) ctx.fillRect(rf2() * W, rf2() * H, 1.5 + rf2() * 1.5, 1.5 + rf2() * 1.5);
+        ctx.strokeStyle = col || C.ink; for (i = 0; i < 2; i++) if (rf2() < .6) { var sxx = rf2() * W; ctx.globalAlpha = GA * (.12 + rf2() * .1); ctx.lineWidth = 1 + rf2(); ctx.beginPath(); ctx.moveTo(sxx, 0); ctx.lineTo(sxx + (rf2() - .5) * 30, H); ctx.stroke(); }
+        if (rf2() < .08) { ctx.globalAlpha = GA * .25; ctx.fillStyle = col || C.ink; ctx.beginPath(); ctx.arc(rf2() * W, rf2() * H, 2 + rf2() * 5, 0, Math.PI * 2); ctx.fill(); } }
+      else if (kind === "leaks") { ctx.globalCompositeOperation = "screen"; [[0, C.accent2, 1], [1, C.warn, -1]].forEach(function (lq) {
+          var lx = lq[0] ? W + 100 - (Math.sin(lt / 3300) * .5 + .5) * 400 : -100 + (Math.sin(lt / 2700 + 1) * .5 + .5) * 420, ly = lq[0] ? H * .8 : H * .2, lg = ctx.createRadialGradient(lx, ly, 0, lx, ly, 820);
+          lg.addColorStop(0, lq[1]); lg.addColorStop(1, "rgba(0,0,0,0)"); var la = ctx.globalAlpha; ctx.globalAlpha = la * (.22 + .1 * Math.sin(lt / 900 + lq[0] * 2)); ctx.fillStyle = lg; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = la; }); }
+      else if (kind === "halftone") { var hs = o.size || 34, hc = col || C.accent2, hx0 = o.x === undefined ? 1500 : o.x, hy0 = o.y === undefined ? 260 : o.y; ctx.fillStyle = hc; ctx.globalAlpha *= .22;
+        for (var hx = hs / 2; hx < W; hx += hs) for (var hy2 = hs / 2; hy2 < H; hy2 += hs) { var hd = Math.hypot(hx - hx0, hy2 - hy0), hr = hs * .42 * clamp(1 - hd / 1100) * (.75 + .25 * Math.sin(hd / 90 - lt / 500));
+          if (hr > .6) { ctx.beginPath(); ctx.arc(hx, hy2, hr, 0, Math.PI * 2); ctx.fill(); } } }
+      else if (kind === "warp") { ctx.strokeStyle = col || C.ink; ctx.lineCap = "round";
+        for (i = 0; i < (o.n || 160); i++) { var wa = r() * Math.PI * 2, wz = ((r() + lt / (o.period || 2600)) % 1), wd = Math.pow(wz, 3) * 1300 + 10, wl = Math.pow(wz, 3) * 90 + 2;
+          ctx.globalAlpha = GA * wz * .6; ctx.lineWidth = .8 + wz * 3; ctx.beginPath(); ctx.moveTo(960 + Math.cos(wa) * wd, 540 + Math.sin(wa) * wd); ctx.lineTo(960 + Math.cos(wa) * (wd + wl), 540 + Math.sin(wa) * (wd + wl)); ctx.stroke(); } }
+      else if (kind === "pulse") { var px0 = o.x === undefined ? 960 : o.x, py0 = o.y === undefined ? 540 : o.y; ctx.strokeStyle = col || C.accent; ctx.lineWidth = 2;
+        for (i = 0; i < 5; i++) { var pq = ((lt / (o.period || 3200)) + i / 5) % 1; ctx.globalAlpha = GA * (1 - pq) * .3; ctx.beginPath(); ctx.arc(px0, py0, 60 + pq * 1000, 0, Math.PI * 2); ctx.stroke(); }
+        var sa = lt / 1600; ctx.globalAlpha = GA * .07; ctx.fillStyle = col || C.accent; ctx.beginPath(); ctx.moveTo(px0, py0); ctx.arc(px0, py0, 1100, sa, sa + .35); ctx.closePath(); ctx.fill(); }
+      else if (kind === "spotlight") { var sp0 = (Math.sin(lt / (o.period || 2400)) * .5 + .5), spx = mix(420, 1500, sp0), spy = 480 + Math.sin(lt / 1700) * 90;
+        ctx.fillStyle = "rgba(0,0,0," + (o.strength || .5) + ")"; ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.ellipse(spx, spy, 460, 330, 0, 0, Math.PI * 2); ctx.fill("evenodd");
+        var sg2 = ctx.createRadialGradient(spx, spy, 280, spx, spy, 480); sg2.addColorStop(0, "rgba(0,0,0,0)"); sg2.addColorStop(1, "rgba(0,0,0," + (o.strength || .5) + ")"); ctx.fillStyle = sg2; ctx.beginPath(); ctx.ellipse(spx, spy, 461, 331, 0, 0, Math.PI * 2); ctx.fill(); }
+      else if (kind === "bubbles") { ctx.lineWidth = 2;
+        for (i = 0; i < (o.n || 34); i++) { var bbx = r() * W, bbv = .04 + r() * .07, bbr = 8 + r() * 30, bph = r() * 6.28, bby = H + 60 - (r() * (H + 120) + lt * bbv) % (H + 120);
+          ctx.strokeStyle = C.accents[i % C.accents.length]; ctx.globalAlpha = GA * .28; ctx.beginPath(); ctx.arc(bbx + Math.sin(lt / 900 + bph) * 24, bby, bbr, 0, Math.PI * 2); ctx.stroke();
+          ctx.globalAlpha = GA * .18; ctx.beginPath(); ctx.arc(bbx + Math.sin(lt / 900 + bph) * 24 - bbr * .35, bby - bbr * .35, bbr * .22, 0, Math.PI * 2); ctx.fillStyle = C.ink; ctx.fill(); } }
+      else if (kind === "matrix") { var mc = o.size || 26, cols = Math.ceil(W / mc); ctx.font = "700 " + (mc - 4) + "px " + F.mono; ctx.textAlign = "center";
+        for (i = 0; i < cols; i++) { var rm = rand(i * 131 + (o.seed || 5)), msp = .08 + rm() * .16, mlen = 8 + Math.floor(rm() * 18), head = (rm() * (H / mc + mlen) + lt * msp / mc * 1.0) % (H / mc + mlen);
+          if (rm() < .45) continue;
+          for (var mj = 0; mj < mlen; mj++) { var row = Math.floor(head) - mj; if (row < 0 || row * mc > H) continue;
+            ctx.fillStyle = mj === 0 ? C.ink : col || C.ok; ctx.globalAlpha = GA * (mj === 0 ? .5 : .28 * (1 - mj / mlen));
+            ctx.fillText(GLYPHS[Math.floor(rand(i * 977 + row * 31 + Math.floor(lt / 400 + mj))() * GLYPHS.length)], i * mc + mc / 2, row * mc); } } }
+      else if (kind === "sparkles") { for (i = 0; i < (o.n || 26); i++) { var skx = r() * W, sky = r() * H, sper = 1400 + r() * 1800, sph = r() * sper, sq = ((lt + sph) % sper) / sper, sz = (10 + r() * 22) * Math.sin(sq * Math.PI);
+          if (sz <= .5) continue; ctx.save(); ctx.translate(skx, sky); ctx.rotate(sq * 1.5); ctx.fillStyle = i % 2 ? C.accent : C.accent2; ctx.globalAlpha *= .7 * Math.sin(sq * Math.PI);
+          ctx.beginPath(); ctx.moveTo(0, -sz); ctx.quadraticCurveTo(0, 0, sz, 0); ctx.quadraticCurveTo(0, 0, 0, sz); ctx.quadraticCurveTo(0, 0, -sz, 0); ctx.quadraticCurveTo(0, 0, 0, -sz); ctx.fill(); ctx.restore(); } }
       else if (kind === "noise") { var rn = rand(Math.floor(lt / 50) + 1); ctx.fillStyle = col || C.ink; ctx.globalAlpha *= .07; for (i = 0; i < (o.n || 600); i++) ctx.fillRect(rn() * W, rn() * H, 2, 2); }
       ctx.restore();
     });
@@ -1272,7 +1372,9 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   /* 前の場面と重ねて描く切り替え（ms）。これ以外（fade・slide・zoom・cut）は場面ごとの透明度で切り替える */
   var SWEEPS = { wipe: 700, push: 700, iris: 800, blinds: 750, split: 750, whip: 460, spin: 820, flash: 520, glitch: 480, pixel: 720,
                  squeeze: 700, "slide-up": 650, "slide-down": 650, "zoom-through": 650,
-                 diagonal: 750, diamond: 800, spot: 850, cube: 750, page: 850, liquid: 900, dive: 800, tiles: 900, stripes: 750, clock: 800 };
+                 diagonal: 750, diamond: 800, spot: 850, cube: 750, page: 850, liquid: 900, dive: 800, tiles: 900, stripes: 750, clock: 800,
+                 doors: 800, shatter: 1100, fan: 850, "spin-zoom": 700, bars: 900, cover: 900, ink: 1000, flip: 800, rings: 900,
+                 stack: 750, shrink: 850, flood: 900, focus: 800, dissolve: 850, columns: 800 };
   function trOf(k) {
     var s = SCENES[k].s; if (s.transition) return s.transition; if (SPEC.transition) return SPEC.transition;
     if (k > 0 && SCENES[k - 1].ci !== SCENES[k].ci) return MS.ch;
@@ -1303,7 +1405,14 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     drawFx(fx, clt, d, "over");
     ctx.restore();
   }
-  var PIX = null;
+  var PIX = null, SNAP = null;
+  /* 場面を別の Canvas に描いておく（破片のように何度も貼るとき） */
+  function snapshot(t, fn) {
+    SNAP = SNAP || document.createElement("canvas"); if (SNAP.width !== cv.width || SNAP.height !== cv.height) { SNAP.width = cv.width; SNAP.height = cv.height; }
+    var cv0 = cv, ctx0 = ctx; cv = SNAP; ctx = SNAP.getContext("2d"); ctx.setTransform(SNAP.width / W, 0, 0, SNAP.height / H, 0, 0);
+    try { backdrop(t); fn(); } finally { cv = cv0; ctx = ctx0; }
+    return SNAP;
+  }
   function transition(tr, k, t, lt, SW) {
     var u = eio(lin(lt, 0, SW)), prevD = SCENES[k - 1].d;
     var prev = function (o) { drawScene(k - 1, t, Object.assign({ lt: prevD - 1 }, o || {})); }, next = function (o) { drawScene(k, t, o || {}); };
@@ -1368,6 +1477,66 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       case "clock": { prev(); var a1 = -Math.PI / 2 + u * Math.PI * 2;
         next({ clip: function () { ctx.beginPath(); ctx.moveTo(960, 540); ctx.arc(960, 540, 1400, -Math.PI / 2, a1); ctx.closePath(); ctx.clip(); } });
         if (u < 1) { ctx.save(); ctx.strokeStyle = C.accent; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(960, 540); ctx.lineTo(960 + Math.cos(a1) * 1400, 540 + Math.sin(a1) * 1400); ctx.stroke(); ctx.restore(); } break; }
+      case "doors": { next(); var od = W / 2 * u;
+        prev({ dx: -od, clip: function () { ctx.beginPath(); ctx.rect(0, 0, W / 2, H); ctx.clip(); } });
+        prev({ dx: od, clip: function () { ctx.beginPath(); ctx.rect(W / 2, 0, W / 2, H); ctx.clip(); } });
+        ctx.save(); ctx.fillStyle = C.accent; ctx.fillRect(W / 2 - od - 4, 0, 5, H); ctx.fillRect(W / 2 + od - 1, 0, 5, H);
+        ctx.globalAlpha = .35 * Math.sin(u * Math.PI); ctx.fillStyle = "#000"; ctx.fillRect(W / 2 - od, 0, od * 2, H); ctx.restore(); break; }
+      case "shatter": { next(); var img = snapshot(t, function () { prev(); }), gc = 7, gr = 4, cw2 = W / gc, ch3 = H / gr; r = rand(17);
+        var uu = lin(lt, 0, SW);
+        for (var gi = 0; gi < gc; gi++) for (var gj = 0; gj < gr; gj++) for (var tri = 0; tri < 2; tri++) {
+          var x0 = gi * cw2, y0 = gj * ch3, flipD = (gi + gj) % 2, pts = flipD ? (tri ? [[x0, y0], [x0 + cw2, y0], [x0 + cw2, y0 + ch3]] : [[x0, y0], [x0 + cw2, y0 + ch3], [x0, y0 + ch3]])
+            : (tri ? [[x0, y0], [x0 + cw2, y0], [x0, y0 + ch3]] : [[x0 + cw2, y0], [x0 + cw2, y0 + ch3], [x0, y0 + ch3]]);
+          var mx = (pts[0][0] + pts[1][0] + pts[2][0]) / 3, my = (pts[0][1] + pts[1][1] + pts[2][1]) / 3, dl = Math.hypot(mx - 960, my - 540) / 1100 * .35 + r() * .08;
+          var q = clamp((uu - .12 - dl) / .55), rot2 = (r() - .5) * 2.4, dir = (mx - 960) / 960;
+          ctx.save(); ctx.globalAlpha = 1 - q * q;
+          ctx.translate(mx + dir * 380 * q, my + 1300 * q * q - 120 * q); ctx.rotate(rot2 * q); ctx.scale(1 - .25 * q, 1 - .25 * q); ctx.translate(-mx, -my);
+          ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); ctx.lineTo(pts[1][0], pts[1][1]); ctx.lineTo(pts[2][0], pts[2][1]); ctx.closePath(); ctx.clip();
+          ctx.drawImage(img, 0, 0, W, H); if (uu > .06) { ctx.strokeStyle = "rgba(255,255,255,.55)"; ctx.lineWidth = 2; ctx.stroke(); } ctx.restore(); }
+        if (uu < .2) { ctx.save(); ctx.fillStyle = "#fff"; ctx.globalAlpha = (1 - uu / .2) * .5 * clamp(uu / .05); ctx.fillRect(0, 0, W, H); ctx.restore(); }
+        break; }
+      case "fan": { prev(); var nf = 6;
+        next({ clip: function () { ctx.beginPath(); for (var fi = 0; fi < nf; fi++) { var q = eio(clamp(u * 1.5 - fi * .08)), a0 = -Math.PI / 2 + fi * Math.PI * 2 / nf; if (q <= 0) continue;
+          ctx.moveTo(960, 540); ctx.arc(960, 540, 1400, a0, a0 + Math.PI * 2 / nf * q + .002); ctx.closePath(); } ctx.clip(); } }); break; }
+      case "spin-zoom": if (u < .5) { var q3 = u * 2; prev({ xf: around(1 + 1.6 * q3 * q3, q3 * q3 * 1.4), alpha: 1 - q3 * q3, blur: q3 * 10 }); }
+        else { var q4 = (u - .5) * 2; next({ xf: around(mix(.35, 1, eo(q4)), -(1 - eo(q4)) * 1.4), alpha: clamp(q4 * 2), blur: (1 - q4) * 8 }); } break;
+      case "bars": { if (u < .5) prev(); else next(); var nbar = 6, bh = H / nbar;
+        ctx.save(); for (var bi = 0; bi < nbar; bi++) { var e1 = eio(clamp(u * 2.6 - bi * .1)), e2 = eio(clamp((u - .5) * 2.6 - bi * .1)); if (e1 <= e2) continue;
+          ctx.fillStyle = C.accents[bi % C.accents.length]; ctx.fillRect(W * e2, bi * bh, W * (e1 - e2) + 1, bh + 1); } ctx.restore(); break; }
+      case "cover": { if (u < .5) prev(); else next(); var c1 = eio(clamp(u * 2)), c2 = eio(clamp(u * 2 - 1));
+        ctx.save(); ctx.fillStyle = C.accent; ctx.fillRect(0, H * c2, W, H * (c1 - c2)); ctx.fillStyle = C.accent2; ctx.fillRect(0, H * c1 - 10, W, c1 < 1 ? 10 : 0); ctx.fillRect(0, H * c2, W, c2 > 0 && c2 < 1 ? 10 : 0);
+        if (SPEC.brand && SPEC.brand.name && c1 - c2 > .6) txt(SPEC.brand.name, 960, H * (c1 + c2) / 2 + 20, { size: 60, weight: 800, align: "center", font: F.display, color: C.onAccent, alpha: clamp((c1 - c2 - .6) / .3) });
+        ctx.restore(); break; }
+      case "ink": { prev(); r = rand(29); var blobs = []; for (i = 0; i < 11; i++) blobs.push([r() * W, r() * H, 260 + r() * 420, r() * .35, r() * 6.28]);
+        next({ clip: function () { ctx.beginPath(); blobs.forEach(function (b) { var q = eo(clamp((u - b[3]) / .6)); if (q <= 0) return; var rad = b[2] * q;
+            for (var bj = 0; bj <= 18; bj++) { var ba = bj / 18 * Math.PI * 2, bR = rad * (1 + .12 * Math.sin(ba * 4 + b[4]) + .07 * Math.sin(ba * 7 - b[4])); bj ? ctx.lineTo(b[0] + Math.cos(ba) * bR, b[1] + Math.sin(ba) * bR) : ctx.moveTo(b[0] + Math.cos(ba) * bR, b[1] + Math.sin(ba) * bR); } ctx.closePath(); });
+          var fin = clamp((u - .55) / .45); if (fin > 0) { ctx.moveTo(960 + 1200 * fin, 540); ctx.arc(960, 540, 1200 * fin, 0, Math.PI * 2); } ctx.clip(); } }); break; }
+      case "flip": { var fa = u * Math.PI, fc = Math.abs(Math.cos(fa)), fs = 1 - .12 * Math.sin(fa);
+        var fxf = function () { ctx.translate(960, 540); ctx.scale(Math.max(.002, fc) * fs, fs); ctx.translate(-960, -540); };
+        ctx.save(); ctx.fillStyle = "#000"; ctx.globalAlpha = .35; ctx.fillRect(0, 0, W, H); ctx.restore();
+        if (u < .5) prev({ xf: fxf, clip: function () { ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip(); } }); else next({ xf: fxf, clip: function () { ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip(); } });
+        ctx.save(); ctx.globalAlpha = .4 * (1 - fc); ctx.fillStyle = "#000"; ctx.translate(960, 540); ctx.scale(Math.max(.002, fc) * fs, fs); ctx.fillRect(-960, -540, W, H); ctx.restore(); break; }
+      case "rings": { prev(); var nr = 8, rw = Math.hypot(960, 540) / nr;
+        next({ clip: function () { ctx.beginPath(); for (var ri = 0; ri < nr; ri++) { var q = eio(clamp(u * 1.6 - (ri % 2 ? ri : nr - ri) * .06)); if (q <= 0) continue;
+          var mid2 = ri * rw + rw / 2, hw = rw / 2 * q + .5; ctx.moveTo(960 + mid2 + hw, 540); ctx.arc(960, 540, mid2 + hw, 0, Math.PI * 2, false); ctx.moveTo(960 + Math.max(0, mid2 - hw), 540); ctx.arc(960, 540, Math.max(0, mid2 - hw), 0, Math.PI * 2, true); } ctx.clip(); } }); break; }
+      case "stack": { prev({ xf: around(1 - .1 * u) }); ctx.save(); ctx.fillStyle = "#000"; ctx.globalAlpha = .5 * u; ctx.fillRect(0, 0, W, H); ctx.restore();
+        var sx0 = W * (1 - eo(lin(lt, 0, SW)));
+        ctx.save(); ctx.shadowColor = "rgba(0,0,0,.5)"; ctx.shadowBlur = 60; ctx.fillStyle = C.bg0; ctx.fillRect(sx0, 0, W, H); ctx.restore();
+        next({ dx: sx0, clip: function () { ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip(); } }); break; }
+      case "shrink": { next({ xf: around(mix(1.12, 1, u)), alpha: clamp(u * 1.5) }); var ss = mix(1, .28, u);
+        ctx.save(); ctx.shadowColor = "rgba(0,0,0,.45)"; ctx.shadowBlur = 50 * u; ctx.globalAlpha = 1 - clamp((u - .7) / .3);
+        ctx.translate(mix(960, 330, u * u), mix(540, 230, u * u)); ctx.rotate(-.08 * u); ctx.scale(ss, ss); ctx.translate(-960, -540); ctx.fillStyle = C.bg0; ctx.fillRect(0, 0, W, H); ctx.restore();
+        prev({ alpha: 1 - clamp((u - .7) / .3), xf: function () { ctx.translate(mix(960, 330, u * u), mix(540, 230, u * u)); ctx.rotate(-.08 * u); ctx.scale(ss, ss); ctx.translate(-960, -540); },
+          clip: function () { ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip(); } }); break; }
+      case "flood": { prev(); var fy = H + 80 - u * (H + 200), fam = 50 * Math.sin(u * Math.PI);
+        next({ clip: function () { ctx.beginPath(); ctx.moveTo(0, H); for (var fx2 = 0; fx2 <= W; fx2 += 24) ctx.lineTo(fx2, fy + Math.sin(fx2 / 150 + lt / 90) * fam + Math.sin(fx2 / 61 - lt / 60) * fam * .35); ctx.lineTo(W, H); ctx.closePath(); ctx.clip(); } });
+        if (u < 1) { ctx.save(); ctx.strokeStyle = C.accent2; ctx.lineWidth = 5; ctx.globalAlpha = Math.sin(u * Math.PI); ctx.beginPath();
+          for (var fx3 = 0; fx3 <= W; fx3 += 24) { var fyy = fy + Math.sin(fx3 / 150 + lt / 90) * fam + Math.sin(fx3 / 61 - lt / 60) * fam * .35; fx3 ? ctx.lineTo(fx3, fyy) : ctx.moveTo(fx3, fyy); } ctx.stroke(); ctx.restore(); } break; }
+      case "focus": prev({ blur: u * 16, alpha: 1 - u, xf: around(1 + .04 * u) }); next({ blur: (1 - u) * 16, alpha: u, xf: around(1.04 - .04 * u) }); break;
+      case "dissolve": { prev(); var dc = 32, dr = 18, dw = W / dc, dh = H / dr; r = rand(41); var th0 = []; for (i = 0; i < dc * dr; i++) th0.push(r() * .85);
+        next({ clip: function () { ctx.beginPath(); for (var di = 0; di < dc * dr; di++) if (u >= th0[di] || u >= .999) ctx.rect((di % dc) * dw, Math.floor(di / dc) * dh, dw + .5, dh + .5); ctx.clip(); } }); break; }
+      case "columns": { prev(); var nc = 12, cw3 = W / nc;
+        next({ clip: function () { ctx.beginPath(); for (var ci = 0; ci < nc; ci++) { var q = eio(clamp(lin(lt, ci * SW * .04, SW * .52 + ci * SW * .04))); ctx.rect(ci * cw3 + cw3 * (1 - q) / 2, 0, cw3 * q + .5, H); } ctx.clip(); } }); break; }
       default: prev(); next();
     }
   }
