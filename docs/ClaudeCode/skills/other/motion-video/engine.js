@@ -38,7 +38,9 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
                 elastic: function (x) { return x <= 0 ? 0 : x >= 1 ? 1 : Math.pow(2, -10 * x) * Math.sin((x * 10 - .75) * (2 * Math.PI / 3)) + 1; },
                 calm: function (x) { return -(Math.cos(Math.PI * x) - 1) / 2; } };
   var CUR_EASE = eo, CUR_ORDER = "";
-  var P = function (x, a, b, e) { return (e || CUR_EASE)(lin(x, a, b)); };
+  var linear = function (v) { return v; };
+  // H.lin は (x, a, b) の形なので、緩急として渡されたら等速として扱う（そのまま呼ぶと NaN で何も描かれない）
+  var P = function (x, a, b, e) { return (e === lin ? linear : e || CUR_EASE)(lin(x, a, b)); };
   var mix = function (a, b, k) { return a + (b - a) * k; };
   function rr(x, y, w, h, r) {
     r = Math.max(0, Math.min(r, w / 2, h / 2));
@@ -189,7 +191,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       ctx.strokeStyle = C.accent; ctx.lineWidth = r * .08; ctx.beginPath(); ctx.arc(0, 0, r, -Math.PI * .45, Math.PI * 1.35); ctx.stroke();
       ctx.strokeStyle = C.accent2; ctx.beginPath(); ctx.arc(0, 0, r * .72, Math.PI * .6, Math.PI * 2.3); ctx.stroke();
       ctx.rotate(-rot * .3);
-      txt((label || "•").slice(0, 1), 0, r * .26, { size: r * .78, weight: 800, align: "center", font: F.display, color: C.ink });
+      txt(Array.from(String(label || "•"))[0], 0, r * .26, { size: r * .78, weight: 800, align: "center", font: F.display, color: C.ink });
     }
     ctx.restore();
   }
@@ -205,7 +207,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     for (var i = 0; i < 3; i++) { var ph = ((lt / 2600) + i / 3) % 1;
       ctx.save(); ctx.strokeStyle = C.accent2; ctx.globalAlpha *= (1 - ph) * .16 * P(lt, 600, 1600); ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(960, 400, 190 + ph * 260, 0, Math.PI * 2); ctx.stroke(); ctx.restore(); }
-    emblem(s.mark || "ring", 960, 400, 160 * k, (1 - P(lt, 0, 2000)) * -2.4 + lt * .00012, clamp(k * 1.4), s.title);
+    emblem(s.mark || "ring", 960, 400, 160 * k, (1 - P(lt, 0, 2000)) * -2.4 + lt * .00012, clamp(k * 1.4), s.markText || s.title);
     var ta = animOf(s, "title"); textShake(ta, 1200, 16);
     animText(s.title, 960, 722, { size: 116, weight: 800, align: "center", font: F.display }, ta, lt, 1200, 1400);
     if (s.subtitle) txt(s.subtitle, 960, 806, { size: 42, weight: 700, align: "center", color: C.accent, alpha: P(lt, 2000, 2900), spacing: 8 });
@@ -567,7 +569,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   };
 
   R.end = function (s, lt, d, T) {
-    emblem(s.mark || "ring", 960, 290, 110 * P(lt, 0, 1000, back), lt * .00018, 1, s.title);
+    emblem(s.mark || "ring", 960, 290, 110 * P(lt, 0, 1000, back), lt * .00018, 1, s.markText || s.title);
     var rows = s.lines || [], y = 470;
     rows.forEach(function (r, i) {
       sfxEv(700 + i * 700, "appear", { i: i });
@@ -864,7 +866,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       ctx.save(); ctx.globalAlpha *= .9 * fade; ctx.translate(mix(sx, tx, k), mix(sy, ty, k)); ctx.rotate(mix(r0, an, k)); ctx.fillStyle = accentAt(i);
       ctx.beginPath(); ctx.moveTo(0, -16); ctx.lineTo(14, 12); ctx.lineTo(-14, 12); ctx.closePath(); ctx.fill(); ctx.restore();
     }
-    var ek = P(lt, asm - 120, asm + 500, back); emblem(s.mark || "ring", 960, cy, R0 * ek, lt * .00015, clamp(ek * 1.5), s.title);
+    var ek = P(lt, asm - 120, asm + 500, back); emblem(s.mark || "ring", 960, cy, R0 * ek, lt * .00015, clamp(ek * 1.5), s.markText || s.title);
     burstAt(960, cy, lt - asm, { n: 52, seed: 5, r: 560 });
     var ta = animOf(s, "title"), to = { size: 110, weight: 800, align: "center", font: F.display };
     animText(s.title || "", 960, 720, to, ta, lt, asm + 200, 900);
@@ -1333,7 +1335,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       ctx.restore();
     });
   }
-  var HELP = { C: C, F: F, W: W, H: H, clamp: clamp, lin: lin, eo: eo, eio: eio, back: back, P: P, mix: mix, rr: rr, txt: txt, tw: tw, wrap: wrap,
+  var HELP = { C: C, F: F, W: W, H: H, clamp: clamp, lin: lin, linear: linear, eo: eo, eio: eio, back: back, P: P, mix: mix, rr: rr, txt: txt, tw: tw, wrap: wrap,
                rich: rich, icon: icon, panel: panel, stateMark: stateMark, emblem: emblem, accentAt: accentAt, slots: slots,
                qpt: qpt, rand: rand, arrow: arrow, packet: packet, node: node, appWindow: appWindow, toast: toast, typed: typed, count: fmtNum,
                particles: particles, cursor: cursor, sub: sub, camAt: camAt, applyCam: applyCam, heading: heading,

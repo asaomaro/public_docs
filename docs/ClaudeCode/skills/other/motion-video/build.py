@@ -104,7 +104,7 @@ PLAYERS = {
 # 場面の部品（type ごとの必須項目・最低の長さ・書き方）
 # ──────────────────────────────────────────────────────────────────────────
 SCENE_TYPES = {
-    "title": (["title"], "表題（紋章・題名・副題・一文）", '{"type":"title","title":"Sodashitsu","subtitle":"操舵室","tagline":"**複数のエージェント**を一つの画面で","mark":"ring|wheel|none"}'),
+    "title": (["title"], "表題（紋章・題名・副題・一文。紋章の中の 1 文字は markText、既定は題名の頭）", '{"type":"title","title":"Sodashitsu","subtitle":"操舵室","tagline":"**複数のエージェント**を一つの画面で","mark":"ring|wheel|none","markText":"S"}'),
     "statement": ([], "大きな一文（**強調** に下線が伸びる）", '{"type":"statement","lines":["作業の受け渡しを、","**自動**にする。"],"note":"小さな補足"}'),
     "bullets": (["items"], "箇条書きが順に現れ、今の項目を強調", '{"type":"bullets","heading":"できること","items":[{"text":"pane を分けて並べる","icon":"🧭"},"状態が一目で分かる"]}'),
     "flow": (["nodes"], "ノードと矢印の流れ。travel で線の上を印が移動", '{"type":"flow","heading":"受け渡し","nodes":[{"id":"a","label":"実装","sub":"impl","kind":"start"},{"id":"b","label":"レビュー"}],"edges":[{"from":"a","to":"b","travel":"{output}","label":"完了"}]}'),
@@ -116,7 +116,7 @@ SCENE_TYPES = {
     "code": (["code"], "コードを見せ、行の範囲を順に強調して注記", '{"type":"code","heading":"設定","code":"const a = 1;\\nexport default a;","highlight":[{"lines":[1],"note":"値を決める"},{"lines":[2,2]}]}'),
     "window": (["panes"], "アプリの画面の模型（pane の状態・通知が変わる）", '{"type":"window","title":"Sodashitsu — api","sidebar":[{"label":"impl","state":"working","active":true}],"panes":[{"title":"impl","tag":"claude","state":"working","states":[{"at":0.4,"state":"done"}],"lines":["› 実装して","  ✓ 24 passed"]}],"toasts":[{"at":0.45,"title":"impl が完了しました","sub":"api · p1","kind":"done"}]}'),
     "image": (["src"], "画像（ゆっくり寄る。src は台本からの相対パス・URL・data URI）", '{"type":"image","src":"shot.png","caption":"画面の例","kenburns":true}'),
-    "end": ([], "締め（紋章・コマンドや連絡先の行・題名・一文）", '{"type":"end","title":"Sodashitsu","lines":[{"text":"$ soda serve","note":"ブラウザで開く"}],"tagline":"舵を一つの場所で"}'),
+    "end": ([], "締め（紋章・コマンドや連絡先の行・題名・一文。紋章の文字は markText）", '{"type":"end","title":"Sodashitsu","lines":[{"text":"$ soda serve","note":"ブラウザで開く"}],"tagline":"舵を一つの場所で"}'),
     "cards": (["items"], "カードの格子が弾んで現れる（2〜6 枚）", '{"type":"cards","heading":"主な機能","items":[{"title":"MCP","text":"AI から操作","icon":"🤖"},{"title":"Web","text":"ブラウザで"}]}'),
     "timeline": (["items"], "年表・マイルストーン（線が伸び、点と文字が上下交互に）", '{"type":"timeline","heading":"歩み","items":[{"date":"2024","label":"公開"},{"date":"2026","label":"v1.0","highlight":true}]}'),
     "chat": (["messages"], "会話の吹き出し（入力中の点のあとに現れる）", '{"type":"chat","messages":[{"from":"user","text":"受注を照会して"},{"from":"AI","text":"**128 件**あります"}]}'),
@@ -168,7 +168,7 @@ SCENE_TYPES = {
     "impact": (["text"], "強い一語を叩きつける（集中線・破片・画面の揺れ）。sub で下に一行", '{"type":"impact","text":"10 倍速い","sub":"同じ作業が 3 分で"}'),
     "countdown": ([], "3・2・1 の数え下ろしと、最後に label を叩きつける（from で始まりの数）", '{"type":"countdown","from":3,"label":"公開！","sub":"10 月 1 日"}'),
     "orbit": (["items"], "中心の周りを項目が回る（関係・生態系）。center は中心の名前", '{"type":"orbit","heading":"つながる道具","center":{"label":"Sodashitsu","sub":"操舵室"},"items":[{"label":"Claude","icon":"🤖"},"Codex","Gemini","herdr"]}'),
-    "logo": (["title"], "破片が集まってロゴになり、題名に光が走る（公開・発表の頭と締め）", '{"type":"logo","title":"Sodashitsu","subtitle":"AI エージェントの操舵室","mark":"wheel"}'),
+    "logo": (["title"], "破片が集まってロゴになり、題名に光が走る（公開・発表の頭と締め。紋章の文字は markText）", '{"type":"logo","title":"Sodashitsu","subtitle":"AI エージェントの操舵室","mark":"wheel"}'),
     "marquee": (["rows"], "大きな文字の帯が左右に流れる（キーワードの洪水）。caption で中央に札", '{"type":"marquee","rows":[["並行","承認","通知"],["SSH","Windows","TLS"]],"caption":"ぜんぶ、1 つの画面で"}'),
     "custom": ([], "JS で自由に描く（本体: (ctx, lt, d, H, s)。道具は --api。code は文字列か行の配列、または src に .js のパス）", '{"type":"custom","src":"scenes/intro.js","duration":8,"narration":"…"}'),
 }
@@ -259,14 +259,16 @@ API_DOC = """custom の本体は (ctx, lt, d, H, s)。座標は 1920×1080、lt 
   H.C.bg0 bg1 ink muted faint accent accent2 warn ok panel panel2 edge code codeInk codeMuted onAccent accents[]
   H.F.display sans mono      H.accentAt(i) 循環色
 時間
-  H.P(lt, a, b[, 緩急]) a..b ms の進み 0..1（既定 eo）   H.lin H.eo H.eio H.back H.clamp H.mix
+  H.P(lt, a, b[, 緩急]) a..b ms の進み 0..1（既定 eo）。緩急は H.eo H.eio H.back H.linear（等速）
+  H.lin(lt, a, b) a..b ms の等速の進み 0..1（H.P(lt, a, b, H.linear) と同じ。緩急としては渡さない）   H.clamp H.mix
   H.slots(n, d, 先頭ms, 末尾ms) n 個の区切りを場面の長さに割り付けた時刻の配列
 文字
   H.txt(s, x, y, {size, weight, color, align, font, alpha, spacing})   H.tw(s, 同)=幅
   H.rich(行, x, y, {…}, 下線の進み) **強調** を色と下線で   H.wrap(s, 最大幅, {size, weight}) 折り返した行の配列
   H.typed(s, k) 入力中の文字（先頭から k の割合）   H.count("1,240件", k) 数え上げ中の表記
 図形
-  H.rr(x,y,w,h,r) 角丸の経路   H.panel(x,y,w,h,{fill,stroke,lw,r,shadow})   H.icon(絵文字,x,y,size)
+  H.rr(x,y,w,h,r) 角丸の経路   H.panel(x,y,w,h,{fill,stroke,lw,r,shadow})   H.icon(名前,x,y,size,{color,anim,k,lt})  線のアイコン（--list-icons。k は線が描かれる進み 0..1、lt は現れた後の動きの時刻 ms）
+  H.iconAny(絵文字か名前,x,y,size)  絵文字も描ける（名前ならアイコン）
   H.node(x,y,w,h,label,sub,{hot,state,t,fill,stroke,ink})   H.stateMark(x,y,"working|done|blocked|idle",lt)
   H.appWindow(x,y,w,h,title) → 中の矩形 {x,y,w,h}   H.toast(x,y,w,title,sub,"done|blocked",k,lt)
   H.emblem("ring|wheel",cx,cy,r,回転,alpha,文字)   H.cursor(x,y,押下,lt)
@@ -337,7 +339,7 @@ def is_dialogue(s):
 
 def narration_text(s):
     n = s.get("narration") or ""
-    return " ".join(n) if isinstance(n, list) else str(n)
+    return "\n".join(n) if isinstance(n, list) else str(n)
 
 
 def spoken(text, pronounce):
@@ -417,7 +419,11 @@ def min_seconds(s):
     return base
 
 
-SENT = re.compile(r"[^。！？!?]+[。！？!?]*")
+SENT = re.compile(r"[^。！？!?\n]+[。！？!?]*")
+
+
+# 字幕 1 行に収まる文字数の目安（字の大きさは映像の幅に比例するので、映像の大きさによらない）。これを超える文は読点で分ける
+CUE_LIMIT = {"ja": 34, "zh": 34, "ko": 34}
 
 
 def split_cues(text, lang):
@@ -427,7 +433,7 @@ def split_cues(text, lang):
         sent = sent.strip()
         if not sent:
             continue
-        limit = 44 if lang.startswith("ja") else 90
+        limit = CUE_LIMIT[lang[:2]] if lang[:2] in CUE_LIMIT else 70
         while len(re.sub(r"\*\*", "", sent)) > limit:
             # 読点のうち、文の中央に最も近い所で切る（末尾に短い切れ端を残さない）
             n = len(sent)
@@ -478,6 +484,11 @@ def plan(spec):
             ms = int(d * 1000)
             s["_dur"] = ms
             cues = split_cues(text, lang)
+            lim = CUE_LIMIT.get(lang[:2], 70)
+            for c in cues:
+                if len(re.sub(r"\*\*", "", c)) > lim:
+                    warns.append("第 %d 章「%s」の場面 %d（%s）: 字幕「%s」は %d 字で 1 行（約 %d 字）に収まりません（2 行に折り返す）。文の中ほどに読点か句点を入れると分かれます"
+                                 % (ci + 1, ch.get("title", ""), si + 1, s.get("type"), c, len(re.sub(r"\*\*", "", c)), lim))
             a0, b0 = 500, max(900, ms - 400)
             # 字幕の時間は、読み上げる長さ（読みの置き換え後）に比例させる
             weight = [max(1.0, speech_seconds(c, lang, pron)) for c in cues]
@@ -532,12 +543,13 @@ def validate(spec, base):
                             s[key] = open(p, encoding="utf-8").read()
                 if not s.get("html") and not s.get("update"):
                     errs.append("%s（dom）: html（src）か update（updateSrc）が必要です" % where)
-            for key, table, name in (("transition", TRANSITIONS, "切り替え"), ("anim", TEXT_ANIMS, "文字の出方")):
-                if s.get(key) and s[key] not in table:
-                    errs.append("%s: %s %r は %s のいずれか" % (where, name, s[key], "/".join(table)))
-            for key, table, name in (("ease", EASES, "緩急"), ("order", ORDERS, "現れる順")):
-                if s.get(key) and s[key] not in table:
-                    errs.append("%s: %s %r は %s のいずれか" % (where, name, s[key], "/".join(table)))
+            for key, table, name in (("transition", TRANSITIONS, "切り替え"), ("anim", TEXT_ANIMS, "文字の出方"),
+                                     ("ease", EASES, "緩急"), ("order", ORDERS, "現れる順")):
+                if s.get(key) and not (isinstance(s[key], str) and s[key] in table):
+                    errs.append("%s: %s は%sの設定で、%s のいずれか（%r は使えない）。%s"
+                                % (where, key, name, "/".join(table), s[key],
+                                   "" if isinstance(s[key], str) else
+                                   "独自のデータなら別の名前にする（例: items・data。場面の共通の項目の名前は SKILL.md）"))
             if t == "layout":
                 for li, sp in enumerate(s.get("slots") or []):
                     if not isinstance(sp, dict) or sp.get("type") not in SCENE_TYPES or sp.get("type") in ("layout", "dom", "custom"):
@@ -581,10 +593,10 @@ def validate(spec, base):
     for ci, ch in enumerate(spec.get("chapters") or []):
         for si, s in enumerate(ch.get("scenes") or []):
             walk_icons(s, "第 %d 章の場面 %d" % (ci + 1, si + 1))
-    if spec.get("transition") and spec["transition"] not in TRANSITIONS:
+    if spec.get("transition") and not (isinstance(spec["transition"], str) and spec["transition"] in TRANSITIONS):
         errs.append("transition %r は %s のいずれか" % (spec["transition"], "/".join(TRANSITIONS)))
     for key, table, name in (("ease", EASES, "緩急"), ("order", ORDERS, "現れる順")):
-        if spec.get(key) and spec[key] not in table:
+        if spec.get(key) and not (isinstance(spec[key], str) and spec[key] in table):
             errs.append("%s %r は %s のいずれか" % (name, spec[key], "/".join(table)))
     if spec.get("motion") and spec["motion"] not in MOTION_STYLES:
         errs.append("motion %r は %s のいずれか" % (spec["motion"], "/".join(MOTION_STYLES)))
@@ -675,11 +687,11 @@ PLAYER_CSS = r"""
 .mv-player{font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",system-ui,sans-serif;font-size:15px;line-height:1.7;margin:18px 0;
   position:relative;background:var(--c-bg);color:var(--c-ink);border:1px solid var(--c-line);border-radius:14px;overflow:hidden}
 .mv-player:focus-visible{outline:3px solid var(--focus);outline-offset:3px}
-.mv-main{position:relative;min-width:0}
-.mv-stage{position:relative;aspect-ratio:16/9;max-width:100%;cursor:pointer;user-select:none;background:var(--c-bg)}
+.mv-main{position:relative;min-width:0;container-type:inline-size}
+.mv-stage{position:relative;aspect-ratio:16/9;max-width:100%;cursor:pointer;user-select:none;background:var(--c-bg);container-type:inline-size}
 .mv-stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
-.mv-cap{position:absolute;left:50%;bottom:5%;transform:translateX(-50%);width:min(88%,1100px);text-align:center;pointer-events:none;transition:bottom .2s}
-.mv-cap span{background:rgba(4,8,12,.8);color:#f5f8f9;font-weight:700;font-size:clamp(12px,2vw,24px);line-height:1.75;padding:.18em .6em;border-radius:6px;
+.mv-cap{position:absolute;left:50%;bottom:5%;transform:translateX(-50%);width:min(88%,1100px);text-align:center;pointer-events:none;transition:bottom .2s;text-wrap:balance;line-break:strict}
+.mv-cap span{background:rgba(4,8,12,.8);color:#f5f8f9;font-weight:700;font-size:clamp(12px,2.4cqw,28px);line-height:1.75;padding:.18em .6em;border-radius:6px;
   box-decoration-break:clone;-webkit-box-decoration-break:clone}
 .mv-big{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:clamp(56px,9vw,92px);height:clamp(56px,9vw,92px);border-radius:50%;
   border:2px solid var(--c-accent);background:color-mix(in srgb,var(--c-bg) 75%,transparent);color:var(--c-accent);display:grid;place-items:center;cursor:pointer;transition:transform .15s}
@@ -720,7 +732,11 @@ PLAYER_CSS = r"""
 .mv-speed::after{content:"";position:absolute;right:10px;top:13px;border:4px solid transparent;border-top-color:var(--c-muted);pointer-events:none}
 .mv-menuwrap{position:relative}
 .mv-menu{position:absolute;right:0;bottom:44px;z-index:5;min-width:260px;background:var(--c-bg);border:1px solid var(--c-line);border-radius:10px;padding:6px;
-  box-shadow:0 12px 30px rgba(0,0,0,.35);display:flex;flex-direction:column}
+  box-shadow:0 12px 30px rgba(0,0,0,.35);display:flex;flex-direction:column;
+  /* 映像の高さ（幅の 9/16）に収め、中だけスクロールする。チャプターが多くても上が切れない */
+  max-height:min(70vh,max(160px,calc(56.25cqw - 24px)));overflow-y:auto;overscroll-behavior:contain}
+.mv-menu>*{flex-shrink:0}
+[data-player="cinema"] .mv-menu,[data-player="minimal"] .mv-menu,[data-player="kiosk"] .mv-menu{max-height:min(70vh,max(160px,calc(56.25cqw - 110px)))}
 .mv-menu button{appearance:none;border:0;background:transparent;color:var(--c-ink);text-align:left;font:inherit;font-size:13.5px;padding:8px 10px;border-radius:6px;
   display:grid;grid-template-columns:3em 1fr auto;gap:8px;cursor:pointer}
 .mv-menu button:hover,.mv-menu button:focus-visible{background:color-mix(in srgb,var(--c-ink) 10%,transparent);outline:none}
@@ -767,7 +783,7 @@ PLAYER_CSS = r"""
 [data-player="minimal"] .mv-sec[hidden]{display:none}
 [data-player="minimal"] .mv-menu{right:auto;left:0}
 /* kiosk: 大きな字幕 */
-[data-player="kiosk"] .mv-cap span{font-size:clamp(14px,2.6vw,32px)}
+[data-player="kiosk"] .mv-cap span{font-size:clamp(14px,3cqw,34px)}
 .mv-player:fullscreen{border-radius:0;display:flex;flex-direction:column;justify-content:center;background:#000}
 .mv-player:fullscreen .mv-side{display:none}
 .mv-player:fullscreen .mv-stage{max-height:100vh;margin:0 auto;width:min(100vw,177.78vh)}
@@ -779,16 +795,22 @@ PLAYER_CSS = r"""
 .mv-thumb{width:160px;height:90px;border-radius:4px;display:block;background:var(--c-bg)}
 @media(max-width:640px){.mv-thumb{display:none}}
 /* 設定 */
-.mv-set{min-width:300px;padding:10px;gap:6px}
+.mv-set{min-width:300px;width:max-content;max-width:min(360px,calc(100cqw - 16px));padding:10px;gap:6px}
 .mv-setrow{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px;color:var(--c-muted);padding:4px 6px}
+.mv-setrow>span:first-child{white-space:nowrap;flex-shrink:0}
 .mv-seg3{display:inline-flex;gap:2px;padding:2px;border:1px solid var(--c-line);border-radius:999px}
-.mv-seg3 button{appearance:none;border:0;background:none;color:var(--c-muted);font:inherit;font-size:12.5px;padding:3px 10px;border-radius:999px;cursor:pointer}
-.mv-seg3 button[aria-pressed="true"]{background:var(--c-accent);color:var(--c-bg)}
-.mv-set button.mv-setitem{display:block;width:100%;text-align:left;grid-template-columns:none}
+/* .mv-menu button（チャプターの行の格子）を打ち消す */
+.mv-set .mv-seg3 button{display:inline-block;grid-template-columns:none;gap:0;appearance:none;border:0;background:none;color:var(--c-muted);font:inherit;font-size:12.5px;
+  padding:3px 12px;border-radius:999px;cursor:pointer;white-space:nowrap}
+.mv-set .mv-seg3 button[aria-pressed="true"]{background:var(--c-accent);color:var(--c-bg)}
+.mv-set button.mv-setitem{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-top:4px;padding:8px 12px;white-space:nowrap;
+  border:1px solid var(--c-line);background:color-mix(in srgb,var(--c-ink) 6%,transparent);border-radius:8px;font-weight:600;text-align:center}
+.mv-set button.mv-setitem[hidden]{display:none}
+.mv-set button.mv-setitem:hover,.mv-set button.mv-setitem:focus-visible{background:color-mix(in srgb,var(--c-accent) 14%,transparent);border-color:var(--c-accent)}
 .mv-setnote{margin:2px 6px 4px;font-size:11.5px;color:var(--c-muted);line-height:1.5}
 /* 字幕の大きさ */
-.mv-player[data-cap="s"] .mv-cap span{font-size:clamp(11px,1.6vw,19px)}
-.mv-player[data-cap="l"] .mv-cap span{font-size:clamp(14px,2.7vw,32px)}
+.mv-player[data-cap="s"] .mv-cap span{font-size:clamp(11px,1.9cqw,22px)}
+.mv-player[data-cap="l"] .mv-cap span{font-size:clamp(14px,3.1cqw,34px)}
 /* 続きから・録画中 */
 .mv-resume{position:absolute;left:16px;top:16px;z-index:3;appearance:none;border:1px solid var(--c-line);background:color-mix(in srgb,var(--c-bg) 85%,transparent);
   color:var(--c-ink);font:inherit;font-size:13px;padding:6px 12px;border-radius:999px;cursor:pointer}
@@ -868,7 +890,7 @@ def build_fragment(spec, theme_key, player, uid=None):
         '<button type="button" data-mus="1">入</button><button type="button" data-mus="0">切</button></span></div>'
         '<div class="mv-setrow"><span>効果音</span><span class="mv-seg3" role="group" aria-label="効果音">'
         '<button type="button" data-sfx="1">入</button><button type="button" data-sfx="0">切</button></span></div>'
-        '<button type="button" class="mv-setitem" id="mv-pip">小窓で再生（ピクチャー・イン・ピクチャー）</button>'
+        '<button type="button" class="mv-setitem" id="mv-pip" title="ピクチャー・イン・ピクチャー">小窓で再生</button>'
         '<button type="button" class="mv-setitem" id="mv-rec">動画ファイル（WebM）で保存</button>'
         '<p class="mv-setnote">保存は最初から 1 倍速で再生して録画します（字幕は映像に焼き込み。読み上げの声は入りません）。</p>'
         '</div></div>'
