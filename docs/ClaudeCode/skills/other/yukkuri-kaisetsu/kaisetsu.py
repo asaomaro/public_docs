@@ -9,7 +9,7 @@
 
 台本の書き方は SKILL.md。組み立ては隣の motion-video スキルの build.py を使う。
 """
-import argparse, glob, hashlib, importlib.util, json, os, re, sys, urllib.parse, urllib.request
+import argparse, glob, importlib.util, json, os, re, sys
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 PRESETS = {k: v for k, v in json.load(open(os.path.join(HERE, "casts.json"), encoding="utf-8")).items() if not k.startswith("_")}
@@ -197,50 +197,22 @@ def build_cast(meta, base):
 # ──────────────────────────────────────────────────────────────────────────
 # 声（VOICEVOX・用意した WAV）
 # ──────────────────────────────────────────────────────────────────────────
-def http(url, data=None, headers=None, method=None):
-    req = urllib.request.Request(url, data=data, headers=headers or {}, method=method or ("POST" if data is not None else "GET"))
-    with urllib.request.urlopen(req, timeout=60) as r:
-        return r.read()
-
-
 def voicevox_lines(spec, url, outdir, pronounce):
-    """VOICEVOX でせりふの WAV を作る（同じ話者・同じ文は作り直さない）。作った数を返す。"""
-    try:
-        speakers = json.loads(http(url.rstrip("/") + "/speakers"))
-    except Exception as e:
-        sys.exit("error: VOICEVOX に接続できません（%s）: %s\n  VOICEVOX を起動してから、もう一度実行してください（--voicevox-url で場所を変えられる）" % (url, e))
-    ids = {}
-    for sp in speakers:
-        for st in sp.get("styles", []):
-            ids[(sp["name"], st["name"])] = st["id"]
-    os.makedirs(outdir, exist_ok=True)
-    made = 0
+    """VOICEVOX でせりふの WAV を作る（同じ話者・同じ文は作り直さない）。作った数を返す。VOICEVOX との通信は motion-video の voice.py。"""
+    sys.path.insert(0, os.path.join(HERE, "..", "motion-video"))
+    import voice
+    vv = voice.Voicevox(url)
     for ch in spec["chapters"]:
         for sc in ch["scenes"]:
             for ln in talk_lines(sc):
-                c = spec["cast"].get(ln["who"], {})
-                v = c.get("voice") or {}
+                v = (spec["cast"].get(ln["who"], {}).get("voice") or {})
                 if v.get("engine") != "voicevox" or ln.get("voice"):
                     continue
-                sid = ids.get((v.get("speaker"), v.get("style", "ノーマル")))
-                if sid is None:
-                    sys.exit("error: VOICEVOX に話者「%s（%s）」がありません。候補: %s" % (v.get("speaker"), v.get("style", "ノーマル"),
-                             "、".join(sorted({n for n, _ in ids}))[:400]))
                 text = ln["text"].replace("**", "")
                 for k in sorted(pronounce, key=len, reverse=True):
                     text = text.replace(k, pronounce[k])
-                params = {"speedScale": v.get("speed", 1.0), "pitchScale": v.get("vv_pitch", 0.0), "intonationScale": v.get("intonation", 1.0), "volumeScale": v.get("volume", 1.0)}
-                key = hashlib.sha1(json.dumps([sid, text, params], ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
-                path = os.path.join(outdir, "%s.wav" % key)
-                if not os.path.isfile(path):
-                    q = json.loads(http(url.rstrip("/") + "/audio_query?" + urllib.parse.urlencode({"text": text, "speaker": sid}), data=b""))
-                    q.update(params)
-                    wav = http(url.rstrip("/") + "/synthesis?" + urllib.parse.urlencode({"speaker": sid}), data=json.dumps(q).encode("utf-8"),
-                               headers={"Content-Type": "application/json"})
-                    open(path, "wb").write(wav)
-                    made += 1
-                ln["voice"] = path
-    return made
+                ln["voice"] = vv.synth(text, v, outdir)
+    return vv.made
 
 
 def assign_voice_files(spec, vdir):

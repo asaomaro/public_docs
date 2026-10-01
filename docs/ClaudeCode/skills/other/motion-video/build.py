@@ -15,6 +15,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import sound  # noqa: E402  曲・効果音の定義（同じ場所の sound.py）
 import icons  # noqa: E402  線で描くアイコン集（同じ場所の icons.py。md-to-doc と共有）
+import voice  # noqa: E402  声を前もって作る（VOICEVOX）・用意した WAV を当てる
 
 # ──────────────────────────────────────────────────────────────────────────
 # 映像の配色テーマ（canvas は映像の中、chrome はプレイヤーの操作部）
@@ -447,6 +448,64 @@ def split_cues(text, lang):
     return out
 
 
+VOICE_GAP = 250   # 前もって作った声の、字幕と字幕の間（ms）
+
+
+def prepare_voices(spec, base, mode, url=voice.DEFAULT_URL, vdir=None, outdir=None):
+    """ナレーション（と掛け合いのせりふ）の声を前もって用意し、WAV を埋め込む。mode: voicevox / files。
+    ナレーションは字幕の単位（split_cues）ごとに 1 つの WAV。返り値は (エラーの一覧, クレジット)。"""
+    lang = spec.get("lang", "ja")
+    au = spec.setdefault("audio", {})
+    pron = au.get("pronounce") or {}
+    vcfg = au.get("voice") or {}
+    errs, vv = [], None
+    if mode == "voicevox":
+        vv = voice.Voicevox(url)
+        outdir = outdir or os.path.join(base, "voices")
+    files = sorted(os.path.join(vdir, f) for f in os.listdir(vdir) if f.lower().endswith(".wav")) if mode == "files" else []
+    fi = 0
+    cast = spec.get("cast") or {}
+    for ch in spec["chapters"]:
+        for s in ch["scenes"]:
+            if is_dialogue(s):
+                for ln in s["lines"]:
+                    if ln.get("voice"):
+                        continue
+                    if mode == "voicevox":
+                        cv = (cast.get(ln.get("who")) or {}).get("voice") or {}
+                        if cv.get("engine") == "voicevox":
+                            ln["voice"] = vv.synth(spoken(ln.get("text", ""), pron), cv, outdir)
+                    elif fi < len(files):
+                        ln["voice"] = files[fi]; fi += 1
+                continue
+            cues = split_cues(narration_text(s), lang)
+            if not cues:
+                continue
+            paths = []
+            for c in cues:
+                if mode == "voicevox":
+                    paths.append(vv.synth(spoken(c, pron), vcfg, outdir))
+                elif fi < len(files):
+                    paths.append(files[fi]); fi += 1
+            if len(paths) < len(cues):   # WAV が足りない場面はブラウザの声のまま
+                continue
+            vs, ds = [], []
+            for p in paths:
+                try:
+                    dur, env = wav_info(p)
+                except Exception as e:
+                    errs.append("音声は WAV（PCM）にしてください: %s（%s）" % (p, e))
+                    break
+                uri, _ = _embed(p, base, "audio/wav")
+                vs.append({"voice": uri, "_env": env}); ds.append(int(dur))
+            else:
+                s["_voices"], s["_vdurs"], s["_vtexts"] = vs, ds, cues
+    if mode == "files" and fi < len(files):
+        errs.append("WAV が %d 個余りました（ナレーションの字幕とせりふは合わせて %d 個）。--timeline で字幕の数を確かめる" % (len(files) - fi, fi))
+    credits = vv.credits() if vv else ([au["voice_credit"]] if au.get("voice_credit") else [])
+    return errs, credits
+
+
 def plan(spec):
     """場面ごとの長さ（ms）と字幕の時刻を決め、_dur・_cues を書き込む。警告の一覧を返す。"""
     lang = spec.get("lang", "ja")
@@ -458,17 +517,35 @@ def plan(spec):
         for si, s in enumerate(ch["scenes"]):
             if is_dialogue(s):
                 # 掛け合い: せりふごとに、音声ファイルの長さか読み上げの見積もりで時間を割り付ける
-                t, cl = 400.0, []
+                t, cl, pl = 400.0, [], []
                 for li, ln in enumerate(s["lines"]):
                     if ln.get("_vdur"):
-                        dur = ln["_vdur"]
+                        dur, est = ln["_vdur"], 0
                     else:
                         vr = float(((cast.get(ln.get("who")) or {}).get("voice") or {}).get("rate", rate))
-                        dur = max(900.0, speech_seconds(ln.get("text", ""), lang, pron) / vr * 1000 + 250)
+                        est = speech_seconds(ln.get("text", ""), lang, pron) / vr * 1000
+                        dur = max(900.0, est + 250)
+                    pause = float(ln.get("pause", .3)) * 1000
                     cl.append([int(t), int(t + dur), ln.get("text", ""), ln.get("who"), li])
-                    t += dur + float(ln.get("pause", .3)) * 1000
+                    pl.append([int(est), int(ln.get("_vdur") or 0), int(pause)])
+                    t += dur + pause
                 ms = int(max(t + 500, min_seconds(s) * 1000, float(s.get("duration", 0)) * 1000))
                 s["_dur"] = ms
+                s["_cues"] = cl
+                if any(e for e, _, _ in pl):   # ブラウザの声のせりふがある: 再生しながら実際の速さで直す（engine.js の retime）
+                    s["_plan"] = {"min": int(min_seconds(s) * 1000), "floor": int(float(s.get("duration", 0)) * 1000), "L": pl}
+                continue
+            if s.get("_vdurs"):
+                # 前もって作った声（VOICEVOX・用意した WAV）: 字幕は声の長さどおりに並べ、場面の長さも声で決まる
+                t, cl = 500.0, []
+                for i, (c, dur) in enumerate(zip(s["_vtexts"], s["_vdurs"])):
+                    cl.append([int(t), int(t + dur), c, "", i])
+                    t += dur + VOICE_GAP
+                need = max(min_seconds(s) * 1000, t - VOICE_GAP + 700)
+                if s.get("duration") and float(s["duration"]) * 1000 < t - VOICE_GAP + 300:
+                    warns.append("第 %d 章「%s」の場面 %d（%s）: duration %.1f 秒では声（%.1f 秒）が収まらないので、声の長さに合わせます"
+                                 % (ci + 1, ch.get("title", ""), si + 1, s.get("type"), float(s["duration"]), (t - VOICE_GAP) / 1000))
+                s["_dur"] = int(max(need, float(s.get("duration", 0)) * 1000) // 100 * 100 + 100)
                 s["_cues"] = cl
                 continue
             text = narration_text(s)
@@ -499,6 +576,11 @@ def plan(spec):
                 cl.append([int(acc), int(acc + span), c])
                 acc += span
             s["_cues"] = cl
+            if cues and (spec.get("audio") or {}).get("narration", True) is not False:
+                # ブラウザの声は環境で速さが違う。再生しながら実際の速さを測り、まだ来ていない場面の長さを直す（engine.js の retime）
+                s["_plan"] = {"min": int(min_seconds(s) * 1000), "fix": ms if s.get("duration") else 0,
+                              "sp": int(speech * 1000), "w": [round(x, 2) for x in weight],
+                              "e": [int(speech_seconds(c, lang, pron) / rate * 1000) for c in cues]}
     return warns
 
 
@@ -724,6 +806,10 @@ PLAYER_CSS = r"""
 .mv-sec{display:flex;align-items:center;gap:4px}
 .mv-morewrap{position:relative;display:flex;align-items:center;gap:4px}
 #mv-more{display:none}
+.mv-volwrap{display:inline-flex;align-items:center}
+.mv-vol{width:76px;margin:0 6px 0 0;accent-color:var(--c-accent);cursor:pointer;height:20px}
+.mv-vol:focus-visible{outline:2px solid var(--c-accent);outline-offset:2px;border-radius:4px}
+@media(max-width:640px){.mv-vol{width:56px}}
 .mv-speed{position:relative}
 .mv-speed select{appearance:none;background:color-mix(in srgb,var(--c-ink) 8%,transparent);color:var(--c-ink);border:1px solid var(--c-line);border-radius:8px;
   height:32px;padding:0 26px 0 10px;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;cursor:pointer}
@@ -873,7 +959,8 @@ def build_fragment(spec, theme_key, player, uid=None):
         '<div class="mv-morewrap">'
         + btn("mv-more", "そのほかの操作（音声・字幕・速度・チャプター・設定）", ICON["more"], ' aria-haspopup="true" aria-expanded="false" aria-controls="mv-morepanel"')
         + '<div class="mv-sec" id="mv-morepanel"%s>' % (" hidden" if minimal else "")
-        + btn("mv-audio", "音声", ICON["audio"], ' aria-pressed="true"')
+        + '<span class="mv-volwrap">' + btn("mv-audio", "音声", ICON["audio"], ' aria-pressed="true"')
+        + '<input type="range" class="mv-vol" id="mv-vol" min="0" max="100" step="5" value="100" aria-label="音量" title="音量（↑ ↓）"></span>'
         + btn("mv-cc", "字幕", ICON["cc"], ' aria-pressed="true"')
         + '<label class="mv-speed" title="再生速度"><select id="mv-speed" aria-label="再生速度">'
         + "".join('<option value="%s"%s>%s×</option>' % (v, " selected" if v == "1" else "", v) for v in ["0.5", "0.75", "1", "1.25", "1.5", "2"])
@@ -892,11 +979,15 @@ def build_fragment(spec, theme_key, player, uid=None):
         '<button type="button" data-sfx="1">入</button><button type="button" data-sfx="0">切</button></span></div>'
         '<button type="button" class="mv-setitem" id="mv-pip" title="ピクチャー・イン・ピクチャー">小窓で再生</button>'
         '<button type="button" class="mv-setitem" id="mv-rec">動画ファイル（WebM）で保存</button>'
-        '<p class="mv-setnote">保存は最初から 1 倍速で再生して録画します（字幕は映像に焼き込み。読み上げの声は入りません）。</p>'
+        + '<p class="mv-setnote">保存は最初から 1 倍速で再生して録画します（字幕は映像に焼き込み。%s）。</p>' % (
+            "前もって作った声も入ります" if any(s_.get("_voices") for c_ in spec["chapters"] for s_ in c_["scenes"]) else "読み上げの声は入りません")
+        + ''
         '</div></div>'
         '</div></div>'
         + btn("mv-fs", "全画面", ICON["fs"])
         + '</div><div class="mv-note" id="mv-voicenote" hidden>この端末には読み上げの声が無いため、音声は効果音と音楽だけになります。</div>'
+        + ('<div class="mv-note mv-credit">音声: %s</div>' % html.escape("・".join(spec["_credits"])) if spec.get("_credits") else "")
+        + ''
         '</div>')
     style = ("--c-bg:%s;--c-bg2:%s;--c-line:%s;--c-ink:%s;--c-muted:%s;--c-accent:%s"
              % (ch["bg"], ch["bg2"], ch["line"], ch["ink"], ch["muted"], ch["accent"]))
@@ -946,7 +1037,7 @@ def build_html(spec, theme_key, player):
     head = '<header class="mv-head"><h1>%s</h1>%s</header>' % (html.escape(title), "<p>%s</p>" % html.escape(desc) if desc else "")
     keys = ('<p class="mv-keys"><kbd>Space</kbd> 再生・一時停止　<kbd>S</kbd> 停止　<kbd>←</kbd><kbd>→</kbd> 5 秒　<kbd>J</kbd><kbd>L</kbd> 10 秒　'
             '<kbd>0</kbd>〜<kbd>9</kbd> 0〜90%　<kbd>[</kbd><kbd>]</kbd> チャプター　<kbd>&lt;</kbd><kbd>&gt;</kbd> 速度　<kbd>C</kbd> 字幕　'
-            '<kbd>M</kbd> 音声　<kbd>F</kbd> 全画面</p>')
+            '<kbd>M</kbd> 音声　<kbd>↑</kbd><kbd>↓</kbd> 音量　<kbd>F</kbd> 全画面</p>')
     return ("<!doctype html>\n<html lang=\"%s\"><head><meta charset=\"utf-8\">"
             "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>%s</title>"
             "<style>%s%s</style></head><body><main class=\"mv-page\">%s%s%s</main><script>%s</script></body></html>\n"
@@ -1101,6 +1192,10 @@ def main():
     ap.add_argument("--list-sounds", action="store_true", help="曲・効果音・効果音の組・出来事と、audio の書き方を出す")
     ap.add_argument("--list-icons", action="store_true", help="線で描くアイコンの一覧を出す")
     ap.add_argument("--sounds", action="store_true", help="曲と効果音を聞き比べる HTML を作る（-o で出力先。既定 sounds.html）")
+    ap.add_argument("--voicevox", action="store_true", help="VOICEVOX でナレーションの声を前もって作り、埋め込む（話者は audio.voice）")
+    ap.add_argument("--voicevox-url", default=voice.DEFAULT_URL, help="VOICEVOX の場所（既定 %(default)s）")
+    ap.add_argument("--voices-dir", help="用意した WAV を名前順に、ナレーションの字幕（とせりふ）へ順に当てて埋め込む")
+    ap.add_argument("--voices-out", help="VOICEVOX で作った WAV の置き場所（既定: 台本と同じ場所の <台本名>_voices/）")
     args = ap.parse_args()
     if args.api:
         print(API_DOC)
@@ -1121,6 +1216,17 @@ def main():
         return
     spec = json.load(open(args.spec, encoding="utf-8"))
     base = os.path.dirname(os.path.abspath(args.spec))
+    if (args.voicevox or args.voices_dir) and isinstance(spec.get("chapters"), list):
+        out_v = args.voices_out or os.path.splitext(os.path.abspath(args.spec))[0] + "_voices"
+        verrs, spec["_credits"] = prepare_voices(spec, base, "voicevox" if args.voicevox else "files", args.voicevox_url, args.voices_dir, out_v)
+        for e in verrs:
+            print("error:", e, file=sys.stderr)
+        if verrs:
+            sys.exit(1)
+        n = sum(len(s_.get("_vdurs") or []) for c_ in spec["chapters"] for s_ in c_["scenes"])
+        print("声: ナレーションの字幕 %d 個に前もって作った声を当てました（作り済みの WAV は使い回し）" % n, file=sys.stderr)
+    elif ((spec.get("audio") or {}).get("voice") or {}).get("engine") == "voicevox":
+        print("warn: audio.voice は VOICEVOX ですが --voicevox が無いので、ブラウザの読み上げで再生します（時間は見積もり）", file=sys.stderr)
     errs = validate(spec, base)
     if errs:
         for e in errs:
