@@ -1145,9 +1145,16 @@ def build_html(spec, theme_key, player):
                build_fragment(spec, theme_key, player, "mv"), keys if player != "kiosk" else "", engine_js()))
 
 
-def sound_board():
-    """曲と効果音を聞き比べる 1 枚の HTML（audio.js だけを使う。映像は無い）。"""
+def sound_board(with_samples=True):
+    """曲と効果音を聞き比べる 1 枚の HTML（audio.js だけを使う。映像は無い）。
+    with_samples: 曲の楽器を録音した楽器の音（samples.py）でも鳴らせるよう、全曲が使う音域を埋め込む（10 MB 前後）。"""
+    import samples as _smp
     music = {k: v for k, v in sound.MUSIC.items()}
+    warn = []
+    smp = _smp.build(music, warn=warn) if with_samples else {}
+    for x in warn:
+        print("warn:", x, file=sys.stderr)
+    sampled = {k: sorted({L.get("inst") for L in v.get("layers", []) if L.get("inst") in smp}) for k, v in music.items()}
     kits = {}
     for k, (n, desc, m) in sound.KITS.items():
         merged = {}
@@ -1156,8 +1163,8 @@ def sound_board():
             if v:
                 merged[ev] = v
         kits[k] = {"name": n, "desc": desc, "map": merged}
-    data = json.dumps({"music": music, "sfx": sound.SFX, "kits": kits, "events": sound.EVENTS,
-                       "mcats": sound.MUSIC_CATS, "scats": sound.SFX_CATS}, ensure_ascii=False).replace("</", "<\\/")
+    data = json.dumps({"music": music, "sfx": sound.SFX, "kits": kits, "events": sound.EVENTS, "samples": smp, "sampled": sampled,
+                       "credit": _smp.CREDIT if smp else "", "mcats": sound.MUSIC_CATS, "scats": sound.SFX_CATS}, ensure_ascii=False).replace("</", "<\\/")
     audio = open(os.path.join(HERE, "audio.js"), encoding="utf-8").read()
     return """<!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>motion-video の音</title>
@@ -1179,12 +1186,17 @@ h3{font-size:14px;color:var(--muted);margin:18px 0 6px}p.lead{color:var(--muted)
 .sg{display:flex;flex-wrap:wrap;gap:6px}.s{padding:6px 10px;border:1px solid var(--line);border-radius:999px;background:var(--card);color:var(--ink);cursor:pointer}
 table{border-collapse:collapse;width:100%;font-size:13px;background:var(--card)}th,td{border:1px solid var(--line);padding:4px 8px;text-align:left}th{background:var(--bg)}
 td button{border:0;background:none;color:var(--accent);cursor:pointer;padding:0}
+.rec{display:inline-block;font-size:11px;padding:0 6px;border-radius:999px;border:1px solid var(--accent);color:var(--accent);margin-right:4px}
+.credit{color:var(--muted);font-size:12px;margin-top:40px}
 @media (max-width:600px){.grid{grid-template-columns:1fr}}
 </style></head><body><main>
 <h1>motion-video の音</h1>
-<p class="lead">曲（__NM__ 曲）と効果音（__NS__ 種）を試し聞きする。どれも Web Audio で合成した音で、同じ台本からは同じ音が鳴る。名前（<code>code</code>）を台本の <code>audio.music</code>・<code>sfx</code> に書く。</p>
+<p class="lead">曲（__NM__ 曲）と効果音（__NS__ 種）を試し聞きする。曲の旋律・和音・リズムと効果音は Web Audio で作り、同じ台本からは同じ音が鳴る。
+曲のピアノ・弦・ギター・管楽器・和楽器などは、動画と同じく録音した楽器の音で鳴る（<span class="rec">録音</span> の印。上の「楽器の音」で合成の音と聞き比べられる）。
+名前（<code>code</code>）を台本の <code>audio.music</code>・<code>sfx</code> に書く。</p>
 <div class="bar"><label>盛り上がり <select id="en"><option value="1">1（静か）</option><option value="2" selected>2（標準）</option><option value="3">3（山場）</option></select></label>
 <label>章 <select id="ci"><option value="0">1 章目の進行</option><option value="1">2 章目</option><option value="2">3 章目</option></select></label>
+<label>楽器の音 <select id="smp"><option value="1" selected>録音した楽器の音</option><option value="0">合成の音</option></select></label>
 <button type="button" id="stop">■ 止める</button><span class="now" id="now"></span></div>
 <h2>曲</h2><div id="music"></div>
 <h2>効果音</h2><div id="sfx"></div>
@@ -1193,7 +1205,7 @@ td button{border:0;background:none;color:var(--accent);cursor:pointer;padding:0}
 <script>__AUDIO__</script>
 <script>
 var D = __DATA__, MA = window.MotionAudio, ac = null, cur = null;
-function ensure() { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === "suspended") ac.resume(); }
+function ensure() { if (!ac) { ac = new (window.AudioContext || window.webkitAudioContext)(); if (MA.loadSamples) MA.loadSamples(ac, D.samples || {}); } if (ac.state === "suspended") ac.resume(); }
 function el(t, a, h) { var e = document.createElement(t); if (a) Object.keys(a).forEach(function (k) { e.setAttribute(k, a[k]); }); if (h !== undefined) e.innerHTML = h; return e; }
 function stop() { if (!cur) return; clearInterval(cur.timer); var g = cur.bus; g.gain.setTargetAtTime(0, ac.currentTime, .08); setTimeout(function () { g.disconnect(); }, 800);
   if (cur.btn) cur.btn.setAttribute("aria-pressed", "false"); cur = null; document.getElementById("now").textContent = ""; }
@@ -1211,7 +1223,8 @@ function playSfx(id, v, pitch) { ensure(); if (!fx) { fx = ac.createGain(); fx.c
 D.mcats.forEach(function (cat) {
   var box = document.getElementById("music"); box.appendChild(el("h3", null, cat)); var g = el("div", { class: "grid" }); box.appendChild(g);
   Object.keys(D.music).forEach(function (k) { var m = D.music[k]; if (m.cat !== cat) return;
-    var b = el("button", { type: "button", class: "m", "aria-pressed": "false" }, '<span class="i">▶</span><b>' + m.name + ' <code>' + k + '</code></b><small>' + m.bpm + ' BPM・' + m.key + ' ' + m.scale + '・' + m.desc + '</small>');
+    var rec = (D.sampled[k] || []).length ? '<span class="rec" title="録音した楽器の音: ' + D.sampled[k].join("・") + '">録音</span>' : "";
+    var b = el("button", { type: "button", class: "m", "aria-pressed": "false" }, '<span class="i">▶</span><b>' + m.name + ' <code>' + k + '</code></b><small>' + rec + m.bpm + ' BPM・' + m.key + ' ' + m.scale + '・' + m.desc + '</small>');
     b.addEventListener("click", function () { playMusic(k, b); }); g.appendChild(b); });
 });
 D.scats.forEach(function (cat) {
@@ -1233,6 +1246,10 @@ D.scats.forEach(function (cat) {
   var wrap = el("div", { style: "overflow-x:auto" }); wrap.appendChild(t); document.getElementById("kits").appendChild(wrap);
 })();
 document.getElementById("stop").addEventListener("click", stop);
+/* 楽器の音の切り替え（鳴っている曲は次の音から変わる） */
+document.getElementById("smp").addEventListener("change", function (e) { if (MA.useSamples) MA.useSamples(e.target.value === "1"); });
+if (!Object.keys(D.samples || {}).length) { var sel = document.getElementById("smp"); sel.value = "0"; sel.disabled = true; }
+if (D.credit) document.querySelector("main").appendChild(el("p", { class: "credit" }, D.credit));
 ["en", "ci"].forEach(function (id) { document.getElementById(id).addEventListener("change", function () { if (cur) { var c = cur; stop(); playMusic(c.id, c.btn); } }); });
 </script></body></html>
 """.replace("__AUDIO__", audio).replace("__DATA__", data).replace("__NM__", str(len(sound.MUSIC))).replace("__NS__", str(len(sound.SFX)))
@@ -1291,7 +1308,8 @@ def main():
     ap.add_argument("--embed", action="store_true", help="ページではなく、ほかの HTML に差し込む断片を出す（md-to-doc の文書など）")
     ap.add_argument("--list-sounds", action="store_true", help="曲・効果音・効果音の組・出来事と、audio の書き方を出す")
     ap.add_argument("--list-icons", action="store_true", help="線で描くアイコンの一覧を出す")
-    ap.add_argument("--sounds", action="store_true", help="曲と効果音を聞き比べる HTML を作る（-o で出力先。既定 sounds.html）")
+    ap.add_argument("--sounds", action="store_true", help="曲と効果音を聞き比べる HTML を作る（-o で出力先。既定 sounds.html。録音した楽器の音も入れて 10 MB 前後）")
+    ap.add_argument("--no-samples", action="store_true", help="--sounds で、録音した楽器の音を入れない（合成の音だけ。0.5 MB 前後）")
     ap.add_argument("--voicevox", action="store_true", help="VOICEVOX でナレーションの声を前もって作り、埋め込む（話者は audio.voice）")
     ap.add_argument("--voicevox-url", default=voice.DEFAULT_URL, help="VOICEVOX の場所（既定 %(default)s）")
     ap.add_argument("--voices-dir", help="用意した WAV を名前順に、ナレーションの字幕（とせりふ）へ順に当てて埋め込む")
@@ -1308,7 +1326,7 @@ def main():
         return
     if args.sounds:
         out = args.out or os.path.abspath("sounds.html")
-        open(out, "w", encoding="utf-8").write(sound_board())
+        open(out, "w", encoding="utf-8").write(sound_board(not args.no_samples))
         print("OK : %s（曲 %d・効果音 %d）" % (out, len(sound.MUSIC), len(sound.SFX)))
         return
     if args.list or not args.spec:

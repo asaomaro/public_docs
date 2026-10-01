@@ -417,7 +417,8 @@ window.MotionAudio = window.MotionAudio || (function () {
   }
   /* 音符を鳴らす（INSTX は台本の instruments を足した楽器の表） */
   /* ---- 録音の楽器の音（samples）: 楽器ごとに 4 半音おきの録音を持ち、一番近い音を再生の速さで高さに合わせる ---- */
-  var SMP = {};
+  var SMP = {}, SMP_ON = true;
+  function useSamples(on) { SMP_ON = !!on; }
   function loadSamples(ac, map) {
     Object.keys(map || {}).forEach(function (inst) {
       var e = map[inst], s = SMP[inst] = { k: e.k, g: e.g || 1, buf: {} };
@@ -444,7 +445,7 @@ window.MotionAudio = window.MotionAudio || (function () {
   }
   function note(ac, out, n, when, durS, vol, INSTX, fast) {
     /* 録音の音がある楽器はそれで鳴らす（台本で同じ名前の楽器を自作したときは sound.py が録音を入れない） */
-    var se = SMP[n.inst] ? sampleNote(ac, out, n, when, durS, vol) : 0; if (se) return se;
+    var se = SMP_ON && SMP[n.inst] ? sampleNote(ac, out, n, when, durS, vol) : 0; if (se) return se;
     var R = (INSTX && INSTX[n.inst]) || INST[n.inst]; if (!R) return;
     return play(ac, out, R, when, { f: n.f || hz(n.m === undefined ? 60 : n.m), dur: durS, v: n.v * (vol === undefined ? 1 : vol), fast: fast });
   }
@@ -453,5 +454,5 @@ window.MotionAudio = window.MotionAudio || (function () {
 
   /* 復号が済んだ録音の音の数（楽器ごと）。確かめる用 */
   function samplesReady() { var o = {}; Object.keys(SMP).forEach(function (k) { o[k] = Object.keys(SMP[k].buf).length; }); return o; }
-  return { loadSamples: loadSamples, sampleNote: sampleNote, samplesReady: samplesReady, INST: INST, DRUMS: DRUMS, SCALES: SCALES, KEYS: KEYS, hz: hz, rng: rng, hash: hash, play: play, note: note, notes: notes, chord: chord, isSus: isSus, barMs: barMs };
+  return { loadSamples: loadSamples, sampleNote: sampleNote, samplesReady: samplesReady, useSamples: useSamples, INST: INST, DRUMS: DRUMS, SCALES: SCALES, KEYS: KEYS, hz: hz, rng: rng, hash: hash, play: play, note: note, notes: notes, chord: chord, isSus: isSus, barMs: barMs };
 })();

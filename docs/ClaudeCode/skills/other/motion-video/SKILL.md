@@ -398,7 +398,7 @@ python3 <skill_dir>/build.py spec.json --embed -o intro.embed.html   # 断片（
   （1 楽器 300 KB 前後。1 曲で 0.5〜1.5 MB 増える）。録音の音は初回に取りに行き `~/.cache/motion-video/samples/` に置いて使い回す
   （オフラインで作るなら先に `python3 <skill_dir>/samples.py` で全部取っておく。取れなければその楽器は合成の音で鳴る）。
   クレジット（「楽器の音: FluidR3_GM（Frank Wen、CC BY 3.0）」）はプレイヤーの下に自動で出る。合成の音だけにするなら `audio.samples: false`。
-  `--sounds` の聞き比べのページは合成の音のまま。
+  `--sounds` の聞き比べのページも録音した楽器の音で鳴り、「楽器の音」で合成の音と切り替えて比べられる（10 MB 前後。`--no-samples` で合成の音だけ）。
 - 音の定義は `sound.py`（曲・効果音・効果音の組・出来事）、合成は `audio.js`（楽器・打楽器の型・和音と旋律の作り方）。
   曲や効果音を足すときは `sound.py` に 1 つ足す（楽器・型・打楽器の型を足すときは両方）。`--sounds` のページで聞いて確かめる。
 - 音楽の音声ファイルを使うなら `"music": {"file": "bgm.mp3"}`（埋め込むので HTML が大きくなる。権利に注意）。
