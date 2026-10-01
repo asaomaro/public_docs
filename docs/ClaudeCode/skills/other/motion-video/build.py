@@ -767,7 +767,7 @@ body{background:var(--bg);color:var(--ink);font-family:"Hiragino Kaku Gothic Pro
 PLAYER_CSS = r"""
 .mv-player,.mv-player *{box-sizing:border-box}
 .mv-player [hidden]{display:none!important}
-.mv-player{font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",system-ui,sans-serif;font-size:15px;line-height:1.7;margin:18px 0;
+.mv-player{font-family:var(--mv-uifont,"Hiragino Kaku Gothic ProN","Yu Gothic",system-ui,sans-serif);font-size:15px;line-height:1.7;margin:18px 0;
   position:relative;background:var(--c-bg);color:var(--c-ink);border:1px solid var(--c-line);border-radius:14px;overflow:hidden}
 .mv-player:focus-visible{outline:3px solid var(--focus);outline-offset:3px}
 .mv-main{position:relative;min-width:0;container-type:inline-size}
@@ -981,7 +981,7 @@ def build_fragment(spec, theme_key, player, uid=None):
         + '<div class="mv-menu mv-set" id="mv-setpanel" hidden>'
         '<div class="mv-setrow"><span>字幕の大きさ</span><span class="mv-seg3" role="group" aria-label="字幕の大きさ">'
         '<button type="button" data-cap="s">小</button><button type="button" data-cap="m">標準</button><button type="button" data-cap="l">大</button></span></div>'
-        '<div class="mv-setrow"><label for="mv-font">書体</label><select class="mv-fontsel" id="mv-font" aria-label="書体（映像の文字と字幕）"></select></div>'
+        '<div class="mv-setrow"><label for="mv-font">書体</label><select class="mv-fontsel" id="mv-font" aria-label="書体（映像の文字・字幕・プレイヤーの文字）"></select></div>'
         '<div class="mv-setrow"><span>音楽</span><span class="mv-seg3" role="group" aria-label="音楽">'
         '<button type="button" data-mus="1">入</button><button type="button" data-mus="0">切</button></span></div>'
         '<div class="mv-setrow"><span>効果音</span><span class="mv-seg3" role="group" aria-label="効果音">'
