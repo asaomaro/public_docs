@@ -926,6 +926,7 @@ PLAYER_CSS = r"""
 .mv-tlist .t{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--c-accent);padding-top:2px}
 /* theater: 横に文字起こし */
 [data-player="theater"]{display:grid;grid-template-columns:minmax(0,1fr) 320px;background:#05070b}
+.mv-player[data-uimode="light"][data-player="theater"]{background:var(--c-bg2)}
 [data-player="theater"] .mv-transcript{display:block;border-left:1px solid var(--c-line);padding:14px 14px;background:var(--c-bg2);overflow:auto;contain:size;min-height:0}
 @media(max-width:860px){[data-player="theater"]{grid-template-columns:1fr}[data-player="theater"] .mv-transcript{border-left:0;border-top:1px solid var(--c-line);contain:none;max-height:320px}}
 /* slides: 章の終わりで止まる。「次へ」を目立たせる */
@@ -981,6 +982,9 @@ def build_fragment(spec, theme_key, player, uid=None):
         + '<div class="mv-menu mv-set" id="mv-setpanel" hidden>'
         '<div class="mv-setrow"><span>字幕の大きさ</span><span class="mv-seg3" role="group" aria-label="字幕の大きさ">'
         '<button type="button" data-cap="s">小</button><button type="button" data-cap="m">標準</button><button type="button" data-cap="l">大</button></span></div>'
+        '<div class="mv-setrow"><span>表示</span><span class="mv-seg3" role="group" aria-label="プレイヤーの表示（ライト・ダーク）">'
+        '<button type="button" data-ui="">テーマ</button><button type="button" data-ui="light">ライト</button>'
+        '<button type="button" data-ui="dark">ダーク</button><button type="button" data-ui="system">システム</button></span></div>'
         '<div class="mv-setrow"><label for="mv-font">書体</label><select class="mv-fontsel" id="mv-font" aria-label="書体（映像の文字・字幕・プレイヤーの文字）"></select></div>'
         '<div class="mv-setrow"><span>音楽</span><span class="mv-seg3" role="group" aria-label="音楽">'
         '<button type="button" data-mus="1">入</button><button type="button" data-mus="0">切</button></span></div>'
