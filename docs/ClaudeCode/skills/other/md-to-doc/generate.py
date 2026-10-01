@@ -445,6 +445,50 @@ body{line-height:2;font-size:16.5px}
 """),
 })
 
+# さらに追加のテーマ（発表・紹介向けの「オーロラ」と、落ち着いた社内資料の「ノルディック」）
+THEMES.update({
+    "aurora": _theme(
+        "オーロラ", "dark",
+        ["#6d28d9", "#0e7490", "#be185d", "#047857"], ["#a78bfa", "#22d3ee", "#f472b6", "#34d399"],
+        {"--bg": "#f6f5ff", "--card": "rgba(255,255,255,.9)", "--ink": "#1e1b3a", "--muted": "#5f5b7d", "--line": "#e1def5",
+         "--accent": "#6d28d9", "--accent-2": "#4c1d95", "--accent-soft": "#efe9ff", "--on-accent": "#ffffff",
+         "--code-bg": "#17142e", "--code-fg": "#e9e5ff", "--radius": "18px", "--shadow": "0 10px 30px rgba(76,29,149,.10)",
+         "--font": _GOTHIC, "--font-head": _GOTHIC, "--mono": _MONO,
+         "--header-bg": "radial-gradient(120% 140% at 10% 0%,#22d3ee 0%,transparent 45%),radial-gradient(120% 140% at 90% 10%,#f472b6 0%,transparent 50%),linear-gradient(135deg,#4c1d95,#1e1b4b)",
+         "--header-fg": "#ffffff"},
+        {"--bg": "#0b0a1a", "--card": "rgba(26,23,52,.92)", "--ink": "#ece9ff", "--muted": "#a7a2c9", "--line": "#2c2752",
+         "--accent": "#a78bfa", "--accent-2": "#c4b5fd", "--accent-soft": "#1f1a44", "--on-accent": "#140f2e",
+         "--code-bg": "#07061a", "--code-fg": "#e9e5ff", "--shadow": "0 10px 30px rgba(0,0,0,.45)",
+         "--header-bg": "radial-gradient(120% 140% at 10% 0%,rgba(34,211,238,.55) 0%,transparent 45%),radial-gradient(120% 140% at 90% 10%,rgba(244,114,182,.5) 0%,transparent 50%),linear-gradient(135deg,#2e1065,#0b0a1a)",
+         "--header-fg": "#f5f3ff"},
+        """
+.doc-card,.stat,.tabs,.checklist,.defs,.tree,.pc-col,.accordion,.mermaid-fig,.sy-sticky,.sy-card,.callout,.fk-tip{backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.content h2.hl{border-left:0;padding-left:0;background:linear-gradient(90deg,var(--a0),var(--a1),var(--a2));-webkit-background-clip:text;background-clip:text;color:transparent;font-weight:800}
+.content h2.hl .anchor{-webkit-text-fill-color:var(--muted)}
+@media print{.content h2.hl{color:var(--accent);background:none}}
+"""),
+    "nordic": _theme(
+        "ノルディック", "system",
+        ["#3b6e8f", "#a0673c", "#5f8a5a", "#8a6fa8"], ["#8cc0e0", "#e0a676", "#9cc795", "#c4aee0"],
+        {"--bg": "#f3f4f1", "--card": "#ffffff", "--ink": "#2b3036", "--muted": "#6b737b", "--line": "#dfe2dc",
+         "--accent": "#3b6e8f", "--accent-2": "#2c5470", "--accent-soft": "#e8f0f4", "--on-accent": "#ffffff",
+         "--code-bg": "#2b3036", "--code-fg": "#eef1ec", "--radius": "10px", "--shadow": "0 1px 2px rgba(43,48,54,.06)",
+         "--font": _GOTHIC, "--font-head": _GOTHIC, "--mono": _MONO,
+         "--header-bg": "linear-gradient(180deg,#e7ebe5,#dfe5df)",
+         "--header-fg": "#2b3036"},
+        {"--bg": "#1c2024", "--card": "#242a2f", "--ink": "#e7eae6", "--muted": "#a2aab0", "--line": "#353d44",
+         "--accent": "#8cc0e0", "--accent-2": "#b5d7ec", "--accent-soft": "#24323c", "--on-accent": "#13212b",
+         "--code-bg": "#15181b", "--code-fg": "#e7eae6", "--shadow": "0 1px 2px rgba(0,0,0,.4)",
+         "--header-bg": "linear-gradient(180deg,#262c31,#20252a)",
+         "--header-fg": "#e7eae6"},
+        """
+body{line-height:1.95}
+.content h2.hl{border-left:0;padding-left:0;font-weight:700;letter-spacing:.04em}
+.content h2.hl::after{content:"";display:block;width:28px;height:3px;border-radius:2px;background:var(--a1);margin-top:8px}
+.doc-card,.stat,.mermaid-fig,.sy-sticky,.sy-card{border-color:var(--line);box-shadow:none}
+"""),
+})
+
 # テーマの一覧（選ばせるときの材料。label は THEMES 側）
 THEME_INFO = {
     "corporate": ("青基調・カード・万人向け", "資料・報告・社内共有の既定"),
@@ -458,6 +502,8 @@ THEME_INFO = {
     "blueprint": ("方眼の地に紺・等幅の見出し・製図風の図枠", "設計書・仕様書・アーキテクチャ説明"),
     "minimal": ("黒い文字と余白・細い罫線・影なし", "社内メモ・議事録・ナレッジ"),
     "paper": ("生成りの紙色・焦げ茶・広い行間", "長文の読み物・解説・研修資料"),
+    "aurora": ("深い紫の地にオーロラの光・すりガラスのカード・グラデーションの見出し", "発表・製品紹介・イベント（画面で見せる）"),
+    "nordic": ("灰みの地に青と木の色・静かな見出し・広い行間", "落ち着いた社内資料・方針・ナレッジ"),
 }
 
 
@@ -632,6 +678,85 @@ def extract_headings(lines):
 # ──────────────────────────────────────────────────────────────────────────
 # ブロックパーサ
 # ──────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────
+# 本文の中の figkit（```figkit の JSON から、その場に図を置く）とスクロール連動
+# ──────────────────────────────────────────────────────────────────────────
+_FK = [None]
+
+
+def _figkit():
+    if _FK[0] is None:
+        here = os.path.dirname(os.path.abspath(__file__))
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import figkit
+        _FK[0] = figkit
+    return _FK[0]
+
+
+def render_figkit_fence(code):
+    """```figkit のフェンス: 図 1 つ・図の配列・{"figures": [...]} の JSON をその場で <figure> にする。
+    hotspots の画像は本文の画像と同じく埋め込む（--image-mode に従う）。"""
+    try:
+        data = json.loads(code)
+    except ValueError as e:
+        print("[figkit] JSON を読めません: %s" % e, file=sys.stderr)
+        return ('<div class="callout callout-warning"><div class="callout-head"><span class="callout-ico">⚠️</span>figkit の JSON を読めません</div>'
+                '<div class="callout-body"><pre><code>%s</code></pre></div></div>' % html.escape(code))
+    specs = data["figures"] if isinstance(data, dict) and "figures" in data else (data if isinstance(data, list) else [data])
+    fk = _figkit()
+    outs = []
+    for spec in specs:
+        if spec.get("type") == "hotspots" and spec.get("src"):
+            m = re.search(r'src="([^"]*)"', image_tag(html.escape(spec.get("alt", "")), html.escape(spec["src"])))
+            if m:
+                spec = dict(spec, src=html.unescape(m.group(1)))
+        try:
+            outs.append(fk.render(spec if spec.get("id") else dict(spec, id=_uid("fk-"))))
+        except (SystemExit, KeyError, ValueError, TypeError, IndexError, ZeroDivisionError) as e:
+            print("[figkit] 図を作れません（%s）: %s" % (spec.get("type"), e), file=sys.stderr)
+            outs.append('<div class="callout callout-warning"><div class="callout-head"><span class="callout-ico">⚠️</span>figkit の図（%s）を作れません</div>'
+                        '<div class="callout-body"><p>%s</p></div></div>' % (html.escape(str(spec.get("type"))), html.escape(str(e))))
+    return "\n".join(outs)
+
+
+SCROLLY_RE = re.compile(r"^\s*<!--\s*scrolly(?:\s*[:=]\s*([^>]*?))?\s*-->\s*$", re.I)
+SCROLLY_END_RE = re.compile(r"^\s*<!--\s*/\s*scrolly\s*-->\s*$", re.I)
+STEP_RE = re.compile(r"^\s*<!--\s*step(?:\s*[:=]\s*([^>]*?))?\s*-->\s*$", re.I)
+
+
+def render_scrolly(lines, opts, headings, used_slugs, mermaid_store, layout):
+    """図を画面に留め、本文の段（<!-- step -->）が画面の中ほどに来るたびに図の段を進める。
+    図が 1 つなら図の段（data-step）を順に見せ、図・画像が複数なら 1 つずつ入れ替える。
+    JS 無し・印刷・動きを減らす設定では、図は完成形のまま本文と並ぶ。"""
+    fig_lines, steps, cur = [], [], None
+    for ln in lines:
+        m = STEP_RE.match(ln)
+        if m:
+            cur = {"opt": (m.group(1) or "").strip(), "lines": []}
+            steps.append(cur)
+        elif cur is None:
+            fig_lines.append(ln)
+        else:
+            cur["lines"].append(ln)
+    fig = parse_blocks(fig_lines, headings, used_slugs, mermaid_store, top_level=False, layout=layout)
+    side = "left" if re.search(r"\bleft\b|左", opts) else "right"
+    parts = []
+    for k, st in enumerate(steps):
+        o = st["opt"].lower()
+        show = re.search(r"\d+", o)
+        attrs = ' data-sy-show="%s"' % show.group(0) if show else ""
+        if re.search(r"\bonly\b|だけ", o):
+            attrs += " data-sy-only"
+        if re.search(r"\ball\b|全部", o):
+            attrs += ' data-sy-show="all"'
+        body = parse_blocks(st["lines"], headings, used_slugs, mermaid_store, top_level=False, layout=layout)
+        parts.append('<div class="sy-step"%s><div class="sy-card">%s</div></div>' % (attrs, body))
+    return ('<section class="sy sy-%s" data-sy><div class="sy-fig"><div class="sy-sticky">%s'
+            '<div class="sy-prog" aria-hidden="true"></div></div></div><div class="sy-steps">%s</div></section>'
+            % (side, fig, "".join(parts)))
+
+
 def parse_blocks(lines, headings, used_slugs, mermaid_store, top_level=True, layout="plain"):
     out = []
     i = 0
@@ -674,6 +799,16 @@ def parse_blocks(lines, headings, used_slugs, mermaid_store, top_level=True, lay
             i += 1
             continue
 
+        # スクロール連動（<!-- scrolly --> … <!-- step --> … <!-- /scrolly -->）
+        sm = SCROLLY_RE.match(line)
+        if sm:
+            j = i + 1
+            while j < n and not SCROLLY_END_RE.match(lines[j]):
+                j += 1
+            out.append(render_scrolly(lines[i + 1:j], sm.group(1) or "", headings, used_slugs, mermaid_store, cur_layout))
+            i = j + 1
+            continue
+
         # セクション別レイアウトのディレクティブ。出力には出さず、以降の節内リストに効く
         directive = read_layout_directive(line)
         if directive is not None:
@@ -707,7 +842,9 @@ def parse_blocks(lines, headings, used_slugs, mermaid_store, top_level=True, lay
                     k += 1
                 buf.append(ln[k:]); j += 1
             code = "\n".join(buf)
-            if lang == "mermaid":
+            if lang == "figkit":
+                out.append(render_figkit_fence(code))
+            elif lang == "mermaid":
                 key = "@@MERMAID_%d@@" % len(mermaid_store)
                 mermaid_store.append(code)
                 out.append(key)
@@ -3199,6 +3336,352 @@ LAYOUT_JS = r"""(function(){
     });
   });
 })();"""
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# スクロール連動（.sy）と触れる図（figkit の tabs・slider・walk・hotspots と data-detail）
+#   動きの設定（--motion）と無関係に働く。JS 無し・印刷では、全部の段・状態を並べた完成形のまま。
+#   動きを減らす設定では、スクロール連動は完成図のまま並べ、切り替えは即座にする。
+#   部品の class は sy-・fk- で始める（ヘッダーなどページの class と重ならないように）
+# ──────────────────────────────────────────────────────────────────────────
+INTERACT_CSS = r"""
+/* ===== スクロール連動 ===== */
+.sy{margin:28px 0;display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.25fr);gap:24px;align-items:start}
+.sy-left{grid-template-columns:minmax(0,1.25fr) minmax(0,.8fr)}
+.sy-right .sy-fig{order:2}
+.sy-sticky{position:relative}
+.sy-sticky>figure,.sy-sticky>p{margin:0}
+.sy-sticky>p>img{display:block;border-radius:var(--radius);border:1px solid var(--line)}
+.sy-sticky img{max-width:100%;height:auto}
+.sy-prog{display:none}
+.sy-card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 18px;margin:0 0 14px}
+.sy-card>:first-child{margin-top:0}.sy-card>:last-child{margin-bottom:0}
+.sy-js .sy-fig{position:sticky;top:calc(var(--nav-h) + 20px);align-self:start}
+.sy-js .sy-steps{padding:14vh 0 34vh}
+.sy-js .sy-step{min-height:58vh;display:flex;align-items:center}
+.sy-js .sy-card{width:100%;margin:0;opacity:.45;transition:opacity .35s,border-color .35s,box-shadow .35s}
+.sy-js .sy-step.sy-on .sy-card{opacity:1;border-color:var(--accent);box-shadow:inset 4px 0 0 var(--accent),var(--shadow)}
+.sy-js .sy-prog{display:flex;gap:5px;position:absolute;right:12px;top:-14px;z-index:2}
+.sy-prog i{width:7px;height:7px;border-radius:50%;background:var(--line);transition:background .3s}
+.sy-prog i.on{background:var(--accent)}
+.sy-left .sy-prog{right:auto;left:12px}
+.sy-js svg [data-step],.fk-js svg [data-step]{transition:opacity .45s ease}
+svg .sy-off{opacity:.07}
+svg .sy-dim{opacity:.2}
+svg .sy-new{animation:sy-glow 1s ease-out}
+@keyframes sy-glow{0%{filter:drop-shadow(0 0 0 transparent)}35%{filter:drop-shadow(0 0 7px var(--accent))}100%{filter:drop-shadow(0 0 0 transparent)}}
+.sy-js .sy-swap{display:grid}
+.sy-js .sy-swap>.sy-item{grid-area:1/1;opacity:0;visibility:hidden;transition:opacity .45s,visibility .45s}
+.sy-js .sy-swap>.sy-item.sy-cur{opacity:1;visibility:visible}
+@media (max-width:900px){
+  .sy{grid-template-columns:1fr;gap:0}
+  .sy-right .sy-fig{order:0}
+  .sy-js .sy-fig{top:var(--nav-h);z-index:5;background:var(--bg);padding-top:6px}
+  .sy-js .sy-sticky{background:var(--bg);padding:6px 0;box-shadow:0 10px 14px -10px rgba(0,0,0,.25)}
+  .sy-js .sy-sticky>figure{padding:10px}
+  .sy-js .sy-sticky svg,.sy-js .sy-sticky img{max-height:38vh;width:100%}
+  .sy-js .sy-steps{padding:6vh 0 30vh}
+  .sy-js .sy-step{min-height:60vh;align-items:flex-end}
+}
+/* ===== 触れる図 ===== */
+.fk-panel-label{font-size:13px;font-weight:700;color:var(--muted);margin:10px 0 6px}
+.fk-panel+.fk-panel,.fk-frame+.fk-frame{margin-top:14px}
+.fk-js>.fk-panel,.fk-js>.fk-frame{display:none;margin:0}
+.fk-js>.fk-panel.fk-on,.fk-js>.fk-frame.fk-on{display:block}
+.fk-js .fk-panel-label{display:none}
+.fk-tablist{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:0 0 14px;flex-wrap:wrap}
+.fk-tab{appearance:none;background:none;border:0;border-bottom:2px solid transparent;margin-bottom:-1px;padding:8px 14px;font:inherit;font-size:14px;color:var(--muted);cursor:pointer}
+.fk-tab:hover{color:var(--ink)}
+.fk-tab[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent);font-weight:700}
+.fk-tab:focus-visible,.fk-btn:focus-visible,.fk-pin:focus-visible,.fk-ctrl input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.fk-ctrl{display:flex;align-items:center;gap:12px;margin:0 0 6px;flex-wrap:wrap}
+.fk-ctrl input[type=range]{flex:1 1 180px;accent-color:var(--accent);cursor:pointer}
+.fk-name{font-size:13px;color:var(--muted);font-weight:700}
+.fk-val{font-weight:800;color:var(--accent);min-width:3.5em;font-variant-numeric:tabular-nums}
+.fk-slider.fk-has-ticks .fk-val{display:none}
+.fk-ticks{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin:0 0 12px;gap:6px}
+.fk-ticks button{appearance:none;background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer}
+.fk-ticks button[aria-current="true"]{color:var(--accent);font-weight:700}
+.fk-btn{appearance:none;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:5px 14px;font:inherit;font-size:13px;cursor:pointer;line-height:1.4}
+.fk-btn:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+.fk-btn:disabled{opacity:.4;cursor:default}
+.fk-frame-text{margin:8px 0 0;color:var(--muted);font-size:14px}
+.fk-cap{min-height:1.6em;margin:10px 0 0;color:var(--ink);font-size:14px}
+.fk-walk-steps,.fk-hs-list{text-align:left}
+.fk-walk-steps{margin:12px 0 0;padding-left:1.4em}
+.fk-walk-steps li{margin:4px 0}
+.fk-js .fk-walk-steps{display:none}
+.fk-walk-nav{display:flex;align-items:center;gap:10px;margin:10px 0 0;flex-wrap:wrap}
+.fk-walk-count{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums;min-width:3.5em;text-align:center}
+.fk-walk-cap{margin:10px 0 0;padding:10px 14px;border-left:4px solid var(--accent);background:var(--accent-soft);border-radius:8px;min-height:3.2em;color:var(--ink)}
+.fk-hs-stage{position:relative}
+.fk-hs-img{display:block;width:100%;height:auto;border-radius:10px;border:1px solid var(--line)}
+.fk-pin{position:absolute;transform:translate(-50%,-50%);width:30px;height:30px;border-radius:50%;border:2px solid var(--card);background:var(--accent);color:var(--on-accent);
+  font:inherit;font-weight:800;font-size:13px;line-height:1;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.3);padding:0}
+.fk-pin[aria-expanded="true"]{background:var(--ink);color:var(--card)}
+.fk-js .fk-pin:not([aria-expanded="true"])::after{content:"";position:absolute;inset:-6px;border-radius:50%;border:2px solid var(--accent);opacity:0;animation:fk-ring 2.4s ease-out infinite}
+@keyframes fk-ring{0%{transform:scale(.6);opacity:.8}80%,100%{transform:scale(1.35);opacity:0}}
+.fk-hs-list{margin:12px 0 0;padding-left:1.6em;font-size:14px}
+.fk-hs-list li{margin:3px 0;cursor:pointer}
+.fk-hs-list li.fk-cur{color:var(--accent)}
+.content svg [data-detail]{cursor:help}
+.content svg [data-detail]:focus{outline:none}
+.content svg [data-detail]:focus-visible{filter:drop-shadow(0 0 3px var(--accent))}
+.fk-tip{position:fixed;z-index:400;max-width:300px;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:8px 12px;
+  font-size:13px;line-height:1.6;box-shadow:0 10px 26px rgba(0,0,0,.2);pointer-events:none}
+.fk-tip b{display:block;color:var(--accent)}
+@media (prefers-reduced-motion:reduce){svg .sy-new{animation:none}.fk-js .fk-pin::after{animation:none;display:none}.sy-js .sy-card,.sy-js svg [data-step]{transition:none}}
+@media print{
+  .sy *,.sy-item{transition:none!important;animation:none!important}
+  .sy{display:block}.sy-fig{position:static!important}.sy-steps{padding:0!important}.sy-step{min-height:0!important;display:block!important}
+  .sy-card{opacity:1!important;margin:0 0 10px!important;box-shadow:none!important;border-color:var(--line)!important}.sy-prog{display:none!important}
+  svg .sy-off,svg .sy-dim{opacity:1!important}
+  .sy-swap>.sy-item{opacity:1!important;visibility:visible!important;grid-area:auto!important}.sy-swap{display:block!important}
+  .fk-js>.fk-panel,.fk-js>.fk-frame{display:block!important;margin-top:12px!important}.fk-js .fk-panel-label{display:block!important}
+  .fk-tablist,.fk-ctrl,.fk-ticks,.fk-walk-nav,.fk-walk-cap,.fk-cap,.fk-tip{display:none!important}
+  .fk-js .fk-walk-steps{display:block!important}.fk-pin::after{display:none!important}
+}
+"""
+
+INTERACT_JS = r"""(function(){
+  var REDUCE=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches, SEQ=0;
+  function each(l,f){[].forEach.call(l,f);}
+  function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+  /* ---- 説明のカード（data-detail・画像の注目点）。1 つを使い回す ---- */
+  var tip=null;
+  function showTip(el,title,body){
+    if(!tip){ tip=document.createElement('div'); tip.className='fk-tip'; tip.setAttribute('role','tooltip'); tip.id='fk-tip'; document.body.appendChild(tip); }
+    tip.textContent=''; if(title){ var b=document.createElement('b'); b.textContent=title; tip.appendChild(b); }
+    tip.appendChild(document.createTextNode(body||'')); tip.hidden=false;
+    var r=el.getBoundingClientRect(), w=tip.offsetWidth, h=tip.offsetHeight, vw=window.innerWidth;
+    var top=r.top-h-10; if(top<70) top=r.bottom+10;
+    tip.style.left=clamp(r.left+r.width/2-w/2,8,vw-w-8)+'px'; tip.style.top=top+'px';
+  }
+  function hideTip(){ if(tip) tip.hidden=true; }
+  document.addEventListener('keydown',function(e){ if(e.key==='Escape') hideTip(); });
+  window.addEventListener('scroll',hideTip,{passive:true});
+  each(document.querySelectorAll('.content svg [data-detail]'),function(x){
+    var d=x.getAttribute('data-detail');
+    x.setAttribute('tabindex','0'); x.setAttribute('role','button'); x.setAttribute('aria-label',d);
+    x.addEventListener('pointerenter',function(){ showTip(x,'',d); });
+    x.addEventListener('pointerleave',hideTip);
+    x.addEventListener('focus',function(){ showTip(x,'',d); });
+    x.addEventListener('blur',hideTip);
+    x.addEventListener('click',function(){ showTip(x,'',d); });
+  });
+  /* ---- 図の段（data-step）を見せる・隠す: val まで見せる（only: val だけ濃く）。val=null は全部 ---- */
+  /* 段の一覧: ノード・文字を含む段だけを数える（線だけの段は、その次の段と一緒に見せる）。
+     data-stage-base の段（軸・枠・中心）はいつも見せ、数えない */
+  function stagesOf(root){
+    var all={}, txt={}, nod={}, bEl=root.matches&&root.matches('[data-stage-base]')?root:root.querySelector('[data-stage-base]'), base=bEl?+bEl.getAttribute('data-stage-base'):null;
+    each(root.querySelectorAll('svg [data-step]'),function(x){ var v=+x.getAttribute('data-step')||0; if(v===base) return; all[v]=1;
+      if(x.hasAttribute('data-node')||x.querySelector('[data-node]')) nod[v]=1;
+      if(!x.hasAttribute('data-link')&&(x.tagName.toLowerCase()==='text'||x.querySelector('text'))) txt[v]=1; });
+    /* ノードのある図はノードの段、無ければ文字を含む段（矢印の名札は数えない）、それも無ければ全部の段 */
+    var T=Object.keys(nod).length?nod:Object.keys(txt).length?txt:all;
+    var V=Object.keys(T).map(Number).sort(function(a,b){return a-b;}); V.base=base; return V;
+  }
+  function setStage(root,val,only,base){
+    each(root.querySelectorAll('svg [data-step]'),function(x){
+      var s=+x.getAttribute('data-step')||0, keep=base!==null&&base!==undefined&&s===base;
+      var off=val!==null&&!only&&!keep&&s>val, dim=val!==null&&!!only&&!keep&&s!==val, was=x.classList.contains('sy-off');
+      x.classList.toggle('sy-off',off); x.classList.toggle('sy-dim',dim);
+      x.classList.remove('sy-new');
+      if(!REDUCE&&was&&!off){ void x.getBoundingClientRect(); x.classList.add('sy-new'); }
+    });
+  }
+  function pick(V,show,k,n){
+    if(!V.length||show==='all') return null;
+    var i=show?clamp((+show)-1,0,V.length-1):(n>1?Math.round(k*(V.length-1)/(n-1)):V.length-1);
+    return V[i];
+  }
+  /* ---- スクロール連動 ---- */
+  each(document.querySelectorAll('[data-sy]'),function(sec){
+    var sticky=sec.querySelector('.sy-sticky'), prog=sticky.querySelector('.sy-prog');
+    var steps=[].slice.call(sec.querySelectorAll('.sy-steps > .sy-step'));
+    each(sticky.querySelectorAll('figure'),function(f){ f.setAttribute('data-motion','none'); f.removeAttribute('data-trigger'); });  /* 登場の動きは段の見せ方に任せる */
+    if(REDUCE||!steps.length) return;   /* 動きを減らす: 完成図のまま本文と並べる */
+    var items=[].filter.call(sticky.children,function(c){ return c!==prog; }), swap=items.length>1;
+    if(swap){ sticky.classList.add('sy-swap'); items.forEach(function(c){ c.classList.add('sy-item'); }); }
+    var V=swap?[]:stagesOf(sticky), cur=-1;
+    sec.classList.add('sy-js');
+    prog.innerHTML=steps.map(function(){ return '<i></i>'; }).join('');
+    function go(k){
+      if(k===cur) return; cur=k;
+      steps.forEach(function(s,i){ s.classList.toggle('sy-on',i===k); });
+      each(prog.children,function(d,i){ d.classList.toggle('on',i<=k); });
+      var st=steps[k], sh=st.getAttribute('data-sy-show');
+      if(swap){ var it=clamp(sh&&sh!=='all'?(+sh)-1:k,0,items.length-1); items.forEach(function(c,i){ c.classList.toggle('sy-cur',i===it); }); }
+      else setStage(sticky,pick(V,sh,k,steps.length),st.hasAttribute('data-sy-only'),V.base);
+      sec.setAttribute('data-sy-cur',String(k));
+    }
+    function upd(){
+      var line=window.innerHeight*(window.innerWidth<=900?.74:.56), k=0;
+      steps.forEach(function(s,i){ var c=s.querySelector('.sy-card')||s; if(c.getBoundingClientRect().top<line) k=i; });
+      go(k);
+    }
+    var q=false;
+    window.addEventListener('scroll',function(){ if(!q){ q=true; requestAnimationFrame(function(){ q=false; upd(); }); } },{passive:true});
+    window.addEventListener('resize',upd); upd();
+    window.addEventListener('beforeprint',function(){ setStage(sticky,null); });
+    window.addEventListener('afterprint',function(){ var k=cur; cur=-1; go(k); });
+  });
+  /* ---- タブで図を切り替える ---- */
+  each(document.querySelectorAll('[data-fk-tabs]'),function(t){
+    var panels=[].slice.call(t.querySelectorAll(':scope > .fk-panel')); if(panels.length<2) return;
+    var n=++SEQ, list=document.createElement('div'); list.className='fk-tablist'; list.setAttribute('role','tablist');
+    var tabs=panels.map(function(p,i){
+      var b=document.createElement('button'); b.type='button'; b.className='fk-tab'; b.setAttribute('role','tab');
+      b.id='fk-tab-'+n+'-'+i; p.id='fk-pan-'+n+'-'+i; b.setAttribute('aria-controls',p.id);
+      p.setAttribute('role','tabpanel'); p.setAttribute('aria-labelledby',b.id); p.tabIndex=0;
+      b.textContent=p.getAttribute('data-label'); list.appendChild(b);
+      b.addEventListener('click',function(){ sel(i); });
+      b.addEventListener('keydown',function(e){ var k={ArrowRight:1,ArrowLeft:-1,Home:'h',End:'e'}[e.key]; if(k===undefined) return;
+        e.preventDefault(); sel(k==='h'?0:k==='e'?tabs.length-1:(i+k+tabs.length)%tabs.length,true); });
+      return b;
+    });
+    t.insertBefore(list,t.firstChild); t.classList.add('fk-js');
+    var cur=-1;
+    function sel(i,focus){
+      tabs.forEach(function(b,k){ b.setAttribute('aria-selected',String(k===i)); b.tabIndex=k===i?0:-1; panels[k].classList.toggle('fk-on',k===i); });
+      if(focus) tabs[i].focus();
+      if(cur>=0&&cur!==i&&!REDUCE&&panels[i].animate) panels[i].animate([{opacity:0,transform:'translateY(6px)'},{opacity:1,transform:'none'}],{duration:260,easing:'ease-out'});
+      cur=i; t.setAttribute('data-fk-cur',String(i));
+    }
+    sel(0);
+  });
+  /* ---- つまみで値の組を切り替え、図の形を保ったまま数値を移す（形が違えば入れ替える） ---- */
+  var NUM=/-?\d+(?:\.\d+)?/g;
+  function sk(s){ return String(s).replace(NUM,'#'); }
+  function nums(s){ return (String(s).match(NUM)||[]).map(Number); }
+  function put(skel,arr){ var i=0; return skel.replace(/#/g,function(){ var v=arr[i++]; return String(Math.round(v*100)/100); }); }
+  var TNUM=/-?\d[\d,]*(?:\.\d+)?/;
+  function fmtLike(v,ref){ var dec=(ref.split('.')[1]||'').length, s=v.toFixed(dec); if(ref.indexOf(',')>=0||Math.abs(v)>=1000&&/\d{1,3}(,\d{3})+/.test(ref)){ var p=s.split('.'); p[0]=p[0].replace(/\B(?=(\d{3})+(?!\d))/g,','); s=p.join('.'); } return s; }
+  function nodesOf(svg){ return [svg].concat([].slice.call(svg.querySelectorAll('*'))); }
+  function morph(live,target,dur,gen,box){
+    var A=nodesOf(live), B=nodesOf(target), same=A.length===B.length&&A.every(function(a,i){ return a.tagName===B[i].tagName; });
+    function swapAll(){
+      live.setAttribute('viewBox',target.getAttribute('viewBox')||'');
+      live.innerHTML=target.innerHTML.replace(/(\bid="|url\(#|href="#)([^")]+)/g,'$1$2-lv');
+    }
+    if(!same){
+      if(REDUCE||!dur){ swapAll(); return; }
+      var a=live.animate([{opacity:1},{opacity:0}],{duration:dur*.35,fill:'forwards'});
+      a.onfinish=function(){ if(box.gen!==gen) return; swapAll(); live.animate([{opacity:0},{opacity:1}],{duration:dur*.5}); a.cancel(); };
+      return;
+    }
+    var jobs=[], texts=[];
+    A.forEach(function(a,i){
+      var b=B[i];
+      each(b.attributes,function(at){
+        if(at.name==='id'||/url\(#/.test(at.value)) return;
+        var v0=a.getAttribute(at.name), v1=at.value;
+        if(v0===v1) return;
+        if(v0!==null&&sk(v0)===sk(v1)&&nums(v1).length) jobs.push({el:a,name:at.name,skel:sk(v1),from:nums(v0),to:nums(v1),end:v1});
+        else jobs.push({el:a,name:at.name,end:v1,late:true});
+      });
+      if(!a.children.length&&!b.children.length&&a.textContent!==b.textContent){
+        var m0=a.textContent.match(TNUM), m1=b.textContent.match(TNUM);
+        var rest0=m0?a.textContent.replace(m0[0],'#'):null, rest1=m1?b.textContent.replace(m1[0],'#'):null;
+        if(m0&&m1&&rest0===rest1) texts.push({el:a,from:parseFloat(m0[0].replace(/,/g,'')),to:parseFloat(m1[0].replace(/,/g,'')),ref:m1[0],rest:rest1,end:b.textContent});
+        else texts.push({el:a,end:b.textContent,late:true});
+      }
+    });
+    function finish(){ jobs.forEach(function(j){ j.el.setAttribute(j.name,j.end); }); texts.forEach(function(t){ t.el.textContent=t.end; }); }
+    if(REDUCE||!dur){ finish(); return; }
+    var t0=performance.now();
+    (function step(now){
+      if(box.gen!==gen) return;
+      var k=Math.min(1,(now-t0)/dur), e=k<.5?4*k*k*k:1-Math.pow(-2*k+2,3)/2;
+      jobs.forEach(function(j){ if(j.late){ if(k>=.5) j.el.setAttribute(j.name,j.end); return; }
+        j.el.setAttribute(j.name,put(j.skel,j.to.map(function(v,i){ return j.from[i]+(v-j.from[i])*e; }))); });
+      texts.forEach(function(t){ if(t.late){ if(k>=.5) t.el.textContent=t.end; return; }
+        t.el.textContent=t.rest.replace('#',fmtLike(t.from+(t.to-t.from)*e,t.ref)); });
+      if(k<1) requestAnimationFrame(step); else finish();
+    })(t0);
+  }
+  each(document.querySelectorAll('[data-fk-slider]'),function(s){
+    var frames=[].slice.call(s.querySelectorAll(':scope > .fk-frame')); if(frames.length<2) return;
+    var live=frames[0].querySelector('svg'); if(!live) return;
+    var src=frames.map(function(f,i){ return i?f.querySelector('svg'):live.cloneNode(true); });
+    var labels=frames.map(function(f){ return f.getAttribute('data-label'); }), notes=frames.map(function(f){ var p=f.querySelector('.fk-frame-text'); return p?p.textContent:''; });
+    each(s.querySelectorAll('.fk-frame-text'),function(p){ p.remove(); });
+    s.classList.add('fk-js'); frames[0].classList.add('fk-on');
+    var name=s.getAttribute('data-name')||'表示する値', box={gen:0}, cur=0, timer=0;
+    var ctrl=document.createElement('div'); ctrl.className='fk-ctrl';
+    ctrl.innerHTML='<span class="fk-name"></span><input type="range" min="0" step="1"><span class="fk-val" aria-hidden="true"></span>';
+    ctrl.querySelector('.fk-name').textContent=name;
+    var rg=ctrl.querySelector('input'); rg.max=String(frames.length-1); rg.value='0'; rg.setAttribute('aria-label',name);
+    var play=null;
+    if(s.hasAttribute('data-play')){ play=document.createElement('button'); play.type='button'; play.className='fk-btn'; play.textContent='▶ 再生'; play.setAttribute('aria-pressed','false'); ctrl.insertBefore(play,ctrl.firstChild); }
+    var ticks=document.createElement('div'); ticks.className='fk-ticks';
+    if(frames.length<=8) s.classList.add('fk-has-ticks'); else ticks.hidden=true;   /* 多いときは目盛りを出さず、今の値だけ */
+    labels.forEach(function(l,i){ var b=document.createElement('button'); b.type='button'; b.textContent=l; b.tabIndex=-1; b.addEventListener('click',function(){ stop(); go(i); }); ticks.appendChild(b); });
+    var cap=document.createElement('p'); cap.className='fk-cap'; cap.setAttribute('aria-live','polite');
+    s.insertBefore(ctrl,s.firstChild); s.insertBefore(ticks,ctrl.nextSibling); s.appendChild(cap);
+    function go(i){
+      i=clamp(i,0,frames.length-1); rg.value=String(i);
+      rg.setAttribute('aria-valuetext',labels[i]); ctrl.querySelector('.fk-val').textContent=labels[i];
+      each(ticks.children,function(b,k){ b.setAttribute('aria-current',String(k===i)); });
+      cap.textContent=notes[i]||'';
+      if(i!==cur){ box.gen++; morph(live,src[i],650,box.gen,box); }
+      cur=i; s.setAttribute('data-fk-cur',String(i));
+    }
+    function stop(){ if(timer){ clearInterval(timer); timer=0; if(play){ play.textContent='▶ 再生'; play.setAttribute('aria-pressed','false'); } } }
+    rg.addEventListener('input',function(){ stop(); go(+rg.value); });
+    if(play) play.addEventListener('click',function(){ if(timer){ stop(); return; }
+      play.textContent='❚❚ 止める'; play.setAttribute('aria-pressed','true');
+      if(cur>=frames.length-1) go(0);
+      timer=setInterval(function(){ if(cur>=frames.length-1){ stop(); return; } go(cur+1); },1700); });
+    go(0);
+    window.addEventListener('beforeprint',function(){ stop(); box.gen++; morph(live,src[0],0,box.gen,box); });
+    window.addEventListener('afterprint',function(){ var i=cur; cur=0; go(i); });
+  });
+  /* ---- 図を 1 段ずつ見る（前へ・次へ） ---- */
+  each(document.querySelectorAll('[data-fk-walk]'),function(w){
+    var fig=w.querySelector('.fk-walk-fig'), lis=[].slice.call(w.querySelectorAll('.fk-walk-steps > li')); if(!fig||!lis.length) return;
+    var V=stagesOf(fig), n=lis.length, cur=-1;
+    w.classList.add('fk-js');
+    var nav=document.createElement('div'); nav.className='fk-walk-nav';
+    nav.innerHTML='<button type="button" class="fk-btn" data-d="-1">◀ 前へ</button><span class="fk-walk-count"></span><button type="button" class="fk-btn" data-d="1">次へ ▶</button>';
+    var cap=document.createElement('div'); cap.className='fk-walk-cap'; cap.setAttribute('aria-live','polite');
+    w.appendChild(nav); w.appendChild(cap);
+    var prev=nav.children[0], next=nav.children[2], cnt=nav.children[1];
+    function go(k){ k=clamp(k,0,n-1); if(k===cur) return; cur=k; var li=lis[k];
+      setStage(fig,pick(V,li.getAttribute('data-show'),k,n),li.hasAttribute('data-only'),V.base);
+      cap.textContent=li.textContent; cnt.textContent=(k+1)+' / '+n; prev.disabled=k===0; next.disabled=k===n-1;
+      w.setAttribute('data-fk-cur',String(k)); }
+    prev.addEventListener('click',function(){ go(cur-1); }); next.addEventListener('click',function(){ go(cur+1); });
+    w.addEventListener('keydown',function(e){ if(e.key==='ArrowRight'){ go(cur+1); e.preventDefault(); } else if(e.key==='ArrowLeft'){ go(cur-1); e.preventDefault(); } });
+    go(0);
+    window.addEventListener('beforeprint',function(){ setStage(fig,null); });
+    window.addEventListener('afterprint',function(){ var k=cur; cur=-1; go(k); });
+  });
+  /* ---- 画像の注目点 ---- */
+  each(document.querySelectorAll('[data-fk-hs]'),function(h){
+    var pins=[].slice.call(h.querySelectorAll('.fk-pin')), lis=[].slice.call(h.querySelectorAll('.fk-hs-list > li'));
+    h.classList.add('fk-js');
+    function open(i,focus){
+      pins.forEach(function(p,k){ p.setAttribute('aria-expanded',String(k===i)); });
+      lis.forEach(function(l,k){ l.classList.toggle('fk-cur',k===i); });
+      var li=lis[i], b=li&&li.querySelector('b'), title=b?b.textContent:'', body=li?li.textContent.slice(title.length).replace(/^\s*—\s*/,''):'';
+      showTip(pins[i],title,body); if(focus) pins[i].focus();
+      h.setAttribute('data-fk-cur',String(i));
+    }
+    function close(){ pins.forEach(function(p){ p.setAttribute('aria-expanded','false'); }); hideTip(); }
+    pins.forEach(function(p,i){
+      p.setAttribute('aria-expanded','false'); p.setAttribute('aria-describedby','fk-tip');
+      p.addEventListener('click',function(){ open(i); });
+      p.addEventListener('pointerenter',function(){ open(i); });
+      p.addEventListener('focus',function(){ open(i); });
+      p.addEventListener('pointerleave',close); p.addEventListener('blur',close);
+    });
+    lis.forEach(function(l,i){ l.addEventListener('click',function(){ open(i,true); }); });
+  });
+})();"""
+
+STATIC_CSS += INTERACT_CSS
+LAYOUT_JS = LAYOUT_JS + "\n" + INTERACT_JS
 
 PAGE = """<!DOCTYPE html>
 <html lang="ja">

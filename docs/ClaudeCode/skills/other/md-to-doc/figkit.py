@@ -15,7 +15,7 @@ figkit がテーマ配色（CSS 変数）と動きの注釈（data-step / data-e
   共通: type（必須）/ id / caption / aria / motion（true=段の順に動く, "auto", "none", 省略=文書の既定）/
         tempo（slow|normal|fast）/ trigger（view|click|loop|scroll）/
         style（動きの性格 gentle|dynamic|playful|cinematic|tech|retro|elegant|news）/ intro（図全体の入り方 punch|zoom-out|drop|tilt|glitch|iris|crt|wipe|unfold）/
-        dir（現れる順 x|y|radial|in|diagonal|spiral|random）/
+        dir（現れる順 x|y|radial|in|diagonal|spiral|random）/ 項目の detail（触れると説明のカード）/
         差し込み先: slot（auto-fig-slot の data-section）/ replace（置き換える figure の id）/
                     placeholder（本文の <!--FIGKIT:名前--> を置き換える）
 """
@@ -54,6 +54,8 @@ def ann(o, **extra):
             a += ' data-note-pos="%s"' % esc(o["note_pos"])
     if o.get("changed"):
         a += " data-changed"
+    if o.get("detail"):     # 触れる・押すと説明のカードが出る（md-to-doc の LAYOUT_JS）
+        a += ' data-detail="%s"' % esc(o["detail"])
     for k, v in extra.items():
         if v is None or v is False:
             continue
@@ -1044,7 +1046,8 @@ def fig_org(spec, cv):
 # ──────────────────────────────────────────────────────────────────────────
 # 追加の図（waffle・bullet・slope・dumbbell・sparks・radial・sankey・heatmap）
 # ──────────────────────────────────────────────────────────────────────────
-def _nice(v):
+def _vfmt(v):
+    """値の表示（小数 1 桁まで・3 桁区切り）。軸の切りのよい値は _nice（名前が重なって line・bars が壊れていた）"""
     return _fmtnum(round(float(v), 1))
 
 
@@ -1076,7 +1079,7 @@ def fig_waffle(spec, cv):
         y = 14 + i * 34
         cv.add('<g data-step="%d"><rect x="%d" y="%d" width="14" height="14" rx="3" fill="%s"/>%s%s</g>'
                % (i, lx, y, acc(i), text(lx + 22, y + 12, it["label"], 14, anchor="start"),
-                  text(lx + lw, y + 12, "%d%%" % round(100 * counts[i] / n) if spec.get("percent", True) else _nice(it["value"]) + spec.get("unit", ""),
+                  text(lx + lw, y + 12, "%d%%" % round(100 * counts[i] / n) if spec.get("percent", True) else _vfmt(it["value"]) + spec.get("unit", ""),
                        15, "800", acc(i), "end", extra=' data-count="0"')))
     return lx + lw + 6, max(rows * (S + G), 14 + len(items) * 34)
 
@@ -1101,7 +1104,7 @@ def fig_bullet(spec, cv):
             tx = X(it["target"])
             cv.add('<line data-step="%d" data-effect="drop" x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="var(--ink)" stroke-width="3"/>'
                    % (i * 3 + 2, tx, y + 3, tx, y + BH - 3))
-        cv.add(text(lw + BW + 10, y + BH / 2 + 5, it.get("display") or _nice(it["value"]) + unit, 14, "800", acc(i), "start",
+        cv.add(text(lw + BW + 10, y + BH / 2 + 5, it.get("display") or _vfmt(it["value"]) + unit, 14, "800", acc(i), "start",
                     extra=' data-step="%d" data-count="0" data-effect="fade"' % (i * 3 + 1)))
     return W, H
 
@@ -1114,8 +1117,8 @@ def fig_slope(spec, cv):
     lo, hi = min(vals), max(vals)
     if hi == lo:
         hi = lo + 1
-    lw = max(tw(it["label"], 13) + tw(_nice(it["from"]) + unit, 13) for it in items) + 30
-    rw = max(tw(it["label"], 13) + tw(_nice(it["to"]) + unit, 13) for it in items) + 30
+    lw = max(tw(it["label"], 13) + tw(_vfmt(it["from"]) + unit, 13) for it in items) + 30
+    rw = max(tw(it["label"], 13) + tw(_vfmt(it["to"]) + unit, 13) for it in items) + 30
     PW, TOP, PH = 300, 44, max(200, len(items) * 34)
     Y = lambda v: TOP + PH - PH * (float(v) - lo) / (hi - lo)
     x0, x1 = lw, lw + PW
@@ -1133,8 +1136,8 @@ def fig_slope(spec, cv):
                '<circle cx="%.1f" cy="%.1f" r="6" fill="%s" data-effect="pop"/><circle cx="%.1f" cy="%.1f" r="6" fill="%s" data-effect="pop"/>'
                '%s%s</g>'
                % (1 + i, ann(it), op, x0, y0, x1, y1, col, "4" if hl == i else "2.5", x0, y0, col, x1, y1, col,
-                  text(x0 - 12, y0 + 5, "%s  %s" % (it["label"], _nice(it["from"]) + unit), 13, anchor="end"),
-                  text(x1 + 12, y1 + 5, "%s  %s" % (_nice(it["to"]) + unit, it["label"]), 13, "700", col, "start")))
+                  text(x0 - 12, y0 + 5, "%s  %s" % (it["label"], _vfmt(it["from"]) + unit), 13, anchor="end"),
+                  text(x1 + 12, y1 + 5, "%s  %s" % (_vfmt(it["to"]) + unit, it["label"]), 13, "700", col, "start")))
     return W, H
 
 
@@ -1161,7 +1164,7 @@ def fig_dumbbell(spec, cv):
         cv.add('<g data-step="%d"><path data-effect="draw" d="M%.1f,%.1f L%.1f,%.1f" stroke="%s" stroke-width="5" stroke-linecap="round" fill="none" opacity=".55"/>'
                '<circle cx="%.1f" cy="%.1f" r="8" fill="var(--accent)" data-effect="pop"/>%s</g>'
                % (1 + len(items) + i, a, y, b, y, "var(--ok,#16a34a)" if up else "var(--ng,#dc2626)", b, y,
-                  text(max(a, b) + 14, y + 5, ("+" if up else "") + _nice(float(it["to"]) - float(it["from"])) + unit, 13, "800",
+                  text(max(a, b) + 14, y + 5, ("+" if up else "") + _vfmt(float(it["to"]) - float(it["from"])) + unit, 13, "800",
                        "var(--ok,#16a34a)" if up else "var(--ng,#dc2626)", "start")))
     return W, H
 
@@ -1189,8 +1192,8 @@ def fig_sparks(spec, cv):
                '<path d="%s" fill="%s" opacity=".12" data-effect="fade"/><path d="%s" fill="none" stroke="%s" stroke-width="2.4" stroke-linejoin="round" data-effect="draw"/>'
                '<circle cx="%.1f" cy="%.1f" r="4.5" fill="%s" data-effect="pop"/></g>'
                % (i, ann(it), x, y, CW, CH, text(x + 14, y + 24, it["label"], 13, "700", "var(--muted)", "start"),
-                  text(x + 14, y + 50, it.get("display") or _nice(vs[-1]) + unit, 22, "900", "var(--ink)", "start", extra=' data-count="0"'),
-                  text(x + CW - 14, y + 24, ("▲ " if up else "▼ ") + _nice(abs(delta)) + unit, 12, "800", dc, "end"),
+                  text(x + 14, y + 50, it.get("display") or _vfmt(vs[-1]) + unit, 22, "900", "var(--ink)", "start", extra=' data-count="0"'),
+                  text(x + CW - 14, y + 24, ("▲ " if up else "▼ ") + _vfmt(abs(delta)) + unit, 12, "800", dc, "end"),
                   area, acc(i), d, acc(i), pts[-1][0], pts[-1][1], acc(i)))
     rows = math.ceil(len(items) / cols)
     return cols * (CW + G) - G, rows * (CH + G) - G
@@ -1217,7 +1220,7 @@ def fig_radial(spec, cv):
         y = 60 + i * 34
         cv.add('<g data-step="%d"><rect x="%d" y="%d" width="14" height="14" rx="7" fill="%s"/>%s%s</g>'
                % (1 + i, lx, y, acc(i), text(lx + 22, y + 12, it["label"], 14, anchor="start"),
-                  text(lx + lw, y + 12, it.get("display") or _nice(it["value"]) + unit, 15, "800", acc(i), "end", extra=' data-count="0"')))
+                  text(lx + lw, y + 12, it.get("display") or _vfmt(it["value"]) + unit, 15, "800", acc(i), "end", extra=' data-count="0"')))
     if spec.get("center"):
         cv.add(text(cx, cy + 6, spec["center"], 16, "800", extra=' data-step="%d" data-effect="pop"' % (len(items) + 1)))
     return lx + lw + 6, 300
@@ -1237,7 +1240,7 @@ def fig_sankey(spec, cv):
     GAP, NW, HH = 14, 16, 300
     k = (HH - GAP * (max(len(L), len(Rn)) - 1)) / tot
     lw = max(tw(n, 14) for n in L) + 14
-    rw = max(tw(n, 14) + tw(_nice(tot) + unit, 12) for n in Rn) + 30
+    rw = max(tw(n, 14) + tw(_vfmt(tot) + unit, 12) for n in Rn) + 30
     x0, x1 = lw, lw + 360
     def stack(names, side):
         pos, y = {}, 10
@@ -1267,7 +1270,7 @@ def fig_sankey(spec, cv):
         y, h, v = pr[n]
         cv.add('<g data-step="%d"><rect x="%d" y="%.1f" width="%d" height="%.1f" rx="3" fill="var(--accent-2)" data-effect="grow" data-grow="up"/>%s%s</g>'
                % (1 + len(L), x1, y, NW, h, text(x1 + NW + 8, y + h / 2 + 1, n, 14, "700", anchor="start"),
-                  text(x1 + NW + 8, y + h / 2 + 17, _nice(v) + unit, 12, fill="var(--muted)", anchor="start", extra=' data-count="0"')))
+                  text(x1 + NW + 8, y + h / 2 + 17, _vfmt(v) + unit, 12, fill="var(--muted)", anchor="start", extra=' data-count="0"')))
     H = max(pl[L[-1]][0] + pl[L[-1]][1], pr[Rn[-1]][0] + pr[Rn[-1]][1]) + 14
     return x1 + NW + rw, max(H, 60)
 
@@ -1292,11 +1295,351 @@ def fig_heatmap(spec, cv):
             x, y = lw + j * CW, TOP + i * CH
             cells.append('<rect x="%d" y="%d" width="%d" height="%d" rx="5" fill="var(--accent)" opacity="%.2f"/>%s'
                          % (x + 2, y + 2, CW - 4, CH - 4, .08 + .85 * f,
-                            text(x + CW / 2, y + CH / 2 + 5, _nice(v), 12, "700", "var(--on-accent)" if f > .55 else "var(--ink)") if show else ""))
+                            text(x + CW / 2, y + CH / 2 + 5, _vfmt(v), 12, "700", "var(--on-accent)" if f > .55 else "var(--ink)") if show else ""))
         cv.add('<g data-step="%d">%s<g data-stagger="45" data-effect="pop">%s</g></g>'
                % (1 + i, text(lw - 10, TOP + i * CH + CH / 2 + 5, r, 13, anchor="end"),
                   "".join('<g>%s</g>' % c for c in cells)))
     return lw + len(cols) * CW + 6, TOP + len(rows) * CH + 6
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# 追加の図（レーダー・ツリーマップ・マインドマップ・散布図・積み上げ棒・ピラミッド）
+#   色の付いた面の上の文字は、テーマの差し色によっては読めないので、面は淡く塗り、文字は --ink にする
+# ──────────────────────────────────────────────────────────────────────────
+def fig_radar(spec, cv):
+    axes = spec["axes"]
+    series = spec["series"]
+    n = len(axes)
+    if n < 3:
+        raise SystemExit("figkit: radar の axes は 3 個以上です")
+    mx = float(spec.get("max") or max(float(v) for s_ in series for v in s_["values"]) or 1)
+    R = 150
+    lw = max(tw(a, 13) for a in axes) + 14
+    cx, cy = R + lw + 10, R + 40
+    P = lambda k, v: (cx + R * v * math.sin(2 * math.pi * k / n), cy - R * v * math.cos(2 * math.pi * k / n))
+    grid = ""
+    for g in (.25, .5, .75, 1):
+        grid += '<polygon points="%s" fill="none" stroke="var(--line)" stroke-width="1"/>' % " ".join("%.1f,%.1f" % P(k, g) for k in range(n))
+    for k, a in enumerate(axes):
+        x, y = P(k, 1)
+        grid += '<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="var(--line)"/>' % (cx, cy, x, y)
+        lx, ly = P(k, 1.13)
+        anchor = "middle" if abs(lx - cx) < 8 else ("start" if lx > cx else "end")
+        grid += text(lx, ly + 5, a, 13, "700", "var(--muted)", anchor)
+    cv.add('<g data-step="0" data-effect="fade">%s</g>' % grid)
+    for si, s_ in enumerate(series):
+        pts = [P(k, max(0.0, min(1.0, float(v) / mx))) for k, v in enumerate(s_["values"])]
+        col = acc(si)
+        poly = '<polygon points="%s" fill="%s" fill-opacity=".18" stroke="%s" stroke-width="2.5" stroke-linejoin="round"/>' % (
+            " ".join("%.1f,%.1f" % p for p in pts), col, col)
+        dots = "".join('<circle cx="%.1f" cy="%.1f" r="4" fill="var(--card)" stroke="%s" stroke-width="2"%s/>'
+                       % (x, y, col, ' data-detail="%s"' % esc("%s・%s: %s" % (s_.get("name", ""), axes[k], _fmtnum(s_["values"][k]))))
+                       for k, (x, y) in enumerate(pts))
+        cv.add('<g data-step="%d" data-effect="zoom"%s>%s%s</g>' % (1 + si, ann(s_), poly, dots))
+    W, H = cx + R + lw + 10, cy + R + 34
+    if len(series) > 1 or series[0].get("name"):
+        lg = "".join('<g><rect x="%.1f" y="%d" width="12" height="12" rx="3" fill="%s" fill-opacity=".5" stroke="%s"/>%s</g>'
+                     % (12 + k * 120, H - 6, acc(k), acc(k), text(12 + k * 120 + 18, H + 5, s_.get("name", ""), 12, fill="var(--muted)", anchor="start"))
+                     for k, s_ in enumerate(series))
+        cv.add('<g data-step="0" data-effect="fade">%s</g>' % lg)
+        H += 20
+    return W, H
+
+
+def _squarify(vals, x, y, w, h):
+    """値に比例した長方形に分ける（squarified treemap）。vals は大きい順。"""
+    out = []
+    vals = list(vals)
+    total = sum(v for _, v in vals) or 1
+    scale = w * h / total
+    items = [(i, v * scale) for i, v in vals]
+
+    def worst(row, side):
+        s = sum(a for _, a in row)
+        if not s or not side:
+            return float("inf")
+        return max(max(side * side * a / (s * s), (s * s) / (side * side * a)) for _, a in row if a > 0)
+
+    while items:
+        side = min(w, h)
+        row = [items.pop(0)]
+        while items and worst(row + [items[0]], side) <= worst(row, side):
+            row.append(items.pop(0))
+        s = sum(a for _, a in row)
+        if w >= h:
+            cw = s / h if h else 0
+            yy = y
+            for i, a in row:
+                ch = a / cw if cw else 0
+                out.append((i, x, yy, cw, ch))
+                yy += ch
+            x += cw
+            w -= cw
+        else:
+            rh = s / w if w else 0
+            xx = x
+            for i, a in row:
+                rw = a / rh if rh else 0
+                out.append((i, xx, y, rw, rh))
+                xx += rw
+            y += rh
+            h -= rh
+    return out
+
+
+def fig_treemap(spec, cv):
+    items = spec["items"]
+    unit = spec.get("unit", "")
+    W, H = float(spec.get("width", 640)), float(spec.get("height", 360))
+    order = sorted(range(len(items)), key=lambda i: -float(items[i]["value"]))
+    rects = _squarify([(i, float(items[i]["value"])) for i in order], 0, 0, W, H)
+    total = sum(float(it["value"]) for it in items) or 1
+    for rank, (i, x, y, w, h) in enumerate(sorted(rects, key=lambda r: order.index(r[0]))):
+        it = items[i]
+        g = 3
+        body = ('<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="8" fill="%s" fill-opacity=".22" stroke="%s" stroke-width="1.6"/>'
+                % (x + g, y + g, max(0, w - 2 * g), max(0, h - 2 * g), acc(i), acc(i)))
+        lab = ""
+        if w > 70 and h > 40:
+            fs = 15 if w > 140 and h > 70 else 12
+            lines = wrap(it["label"], w - 20, fs)[:2]
+            lab = "".join(text(x + 12, y + 22 + j * (fs + 4), l, fs, "800", anchor="start") for j, l in enumerate(lines))
+            if h > 40 + len(lines) * (fs + 4):
+                pct = 100 * float(it["value"]) / total
+                lab += text(x + 12, y + 22 + len(lines) * (fs + 4) + 2, it.get("display") or "%s%s（%.0f%%）" % (_fmtnum(it["value"]), unit, pct),
+                            12, fill="var(--muted)", anchor="start")
+        det = it.get("detail") or "%s: %s%s" % (it["label"], _fmtnum(it["value"]), unit)
+        cv.add('<g data-step="%d" data-effect="pop"%s%s>%s%s</g>'
+               % (rank, ann(it), "" if it.get("detail") else ' data-detail="%s"' % esc(det), body, lab))
+    return W, H
+
+
+def fig_mindmap(spec, cv):
+    center = spec["center"]
+    br = spec["branches"]
+    right = br[: (len(br) + 1) // 2]
+    left = br[(len(br) + 1) // 2:]
+    BW, CW = 210, 220
+    def hgt(b):
+        return max(1, len(b.get("children") or [])) * 30 + 14
+    side_h = lambda bs: sum(hgt(b) for b in bs) + 16 * max(0, len(bs) - 1)
+    H = max(side_h(right), side_h(left), 120) + 20
+    cl = center if isinstance(center, str) else center.get("label", "")
+    cw = max(120, tw(cl, 17) + 40)
+    lw_max = max([tw(c if isinstance(c, str) else c.get("label", ""), 13) for b in br for c in (b.get("children") or [])] + [60]) + 24
+    X0 = lw_max + BW + 30
+    cx, cy = X0 + cw / 2, H / 2
+    W = X0 + cw + 30 + BW + lw_max
+    cv.add('<g data-step="0" data-effect="pop"%s><rect x="%.1f" y="%.1f" width="%.1f" height="52" rx="26" fill="var(--accent)"/>%s</g>'
+           % (ann(center) if isinstance(center, dict) else "", cx - cw / 2, cy - 26, cw, text(cx, cy + 6, cl, 17, "800", "var(--on-accent)")))
+    k = 0
+    for side, bs in ((1, right), (-1, left)):
+        y = (H - side_h(bs)) / 2
+        for b in bs:
+            h = hgt(b)
+            by = y + h / 2
+            bx = cx + side * (cw / 2 + 60)
+            lab = b.get("label", "")
+            bw = tw(lab, 14) + 26
+            nx = bx if side > 0 else bx - bw
+            sx = cx + side * cw / 2
+            path = ('<path d="M%.1f,%.1f C%.1f,%.1f %.1f,%.1f %.1f,%.1f" fill="none" stroke="%s" stroke-width="3" stroke-linecap="round" data-effect="draw"/>'
+                    % (sx, cy, sx + side * 40, cy, bx - side * 30, by, bx, by, acc(k)))
+            node = ('<g data-effect="pop"><rect x="%.1f" y="%.1f" width="%.1f" height="32" rx="16" fill="%s" fill-opacity=".18" stroke="%s" stroke-width="1.8"/>%s</g>'
+                    % (nx, by - 16, bw, acc(k), acc(k), text(nx + bw / 2, by + 5, lab, 14, "800")))
+            kids = ""
+            ch = b.get("children") or []
+            ex = (nx + bw) if side > 0 else nx
+            for j, c in enumerate(ch):
+                cl_ = c if isinstance(c, str) else c.get("label", "")
+                yy = y + 7 + 15 + j * 30
+                tx = ex + side * 46
+                kids += ('<g%s><path d="M%.1f,%.1f C%.1f,%.1f %.1f,%.1f %.1f,%.1f" fill="none" stroke="%s" stroke-opacity=".6" stroke-width="1.6" data-effect="draw"/>'
+                         '<circle cx="%.1f" cy="%.1f" r="3.5" fill="%s"/>%s</g>'
+                         % (ann(c) if isinstance(c, dict) else "", ex, by, ex + side * 22, by, tx - side * 22, yy, tx - side * 6, yy, acc(k),
+                            tx - side * 6, yy, acc(k), text(tx, yy + 4.5, cl_, 13, anchor="start" if side > 0 else "end")))
+            cv.add('<g data-step="%d"%s>%s%s<g data-stagger="70" data-effect="fade">%s</g></g>' % (1 + k, ann(b), path, node, kids))
+            y += h + 16
+            k += 1
+    return W, H
+
+
+def fig_scatter(spec, cv):
+    items = spec["items"]
+    xs = [float(it["x"]) for it in items]
+    ys = [float(it["y"]) for it in items]
+    x0, x1 = spec.get("xmin", min(0, min(xs))), spec.get("xmax", _nice(max(xs)))
+    y0, y1 = spec.get("ymin", min(0, min(ys))), spec.get("ymax", _nice(max(ys)))
+    L, B, T, Rm = 62, 48, 16, 30
+    PW, PH = 480, 300
+    X = lambda v: L + PW * (float(v) - x0) / ((x1 - x0) or 1)
+    Y = lambda v: T + PH - PH * (float(v) - y0) / ((y1 - y0) or 1)
+    g = ""
+    for k in range(5):
+        vy = y0 + (y1 - y0) * k / 4
+        vx = x0 + (x1 - x0) * k / 4
+        g += '<line x1="%d" y1="%.1f" x2="%d" y2="%.1f" stroke="var(--line)"/>' % (L, Y(vy), L + PW, Y(vy))
+        g += text(L - 8, Y(vy) + 4, _fmtnum(round(vy, 2)), 11, fill="var(--muted)", anchor="end")
+        g += text(X(vx), T + PH + 18, _fmtnum(round(vx, 2)), 11, fill="var(--muted)")
+    g += text(L + PW / 2, T + PH + 40, spec.get("xlabel", ""), 13, "700", "var(--muted)")
+    g += text(14, T + PH / 2, spec.get("ylabel", ""), 13, "700", "var(--muted)", extra=' transform="rotate(-90 14 %.1f)"' % (T + PH / 2))
+    cv.add('<g data-step="0" data-effect="fade">%s</g>' % g)
+    smax = max([float(it.get("size", 1)) for it in items] or [1])
+    hl = spec.get("highlight")
+    dots = ""
+    for i, it in enumerate(items):
+        r = 6 + 12 * math.sqrt(float(it.get("size", 1)) / smax) if any("size" in t for t in items) else 7
+        col = acc(it.get("group", 0) if isinstance(it.get("group", 0), int) else 0)
+        det = it.get("detail") or "%s（%s, %s）" % (it.get("label", ""), _fmtnum(it["x"]), _fmtnum(it["y"]))
+        dots += ('<g%s%s><circle cx="%.1f" cy="%.1f" r="%.1f" fill="%s" fill-opacity=".35" stroke="%s" stroke-width="2"%s/>%s</g>'
+                 % (ann(it), "" if it.get("detail") else ' data-detail="%s"' % esc(det), X(it["x"]), Y(it["y"]), r, col, col,
+                    " data-pulse" if hl == i else "",
+                    text(X(it["x"]) + r + 4, Y(it["y"]) + 4, it.get("label", ""), 12, anchor="start") if it.get("label") else ""))
+    cv.add('<g data-step="1" data-stagger="60" data-effect="pop">%s</g>' % dots)
+    if spec.get("trend") and len(items) > 1:
+        n = len(xs)
+        mx_, my_ = sum(xs) / n, sum(ys) / n
+        sxx = sum((x - mx_) ** 2 for x in xs) or 1
+        b = sum((x - mx_) * (y - my_) for x, y in zip(xs, ys)) / sxx
+        a = my_ - b * mx_
+        cv.add('<line data-step="2" data-effect="draw" x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="var(--accent-2)" stroke-width="2" stroke-dasharray="6 5"/>'
+               % (X(x0), Y(a + b * x0), X(x1), Y(a + b * x1)))
+    return L + PW + Rm, T + PH + 52
+
+
+def fig_stacked(spec, cv):
+    labels = spec["labels"]
+    series = spec["series"]
+    unit = spec.get("unit", "")
+    pct = spec.get("percent", False)
+    totals = [sum(float(s_["values"][j]) for s_ in series) for j in range(len(labels))]
+    hi = 100.0 if pct else _nice(max(totals) or 1)
+    L, T, B = 56, 30, 40
+    BW, G = 54, 30
+    PH = 280
+    PW = len(labels) * (BW + G) + G
+    Y = lambda v: T + PH - PH * v / hi
+    g = ""
+    for k in range(5):
+        v = hi * k / 4
+        g += '<line x1="%d" y1="%.1f" x2="%d" y2="%.1f" stroke="var(--line)"/>%s' % (
+            L, Y(v), L + PW, Y(v), text(L - 8, Y(v) + 4, _fmtnum(v) + ("%" if pct else ""), 11, fill="var(--muted)", anchor="end"))
+    g += "".join(text(L + G + j * (BW + G) + BW / 2, T + PH + 20, l, 12, fill="var(--muted)") for j, l in enumerate(labels))
+    lg = "".join('<g><rect x="%d" y="4" width="12" height="12" rx="3" fill="%s" fill-opacity=".75"/>%s</g>'
+                 % (L + k * 110, acc(k), text(L + k * 110 + 18, 14, s_["name"], 12, fill="var(--muted)", anchor="start"))
+                 for k, s_ in enumerate(series))
+    cv.add('<g data-step="0" data-effect="fade">%s%s</g>' % (g, lg))
+    base = [0.0] * len(labels)
+    for si, s_ in enumerate(series):
+        bars = ""
+        for j, v in enumerate(s_["values"]):
+            v = float(v)
+            vv = 100 * v / (totals[j] or 1) if pct else v
+            x = L + G + j * (BW + G)
+            y_top, y_bot = Y(base[j] + vv), Y(base[j])
+            det = "%s・%s: %s%s" % (labels[j], s_["name"], _fmtnum(v), unit) + ("（%.0f%%）" % vv if pct else "")
+            bars += ('<rect x="%.1f" y="%.1f" width="%d" height="%.1f" fill="%s" fill-opacity=".75" stroke="var(--card)" stroke-width="1.5" data-detail="%s"/>'
+                     % (x, y_top, BW, max(0, y_bot - y_top), acc(si), esc(det)))
+            base[j] += vv
+        cv.add('<g data-step="%d" data-effect="grow" data-grow="up"%s>%s</g>' % (1 + si, ann(s_), bars))
+    if not pct:
+        tt = "".join(text(L + G + j * (BW + G) + BW / 2, Y(base[j]) - 8, _fmtnum(totals[j]) + unit, 12, "800", extra=' data-count="0"')
+                     for j in range(len(labels)))
+        cv.add('<g data-step="%d" data-effect="fade">%s</g>' % (1 + len(series), tt))
+    return L + PW + 10, T + PH + 34
+
+
+def fig_pyramid(spec, cv):
+    items = spec["items"]
+    n = len(items)
+    TW, SH, G = 520, 54, 6
+    H = n * (SH + G)
+    cx = TW / 2 + 10
+    for i, it in enumerate(items):
+        y = i * (SH + G)
+        wt, wb = TW * (i + .35) / (n + .35), TW * (i + 1.35) / (n + .35)
+        poly = ('<polygon points="%.1f,%.1f %.1f,%.1f %.1f,%.1f %.1f,%.1f" fill="%s" fill-opacity=".2" stroke="%s" stroke-width="1.8"/>'
+                % (cx - wt / 2, y, cx + wt / 2, y, cx + wb / 2, y + SH, cx - wb / 2, y + SH, acc(i), acc(i)))
+        lab = it if isinstance(it, str) else it.get("label", "")
+        sub = None if isinstance(it, str) else it.get("sub")
+        t = text(cx, y + SH / 2 + (0 if sub else 5), lab, 15, "800") + (text(cx, y + SH / 2 + 17, sub, 12, fill="var(--muted)") if sub else "")
+        cv.add('<g data-step="%d" data-effect="rise"%s>%s%s</g>' % (n - 1 - i, ann(it) if isinstance(it, dict) else "", poly, t))
+    return TW + 20, H
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# 触れる図（タブ・つまみ・順に見る・画像の注目点）。JS 無し・印刷では全部の状態を並べて見せる
+#   動きの実行部の「登場」はかけない（data-motion="none"）。操作は md-to-doc の LAYOUT_JS が受け持つ
+# ──────────────────────────────────────────────────────────────────────────
+def _merge(base, over):
+    out = dict(base)
+    for k, v in over.items():
+        if k in ("label", "text"):
+            continue
+        out[k] = v
+    return out
+
+
+# 段 0 が軸・枠・中心（いつも見せる土台）の図。スクロール連動・1 段ずつ見るとき、土台は最初から見せ、段に数えない
+BASE_TYPES = {"line", "gantt", "matrix", "sequence", "timeline", "dumbbell", "sankey", "heatmap", "slope",
+              "radar", "scatter", "stacked", "hub", "mindmap"}
+
+
+def render_interactive(spec, fid):
+    t = spec["type"]
+    if t == "tabs":
+        labels = spec.get("labels") or []
+        panels = []
+        for k, sub in enumerate(spec["states"]):
+            svg, _ = render_svg(sub, "%s-t%d" % (fid, k))
+            lab = labels[k] if k < len(labels) else "表示 %d" % (k + 1)
+            panels.append('<div class="fk-panel" data-label="%s"><div class="fk-panel-label">%s</div>%s</div>' % (esc(lab), esc(lab), svg))
+        return '<div class="fk-tabs" data-fk-tabs>%s</div>' % "".join(panels)
+    if t == "slider":
+        base = spec.get("base") or {}
+        frames = spec["frames"]
+        panels = []
+        for k, fr in enumerate(frames):
+            sub = _merge(base, fr)
+            svg, _ = render_svg(sub, "%s-f%d" % (fid, k))
+            lab = fr.get("label", str(k + 1))
+            panels.append('<div class="fk-frame" data-label="%s"><div class="fk-panel-label">%s</div>%s%s</div>'
+                          % (esc(lab), esc(lab), svg, '<p class="fk-frame-text">%s</p>' % esc(fr["text"]) if fr.get("text") else ""))
+        return ('<div class="fk-slider" data-fk-slider data-name="%s"%s>%s</div>'
+                % (esc(spec.get("label", "")), ' data-play' if spec.get("play") else "", "".join(panels)))
+    if t == "walk":
+        svg, _ = render_svg(spec["figure"], "%s-w" % fid)
+        steps = spec.get("steps") or []
+        lis = "".join('<li data-show="%s"%s>%s</li>' % (esc(st.get("show", "")), ' data-only' if st.get("only") else "", esc(st.get("text", "")))
+                      for st in steps)
+        base = ' data-stage-base="0"' if spec["figure"].get("type") in BASE_TYPES else ""
+        return '<div class="fk-walk" data-fk-walk><div class="fk-walk-fig"%s>%s</div><ol class="fk-walk-steps">%s</ol></div>' % (base, svg, lis)
+    if t == "hotspots":
+        spots = spec.get("spots") or []
+        pins = "".join('<button type="button" class="fk-pin" style="left:%.2f%%;top:%.2f%%" data-i="%d" aria-label="%s">%s</button>'
+                       % (100 * float(sp["x"]), 100 * float(sp["y"]), i, esc(sp.get("title") or sp.get("label") or str(i + 1)),
+                          esc(sp.get("label") or str(i + 1))) for i, sp in enumerate(spots))
+        lis = "".join('<li data-i="%d"><b>%s</b>%s</li>' % (i, esc(sp.get("title", "")), (" — " if sp.get("title") else "") + esc(sp.get("detail", "")))
+                      for i, sp in enumerate(spots))
+        return ('<div class="fk-hs" data-fk-hs><div class="fk-hs-stage"><img src="%s" alt="%s" class="fk-hs-img" loading="lazy">%s</div>'
+                '<ol class="fk-hs-list">%s</ol></div>' % (esc(spec["src"]), esc(spec.get("alt", "")), pins, lis))
+    raise SystemExit("figkit: 不明な type: %r" % t)
+
+
+INTERACTIVE_EX = {
+    "tabs": '{"type":"tabs","labels":["月別","内訳"],"states":[{"type":"bars","items":[{"label":"4月","value":320}]},{"type":"donut","items":[{"label":"完了","value":820}]}]}',
+    "slider": '{"type":"slider","label":"年","base":{"type":"bars","unit":"件"},"frames":[{"label":"2024","items":[{"label":"A","value":120},{"label":"B","value":80}]},{"label":"2025","items":[{"label":"A","value":180},{"label":"B","value":150}],"text":"B が伸びた"}],"play":true}',
+    "walk": '{"type":"walk","figure":{"type":"flow","nodes":[{"id":"a","label":"受付"},{"id":"b","label":"審査"}],"edges":[{"from":"a","to":"b"}]},"steps":[{"text":"まず受付","show":1},{"text":"次に審査","show":2,"only":true}]}',
+    "hotspots": '{"type":"hotspots","src":"screen.png","alt":"設定画面","spots":[{"x":0.18,"y":0.3,"title":"検索","detail":"名前で絞り込める"},{"x":0.8,"y":0.12,"title":"保存"}]}',
+}
+
+
+INTERACTIVE = {
+    "tabs": "タブで図を切り替える（左右キー。印刷・JS 無しでは全部を並べる）",
+    "slider": "つまみで値の組（frames）を切り替え、図が形を保ったまま変わる（base に共通、frames に差分。play で自動再生ボタン）",
+    "walk": "図を 1 段ずつ見る（前へ・次へと説明の文。steps[].show で見せる段・only でその段だけ）",
+    "hotspots": "画像の上の番号を押す・触れると説明が出る（画面の解説に。x・y は 0〜1）",
+}
 
 
 TYPES = {
@@ -1370,6 +1713,18 @@ TYPES = {
                '{"type":"sankey","unit":"件","links":[{"from":"Web","to":"登録","value":320},{"from":"Web","to":"離脱","value":180}]}'),
     "heatmap": (fig_heatmap, "表の濃淡（行ごとに升目が弾む。値が大きいほど濃い）",
                 '{"type":"heatmap","rows":["月","火"],"cols":["9時","12時","15時"],"values":[[3,8,5],[2,9,4]]}'),
+    "radar": (fig_radar, "レーダー（網が張られ、系列の多角形が中心から広がる。点に触れると値）",
+              '{"type":"radar","axes":["速さ","安さ","安全","使いやすさ","拡張"],"max":10,"series":[{"name":"新","values":[9,7,8,9,8]},{"name":"旧","values":[5,6,7,4,5]}]}'),
+    "treemap": (fig_treemap, "ツリーマップ（値に比例した面が大きい順に弾む。触れると値）",
+                '{"type":"treemap","unit":"件","items":[{"label":"Web","value":420},{"label":"アプリ","value":260},{"label":"店舗","value":120}]}'),
+    "mindmap": (fig_mindmap, "マインドマップ（中心から枝が左右に描かれ、子が順に現れる）",
+                '{"type":"mindmap","center":"新サービス","branches":[{"label":"対象","children":["学生","社会人"]},{"label":"価格","children":["月額","年額"]}]}'),
+    "scatter": (fig_scatter, "散布図（点が弾み、trend で傾向の線。size で点の大きさ、group で色。触れると値）",
+                '{"type":"scatter","xlabel":"工数","ylabel":"効果","trend":true,"items":[{"label":"A","x":2,"y":8},{"label":"B","x":6,"y":5,"size":3}]}'),
+    "stacked": (fig_stacked, "積み上げ棒（系列ごとに下から伸び、合計が数え上がる。percent で 100% 積み上げ）",
+                '{"type":"stacked","unit":"億","labels":["Q1","Q2","Q3"],"series":[{"name":"国内","values":[30,40,55]},{"name":"海外","values":[10,18,30]}]}'),
+    "pyramid": (fig_pyramid, "ピラミッド（上から書き、下の段から積み上がる。基盤→頂点）",
+                '{"type":"pyramid","items":[{"label":"ビジョン"},{"label":"戦略","sub":"3 年"},{"label":"施策"},{"label":"日々の運用"}]}'),
 }
 
 
@@ -1391,7 +1746,10 @@ def render(spec, n=0):
     t = spec.get("type")
     fid = re.sub(r"[^\w-]", "-", spec.get("id") or spec.get("replace") or "figkit-%d" % n)
     figattr = {}
-    if t == "toggle":
+    if t in INTERACTIVE:
+        body = render_interactive(spec, fid)
+        figattr = {"motion": "none", "interactive": t}
+    elif t == "toggle":
         labels = spec.get("labels") or ["変更前", "変更後"]
         parts = []
         for k, sub in enumerate(spec["states"]):
@@ -1408,7 +1766,11 @@ def render(spec, n=0):
         if t not in TYPES:
             raise SystemExit("figkit: 不明な type: %r（--list で一覧）" % t)
         body, figattr = render_svg(spec, fid)
+        if t in BASE_TYPES:
+            figattr["stage-base"] = "0"
     m = spec.get("motion")
+    if t in INTERACTIVE:
+        m = None     # 触れる図は登場の動きをかけない（data-motion="none" を figattr で付ける）
     attrs = ""
     if m is True or m == "steps":
         attrs += ' data-motion="steps"'
@@ -1480,6 +1842,10 @@ def main():
         print("hub: zoom（寄る項目の label の順）、hover（既定: 4 項目以上）")
         for k, (_, desc, ex) in TYPES.items():
             print("\n[%s] %s\n  %s" % (k, desc, ex))
+        print("\n# 触れる図（md-to-doc の文書の中で操作できる。印刷・JS 無しでは全部の状態を並べる）")
+        for k, desc in INTERACTIVE.items():
+            print("\n[%s] %s\n  %s" % (k, desc, INTERACTIVE_EX[k]))
+        print("\n# 図の項目の共通: detail（触れる・押すと説明のカード。radar・treemap・scatter・stacked は値を自動で出す）")
         return
     specs = load_specs(args.spec)
     figs = [render(s, i) for i, s in enumerate(specs)]
