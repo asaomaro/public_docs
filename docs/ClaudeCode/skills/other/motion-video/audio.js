@@ -13,7 +13,8 @@ window.MotionAudio = window.MotionAudio || (function () {
     major: [0, 2, 4, 5, 7, 9, 11], minor: [0, 2, 3, 5, 7, 8, 10], dorian: [0, 2, 3, 5, 7, 9, 10], phrygian: [0, 1, 3, 5, 7, 8, 10],
     lydian: [0, 2, 4, 6, 7, 9, 11], mixolydian: [0, 2, 4, 5, 7, 9, 10], harmonic: [0, 2, 3, 5, 7, 8, 11],
     pentamaj: [0, 2, 4, 7, 9], pentamin: [0, 3, 5, 7, 10], blues: [0, 3, 5, 6, 7, 10],
-    yo: [0, 2, 5, 7, 9], in: [0, 1, 5, 7, 8], ryukyu: [0, 4, 5, 7, 11], hirajoshi: [0, 2, 3, 7, 8], whole: [0, 2, 4, 6, 8, 10]
+    yo: [0, 2, 5, 7, 9], in: [0, 1, 5, 7, 8], ryukyu: [0, 4, 5, 7, 11], hirajoshi: [0, 2, 3, 7, 8], whole: [0, 2, 4, 6, 8, 10],
+    hijaz: [0, 1, 4, 5, 7, 8, 10], bhairav: [0, 1, 4, 5, 7, 8, 11], melodic: [0, 2, 3, 5, 7, 9, 11], dim: [0, 2, 3, 5, 6, 8, 9, 11], iwato: [0, 1, 5, 6, 10]
   };
   function hz(m) { return 440 * Math.pow(2, (m - 69) / 12); }
   function rng(seed) { var a = (seed >>> 0) || 1; return function () { a |= 0; a = a + 0x6D2B79F5 | 0; var t = Math.imul(a ^ a >>> 15, 1 | a);
@@ -60,6 +61,29 @@ window.MotionAudio = window.MotionAudio || (function () {
     acid: { l: [{ w: "sawtooth", sus: 1, a: .003, d: .08, v: .09, flt: ["lowpass", [2600, 250], 12, .18] }] },
     upright: { l: [{ w: "triangle", a: .004, d: .5, v: .3, flt: ["lowpass", 900, .8] }, { w: "sine", a: .004, d: .4, v: .15 }] },
     crackle: { l: [{ w: "noise", sus: 1, a: .2, d: .2, v: .012, flt: ["highpass", 3000, .5], nr: .6 }] },
+    steel: { l: [{ w: "sine", a: .003, d: .9, v: .2, pe: [1.01, .03] }, { w: "sine", fr: 2, a: .003, d: .35, v: .08 }, { w: "sine", fr: 3.01, a: .002, d: .15, v: .035 }, { w: "triangle", fr: 4, a: .002, d: .06, v: .025 }] },
+    sitar: { l: [{ w: "sawtooth", a: .003, d: 1.4, v: .08, pe: [.97, .08], fk: 1, flt: ["bandpass", [4, 2], 3, .5] }, { w: "sawtooth", fr: 1.003, a: .003, d: 1.1, v: .035, flt: ["highpass", 1500, 4] },
+      { w: "sine", fr: 2, a: .25, d: 1.4, v: .02 }] },
+    shamisen: { l: [{ w: "sawtooth", a: .001, d: .35, v: .12, fk: 1, flt: ["lowpass", [10, 3], 3, .15] }, { w: "noise", a: .001, d: .02, v: .12, flt: ["bandpass", 2500, 2] }, { w: "square", fr: 2, a: .001, d: .06, v: .02 }] },
+    uke: { l: [{ w: "triangle", a: .002, d: .6, v: .18, fk: 1, flt: ["lowpass", [6, 2], 1, .2] }, { w: "sawtooth", a: .002, d: .2, v: .03, fk: 1, flt: ["lowpass", [8, 3], 1, .1] }] },
+    banjo: { l: [{ w: "sawtooth", a: .001, d: .4, v: .1, fk: 1, flt: ["bandpass", [6, 3], 2, .2] }, { w: "square", fr: 2, a: .001, d: .12, v: .025 }, { w: "noise", a: .001, d: .01, v: .06, flt: ["highpass", 3000] }] },
+    accordion: { l: [{ w: "sawtooth", dt: -8, sus: 1, a: .04, d: .12, v: .035, flt: ["lowpass", 2600, .8], vib: [5.5, 4, .2] }, { w: "sawtooth", dt: 8, sus: 1, a: .04, d: .12, v: .035, flt: ["lowpass", 2600, .8] },
+      { w: "square", fr: .5, sus: 1, a: .04, d: .12, v: .02, flt: ["lowpass", 1500, .7] }] },
+    bandoneon: { l: [{ w: "sawtooth", dt: -5, sus: 1, a: .06, d: .1, v: .04, flt: ["lowpass", 1800, 1.2] }, { w: "sawtooth", dt: 5, sus: 1, a: .06, d: .1, v: .04, flt: ["lowpass", 1800, 1.2] },
+      { w: "square", fr: 2, sus: 1, a: .06, d: .1, v: .012, flt: ["lowpass", 2600, .7] }] },
+    harmonica: { l: [{ w: "square", sus: 1, a: .05, d: .1, v: .04, fk: 1, flt: ["lowpass", 4, 1.5], vib: [6, 20, .3] }, { w: "sawtooth", dt: 12, sus: 1, a: .05, d: .1, v: .02, flt: ["lowpass", 2500, 1] }] },
+    oohs: { l: [{ w: "sawtooth", sus: 1, a: .4, d: .8, v: .06, flt: ["bandpass", 330, 5], vib: [5, 8, .4] }, { w: "sawtooth", dt: -7, sus: 1, a: .45, d: .8, v: .04, flt: ["bandpass", 800, 6] },
+      { w: "sine", sus: 1, a: .4, d: .8, v: .06 }] },
+    sho: { l: [{ w: "sine", sus: 1, a: 1.2, d: 1.5, v: .07, vib: [4, 4, .8] }, { w: "sine", fr: 1.5, sus: 1, a: 1.2, d: 1.5, v: .05 }, { w: "sine", fr: 2, sus: 1, a: 1.3, d: 1.5, v: .04 },
+      { w: "triangle", fr: 2.25, sus: 1, a: 1.4, d: 1.5, v: .025 }, { w: "sine", fr: 3, sus: 1, a: 1.5, d: 1.5, v: .02 }] },
+    vibes: { l: [{ w: "sine", a: .003, d: 2, v: .13, dt: -4 }, { w: "sine", a: .003, d: 2, v: .1, dt: 5 }, { w: "sine", fr: 4, a: .002, d: .3, v: .03 }] },
+    glock: { l: [{ w: "sine", a: .001, d: .9, v: .16 }, { w: "sine", fr: 3.9, a: .001, d: .25, v: .05 }, { w: "triangle", a: .001, d: .05, v: .05 }] },
+    musicbox: { l: [{ w: "sine", a: .001, d: 1, v: .15 }, { w: "sine", fr: 4, a: .001, d: .3, v: .05 }, { w: "sine", fr: 6.1, a: .001, d: .12, v: .02 }] },
+    tubular: { l: [{ w: "sine", a: .003, d: 3.5, v: .1 }, { w: "sine", fr: 2.02, a: .003, d: 2.5, v: .06 }, { w: "sine", fr: 3.03, a: .003, d: 1.5, v: .04 }, { w: "sine", fr: 4.97, a: .002, d: .8, v: .025 }] },
+    supersaw: { l: [{ w: "sawtooth", dt: -18, sus: 1, a: .01, d: .2, v: .035, flt: ["lowpass", 3500, .7] }, { w: "sawtooth", sus: 1, a: .01, d: .2, v: .035, flt: ["lowpass", 3500, .7] },
+      { w: "sawtooth", dt: 18, sus: 1, a: .01, d: .2, v: .035, flt: ["lowpass", 3500, .7] }] },
+    slap: { l: [{ w: "sawtooth", a: .002, d: .25, v: .12, fk: 1, flt: ["lowpass", [12, 2], 4, .12] }, { w: "sine", a: .002, d: .3, v: .2 }, { w: "noise", a: .001, d: .015, v: .1, flt: ["bandpass", 2000, 2] }] },
+    sub808: { l: [{ w: "sine", sus: 1, a: .003, d: .6, v: .33, pe: [1.5, .05], sh: 1.5 }] },
     /* 打楽器（高さを持たない。f が決まっている） */
     kick: { l: [{ w: "sine", f: [150, 44], ft: .11, a: .002, d: .42, v: .8 }, { w: "noise", a: .001, d: .018, v: .14, flt: ["lowpass", 1500] }] },
     snare: { l: [{ w: "noise", a: .001, d: .17, v: .3, flt: ["highpass", 1400, .7] }, { w: "triangle", f: [210, 160], ft: .05, a: .001, d: .09, v: .28 }] },
@@ -76,10 +100,19 @@ window.MotionAudio = window.MotionAudio || (function () {
     brush: { l: [{ w: "noise", a: .03, d: .12, v: .08, flt: ["bandpass", 3500, .8] }] },
     timpani: { l: [{ w: "sine", f: [98, 90], ft: .4, a: .003, d: 1.2, v: .55 }, { w: "noise", a: .001, d: .06, v: .12, flt: ["lowpass", 800] }] },
     chipnoise: { l: [{ w: "noise", nr: .25, a: .001, d: .06, v: .11 }] },
-    chipkick: { l: [{ w: "square", f: [220, 40], ft: .08, a: .001, d: .09, v: .1 }] }
+    chipkick: { l: [{ w: "square", f: [220, 40], ft: .08, a: .001, d: .09, v: .1 }] },
+    conga: { l: [{ w: "sine", f: [330, 290], ft: .08, a: .001, d: .28, v: .45 }, { w: "noise", a: .001, d: .02, v: .1, flt: ["bandpass", 1500, 2] }] },
+    bongo: { l: [{ w: "sine", f: [520, 470], ft: .05, a: .001, d: .14, v: .4 }, { w: "noise", a: .001, d: .012, v: .1, flt: ["bandpass", 2500, 2] }] },
+    tabla: { l: [{ w: "sine", f: [420, 400], ft: .1, a: .001, d: .35, v: .3 }, { w: "sine", f: [95, 140], ft: .15, a: .001, d: .3, v: .35 }, { w: "noise", a: .001, d: .01, v: .1, flt: ["highpass", 3000] }] },
+    cowbell: { l: [{ w: "square", f: 587, a: .001, d: .25, v: .05, flt: ["bandpass", 800, 3] }, { w: "square", f: 845, a: .001, d: .25, v: .04, flt: ["bandpass", 900, 3] }] },
+    tamb: { l: [{ w: "noise", a: .002, d: .12, v: .1, flt: ["highpass", 7000, .7] }, { w: "noise", a: .002, d: .15, v: .06, flt: ["bandpass", 9500, 3] }] },
+    kick808: { l: [{ w: "sine", f: [120, 45], ft: .25, a: .002, d: .9, v: .8, sh: 1.2 }] },
+    gated: { l: [{ w: "noise", a: .001, h: .12, d: .03, v: .3, flt: ["highpass", 900, .6] }, { w: "triangle", f: [200, 150], ft: .05, a: .001, d: .1, v: .3 }, { w: "noise", a: .001, h: .15, d: .02, v: .1, flt: ["lowpass", 3000] }] },
+    kane: { l: [{ w: "square", f: 1900, a: .001, d: .12, v: .04, flt: ["bandpass", 2200, 3] }, { w: "sine", f: 3150, a: .001, d: .18, v: .08 }, { w: "noise", a: .001, d: .03, v: .1, flt: ["highpass", 5000] }] },
+    block: { l: [{ w: "sine", f: 1200, a: .001, d: .05, v: .45 }, { w: "sine", f: 2750, a: .001, d: .02, v: .1 }] }
   };
 
-  /* ================= 打楽器の型（1 小節。x=打つ X=強く g=弱く。文字の数が 1 小節の刻み） ================= */
+  /* ================= 打楽器の型（1 小節。x=打つ X=強く g=弱く r=刻みの中で 2 連打 t=3 連打。文字の数が 1 小節の刻み） ================= */
   var DRUMS = {
     pulse: { kick: "x...............", hat: "..g...g...g...g." },
     soft: { kick: "x.......x.......", rim: "....g.......g...", shaker: "g.g.g.g.g.g.g.g." },
@@ -107,7 +140,27 @@ window.MotionAudio = window.MotionAudio || (function () {
     ostinato: { tom: "x.x.x.x.x.x.x.x.", kick: "X.......X......." },
     chip: { chipkick: "X.......X.......", chipnoise: "....x.......x...", hat: "x.x.x.x.x.x.x.x." },
     waltz: { kick: "X...........", rim: "....x...x...", hat: "..g...g...g." },
-    sixeight: { kick: "X.....x.....", snare: "......X.....", hat: "x.gx.gx.gx.g" }
+    sixeight: { kick: "X.....x.....", snare: "......X.....", hat: "x.gx.gx.gx.g" },
+    boombap: { kick: "X......x.xX.....", snare: "....X.......X...", hat: "x.x.x.x.x.x.x.x." },
+    trap2: { kick808: "X......x..x.....", clap: "........X.......", hat: "x.x.xrx.x.x.rttr" },
+    futurebass: { kick808: "X.........x.....", clap: "........X.......", hat: "x.x.x.x.x.x.x.rr" },
+    reggaeton: { kick: "X...X...X...X...", snare: "...x..x....x..x.", hat: "x.x.x.x.x.x.x.x." },
+    samba: { kick: "X..xX..xX..xX..x", tamb: "xgxxxgxxxgxxxgxx", rim: "x..x..x...x..x..", tom: "......x.......x." },
+    tango: { kick: "X...x...x...x.x.", rim: "....g.......g..." },
+    swing: { ride: "x...x.x.x...x.x.", hat: "....x.......x...", kick: "g.......g......." },
+    shuffle: { kick: "X.....x.X.....x.", snare: "....X.......X...", hat: "x.x.x.x.x.x.x.x." },
+    polka: { kick: "X.......X.......", snare: "....x.......x...", hat: "..g...g...g...g." },
+    techno: { kick: "X...X...X...X...", ohat: "..x...x...x...x.", hat: "gggggggggggggggg", rim: "...g..g....g.g.." },
+    garage: { kick: "X.....x...x..x..", snare: "....X.......X...", hat: "..x.gx.x..x.gx.x", shaker: "g.g.g.g.g.g.g.g." },
+    eighties: { kick: "X.......X.x.....", gated: "....X.......X...", hat: "x.x.x.x.x.x.x.x." },
+    salsa: { cowbell: "x.x.x.x.x.x.x.x.", conga: "..x..xx...x..xx.", rim: "x..x...x..x.x...", kick: "......x.......x." },
+    tabla: { tabla: "X..x..x.x.x..x..", kick: "g.......g.x....." },
+    ballad: { kick: "X.......x.......", rim: "....x.......x...", hat: "g.g.g.g.g.g.g.g." },
+    bon: { taiko: "X...X.x.X...X.x.", kane: "..x...x...x...x.", block: "x.......x......." },
+    maqsum: { kick: "X.....x.x.......", bongo: "..x.x.....x.x...", tamb: "gxgxgxgxgxgxgxgx" },
+    train: { snare: "gggXgggXgggXgggX", kick: "X...x...X...x..." },
+    palmas: { clap: "X..x..x...x.x...", kick: "x.......x......." },
+    ska: { kick: "X...x...X...x...", snare: "....X.......X...", hat: "..x...x...x...x." }
   };
 
   /* ================= 音を鳴らす（楽器も効果音も同じ仕組み） ================= */
@@ -212,7 +265,7 @@ window.MotionAudio = window.MotionAudio || (function () {
     for (var o = 0; o < (span || 2); o++) ch.tones.forEach(function (t) { out.push(r0 + (t - ch.root) + 12 * o); });
     out.sort(function (a, b) { return a - b; }); return out.filter(function (v, i) { return i === 0 || v !== out[i - 1]; }); }
 
-  function rhythm(str, N) { var hits = []; str = String(str); for (var s = 0; s < N; s++) { var c = str[s % str.length]; if (c && c !== "." && c !== "-" && c !== " ") hits.push({ s: s, acc: c === "X" ? 1.15 : c === "g" ? .45 : 1 }); }
+  function rhythm(str, N) { var hits = []; str = String(str); for (var s = 0; s < N; s++) { var c = str[s % str.length]; if (c && c !== "." && c !== "-" && c !== " ") hits.push({ s: s, acc: c === "X" ? 1.15 : c === "g" ? .45 : c === "r" || c === "t" ? .75 : 1, roll: c === "r" ? 2 : c === "t" ? 3 : 0 }); }
     hits.forEach(function (h, i) { var nx = i + 1 < hits.length ? hits[i + 1].s : N; h.len = nx - h.s; }); return hits; }
 
   /* 旋律: 4 小節ずつの A・B。同じ段の小節は同じ律動と動きで、和音に合わせて高さが変わる（くり返しで覚えやすく） */
@@ -253,7 +306,7 @@ window.MotionAudio = window.MotionAudio || (function () {
     else if (p === "off") { for (var s2 = q / 2; s2 < N; s2 += q) all(s2, q * .45, .85); }
     else if (p === "stab" || p === "strum") { rhythm(L.rhy || "x..x..x.", N).forEach(function (h) { var vs = voiced(ch, oct);
       vs.forEach(function (m, i) { out.push({ s: h.s + (p === "strum" ? i * .12 : 0), len: Math.min(h.len, L.len || h.len) * .9, m: m, v: h.acc }); }); }); }
-    else if (/^(arp|broken|alberti)/.test(p)) {
+    else if (/^(arp(?!oct|3)|broken|alberti)/.test(p)) {
       var lad = ladder(ch, oct, L.span || 2), st = /16/.test(p) ? 1 : /4$/.test(p) ? 4 : 2, n = N / st;
       for (var i = 0; i < n; i++) {
         var idx, k = lad.length;
@@ -284,17 +337,37 @@ window.MotionAudio = window.MotionAudio || (function () {
     else if (p === "ostinato") { var sc = scaleOf(def), kb = 12 * (oct + 1) + (KEYS[def.key] || 0), seq = L.seq || [0, 2, 4, 2], st2 = L.step || 2;
       for (var i3 = 0; i3 * st2 < N; i3++) { var dg = seq[i3 % seq.length], mm = kb + sc[((dg % sc.length) + sc.length) % sc.length] + 12 * Math.floor(dg / sc.length);
         out.push({ s: i3 * st2, len: st2 * (L.hold || 1.4), m: mm, v: i3 % 4 === 0 ? 1 : .8 }); } }
+    else if (p === "skank") { for (var k1 = 1; k1 < (def.beats || 4); k1 += 2) { all(k1 * q, q * .3, 1); all(k1 * q + q / 2, q * .2, .45); } }
+    else if (p === "pump8") { for (var s5 = 0; s5 < N; s5 += q / 2) all(s5, q * .42, s5 % q === 0 ? 1 : .72); }
+    else if (p === "tremolo") { for (var s6 = 0; s6 < N; s6++) all(s6, 1, s6 % q === 0 ? .8 : .55); }
+    else if (p === "tango") { rhythm(L.rhy || "X...x...x...x.x.", N).forEach(function (h) { var vs3 = voiced(ch, oct); vs3.forEach(function (m) { out.push({ s: h.s, len: Math.min(h.len, 1.4), m: m, v: h.acc }); }); }); }
+    else if (p === "stride") { var r3 = rootAt(ch, oct), bt = def.beats || 4;
+      for (var k2 = 0; k2 < bt; k2++) { if (k2 === 0) out.push({ s: 0, len: q * .9, m: r3, v: 1 }); else if (k2 === 2 && bt === 4) out.push({ s: 2 * q, len: q * .9, m: r3 - 5, v: .9 });
+        else voiced(ch, oct + 1).forEach(function (m) { out.push({ s: k2 * q, len: q * .5, m: m, v: .7 }); }); } }
+    else if (p === "gallop" || p === "habanera" || p === "arpoct" || p === "pedal8") {
+      var r4 = rootAt(ch, oct);
+      if (p === "gallop") rhythm(L.rhy || "x.xxx.xxx.xxx.xx", N).forEach(function (h) { out.push({ s: h.s, len: h.len * .8, m: r4, v: h.acc * (h.s % 4 === 0 ? 1 : .8) }); });
+      else if (p === "habanera") for (var s7 = 0; s7 < N; s7 += 8) [[0, 0, 3], [3, 7, 1], [4, 12, 2], [6, 7, 2]].forEach(function (e) { if (s7 + e[0] < N) out.push({ s: s7 + e[0], len: e[2] * .9, m: r4 + e[1], v: e[0] ? .8 : 1 }); });
+      else if (p === "arpoct") for (var s8 = 0; s8 < N; s8++) out.push({ s: s8, len: .9, m: r4 + [0, 12, 7, 12][s8 % 4], v: s8 % 4 === 0 ? 1 : .75 });
+      else { var kr2 = 12 * (oct + 1) + (KEYS[def.key] || 0); for (var s9 = 0; s9 < N; s9 += 2) out.push({ s: s9, len: 1.6, m: kr2, v: s9 % 4 === 0 ? 1 : .7 }); }
+    }
+    else if (p === "arp3") { var lad3 = ladder(ch, oct, 2); for (var i4 = 0; i4 < N; i4++) out.push({ s: i4, len: 1.5, m: lad3[Math.min(lad3.length - 1, [0, 1, 2][i4 % 3] + (Math.floor(i4 / 6) % 2))], v: i4 % 3 === 0 ? 1 : .75 }); }
+    else if (p === "run") { var sc2 = scaleOf(def), key2 = KEYS[def.key] || 0, pool2 = [], r5 = rootAt(ch, oct);
+      for (var mm2 = r5; mm2 <= r5 + 24; mm2++) if (sc2.indexOf(((mm2 - key2) % 12 + 12) % 12) >= 0) pool2.push(mm2);
+      if (b % 2 === 1 || (L.every || 0) > 0) for (var i5 = 0; i5 < N / 2; i5++) out.push({ s: N / 2 + i5, len: .9, m: pool2[Math.min(pool2.length - 1, i5)], v: .6 + .4 * i5 / (N / 2) }); }
+    else if (p === "tanpura") { var kr3 = 12 * (oct + 1) + (KEYS[def.key] || 0); [[0, kr3 - 5], [q, kr3], [2 * q, kr3], [3 * q, kr3 - 12]].forEach(function (e) { if (e[0] < N) out.push({ s: e[0], len: N, m: e[1], v: e[0] ? .8 : 1 }); }); }
     else if (p === "counter") { var vs2 = voiced(ch, oct), top = vs2[vs2.length - 1]; out.push({ s: 0, len: N / 2, m: top, v: 1 }); out.push({ s: N / 2, len: N / 2, m: vs2[Math.max(0, vs2.length - 2)], v: .85 }); }
     return out;
   }
   function drumBar(def, ci, b, N, energy, R) {
-    var pat = DRUMS[def.drum]; if (!pat) return [];
+    var pat = typeof def.drum === "object" ? def.drum : DRUMS[def.drum]; if (!pat) return [];
     var out = [], ev = energy >= 3 ? 1.12 : energy <= 1 ? .7 : 1;
     Object.keys(pat).forEach(function (inst) {
       rhythm(pat[inst], N).forEach(function (h) {
         if (energy <= 1 && h.acc < .5) return;
         if (energy <= 1 && (inst === "hat" || inst === "ohat" || inst === "shaker") && h.s % 4 !== 0) return;
         out.push({ s: h.s, inst: inst, v: h.acc * ev * (.88 + .24 * R()) });
+        for (var k = 1; k < h.roll; k++) out.push({ s: h.s + k / h.roll, inst: inst, v: h.acc * ev * (.7 + .2 * R()) });
       });
     });
     if (energy >= 2 && b % 4 === 3 && def.fill !== false) {

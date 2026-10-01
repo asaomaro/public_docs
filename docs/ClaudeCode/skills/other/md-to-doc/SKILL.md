@@ -568,7 +568,7 @@ python3 <skill_dir>/figkit.py spec.json --insert out.html # 各図の slot / rep
 - `player` の既定は `minimal`（文書に馴染む）。`theme` を省くと文書のテーマに近い配色になる
   （corporate→daylight、darktech→midnight、editorial・paper→paper、contrast→mono、blueprint→navy-brass など）。
 - 決定論的な構築（md に書く）でも、AI 構築（本文に書いて `--finalize`）でも同じ書き方で効く。
-- 音楽（86 曲）・効果音（125 種・組 10 種）は台本の `audio` で選ぶ（motion-video の `build.py --list-sounds`）。
+- 音楽（140 曲）・効果音（221 種・組 15 種）は台本の `audio` で選ぶ（motion-video の `build.py --list-sounds`）。
   文書の中の動画は音を出さずに見られることも多いので、曲は `calm`・`study`・`minimal` など控えめなものにし、
   効果音は `"sfx": {"kit": "soft", "density": "low"}` 程度に抑える。
 - 向くのは、手順の実演・画面の変化・全体像を順に見せる説明。文章と図で足りる節には使わない（1 文書に 1〜2 本まで）。

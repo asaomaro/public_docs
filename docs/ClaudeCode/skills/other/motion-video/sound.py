@@ -23,9 +23,15 @@ INSTRUMENTS = {
     "clav": "クラビネット", "harpsi": "チェンバロ", "power": "歪んだギター風（5 度）", "bass": "ベース", "sub": "重低音",
     "fmbass": "FM ベース", "synthbass": "シンセベース", "acid": "アシッド（うねるベース）", "upright": "ウッドベース",
     "crackle": "レコードの雑音（質感）",
+    "steel": "スチールドラム", "sitar": "シタール風", "shamisen": "三味線", "uke": "ウクレレ・アコースティック", "banjo": "バンジョー",
+    "accordion": "アコーディオン", "bandoneon": "バンドネオン", "harmonica": "ハーモニカ", "oohs": "声の和音（ウー）", "sho": "笙",
+    "vibes": "ビブラフォン", "glock": "鉄琴", "musicbox": "オルゴール", "tubular": "チューブラーベル", "supersaw": "分厚いシンセ（スーパーソウ）",
+    "slap": "スラップ・ベース", "sub808": "808 の重低音",
     "kick": "バスドラム", "snare": "スネア", "clap": "クラップ", "hat": "ハイハット", "ohat": "オープンハイハット", "ride": "ライド",
     "rim": "リム", "tom": "タム", "taiko": "太鼓", "shaker": "シェイカー", "crash": "クラッシュ", "tick": "時計の刻み",
     "brush": "ブラシ", "timpani": "ティンパニ", "chipnoise": "8bit の雑音", "chipkick": "8bit のキック",
+    "conga": "コンガ", "bongo": "ボンゴ", "tabla": "タブラ", "cowbell": "カウベル", "tamb": "タンバリン", "kick808": "808 のキック",
+    "gated": "80 年代のスネア", "kane": "当たり鉦", "block": "ウッドブロック",
 }
 PATTERNS = {
     "hold": "和音を小節いっぱい伸ばす", "half": "和音を 2 分音符で", "beat": "和音を拍ごとに", "off": "和音を裏拍に",
@@ -37,11 +43,17 @@ PATTERNS = {
     "oct8": "根音とオクターブを交互に", "fifth": "根音と 5 度を交互に", "walk": "ウォーキング・ベース", "syncop": "根音を跳ねる律動で（rhy で変更可）",
     "melody": "旋律を作る（dens: 0..1 で音の多さ。4 小節ずつくり返す）", "bells": "和音の音を所々に（p: 0..1 で出る割合）",
     "drone": "調の根音と 5 度を伸ばし続ける", "ostinato": "音階の度数の並び（seq）をくり返す（step: 刻み）", "counter": "和音の上の音を伸ばす（対旋律）",
+    "skank": "和音を 2・4 拍の裏で短く（レゲエの刻み）", "pump8": "和音を 8 分で脈打たせる（ダンスの分厚い和音）", "tremolo": "和音を 16 分で細かく刻む（弦のトレモロ）",
+    "tango": "和音を鋭く短く（タンゴの刻み。rhy で変更可）", "stride": "根音と和音を交互に（ブンチャッチャ・行進）", "gallop": "根音を駆ける律動で（x.xx）",
+    "habanera": "ハバネラの低音（付点の律動）", "arpoct": "根音・オクターブ・5 度の 16 分", "pedal8": "調の根音を 8 分で持続（和音が変わっても動かない）",
+    "arp3": "3 音ずつの分散（拍とずれて回る）", "run": "2 小節ごとに音階を駆け上がる（後半 2 拍）", "tanpura": "5 度と根音を順にはじく持続（タンプーラ）",
 }
 DRUMS = ["pulse", "soft", "four", "house", "backbeat", "rock", "halftime", "lofi", "breaks", "dnb", "trap", "funk", "bossa", "brush",
-         "reggae", "march", "taiko", "matsuri", "cinematic", "tick", "clock", "heart", "shaker", "ostinato", "chip", "waltz", "sixeight"]
+         "reggae", "march", "taiko", "matsuri", "cinematic", "tick", "clock", "heart", "shaker", "ostinato", "chip", "waltz", "sixeight",
+         "boombap", "trap2", "futurebass", "reggaeton", "samba", "tango", "swing", "shuffle", "polka", "techno", "garage", "eighties", "salsa",
+         "tabla", "ballad", "bon", "maqsum", "train", "palmas", "ska"]
 SCALES = ["major", "minor", "dorian", "phrygian", "lydian", "mixolydian", "harmonic", "pentamaj", "pentamin", "blues",
-          "yo", "in", "ryukyu", "hirajoshi", "whole"]
+          "yo", "in", "ryukyu", "hirajoshi", "whole", "hijaz", "bhairav", "melodic", "dim", "iwato"]
 KEYS = ["C", "C#", "Db", "D", "D#", "Eb", "E", "F", "F#", "Gb", "G", "G#", "Ab", "A", "A#", "Bb", "B"]
 LAYER_KEYS = {"w", "f", "fr", "ft", "fe", "a", "h", "d", "v", "at", "sus", "lin", "flt", "fk", "dt", "pe", "vib", "fm", "sh", "pan",
               "nr", "pw", "rep", "gap", "notes", "rf", "rv", "rj", "vj"}
@@ -203,14 +215,14 @@ MUSIC = {
                 [L("pluck", "ostinato", 4, .45, seq=[0, 1, 2, 1, 0, 1, 4, 3], step=2), L("sub", "drone", 1, .7), L("flute", "melody", 5, .35, e=2, dens=.4)], drum="halftime", dv=.5),
     "island": M("和・民族", "南国", "カリンバとマリンバの裏拍。リゾート", 108, "F", "major", [["1", "4", "5", "4"]],
                 [L("kalimba", "arp8", 5, .5), L("marimba", "off", 4, .45), L("bass", "root4", 2, .6)], drum="reggae", dv=.6),
-    # ── レトロ・ゲーム
-    "chiptune": M("レトロ・ゲーム", "8bit", "8bit の旋律と分散。ゲーム・レトロ", 140, "C", "major", [["1", "6", "4", "5"]],
+    # ── ゲーム
+    "chiptune": M("ゲーム", "8bit", "8bit の旋律と分散。ゲーム・レトロ", 140, "C", "major", [["1", "6", "4", "5"]],
                   [L("chip", "melody", 5, .5, dens=.6), L("chipsq", "arp16", 4, .3), L("chiptri", "root8", 2, .8)], drum="chip"),
-    "arcade": M("レトロ・ゲーム", "アーケード", "短調の速い 8bit。対戦・競争", 150, "A", "minor", [["1", "6", "7", "1"]],
+    "arcade": M("ゲーム", "アーケード", "短調の速い 8bit。対戦・競争", 150, "A", "minor", [["1", "6", "7", "1"]],
                 [L("chip", "melody", 5, .45, dens=.7), L("chipsq", "off", 4, .3), L("chiptri", "oct8", 2, .8)], drum="chip"),
-    "puzzle": M("レトロ・ゲーム", "パズル", "マリンバの旋律とピチカート。考える・解く", 110, "F", "major", [["1", "2", "5", "1"]],
+    "puzzle": M("ゲーム", "パズル", "マリンバの旋律とピチカート。考える・解く", 110, "F", "major", [["1", "2", "5", "1"]],
                 [L("marimba", "melody", 5, .5, dens=.5), L("pizz", "off", 4, .45), L("bass", "fifth", 2, .5)], drum="clock", dv=.6),
-    "rpg": M("レトロ・ゲーム", "冒険の旅", "笛とハープと行進。手順・旅の案内", 104, "D", "dorian", [["1", "7", "6", "7"]],
+    "rpg": M("ゲーム", "冒険の旅", "笛とハープと行進。手順・旅の案内", 104, "D", "dorian", [["1", "7", "6", "7"]],
              [L("flute", "melody", 5, .45, dens=.45), L("harp", "arp8", 4, .4), L("bass", "root4", 2, .6)], drum="march", de=2, dv=.5),
     # ── クラシック風
     "waltz": M("クラシック風", "ワルツ", "3 拍子のブンチャッチャ。優雅・招待", 150, "F", "major", [["1", "4", "5", "1"]],
@@ -251,12 +263,136 @@ MUSIC = {
                [L("bell", "arp16", 5, .2), L("sub", "root2", 2, .5)], cb=2),
     "steps": M("ミニマル", "反復", "ずれていく 2 つのくり返し。工程・仕組み", 120, "E", "minor", [["1", "6"]],
                [L("pluck", "ostinato", 4, .45, seq=[0, 4, 7, 4, 9, 4, 7, 4], step=1), L("marimba", "ostinato", 5, .3, e=2, seq=[0, 2, 4, 2], step=3), L("sub", "root1", 2, .5)], cb=2),
+    # ── 追加: 落ち着き
+    "snow": M("落ち着き", "雪", "オルゴールと鉄琴と柔らかい和音。冬・静かな喜び", 76, "A", "major", [["1", "5", "6", "4"]],
+              [L("musicbox", "arpud8", 5, .35), L("glock", "bells", 6, .25, p=.12), L("warm", "hold", 3, .5), L("sub", "root1", 2, .5)]),
+    "aurora": M("落ち着き", "オーロラ", "澄んだ和音と声と管の鐘。壮大な静けさ", 54, "B", "lydian", [["1", "2"]],
+                [L("glass", "hold", 4, .5), L("oohs", "hold", 3, .4), L("tubular", "bells", 5, .2, p=.06), L("sub", "drone", 1, .5)], cb=2),
+    "meditation": M("落ち着き", "瞑想", "5 度と根音を順にはじく持続と遠い鐘。呼吸・マインドフルネス", 48, "G", "pentamaj", [["1"]],
+                    [L("warm", "tanpura", 3, .45), L("tubular", "bells", 5, .25, p=.05), L("sub", "drone", 1, .5)]),
+    # ── 追加: ポップ
+    "citypop": M("ポップ", "シティポップ", "スラップのベースとエレピと 80 年代の拍。夜景・都会", 112, "F", "major", [["4", "3", "2", "1"], ["4", "5", "3", "6"]],
+                 [L("epiano", "stab", 4, .5, rhy="x..x..x...x..x.."), L("slap", "syncop", 2, .8, rhy="x..x..x.x.x..x.x"), L("brass", "stab", 4, .35, e=2, rhy="......x.x......."),
+                  L("lead", "melody", 5, .35, e=3, dens=.5)], drum="eighties", sevenths=True, swing16=.15),
+    "nursery": M("ポップ", "童謡", "鉄琴の歌とウクレレ。子ども・保育・絵本", 100, "C", "major", [["1", "4", "1", "5"], ["1", "4", "5", "1"]],
+                 [L("glock", "melody", 5, .5, dens=.4), L("uke", "strum", 4, .45, rhy="x.x.x.x.x.x.x.x."), L("bass", "root4", 2, .5)], drum="soft", de=2, dv=.5),
+    "picnic": M("ポップ", "遠足", "口笛とウクレレのかき鳴らし。お出かけ・休日", 124, "G", "major", [["1", "5", "4", "1"]],
+                [L("uke", "strum", 4, .5, rhy="x.xx.xx.x.xx.xx."), L("whistle", "melody", 5, .4, e=2, dens=.5), L("bass", "fifth", 2, .6), L("glock", "bells", 6, .2, e=3, p=.12)], drum="shaker", dv=.6),
+    "comedy": M("ポップ", "コミカル", "ブンチャッチャのピチカートと口笛。失敗談・笑い", 140, "F", "major", [["1", "5", "5", "1"]],
+                [L("pizz", "stride", 3, .6), L("whistle", "melody", 5, .4, dens=.6), L("glock", "bells", 6, .25, e=2, p=.15)], drum="polka", dv=.6),
+    # ── 追加: ジャズ・ローファイ
+    "chillhop": M("ジャズ・ローファイ", "チルホップ", "ビブラフォンとウッドベースに跳ねるブーンバップ。作業・学習", 86, "Eb", "dorian", [["1", "4", "7", "3"]],
+                  [L("vibes", "half", 4, .6), L("upright", "root2", 2, .8), L("crackle", "hold", 4, .9), L("epiano", "counter", 5, .35, e=2)], drum="boombap", dv=.8, swing=.35, sevenths=True),
+    "swing": M("ジャズ・ローファイ", "スウィング", "金管の合いの手と歩くベース。にぎやかな大人の場", 168, "Bb", "major", [["1", "6", "2", "5"], ["3", "6", "2", "5"]],
+               [L("upright", "walk", 2, .8), L("brass", "stab", 4, .45, rhy="...x......x.x..."), L("keys", "off", 4, .35), L("brass", "melody", 5, .35, e=3, dens=.55)], drum="swing", swing=.6, sevenths=True),
+    "blues": M("ジャズ・ローファイ", "ブルース", "12 小節のオルガンとハーモニカ。渋い・人間味", 84, "E", "mixolydian", [["1", "1", "1", "1", "4", "4", "1", "1", "5", "4", "1", "5"]],
+               [L("organ", "stab", 4, .4, rhy="x..x..x.x..x..x."), L("upright", "walk", 2, .7), L("harmonica", "melody", 5, .45, e=2, dens=.4)], drum="shuffle", swing=.55, sevenths=True),
+    "gospel": M("ジャズ・ローファイ", "ゴスペル", "オルガンと声の和音と跳ねる拍。感謝・励まし", 76, "Ab", "major", [["1", "4", "1", "5"], ["4", "3", "6", "2"]],
+                [L("organ", "hold", 4, .45), L("oohs", "hold", 4, .4, e=2), L("keys", "stab", 4, .4, rhy="x..x..x.x..x..x."), L("bass", "root4", 2, .6)], drum="shuffle", swing=.6, dv=.7, sevenths=True),
+    # ── 追加: 物語・映画
+    "detective": M("物語・映画", "探偵", "歩くベースとピチカートとビブラフォン。推理・調査", 96, "C", "minor", [["1", "4", "1", "5"]],
+                   [L("upright", "walk", 2, .8), L("pizz", "stab", 4, .4, rhy="x...x.x.....x..."), L("vibes", "melody", 5, .4, e=2, dens=.35), L("sub", "root1", 1, .4, e=3)],
+                   drum="swing", de=2, dv=.6, swing=.5, sevenths=True),
+    "anthem": M("物語・映画", "賛歌", "声と弦と金管が重なり、ティンパニが支える。式典・理念", 72, "C", "major", [["1", "5", "6", "4"], ["4", "1", "5", "1"]],
+                [L("choir", "hold", 4, .5), L("strings", "hold", 3, .6), L("brass", "counter", 4, .4, e=2), L("sub", "root1", 1, .6), L("strings", "melody", 5, .4, e=3, dens=.3)],
+                drum="cinematic", de=2, dv=.7),
+    "rise": M("物語・映画", "上昇", "弦の脈打つ和音が次第に分厚く。ビジョン・数字の伸び", 124, "A", "minor", [["6", "4", "1", "5"]],
+              [L("strings", "pump8", 3, .4), L("pluck", "arpoct", 4, .3, e=2), L("brass", "hold", 3, .35, e=3), L("sub", "root1", 1, .6)], drum="four", de=2),
+    "horror": M("物語・映画", "ホラー", "低い弦のトレモロと管の鐘と心音。恐怖・警告", 60, "C", "dim", [["1", "2"]],
+                [L("strings", "tremolo", 2, .3), L("tubular", "bells", 4, .3, p=.06), L("sub", "drone", 1, .6), L("glass", "counter", 6, .25, e=2)], drum="heart", dv=.7, cb=2),
+    "creepy": M("物語・映画", "不気味", "岩戸の音階でゆっくり回るオルゴール。謎の人物・違和感", 66, "F#", "iwato", [["1", "2"]],
+                [L("musicbox", "melody", 5, .45, dens=.35), L("musicbox", "arp8", 4, .2), L("sub", "drone", 1, .4, e=2)], beats=3),
+    "earth": M("物語・映画", "大地", "弦とハープと笛のリディア。自然・環境の記録", 80, "E", "lydian", [["1", "2", "1", "5"]],
+               [L("strings", "hold", 3, .5), L("harp", "arpud8", 4, .35), L("flute", "melody", 5, .35, e=2, dens=.3), L("sub", "root1", 1, .5)]),
+    "sneaky": M("物語・映画", "忍び足", "ピチカートの抜き足差し足と駆け上がり。いたずら・こっそり", 104, "D", "minor", [["1", "1", "4", "5"]],
+                [L("pizz", "stab", 3, .5, rhy="x...x...x...x.x."), L("pizz", "run", 4, .3, e=2), L("glock", "bells", 6, .2, e=2, p=.1), L("upright", "root4", 2, .4)], drum="clock", dv=.4),
+    "lullaby": M("物語・映画", "子守唄", "3 拍子のハープと声と鉄琴。眠り・安心", 60, "F", "major", [["1", "4", "1", "5"]],
+                 [L("harp", "arp8", 4, .4), L("oohs", "hold", 4, .35), L("glock", "melody", 6, .25, e=2, dens=.25)], beats=3),
+    # ── 追加: 和・民族
+    "gagaku": M("和・民族", "雅楽風", "笙の和音の持続と篳篥風の笛。儀式・神社", 50, "E", "yo", [["1", "4"]],
+                [L("sho", "hold", 4, .5), L("shaku", "melody", 5, .45, dens=.2), L("sub", "drone", 1, .4), L("taiko", "bells", 2, .4, e=2, p=.06)], cb=2),
+    "enka": M("和・民族", "演歌風", "弦の旋律と三味線の合いの手。人情・故郷", 72, "A", "minor", [["1", "4", "5", "1"], ["6", "4", "5", "1"]],
+              [L("strings", "hold", 3, .5), L("upright", "root2", 2, .6), L("strings", "melody", 5, .45, dens=.35), L("shamisen", "bells", 4, .35, e=2, p=.2), L("keys", "broken8", 4, .3, e=2)],
+              drum="ballad", de=2, dv=.5),
+    "edo": M("和・民族", "江戸", "三味線のくり返しと尺八と太鼓。時代劇・下町", 112, "D", "yo", [["1", "4", "1", "5"]],
+             [L("shamisen", "ostinato", 4, .5, seq=[0, 2, 4, 2, 0, 4, 3, 2], step=2), L("shaku", "melody", 5, .35, e=2, dens=.4), L("bass", "root4", 2, .4)], drum="taiko", dv=.5),
+    "bon": M("和・民族", "盆踊り", "太鼓と当たり鉦と笛。夏祭り・地域の行事", 116, "C", "yo", [["1", "1", "4", "1"]],
+             [L("flute", "melody", 5, .5, dens=.55), L("shamisen", "stab", 4, .35, rhy="x.x.x.x.x.x.x.x."), L("bass", "root2", 2, .4)], drum="bon"),
+    # ── 追加: ワールド
+    "samba": M("ワールド", "サンバ", "打楽器の群れと笛と金管。カーニバル・祝祭", 104, "A", "major", [["1", "6", "2", "5"]],
+               [L("uke", "strum", 4, .45, rhy="x.xx.x.xx.xx.x.x"), L("bass", "fifth", 2, .7), L("flute", "melody", 5, .4, e=2, dens=.6), L("brass", "stab", 4, .3, e=3, rhy="x......x..x.....")],
+               drum="samba", sevenths=True),
+    "reggae": M("ワールド", "レゲエ", "裏の刻み（スカンク）と太いベース。ゆるい・南国", 76, "G", "major", [["1", "4"]],
+                [L("organ", "skank", 4, .45), L("bass", "syncop", 2, .8, rhy="x.....x.x..x...."), L("steel", "bells", 5, .3, e=2, p=.15)], drum="reggae", cb=2),
+    "ska": M("ワールド", "スカ", "裏打ちの刻みと金管と走るベース。陽気・勢い", 168, "C", "major", [["1", "6", "2", "5"]],
+             [L("pluck", "off", 4, .45), L("brass", "melody", 4, .4, e=2, dens=.5), L("upright", "walk", 2, .7), L("organ", "off", 4, .25, e=3)], drum="ska"),
+    "tango": M("ワールド", "タンゴ", "バンドネオンの鋭い刻みとハバネラの低音。情熱・対決", 118, "D", "harmonic", [["1", "4", "5", "1"]],
+               [L("bandoneon", "tango", 4, .5), L("upright", "habanera", 2, .7), L("strings", "melody", 5, .4, e=2, dens=.5), L("pizz", "run", 4, .35, e=3)], drum="tango", dv=.6),
+    "musette": M("ワールド", "ミュゼット", "アコーディオンの 3 拍子。パリ・カフェ・手紙", 160, "G", "major", [["1", "5", "5", "1"], ["1", "4", "5", "1"]],
+                 [L("bass", "root1", 2, .5), L("accordion", "stride", 3, .4), L("accordion", "melody", 5, .4, e=2, dens=.55)], drum="waltz", de=2, dv=.4, beats=3),
+    "flamenco": M("ワールド", "フラメンコ", "フリジアのかき鳴らしと手拍子。情熱・スペイン", 120, "E", "phrygian", [["4", "3", "2", "1M"]],
+                  [L("uke", "strum", 4, .5, rhy="X.x.xx.xX.x.x.x."), L("bass", "root4", 2, .6), L("strings", "melody", 5, .35, e=2, dens=.55)], drum="palmas"),
+    "arabian": M("ワールド", "アラビア", "ヒジャーズの旋律と打楽器の型。砂漠・異国の市場", 100, "D", "hijaz", [["1", "2", "1", "7"]],
+                 [L("sitar", "melody", 5, .45, dens=.55), L("sub", "drone", 1, .7), L("pluck", "ostinato", 4, .35, seq=[0, 2, 1, 0, 4, 3, 2, 1], step=2), L("oohs", "hold", 3, .3, e=2)], drum="maqsum"),
+    "raga": M("ワールド", "ラーガ", "タンプーラの持続とシタールとタブラ。インド・瞑想・香辛料", 88, "C#", "bhairav", [["1"]],
+              [L("sitar", "tanpura", 3, .35), L("sitar", "melody", 5, .45, dens=.45), L("sub", "drone", 1, .5), L("glass", "hold", 4, .2, e=3)], drum="tabla", de=2),
+    "caribbean": M("ワールド", "カリブ", "スチールドラムの旋律と弾む低音。南の海・休暇", 110, "C", "major", [["1", "4", "5", "1"]],
+                   [L("steel", "melody", 5, .5, dens=.55), L("steel", "arp8", 4, .3), L("bass", "habanera", 2, .6)], drum="salsa", dv=.6),
+    "country": M("ワールド", "カントリー", "バンジョーの 16 分とハーモニカと列車の拍。田舎・旅", 116, "G", "major", [["1", "4", "1", "5"]],
+                 [L("banjo", "arp16", 4, .35), L("upright", "fifth", 2, .7), L("harmonica", "melody", 5, .4, e=2, dens=.45), L("uke", "strum", 3, .3, e=3, rhy="x.x.x.x.x.x.x.x.")], drum="train"),
+    # ── 追加: ゲーム
+    "town": M("ゲーム", "村", "アコーディオンとハープの 3 拍子。町・拠点・ひと休み", 108, "F", "major", [["1", "4", "5", "1"], ["1", "6", "4", "5"]],
+              [L("accordion", "melody", 5, .4, dens=.45), L("harp", "arp8", 4, .35), L("bass", "root1", 2, .5)], drum="waltz", de=2, dv=.35, beats=3),
+    "battle": M("ゲーム", "戦闘", "弦のトレモロと金管と駆ける低音。対決・勝負どころ", 164, "C", "harmonic", [["1", "6", "4", "5"]],
+                [L("strings", "tremolo", 3, .35), L("bass", "gallop", 2, .7), L("brass", "melody", 4, .45, dens=.55), L("choir", "hold", 4, .3, e=3)], drum="rock", dv=.7),
+    "victory": M("ゲーム", "勝利", "金管のファンファーレと行進。達成・結果発表", 132, "Bb", "major", [["1", "4", "5", "1"], ["4", "5", "3", "6"]],
+                 [L("brass", "melody", 4, .5, dens=.5), L("strings", "hold", 3, .45), L("bass", "oct8", 2, .6), L("glock", "arp8", 6, .2, e=2)], drum="march"),
+    "dungeon": M("ゲーム", "迷宮", "岩戸の音階の鐘と重い持続。探索・危険", 70, "D", "iwato", [["1", "2"]],
+                 [L("tubular", "bells", 4, .35, p=.1), L("sub", "drone", 1, .8), L("oohs", "hold", 3, .35), L("pizz", "ostinato", 4, .3, e=2, seq=[0, 1, 0, 4], step=4)], cb=2),
+    "chipboss": M("ゲーム", "8bit のボス", "駆ける低音と短調の速い旋律。強敵・最終局面", 176, "E", "harmonic", [["1", "6", "4", "5"]],
+                  [L("chip", "melody", 5, .45, dens=.7), L("chiptri", "gallop", 2, .8), L("chipsq", "arp16", 4, .25, e=2)], drum="chip"),
+    "chiptown": M("ゲーム", "8bit の町", "ゆったり跳ねる 8bit の旋律。休憩・案内", 100, "G", "major", [["1", "3", "4", "5"]],
+                  [L("chip", "melody", 5, .45, dens=.4), L("chipsq", "broken8", 4, .25), L("chiptri", "root4", 2, .8)], drum="chip", dv=.5, swing=.3),
+    # ── 追加: エネルギー
+    "parade": M("エネルギー", "パレード", "行進の太鼓とブンチャッチャの金管と鉄琴。開幕・記念", 116, "F", "major", [["1", "4", "5", "1"]],
+                [L("brass", "stride", 3, .4), L("glock", "melody", 6, .35, dens=.45), L("strings", "hold", 3, .3, e=2)], drum="march"),
+    # ── 追加: ダンス
+    "outrun": M("ダンス", "アウトラン", "脈打つ分厚いシンセと 80 年代の拍。夜のドライブ", 118, "F#", "minor", [["1", "6", "3", "7"]],
+                [L("supersaw", "pump8", 3, .5), L("synthbass", "arpoct", 2, .6), L("lead", "melody", 5, .35, e=2, dens=.45), L("glock", "arp16", 6, .15, e=3)], drum="eighties"),
+    "dnb": M("ダンス", "ドラムンベース", "速い割れた拍と太い低音。スピード・未来", 172, "D", "minor", [["1", "6"], ["1", "7"]],
+             [L("pad", "hold", 3, .5), L("sub", "root2", 1, .8), L("supersaw", "hold", 2, .3, e=2), L("pluck", "arprnd16", 5, .3, e=3)], drum="dnb", dv=.9, cb=2),
+    "trap": M("ダンス", "トラップ", "808 の低音と刻み込むハイハット。強い・今っぽい", 140, "C#", "harmonic", [["1", "6", "4", "5"]],
+              [L("sub808", "root2", 1, .8), L("bell", "melody", 5, .35, dens=.35), L("oohs", "hold", 4, .35, e=2), L("pluck", "arp3", 5, .25, e=3)], drum="trap2"),
+    "techno": M("ダンス", "テクノ", "調の根音の持続にうねるベースと四つ打ち。没頭・工場", 130, "A", "phrygian", [["1", "1", "2", "1"]],
+                [L("acid", "pedal8", 2, .6), L("pad", "hold", 3, .35, e=2), L("chipsq", "ostinato", 5, .15, e=3, seq=[0, 7, 3, 7], step=3)], drum="techno", cb=2),
+    "garage": M("ダンス", "UK ガラージ", "オルガンの跳ねる和音と 2 ステップ。都会の夜", 132, "G", "minor", [["1", "4", "6", "5"]],
+                [L("organ", "stab", 4, .4, rhy="x..x....x.x..x.."), L("sub", "syncop", 1, .8, rhy="x.....x...x..x.."), L("oohs", "counter", 5, .35, e=2)], drum="garage", swing16=.35, sevenths=True),
+    "futurebass": M("ダンス", "フューチャーベース", "7 の和音の分厚い脈と重い半分の拍。明るい高揚", 150, "Eb", "major", [["4", "5", "3", "6"]],
+                    [L("supersaw", "pump8", 4, .45), L("sub808", "root2", 1, .7), L("glock", "arp16", 6, .15, e=2), L("lead", "melody", 5, .3, e=3, dens=.55)], drum="futurebass", sevenths=True),
+    "reggaeton": M("ダンス", "レゲトン", "3+3+2 のデンボウの拍とスチールの粒。夏・ダンス", 96, "A", "minor", [["1", "6", "7", "1"]],
+                   [L("pluck", "stab", 4, .4, rhy="x..x..x.x..x..x."), L("sub808", "syncop", 1, .7, rhy="x..x..x.x..x..x."), L("steel", "melody", 5, .35, e=2, dens=.45)], drum="reggaeton"),
+    # ── 追加: 番組・ラジオ
+    "news": M("番組・ラジオ", "報道", "16 分の弦と金管の一撃と四つ打ち。ニュース・速報・決算", 120, "D", "minor", [["1", "6", "7", "1"]],
+              [L("strings", "pulse16", 3, .25), L("brass", "stab", 4, .4, rhy="X.....x.x......."), L("synthbass", "root8", 2, .6), L("bell", "counter", 5, .3, e=2)], drum="four", de=2, dv=.6),
+    "weather": M("番組・ラジオ", "天気予報", "ビブラフォンとマリンバの軽い拍。お知らせ・生活情報", 108, "C", "major", [["1", "6", "2", "5"]],
+                 [L("vibes", "stab", 4, .4, rhy="x..x..x.x..x..x."), L("marimba", "arp8", 5, .3), L("bass", "root4", 2, .6)], drum="soft", swing=.2, sevenths=True),
+    "variety": M("番組・ラジオ", "バラエティ", "金管とスラップのにぎやかな合いの手。企画・お楽しみ", 128, "Eb", "mixolydian", [["1", "4", "1", "5"]],
+                 [L("brass", "stab", 4, .45, rhy="x..x..x...x.x..."), L("slap", "syncop", 2, .8), L("clav", "stab", 4, .35, rhy="..x...x...x..xx."), L("brass", "melody", 5, .35, e=2, dens=.6)],
+                 drum="funk", swing16=.2),
+    "podcast": M("番組・ラジオ", "ポッドキャスト", "ウクレレの刻みとエレピ、はっきりした拍。番組の始まり・区切り", 96, "D", "major", [["1", "3", "4", "5"]],
+                 [L("uke", "stab", 4, .45, rhy="x..x..x.x..x..x."), L("epiano", "hold", 4, .35), L("bass", "root8", 2, .6), L("glock", "melody", 6, .25, e=2, dens=.35)], drum="boombap", dv=.6),
+    "radio": M("番組・ラジオ", "ラジオ", "アコースティックの分散とシェイカー。語り・トーク", 92, "A", "major", [["1", "4", "6", "5"]],
+               [L("uke", "arpud8", 4, .4), L("keys", "half", 4, .3), L("bass", "root2", 2, .6), L("whistle", "counter", 5, .25, e=3)], drum="shaker", dv=.5),
+    "quiz": M("番組・ラジオ", "クイズ", "時計の刻みとピチカートの考える時間。問題・シンキングタイム", 112, "F", "minor", [["1", "1", "6", "5"]],
+              [L("pizz", "ostinato", 4, .4, seq=[0, 4, 2, 4], step=2), L("glock", "bells", 6, .25, p=.1), L("sub", "root1", 1, .5)], drum="clock", dv=.6),
+    "credits": M("番組・ラジオ", "エンドロール", "ピアノの分散に弦と鉄琴が重なる。締め・お礼", 84, "Eb", "major", [["1", "5", "6", "3", "4", "1", "4", "5"]],
+                 [L("keys", "broken8", 4, .55), L("strings", "hold", 3, .45, e=2), L("glock", "melody", 6, .2, e=2, dens=.3), L("upright", "root2", 2, .5)], drum="ballad", de=3, dv=.45),
 }
 # 曲の音量の揃え（--sounds のページで合成した盛り上がり 3 の大きさから求めた倍率。ナレーションの後ろで流す大きさ。曲を足したら測り直す）
-MUSIC_GAIN = {"calm": 0.289, "deep": 0.34, "drift": 0.409, "dawn": 0.312, "mist": 0.39, "ocean": 0.354, "space": 0.259, "rain": 0.304, "forest": 0.462, "bright": 0.411, "corporate": 0.499, "innovate": 0.38, "trust": 0.497, "growth": 0.509, "clean": 0.55, "keynote": 0.413, "launch": 0.382, "pitch": 0.376, "startup": 0.486, "tech": 0.484, "circuit": 0.459, "data": 0.34, "cyber": 0.455, "synthwave": 0.488, "neon": 0.398, "hacker": 0.317, "ai": 0.413, "quantum": 0.323, "robot": 0.49, "pop": 0.386, "happy": 0.434, "sunny": 0.499, "kids": 0.456, "summer": 0.526, "disco": 0.375, "idol": 0.334, "lofi": 0.413, "study": 0.539, "jazz": 0.406, "bossa": 0.397, "night": 0.433, "cafe": 0.589, "soul": 0.422, "epic": 0.302, "hero": 0.418, "tension": 0.367, "mystery": 0.376, "sad": 0.412, "hope": 0.519, "wonder": 0.824, "trailer": 0.299, "documentary": 0.552, "adventure": 0.507, "memory": 0.54, "suspense": 0.326, "wa": 0.509, "matsuri": 0.251, "kyoto": 1.157, "ryukyu": 0.605, "zen": 0.344, "celtic": 0.331, "orient": 0.703, "desert": 0.336, "island": 0.626, "chiptune": 0.605, "arcade": 0.798, "puzzle": 0.863, "rpg": 0.568, "waltz": 0.471, "baroque": 1.746, "piano": 1.529, "strings": 0.629, "chamber": 1.308, "musicbox": 2.889, "drive": 0.469, "sport": 0.388, "rock": 0.142, "funk": 0.299, "house": 0.38, "countdown": 0.529, "pulse": 0.419, "hype": 0.372, "minimal": 0.877, "clock": 1.988, "glass": 0.673, "steps": 0.613}
+MUSIC_GAIN = {"calm": 0.289, "deep": 0.34, "drift": 0.409, "dawn": 0.312, "mist": 0.39, "ocean": 0.354, "space": 0.259, "rain": 0.304, "forest": 0.462, "bright": 0.411, "corporate": 0.499, "innovate": 0.38, "trust": 0.497, "growth": 0.509, "clean": 0.55, "keynote": 0.413, "launch": 0.382, "pitch": 0.376, "startup": 0.486, "tech": 0.484, "circuit": 0.459, "data": 0.34, "cyber": 0.455, "synthwave": 0.488, "neon": 0.398, "hacker": 0.317, "ai": 0.413, "quantum": 0.323, "robot": 0.49, "pop": 0.386, "happy": 0.434, "sunny": 0.499, "kids": 0.456, "summer": 0.526, "disco": 0.375, "idol": 0.334, "lofi": 0.413, "study": 0.539, "jazz": 0.406, "bossa": 0.397, "night": 0.433, "cafe": 0.589, "soul": 0.422, "epic": 0.302, "hero": 0.418, "tension": 0.367, "mystery": 0.376, "sad": 0.412, "hope": 0.519, "wonder": 0.824, "trailer": 0.299, "documentary": 0.552, "adventure": 0.507, "memory": 0.54, "suspense": 0.326, "wa": 0.509, "matsuri": 0.251, "kyoto": 1.157, "ryukyu": 0.605, "zen": 0.344, "celtic": 0.331, "orient": 0.703, "desert": 0.336, "island": 0.626, "chiptune": 0.605, "arcade": 0.798, "puzzle": 0.863, "rpg": 0.568, "waltz": 0.471, "baroque": 1.746, "piano": 1.529, "strings": 0.629, "chamber": 1.308, "musicbox": 2.889, "drive": 0.469, "sport": 0.388, "rock": 0.142, "funk": 0.299, "house": 0.38, "countdown": 0.529, "pulse": 0.419, "hype": 0.372, "minimal": 0.877, "clock": 1.988, "glass": 0.673, "steps": 0.613, "snow": 0.52, "aurora": 0.474, "meditation": 0.485, "citypop": 0.387, "nursery": 0.712, "picnic": 0.551, "comedy": 0.764, "chillhop": 0.379, "swing": 0.668, "blues": 0.44, "gospel": 0.392, "detective": 0.676, "anthem": 0.394, "rise": 0.355, "horror": 0.428, "creepy": 0.668, "earth": 0.57, "sneaky": 1.07, "lullaby": 1.809, "gagaku": 0.539, "enka": 0.825, "edo": 0.566, "bon": 0.258, "samba": 0.288, "reggae": 0.448, "ska": 0.364, "tango": 0.593, "musette": 0.641, "flamenco": 0.497, "arabian": 0.323, "raga": 0.385, "caribbean": 0.536, "country": 0.364, "town": 0.662, "battle": 0.394, "victory": 0.367, "dungeon": 0.336, "chipboss": 0.817, "chiptown": 0.827, "parade": 0.368, "outrun": 0.398, "dnb": 0.343, "trap": 0.237, "techno": 0.424, "garage": 0.304, "futurebass": 0.271, "reggaeton": 0.298, "news": 0.516, "weather": 0.413, "variety": 0.403, "podcast": 0.535, "radio": 0.58, "quiz": 0.644, "credits": 0.627}
 for _k, _g in MUSIC_GAIN.items():
     MUSIC[_k]["g"] = _g
-MUSIC_CATS = ["落ち着き", "企業・製品", "技術", "ポップ", "ジャズ・ローファイ", "物語・映画", "和・民族", "レトロ・ゲーム", "クラシック風", "エネルギー", "ミニマル"]
+MUSIC_CATS = ["落ち着き", "企業・製品", "技術", "ポップ", "ジャズ・ローファイ", "物語・映画", "和・民族", "ワールド", "ゲーム", "クラシック風", "エネルギー", "ダンス", "ミニマル", "番組・ラジオ"]
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -415,12 +551,133 @@ SFX = {
     "clap1": S("楽器", "手拍子", "パン", y(N, flt=["bandpass", 1200, 1.3], rep=3, gap=.012, d=.02, v=.3), y(N, at=.03, d=.14, v=.25, flt=["bandpass", 1200, 1.3])),
     "woodblock": S("楽器", "ウッドブロック", "カッ", y("sine", f=1100, d=.05, v=.5), y("sine", f=2600, d=.02, v=.12)),
     "triangle": S("楽器", "トライアングル", "チーン（金属）", y("sine", f=2800, d=1.5, v=.15), y("sine", f=7400, d=.8, v=.05)),
+    # ── 追加: 操作
+    "click-soft": S("操作", "クリック（柔らか）", "角の無いクリック", y(N, flt=["lowpass", 2500], d=.02, v=.5), y("sine", f=[1200, 900], ft=.02, d=.025, v=.15)),
+    "double-click": S("操作", "ダブルクリック", "2 回続けて", y(N, flt=["highpass", 2800], d=.015, v=.5, rep=2, gap=.09), y("square", f=2000, d=.012, v=.08, rep=2, gap=.09)),
+    "scroll": S("操作", "スクロール", "ホイールを回す", y(N, flt=["bandpass", 3200, 6], d=.012, v=.5, rep=8, gap=.035, rv=.9, rj=.006)),
+    "drag": S("操作", "ドラッグ", "つかんで引きずる", y(N, a=.03, h=.15, d=.08, v=.3, flt=["bandpass", [900, 1400], 2, .25]), y("triangle", f=[180, 220], ft=.25, a=.03, h=.15, d=.08, v=.05)),
+    "place": S("操作", "置く", "ことっと置く・はめる", y("sine", f=[420, 180], ft=.06, d=.1, v=.55), y(N, flt=["lowpass", 1200], d=.04, v=.3)),
+    "unlock": S("操作", "解錠", "鍵が開く", y(N, flt=["bandpass", 2500, 5], d=.02, v=.5), y(N, at=.07, flt=["bandpass", 1800, 5], d=.03, v=.55), y("sine", f=1320, at=.1, notes=[0, 7], gap=.06, d=.15, v=.2)),
+    "lock": S("操作", "施錠", "鍵を掛ける", y(N, flt=["bandpass", 1800, 5], d=.03, v=.55), y(N, at=.06, flt=["bandpass", 3000, 5], d=.015, v=.45), y("sine", f=660, at=.08, d=.12, v=.2)),
+    "copy": S("操作", "複製", "同じ音が 2 つ", y("sine", f=1175, notes=[0, 0], gap=.07, d=.06, v=.3), y("sine", f=2350, notes=[0, 0], gap=.07, d=.03, v=.06)),
+    "like": S("操作", "いいね", "ハートが付く", y("sine", f=[500, 1200], ft=.08, d=.12, v=.4), y("sine", f=1568, at=.08, notes=[0, 5], gap=.06, d=.25, v=.2)),
+    "keypad": S("操作", "プッシュ音", "電話のボタン", y("sine", f=697, a=.003, h=.08, d=.04, v=.25), y("sine", f=1209, a=.003, h=.08, d=.04, v=.25)),
+    "trash": S("操作", "ゴミ箱", "丸めて捨てる", y(N, flt=["bandpass", [1800, 900], 1.2, .25], d=.25, v=.4, rep=3, gap=.05, rj=.02, vj=.3), y("sine", f=[300, 120], at=.15, ft=.15, d=.18, v=.35)),
+    "zip": S("操作", "ファスナー", "ジーッと閉じる・まとめる", y(N, flt=["bandpass", [1500, 4000], 3, .35], rep=14, gap=.025, d=.015, v=.35)),
+    "slider": S("操作", "つまみ", "目盛りを上げる", y("sine", f=800, rep=8, gap=.045, rf=1.06, d=.025, v=.2), y(N, flt=["bandpass", 4000, 8], rep=8, gap=.045, d=.01, v=.3)),
+    # ── 追加: 転換
+    "whoosh-deep": S("転換", "ゴォッ", "低く太く流れる", y(N, a=.2, d=.4, v=.6, flt=["lowpass", [300, 1200], 1.5, .5]), y("sine", f=[70, 120], ft=.4, a=.2, d=.3, v=.3)),
+    "whoosh-metal": S("転換", "シャーン", "金属的に流れる", y(N, a=.1, d=.25, v=.5, flt=["bandpass", [2000, 7000], 4, .3]), y("sawtooth", f=[800, 1600], ft=.3, a=.1, d=.2, v=.03, flt=["bandpass", 3000, 6])),
+    "swish": S("転換", "風切り", "刀・棒を振る", y(N, a=.01, d=.14, v=.55, flt=["highpass", [3000, 9000], 1, .1]), y(N, at=.02, d=.08, v=.2, flt=["bandpass", 6000, 3])),
+    "pass-by": S("転換", "通り過ぎる", "左から右へ横切る", y(N, a=.25, d=.35, v=.35, pan=-.7, flt=["bandpass", [500, 2200], 1.4, .3]), y(N, at=.18, a=.1, d=.35, v=.35, pan=.7, flt=["bandpass", [2200, 500], 1.4, .4]),
+                      y("sawtooth", f=[180, 140], ft=.6, a=.25, d=.35, v=.03, flt=["lowpass", 900])),
+    "warp": S("転換", "ワープ", "揺れながら跳ぶ", y("sine", f=[200, 2400], ft=.5, a=.05, h=.3, d=.25, v=.2, vib=[18, 80, .05]), y("sawtooth", f=[100, 1200], ft=.5, a=.05, h=.3, d=.2, v=.03, flt=["lowpass", [600, 6000], 2, .5])),
+    "rewind": S("転換", "巻き戻し", "キュルキュルと戻る", y("square", f=[1800, 1200], ft=.05, rep=10, gap=.05, rf=.94, d=.04, v=.06, flt=["lowpass", 4000]), y(N, a=.05, h=.4, d=.1, v=.08, flt=["highpass", 4000])),
+    "tape-stop": S("転換", "テープが止まる", "音が落ちて止まる", y("sawtooth", f=[440, 40], ft=.7, a=.005, h=.5, d=.25, v=.1, flt=["lowpass", [3000, 200], 1, .7]), y("sine", f=[220, 20], ft=.7, h=.5, d=.25, v=.2)),
+    "scratch": S("転換", "スクラッチ", "レコードをこする", y(N, flt=["bandpass", [800, 3000], 4, .12], d=.14, v=.6), y(N, at=.14, flt=["bandpass", [3000, 700], 4, .14], d=.16, v=.6)),
+    "downlifter": S("転換", "下降の風", "1.4 秒かけて落ちていく", y(N, a=.02, d=1.4, v=.45, flt=["highpass", [8000, 200], .7, 1.4]), y("sine", f=[400, 60], ft=1.3, a=.02, d=1.3, v=.12)),
+    "sweep-up": S("転換", "長い上昇", "2 秒かけて昇りつめる", y(N, a=1.8, d=.1, v=.35, flt=["bandpass", [300, 9000], 2, 1.9]), y("sawtooth", f=[80, 640], ft=1.9, a=1.8, d=.1, v=.06, flt=["lowpass", [300, 4000], 2, 1.9])),
+    "braam": S("転換", "ブォーン", "予告編の重い和音", y("sawtooth", f=65, a=.03, h=1.2, d=1.2, v=.12, sh=3, flt=["lowpass", [300, 1400], 2, .6]), y("sawtooth", f=98, dt=10, a=.03, h=1.2, d=1.2, v=.1, sh=3, flt=["lowpass", [300, 1400], 2, .6]),
+                    y("sawtooth", f=131, a=.03, h=1.2, d=1.2, v=.08, sh=3, flt=["lowpass", [300, 1400], 2, .6]), y("sine", f=[80, 40], ft=1, d=1.5, v=.4)),
+    "impact-metal": S("転換", "金属の衝撃", "ガーンと響く", y("sine", f=[90, 40], ft=.3, d=.5, v=.7), y("square", f=[440, 410], ft=.4, d=1.2, v=.04, flt=["bandpass", 1500, 6]), y("sine", f=2330, d=1, v=.08, vib=[6, 15, 0]),
+                           y(N, d=.2, v=.3, flt=["highpass", 3000])),
+    "impact-soft": S("転換", "柔らかい衝撃", "ドスッと受け止める", y("sine", f=[140, 55], ft=.2, d=.35, v=.65), y(N, flt=["lowpass", [1200, 200], 1, .2], d=.2, v=.3)),
+    "teleport": S("転換", "転送", "粒になって消える・現れる", y("sine", f=880, notes=[0, 7, 12, 19, 24, 31], gap=.025, d=.12, v=.15, vib=[20, 40, 0]), y(N, a=.1, d=.3, v=.12, flt=["bandpass", [2000, 9000], 3, .3])),
+    # ── 追加: 強調
+    "glass-ting": S("強調", "グラスの響き", "澄んだ高い一音", y("sine", f=2217, d=1.4, v=.2), y("sine", f=5540, d=.5, v=.06), y("sine", f=2224, d=1.4, v=.1)),
+    "choir-ah": S("強調", "天使の声", "アーと広がる和音", y("sawtooth", f=523, a=.25, h=.5, d=.8, v=.06, flt=["bandpass", 800, 4], vib=[5, 10, .3]), y("sawtooth", f=659, a=.3, h=.5, d=.8, v=.05, flt=["bandpass", 1150, 5]),
+                      y("sawtooth", f=784, a=.3, h=.5, d=.8, v=.05, flt=["bandpass", 1000, 4]), y("sine", f=1046, a=.3, h=.5, d=.8, v=.08)),
+    "bell-tree": S("強調", "ベルツリー", "高い粒が降りてくる", y("sine", f=4186, notes=[0, -2, -3, -5, -7, -9, -10, -12, -14, -15, -17, -19], gap=.045, d=.6, v=.08)),
+    "cracker": S("強調", "クラッカー", "パン！と紙吹雪", y(N, flt=["bandpass", 1800, 1], d=.08, v=.8), y("sine", f=[300, 90], ft=.08, d=.1, v=.5), y(N, at=.06, flt=["highpass", 5000], rep=10, gap=.04, rj=.03, vj=.6, d=.03, v=.12)),
+    "party-horn": S("強調", "パーティーの笛", "ピロロー", y("sawtooth", f=[520, 700], ft=.12, a=.02, h=.35, d=.1, v=.08, flt=["lowpass", 2500, 3], vib=[14, 30, .1]), y("square", f=[520, 700], ft=.12, a=.02, h=.35, d=.1, v=.03, flt=["lowpass", 1800])),
+    "jackpot": S("強調", "大当たり", "コインがあふれる", y("square", f=988, notes=[0, 5, 0, 5, 0, 5, 0, 5, 12, 17], gap=.06, d=.05, v=.07), y("sine", f=1318, at=.6, d=1.2, v=.15),
+                     y(N, at=.1, flt=["highpass", 6000], rep=12, gap=.05, rj=.02, vj=.5, d=.03, v=.1)),
+    "tada": S("強調", "ジャジャーン", "短く長く、お披露目", y("sawtooth", f=392, d=.12, v=.07, flt=["lowpass", 2600]), y("sawtooth", f=494, d=.12, v=.06, flt=["lowpass", 2600]),
+                  y("sawtooth", f=523, at=.16, h=.4, d=.6, v=.08, flt=["lowpass", 3000], vib=[5, 10, .2]), y("sawtooth", f=659, at=.16, h=.4, d=.6, v=.06, flt=["lowpass", 3000]),
+                  y("sawtooth", f=784, at=.16, h=.4, d=.6, v=.06, flt=["lowpass", 3000]), y("sine", f=131, at=.16, d=1, v=.3)),
+    "drama": S("強調", "衝撃の事実", "ダン、ダン、ダーン", y("sawtooth", f=196, notes=[0, -1], gap=.35, h=.2, d=.35, v=.08, flt=["lowpass", 1400]),
+                   y("sawtooth", f=155.6, at=.7, h=.6, d=.8, v=.08, flt=["lowpass", 1400], vib=[5, 15, .3]), y("sine", f=[78, 70], at=.7, d=1.6, v=.3)),
+    "heart-pop": S("強調", "ハート", "ぽわん", y("sine", f=[600, 1400], ft=.1, d=.15, v=.4), y("sine", f=2093, at=.09, d=.35, v=.12, vib=[8, 20, 0])),
+    "flash": S("強調", "フラッシュ", "光る瞬間", y(N, d=.25, v=.4, flt=["highpass", 4000, .7]), y("sine", f=[3000, 1500], ft=.2, d=.3, v=.1)),
+    # ── 追加: 通知
+    "doorbell": S("通知", "ピンポーン", "玄関のチャイム", y("sine", f=659, d=1.2, v=.3), y("sine", f=523, at=.45, d=1.6, v=.3), y("sine", f=1977, d=.3, v=.05)),
+    "phone-ring": S("通知", "電話", "トゥルルル×2", y("sine", f=1300, rep=16, gap=.05, a=.004, h=.01, d=.04, v=.15), y("sine", f=1600, rep=16, gap=.05, a=.004, h=.01, d=.04, v=.1),
+                        y("sine", f=1300, at=1.1, rep=16, gap=.05, a=.004, h=.01, d=.04, v=.15), y("sine", f=1600, at=1.1, rep=16, gap=.05, a=.004, h=.01, d=.04, v=.1)),
+    "vibrate": S("通知", "バイブ", "ブブッと震える", y("sawtooth", f=150, a=.01, h=.35, d=.05, v=.12, flt=["lowpass", 400], rep=2, gap=.55), y(N, a=.01, h=.35, d=.05, v=.08, flt=["bandpass", 180, 2], rep=2, gap=.55)),
+    "mail": S("通知", "メール", "3 音の着信", y("sine", f=1047, notes=[0, 4, 7], gap=.08, d=.4, v=.22), y("triangle", f=2094, notes=[0, 4, 7], gap=.08, d=.1, v=.04)),
+    "reminder": S("通知", "リマインダー", "ポン、ポン、ポン", y("triangle", f=880, notes=[0, 0, 0], gap=.18, d=.15, v=.28), y("sine", f=1760, notes=[0, 0, 0], gap=.18, d=.06, v=.05)),
+    "timer-end": S("通知", "タイマー", "ピピピピ×2", y("square", f=2000, rep=4, gap=.14, a=.002, h=.07, d=.01, v=.07, flt=["lowpass", 4000]), y("square", f=2000, at=.8, rep=4, gap=.14, a=.002, h=.07, d=.01, v=.07, flt=["lowpass", 4000])),
+    "error-soft": S("通知", "エラー（柔らか）", "下がる 2 音", y("sine", f=[440, 330], ft=.15, d=.2, v=.35), y("sine", f=[330, 262], at=.13, ft=.15, d=.25, v=.3)),
+    "denied": S("通知", "拒否", "低い不協和の 2 回", y("square", f=185, a=.005, h=.25, d=.05, v=.1, flt=["lowpass", 1000], rep=2, gap=.35), y("square", f=131, a=.005, h=.25, d=.05, v=.1, flt=["lowpass", 1000], rep=2, gap=.35)),
+    "correct": S("通知", "正解", "駆け上がって響く", y("square", f=1047, notes=[0, 4, 7, 12], gap=.05, d=.08, v=.05, flt=["lowpass", 5000]), y("sine", f=2093, at=.2, d=.7, v=.2)),
+    "announce": S("通知", "館内放送", "ピンポンパンポーン", y("sine", f=698, notes=[0, 4, 7, 12], gap=.32, d=.9, v=.22), y("triangle", f=1396, notes=[0, 4, 7, 12], gap=.32, d=.2, v=.05)),
+    # ── 追加: 数値
+    "tally": S("数値", "集計", "音階で数え上げる", y("triangle", f=523, notes=[0, 2, 4, 5, 7, 9, 11, 12], gap=.07, d=.08, v=.25)),
+    "cash": S("数値", "レジ", "チーンと引き出し", y("sine", f=2637, at=.12, d=.9, v=.2), y("sine", f=3136, at=.12, d=.6, v=.1), y(N, flt=["bandpass", 2500, 3], d=.04, v=.4, rep=2, gap=.05),
+                  y("sine", f=[200, 120], at=.05, ft=.1, d=.12, v=.35)),
+    "printer": S("数値", "印刷", "ジジジと刷る", y("square", f=[180, 200], rep=6, gap=.1, a=.01, h=.05, d=.03, v=.05, flt=["bandpass", 900, 3]), y(N, rep=6, gap=.1, a=.01, h=.05, d=.03, v=.15, flt=["bandpass", 3000, 2])),
+    "barcode": S("数値", "読み取り", "バーコードのピッ", y("sine", f=2600, a=.002, h=.09, d=.02, v=.2), y("square", f=2600, a=.002, h=.09, d=.02, v=.02)),
+    "loading": S("数値", "読み込み", "回る粒", y("sine", f=880, notes=[0, 4, 7, 12, 7, 4, 0, 4, 7, 12], gap=.09, d=.08, v=.15)),
+    "upload": S("数値", "アップロード", "上がっていく粒", y("sine", f=440, rep=6, gap=.06, rf=1.19, d=.05, v=.2), y(N, a=.3, d=.1, v=.05, flt=["highpass", [1000, 6000], 1, .4])),
+    "download": S("数値", "ダウンロード", "下がっていく粒", y("sine", f=1760, rep=6, gap=.06, rf=.84, d=.05, v=.2), y(N, a=.3, d=.1, v=.05, flt=["highpass", [6000, 1000], 1, .4])),
+    "sync": S("数値", "同期", "行って戻って揃う", y("sine", f=660, notes=[0, 7], gap=.08, d=.1, v=.22), y("sine", f=990, at=.25, notes=[0, -7], gap=.08, d=.1, v=.22), y("sine", f=1320, at=.45, d=.3, v=.15)),
+    "boot": S("数値", "起動音", "広がる和音", y("sine", f=262, a=.05, d=2.2, v=.12), y("sine", f=392, a=.05, d=2.2, v=.1), y("sine", f=523, a=.05, d=2.2, v=.1), y("sine", f=659, a=.08, d=2, v=.08),
+                  y("triangle", f=1047, a=.1, d=1.5, v=.04)),
+    "modem": S("数値", "モデム", "ピーガガガ（懐かしい接続）", y("sine", f=[1200, 2200], fe="lin", rep=6, gap=.12, ft=.1, d=.1, v=.1), y(N, at=.8, a=.1, h=.4, d=.1, v=.1, flt=["bandpass", 1800, 1]),
+                   y("square", f=1650, at=.8, a=.01, h=.4, d=.05, v=.03)),
+    # ── 追加: 自然・もの
+    "door-creak": S("自然・もの", "扉のきしみ", "ギィー", y("sawtooth", f=[180, 260], ft=.8, a=.1, h=.5, d=.2, v=.05, flt=["bandpass", [900, 1400], 6, .8], vib=[22, 60, 0]),
+                        y("sawtooth", f=[90, 130], ft=.8, a=.1, h=.5, d=.2, v=.04, flt=["bandpass", 600, 5])),
+    "door-close": S("自然・もの", "扉を閉める", "バタン", y("sine", f=[120, 60], ft=.12, d=.35, v=.7), y(N, flt=["lowpass", [2000, 300], 1, .2], d=.25, v=.45), y(N, at=.08, flt=["bandpass", 2500, 6], d=.03, v=.3)),
+    "steps": S("自然・もの", "歩く", "4 歩", y(N, flt=["lowpass", 700], d=.08, v=.5, rep=4, gap=.32, rj=.02, vj=.2), y(N, flt=["bandpass", 1800, 2], d=.03, v=.12, rep=4, gap=.32)),
+    "rain": S("自然・もの", "雨", "ざあっと降る", y(N, a=.3, h=1, d=.5, v=.12, flt=["bandpass", 3500, .8]), y("sine", f=2200, rep=18, gap=.08, rj=.05, vj=.8, d=.02, v=.08)),
+    "thunder": S("自然・もの", "雷", "ピシャッ、ゴロゴロ", y(N, a=.01, d=.15, v=.5, flt=["highpass", 1500]), y(N, a=.05, d=2.5, v=.7, flt=["lowpass", [900, 120], 1, 2]), y("sine", f=[50, 35], ft=2, a=.1, d=2, v=.35)),
+    "fire": S("自然・もの", "焚き火", "パチパチ燃える", y(N, a=.3, h=.8, d=.5, v=.12, flt=["lowpass", 900]), y(N, rep=16, gap=.09, rj=.06, vj=.8, d=.012, v=.3, flt=["highpass", 2500])),
+    "bird": S("自然・もの", "小鳥", "さえずり", y("sine", f=[3200, 4200], ft=.05, notes=[0, 2, 0, 5], gap=.09, d=.06, v=.15, vib=[30, 50, 0]), y("sine", f=[2800, 3600], at=.55, ft=.08, notes=[0, 3], gap=.1, d=.08, v=.12)),
+    "splash": S("自然・もの", "水しぶき", "バシャッ", y(N, a=.005, d=.5, v=.5, flt=["bandpass", [2500, 900], .8, .4]), y("sine", f=[700, 1400], ft=.05, rep=4, gap=.07, rj=.03, d=.06, v=.15, rf=1.1)),
+    "crumple": S("自然・もの", "紙を丸める", "くしゃくしゃ", y(N, flt=["bandpass", 3200, 1.5], rep=14, gap=.03, rj=.025, vj=.7, d=.03, v=.35), y(N, a=.1, d=.4, v=.08, flt=["bandpass", 2000, .8])),
+    "glass-break": S("自然・もの", "ガラスが割れる", "ガシャン", y(N, d=.08, v=.6, flt=["highpass", 2500]), y("sine", f=3700, notes=[0, 5, -3, 9, 2, 12, -1], gap=.035, rj=.02, d=.3, v=.1),
+                         y("sine", f=5100, at=.05, notes=[0, -4, 7, 3], gap=.05, d=.25, v=.07)),
+    "cork": S("自然・もの", "栓を抜く", "ポンッ", y("sine", f=[500, 300], ft=.03, d=.06, v=.6), y(N, flt=["bandpass", 900, 3], d=.04, v=.4)),
+    "cricket": S("自然・もの", "虫の声", "リリッ、リリッ", y("sine", f=4400, rep=3, gap=.05, a=.005, h=.02, d=.01, v=.15), y("sine", f=4400, at=.5, rep=3, gap=.05, a=.005, h=.02, d=.01, v=.15),
+                     y("sine", f=4400, at=1, rep=3, gap=.05, a=.005, h=.02, d=.01, v=.15)),
+    # ── 追加: ゲーム
+    "hit8": S("ゲーム", "ダメージ", "8bit の被弾", y("square", f=[400, 120], ft=.1, d=.12, v=.1), y(N, nr=.4, d=.12, v=.25, flt=["lowpass", 3000])),
+    "fall": S("ゲーム", "落下", "ヒューッと落ちる", y("sine", f=[1800, 300], ft=.9, fe="lin", a=.01, h=.8, d=.1, v=.2)),
+    "boing": S("ゲーム", "バネ", "ボイーン", y("sine", f=[180, 420], ft=.25, a=.005, d=.45, v=.45, vib=[14, 120, 0]), y("triangle", f=[360, 840], ft=.25, d=.3, v=.08)),
+    "slip": S("ゲーム", "すべる", "つるっ", y("sine", f=[900, 300], ft=.12, d=.15, v=.35), y("sine", f=[300, 1400], at=.14, ft=.2, d=.25, v=.3)),
+    "dash": S("ゲーム", "ダッシュ", "勢いよく走り出す", y(N, a=.01, d=.2, v=.5, flt=["bandpass", [1500, 5000], 2, .15]), y("square", f=[200, 600], ft=.12, d=.12, v=.06)),
+    "item": S("ゲーム", "アイテム", "手に入れた", y("square", f=784, notes=[0, 4, 7, 12, 16], gap=.05, d=.06, v=.07), y("triangle", f=1568, at=.25, d=.35, v=.2)),
+    "heal": S("ゲーム", "回復", "きらきら満ちる", y("sine", f=523, notes=[0, 4, 7, 12, 16, 19, 24], gap=.07, d=.5, v=.12), y("triangle", f=1047, a=.2, h=.2, d=.6, v=.06, vib=[6, 15, .1])),
+    "gameover": S("ゲーム", "ゲームオーバー", "下がって沈む", y("square", f=494, notes=[0, -1, -2, -3], gap=.3, h=.15, d=.12, v=.07, flt=["lowpass", 2500]), y("triangle", f=[123, 110], at=1.2, ft=.6, d=1, v=.3)),
+    "shield": S("ゲーム", "防御", "膜が張る", y("sine", f=[300, 600], ft=.2, a=.01, h=.2, d=.3, v=.25, vib=[25, 60, 0]), y(N, a=.05, d=.4, v=.1, flt=["bandpass", 3000, 4])),
+    "pause": S("ゲーム", "ポーズ", "一時停止", y("triangle", f=1568, notes=[0, -12], gap=.08, d=.08, v=.25)),
+    "treasure": S("ゲーム", "宝箱", "開けたら響く", y("square", f=523, notes=[0, 4, 7, 11, 12, 16], gap=.1, d=.1, v=.07), y("triangle", f=1047, at=.6, h=.3, d=.6, v=.2, vib=[6, 12, .1])),
+    # ── 追加: 楽器
+    "timpani-roll": S("楽器", "ティンパニのロール", "ゴロゴロ…ドン", y("sine", f=[98, 92], rep=20, gap=.05, rv=1.05, a=.002, d=.25, v=.12), y("sine", f=[98, 90], at=1.02, d=1.5, v=.6)),
+    "cowbell": S("楽器", "カウベル", "コン", y("square", f=587, d=.3, v=.07, flt=["bandpass", 800, 3]), y("square", f=845, d=.3, v=.05, flt=["bandpass", 900, 3])),
+    "tambourine": S("楽器", "タンバリン", "シャラン", y(N, flt=["highpass", 7000], d=.2, v=.3), y(N, flt=["bandpass", 9500, 4], rep=3, gap=.02, d=.12, v=.15)),
+    "bongo": S("楽器", "ボンゴ", "ポコポン", y("sine", f=[520, 470], ft=.05, d=.14, v=.5), y("sine", f=[380, 340], at=.14, ft=.05, d=.18, v=.5)),
+    "steel-hit": S("楽器", "スチールドラム", "南国の 3 音", y("sine", f=784, notes=[0, 4, 7], gap=.1, d=.8, v=.2), y("sine", f=1568, notes=[0, 4, 7], gap=.1, d=.3, v=.07), y("sine", f=2352, notes=[0, 4, 7], gap=.1, d=.1, v=.03)),
+    "tubular": S("楽器", "チューブラーベル", "カーンと長く", y("sine", f=392, d=3.5, v=.2), y("sine", f=792, d=2.5, v=.12), y("sine", f=1188, d=1.5, v=.08), y("sine", f=1948, d=.8, v=.05)),
+    "glock-up": S("楽器", "鉄琴の駆け上がり", "音階を一気に", y("sine", f=1047, notes=[0, 2, 4, 5, 7, 9, 11, 12, 14, 16, 17, 19, 21, 23, 24], gap=.035, d=.5, v=.1)),
+    "rimshot": S("楽器", "ツッコミ", "ドン、ドン、シャーン（オチ）", y("sine", f=[220, 140], ft=.1, d=.18, v=.5), y("sine", f=[160, 100], at=.18, ft=.1, d=.2, v=.55), y(N, at=.38, d=1, v=.3, flt=["highpass", 5000]),
+                     y("sine", f=[70, 45], at=.38, ft=.1, d=.25, v=.6)),
+    # ── 和
+    "suzu": S("和", "鈴", "シャンシャン", y("sine", f=5200, rep=8, gap=.04, rj=.02, vj=.5, d=.35, v=.08), y(N, flt=["bandpass", 7000, 3], rep=8, gap=.04, rj=.02, d=.08, v=.1)),
+    "kotsuzumi": S("和", "小鼓", "ポン", y("sine", f=[520, 300], ft=.08, d=.35, v=.45), y(N, flt=["bandpass", 1200, 2], d=.05, v=.3)),
+    "shamisen-hit": S("和", "三味線", "ベン", y("sawtooth", f=196, d=.6, v=.12, pe=[1.05, .05], flt=["lowpass", [4000, 800], 3, .3]), y(N, flt=["bandpass", 2500, 2], d=.03, v=.4)),
+    "taiko-roll": S("和", "太鼓の連打", "ドドドド…ドン", y("sine", f=[110, 60], ft=.2, rep=10, gap=.1, rv=1.08, d=.3, v=.4), y("sine", f=[110, 55], at=1.02, ft=.3, d=.9, v=.9), y(N, at=1.02, d=.14, v=.3, flt=["lowpass", 500])),
+    "shishi-odoshi": S("和", "ししおどし", "カコーン", y("sine", f=[900, 700], ft=.05, d=.2, v=.5), y("sine", f=[1800, 1500], ft=.05, d=.08, v=.15), y("sine", f=[500, 450], at=.25, d=.12, v=.2)),
+    "furin": S("和", "風鈴", "チリーン", y("sine", f=3520, d=2, v=.14, vib=[6, 6, 0]), y("sine", f=5600, d=1.2, v=.06), y("sine", f=3530, at=.45, d=1.8, v=.08)),
+    "kane": S("和", "寺の鐘", "ゴーンと長く残る", y("sine", f=138, a=.01, d=6, v=.3), y("sine", f=139.5, a=.01, d=6, v=.15), y("sine", f=366, d=3.5, v=.1), y("sine", f=620, d=2, v=.05), y(N, d=.08, v=.15, flt=["lowpass", 800])),
+    "hyoshigi-roll": S("和", "拍子木の連打", "チョン、チョン、チョン…", y("sine", f=1400, rep=12, gap=.09, rj=.01, d=.05, v=.4), y("sine", f=3300, rep=12, gap=.09, d=.02, v=.12)),
 }
 # 効果音の音量の揃え（--sounds のページで合成した山の高さから求めた倍率。効果音を足したら測り直す）
-SFX_GAIN = {"click": 0.81, "pop": 0.92, "pop-soft": 1.09, "blip": 2.2, "tick": 2.08, "toggle": 2.2, "select": 1.45, "confirm": 1.47, "back": 1.53, "hover": 3, "key": 2.2, "key-soft": 3, "typewriter": 0.84, "carriage": 1.54, "send": 1.44, "receive": 1.46, "message": 1.47, "delete": 1.37, "nav": 1.68, "switch": 3, "whoosh": 2.16, "whoosh-long": 1.98, "whoosh-short": 1.78, "swoosh-down": 1.85, "swipe": 3, "air": 3, "zoom-in": 1.9, "zoom-out": 1.89, "riser": 1.9, "downer": 2.2, "reverse": 1.87, "shutter": 1.25, "glitch": 1.46, "cut": 0.67, "impact": 0.5, "boom": 0.53, "subdrop": 0.64, "slide": 2.78, "page": 1.7, "curtain": 3, "flip": 1.75, "ding": 1.36, "chime": 1.38, "bell": 1.18, "rin": 1.14, "sparkle": 2.5, "shimmer": 3, "twinkle": 2.62, "magic": 2.55, "bling": 2.06, "success": 1.52, "fanfare": 2.2, "orchestra": 1.6, "stamp": 0.64, "reveal": 1.68, "ping": 2.01, "underline": 3, "applause": 3, "notify": 1.55, "notify-soft": 1.43, "alert": 2.2, "error": 2.2, "buzzer": 1.58, "alarm": 2.2, "siren": 2.2, "warning": 1.76, "done": 1.79, "ok": 1.68, "question": 1.74, "count": 2.2, "counter": 3, "scan": 3, "beep": 2.78, "radar": 2.28, "sonar": 1.26, "data": 2.2, "compute": 2.2, "process": 3, "charge": 2.2, "powerup": 1.19, "powerdown": 1.66, "connect": 1.46, "disconnect": 2.1, "graph-rise": 3, "bubble": 1.46, "drop": 1.11, "water": 2.02, "knock": 0.75, "paper": 2.81, "pencil": 3, "clock-tick": 3, "heartbeat": 0.7, "footstep": 2.94, "wind": 3, "snap": 1.54, "clink": 2.29, "hyoshigi": 0.78, "coin": 2.2, "jump": 2.2, "powerup8": 2.2, "levelup": 1.25, "laser": 2.2, "zap": 2.2, "oneup": 2.2, "select8": 2.2, "win": 2.2, "drumroll": 1.92, "cymbal": 2.02, "taiko-hit": 0.55, "kalimba-hit": 1.48, "piano-chord": 1.17, "harp-gliss": 2.03, "pizz": 1.48, "clap1": 3, "woodblock": 0.87, "triangle": 2.58}
+SFX_GAIN = {"click": 0.81, "pop": 0.92, "pop-soft": 1.09, "blip": 2.2, "tick": 2.08, "toggle": 2.2, "select": 1.45, "confirm": 1.47, "back": 1.53, "hover": 3, "key": 2.2, "key-soft": 3, "typewriter": 0.84, "carriage": 1.54, "send": 1.44, "receive": 1.46, "message": 1.47, "delete": 1.37, "nav": 1.68, "switch": 3, "whoosh": 2.16, "whoosh-long": 1.98, "whoosh-short": 1.78, "swoosh-down": 1.85, "swipe": 3, "air": 3, "zoom-in": 1.9, "zoom-out": 1.89, "riser": 1.9, "downer": 2.2, "reverse": 1.87, "shutter": 1.25, "glitch": 1.46, "cut": 0.67, "impact": 0.5, "boom": 0.53, "subdrop": 0.64, "slide": 2.78, "page": 1.7, "curtain": 3, "flip": 1.75, "ding": 1.36, "chime": 1.38, "bell": 1.18, "rin": 1.14, "sparkle": 2.5, "shimmer": 3, "twinkle": 2.62, "magic": 2.55, "bling": 2.06, "success": 1.52, "fanfare": 2.2, "orchestra": 1.6, "stamp": 0.64, "reveal": 1.68, "ping": 2.01, "underline": 3, "applause": 3, "notify": 1.55, "notify-soft": 1.43, "alert": 2.2, "error": 2.2, "buzzer": 1.58, "alarm": 2.2, "siren": 2.2, "warning": 1.76, "done": 1.79, "ok": 1.68, "question": 1.74, "count": 2.2, "counter": 3, "scan": 3, "beep": 2.78, "radar": 2.28, "sonar": 1.26, "data": 2.2, "compute": 2.2, "process": 3, "charge": 2.2, "powerup": 1.19, "powerdown": 1.66, "connect": 1.46, "disconnect": 2.1, "graph-rise": 3, "bubble": 1.46, "drop": 1.11, "water": 2.02, "knock": 0.75, "paper": 2.81, "pencil": 3, "clock-tick": 3, "heartbeat": 0.7, "footstep": 2.94, "wind": 3, "snap": 1.54, "clink": 2.29, "hyoshigi": 0.78, "coin": 2.2, "jump": 2.2, "powerup8": 2.2, "levelup": 1.25, "laser": 2.2, "zap": 2.2, "oneup": 2.2, "select8": 2.2, "win": 2.2, "drumroll": 1.92, "cymbal": 2.02, "taiko-hit": 0.55, "kalimba-hit": 1.48, "piano-chord": 1.17, "harp-gliss": 2.03, "pizz": 1.48, "clap1": 3, "woodblock": 0.87, "triangle": 2.58, "tap": 1.04, "bloop": 1.03, "swoosh-up": 0.71, "stab": 1.06, "thump": 1.03, "wood": 0.98, "explode8": 1.16, "gong": 1.05, "marimba-hit": 0.98, "click-soft": 1.41, "double-click": 0.78, "scroll": 3, "drag": 3, "place": 0.78, "unlock": 2.44, "lock": 2.53, "copy": 1.49, "like": 1.3, "keypad": 1.0, "trash": 1.32, "zip": 3.62, "slider": 1.81, "whoosh-deep": 1.14, "whoosh-metal": 2.2, "swish": 0.68, "pass-by": 2.83, "warp": 2.13, "rewind": 2.2, "tape-stop": 2.2, "scratch": 1.84, "downlifter": 0.67, "sweep-up": 1.62, "braam": 0.76, "impact-metal": 0.48, "impact-soft": 0.78, "teleport": 2.59, "glass-ting": 1.4, "choir-ah": 3.6, "bell-tree": 2.94, "cracker": 0.71, "party-horn": 3.03, "jackpot": 2.2, "tada": 1.36, "drama": 1.62, "heart-pop": 1.25, "flash": 0.93, "doorbell": 1.59, "phone-ring": 2.0, "vibrate": 3.28, "mail": 1.8, "reminder": 1.71, "timer-end": 4.76, "error-soft": 1.43, "denied": 2.08, "correct": 2.2, "announce": 1.85, "tally": 2.06, "cash": 1.25, "printer": 4.13, "barcode": 2.2, "loading": 3, "upload": 2.24, "download": 2.12, "sync": 2.29, "boot": 1.74, "modem": 4.05, "door-creak": 16.41, "door-close": 0.65, "steps": 3, "rain": 3, "thunder": 0.66, "fire": 1.79, "bird": 3, "splash": 1.47, "crumple": 3, "glass-break": 0.73, "cork": 0.86, "cricket": 3, "hit8": 1.67, "fall": 2.5, "boing": 1.07, "slip": 1.46, "dash": 2.2, "item": 2.2, "heal": 2.52, "gameover": 1.69, "shield": 1.78, "pause": 2.07, "treasure": 2.2, "timpani-roll": 0.81, "cowbell": 4.64, "tambourine": 1.24, "bongo": 1.02, "steel-hit": 1.45, "tubular": 1.31, "glock-up": 2.14, "rimshot": 0.53, "suzu": 3.43, "kotsuzumi": 1.11, "shamisen-hit": 2.2, "taiko-roll": 0.56, "shishi-odoshi": 0.88, "furin": 2.54, "kane": 0.88, "hyoshigi-roll": 1.01}
 for _k, _g in SFX_GAIN.items():
     SFX[_k]["g"] = _g
-SFX_CATS = ["操作", "転換", "強調", "通知", "数値", "自然・もの", "ゲーム", "楽器"]
+SFX_CATS = ["操作", "転換", "強調", "通知", "数値", "自然・もの", "ゲーム", "楽器", "和"]
 
 # ──────────────────────────────────────────────────────────────────────────
 # 映像の出来事（効果音を当てるきっかけ）と効果音の組
@@ -507,6 +764,46 @@ KITS = {
         "chapter": ["ping", .5], "title": ["ping", .45], "outro": ["ping", .45], "countEnd": ["ping", .35], "toast": ["notify-soft", .6],
         "notify": ["notify-soft", .6], "done": ["ping", .4], "blocked": ["warning", .45], "click": ["click", .7], "nav": ["tap", .5],
         "**": None}),
+    "scifi": ("SF", "光線・ワープ・転送・電子の起動音。宇宙・未来・SF", {
+        "chapter": ["warp", .5], "tr.fade": ["whoosh-metal", .3], "tr.slide": ["pass-by", .5], "tr.push": ["warp", .45], "tr.wipe": ["whoosh-metal", .5],
+        "tr.zoom": ["teleport", .5], "tr.cut": ["laser", .35], "title": ["boot", .6], "outro": ["teleport", .5], "appear": ["blip", .45, 1],
+        "step": ["teleport", .35], "tick": ["beep", .35, 1], "word": ["blip", .4, 1], "hit": ["impact-metal", .55], "emphasize": ["shield", .35],
+        "reveal": ["warp", .45], "connect": ["sync", .4], "travel": ["upload", .4], "arrive": ["barcode", .35], "type": ["key", .4],
+        "enter": ["barcode", .35], "count": ["count", .5], "countEnd": ["shield", .4], "grow": ["sweep-up", .3], "sweep": ["scan", .45],
+        "message": ["mail", .5], "send": ["upload", .45], "toast": ["notify", .55], "notify": ["mail", .6], "done": ["boot", .4],
+        "blocked": ["denied", .45], "highlight": ["shield", .35], "badge": ["barcode", .4], "click": ["click-soft", .7]}),
+    "horror": ("ホラー", "低い一撃・鐘・きしみ・心音。怪談・警告・ミステリー", {
+        "chapter": ["kane", .45], "tr.fade": ["downlifter", .25], "tr.slide": ["whoosh-deep", .5], "tr.push": ["whoosh-deep", .55], "tr.wipe": ["door-creak", .4],
+        "tr.zoom": ["downlifter", .35], "tr.cut": ["impact-soft", .5], "title": ["braam", .5], "outro": ["kane", .45], "appear": ["heartbeat", .35],
+        "step": ["steps", .35], "tick": ["clock-tick", .45], "word": ["thump", .4], "hit": ["braam", .45], "emphasize": ["drama", .3],
+        "reveal": ["door-creak", .45], "quote": ["crumple", .35], "connect": ["drop", .35], "travel": ["whoosh-deep", .35], "arrive": ["door-close", .3],
+        "type": ["typewriter", .35], "enter": ["carriage", .3], "countEnd": ["tubular", .35], "grow": ["downlifter", .3], "sweep": ["whoosh-deep", .35],
+        "message": ["phone-ring", .35], "send": ["whoosh-deep", .35], "toast": ["vibrate", .45], "notify": ["vibrate", .5], "done": ["tubular", .35],
+        "blocked": ["denied", .45], "highlight": ["thunder", .3], "badge": ["door-close", .35], "click": ["click-soft", .5]}),
+    "kids": ("子ども", "バネ・ハート・鉄琴・クラッカー。子ども・教育・絵本", {
+        "chapter": ["glock-up", .45], "tr.fade": ["heart-pop", .25], "tr.slide": ["boing", .4], "tr.push": ["slip", .4], "tr.wipe": ["swipe", .5],
+        "tr.zoom": ["boing", .4], "tr.cut": ["cork", .45], "title": ["party-horn", .45], "outro": ["cracker", .45], "appear": ["heart-pop", .4, 1],
+        "step": ["marimba-hit", .45, 2], "tick": ["bongo", .4, 1], "word": ["cork", .4, 1], "hit": ["boing", .5], "emphasize": ["glock-up", .3],
+        "reveal": ["tada", .4], "connect": ["bubble", .35, 1], "travel": ["slip", .3], "arrive": ["cork", .35], "type": ["key-soft", .45],
+        "countEnd": ["correct", .45], "grow": ["boing", .3], "sweep": ["slip", .35], "message": ["heart-pop", .45], "send": ["like", .45],
+        "toast": ["notify-soft", .6], "done": ["correct", .45], "blocked": ["error-soft", .4], "note": ["heart-pop", .4], "highlight": ["twinkle", .4],
+        "badge": ["like", .45], "click": ["click-soft", .6]}),
+    "game": ("ゲーム", "アイテム・回復・宝箱・ダッシュ。RPG・ゲーム風の案内", {
+        "chapter": ["treasure", .5], "tr.slide": ["dash", .45], "tr.push": ["dash", .5], "tr.wipe": ["swish", .45], "tr.zoom": ["warp", .4],
+        "tr.cut": ["hit8", .4], "title": ["item", .55], "outro": ["levelup", .55], "appear": ["pause", .4, 1], "step": ["item", .35, 1],
+        "tick": ["select8", .4, 1], "word": ["select8", .4, 1], "hit": ["hit8", .55], "emphasize": ["heal", .3], "reveal": ["treasure", .45],
+        "connect": ["select8", .35, 1], "travel": ["dash", .35], "arrive": ["coin", .4], "type": ["count", .45], "enter": ["pause", .35],
+        "countEnd": ["jackpot", .35], "grow": ["heal", .3], "sweep": ["swish", .35], "message": ["pause", .45], "send": ["jump", .4],
+        "toast": ["item", .45], "notify": ["oneup", .5], "done": ["levelup", .45], "blocked": ["hit8", .45], "highlight": ["shield", .35],
+        "badge": ["coin", .45], "click": ["select8", .55]}),
+    "luxury": ("上質", "ガラス・鐘・声の響き。高級・ブランド・式典", {
+        "chapter": ["glass-ting", .5], "tr.fade": ["air", .5], "tr.slide": ["whoosh-deep", .35], "tr.push": ["whoosh-deep", .4], "tr.wipe": ["swish", .3],
+        "tr.zoom": ["air", .6], "tr.cut": ["impact-soft", .35], "title": ["choir-ah", .4], "outro": ["tubular", .4], "appear": ["glass-ting", .3, 1],
+        "step": ["marimba-hit", .35, 2], "tick": ["clink", .3, 1], "word": ["glass-ting", .25, 1], "hit": ["impact-soft", .45], "emphasize": ["bell-tree", .3],
+        "reveal": ["harp-gliss", .4], "quote": ["page", .4], "connect": ["glass-ting", .25, 1], "travel": ["air", .5], "arrive": ["clink", .3],
+        "type": ["key-soft", .4], "enter": ["glass-ting", .25], "countEnd": ["bell-tree", .35], "grow": ["air", .5], "sweep": ["swish", .3],
+        "toast": ["notify-soft", .55], "notify": ["notify-soft", .55], "done": ["glass-ting", .4], "blocked": ["error-soft", .4], "highlight": ["bell-tree", .3],
+        "badge": ["clink", .4], "click": ["click-soft", .6]}),
 }
 DENSITY = {"low": 1, "normal": 2, "high": 3}
 
@@ -553,8 +850,15 @@ def _check_music(d, where, insts, errs):
     for sym in [x for p in prog for x in (p if isinstance(p, list) else [p])]:
         if not re.match(r"^b?[1-7](m|M|7|9|s4|s2|p)*$", str(sym)):
             errs.append("%s: prog の和音 %r は「度数 1〜7」に b（前）・m M 7 9 s4 s2 p（後）を付けた形" % (where, sym))
-    if d.get("drum") and d["drum"] not in DRUMS:
-        errs.append("%s: drum %r は %s のいずれか" % (where, d["drum"], "/".join(DRUMS)))
+    dr = d.get("drum")
+    if isinstance(dr, dict):
+        for inst, pat in dr.items():
+            if inst not in insts:
+                errs.append("%s: drum の楽器 %r は楽器の一覧（--list-sounds）か audio.instruments に無い" % (where, inst))
+            if not isinstance(pat, str) or not re.match(r"^[xXgrt.\- ]+$", pat):
+                errs.append("%s: drum の %s は x X g r t . の並び（1 文字が 16 分の刻み）" % (where, inst))
+    elif dr and dr not in DRUMS:
+        errs.append("%s: drum %r は %s のいずれか、または {楽器: \"x...x...\"}" % (where, dr, "/".join(DRUMS)))
     if not d.get("code"):
         for i, lay in enumerate(d.get("layers") or []):
             if lay.get("inst") not in insts:
@@ -752,6 +1056,7 @@ AUDIO_DOC = """# audio の書き方
   "music": {"bpm": 96, "key": "D", "scale": "dorian", "prog": [["1","4","5","1"]],
             "layers": [{"inst":"keys","pat":"broken8","oct":4,"v":.7}, {"inst":"bass","pat":"root4","oct":2,"e":2}],
             "drum": "backbeat", "swing": .2, "g": .35},   自作（層は e=この盛り上がりから鳴る。g は音量）
+            drum は型の名前か {"kick": "X...x...", "hat": "x.x.xrx."}（x 打つ X 強く g 弱く r 2 連打 t 3 連打）
   "music": {"bpm": 90, "src": "music.js"},   JS で作曲（本体 (bar, M) → [{at 拍, len 拍, n MIDI, inst, v} | {at, drum, v}]）
   "musicVolume": 1, "duck": .5,              音楽の音量・読み上げ中に下げる割合
   "energy": [1, 2, 2, 3, 1],                 章ごとの盛り上がり 1..3（既定: 最初と最後は 1、最後の手前は 3、ほかは 2）

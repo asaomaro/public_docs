@@ -139,6 +139,18 @@ el.querySelector(".core").setAttribute("r", String(110 + 8 * Math.sin(lt / 400))
           "drum": "brush", "swing": .4}
 ```
 
+ジャンルの型を組み合わせる例（タンゴ: バンドネオンの鋭い刻み・ハバネラの低音・後半の駆け上がり。トラップ: 808・3 音ずつの分散・連打のハイハット）:
+
+```json
+"music": {"bpm": 118, "key": "D", "scale": "harmonic", "prog": [["1", "4", "5", "1"]],
+          "layers": [{"inst": "bandoneon", "pat": "tango", "oct": 4, "v": .5},
+                     {"inst": "upright", "pat": "habanera", "oct": 2, "v": .7},
+                     {"inst": "pizz", "pat": "run", "oct": 4, "v": .35, "e": 3}], "drum": "tango"}
+"music": {"bpm": 140, "key": "C#", "scale": "harmonic", "prog": [["1", "6", "4", "5"]],
+          "layers": [{"inst": "sub808", "pat": "root2", "oct": 1, "v": .8}, {"inst": "pluck", "pat": "arp3", "oct": 5, "v": .25}],
+          "drum": {"kick808": "X......x..x.....", "clap": "........X.......", "hat": "x.x.xrx.x.x.rttr"}}
+```
+
 JS で作曲する（小節ごとに呼ばれ、音符の配列を返す。時刻だけで決まるように `M.rand` を使う）:
 
 ```js
