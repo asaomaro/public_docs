@@ -2158,6 +2158,35 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     document.addEventListener("pointerdown", function (e) { if (!setPanel.hidden && !e.target.closest('[data-mv="setpanel"]') && !e.target.closest('[data-mv="setbtn"]')) closeSet(false); });
   }
   setCap(store.get("cap", "m"));
+  /* 書体（映像の文字と字幕）。OS に入っている書体だけを選べるようにする。描画は時刻と台本だけで決まるので、選び直してもそのまま描き直せる */
+  var F0 = { sans: F.sans, display: F.display };
+  var FONTS = [
+    ["", "テーマの既定", null],
+    ["gothic", "ゴシック", ['"Hiragino Sans"', '"Hiragino Kaku Gothic ProN"', '"Yu Gothic UI"', '"Yu Gothic"', "Meiryo", '"Noto Sans JP"', '"Noto Sans CJK JP"']],
+    ["mincho", "明朝", ['"Hiragino Mincho ProN"', '"Yu Mincho"', "YuMincho", '"Noto Serif JP"', '"Noto Serif CJK JP"', '"MS PMincho"']],
+    ["maru", "丸ゴシック", ['"Hiragino Maru Gothic ProN"', '"Zen Maru Gothic"', '"M PLUS Rounded 1c"', '"Kosugi Maru"']],
+    ["ud", "UD（読みやすさ重視）", ['"BIZ UDPGothic"', '"BIZ UDGothic"', '"UD Digi Kyokasho NK-R"', '"Morisawa BIZ UDPGothic"']],
+    ["meiryo", "メイリオ", ["Meiryo"]],
+    ["kyokasho", "教科書体", ['"UD Digi Kyokasho NK-R"', '"UD Digi Kyokasho N-R"', '"YuKyokasho"']]
+  ];
+  /* その書体があるか: 既定の書体と幅が変わるかで見る（document.fonts.check は OS の書体には使えない） */
+  function hasFont(name) {
+    var c = document.createElement("canvas").getContext("2d"), s = "あいう永ABCabc123", ok = false;
+    ["monospace", "serif"].forEach(function (base) { c.font = "40px " + base; var w0 = c.measureText(s).width; c.font = "40px " + name + "," + base; if (c.measureText(s).width !== w0) ok = true; });
+    return ok;
+  }
+  var fontSel = $("mv-font"), FONTOK = {};
+  FONTS.forEach(function (f) { var list = f[2] ? f[2].filter(hasFont) : null; if (f[2] && !list.length) return; FONTOK[f[0]] = list;
+    if (fontSel) { var op = document.createElement("option"); op.value = f[0]; op.textContent = f[1]; fontSel.appendChild(op); } });
+  function setFont(k) {
+    if (!(k in FONTOK)) k = "";
+    var list = FONTOK[k], stack = list ? list.join(",") + "," + (k === "mincho" ? "serif" : "sans-serif") : null;
+    F.sans = stack || F0.sans; F.display = stack || F0.display;
+    if (stack) root.style.setProperty("--mv-capfont", stack); else root.style.removeProperty("--mv-capfont");
+    store.set("font", k); if (fontSel) fontSel.value = k; needsDraw = true;
+  }
+  if (fontSel) fontSel.addEventListener("change", function () { setFont(fontSel.value); });
+  setFont(store.get("font", ""));
   function setMus(on) { musicOn = on; store.set("mus", on ? "1" : "0");
     [].forEach.call(root.querySelectorAll("button[data-mus]"), function (b) { b.setAttribute("aria-pressed", String((b.getAttribute("data-mus") === "1") === on)); });
     if (!on) musicStop(); else if (playing) musicReset(); }

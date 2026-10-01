@@ -884,7 +884,14 @@ PLAYER_CSS = r"""
 /* 設定 */
 .mv-set{min-width:300px;width:max-content;max-width:min(360px,calc(100cqw - 16px));padding:10px;gap:6px}
 .mv-setrow{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px;color:var(--c-muted);padding:4px 6px}
-.mv-setrow>span:first-child{white-space:nowrap;flex-shrink:0}
+.mv-setrow>span:first-child,.mv-setrow>label:first-child{white-space:nowrap;flex-shrink:0}
+.mv-fontsel{appearance:none;background:color-mix(in srgb,var(--c-ink) 8%,transparent);color:var(--c-ink);border:1px solid var(--c-line);border-radius:999px;
+  font:inherit;font-size:12.5px;padding:4px 26px 4px 12px;cursor:pointer;max-width:200px;
+  background-image:linear-gradient(45deg,transparent 50%,var(--c-muted) 50%),linear-gradient(135deg,var(--c-muted) 50%,transparent 50%);
+  background-position:calc(100% - 14px) 52%,calc(100% - 10px) 52%;background-size:4px 4px;background-repeat:no-repeat}
+.mv-fontsel option{background:var(--c-bg);color:var(--c-ink)}
+.mv-fontsel:focus-visible{outline:2px solid var(--c-accent);outline-offset:2px}
+.mv-cap span{font-family:var(--mv-capfont,inherit)}
 .mv-seg3{display:inline-flex;gap:2px;padding:2px;border:1px solid var(--c-line);border-radius:999px}
 /* .mv-menu button（チャプターの行の格子）を打ち消す */
 .mv-set .mv-seg3 button{display:inline-block;grid-template-columns:none;gap:0;appearance:none;border:0;background:none;color:var(--c-muted);font:inherit;font-size:12.5px;
@@ -974,6 +981,7 @@ def build_fragment(spec, theme_key, player, uid=None):
         + '<div class="mv-menu mv-set" id="mv-setpanel" hidden>'
         '<div class="mv-setrow"><span>字幕の大きさ</span><span class="mv-seg3" role="group" aria-label="字幕の大きさ">'
         '<button type="button" data-cap="s">小</button><button type="button" data-cap="m">標準</button><button type="button" data-cap="l">大</button></span></div>'
+        '<div class="mv-setrow"><label for="mv-font">書体</label><select class="mv-fontsel" id="mv-font" aria-label="書体（映像の文字と字幕）"></select></div>'
         '<div class="mv-setrow"><span>音楽</span><span class="mv-seg3" role="group" aria-label="音楽">'
         '<button type="button" data-mus="1">入</button><button type="button" data-mus="0">切</button></span></div>'
         '<div class="mv-setrow"><span>効果音</span><span class="mv-seg3" role="group" aria-label="効果音">'
