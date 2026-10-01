@@ -684,6 +684,11 @@ def parse_blocks(lines, headings, used_slugs, mermaid_store, top_level=True, lay
                     break
             i += 1
             continue
+        fm = MOTION_COMMENT_RE.match(line.strip())
+        if fm:
+            out.append(motion_figure(fm.group(1), _IMG_BASE, _DOC_THEME[0]))
+            i += 1
+            continue
         vm = VIDEO_RE.match(line.strip())
         if vm:
             out.append(video_fragment(video_attrs(vm.group(1)), _IMG_BASE, _DOC_THEME[0]))
@@ -707,7 +712,9 @@ def parse_blocks(lines, headings, used_slugs, mermaid_store, top_level=True, lay
                     k += 1
                 buf.append(ln[k:]); j += 1
             code = "\n".join(buf)
-            if lang == "mermaid":
+            if lang == "motion":
+                out.append(motion_figure(code, _IMG_BASE, _DOC_THEME[0]))
+            elif lang == "mermaid":
                 key = "@@MERMAID_%d@@" % len(mermaid_store)
                 mermaid_store.append(code)
                 out.append(key)
@@ -4468,6 +4475,7 @@ def convert_file(path, theme_key, eyebrow=None, auto_figure="off", toc_mode="sid
              datetime.date.today().isoformat())
     out_html = build_html(meta, content, headings, theme_key, title, brand, footer,
                           toc_mode, default_mode, motion, motion_tempo)
+    out_html = add_motion_runtime(out_html)
     return out_html, title, headings, ok, pending
 
 
@@ -4509,7 +4517,7 @@ def finalize_html(path, theme_key, src=None):
 
     doc = PART_RE.sub(one, doc)
     _DOC_THEME[0] = theme_key
-    doc = replace_videos(doc, _IMG_BASE, theme_key)
+    doc = add_motion_runtime(replace_videos(doc, _IMG_BASE, theme_key))
     rendered, ok = render_mermaid(store, THEMES[theme_key])
     pending = []
     for i, src_ in enumerate(store):
@@ -4585,7 +4593,67 @@ def video_fragment(attrs, base, doc_theme):
 
 
 def replace_videos(doc, base, doc_theme):
-    return VIDEO_RE.sub(lambda m: video_fragment(video_attrs(m.group(1)), base, doc_theme), doc)
+    doc = VIDEO_RE.sub(lambda m: video_fragment(video_attrs(m.group(1)), base, doc_theme), doc)
+    return MOTION_COMMENT_RE.sub(lambda m: motion_figure(m.group(1), base, doc_theme), doc)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# 動く図（motion-video の部品を、プレイヤー無しで文書の図として置く）
+#   ```motion
+#   {"type": "bars", "items": [...], "figure": {"caption": "…", "loop": false, "width": "80%"}}
+#   ```
+#   または 1 行で <!-- motion: {"type": "flow", ...} -->。画面に入ると動き、完成した図で止まる。
+#   描画部は文書に 1 度だけ入れる（add_motion_runtime）。
+# ──────────────────────────────────────────────────────────────────────────
+MOTION_COMMENT_RE = re.compile(r'<!--\s*motion:\s*(\{.*?\})\s*-->', re.S)
+_MF = [None]
+
+
+def _motion_figure_mod():
+    if _MF[0] is None:
+        import importlib.util
+        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "motion-video", "figure.py")
+        if not os.path.isfile(path):
+            _MF[0] = False
+        else:
+            spec = importlib.util.spec_from_file_location("motion_video_figure", path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            _MF[0] = mod
+    return _MF[0] or None
+
+
+def motion_figure(src, base, doc_theme):
+    def warn(msg):
+        print("warn: 動く図: %s" % msg, file=sys.stderr)
+        return '<div class="callout callout-warning"><div class="callout-body">動く図を作れませんでした（%s）。</div></div>' % html.escape(msg)
+    mf = _motion_figure_mod()
+    if not mf:
+        return warn("motion-video スキルが見つかりません")
+    try:
+        scene = json.loads(src)
+    except ValueError as e:
+        return warn("JSON の誤り: %s" % e)
+    if not isinstance(scene, dict) or not scene.get("type"):
+        return warn("type（motion-video の部品の名前）が必要です")
+    opts = scene.pop("figure", None) or {}
+    light, dark = mf.theme_pair(opts.get("theme") or VIDEO_THEME.get(doc_theme, "daylight"))
+    frag, errs = mf.build_figure(scene, light, dark, opts, base or ".")
+    if errs:
+        return warn("; ".join(errs))
+    return frag
+
+
+def add_motion_runtime(doc):
+    """動く図があれば、描画部と制御を </body> の前に 1 度だけ入れる（動画の埋め込みで描画部が入っていれば使い回す）。"""
+    if 'class="mvfig"' not in doc or "window.MotionFigure" in doc:
+        return doc
+    mf = _motion_figure_mod()
+    if not mf:
+        return doc
+    rt = mf.runtime(has_engine="window.MotionVideo = window.MotionVideo ||" in doc)
+    i = doc.rfind("</body>")
+    return doc[:i] + rt + doc[i:] if i >= 0 else doc + rt
 
 
 def main():
