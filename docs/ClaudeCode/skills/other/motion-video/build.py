@@ -262,7 +262,8 @@ API_DOC = """custom の本体は (ctx, lt, d, H, s)。座標は 1920×1080、lt 
 時間
   H.P(lt, a, b[, 緩急]) a..b ms の進み 0..1（既定 eo）。緩急は H.eo H.eio H.back H.linear（等速）
   H.lin(lt, a, b) a..b ms の等速の進み 0..1（H.P(lt, a, b, H.linear) と同じ。緩急としては渡さない）   H.clamp H.mix
-  H.slots(n, d, 先頭ms, 末尾ms) n 個の区切りを場面の長さに割り付けた時刻の配列
+  H.slots(n, d, 先頭ms, 末尾ms) n 個の区切りの時刻の配列（項目と字幕の文の数が同じなら、i 番目の文が始まる時。違えば場面の長さに均等）
+  H.cue(i) / H.cueEnd(i) この場面の i 番目（0 から）の字幕の文が始まる・終わる時（場面の中の ms。声の長さ・速さの直しの後）  H.cues() 始まりの配列
 文字
   H.txt(s, x, y, {size, weight, color, align, font, alpha, spacing})   H.tw(s, 同)=幅
   H.rich(行, x, y, {…}, 下線の進み) **強調** を色と下線で   H.wrap(s, 最大幅, {size, weight}) 折り返した行の配列
@@ -625,6 +626,8 @@ def validate(spec, base):
                             s[key] = open(p, encoding="utf-8").read()
                 if not s.get("html") and not s.get("update"):
                     errs.append("%s（dom）: html（src）か update（updateSrc）が必要です" % where)
+            if "sync" in s and s["sync"] not in (True, False, "auto"):
+                errs.append("%s: sync は true（文に合わせる）・false（場面の長さに均等）・\"auto\"（項目と文の数が同じとき合わせる。既定）のいずれか" % where)
             for key, table, name in (("transition", TRANSITIONS, "切り替え"), ("anim", TEXT_ANIMS, "文字の出方"),
                                      ("ease", EASES, "緩急"), ("order", ORDERS, "現れる順")):
                 if s.get(key) and not (isinstance(s[key], str) and s[key] in table):
@@ -1175,7 +1178,7 @@ def print_list():
     print("  " + COMMON)
     for k, (req, desc, ex) in SCENE_TYPES.items():
         print("\n  [%s] %s（必須: %s）\n    %s" % (k, desc, ", ".join(req) or "なし", ex))
-    print("\n# 重ねの層（場面の overlays: [...]。座標は 1920×1080、at / until は場面の進み 0..1）")
+    print("\n# 重ねの層（場面の overlays: [...]。座標は 1920×1080、at / until は場面の進み 0..1。atCue / untilCue は n 番目（1 から）の字幕の文が始まる・終わる時）")
     for k, (req, desc, ex) in OVERLAY_KINDS.items():
         print("  [%s] %s（必須: %s）\n    %s" % (k, desc, ", ".join(req), ex))
     print("\n# カメラ\n  " + CAMERA_DOC)

@@ -8,12 +8,12 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   var $ = function (id) { return root.querySelector('[data-mv="' + id.replace(/^mv-/, "") + '"]'); };
 
   /* ================= 時間割 ================= */
-  var SCENES = [], CHAPTERS = [], CUES = [], DUR = 0;
+  var SCENES = [], CHAPTERS = [], CUES = [], DUR = 0, SCOF = typeof WeakMap === "function" ? new WeakMap() : null;
   SPEC.chapters.forEach(function (ch, ci) {
     CHAPTERS.push({ t: DUR, name: ch.title, desc: ch.desc || "", i: ci });
     ch.scenes.forEach(function (s) {
       var d = s._dur, sc = { s: s, t0: DUR, d: d, ci: ci, cues: [] }, p = s._plan;
-      SCENES.push(sc);
+      SCENES.push(sc); if (SCOF) SCOF.set(s, sc);
       (s._cues || []).forEach(function (c, j) {
         /* 前もって作ったナレーションの声は s._voices（c[3] が ""）、掛け合いのせりふは s.lines */
         var ln = c[3] === "" && s._voices ? s._voices[c[4]] || null : c[3] !== undefined && s.lines ? s.lines[c[4]] || {} : null;
@@ -41,7 +41,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
                 bouncy: function (x) { var n = 7.5625, d1 = 2.75; if (x < 1 / d1) return n * x * x; if (x < 2 / d1) return n * (x -= 1.5 / d1) * x + .75; if (x < 2.5 / d1) return n * (x -= 2.25 / d1) * x + .9375; return n * (x -= 2.625 / d1) * x + .984375; },
                 elastic: function (x) { return x <= 0 ? 0 : x >= 1 ? 1 : Math.pow(2, -10 * x) * Math.sin((x * 10 - .75) * (2 * Math.PI / 3)) + 1; },
                 calm: function (x) { return -(Math.cos(Math.PI * x) - 1) / 2; } };
-  var CUR_EASE = eo, CUR_ORDER = "";
+  var CUR_EASE = eo, CUR_ORDER = "", CUR_CUES = null, CUR_CUEE = null, CUR_SYNC = "auto";
   var linear = function (v) { return v; };
   // H.lin は (x, a, b) の形なので、緩急として渡されたら等速として扱う（そのまま呼ぶと NaN で何も描かれない）
   var P = function (x, a, b, e) { return (e === lin ? linear : e || CUR_EASE)(lin(x, a, b)); };
@@ -163,6 +163,14 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   /* 場面の中の「区切り」を、長さに応じた時刻に割り当てる（最初の in ms で入り、残りに均等） */
   function slots(n, d, lead, tail) {
     var a = lead || 500, b = Math.max(a + 200, d - (tail || 900)), out = [];
+    /* 説明に合わせる: 項目の数と字幕の文の数が同じなら（sync: true なら数が違っても）、i 番目の項目を i 番目の文が始まる時に出す。
+       余った項目は最後の文の間に均等に。sync: false で場面の長さへの均等な割り付けに戻す */
+    var cs = CUR_CUES;
+    if (n > 0 && cs && cs.length && CUR_SYNC !== false && (CUR_SYNC === true || cs.length === n)) {
+      var lastA = cs[cs.length - 1], lastB = CUR_CUEE[cs.length - 1], extra = n - cs.length;
+      for (var j = 0; j < n; j++) out.push(j < cs.length ? cs[j] : lastA + (lastB - lastA) * (j - cs.length + 1) / (extra + 1));
+      return out;
+    }
     for (var i = 0; i < n; i++) out.push(a + (b - a) * i / Math.max(1, n));
     if (!CUR_ORDER || CUR_ORDER === "normal" || n < 2) return out;
     /* 現れる順を並べ替える: reverse 後ろから・center 中央から・edges 両端から・random ばらばら（種は項目の数）・alternate 1 つおき・zigzag 前後交互 */
@@ -175,7 +183,14 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       : CUR_ORDER === "edges" ? Math.abs(q - m) - Math.abs(p - m) || p - q : key[p] - key[q]; });
     var res = []; idx.forEach(function (i, j) { res[i] = out[j]; }); return res;
   }
-  function useMotion(s) { CUR_EASE = EASES[s.ease || SPEC.ease] || eo; CUR_ORDER = s.order || SPEC.order || ""; }
+  function useMotion(s) { CUR_EASE = EASES[s.ease || SPEC.ease] || eo; CUR_ORDER = s.order || SPEC.order || "";
+    /* その場面の字幕（ナレーションの文・せりふ）の始まりと終わり（場面の中の ms）。声の長さ・retime で動いた後の時刻 */
+    var sc = SCOF && SCOF.get(s);
+    CUR_CUES = sc && sc.cues.length ? sc.cues.map(function (ci) { return CUES[ci].a - sc.t0; }) : null;
+    CUR_CUEE = CUR_CUES ? sc.cues.map(function (ci) { return CUES[ci].b - sc.t0; }) : null;
+    CUR_SYNC = s.sync !== undefined ? s.sync : SPEC.sync !== undefined ? SPEC.sync : "auto"; }
+  function cueStart(i) { return CUR_CUES && CUR_CUES.length ? CUR_CUES[Math.max(0, Math.min(CUR_CUES.length - 1, i))] : null; }
+  function cueEnd(i) { return CUR_CUEE && CUR_CUEE.length ? CUR_CUEE[Math.max(0, Math.min(CUR_CUEE.length - 1, i))] : null; }
 
   /* ================= 紋章（タイトル・エンドで使う） ================= */
   function emblem(kind, cx, cy, r, rot, alpha, label) {
@@ -964,7 +979,9 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     o = o || {}; var sc = o.scale || 1; ctx.save(); if (o.alpha !== undefined) ctx.globalAlpha *= o.alpha;
     ctx.translate(o.x || 0, o.y || 0); ctx.scale(sc, sc);
     if (o.clip) { rr(0, 0, W, H, 24 / sc); ctx.clip(); }
-    EVMUTE++; try { (R[type] || R.statement)(spec, Math.max(0, lt), d); drawOverlays(spec, lt, d); } finally { EVMUTE--; } ctx.restore();
+    /* 部品の中の部品は、親の場面の文には合わせない（spec.sync: true のときだけ合わせる） */
+    var c0 = CUR_CUES, e0 = CUR_CUEE; if (spec.sync !== true) { CUR_CUES = null; CUR_CUEE = null; }
+    EVMUTE++; try { (R[type] || R.statement)(spec, Math.max(0, lt), d); drawOverlays(spec, lt, d); } finally { EVMUTE--; CUR_CUES = c0; CUR_CUEE = e0; } ctx.restore();
   }
   /* カメラ: [{at:0..1, x, y, zoom, rot}] を場面の進みで補間し、(x,y) を画面の中央に zoom 倍・rot 度で映す。文字列なら型（CAMS） */
   var CAMS = {
@@ -1275,7 +1292,9 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   function drawOverlays(s, lt, d) {
     (s.overlays || []).forEach(function (o) {
       var kind = o.kind || "note", inst = kind === "burst" || kind === "stamp" || kind === "confetti" || kind === "ripple";
-      var a = (o.at || 0) * d, b = o.until !== undefined ? o.until * d : d, k = inst ? (lt >= a ? 1 : 0) * (1 - P(lt, b - 350, b)) : P(lt, a, a + 450) * (1 - P(lt, b - 350, b));
+      /* atCue / untilCue: n 番目（1 から）の字幕の文が始まる・終わる時（説明に合わせて出す・消す） */
+      var a = o.atCue && cueStart(o.atCue - 1) !== null ? cueStart(o.atCue - 1) : (o.at || 0) * d,
+          b = o.untilCue && cueEnd(o.untilCue - 1) !== null ? cueEnd(o.untilCue - 1) : o.until !== undefined ? o.until * d : d, k = inst ? (lt >= a ? 1 : 0) * (1 - P(lt, b - 350, b)) : P(lt, a, a + 450) * (1 - P(lt, b - 350, b));
       if (kind === "stamp") shakeEv(a + 240, o.shake === undefined ? 12 : o.shake, 360);
       if (o.sfx !== false) {
         if (kind === "cursor") (o.click || []).forEach(function (ci) { var pts0 = o.path || [[960, 540]]; sfxEv(a + (b - 350 - a) * ci / Math.max(1, pts0.length - 1), "click"); });
@@ -1339,7 +1358,8 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       ctx.restore();
     });
   }
-  var HELP = { C: C, F: F, W: W, H: H, clamp: clamp, lin: lin, linear: linear, eo: eo, eio: eio, back: back, P: P, mix: mix, rr: rr, txt: txt, tw: tw, wrap: wrap,
+  var HELP = { C: C, F: F, W: W, H: H, clamp: clamp, lin: lin, linear: linear, eo: eo,
+               cue: function (i) { return cueStart(i); }, cueEnd: function (i) { return cueEnd(i); }, cues: function () { return CUR_CUES ? CUR_CUES.slice() : []; }, eio: eio, back: back, P: P, mix: mix, rr: rr, txt: txt, tw: tw, wrap: wrap,
                rich: rich, icon: icon, panel: panel, stateMark: stateMark, emblem: emblem, accentAt: accentAt, slots: slots,
                qpt: qpt, rand: rand, arrow: arrow, packet: packet, node: node, appWindow: appWindow, toast: toast, typed: typed, count: fmtNum,
                particles: particles, cursor: cursor, sub: sub, camAt: camAt, applyCam: applyCam, heading: heading,
