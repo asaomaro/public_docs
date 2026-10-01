@@ -173,6 +173,20 @@ SCENE_TYPES = {
     "marquee": (["rows"], "大きな文字の帯が左右に流れる（キーワードの洪水）。caption で中央に札", '{"type":"marquee","rows":[["並行","承認","通知"],["SSH","Windows","TLS"]],"caption":"ぜんぶ、1 つの画面で"}'),
     "custom": ([], "JS で自由に描く（本体: (ctx, lt, d, H, s)。道具は --api。code は文字列か行の配列、または src に .js のパス）", '{"type":"custom","src":"scenes/intro.js","duration":8,"narration":"…"}'),
 }
+# 立体・奥行きと文字の演出（parts-depth.js）
+SCENE_TYPES.update({
+    "cube": (["faces"], "箱が回って面ごとに見せる（2〜4 面。faces: {title, text, icon} か文字列）", '{"type":"cube","heading":"3 つの顔","faces":[{"title":"速い","text":"3 分で始められる","icon":"rocket"},{"title":"安全","icon":"shield"},{"title":"みんなで","icon":"users"}]}'),
+    "carousel": (["items"], "カードの輪が奥行きの中で回り、今の 1 枚が手前に来る（caption で下に一言）", '{"type":"carousel","heading":"使える道具","items":[{"title":"Claude","icon":"bolt"},{"title":"Codex","icon":"code"},{"title":"Gemini","icon":"star"},{"title":"herdr","icon":"terminal"}]}'),
+    "explode": (["layers"], "層の構成を斜め上から見た板で積み、間が開いて分かれる（下から。text で横に注記）", '{"type":"explode","heading":"仕組みの層","layers":[{"title":"インフラ","text":"クラウド"},{"title":"サーバ","icon":"server"},{"title":"画面","text":"ブラウザ・端末"}]}'),
+    "tunnel": (["items"], "奥に並んだ枠の中を進み、1 つずつ通り抜ける（手順・章立て）", '{"type":"tunnel","items":[{"title":"計画","icon":"pencil"},{"title":"実装","text":"並べて進める"},{"title":"公開","icon":"rocket"}]}'),
+    "parallax": ([], "奥行きのある風景（scene: hills|city|space）を横に移り、手前ほど速く動く。中央に title・text", '{"type":"parallax","scene":"city","title":"どこからでも","text":"別のマシンの作業も 1 画面で"}'),
+    "swarm": (["words"], "粒が集まって言葉になり、次の言葉へ形を変える（2〜4 語。短い語ほどきれい）", '{"type":"swarm","words":["並べる","知らせる","任せる"],"text":"3 つの動き"}'),
+    "morph": (["items"], "形（circle square triangle diamond hexagon star arrow plus heart）が次の形へ変わり、横の名前が入れ替わる", '{"type":"morph","heading":"育つ流れ","items":[{"shape":"circle","label":"種","text":"思いつき"},{"shape":"triangle","label":"芽"},{"shape":"star","label":"花"}]}'),
+    "barrage": (["phrases"], "短い言葉を大きく連打する（言葉ごとに組み方が変わる: stack punch slide spread。**強調** は差し色）", '{"type":"barrage","phrases":["待たない。","**並べる**。","気づく、すぐに。","任せて、**進む**。"]}'),
+    "rotator": (["words"], "前後の言葉は止まったまま、間の語だけが入れ替わる（before・after・text）", '{"type":"rotator","before":"AI と","words":["速く","安全に","楽しく"],"after":"作る","text":"Sodashitsu で"}'),
+    "textpath": (["text"], "文字が線（path: circle wave arc spiral）に沿って並び、流れる。中央に center・icon・sub", '{"type":"textpath","path":"circle","text":"SODASHITSU · AGENT COCKPIT","center":"操舵室","sub":"AI の作業を 1 画面で"}'),
+    "emphasis": (["text"], "文章は静かに置き、**強調** の語だけが順に光って動く（強調の数とナレーションの文の数をそろえると、話す順に光る）", '{"type":"emphasis","text":"作業を**並べて見る**。待ちは**通知で知る**。あとは**任せる**だけ。"}'),
+})
 COMMON = ("共通: narration（ナレーション＝字幕。文字列か配列）・duration（秒。省略時は自動）・heading・transition（切り替え。下の一覧）"
           "・overlays（重ねの層）・camera（カメラ。型の名前か keyframe）・anim（文字の出方。title・statement・quote・end・kinetic・impact・logo）"
           "・fx（演出の層の配列。false で性格の既定も止める）・shake（[{at, amp, dur}] 画面の揺れ）・sfx（効果音）")
@@ -206,6 +220,7 @@ TRANSITIONS = {
     "rings": "同心円の輪が開く", "stack": "次の場面が横から重なり、前の場面が沈む", "shrink": "前の場面が縮んで左上へ飛ぶ", "flood": "波打つ水面が下から満ちる",
     "focus": "ぼけて入れ替わる", "dissolve": "細かい四角がばらばらに入れ替わる", "columns": "縦の帯が開く",
 }
+TRANSITIONS.update({"depth": "前の場面が奥へ沈み、次が手前から定まる（立体）", "swing": "前の場面が左端を軸に扉のように奥へ開く（立体）"})
 TEXT_ANIMS = {
     "rise": "下から浮かぶ（既定）", "reveal": "左から現れ、カーソルが走る（題名の既定）", "pop": "弾んで出る", "slam": "大きく叩きつけ、画面が揺れる",
     "stretch": "横に伸びた形から縮む（映画の題名）", "blur": "ぼけから合う", "glitch": "色ずれしながら定まる", "neon": "ネオンが点く",
@@ -216,6 +231,7 @@ TEXT_ANIMS = {
     "flicker": "1 文字ずつ瞬いて点く（古い看板）", "words": "語ごとに下から覗く", "halves": "上半分と下半分が左右から合わさる", "swing": "1 文字ずつ上を軸に振れて止まる",
     "elastic": "ゴムのように伸び縮みして定まる", "tracking": "広い字間から詰まる（上品）", "skew": "斜めに傾いて滑り込む（ニュース）",
 }
+TEXT_ANIMS.update({"depth": "1 文字ずつ奥から迫って定まる（立体）", "unfold": "下を軸に、寝た状態から起き上がる（立体）", "swirl": "渦を巻いて集まる"})
 EASES = {"smooth": "なめらか（既定）", "spring": "ばねのように行き過ぎて戻る", "snappy": "素早く決まる", "bouncy": "跳ねて止まる",
          "elastic": "ゴムのように震えて止まる", "calm": "ゆっくり出てゆっくり止まる"}
 ORDERS = {"normal": "前から（既定）", "reverse": "後ろから", "center": "中央から外へ", "edges": "両端から中央へ", "random": "ばらばら（毎回同じ順）",
@@ -228,6 +244,7 @@ FX = {
     "bubbles": "昇る泡", "matrix": "流れ落ちる文字", "rain": "雨（上）", "snow": "雪（上）", "film": "古いフィルムの傷とちらつき（上）",
     "leaks": "光漏れ（上）", "spotlight": "動くスポットライト（上）", "sparkles": "きらめき（上）",
 }
+FX.update({"cubes": "奥行きの中を回りながら漂う針金の箱"})
 CAMERA_PRESETS = {
     "push-in": "ゆっくり寄る", "pull-out": "寄った所から引く", "pan-left": "左へ流す", "pan-right": "右へ流す", "rise": "上へ上がる",
     "punch": "言い切りで素早く寄る", "tilt": "傾きを戻しながら", "drift": "ゆらゆら漂う", "dolly": "大きく寄った所から回りながら引く",
@@ -281,6 +298,11 @@ API_DOC = """custom の本体は (ctx, lt, d, H, s)。座標は 1920×1080、lt 
   H.camAt(keys, 進み) / H.applyCam(cam) カメラを自分で掛ける
 部品を道具に
   H.sub(type, spec, lt, d, {x, y, scale, alpha, clip}) 部品を縮小して置く（spec は s の中に置くと計算が使い回される）
+立体（parts-depth.js。透視の焦点 1400、中心が原点・z は奥が正）
+  H.p3(x, y, z[, cx, cy]) 3D の点を画面へ → {x, y, s（縮尺）}   H.rot3([x,y,z], 傾き ax, 回転 ay) 縦軸で回してから横軸で傾ける
+  H.plane(左上, 右上, 左下, w, h, function (ctx) {…w×h の絵…}, {cx, cy, both}) 3D の面に 2D の絵を貼る（裏向きは描かない。both で両面）
+  H.textPoints(文字, n, {size, weight, font, y}) 文字の形の点 n 個   H.shapePoints(形, n) circle square triangle diamond hexagon star arrow plus heart
+  H.morph(点の並び A, B, 進み) 形の変身   H.mixColor(色, 色, 進み)
 動きを強く
   H.text(行, x, y, {size, weight, font, align, color}, 出方, lt, 始まり ms, 長さ ms) 文字の出方（--list の一覧）で 1 行を出す
   H.burst(x, y, 弾けてからの ms, {n, seed, r, color}) 破片が弾ける   H.fx(["speedlines", …], lt, d, "under"|"over") 演出の層を描く
@@ -295,6 +317,7 @@ MIN_SEC = {"funnel": 4, "pyramid": 4, "venn": 5.5, "cycle": 5, "matrix": 5, "cal
            "compare": 3, "code": 2.5, "window": 7, "image": 5, "end": 4, "custom": 5,
            "cards": 3, "timeline": 3, "chat": 2, "line": 6, "donut": 6, "table": 3, "quote": 6, "kinetic": 3, "split": 6,
            "beforeafter": 7, "dom": 5}
+MIN_SEC.update({"cube": 5, "carousel": 5, "explode": 5, "tunnel": 6, "parallax": 4, "swarm": 5, "morph": 5, "barrage": 4, "rotator": 4, "textpath": 4.5, "emphasis": 4})
 
 
 def wav_info(path, step_ms=50):
