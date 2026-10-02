@@ -381,7 +381,8 @@ python3 <skill_dir>/build.py spec.json --dist           # 配布用（設定の�
 - 立ち絵は `images`（表情ごとに 1 枚の絵を差し替える）か `sprite`（体の絵の上に、表情・まばたき・口のパーツを重ねる）で渡す。`sprite` は
   `{"w", "h", "images": {名前: 画像}, "poses": {"": {"base": 名前, "faces": {"smile": {"e": [名前, x, y], "open": […], "half": […], "blink": […]}}}, "raise": {…}}}`。
   パーツは体の絵の (x, y) にその四角を置き換えて描く（描く順は 体 → e → blink → open か half）。ポーズはせりふの `pose`（無ければ `""`）で選ぶ。
-  yukkuri-kaisetsu の `sprite.py` がこの形を作る。
+  yukkuri-kaisetsu の `sprite.py` がこの形を作る。画像は PNG でも SVG でもよい（SVG は width・height を画素の大きさで書く。Canvas に描くので録画にも映る）。
+  SVG の画像は、base64 にせず文字のまま埋め込む（`'` を含まないもの。2 割ほど小さい）。
 - **演技**（時刻だけで決まり、録画にも入る）: せりふの `face`・`pose`・`motion`。せりふの途中で変えるなら `acts: [{"at": 0.5, "face": …, "pose": …, "motion": …}]`（`at` はせりふの中の位置 0〜1）、
   相手の反応は `react: [{"who": 名前, "at": 0.6, "face": …, "motion": …, "emote": "!?"}]`。反応した瞬間は口だけが開く。
   せりふの後 1.5 秒で、いつもの顔（`cast.<名前>.rest`、既定 normal）と姿に戻る。絵が替わるときは、前の絵を重ねて消していく。
@@ -392,6 +393,8 @@ python3 <skill_dir>/build.py spec.json --dist           # 配布用（設定の�
 - **気持ちの印**（`emote`）は線と形で描く（絵文字の書体が無い環境でも出る）: `!` `?` `!?` `♪` `…` `💦` `💢` `💡` `✨` `♥` `gloom`（ガーン）`shock` `zzz`。
 - **絵で見せる場面**: `board: {"type": "stage", "shots": [{"line": 0, "items": […], "title": …, "note": …}]}`。白い黒板を置かず、背景の上に絵・写真・矢印・短い言葉を並べる。
   `line` 番目のせりふからその並びに替わる。`items` は `{"img": 名前, "label": 名札, "say": 吹き出し, "frame": 白い縁, "credit": 出どころ}`・`{"text": "1 行目/2 行目", "color"}`・`{"op": "→"}`。
+  絵の代わりに `{"icon": アイコンの名前}`（白い丸の上に線で描かれて動く）・`{"part": 部品の台本}`（白い板の上に縮めて置く。ほかの絵より広く取る）も置ける（`label`・`say` は同じ）。
+  `{"draw": "…JS…", "plate": "dark"・"light"・"none"}` は描き下ろし: `custom` と同じ `(ctx, lt, d, H, s)` の本体を、並びの外に（板を敷いて）描く。`s.box` が描く範囲、`lt` はその並びが出てからの ms、`s.cue(n)` は n 個あとのせりふが始まる ms。
   絵は台本の `images: {名前: 画像}` から名前で引く（同じ絵を何度使っても 1 回だけ埋め込む）。場面の `tag`・`corner` は左上・右上の札。
 - **掛け合いの設定**（台本の `talk`）: `caption`（`"box"` 白い箱とキャラ色の縁・`"outline"` 箱なしの太い縁）・`name`（名札）・`size`・`font`（`fonts: [{family, src, weight}]` で埋め込んだ書体）・
   `relax`（素の顔に戻るまでの ms。false で戻らない）・`dim`（話していない人を薄く）・`sfx`（印と大きい字幕に付ける効果音。false で付けない）。

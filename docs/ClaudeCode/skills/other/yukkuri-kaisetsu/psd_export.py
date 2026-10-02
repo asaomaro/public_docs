@@ -204,6 +204,9 @@ def main():
     ap.add_argument("-o", "--out", help="書き出す場所（--recipe: フォルダ、--sheet: PNG）")
     ap.add_argument("--height", type=int, default=720, help="立ち絵の高さ（px。既定 720）")
     ap.add_argument("--png", action="store_true", help="パーツ（sprite.json）にせず、組み合わせごとに 1 枚の PNG で書き出す")
+    ap.add_argument("--svg", action="store_true", help="PNG のパーツに加えて、SVG（ベクトル）のパーツを <out>/svg に作る（vtracer が要る。大きく書き出してからなぞる）")
+    ap.add_argument("--svg-scale", type=float, default=2, help="SVG にするときに、--height の何倍で書き出してからなぞるか（既定 2）")
+    ap.add_argument("--detail", default="fine", help="SVG の細かさ（fine 平らな塗り・既定／soft ぼかしのある絵／mid 小さく）")
     a = ap.parse_args()
     p = Psd(a.psd)
     rc = json.load(open(a.recipe, encoding="utf-8")) if a.recipe else {}
@@ -214,6 +217,9 @@ def main():
         sheet(p, a.sheet, a.out or "sheet.png", rc.get("hide", []))
     elif a.recipe:
         export(p, rc, a.out or "chars/out", a.height, a.png)
+        if a.svg:
+            import sprite
+            sprite.svg_from(lambda tmp: export(p, rc, tmp, round(a.height * a.svg_scale)), a.out or "chars/out", a.detail)
     else:
         ap.error("--list・--sheet・--recipe のどれかを付ける")
 

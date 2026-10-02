@@ -95,11 +95,51 @@ TEXT_COLORS = {"red": "#ff5a5f", "yellow": "#ffe45c", "blue": "#7cc4ff", "green"
 REACT_RE = re.compile(r"^[>＞]\s*([\w\-]+)\s*(?:[（(]([^)）]*)[)）])?\s*(?:\[([^\]]+)\])?\s*(?:@\s*([\d.]+))?\s*$")
 
 
+def split_cells(rest):
+    """@show の中身を | で区切る（{…} の中と "…" の中の | は区切らない）。"""
+    cells, cur, depth, quote = [], "", 0, False
+    for ch in rest:
+        if ch == '"':
+            quote = not quote
+        elif not quote and ch in "{[":
+            depth += 1
+        elif not quote and ch in "}]":
+            depth -= 1
+        if ch == "|" and not quote and depth <= 0:
+            cells.append(cur)
+            cur = ""
+        else:
+            cur += ch
+    return [c.strip() for c in cells + [cur]]
+
+
+LABEL_RE = r'(?:\s+"([^"]*)")?(?:\s*>\s*"([^"]*)")?'
+
+
 def parse_show(rest):
-    """@show の中身 → 1 つの絵の並び（shot）。| で区切る: 絵の名前 "名札" > "吹き出し"・"短い言葉"・→ などの記号・title: / note: / credit: …"""
+    """@show の中身 → 1 つの絵の並び（shot）。| で区切る: 絵の名前 "名札" > "吹き出し"・"短い言葉"・→ などの記号・title: / note: / credit: …
+    絵の代わりに、icon:名前（線で描いて動くアイコン）・part:{部品の JSON}（グラフ・図）・draw:名前（描き下ろしの JS）も置ける。"""
     shot = {"items": []}
-    for cell in [c.strip() for c in rest.split("|")]:
+    for cell in split_cells(rest):
         if not cell:
+            continue
+        m = re.match(r"^draw:(\S+)(?:\s+(dark|light|none))?$", cell)
+        if m:   # 描き下ろし（中身は、台本を組むときにファイルから読む。stage_images）。後ろは下に敷く板（dark 既定・light・none）
+            shot["items"].append(dict({"draw_ref": m.group(1)}, **({"plate": m.group(2)} if m.group(2) else {})))
+            continue
+        if cell.startswith("part:"):   # 部品（motion-video の部品の台本）を、絵と同じ場所に置く
+            try:
+                spec, end = json.JSONDecoder().raw_decode(cell[5:].lstrip())
+            except ValueError as e:
+                raise ValueError('part: の後ろは部品の JSON（例 part:{"type":"bars","items":[…]}）: %s' % e)
+            m = re.match("^" + LABEL_RE + "$", cell[5:].lstrip()[end:])
+            if not isinstance(spec, dict) or not m:
+                raise ValueError('「%s」（part:{部品の JSON} "名札" > "吹き出し"）' % cell[:40])
+            it = {"part": spec}
+            for k, v in (("label", m.group(1)), ("say", m.group(2))):
+                if v:
+                    it[k] = v
+            shot["items"].append(it)
             continue
         m = re.match(r"^(note|title|credit)\s*[:：]\s*(.+)$", cell)
         if m:
@@ -119,6 +159,8 @@ def parse_show(rest):
         if not m:
             raise ValueError('「%s」（絵の名前 "名札" > "吹き出し"、"短い言葉"、→ などの記号 のどれかを | で区切る）' % cell)
         it = {"ref": m.group(1)}
+        if it["ref"].startswith("icon:"):
+            it = {"icon": it["ref"][5:]}
         for k, v in (("label", m.group(2)), ("say", m.group(3))):
             if v:
                 it[k] = v
@@ -185,9 +227,9 @@ def parse(text):
                     sc["board"] = board
                 else:
                     new_scene(board=board, **pending); pending = {}
-            elif key == "show":
+            elif key in ("show", "draw"):   # @draw: 名前 は @show: draw:名前 と同じ
                 try:
-                    shot = parse_show(rest)
+                    shot = parse_show(rest if key == "show" else "draw:" + rest)
                 except ValueError as e:
                     errs.append("%d 行目: @show の書き方が違います: %s" % (no, e)); continue
                 staged = sc is not None and isinstance(sc.get("board"), dict) and sc["board"].get("type") == "stage"
@@ -293,9 +335,12 @@ def find_images(cid, base, chars_dir):
     return faces
 
 
-def find_sprite(cid, base, chars_dir):
-    """chars/<id>/sprite.json（体の絵にパーツを重ねる形。sprite.py）があれば読む。画像は sprite/<名前>.png。"""
+def find_sprite(cid, base, chars_dir, art="svg"):
+    """chars/<id>/sprite.json（体の絵にパーツを重ねる形。sprite.py）があれば読む。画像は sprite/<名前>.png。
+    chars/<id>/svg/（SVG にしたパーツ。sprite.py --svg）があれば、そちらを使う（art が "png" のときは使わない）。"""
     d = os.path.join(base, chars_dir, cid)
+    if art != "png" and os.path.isfile(os.path.join(d, "svg", "sprite.json")):
+        d = os.path.join(d, "svg")
     if not os.path.isfile(os.path.join(d, "sprite.json")):
         return None
     sp = json.load(open(os.path.join(d, "sprite.json"), encoding="utf-8"))
@@ -316,7 +361,7 @@ def build_cast(meta, base):
             if meta.get("%s.%s" % (cid, k)):
                 c[k] = meta["%s.%s" % (cid, k)]
         for d in (chars_dir, os.path.join(HERE, "chars")):   # 台本の隣に無ければ、スキルに集めた立ち絵。パーツの形（sprite.json）があればそちら
-            sp, imgs = find_sprite(cid, base, d), find_images(cid, base, d)
+            sp, imgs = find_sprite(cid, base, d, meta.get("%s.art" % cid, meta.get("art", "svg"))), find_images(cid, base, d)
             if sp:
                 c["sprite"] = sp
             elif imgs:
@@ -588,7 +633,7 @@ def resolve_faces(chapters, cast):
                 P["faces"][face] = sp["poses"][pose]["faces"][face]
                 P["faces"].setdefault("normal", sp["poses"][pose]["faces"].get("normal", {}))
             keys = {P["base"] for P in poses.values()} | {p[0] for P in poses.values() for f in P["faces"].values() for p in f.values()}
-            c["sprite"] = {"w": sp["w"], "h": sp["h"], "poses": poses, "images": {k: os.path.join(sp["_dir"], k + ".png") for k in sorted(keys)}}
+            c["sprite"] = {"w": sp["w"], "h": sp["h"], "poses": poses, "images": {k: os.path.join(sp["_dir"], k + (".svg" if sp.get("svg") else ".png")) for k in sorted(keys)}}
         elif c.get("images"):
             names = {f + ("@" + p if p else "") for p, f in use}
             c["images"] = {f: v for f, v in c["images"].items() if f in names}
@@ -751,8 +796,18 @@ def assign_voice_files(spec, vdir):
     return i, len(files)
 
 
+def _lowpass_taps(r0, rate, n=95):
+    """新しい周波数の半分より上を落とす係数（窓をかけた sinc）。落とさずに間引くと、高い音が折り返して雑音になる（サ行の多い声で目立つ）。"""
+    import math
+    fc, mid = 0.46 * rate / r0, (n - 1) / 2
+    h = [(2 * fc if i == mid else math.sin(2 * math.pi * fc * (i - mid)) / (math.pi * (i - mid)))
+         * (0.42 - 0.5 * math.cos(2 * math.pi * i / (n - 1)) + 0.08 * math.cos(4 * math.pi * i / (n - 1))) for i in range(n)]
+    g = sum(h)
+    return [v / g for v in h]
+
+
 def resample_wav(src, dst, rate):
-    """WAV（16 ビット）を低いサンプリング周波数に直す（HTML を小さくするため）。"""
+    """WAV（16 ビット）を低いサンプリング周波数に直す（HTML を小さくするため）。先に高い音を落としてから間引く。"""
     import array, wave
     w = wave.open(src)
     ch, sw, r0, n = w.getnchannels(), w.getsampwidth(), w.getframerate(), w.getnframes()
@@ -760,25 +815,29 @@ def resample_wav(src, dst, rate):
     w.close()
     if sw != 2 or r0 <= rate:
         return src
+    a = array.array("h", data)[::ch]   # 1 つ目のチャンネルだけを使う（声は 1 チャンネル）
+    taps = _lowpass_taps(r0, rate)
+    half, m = len(taps) // 2, int(len(a) * rate / r0)
     try:
-        import warnings
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            import audioop
-        out = audioop.ratecv(data, 2, ch, r0, rate, None)[0]
-    except ImportError:   # audioop の無い Python: 前後の平均でならしてから、線で補って間引く
-        a = array.array("h", data)[::ch]
-        sm = [a[0]] + [(a[i - 1] + 2 * a[i] + a[i + 1]) // 4 for i in range(1, len(a) - 1)] + [a[-1]]
-        step, m, o = r0 / rate, int(len(a) * rate / r0), array.array("h")
+        import numpy as np
+        x = np.convolve(np.asarray(a, dtype=np.float64), np.asarray(taps), mode="same")
+        y = np.interp(np.arange(m) * (r0 / rate), np.arange(len(x)), x)
+        out = array.array("h", np.clip(np.rint(y), -32768, 32767).astype(np.int16).tolist())
+    except ImportError:   # numpy の無い環境: 要る位置だけを計算する（遅いが、結果は同じ）
+        pad = [0] * half + list(a) + [0] * (half + 2)
+        step, out = r0 / rate, array.array("h")
+        whole = abs(step - round(step)) < 1e-9
         for i in range(m):
-            x = i * step
-            j = int(x)
-            o.append(int(sm[j] + (sm[min(j + 1, len(sm) - 1)] - sm[j]) * (x - j)))
-        out, ch = o.tobytes(), 1
+            pos = i * step
+            j = int(pos)
+            v = sum(t * q for t, q in zip(taps, pad[j:j + len(taps)]))
+            if not whole and pos > j:   # 間の位置は、となりの値との間を線で補う
+                v += (sum(t * q for t, q in zip(taps, pad[j + 1:j + 1 + len(taps)])) - v) * (pos - j)
+            out.append(max(-32768, min(32767, int(round(v)))))
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     w = wave.open(dst, "wb")
-    w.setnchannels(ch); w.setsampwidth(2); w.setframerate(rate)
-    w.writeframes(out)
+    w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate)
+    w.writeframes(out.tobytes())
     w.close()
     return dst
 
@@ -901,6 +960,14 @@ def stage_images(meta, chapters, base):
                 continue
             for shot in b["shots"]:
                 for it in shot["items"]:
+                    dref = it.pop("draw_ref", None)
+                    if dref:   # 描き下ろし: 台本の隣か scenes/ の <名前>.js（custom と同じ (ctx, lt, d, H, s) の本体）
+                        cands = [os.path.join(base, d, dref + e) for d in ("", "scenes") for e in ("", ".js")]
+                        path = next((c for c in cands if os.path.isfile(c)), None)
+                        if not path:
+                            sys.exit("error: @show の draw:%s の JS が見つかりません（%s か scenes/%s.js に置く）" % (dref, dref + ".js", dref))
+                        it["draw"] = open(path, encoding="utf-8").read()
+                        continue
                     ref = it.pop("ref", None)
                     if ref is None:
                         continue
@@ -917,6 +984,8 @@ def stage_images(meta, chapters, base):
                     it.setdefault("frame", ext in (".jpg", ".jpeg"))
                     cj = os.path.join(os.path.dirname(path), "credits.json")
                     e = json.load(open(cj, encoding="utf-8")).get(os.path.basename(path)) if os.path.isfile(cj) else None
+                    if e and e.get("from") == "いらすとや":   # 商用は 1 つの制作物に 20 点まで・素材としての再配布は不可（irasutoya スキル）
+                        meta.setdefault("_irasutoya", set()).add(e.get("source") or path)
                     if e:
                         if not any(x["full"] == e["full"] for x in meta.setdefault("_img_credits", [])):
                             meta["_img_credits"].append(e)
@@ -1057,7 +1126,7 @@ def load_spec(script):
     return meta, spec, cast, credits, base
 
 
-def make_spec(script, voicevox=False, voicevox_url="http://127.0.0.1:50021", voices_dir=None, compact_html=False):
+def make_spec(script, voicevox=False, voicevox_url="http://127.0.0.1:50021", voices_dir=None, compact_html=False, voice_rate=16000):
     """台本（テキスト）から motion-video の台本を作り、声を当て、確かめ、時間割を決める。誤りがあれば止める。
     返り値は (台本, motion-video の build, 登場人物, クレジット)。video-export スキル（書き出し）もこれで読む。
     途中の台本は <台本名>.json、章の時刻とクレジットは <台本名>.info.json に書く。"""
@@ -1077,7 +1146,7 @@ def make_spec(script, voicevox=False, voicevox_url="http://127.0.0.1:50021", voi
         used, have = assign_voice_files(spec, os.path.join(base, voices_dir) if not os.path.isabs(voices_dir) else voices_dir)
         print("WAV: %d 個をせりふに当てました（フォルダに %d 個）" % (used, have))
     if compact_html:
-        compact(spec, base, stem)
+        compact(spec, base, stem, voice_rate)
     import base64   # @show の絵は、名前の表（images）に 1 回ずつ埋め込む
     spec["images"] = {k: "data:%s;base64,%s" % (IMG_MIME[os.path.splitext(p)[1].lower()], base64.b64encode(open(p, "rb").read()).decode("ascii"))
                       for k, p in spec.pop("_image_paths").items()}
@@ -1109,11 +1178,42 @@ def make_spec(script, voicevox=False, voicevox_url="http://127.0.0.1:50021", voi
     for ch in spec["chapters"]:
         marks.append({"at": mv.fmt(t), "title": ch["title"]})
         t += sum(s["_dur"] for s in ch["scenes"])
+    ira = len(meta.get("_irasutoya", ()))
+    if ira:
+        print("warn: いらすとやの絵を %d 点使っています。素材としての再配布は不可なので、この HTML は手元だけで使い、「WebM で保存」した動画を配ってください%s"
+              % (ira, "。商用（収益化した動画）は 1 本 20 点まで（サムネイルを含む）。点数を減らすか、有償の利用を問い合わせる" if ira > 20 else "（収益化するなら、サムネイルと合わせて 20 点まで）"), file=sys.stderr)
     info = {"title": spec["title"], "length": mv.fmt(total), "chapters": marks, "credits": credits, "images": list({x["full"]: x for x in meta.get("_img_credits", [])}.values()),
-            "cast": [{"id": k, "name": c.get("name", k)} for k, c in cast.items()], "facts": meta.get("facts", ""), "webm_only": WEBM_ONLY,
+            "cast": [{"id": k, "name": c.get("name", k)} for k, c in cast.items()], "facts": meta.get("facts", ""), "webm_only": WEBM_ONLY + (["いらすとやの絵"] if meta.get("_irasutoya") else []),
+            "irasutoya": len(meta.get("_irasutoya", ())),
             "lines": sum(len(talk_lines(s)) for ch in spec["chapters"] for s in ch["scenes"])}
     json.dump(info, open(stem + ".info.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)   # 公開まわり（yukkuri-publish）が読む
     return spec, mv, cast, credits
+
+
+def take_shots(html, times, outdir):
+    """作った HTML を Chrome（画面なし）で開き、その時刻へ動かして、映像だけを 1280×720 の PNG に撮る。"""
+    import shutil, subprocess, tempfile
+    chrome = next((c for c in ("google-chrome", "chromium", "chromium-browser", "chrome") if shutil.which(c)), None)
+    if not chrome:
+        print("warn: Chrome が見つからないので、画面を撮れません（HTML をブラウザで開いて見る）", file=sys.stderr)
+        return
+    os.makedirs(outdir, exist_ok=True)
+    src = open(html, encoding="utf-8").read()
+    for t in times:
+        sec = sum(float(x) * 60 ** i for i, x in enumerate(reversed(t.strip().split(":"))))
+        hook = ('<style>.mv-stage{position:fixed!important;inset:0!important;z-index:99999!important;max-width:none!important;width:100vw!important;height:100vh!important}</style>'
+                '<script>window.addEventListener("load",function(){setTimeout(function(){try{__MV__.seek(%d)}catch(e){}},700)})</script>' % round(sec * 1000))
+        with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False, encoding="utf-8", dir=os.path.dirname(html)) as f:
+            f.write(src + hook)
+        png = os.path.join(outdir, "%07.2f.png" % sec)
+        try:
+            subprocess.run([chrome, "--headless=new", "--no-sandbox", "--hide-scrollbars", "--window-size=1280,720", "--virtual-time-budget=4000",
+                            "--screenshot=" + png, "file://" + f.name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
+            print("撮った絵: %s" % png)
+        except Exception as e:
+            print("warn: %s 秒の画面を撮れませんでした（%s）" % (t, e), file=sys.stderr)
+        finally:
+            os.remove(f.name)
 
 
 def main():
@@ -1124,9 +1224,11 @@ def main():
     ap.add_argument("--voicevox-url", default="http://127.0.0.1:50021")
     ap.add_argument("--voices-dir", help="用意した WAV のフォルダ（名前順に、声の無いせりふへ順に当てる）")
     ap.add_argument("--timeline", action="store_true", help="HTML を作らず時間割りを出す")
+    ap.add_argument("--shots", help="作った HTML の、その時刻（秒。6.5,12 のように並べる。0:42 の形でもよい）の画面を PNG に撮る（<台本名>_shots/。Chrome が要る）。絵・図・立ち絵の見え方を確かめるため")
     ap.add_argument("--readings", action="store_true", help="VOICEVOX がせりふをどう読むか（かな）を出す。読み間違いを pronounce: で直すため")
     ap.add_argument("--yukkuri-bat", action="store_true", help="ゆっくりボイスのせりふを、Windows の AquesTalkPlayer で WAV にするバッチファイル（<台本名>_yukkuri.bat）を書く")
     ap.add_argument("--compact", action="store_true", help="HTML を小さくする（声を 16kHz に、背景と写真を幅 1280 の JPEG に。3 分で 5MB ほど減る）")
+    ap.add_argument("--voice-rate", type=int, default=16000, help="--compact のときの声のサンプリング周波数（既定 16000。12000 にすると、もう 2 割ほど小さくなるが、声が少しこもる）")
     ap.add_argument("--dist", action="store_true", help="配布用: 設定の書き出し（WebM で保存・編集用の映像・音のトラック）と、その実行部を除いて HTML を小さくする")
     ap.add_argument("--list-assets", action="store_true", help="背景と BGM のカタログ（名前と説明）を出す")
     ap.add_argument("--list-casts", action="store_true", help="登場人物のプリセットと、立ち絵にある表情・ポーズを出す")
@@ -1163,7 +1265,7 @@ def main():
         print("  3. ダブルクリックで実行する（%s_yukkuri フォルダに WAV ができる）" % name)
         print("  4. python3 %s %s --voices-dir %s_yukkuri" % (os.path.basename(__file__), a.script, name))
         return
-    spec, mv, cast, credits = make_spec(a.script, a.voicevox, a.voicevox_url, a.voices_dir, a.compact)
+    spec, mv, cast, credits = make_spec(a.script, a.voicevox, a.voicevox_url, a.voices_dir, a.compact, a.voice_rate)
     stem = os.path.splitext(os.path.abspath(a.script))[0]
     total = sum(s["_dur"] for ch in spec["chapters"] for s in ch["scenes"])
     if a.timeline:
@@ -1186,6 +1288,8 @@ def main():
               % (e["title"], e["author"], e["license"].split("。")[0]), file=sys.stderr)
     if credits:
         print("クレジット: " + " / ".join(credits))
+    if a.shots:
+        take_shots(out, [t for t in a.shots.split(",") if t.strip()], stem + "_shots")
 
 
 if __name__ == "__main__":

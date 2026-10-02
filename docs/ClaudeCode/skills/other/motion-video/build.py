@@ -382,6 +382,13 @@ def _embed(path, base, default="image/png"):
     if not os.path.isfile(p):
         return None, p
     mime = mimetypes.guess_type(p)[0] or default
+    if mime == "image/svg+xml":   # SVG は文字のまま入れる（base64 より 2 割ほど小さい）。" は ' に直し、URL で意味を持つ字だけ置き換える
+        try:
+            svg = re.sub(r"\s+", " ", open(p, encoding="utf-8").read()).strip()
+            if "'" not in svg:
+                return "data:image/svg+xml," + svg.replace('"', "'").replace("%", "%25").replace("#", "%23").replace("<", "%3C").replace(">", "%3E"), None
+        except UnicodeDecodeError:
+            pass
     return "data:%s;base64,%s" % (mime, base64.b64encode(open(p, "rb").read()).decode("ascii")), None
 
 

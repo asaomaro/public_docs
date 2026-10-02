@@ -1,14 +1,15 @@
 ---
-title: 空はなぜ青いのか？答えは「5.9倍」にあった【ずんだもん解説】
-summary: 空が青い理由がわかると、夕焼けが赤い理由も、空が紫じゃない理由も、同じ仕組みで説明できます。光の「散らばりやすさ」を 3 分で。
+title: 空はなぜ青いのか？答えは「散らばりやすさ」にあった【ずんだもん解説】
+summary: 空が青い理由がわかると、夕焼けが赤い理由も同じ仕組みで説明できます。空が紫じゃない理由も合わせて、光の「散らばりやすさ」を 3 分で。
 tags: ずんだもん, 四国めたん, 解説, 科学, 雑学, 空
-thumb: 空が青い | 本当の理由 | 5.9倍！？
+thumb: 空が青い | 本当の理由 | 夕焼けも同じ！？
 cast: metan, zundamon
 roles: metan=解説, zundamon=聞き手
 metan.credit: 坂本アヒル
 zundamon.credit: 坂本アヒル
 length: 3
 facts: sky-blue.facts.md
+intro: chaban
 speed: 1.15
 theme: daylight
 motion: playful
@@ -16,87 +17,106 @@ bg: sky
 music: espresso
 pronounce: {"nm": "ナノメートル"}
 ---
-# つかみ
-@show: 波 "海" | → | "空が青いのは/海の色が映るから？"
-zundamon(smug, fold, bounce): 空が青いのは、海の色が映ってるからなのだ！ [♪]
-metan(angry-, chin, big): それ、よくある勘違いよ。 [💢]
+# 茶番
+@bg: riverside
+@show: 絵筆 | 絵の具パレット "水色" | → | "からっぽ！" red
+zundamon(troubled, stomp): 大変なのだ！ 空を描いてたら、水色だけ空っぽなのだ！ [💦]
+metan(troubled-, chin): ……空ばかり、塗りすぎよ。
+zundamon(doubt, fold, peek): 空が広すぎるのだ。緑なら、ずんだ色でいっぱいあるのだ！
+@show: 絵の具パレット "緑ならある" | → | 雲 "空" | "選べない！" red
+metan(angry-, big): 空の色は、選べないわよ。 [💢]
 > zundamon(surprised, squash) [ガーン]
-@show: 太陽 "太陽の光" | ＋ | 分子 "空気" | ＝ | 夕日 "夕焼けまで"
-metan(smug, point, peek): 本当の理由がわかると、夕焼けが赤いわけまで説明できるわ。
-zundamon(surprised, back): えっ、夕焼けも同じ理由なのだ！？ [!?]
+zundamon(angry, point): じゃあ、だれが青に決めたのだ！ 文句を言ってくるのだ！
+metan(smug, chin): 言う相手がいないわ。……いいわ、教えてあげる。
+metan(smile, point): というわけで今回は、空が青い本当の理由よ。
 
 # 光は色のまぜもの
 @show: title: 空はなぜ青いのか | "答えは/「散らばりやすさ」" yellow
-metan(smile, mic): 四国めたんよ。空の色のなぞ、いっしょに解くわよ。
-zundamon(smile, raise, hop): ずんだもんなのだ。ボクにもわかるように頼むのだ！
+metan(smile, mic): 答えは、光の「散らばりやすさ」。夕焼けが赤いわけまで、同じ理由で説明できるわ。
+zundamon(surprised, back): えっ、夕焼けも同じ理由なのだ！？ [!?]
 @show: 太陽 "太陽の光は白い" | → | 虹 "虹の色がぜんぶ"
 metan(normal, point): まず、太陽の光。白く見えるけれど、虹の色がぜんぶまざっているの。
 zundamon(think, chin): 白なのに、色がまざってるのだ？ [?]
 @show: prism frame | note: プリズムに通すと、色に分かれる
 metan(normal): ガラスのプリズムに通すと、こうして色に分かれるのよ。
 zundamon(surprised-, stretch): わっ、ほんとに虹！ [✨]
-@show: 赤い丸 "赤 — 波が長い（約 700nm）" | vs | 青い丸 "青 — 波が短い（約 450nm）"
-metan(smile-, point): 色のちがいは、波の長さのちがい。青は短くて、赤は長いの。
-zundamon(normal, nod): 青は短い、赤は長い。覚えたのだ。
+@show: 波 "光も波で伝わる"
+metan(smile-, point): そして光は、海の波みたいに、波で伝わるの。
+zundamon(smile+, raise, hop): 波！ じゃあ、光でサーフィンできるのだ？ [♪]
+metan(angry-, big): できないわよ。 [💢]
+@show: 赤い丸 "赤 — 波が長い" | vs | 青い丸 "青 — 波が短い"
+metan(normal, point): 色のちがいは、波の長さのちがい。青は短くて、赤は長いの。
 
 # 青は散らばりやすい
-@show: 太陽 | → | 分子 "空気の分子" > "ぶつかる！" | → | 青い丸 "青はあちこちへ"
+@draw: scatter
 metan(normal, point): 光は、空気の小さな分子にぶつかると、あちこちに散らばるわ。
 metan(think, chin | smug, point): そして、|波の短い光ほど、強く散らばるの。
 zundamon(think, tilt): どれくらい、ちがうのだ？ [?]
-@show: 青い丸 "青" | "**5.9 倍**/散らばる" | 赤い丸 "赤" | note: 波の長さの 4 乗に反比例
-metan(smug, point): 波の長さの 4 乗に反比例するの。青は赤の、約 5.9 倍よ。
-zundamon(surprised+, jump, big): 5.9 倍！？ そんなに！？ [!?]
+@show: 青い丸 "青 — 波が短い" | "少しの差が/**大きな差**に" | 赤い丸 "赤 — 波が長い" | note: 波の長さの 4 乗に反比例
+metan(smug, point): 波が少し短いだけで、散らばり方はぐんと強くなるの。
+@show: 青い丸 "青 450nm" | "**約 5.9 倍**/散らばる" | 赤い丸 "赤 700nm"
+metan(smug, zoom): 青の波は、赤の 3 分の 2 ほど。それだけで、約 5.9 倍よ。
+zundamon(surprised+, jump, big): ほぼ 6 倍なのだ！？ [!?]
 @show: 青い丸 | 青い丸 | 青い丸 | → | 目 "空じゅうから目に届く"
 metan(smile): 散らばった青い光が、空じゅうから目に届く。だから空は青いの。
-zundamon(smile, raise, spin): つまり、空気が青い光をばらまいてるのだ！ [💡]
-metan(smile-): いい言い方ね。
+zundamon(smug, fold, bounce): ふふん。ボク、もう全部わかったのだ！ [♪]
 
 # なぜ紫じゃない？
-@show: 紫の丸 "紫（もっと波が短い）" | vs | 青い丸 "青" | note: なのに、空は紫じゃない
-zundamon(doubt, fold, peek): でも待つのだ。紫は、青よりもっと波が短いのだ。
-zundamon(think, chin): なんで空は紫じゃないのだ？ [?]
-metan(surprised-): あら、今日は冴えてるわね。 [!]
-> zundamon(shy, sway)
+@show: 紫の丸 "紫 — もっと短い" | vs | 青い丸 "青" | note: なのに、空は紫じゃない
+metan(smug, chin): あら。じゃあ紫は、青よりもっと波が短いわ。なぜ空は紫じゃないの？
+> zundamon(surprised, squash) [ガーン]
+zundamon(troubled, shrink): ……教えてほしいのだ。 [💦]
+@show: 太陽 "① 紫はもともと少ない"
+metan(normal, point): 理由はいくつかあるわ。まず、太陽の光に、紫はもともと少ないの。
+@show: 太陽 "① 紫はもともと少ない" | 雲 "② 上空で吸収される"
+metan(normal): しかも紫は、上空の大気で吸収される、と言われているわ。
+zundamon(troubled-, chin): 届く前に、へってる…
 @show: 太陽 "① 紫はもともと少ない" | 雲 "② 上空で吸収される" | 目 "③ 目が紫に鈍い"
-metan(normal, point): 理由は 3 つ。太陽の光に紫は少なくて、上空で吸収もされるの。
-metan(normal): そのうえ、人の目は紫に鈍いのよ。
+metan(smug, point): そのうえ、人の目は紫に鈍いのよ。もちろん、あなたの目もね。
 zundamon(troubled, shrink): ボクの目のせいでもあったのだ… [💦]
 
 # 夕焼けが赤いわけ
 @bg: dusk
-@show: 夕日 "太陽が低い" | → | "光が空気の中を/長く通る" | → | 赤い丸 "赤が残る"
-zundamon(think, tilt): じゃあ、夕焼けが赤いのはなんでなのだ？ [?]
-metan(normal, point): 夕方は太陽が低いから、光が空気の中を長く通るでしょう。
+@show: 夕日 "夕焼け" | "なぜ赤い？"
+zundamon(smug, point): 夕焼けが赤いのは、わかるのだ。太陽がつかれて赤くなるのだ！ [💡]
+metan(angry-, big): つかれないわよ。 [💢]
+> zundamon(troubled, shrink) [💦]
+@draw: sunset
+metan(normal, point): 夕方は太陽が低くて、光が空気の中を長く通るの。
 metan(smile-, chin): 青は途中で散らばりきって、残った赤や黄がまっすぐ届くの。
 zundamon(smile+, dance): 同じ仕組みで、青にも赤にもなるのだ！ [♪]
-@show: mars_sunset | note: 火星の夕日は、青い
+@show: mars_sunset | note: 火星では、夕日のまわりが青い
 metan(smug, point): ちなみに火星は逆。昼の空がオレンジっぽくて、夕日のまわりが青いの。
-zundamon(surprised+, back): 青い夕焼け！？ [!?]
+zundamon(surprised+, back): 夕焼けが、青…？ 逆！？ [!?]
 @show: mars_sunset | 竜巻 "細かい砂ぼこりが多い"
-metan(normal): 火星の大気は二酸化炭素が中心で、細かい砂ぼこりが多いからよ。
+metan(normal): 火星の空は、細かい砂ぼこりだらけ。それが光の散らばり方を変えるの。
+zundamon(smug, fold, bounce): 火星の絵なら、水色は夕日のまわりだけで足りるのだ！ [♪]
+metan(troubled-, chin): 描く前に、買いなさい。
 
 # 昔の人も悩んだ
 @bg: library
-@show: 男性科学者 "1859年 ティンダル" > "青が強く散らばるぞ" | → | 女性科学者 "1871年 レイリー卿" > "理論にしました"
-metan(normal, mic): この仕組みは、1859 年にティンダルが見つけたの。
+@show: 男性科学者 "1869年 ティンダル" > "青が強く散らばるぞ" | → | 男性の教師 "1871年 レイリー卿" > "理論にしたぞ"
+metan(normal, mic): 青い光ほど強く散らばることは、1869 年にティンダルが見つけたの。
 metan(normal, point): 1871 年にレイリー卿が理論にして、レイリー散乱と呼ばれるわ。
 zundamon(think): じゃあ、そこで解決なのだ？ [?]
-@show: "原因は/ちりや水滴？" | → | 電球 "1911年 アインシュタイン" > "空気の分子そのものだ"
-metan(troubled-): それが、二人とも原因は、ちりや水滴だと考えていたの。
-metan(smug, raise, zoom): 空気の分子そのものだと決着したのは 1911 年。アインシュタインの計算よ。
-zundamon(surprised, jump): アインシュタインまで出てくるのだ！？ [!?]
+@show: 男性科学者 "ティンダル" | 男性の教師 "レイリー卿" | "原因は/ちりや水滴？"
+metan(troubled-): ところが二人とも、はじめは『ちりや水滴のせい』と考えていたの。
+@show: 分子 "原因は空気の分子" | ← | 科学者 "アインシュタイン" > "1910年 式にまとめた"
+metan(smug, raise): 空気の分子そのものだとわかってきて、1910 年にアインシュタインが式にまとめたの。
+> zundamon(surprised+, back) [!?]
+zundamon(smug, fold, bounce): えらい学者でも、はじめはまちがえたのだ。ボクのまちがいも、ふつうなのだ！ [♪]
+metan(angry-, point, big): いっしょにしないで。 [💢]
+> zundamon(surprised, squash) [ガーン]
 
 # まとめ
 @bg: sky
-@board bullets: 今日のまとめ | 太陽の光は、色のまぜもの | 青は赤の約 5.9 倍散らばる | 夕方は青が散らばりきって、赤が残る
-metan(smile, point): まとめるわ。空の色は、光の散らばりやすさで決まるの。
-zundamon(smile, raise): 青は散らばりやすい。夕方は赤が残る。ばっちりなのだ！
-@show: 波 "海の色？" | → | "もう卒業！" red
-metan(smug): 海の色が映っている、はもう卒業ね。
-zundamon(shy, sway): うっ…それは忘れてほしいのだ。 [💦]
-@show: 目 | → | 太陽 "あしたの空"
-zundamon(smile+, raise, jump): あしたは空を見上げてみるのだ！ [♪]
-@show: 傘と雨 "あしたは雨"
-metan(smug, chin): あしたは雨の予報よ。
-zundamon(sad, zukkoke): ……のだ。 […]
+@show: title: 今日のまとめ | "① 太陽の光は、色のまぜもの/② 波の短い青ほど、強く散らばる/③ 夕方は、赤が残る"
+metan(smug, zoom): ふっ…これが、空の真理（ことわり）よ。
+zundamon(doubt, away): 急にどうしたのだ…
+metan(shy, point): ……まとめるわ。空の色は、光の散らばりやすさで決まるの。
+zundamon(smile, raise): 波の短い青ほど散らばる。夕方は赤が残る。ばっちりなのだ！
+@show: 絵の具パレット "水色" | → | "買いに行く！"
+zundamon(smile+, raise, jump): 水色を買って、空の続きを塗るのだ！ [♪]
+@show: 夕日 "もう夕方" | → | 赤い丸 "要るのは赤"
+metan(smug, chin): もう夕方よ。いま要るのは、赤ね。
+zundamon(sad, zukkoke): ……赤も、無いのだ。 […]

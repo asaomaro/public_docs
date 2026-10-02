@@ -21,7 +21,7 @@ description: ゆっくり解説・ずんだもん解説のような、2 人の�
 視聴回数の多い解説動画は、**ほぼ全部の画面に絵がある**（写真・挿絵・地図・絵と矢印の図）。箇条書きはほとんど無く、文字は短い名札と一言だけ。
 絵はせりふ 1〜3 個ごとに替わる（`research.md` の 11）。このスキルの画面も同じ作りにしてある。
 
-- **絵で見せる場面**（`@show`）: 背景の上に、絵・写真・矢印・短い言葉を並べる。絵は順にぽんと現れ、ゆっくり浮く。せりふごとに替えられる。
+- **絵で見せる場面**（`@show`）: 背景の上に、絵・写真・矢印・短い言葉、動くアイコン・グラフなどの部品・描き下ろしの図解を並べる。絵は順にぽんと現れ、ゆっくり浮く。せりふごとに替えられる。
 - **立ち絵**: 左右に大きく立ち（足元は画面の下に切れる）、絵に少し重なる。パーツ（体・表情・まばたき・口）を重ねて描くので、表情・体・動きを自由に組み合わせられる。
   口は声の大きさで動き、話している間は声に合わせて弾む。聞いている側は反応し、しばらくすると素の顔に戻る。
 - **字幕**: 画面の下に 2 行まで。白い字に、話し手の色の太い縁。山場は大きく出せる。
@@ -98,11 +98,40 @@ zundamon(surprised+, jump, big): 5.9 倍！？ そんなに！？ [!?]
 
 - **絵を先に集める**。挿絵は `python3 <skill_dir>/illust.py get 太陽 波 目`（日本語の言葉で約 1,500 点から。`search` で候補）、
   写真は `python3 <skill_dir>/fetch_images.py search "検索語"` → `get 3 --as 名前`。どちらも `images/` に入り、クレジットは自動で出る。
+  **人物・しぐさ・場面の絵**（困っている会社員・実験する人・買い物の場面 など）は、irasutoya スキルがあれば
+  `python3 ../irasutoya/irasutoya.py search "困っている|悩んでいる" 会社員 --sheet` → 見本を Read で見て → `get 3 --dir images --as 困る人`（探し方のこつは irasutoya の SKILL.md）。
+  いらすとやの絵は、**素材としての再配布が不可**（HTML は手元だけで使い、配るのは WebM の動画）、**収益化した動画は 1 本 20 点まで**（サムネイルを含む。作るときに点数が出る）。
   自分で用意した絵（いらすとや など）は `images/` に置けば名前で使える（規約は `assets.md`）。
 - 写真は 1 回開いて、話に合っているかを見る（`Read`）。見つからない絵は、名前が文字で出て `warn:` が出る。
 - **ほとんどの画面を絵にする**。1 つの絵でせりふ 1〜3 個。同じ絵のまま 15 秒（本編は 25 秒）を超えない。
   数字は `"**5.9 倍**"` のように言葉で大きく出す。箇条書きの黒板は、まとめだけ。
 - 物ごとの関係は、絵と記号で書く: `原因 | → | 結果`・`A | vs | B`・`A | ＋ | B | ＝ | C`。人や物に吹き出しでしゃべらせると、小さな寸劇になる。
+
+##### 動く図で見せる（アイコン・部品・描き下ろし）
+
+絵の代わりに、プログラムが描いて動かす図を、絵と同じ場所に置ける。素材の絵に無い「仕組み・量・流れ」に使う。
+
+| 書き方 | 出るもの | 向くもの |
+|---|---|---|
+| `icon:名前 "名札" > "吹き出し"` | 線で描かれて、動き続けるアイコン（白い丸の上。105 種。`python3 ../motion-video/build.py --list-icons`） | 記号で足りる物・概念（太陽・地球・時計・お金・人・歯車） |
+| `part:{部品の JSON} "名札"` | motion-video の部品（棒・円・メーター・年表・流れ図・ベン図 など 85 種。`build.py --list`）を、白い板の上に | 数の比べ・割合・順番・関係 |
+| `@draw: 名前`（`@show: draw:名前 \| note: …` と同じ） | **描き下ろしの図解**。`scenes/名前.js`（台本の隣でもよい）を、濃い板の上に描く。後ろに `light`（白い板）・`none`（板なし） | 話題に固有の仕組み（光が散らばる・水が回る・力がつり合う） |
+
+```text
+@show: icon:sun "太陽" | → | icon:globe "地球" > "8 分で届く"
+@show: part:{"type":"bars","heading":"散らばりやすさ","unit":"倍","items":[{"label":"青","value":5.9},{"label":"赤","value":1}]} | "青は/約 6 倍" blue
+@draw: scatter | note: 青い光ほど散らばる
+```
+
+- 部品は、ほかの絵より広く取る（1 つなら幅いっぱい）。それでも字は黒板（`@board`）より小さいので、項目は 2〜4 個まで。細かい表・長い文の部品は `@board` に出す。
+- **描き下ろし**（`scenes/名前.js`）は、motion-video の `custom` と同じ `(ctx, lt, d, H, s)` の本体を書く。手本は `examples/scenes/scatter.js`（光の散らばり・3 段）と `examples/scenes/sunset.js`（夕焼け・2 段）。
+  - `s.box`（`{x, y, w, h}`）が描く範囲（立ち絵と字幕に隠れない所。板もここに敷かれる）。位置は `s.box` からの割合で決める。
+  - `lt` はこの図が出てからの ms。`s.cue(1)` は次のせりふ、`s.cue(2)` はその次のせりふが始まる ms（せりふに合わせて段を進める）。
+  - **時刻 `lt` だけで姿が決まる**書き方にする（`Math.random`・`Date` は使わない。乱数は `H.rand(種)`）。道具は `H.txt`・`H.clamp`・`H.eo`・`H.arrow`・`H.icon`・`H.sub` など（motion-video の SKILL.md の「custom」）。
+  - 描く途中でエラーになると、そこから先が描かれず、板の下に赤い字で「draw のエラー: …」と出る（色を混ぜる道具は無い。`H.mix` は数の補間なので、色は自分で `rgb(…)` を作る）。
+  - 1 つの図で言うことは 1 つ。字は 44px 以上、線は 10px 以上。色は 3 色まで。名前は図の余白に置き、線と重ねない。
+  - 作ったら、その時刻の画面を撮って見る（`kaisetsu.py 台本.txt --shots 6.5,10`。時刻は `--timeline` で分かる）。段が進む前・後の 2 枚は必ず見る。
+- 描き下ろしは山場の 1〜2 か所に絞る（手間がかかり、出来がばらつく）。ほかは素材の絵・アイコン・部品で回す。
 
 #### せりふと演技
 
@@ -140,6 +169,7 @@ zundamon(surprised+, jump, big): 5.9 倍！？ そんなに！？ [!?]
 | `subtitle`・`subtitle_size`・`subtitle_name` | 字幕の形（`outline` 既定・`box` 白い箱）・大きさ（既定 56）・名札を出すか |
 | `font`・`text_font` | 字幕の書体（`fonts.json` の名前。既定 `rounded`。使う字だけ埋め込む。`off` で OS の書体）・`same` で画面の文字ぜんぶを同じ書体に |
 | `cast_height`・`cast_offset` | 立ち絵の高さ（既定 700）・下にずらす量（既定 110） |
+| `art`・`<名前>.art` | `png` で、SVG の立ち絵（`chars/<名前>/svg/`）があっても PNG のパーツを使う |
 | `<名前>.name`・`.color`・`.side`・`.credit` | 表示名・色・左右・立ち絵の作者の表記 |
 | `acting`・`react`・`voice_style`・`se`・`relax`・`tags`・`cast_motion` | `off` で、自動の演技・自動の反応・声のスタイルの切り替え・印の効果音・素の顔に戻る動き・左上の札・立ち絵の動き を止める |
 | `music_credit`・`voice_credit`・`credit` | クレジットに足す表記 |
@@ -162,7 +192,8 @@ zundamon(surprised+, jump, big): 5.9 倍！？ そんなに！？ [!?]
 python3 <skill_dir>/kaisetsu.py 台本.txt --readings            # VOICEVOX がどう読むか（かな）を出す。読み間違いを先に直す
 python3 <skill_dir>/kaisetsu.py 台本.txt --timeline            # せりふの時間割り
 python3 <skill_dir>/kaisetsu.py 台本.txt --voicevox            # VOICEVOX で声を作ってから HTML（作り済みの声は使い回す）
-python3 <skill_dir>/kaisetsu.py 台本.txt --voicevox --compact  # HTML を小さく（声を 16kHz に、背景と写真を幅 1280 に）
+python3 <skill_dir>/kaisetsu.py 台本.txt --voicevox --shots 6.5,0:42   # その時刻の画面を PNG に撮る（<台本名>_shots/。Read で開いて、絵・図・立ち絵の見え方を見る）
+python3 <skill_dir>/kaisetsu.py 台本.txt --voicevox --compact  # HTML を小さく（声を 16kHz に、背景と写真を幅 1280 に。さらに小さくするなら --voice-rate 12000。こもった声になる）
 python3 <skill_dir>/kaisetsu.py 台本.txt --voices-dir voices/  # 用意した WAV を名前順にせりふへ当てる
 python3 <skill_dir>/kaisetsu.py 台本.txt --yukkuri-bat          # 霊夢・魔理沙のせりふを、Windows の AquesTalkPlayer で WAV にするバッチファイルを書く
 python3 <skill_dir>/kaisetsu.py 台本.txt                        # 声なし（ブラウザの読み上げ）で HTML
@@ -199,6 +230,33 @@ images/太陽.svg  prism.png  credits.json
 PNG のフォルダは `python3 <skill_dir>/sprite.py <PNG のフォルダ> --out chars/<名前>` でこの形にできる。
 台本の隣の `chars/<名前>/` に無ければ、スキルの `chars/<名前>/`（集めた立ち絵。リポジトリには入れない）を使う。動画には台本で使った表情だけが埋め込まれる。
 素材からの書き出しは、PSD（PSDTool 形式）なら `psd_export.py`、パーツ画像のフォルダなら `parts_export.py`。配布元・レシピ・規約の要点は `recipes/README.md`。
+
+### 立ち絵を SVG（ベクトル）にする
+
+パーツを 1 つずつ、色の塊ごとに輪郭をなぞって SVG にできる（`chars/<名前>/svg/`。vtracer が要る: `python3 -m pip install --user vtracer`）。
+`svg/` があれば動画はそちらを使う。エンジンは SVG を Canvas に描くので、**「WebM で保存」の録画にも、シークバーのプレビューにも映る**。
+
+```bash
+python3 <skill_dir>/psd_export.py   素材.psd       --recipe recipes/<名前>.json --out chars/<名前> --svg     # PNG のパーツと、svg/ の両方を作る
+python3 <skill_dir>/parts_export.py パーツのフォルダ --recipe recipes/<名前>.json --out chars/<名前> --svg
+python3 <skill_dir>/sprite.py chars/<名前> --compare     # svg/compare.png（上が PNG、下が SVG。全身と、顔を大きくしたもの 4 つ）
+```
+
+| | SVG | PNG |
+|---|---|---|
+| 大きく映す・寄る・全画面 | 輪郭が荒れない（映す高さの 2 倍で作る） | 高さ 720 の絵を引き伸ばすので、ぼやける |
+| 大きさ | **PNG の 1.2〜3 倍**（動画 1 本で 1〜3MB 増える。16MB までのアーティファクトに載せるなら `art: png`） | — |
+| 質感 | ぼかし・グラデーションは色の段になる（頬の赤みが少し薄くなる）。半透明は不透明か透明かになる | 元のまま |
+
+- **作ったら `--compare` の絵を Read で開いて見比べる**。見る所は 4 つ: 顔の印象、パーツの継ぎ目（目のまわりの四角い色の差・縦横の線）、縁（輪郭の線が太っていないか・黒い塊が出ていないか）、半透明の物（羽衣・ベール）が消えていないか。
+  1 つでも崩れていれば、`chars/<名前>/svg/` を消して PNG のままにする。大きさが PNG の 3 倍を超えるものも PNG のままにする。
+- **集めた 53 人で試した結果**（2026-10-03）: SVG にしたのは 14 人 — `zundamon` `metan` `ankomon` `zunko` `kiritan` `sora` `whitecul`（坂本アヒルさん）、`voidoll` `benizakura`、公式 SD の 5 人。
+  PNG のままにしたのは 39 人 — 大きさが 3 倍を超える（moiky さんの素材の多く・`mochiko`・`aieru`・`no7`。`reimu`・`marisa` は 10 倍以上）、
+  継ぎ目が出る（`usagi`・`tsumugi`・`hau`）、半透明の羽衣が消える（`itako`）、縁に黒い塊が出る（`mesuo`）。
+- 小さい絵をなぞると目もとが崩れるので、書き出しは `--height` の 2 倍の大きさで絵を描いてからなぞる（`--svg-scale` で変える）。`--detail soft` は色の段を細かく、`mid` は粗く小さくする。
+- 仕組み: なぞる前に色を段に分け（ぼかしが色の段として残る）、表情・口・目のパーツは、体の絵に重ねた絵をまわりごとなぞって四角の中だけを使う（境目の形が体の絵と揃う）。
+- 台本ごとに選ぶなら `art: png`（全員）・`<名前>.art: png`（その人だけ）。サムネイル（yukkuri-publish）は、いつも PNG のパーツから描く。
+- なぞるのは加工に当たる。立ち絵の規約が加工を認めているかを確かめ、作った SVG も素材として配らない（`chars/` はリポジトリに入らない）。
 
 ## メモ
 - プリセットは `casts.json`。声の高さ・速さ（VOICEVOX の `speed`・`vv_pitch`・`intonation`、ブラウザの `pitch`・`rate`）もここで変える。
