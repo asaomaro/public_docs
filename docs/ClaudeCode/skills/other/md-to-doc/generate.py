@@ -627,25 +627,27 @@ def image_tag(alt_escaped, src_escaped):
 
 
 def inline(text):
-    out = []
-    i = 0
-    # コードスパンを先に退避
-    parts = re.split(r"(`[^`]+`)", text)
-    for part in parts:
-        if part.startswith("`") and part.endswith("`") and len(part) >= 2:
-            out.append("<code>%s</code>" % html.escape(part[1:-1]))
-            continue
-        s = html.escape(part)
-        # 画像 ![alt](src) はリンクより先に処理（先頭の ! を取りこぼさないため）
-        s = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)",
-                   lambda m: image_tag(m.group(1), m.group(2)), s)
-        s = re.sub(r"\[([^\]]+)\]\(([^)]+)\)",
-                   lambda m: '<a href="%s">%s</a>' % (html.escape(m.group(2), quote=True), m.group(1)), s)
-        s = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", s)
-        s = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"<em>\1</em>", s)
-        s = re.sub(r"~~([^~]+)~~", r"<del>\1</del>", s)
-        out.append(s)
-    return "".join(out)
+    # コードスパンを先に退避し、最後に戻す（中身を装飾として解釈させない。
+    # 分割せず目印に置き換えるので、**太字の中に `コード`** があっても太字が閉じる）
+    codes = []
+
+    def stash(m):
+        codes.append("<code>%s</code>" % html.escape(m.group(1)))
+        return "\x00%d\x00" % (len(codes) - 1)
+
+    def plain(t):  # 属性（alt・URL）に入る所は、タグにせず元の文字へ戻す
+        return re.sub(r"\x00(\d+)\x00", lambda m: re.sub(r"</?code>", "", codes[int(m.group(1))]), t)
+
+    s = html.escape(re.sub(r"`([^`]+)`", stash, text.replace("\x00", "")))
+    # 画像 ![alt](src) はリンクより先に処理（先頭の ! を取りこぼさないため）
+    s = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)",
+               lambda m: image_tag(plain(m.group(1)), plain(m.group(2))), s)
+    s = re.sub(r"\[([^\]]+)\]\(([^)]+)\)",
+               lambda m: '<a href="%s">%s</a>' % (html.escape(plain(m.group(2)), quote=True), m.group(1)), s)
+    s = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", s)
+    s = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"<em>\1</em>", s)
+    s = re.sub(r"~~([^~]+)~~", r"<del>\1</del>", s)
+    return re.sub(r"\x00(\d+)\x00", lambda m: codes[int(m.group(1))], s)
 
 
 def slugify(text, used):
@@ -5148,6 +5150,84 @@ def add_motion_runtime(doc):
     return doc[:i] + rt + doc[i:] if i >= 0 else doc + rt
 
 
+# ── 生成前の質問（テーマ・出力モードなど）を ask-form の 1 画面にまとめる ──
+# 質問の id は generate.py の引数名と同じ（theme → --theme、auto-figure → --auto-figure）。
+LOCAL_IMG_RE = re.compile(r"!\[[^\]]*\]\(\s*(?!https?://|data:|//)[^)\s]+")
+
+
+def ask_spec(inputs, recommend):
+    """ask-form に渡す質問の定義を作る。recommend は md の内容に合うテーマのキー（先頭が既定）。"""
+    def opts(*rows):
+        return [{"value": v, "label": l, "desc": d} for v, l, d in rows]
+
+    order = recommend + [k for k in THEMES if k not in recommend]
+    themes = []
+    for k in order:
+        ch, fit = THEME_INFO.get(k, ("", ""))
+        themes.append({"value": k, "label": THEMES[k]["label"], "desc": "%s。向く文書: %s" % (ch, fit),
+                       "colors": [THEMES[k]["vars"]["--accent"]] + THEMES[k]["accents"][1:4],
+                       "recommended": k in recommend})
+    has_image = False
+    for path in inputs:
+        try:
+            has_image = has_image or bool(LOCAL_IMG_RE.search(open(path, encoding="utf-8").read()))
+        except OSError:
+            pass
+    many = len(inputs) > 1
+    qs = [
+        {"id": "theme", "label": "テーマ", "options": themes, "default": order[0],
+         "help": "ライト/ダークは全テーマが両方持ち、読み手がヘッダーで切り替えられます。"},
+        {"id": "mode", "label": "出力モード", "default": "site" if many else "single", "options": opts(
+            ("single", "単一HTML", "1 ファイル完結。メール添付・USB 配布に最適。"),
+            ("print", "印刷/PDF重視", "紙・PDF 配布を主目的に、改ページ・余白を最適化。"),
+            ("site", "複数md→サイト化", "複数ファイルを束ね、一覧 index.html を作って相互リンク。"))},
+        {"id": "toc", "label": "目次", "default": "sidebar", "options": opts(
+            ("sidebar", "左サイドに目次", "本文の左に目次（開閉・検索・章ごとの折りたたみ）。"),
+            ("menu", "ヘッダーメニュー", "上部の固定メニューのみ。本文は全幅。"),
+            ("both", "両方", "ヘッダーメニュー＋左サイド目次。"),
+            ("none", "目次なし", "どちらも出さない。"))},
+        {"id": "layout", "label": "リストの見せ方（既定値）", "default": "plain",
+         "help": "節ごとの指定が無い箇条書きに使う既定値です。節ごとの割り当ては、このあと案を出します。",
+         "options": opts(
+            ("plain", "箇条書き", "通常のリスト。"),
+            ("cards", "カード", "項目をカードのグリッドに。一覧性・見栄え重視。"),
+            ("timeline", "タイムライン", "番号付きの縦タイムライン。手順・工程・時系列向き。"),
+            ("accordion", "アコーディオン", "折りたたみ。項目が多く詳細を隠したいとき。"),
+            ("freeform", "完全フリーフォーム", "形式に縛られず、Claude が内容ごとに自由にデザイン（文書全体）。"))},
+        {"id": "design", "label": "構築方法", "default": "deterministic",
+         "showIf": {"layout": ["plain", "cards", "timeline", "accordion"]}, "options": opts(
+            ("deterministic", "決定論的", "スクリプトが型どおりに変換。同じ入力なら同じ出力。"),
+            ("ai", "AIがこのテイストで構築", "Claude が節ごとに内容を読んで部品を選び、作り込む。"))},
+        {"id": "auto-figure", "label": "図解の自動補完", "default": "off", "options": opts(
+            ("off", "しない", "本文そのまま。図は mermaid ブロックのみ。"),
+            ("light", "控えめに補う", "最も効果的な 1〜2 個だけ図解。"),
+            ("rich", "積極的に図解", "図にできる箇所は積極的に図解。"))},
+    ]
+    if has_image:
+        qs.append({"id": "image-mode", "label": "画像の扱い", "default": "embed", "options": opts(
+            ("embed", "埋め込み", "画像を HTML に埋め込み、1 ファイルで自己完結。"),
+            ("link", "外部フォルダ参照", "HTML は軽いが、配布時は画像フォルダも一緒に運ぶ。"))})
+    qs.append({"id": "motion", "label": "説明図の動き", "default": "off",
+               "showIf": {"mode": ["single", "site"]}, "options": opts(
+        ("off", "動かさない", "静止した図のみ。"),
+        ("key", "要所だけ動かす", "流れ・手順など、動きで理解が進む図を 1〜2 個選んで動かす。"),
+        ("rich", "図をすべて動かす", "すべての図が流れの向きに沿って順に現れる。"))})
+    names = "・".join(os.path.basename(p) for p in inputs[:3]) + (" ほか" if len(inputs) > 3 else "")
+    return {"title": "md-to-doc の設定", "intro": names, "submit": "この内容で生成", "questions": qs}
+
+
+def run_ask(spec):
+    """隣の ask-form スキルで質問の画面を出し、その結果（JSON 1 行）と終了コードをそのまま返す。"""
+    here = os.path.abspath(__file__)
+    for base in (os.path.dirname(here), os.path.dirname(os.path.realpath(here))):
+        ask = os.path.join(base, os.pardir, "ask-form", "ask.py")
+        if os.path.exists(ask):
+            r = subprocess.run([sys.executable, ask, "-", "--width", "1080", "--height", "1000"], input=json.dumps(spec, ensure_ascii=False).encode("utf-8"))
+            return r.returncode
+    print(json.dumps({"status": "unavailable", "reason": "ask-form スキルが見つかりません"}, ensure_ascii=False))
+    return 3
+
+
 def main():
     ap = argparse.ArgumentParser(description="Markdown を視覚的なHTMLドキュメントに変換")
     ap.add_argument("inputs", nargs="*", help="入力 .md（複数可）")
@@ -5156,6 +5236,11 @@ def main():
     ap.add_argument("--src", default=None, help="--finalize で、断片の中の画像の相対パスの基準にする元の .md")
     ap.add_argument("--theme", choices=list(THEMES.keys()), help="テーマ（一覧は --list-themes）")
     ap.add_argument("--list-themes", action="store_true", help="テーマの一覧（キー・名前・性格・向く文書）を出す")
+    ap.add_argument("--ask", action="store_true",
+                    help="生成前の質問を ask-form の 1 画面で聞き、回答の JSON を出す（HTML は作らない）")
+    ap.add_argument("--ask-spec", action="store_true", help="--ask で出す質問の定義（JSON）だけを出す")
+    ap.add_argument("--recommend", default="", metavar="キー,...",
+                    help="--ask で先頭に並べる、md の内容に合うテーマ（先頭が既定。例: manual,formal,minimal）")
     ap.add_argument("--mode", default="single", choices=["single", "print", "site"])
     ap.add_argument("--outdir", default=None, help="出力先（既定: 入力と同じ場所）")
     ap.add_argument("--eyebrow", default=None, help="ヘッダー上部の小見出し")
@@ -5202,6 +5287,16 @@ def main():
             ch, fit = THEME_INFO.get(k, ("", ""))
             print("| `%s` | %s | %s | %s |" % (k, t["label"], ch, fit))
         return
+    if args.ask or args.ask_spec:
+        rec = [k.strip() for k in args.recommend.split(",") if k.strip()] or ["corporate"]
+        bad = [k for k in rec if k not in THEMES]
+        if bad:
+            ap.error("--recommend の %s はテーマにありません（一覧は --list-themes）" % "/".join(bad))
+        spec = ask_spec(args.inputs, rec)
+        if args.ask_spec:
+            print(json.dumps(spec, ensure_ascii=False, indent=1))
+            return
+        sys.exit(run_ask(spec))
     if not args.theme:
         ap.error("--theme を指定してください（一覧は --list-themes）")
     default_mode = default_mode_of(args.theme, args.default_mode)
