@@ -418,11 +418,17 @@ window.MotionAudio = window.MotionAudio || (function () {
   /* 音符を鳴らす（INSTX は台本の instruments を足した楽器の表） */
   /* ---- 録音の楽器の音（samples）: 楽器ごとに 4 半音おきの録音を持ち、一番近い音を再生の速さで高さに合わせる ---- */
   var SMP = {};
+  /* 音声のデータを読む。埋め込み（data: の base64）は fetch を使わずに直す（fetch を止めている場所でも鳴るように） */
+  function bytes(url) {
+    var m = /^data:[^;,]*;base64,/.exec(url || "");
+    if (!m) return fetch(url).then(function (x) { return x.arrayBuffer(); });
+    return new Promise(function (ok) { var bin = atob(url.slice(m[0].length)), n = bin.length, u = new Uint8Array(n); for (var i = 0; i < n; i++) u[i] = bin.charCodeAt(i); ok(u.buffer); });
+  }
   function loadSamples(ac, map) {
     Object.keys(map || {}).forEach(function (inst) {
       var e = map[inst], s = SMP[inst] = { k: e.k, g: e.g || 1, buf: {} };
       Object.keys(e.n || {}).forEach(function (m) {
-        fetch(e.n[m]).then(function (r) { return r.arrayBuffer(); }).then(function (b) { return ac.decodeAudioData(b); })
+        bytes(e.n[m]).then(function (b) { return ac.decodeAudioData(b); })
           .then(function (ab) { s.buf[m] = ab; }).catch(function (err) { console.warn("sample:", inst, m, err); });
       });
     });
