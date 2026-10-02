@@ -1590,7 +1590,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     }
     drawCast(t);
     chrome(t);
-    if (recording && captions) burnCaption(t);
+    if (recording && captions && !recording.clean) burnCaption(t);
     if (!thumbMode) syncDom(t);
   }
 
@@ -1652,7 +1652,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       ctx.restore();
     });
     /* 字幕の帯（話し手の色で縁取り、名札） */
-    if (cur && cur.who && (captions || recording)) {
+    if (cur && cur.who && (recording ? !recording.clean : captions)) {
       var sp = CAST[cur.who] || {}, col = sp.color || C.accent, lines = wrap(cur.text.replace(/\*\*/g, ""), 1080, { size: 46, weight: 800 }).slice(0, 2);
       var bh = 60 + lines.length * 62, by0 = 1060 - bh, bx = 400, bw = 1120, ck = P(tt, cur.a, cur.a + 200);
       ctx.save(); ctx.globalAlpha *= ck; rr(bx, by0, bw, bh, 18); ctx.fillStyle = "rgba(255,255,255,.92)"; ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = 6; ctx.stroke();
@@ -1794,14 +1794,16 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   /* ---- 効果音: 場面の部品・重ねの層が H.sfx / sfxEv で出来事を知らせる。起動時に場面ごとに一度だけ集めて、時刻の表にする ---- */
   var EVC = null, EVOFF = 0, EVMUTE = 0, SFXQ = [], sfxCount = 0;
   function sfxEv(at, ev, o) { if (EVC && !EVMUTE) EVC.push({ at: at + EVOFF, ev: ev, o: o || {} }); }
-  function sfxPlay(name, delay, o) {
-    if (!ac || !audioOn || !sfxOn || !name) return; var r = SFXD[name]; if (!r) return; sfxCount++;
-    o = o || {}; var when = ac.currentTime + Math.max(0, delay || 0);
-    if (r.file) { var b = SFXBUF[name]; if (!b) return; var src = ac.createBufferSource(), g = ac.createGain(); src.buffer = b;
-      src.playbackRate.value = Math.pow(2, (o.pitch || 0) / 12); g.gain.value = (o.v === undefined ? 1 : o.v) * (r.v || 1); src.connect(g); g.connect(sfxBus); src.start(when); return; }
+  function sfxPlay(name, delay, o, ctx, bus) {
+    /* ctx・bus を渡すと、その文脈（書き出しの OfflineAudioContext）に鳴らす（見る人の入り切りは見ない） */
+    var A = ctx || ac, B = bus || sfxBus;
+    if (!A || (!ctx && (!audioOn || !sfxOn)) || !name) return; var r = SFXD[name]; if (!r) return; sfxCount++;
+    o = o || {}; var when = A.currentTime + Math.max(0, delay || 0);
+    if (r.file) { var b = SFXBUF[name]; if (!b) return; var src = A.createBufferSource(), g = A.createGain(); src.buffer = b;
+      src.playbackRate.value = Math.pow(2, (o.pitch || 0) / 12); g.gain.value = (o.v === undefined ? 1 : o.v) * (r.v || 1); src.connect(g); g.connect(B); src.start(when); return; }
     if (r.code) { var fn = SFXFN[name]; if (!fn) { try { fn = SFXFN[name] = new Function("ac", "out", "when", "A", "o", r.code); } catch (e) { fn = SFXFN[name] = function () {}; console.error("sfx code:", e); } }
-      try { fn(ac, sfxBus, when, MA, o); } catch (e) { console.error("sfx code:", e); } return; }
-    MA.play(ac, sfxBus, r, when, o);
+      try { fn(A, B, when, MA, o); } catch (e) { console.error("sfx code:", e); } return; }
+    MA.play(A, B, r, when, o);
   }
   /* 場面ごとに最後のコマを小さな Canvas に一度描き、部品が知らせる出来事（効果音のきっかけ・揺れ）を集める */
   function collectEvents(from) {
@@ -2273,34 +2275,133 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       } catch (e) { console.warn("pip:", e); }
     });
   }
-  /* 動画ファイル（WebM）で保存: 最初から 1 倍速で再生しながら Canvas を録画する（字幕は焼き込み。読み上げの声は録れない） */
-  var recBtn = $("mv-rec"), recBadge = $("mv-recbadge");
-  if (recBtn && !(window.MediaRecorder && cv.captureStream)) recBtn.hidden = true;
-  function startRec() {
+  /* 動画ファイル（WebM）で保存: 最初から 1 倍速で再生しながら Canvas を録画する（字幕は焼き込み。読み上げの声は録れない）
+   * clean（編集用の映像）: 1920×1080・字幕なし・音なし。声を待たず、台本どおりの時間割（build.py --export の字幕・音・プロジェクトと揃う）で録る */
+  var recBtn = $("mv-rec"), recBadge = $("mv-recbadge"), recCleanBtn = $("mv-recclean");
+  if (!(window.MediaRecorder && cv.captureStream)) { if (recBtn) recBtn.hidden = true; if (recCleanBtn) recCleanBtn.hidden = true; }
+  function exportName() { return SPEC._exportName || (SPEC.title || "video").replace(/[\\/:*?"<>|]/g, "_"); }
+  function download(blob, name) {
+    var a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(a.href); }, 60000);
+  }
+  /* 台本どおりの時間割に戻す（ブラウザの声の速さで直した分を外す）。書き出しの間だけ使い、終わったら restoreTiming で戻す */
+  function nominalTiming() { if (VK === 1) return; t = 0; started = false; retime(1); }
+  function restoreTiming() { if (VK === 1) return; t = 0; started = false; retime(VK); needsDraw = true; syncUI(); }
+  function startRec(clean) {
     closeSet(false);
     try {
-      cv.width = 1280; cv.height = 720;
+      var rec = { cancel: false, speed: speed, clean: !!clean, audio: audioOn };
+      if (clean) { hush(); musicStop(); audioOn = false; nominalTiming(); }
+      cv.width = clean ? 1920 : 1280; cv.height = clean ? 1080 : 720;
       var stream = cv.captureStream(30);
-      ensureAudio();
-      if (ac && master && ac.createMediaStreamDestination) { var dest = ac.createMediaStreamDestination(); master.connect(dest); dest.stream.getAudioTracks().forEach(function (tr) { stream.addTrack(tr); }); }
+      if (!clean) { ensureAudio();
+        if (ac && master && ac.createMediaStreamDestination) { var dest = ac.createMediaStreamDestination(); master.connect(dest); dest.stream.getAudioTracks().forEach(function (tr) { stream.addTrack(tr); }); } }
       var mime = window.MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported("video/webm;codecs=vp9") ? "video/webm;codecs=vp9" : "video/webm";
-      var mr = new MediaRecorder(stream, { mimeType: mime }), chunks = [];
+      var mr = new MediaRecorder(stream, clean ? { mimeType: mime, videoBitsPerSecond: 12000000 } : { mimeType: mime }), chunks = [];
+      rec.mr = mr;
       mr.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
-      var rec = { mr: mr, cancel: false, speed: speed };
       mr.onstop = function () {
         if (recBadge) recBadge.hidden = true;
-        if (!rec.cancel) { var blob = new Blob(chunks, { type: "video/webm" }), a = document.createElement("a"); a.href = URL.createObjectURL(blob);
-          a.download = (SPEC.title || "video").replace(/[\\/:*?"<>|]/g, "_") + ".webm"; document.body.appendChild(a); a.click(); a.remove();
-          setTimeout(function () { URL.revokeObjectURL(a.href); }, 60000); }
+        if (!rec.cancel) download(new Blob(chunks, { type: "video/webm" }), exportName() + (clean ? "_video" : "") + ".webm");
       };
       setSpeed(1); t = 0; started = true; hush();
-      recording = rec; if (recBadge) recBadge.hidden = false;
+      recording = rec; if (recBadge) { recBadge.textContent = clean ? "● 録画中（編集用）" : "● 録画中"; recBadge.hidden = false; }
       mr.start(1000); play(); focusPlayer();
     } catch (e) { console.warn("rec:", e); recording = null; resize(); }
   }
-  function finishRec() { var r = recording; if (!r) return; recording = null; try { r.mr.stop(); } catch (e) {} setSpeed(r.speed); resize(); }
+  function finishRec() { var r = recording; if (!r) return; recording = null; try { r.mr.stop(); } catch (e) {} setSpeed(r.speed);
+    if (r.clean) { audioOn = r.audio; restoreTiming(); } resize(); }
   function cancelRec() { if (!recording) return; recording.cancel = true; finishRec(); }
-  if (recBtn) recBtn.addEventListener("click", function () { if (recording) cancelRec(); else startRec(); });
+  if (recBtn) recBtn.addEventListener("click", function () { if (recording) cancelRec(); else startRec(false); });
+  if (recCleanBtn) recCleanBtn.addEventListener("click", function () { if (recording) cancelRec(); else startRec(true); });
+
+  /* 音のトラックを書き出す（WAV・48kHz・ステレオ）: 声・音楽・効果音と、それを混ぜたものを、台本どおりの時間割で
+   * OfflineAudioContext に描き出す（再生を待たずに作れる）。編集ソフト（YMM4・AviUtl など）や YouTube の音声トラック用。
+   * 声は前もって作った声（--voicevox・--voices-dir）だけ。ブラウザの読み上げの声は書き出せない */
+  var expBtn = $("mv-expaudio"), exporting = false;
+  if (expBtn && !(window.OfflineAudioContext && MA)) expBtn.hidden = true;
+  var SR = 48000;
+  function decodeUrl(url) { return fetch(url).then(function (x) { return x.arrayBuffer(); }).then(function (b) { return ac.decodeAudioData(b); }).catch(function (e) { console.warn("export:", e); return null; }); }
+  /* 声・ファイルの効果音・楽器の録音の音の復号を待つ（数が変わらなくなるまで。長くても ms まで） */
+  function waitDecoded(ms) {
+    return new Promise(function (res) { var t0 = performance.now(), last = "", same = 0;
+      (function poll() {
+        var pend = Object.keys(VBUF).filter(function (k) { return VBUF[k] === null; }).length
+          + Object.keys(SFXD).filter(function (k) { return SFXD[k].file && !SFXBUF[k]; }).length;
+        var sig = JSON.stringify(MA.samplesReady ? MA.samplesReady() : {}); same = sig === last ? same + 1 : 0; last = sig;
+        if ((!pend && same >= 3) || performance.now() - t0 > ms) res(); else setTimeout(poll, 200);
+      })(); });
+  }
+  function renderStem(fill) {
+    var oc = new OfflineAudioContext(2, Math.ceil((DUR + 1500) / 1000 * SR), SR);
+    return Promise.resolve(fill(oc, oc.destination)).then(function () { return oc.startRendering(); });
+  }
+  function hasMusic() { return CHAPTERS.some(function (c, ci) { var k = musicKeyOf(ci); return k && MUS[k]; }); }
+  function voiceCues() { return AUD.narration === false ? [] : CUES.filter(function (c) { return c.key && VBUF[c.key]; }); }
+  function fillVoice(oc, out) {
+    voiceCues().forEach(function (c) { var s = oc.createBufferSource(), g = oc.createGain(); s.buffer = VBUF[c.key];
+      g.gain.value = c.line.volume === undefined ? 1 : c.line.volume; s.connect(g); g.connect(out); s.start(c.a / 1000); });
+  }
+  /* 音楽: musicTick と同じく章ごとに曲の頭から（全体の曲のファイルは映像の先頭からの位置）。映像の最初と最後で下げる */
+  function fillMusic(oc, out) {
+    var jobs = [];
+    CHAPTERS.forEach(function (C, ci) {
+      var key = musicKeyOf(ci), def = key ? MUS[key] : null; if (!def) return;
+      var t0 = C.t, len = chLen(ci), bus = oc.createGain(); bus.connect(out);
+      if (def.file) {
+        bus.gain.value = (def.volume === undefined ? .35 : def.volume) * MUSVOL;
+        jobs.push(decodeUrl(def.file).then(function (b) { if (!b) return;
+          var src = oc.createBufferSource(), off = (AUD._musicKey === key && !SPEC.chapters[ci]._music ? t0 : 0) / 1000;
+          src.buffer = b; src.loop = def.loop !== false; src.connect(bus);
+          if (src.loop) off = off % b.duration; else if (off >= b.duration) return;
+          src.start(t0 / 1000, off); src.stop((t0 + len) / 1000); }));
+        return;
+      }
+      bus.gain.value = MUSVOL * (def.g || 1);
+      MA.notes(def, { ci: ci, energy: energyOf(ci), len: len }, 0, len).forEach(function (n) {
+        var tv = t0 + n.t, fade = clamp(tv / 1200 + .15) * clamp((DUR - tv) / 2500); if (fade <= 0) return;
+        MA.note(oc, bus, n, tv / 1000, Math.max(.05, (n.d || 0) / 1000), fade, INSTX, false);
+      });
+    });
+    return Promise.all(jobs);
+  }
+  function fillSfx(oc, out) {
+    var bus = oc.createGain(); bus.gain.value = SFXCFG && SFXCFG.volume !== undefined ? SFXCFG.volume : 1; bus.connect(out);
+    SFXQ.forEach(function (q) { sfxPlay(q.name, q.T / 1000, q, oc, bus); });
+  }
+  /* 全部: 再生と同じく、声の間は音楽を下げ（audio.duck）、出口に抑えを掛ける */
+  function fillMix(st) { return function (oc, out) {
+    var lim = oc.createDynamicsCompressor(); lim.threshold.value = -6; lim.knee.value = 6; lim.ratio.value = 12; lim.attack.value = .003; lim.release.value = .2; lim.connect(out);
+    var duck = oc.createGain(); duck.gain.value = 1; duck.connect(lim);
+    var dv = AUD.duck === undefined ? .5 : AUD.duck;
+    voiceCues().forEach(function (c) { duck.gain.setTargetAtTime(dv, c.a / 1000, .08); duck.gain.setTargetAtTime(1, c.a / 1000 + VBUF[c.key].duration, .4); });
+    [[st.voice, lim], [st.music, duck], [st.sfx, lim]].forEach(function (p) { if (!p[0]) return; var s = oc.createBufferSource(); s.buffer = p[0]; s.connect(p[1]); s.start(0); });
+  }; }
+  function wavBlob(buf) {
+    var n = buf.length, ch = buf.numberOfChannels, sr = buf.sampleRate, size = n * ch * 2, dv = new DataView(new ArrayBuffer(44 + size)), p = 0, i, c;
+    var str = function (x) { for (var k = 0; k < x.length; k++) dv.setUint8(p++, x.charCodeAt(k)); }, u32 = function (v) { dv.setUint32(p, v, true); p += 4; }, u16 = function (v) { dv.setUint16(p, v, true); p += 2; };
+    str("RIFF"); u32(36 + size); str("WAVE"); str("fmt "); u32(16); u16(1); u16(ch); u32(sr); u32(sr * ch * 2); u16(ch * 2); u16(16); str("data"); u32(size);
+    var data = []; for (c = 0; c < ch; c++) data.push(buf.getChannelData(c));
+    for (i = 0; i < n; i++) for (c = 0; c < ch; c++) { var v = Math.max(-1, Math.min(1, data[c][i])); dv.setInt16(p, v < 0 ? v * 32768 : v * 32767, true); p += 2; }
+    return new Blob([dv], { type: "audio/wav" });
+  }
+  function exportAudio() {
+    if (exporting || recording) return;
+    closeSet(false); ensureAudio(); if (!ac) return;
+    exporting = true; if (playing) pause(); nominalTiming();
+    if (recBadge) { recBadge.textContent = "● 音を書き出し中…"; recBadge.hidden = false; }
+    var st = {}, done = function () { exporting = false; if (recBadge) recBadge.hidden = true; restoreTiming(); };
+    waitDecoded(10000)
+      .then(function () { return voiceCues().length ? renderStem(fillVoice) : null; }).then(function (b) { st.voice = b; return hasMusic() ? renderStem(fillMusic) : null; })
+      .then(function (b) { st.music = b; return SFXCFG && SFXQ.length ? renderStem(fillSfx) : null; }).then(function (b) { st.sfx = b; return renderStem(fillMix(st)); })
+      .then(function (b) { st.mix = b;
+        var name = exportName();
+        [["voice", st.voice], ["music", st.music], ["sfx", st.sfx], ["mix", st.mix]].filter(function (x) { return x[1]; })
+          .forEach(function (x, i) { setTimeout(function () { download(wavBlob(x[1]), name + "_" + x[0] + ".wav"); }, i * 700); });
+      })
+      .catch(function (e) { console.warn("export:", e); }).then(done);
+  }
+  if (expBtn) expBtn.addEventListener("click", exportAudio);
 
   /* 起動 */
   var sel = $("mv-speed"); if (sel) sel.value = String(speed);

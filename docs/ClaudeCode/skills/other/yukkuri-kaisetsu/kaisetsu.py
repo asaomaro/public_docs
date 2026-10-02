@@ -297,6 +297,10 @@ def main():
     ap.add_argument("--voices-dir", help="用意した WAV のフォルダ（名前順に、声の無いせりふへ順に当てる）")
     ap.add_argument("--timeline", action="store_true", help="HTML を作らず時間割りを出す")
     ap.add_argument("--list-casts", action="store_true", help="登場人物のプリセットを出す")
+    ap.add_argument("--export", help="編集・投稿用のファイルも書き出す（youtube・ymm4・exo をカンマで。all で全部。motion-video の export.py）")
+    ap.add_argument("--export-dir", help="書き出す場所（既定: 台本と同じ場所の <台本名>_export/）")
+    ap.add_argument("--fps", type=int, default=30, help="YMM4・AviUtl のプロジェクトのフレームレート（既定 30）")
+    ap.add_argument("--win-dir", help="YMM4・AviUtl のプロジェクトに書く素材の場所（Windows のパス）")
     a = ap.parse_args()
     if a.list_casts or not a.script:
         print("# 登場人物のプリセット（台本の cast: に並べる。chars/<名前>/ に立ち絵を置く）")
@@ -354,6 +358,10 @@ def main():
                 t += s["_dur"]
         print("合計 %s" % mv.fmt(total))
         return
+    spec["_exportName"] = mv.export.base_name(spec, a.script)
+    if a.export:
+        spec["_exportCredits"] = credits
+        mv.export.run(spec, a.script, a.export, a.export_dir, a.fps, a.win_dir)
     out = a.out or stem + ".html"
     open(out, "w", encoding="utf-8").write(mv.build_html(spec, spec["theme"], spec["player"]))
     print("OK : %s（%s）" % (out, mv.fmt(total)))
