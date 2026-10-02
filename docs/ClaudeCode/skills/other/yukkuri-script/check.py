@@ -70,7 +70,7 @@ def board_text(b):
             out.append(o)
         elif isinstance(o, dict):
             for k, v in o.items():
-                if k not in ("type", "src", "ref", "img", "line", "frame", "color", "op"):
+                if k not in ("type", "src", "ref", "img", "line", "frame", "color", "op", "icon", "draw", "draw_ref"):
                     walk(v)
         elif isinstance(o, list):
             for v in o:
@@ -164,16 +164,38 @@ def run(path, facts_path=None):
     if len(L) >= 10 and sum(1 for l in L if l["n"] <= 12) / len(L) < .1:
         R.add("warn", "掛け合い", "12 字以下の短いせりふが 1 割より少ない（短い反応・ツッコミを入れる）")
 
-    # 2. 冒頭
-    first = [l for l in L if l["t"] < 15] or L[:3]
-    for l in L[:2]:
-        if BORING_OPEN.search(l["text"]):
-            R.add("warn", "冒頭", "「今日は〜について解説」で始まっています。先に問い・意外な事実・結論のチラ見せを置く: %s" % l["text"][:24], l["no"])
-    if not any(HOOK.search(l["text"]) for l in first):
-        R.add("warn", "冒頭", "最初の 15 秒につかみ（問い・意外な事実・数字）が見当たりません")
-    greet = [l for l in L[:4] if re.search(r"(です|よ|だぜ|なのだ|だよ)[。！!★]*$", l["text"]) and cast.get(l["who"], {}).get("name", "")[-2:] in l["text"]]
-    if len(greet) >= 2 and L.index(greet[-1]) <= 1:
-        R.add("info", "冒頭", "あいさつ（名乗り）から始まっています。つかみを先にして、名乗りは 1 人ぶん・短くするか省く")
+    # 2. 冒頭（すぐ本題に入る型か、茶番から入る型）
+    chaban = meta.get("intro", "").lower() in ("chaban", "茶番") or "茶番" in chapters[0]["title"]
+    if chaban:
+        C = [l for l in L if l["ch"] == 0]
+        sec = sum(l["sec"] + LINE_GAP for l in C)
+        stats["冒頭の茶番"] = "%d せりふ・約 %d 秒" % (len(C), sec)
+        if "茶番" not in chapters[0]["title"]:
+            R.add("warn", "冒頭", "intro: chaban なのに、最初の章の名前に「茶番」がありません（# 茶番 にする。検査とファクトチェックが茶番として扱う）")
+        if sec > 45 or sec > max(20, total * .12):
+            R.add("warn", "冒頭", "茶番が約 %d 秒あります（15〜40 秒・全体の 1 割まで）" % sec, C[0]["no"])
+        elif sec < 15:
+            R.add("warn", "冒頭", "茶番が約 %d 秒しかありません（15〜40 秒が目安。短いなら、茶番にせずつかみにする）" % sec, C[0]["no"])
+        if total < 100:
+            R.add("warn", "冒頭", "1 分台の動画に茶番は入れない（すぐ本題に入る）")
+        nxt = [l for l in L if l["ch"] == 1][:2]
+        if not any(re.search(r"というわけで|ということで|そんなわけで|はさておき|それはさておき|今回は|今日は|本題", l["text"]) for l in C[-2:] + nxt):
+            R.add("warn", "冒頭", "茶番から本題へのつなぎ（「というわけで今回は」など）が見当たりません", (C[-1] if C else L[0])["no"])
+        nums = [x for l in C for x in numbers(l["text"])]
+        if nums:
+            R.add("info", "冒頭", "茶番の中に数字があります（%s）。事実として言うなら本編で。茶番の中の事実も、ファクトチェックの対象になる" % "・".join(dict.fromkeys(nums)))
+        if not any(l["emote"] in STRONG_EMOTES or any(K.OPT_RE.match(o).group(1) in STRONG_FACES for o in l["opts"]) for l in C):
+            R.add("warn", "冒頭", "茶番に、感情の動くせりふ（驚き・ツッコミ・困る）がありません")
+    else:
+        first = [l for l in L if l["t"] < 15] or L[:3]
+        for l in L[:2]:
+            if BORING_OPEN.search(l["text"]):
+                R.add("warn", "冒頭", "「今日は〜について解説」で始まっています。先に問い・意外な事実・結論のチラ見せを置く: %s" % l["text"][:24], l["no"])
+        if not any(HOOK.search(l["text"]) for l in first):
+            R.add("warn", "冒頭", "最初の 15 秒につかみ（問い・意外な事実・数字）が見当たりません")
+        greet = [l for l in L[:4] if re.search(r"(です|よ|だぜ|なのだ|だよ)[。！!★]*$", l["text"]) and cast.get(l["who"], {}).get("name", "")[-2:] in l["text"]]
+        if len(greet) >= 2 and L.index(greet[-1]) <= 1:
+            R.add("info", "冒頭", "あいさつ（名乗り）から始まっています。つかみを先にして、名乗りは 1 人ぶん・短くするか省く")
 
     # 3. 掛け合い
     run_who, run_n = None, 0
@@ -285,7 +307,7 @@ def run(path, facts_path=None):
             shots = b["shots"]
             for i, sh in enumerate(shots):
                 ls = S["lines"][sh["line"]:shots[i + 1]["line"] if i + 1 < len(shots) else None]
-                pics = sum(1 for it in sh["items"] if it.get("ref") or it.get("img"))
+                pics = sum(1 for it in sh["items"] if it.get("ref") or it.get("img") or it.get("icon") or it.get("part") or it.get("draw_ref") or it.get("draw"))
                 views.append({"kind": "絵" if pics else "言葉", "lines": ls, "sec": sum(l["sec"] + LINE_GAP for l in ls), "t0": ls[0]["t"] if ls else S["t0"], "text": board_text(sh)})
         else:
             k = b.get("type") if isinstance(b, dict) else "言葉" if b else "なし"
@@ -305,7 +327,7 @@ def run(path, facts_path=None):
     if views:
         pic = sum(v["kind"] == "絵" for v in views) / len(views)
         if pic < .6:
-            R.add("warn", "画面", "絵のある画面が %d%% です（6 割以上に。解説動画は、ほとんどの画面に挿絵・写真・図がある）。illust.py・fetch_images.py で絵を取り、@show で出す" % round(pic * 100))
+            R.add("warn", "画面", "絵のある画面が %d%% です（6 割以上に。解説動画は、ほとんどの画面に挿絵・写真・図がある）。illust.py・fetch_images.py・irasutoya スキルで絵を取り、@show で出す" % round(pic * 100))
         lists = [v for v in views if v["kind"] in ("bullets", "steps", "cards", "statement")]
         if len(lists) > max(1, len(views) * .15):
             R.add("warn", "画面", "箇条書き・手順・カードの黒板が %d 枚あります（全体の 15%% まで。まとめ以外は絵で見せる）" % len(lists))
@@ -356,6 +378,32 @@ def run(path, facts_path=None):
                     miss.setdefault(x, (S["lines"] or [{}])[0].get("no"))
         if miss:
             R.add("warn", "出典", "事実の一覧に無い数字: %s。出典を足すか、台本から外す" % "、".join("%s（%s 行目）" % kv for kv in miss.items()))
+    # 9. 仕上げ（別の目でのファクトチェックと見直しが済んでいるか）
+    stem = os.path.splitext(os.path.abspath(path))[0]
+    fc = stem + ".factcheck.md"
+    if not os.path.isfile(fc):
+        R.add("info", "仕上げ", "ファクトチェックがまだです（fact-check スキル。別のエージェントに渡す）")
+    else:
+        t = open(fc, encoding="utf-8").read()
+        vs = re.findall(r"(?m)^- 判定:[ \t]*(\S*)", t)
+        left = [v for v in vs if v.startswith(("食い違う", "言いすぎ", "確かめられない"))]
+        stats["ファクトチェック"] = "%d 件（直す所 %d・判定なし %d）" % (len(vs), len(left), sum(1 for v in vs if not v))
+        if any(not v for v in vs):
+            R.add("warn", "仕上げ", "ファクトチェックに、判定の無い主張が %d 件あります" % sum(1 for v in vs if not v))
+        if left:   # 直したかどうかは、ここからは分からない（結果のファイルは直す前の台本を見たもの）
+            R.add("info", "仕上げ", "ファクトチェックで直す所が %d 件出ています（食い違う・言いすぎ・確かめられない）。台本に反映したかを確かめる" % len(left))
+    rv = stem + ".review.md"
+    if not os.path.isfile(rv):
+        R.add("info", "仕上げ", "見直しがまだです（review.md の観点。別のエージェントに渡す）")
+    else:
+        t = open(rv, encoding="utf-8").read()
+        sc = [int(x) for x in re.findall(r"(?m)^- [A-E] [^:：]*[:：]\s*([1-5])", t)]
+        verdict = (re.search(r"(?m)^- 総合[:：]\s*(\S+)", t) or [None, ""])[1]
+        stats["見直し"] = "%s（%s）" % (verdict or "判定なし", "・".join(map(str, sc)) or "点数なし")
+        if len(sc) < 5:
+            R.add("warn", "仕上げ", "見直しの点数が 5 つそろっていません（A 構成・B わかりやすさ・C キャラクター・D 掛け合い・E 画面と演技）")
+        elif min(sc) < 4:
+            R.add("info", "仕上げ", "見直しに 3 点以下の観点があります。指摘を台本に反映したかを確かめる（見直しは 2 回まで）")
     return R, stats
 
 

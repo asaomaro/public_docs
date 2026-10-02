@@ -1624,7 +1624,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     for (var i = 0; i < parts.length; i++) { var im = IMGS[sp.images[parts[i][0]]]; if (!im || !im.complete || !im.naturalWidth) return null; ims.push(im); }
     var key = parts.map(function (p) { return p[0]; }).join("|"), store = SPR[id] || (SPR[id] = { n: 0, m: {} }), c = store.m[key];
     if (!c) {
-      if (store.n > 60) { store.m = {}; store.n = 0; }
+      if (store.n > Math.max(12, Math.min(60, Math.floor(3e7 / (sp.w * sp.h))))) { store.m = {}; store.n = 0; }   /* 大きい絵（SVG のパーツ）は、覚えておく枚数を減らす */
       c = document.createElement("canvas"); c.width = sp.w; c.height = sp.h; var g = c.getContext("2d");
       parts.forEach(function (p, j) { if (j) g.clearRect(p[1], p[2], ims[j].naturalWidth, ims[j].naturalHeight); g.drawImage(ims[j], p[1], p[2]); });
       store.m[key] = c; store.n++;
@@ -1862,15 +1862,33 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     lines.forEach(function (l, i) { txt(l, cx, y - h + 50 + i * 46, { size: 34, weight: 800, align: "center", color: "#20242c", font: o.font }); });
     ctx.restore();
   }
-  function drawShot(sh, slt, idx0) {
-    var items = sh.items || [], cells = items.filter(function (it) { return !it.op; }), nOp = items.length - cells.length;
+  /* items にはほかに: {icon: 線で描くアイコンの名前, label, say}（白い丸の上に、線が描かれてから動き続ける）／{part: 部品の台本, label, say}（白い板の上に部品を縮めて置く）／
+     {draw: "…JS…"}（描き下ろし。custom と同じ (ctx, lt, d, H, s) の本体。座標は 1920×1080、lt はこの絵が出てからの ms、s.cue(n) は n 個あとのせりふが始まる ms。並びの外に、ほかの絵より先に描く） */
+  var STAGE_DRAW = new WeakMap(), CURSHOT = null;
+  function stageDraw(it, slt, d, box) {
+    var fn = STAGE_DRAW.get(it);
+    if (!fn) { try { fn = new Function("ctx", "lt", "d", "H", "s", Array.isArray(it.draw) ? it.draw.join("\n") : it.draw); } catch (e) { fn = function () {}; console.error("stage draw:", e); } STAGE_DRAW.set(it, fn); }
+    var cs = CURSHOT; it.cue = function (n) { if (!cs) return 1e9; var c = (cs.s._cues || []).filter(function (c2) { return c2[4] === cs.line + (n || 0); })[0]; return c ? c[0] - cs.t0 : 1e9; };
+    it.box = box;   /* 描く範囲（立ち絵と字幕に隠れない所）。plate: "dark"（既定）・"light"・"none" で、その範囲に板を敷く */
+    if (it.plate !== "none") { var pk = P(slt, 0, 320); ctx.save(); ctx.globalAlpha *= pk; ctx.translate(0, (1 - pk) * 16); ctx.shadowColor = "rgba(0,0,0,.35)"; ctx.shadowBlur = 26; ctx.shadowOffsetY = 8;
+      rr(box.x, box.y, box.w, box.h, 26); ctx.fillStyle = it.plate === "light" ? "rgba(255,255,255,.96)" : "rgba(18,26,40,.93)"; ctx.fill(); ctx.shadowColor = "transparent"; ctx.strokeStyle = it.plate === "light" ? "#20242c" : "#ffffff"; ctx.lineWidth = 5; ctx.stroke(); ctx.restore(); }
+    ctx.save(); EVMUTE++; try { fn(ctx, slt, d, HELP, it); } catch (e) { if (!it._err) { it._err = String(e && e.message || e); console.error("stage draw:", e); } } finally { EVMUTE--; } ctx.restore();
+    if (it._err) txt("draw のエラー: " + it._err, box.x + 24, box.y + box.h - 20, { size: 26, weight: 700, color: "#ff5a4d" });   /* 描く途中で止まったら、板の下に出す（--shots で気づける） */
+  }
+  function drawShot(sh, slt, idx0, d) {
+    var top0 = 64 + (sh.title ? 96 : 0), AH0 = 770 - (sh.title ? 96 : 0) - (sh.note ? 92 : 0);
+    (sh.items || []).forEach(function (it) { if (it.draw) stageDraw(it, slt, d, { x: 360, y: top0, w: 1200, h: AH0 }); });
+    var items = (sh.items || []).filter(function (it) { return !it.draw; }), cells = items.filter(function (it) { return !it.op; }), nOp = items.length - cells.length;
     var top = 64 + (sh.title ? 96 : 0), AH = 770 - (sh.title ? 96 : 0) - (sh.note ? 92 : 0), CX = 960, CY = top + AH / 2, gap = 34, opW = 120, AW = 1400;
     var cw = Math.min(cells.length === 1 ? 1120 : cells.length === 2 ? 600 : 460, (AW - nOp * opW - (items.length - 1) * gap) / Math.max(1, cells.length));
-    var total = cells.length * cw + nOp * opW + (items.length - 1) * gap, x = CX - total / 2, sin = Math.sin, ci = 0;
+    /* 部品（グラフ・図）は字が小さくなるので、ほかの絵より広く取る */
+    var nP = cells.filter(function (it) { return it.part; }).length, avail = AW - nOp * opW - (items.length - 1) * gap, pwid = cw;
+    if (nP) { var nO = cells.length - nP; pwid = nO ? Math.min(960, (avail - nO * 380) / nP) : Math.min(1240, avail / nP); cw = nO ? Math.min(460, (avail - nP * pwid) / nO) : cw; }
+    var total = (cells.length - nP) * cw + nP * pwid + nOp * opW + (items.length - 1) * gap, x = CX - total / 2, sin = Math.sin, ci = 0;
     var anyLabel = items.some(function (it) { return it.label; }), anySay = items.some(function (it) { return it.say; });
     if (sh.title) { var tk = P(slt, 0, 300); ctx.save(); ctx.globalAlpha *= tk; capLine(sh.title, CX, top - 30 - (1 - tk) * 14, capFont(62, 900), [[20, "#16161d"]], "#ffffff", "#ffe45c"); ctx.restore(); }
     items.forEach(function (it, i) {
-      var dl = 80 + i * 130, k = P(slt, dl, dl + 340, back), al = clamp((slt - dl) / 160), w = it.op ? opW : cw, cx = x + w / 2; x += w + gap;
+      var dl = 80 + i * 130, k = P(slt, dl, dl + 340, back), al = clamp((slt - dl) / 160), w = it.op ? opW : it.part ? pwid : cw, cx = x + w / 2; x += w + gap;
       if (al <= 0) return;
       ctx.save(); ctx.globalAlpha *= al;
       if (it.op) { var op = it.op;
@@ -1886,9 +1904,22 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
           ctx.translate(cx, y0 + j * sz * 1.3); ctx.scale(lk, lk); capLine(l.trim(), 0, 0, capFont(sz, 900), [[sz * .3, "#16161d"]], j ? "#ffffff" : (it.color || "#ffffff"), "#ffe45c"); ctx.restore(); });
         ctx.restore(); return; }
       /* 絵: 上から 吹き出し・名札・絵。名札と吹き出しは絵のすぐ上に置く（下は立ち絵と字幕に隠れるため） */
-      var im = IMGS["@" + it.img], offTop = (anySay ? 92 : 0) + (anyLabel ? 70 : 0), hBox = AH - offTop, yTop = top + offTop;
-      if (im && im.complete && im.naturalWidth) {
-        var sc = Math.min(cw / im.naturalWidth, hBox / im.naturalHeight), dw = im.naturalWidth * sc, dh = im.naturalHeight * sc, iy = yTop + hBox / 2;
+      var im = IMGS["@" + it.img], offTop = (anySay ? 92 : 0) + (anyLabel ? 70 : 0), hBox = AH - offTop, yTop = top + offTop, iy = yTop + hBox / 2, edge = null;
+      if (it.icon) {   /* 線で描くアイコン: 白い丸の上に、線が描かれてから動き続ける */
+        var ir = Math.min(cw, hBox) * .4, ifl = 6 * sin(slt / 900 + i * 1.7);
+        ctx.save(); ctx.translate(cx, iy + ifl); ctx.scale(k, k);
+        ctx.shadowColor = "rgba(0,0,0,.28)"; ctx.shadowBlur = 18; ctx.shadowOffsetY = 8; ctx.beginPath(); ctx.arc(0, 0, ir, 0, Math.PI * 2); ctx.fillStyle = "#ffffff"; ctx.fill(); ctx.shadowColor = "transparent";
+        ctx.lineWidth = Math.max(6, ir * .06); ctx.strokeStyle = col; ctx.stroke();
+        drawIcon(it.icon, 0, 0, ir * 1.25, { color: it.color || "#20242c", k: clamp((slt - dl - 120) / 800), lt: slt, width: 2 });
+        ctx.restore(); edge = iy - ir;
+      } else if (it.part) {   /* 部品（グラフ・図）: 16:9 の白い板の上に縮めて置く */
+        var pw = Math.min(pwid, hBox * 16 / 9), ph = pw * 9 / 16;
+        ctx.save(); ctx.translate(cx, iy); ctx.scale(k, k); ctx.translate(-pw / 2, -ph / 2);
+        ctx.shadowColor = "rgba(0,0,0,.3)"; ctx.shadowBlur = 24; ctx.shadowOffsetY = 8; panel(0, 0, pw, ph, { r: 20, fill: C.panel, stroke: col, lw: 6 }); ctx.shadowColor = "transparent";
+        rr(0, 0, pw, ph, 20); ctx.clip(); sub(it.part.type || "statement", it.part, slt - dl - 200, d, { scale: pw / 1920 });
+        ctx.restore(); edge = iy - ph / 2 - 6;
+      } else if (im && im.complete && im.naturalWidth) {
+        var sc = Math.min(cw / im.naturalWidth, hBox / im.naturalHeight), dw = im.naturalWidth * sc, dh = im.naturalHeight * sc;
         var fl = it.frame ? 0 : 6 * sin(slt / 900 + i * 1.7), zm = it.frame ? 1 + .03 * clamp(slt / 6000) : 1, tilt = it.frame && cells.length > 1 ? (i % 2 ? .02 : -.02) : 0;
         ctx.save(); ctx.translate(cx, iy + fl); ctx.rotate(tilt); ctx.scale(k * zm, k * zm);
         if (it.frame) { ctx.shadowColor = "rgba(0,0,0,.35)"; ctx.shadowBlur = 30; ctx.shadowOffsetY = 10; ctx.fillStyle = "#ffffff"; ctx.fillRect(-dw / 2 - 12, -dh / 2 - 12, dw + 24, dh + 24); ctx.shadowColor = "transparent"; }
@@ -1896,7 +1927,9 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
         ctx.drawImage(im, -dw / 2, -dh / 2, dw, dh); ctx.shadowColor = "transparent";
         if (it.credit) { ctx.font = font(capFont(20, 700)); ctx.textAlign = "right"; ctx.lineJoin = "round"; ctx.lineWidth = 5; ctx.strokeStyle = "rgba(0,0,0,.8)"; ctx.strokeText(it.credit, dw / 2 - 10, dh / 2 - 12); ctx.fillStyle = "#ffffff"; ctx.fillText(it.credit, dw / 2 - 10, dh / 2 - 12); }
         ctx.restore();
-        var edge = iy - dh / 2 * (it.frame ? 1 : .9) - (it.frame ? 12 : 0);
+        edge = iy - dh / 2 * (it.frame ? 1 : .9) - (it.frame ? 12 : 0);
+      }
+      if (edge !== null) {
         if (it.label) { var ls2 = Math.max(22, Math.min(38, 38 * (cw + 40 - 44) / Math.max(1, tw(it.label, capFont(38))))), lo = capFont(ls2), lw = tw(it.label, lo) + 44, lh2 = ls2 * 1.58; ctx.save(); ctx.translate(cx, edge - 38); ctx.scale(k, k);   /* 長い名札は字を小さく */
           rr(-lw / 2, -lh2 / 2, lw, lh2, 14); ctx.fillStyle = col; ctx.fill(); ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 5; ctx.stroke(); txt(it.label, 0, ls2 * .37, { size: ls2, weight: 800, align: "center", color: "#ffffff", font: lo.font }); ctx.restore(); }
         if (it.say) stageBubble(it.say, cx, edge - (it.label ? 94 : 26), Math.max(cw, 420), P(slt, dl + 380, dl + 700, back), cx);
@@ -1905,13 +1938,13 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     });
     if (sh.note) { var nk = P(slt, 300 + items.length * 130, 650 + items.length * 130); ctx.save(); ctx.globalAlpha *= nk; capLine(sh.note, CX, top + AH + 66 + (1 - nk) * 14, capFont(58, 900), [[19, "#16161d"]], "#ffe45c", "#ffffff"); ctx.restore(); }
   }
-  function drawStage(s, b, lt) {
+  function drawStage(s, b, lt, d) {
     var shots = b.shots || []; if (!shots.length) return;
     var starts = shots.map(function (sh, i) { if (!i && !sh.line) return 0; var c = (s._cues || []).filter(function (c2) { return c2[4] === sh.line; })[0]; return c ? Math.max(0, c[0] - 200) : 0; }), n = 0;
     for (var i = 0; i < shots.length; i++) if (lt >= starts[i]) n = i;
     var slt = lt - starts[n];
-    if (n > 0 && slt < 200) { ctx.save(); ctx.globalAlpha *= 1 - slt / 200; ctx.translate(0, -18 * slt / 200); drawShot(shots[n - 1], 1e7, n - 1); ctx.restore(); }
-    drawShot(shots[n], slt, n);
+    if (n > 0 && slt < 200) { CURSHOT = { s: s, t0: starts[n - 1], line: shots[n - 1].line || 0 }; ctx.save(); ctx.globalAlpha *= 1 - slt / 200; ctx.translate(0, -18 * slt / 200); drawShot(shots[n - 1], starts[n] - starts[n - 1] + slt, n - 1, d); ctx.restore(); }
+    CURSHOT = { s: s, t0: starts[n], line: shots[n].line || 0 }; drawShot(shots[n], slt, n, d);
     if (EVC && TALK.sfx !== false) shots.forEach(function (sh, j) { sfxEv(starts[j] + 150, (TALK.sfx || {}).show || "pop", { v: .26, pitch: (j % 4) * 2 }); });
   }
   /* 左上の話題の札（tag）と、右上の項目の札（corner） */
@@ -1935,7 +1968,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var bgi = IMGS[s.bg];
     if (bgi && bgi.complete && bgi.naturalWidth) { var sc = Math.max(W / bgi.naturalWidth, H / bgi.naturalHeight); ctx.drawImage(bgi, 960 - bgi.naturalWidth * sc / 2, 540 - bgi.naturalHeight * sc / 2, bgi.naturalWidth * sc, bgi.naturalHeight * sc); }
     var b = s.board; if (!b) { stageTags(s, lt); return; }
-    if (b.type === "stage") { drawStage(s, b, lt); stageTags(s, lt); return; }
+    if (b.type === "stage") { drawStage(s, b, lt, d); stageTags(s, lt); return; }
     var bx = 330, byy = 70, bw = 1260, bh = bw * 9 / 16 * .92, k = P(lt, 0, 500);
     ctx.save(); ctx.globalAlpha *= k; ctx.translate(0, (1 - k) * 20);
     panel(bx - 16, byy - 16, bw + 32, bh + 32, { r: 24, fill: s.boardColor || C.panel, stroke: C.accent, lw: 6 });

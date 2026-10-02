@@ -70,8 +70,10 @@ def checks(meta, info, src, K):
     for n in vv:
         if not any(("VOICEVOX:" + n) in c for c in info["credits"]):
             warns.append("クレジットに「VOICEVOX:%s」がありません（--voicevox で作ったか、voice_credit: を書いたか）" % n)
+    if info.get("irasutoya", 0) > 20:
+        warns.append("いらすとやの絵が %d 点あります。収益化した動画は 1 本 20 点まで（サムネイルを含む）" % info["irasutoya"])
     if info.get("webm_only"):
-        warns.append("HTML のままでは配れない BGM を使っています（%s）。WebM に書き出した動画だけを公開する" % "、".join(info["webm_only"]))
+        warns.append("HTML のままでは配れない素材を使っています（%s）。WebM に書き出した動画だけを公開する" % "、".join(info["webm_only"]))
     if not meta.get("thumb"):
         warns.append("thumb（サムネイルの文字）がありません。題をそのまま使います。12 字前後の強い一言を 2〜3 行で書く")
     return warns
@@ -109,7 +111,7 @@ def thumbnail(meta, base, K, out):
             d.line([(0, y), (W, y)], fill=(24 + y // 12, 28 + y // 9, 60 + y // 5))
     im = im.convert("RGBA")
     # 立ち絵（右に寄せて大きく。表情は thumb_faces か、聞き手は驚き・解説役は得意げ）
-    cast = K.build_cast(meta, base)
+    cast = K.build_cast(dict({k: v for k, v in meta.items() if not k.endswith(".art")}, art="png"), base)   # サムネイルは PNG のパーツから描く（SVG の立ち絵があっても）
     want = dict(p.split("=", 1) for p in re.split(r"[,、]\s*", meta.get("thumb_faces", "")) if "=" in p)
     ids = list(cast)
     explainer = next((p.split("=")[0].strip() for p in re.split(r"[,、]", meta.get("roles", "")) if "解説" in p.split("=")[-1]), ids[0])

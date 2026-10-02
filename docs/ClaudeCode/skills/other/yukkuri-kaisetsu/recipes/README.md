@@ -18,6 +18,10 @@ python3 parts_export.py chars_src/kitsune/れいむ --recipe recipes/kitsune_yuk
 - `parts_export.py`: `--list` でパーツと preset.ini の表情。preset.ini の「会話用＿喜び」などを normal・smile・angry・sad に当て、`驚き`・`困り` のパーツがあれば surprised・troubled も作る。
 - 作る表情・体のラベルは `labels.json`（表情 12・ポーズ 6・持ち物・動き 10）。素材に無いものは作らない（下の表）。
 - 動画には、台本で使った表情の絵だけが埋め込まれる。
+- `--svg` を付けると、PNG のパーツに加えて、SVG（ベクトル）のパーツを `chars/<名前>/svg/` に作る（vtracer が要る。2 倍の大きさで描いてからなぞる）。
+  作ったら `python3 sprite.py chars/<名前> --compare` で PNG と見比べる。53 人のうち 14 人を SVG にしてある
+  （`zundamon` `metan` `ankomon` `zunko` `kiritan` `sora` `whitecul` `voidoll` `benizakura` と、公式 SD の 5 人）。
+  ほかは、大きさが PNG の 3 倍を超えるか、継ぎ目・縁・半透明が崩れたので PNG のまま。くわしくは `../SKILL.md` の「立ち絵を SVG にする」。
 
 
 
