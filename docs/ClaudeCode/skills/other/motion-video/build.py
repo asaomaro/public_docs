@@ -761,7 +761,18 @@ def validate(spec, base):
         if fk not in FX:
             errs.append("fx %r は %s のいずれか" % (fk, "/".join(FX)))
     # 登場人物（cast）: 立ち絵の画像を埋め込む。images は {表情: 画像} か {表情: {closed, open, half, blink}}
+    # sprite は、体の絵にパーツを重ねる形（{w, h, images: {名前: 画像}, poses: {ポーズ: {base, faces: {表情: {e, open, half, blink}}}}}。パーツは [名前, x, y]）
     for cid, c in (spec.get("cast") or {}).items():
+        sp = c.get("sprite")
+        if sp:
+            if not (isinstance(sp.get("poses"), dict) and "" in sp["poses"] and sp.get("w") and sp.get("h")):
+                errs.append("cast.%s.sprite: w・h と、いつもの姿のポーズ（poses[\"\"]）が要ります" % cid)
+            for key, path in list((sp.get("images") or {}).items()):
+                uri, miss = _embed(path, base)
+                if miss:
+                    errs.append("cast.%s.sprite.images.%s: 画像が見つかりません: %s" % (cid, key, miss))
+                else:
+                    sp["images"][key] = uri
         for face, v in list((c.get("images") or {}).items()):
             vals = v if isinstance(v, dict) else {"_": v}
             for key, path in list(vals.items()):

@@ -1615,6 +1615,109 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var key = blink && f.blink ? "blink" : open >= 1 && f.open ? "open" : open > 0 && f.half ? "half" : open > 0 && f.open ? "open" : "closed";
     return IMGS[f[key] || f.closed || f.open];
   }
+  /* 立ち絵のパーツ（sprite）: 体の絵の上に、表情 → まばたき → 口のパーツを置いて 1 枚にする（パーツは四角の中を置き換える。組み合わせごとに覚えておく） */
+  var SPR = {};
+  function spriteFrame(id, ch, pose, face, open, blink) {
+    var sp = ch.sprite, P = sp.poses[pose || ""] || sp.poses[""], F = P.faces[face] || P.faces.normal || {};
+    var mk = open >= 1 && F.open ? "open" : open > 0 && F.half ? "half" : open > 0 && F.open ? "open" : "";
+    var parts = [[P.base, 0, 0], F.e, blink && F.blink ? F.blink : null, mk ? F[mk] : null].filter(Boolean), ims = [];
+    for (var i = 0; i < parts.length; i++) { var im = IMGS[sp.images[parts[i][0]]]; if (!im || !im.complete || !im.naturalWidth) return null; ims.push(im); }
+    var key = parts.map(function (p) { return p[0]; }).join("|"), store = SPR[id] || (SPR[id] = { n: 0, m: {} }), c = store.m[key];
+    if (!c) {
+      if (store.n > 60) { store.m = {}; store.n = 0; }
+      c = document.createElement("canvas"); c.width = sp.w; c.height = sp.h; var g = c.getContext("2d");
+      parts.forEach(function (p, j) { if (j) g.clearRect(p[1], p[2], ims[j].naturalWidth, ims[j].naturalHeight); g.drawImage(ims[j], p[1], p[2]); });
+      store.m[key] = c; store.n++;
+    }
+    return c;
+  }
+  /* ---- 掛け合いの設定（SPEC.talk）----
+     caption: "box"（白い箱とキャラ色の縁。既定）・"outline"（箱なし。白い字にキャラ色の太い縁と黒い外縁）／name: false で名札を出さない／size: 字幕の大きさ
+     font: 字幕の書体（SPEC.fonts で埋め込んだ名前）／relax: せりふの後、いつもの顔と姿に戻るまでの ms（false で戻らない）
+     dim: true で話していない人を薄くする／sfx: 印・大きい字幕に付ける効果音（false で付けない。{印: 効果音} で差し替え） */
+  var TALK = SPEC.talk || {};
+  /* 埋め込みの書体（SPEC.fonts: [{family, src: data:…, weight}]）。fetch を使わずに読む。textFont は映像の文字ぜんぶに使う書体 */
+  (SPEC.fonts || []).forEach(function (f) { try { audioBytes(f.src).then(function (buf) { return new FontFace(f.family, buf, { weight: String(f.weight || "normal") }).load(); })
+    .then(function (ff) { document.fonts.add(ff); needsDraw = true; }).catch(function (e) { console.warn("font:", f.family, e); }); } catch (e) { console.warn("font:", e); } });
+  if (SPEC.textFont) { F.sans = '"' + SPEC.textFont + '",' + F.sans; F.display = '"' + SPEC.textFont + '",' + F.display; }
+  /* 登場人物ごとの演技の並び: 自分のせりふ（途中で変わる acts を含む）と、相手のせりふへの反応（react）を時刻順に。字幕の時刻が直されたら作り直す */
+  var ACTS = null, ACTKEY = "";
+  function buildActs() {
+    var A = {}; CASTIDS.forEach(function (id) { A[id] = []; });
+    CUES.forEach(function (c) { if (!c.who || !c.line) return; var ln = c.line, d = c.b - c.a;
+      if (A[c.who]) { A[c.who].push({ t: c.a, face: ln.face || "normal", pose: ln.pose || "", motion: ln.motion, mlv: ln.mlv, lv: ln.lv, end: c.b, own: 1 });
+        (ln.acts || []).forEach(function (a) { A[c.who].push({ t: c.a + d * clamp(a.at || 0), face: a.face || ln.face || "normal", pose: a.pose === undefined ? ln.pose || "" : a.pose, motion: a.motion, mlv: a.mlv, lv: a.lv, end: c.b, own: 1 }); }); }
+      (ln.react || []).forEach(function (r) { if (A[r.who]) A[r.who].push({ t: c.a + d * clamp(r.at === undefined ? .5 : r.at), face: r.face || "normal", pose: r.pose || "", motion: r.motion, mlv: r.mlv, lv: r.lv, emote: r.emote, end: c.b, own: 0 }); });
+    });
+    CASTIDS.forEach(function (id) { A[id].sort(function (a, b) { return a.t - b.t; }); });
+    return A;
+  }
+  /* その時刻の演技 {t0 始まった時刻, face, pose, motion, mlv, lv, emote, own 自分のせりふか, idle いつもの姿に戻ったか, changed 前と絵が変わったか, pface・ppose 前の絵} */
+  function stateOf(id, tt) {
+    var key = CUES.length + ":" + DUR; if (key !== ACTKEY) { ACTS = buildActs(); ACTKEY = key; }
+    var L = ACTS[id] || [], n = -1, relax = TALK.relax === false ? 0 : TALK.relax || 1500, rest = (CAST[id] || {}).rest || "normal";
+    for (var j = 0; j < L.length; j++) { if (L[j].t > tt) break; n = j; }
+    if (n < 0) return { face: rest, pose: "", idle: true };
+    var a = L[n], p = n > 0 ? L[n - 1] : null, pf = !p ? { face: rest, pose: "" } : relax && a.t > p.end + relax ? { face: rest, pose: "" } : p;
+    if (relax && tt > a.end + relax) return { t0: a.end + relax, face: rest, pose: "", idle: true, changed: a.face !== rest || a.pose !== "", pface: a.face, ppose: a.pose };
+    return { t0: a.t, face: a.face, pose: a.pose, motion: a.motion, mlv: a.mlv, lv: a.lv, emote: a.emote, own: a.own, changed: pf.face !== a.face || pf.pose !== a.pose, pface: pf.face, ppose: pf.pose };
+  }
+  /* 声の大きさ 0..1（50ms ごとの音量の並びをならしたもの。声が無ければ一定の拍）。話している間の弾みに使う */
+  function voiceLevel(c, tt) {
+    var env = c.line && c.line._env; if (!env || !env.length) return Math.abs(Math.sin((tt - c.a) / 180));
+    var q = (tt - c.a) / 50, i0 = Math.floor(q), f = q - i0, g = function (k) { return env[Math.max(0, Math.min(env.length - 1, k))] || 0; };
+    return clamp((g(i0 - 1) + 2 * mix(g(i0), g(i0 + 1), f) + g(i0 + 2)) / 4 * 1.5);
+  }
+  /* 立ち絵の動き（時刻だけで決まる）: いつもの呼吸と揺れ、演技（表情・体）が変わったときの弾み、身ぶり。
+     身ぶりは演技の motion で選ぶ。無ければ表情から決める。大きさは motion の度合い mlv（無ければ表情の度合い lv。1 控えめ・2 ふつう・3 強め）。
+     表情・体の名前の #2 などは同じラベルとして扱う。返すのは、足元を軸にした {x, y, rot, sx, sy, flip}（flip は左右の向き。1 から -1）。
+     cast.<名前>.motion: false か SPEC.castMotion: false、OS の「動きを減らす」で止まる。"yukkuri" は、話している間に縦に伸び縮みする（頭だけの立ち絵向け） */
+  var CAST_STILL = !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
+  var FACE_MOTION = { surprised: "jump", smile: "hop", angry: "tremble", sad: "sink", troubled: "fidget", think: "tilt", shy: "sway", smug: "lean", doubt: "back", dizzy: "wobble", love: "bounce" };
+  function castMotion(id, i, ch, tt, st, speakingNow, side) {
+    var m = { x: 0, y: 0, rot: 0, sx: 1, sy: 1, flip: 1 }, face = st.face, pose = st.pose, kind = st.motion || (st.idle ? "" : FACE_MOTION[String(face).split("#")[0]]);
+    if (CAST_STILL || SPEC.castMotion === false || ch.motion === false || ch.motion === "none" || kind === "still") return m;
+    var ph = i * 1.7 + 0.6, br = Math.sin(tt / 1150 + ph), dir = side === "right" ? -1 : 1, sin = Math.sin, PI = Math.PI;
+    m.sy += .006 * br; m.sx -= .003 * br; m.rot += .004 * sin(tt / 1900 + ph * 2);
+    if (st.t0 === undefined) return m;
+    var lt = tt - st.t0;
+    if (st.changed && lt < 320) { var e = lt / 320, pop = sin(e * PI) * (1 - e) * (st.idle ? .5 : 1); m.sy += .06 * pop; m.sx -= .035 * pop; }
+    if (st.idle) return m;
+    var lv = st.motion ? st.mlv || 2 : st.lv || 2, A = lv >= 3 ? 1.6 : lv <= 1 ? .55 : 1, s0 = clamp(lt / 450), ease = s0 * s0 * (3 - 2 * s0), own = !!st.motion, k, q;
+    if (kind === "jump") { if (lt < 340) m.y -= 28 * A * sin(lt / 340 * PI); if (!own) m.rot -= .012 * dir * ease; }
+    else if (kind === "hop") { if (lt < 760) m.y -= 13 * A * Math.abs(sin(lt / 190 * PI / 2)) * (1 - lt / 760); }
+    else if (kind === "bounce") { if (speakingNow || lt < 900) m.y -= 12 * A * Math.abs(sin(lt / 170)); }
+    else if (kind === "nod") { if (lt < 640) { var nd = Math.abs(sin(lt / 320 * PI)); m.y += 9 * A * nd; m.rot += .012 * A * dir * nd; } }
+    else if (kind === "sway") { m.rot += .012 * A * sin(lt / 300); m.y += 3 * ease; }
+    else if (kind === "lean") { m.rot += .018 * A * dir * ease; m.x += 7 * A * dir * ease; }
+    else if (kind === "back") { m.rot -= .018 * A * dir * ease; m.x -= 7 * A * dir * ease; }
+    else if (kind === "sink") { m.y += 10 * A * ease; m.rot += .012 * dir * ease; m.sy -= .012 * A * ease; }
+    else if (kind === "tremble") { m.x += 5 * A * sin(lt / 24) * (own ? 1 : clamp(1 - lt / 380)); if (!own) m.rot += .014 * dir * ease; }
+    else if (kind === "fidget") { m.x += 2.5 * A * sin(lt / 55) * clamp(1 - lt / 700); m.rot -= .008 * dir * ease; }
+    else if (kind === "tilt") { m.rot -= .022 * A * dir * ease; }
+    else if (kind === "wobble") { m.rot += .03 * A * sin(lt / 210); m.x += 4 * A * sin(lt / 330); }
+    else if (kind === "shakehead") { k = clamp(1 - lt / 800); m.x += 10 * A * sin(lt / 52) * k; m.rot += .012 * A * sin(lt / 52) * k; }                       /* いやいや */
+    else if (kind === "stomp") { if (lt < 1000) { k = clamp(1 - lt / 1000); m.y -= 11 * A * Math.abs(sin(lt / 68)) * k; m.x += 4 * A * sin(lt / 43) * k; m.rot += .012 * sin(lt / 60) * k; } }   /* じたばた */
+    else if (kind === "spin") { if (lt < 520) { m.flip = Math.cos(lt / 520 * 2 * PI); m.y -= 16 * A * sin(lt / 520 * PI); } }                                 /* くるっと回る */
+    else if (kind === "turn") { m.flip = 1 - 2 * eio(clamp(lt / 240)); m.rot -= .01 * dir * ease; }                                                           /* そっぽを向く */
+    else if (kind === "zukkoke") { k = lt < 240 ? eo(lt / 240) : lt < 820 ? 1 : lt < 1120 ? 1 - eo((lt - 820) / 300) : 0;                                      /* ずっこける */
+      m.rot -= dir * .5 * Math.min(A, 1.25) * k; m.y += 22 * k; if (lt > 240 && lt < 480) m.y -= 8 * sin((lt - 240) / 240 * PI); }
+    else if (kind === "bow") { k = sin(clamp(lt / 900) * PI); m.rot += dir * .15 * A * k; m.y += 6 * k; }                                                     /* おじぎ */
+    else if (kind === "squash") { k = lt < 150 ? lt / 150 : Math.exp(-(lt - 150) / 170) * Math.cos((lt - 150) / 62); m.sy -= .17 * A * k; m.sx += .12 * A * k; }  /* ぺしゃっ */
+    else if (kind === "stretch") { k = sin(clamp(lt / 720) * PI); m.sy += .1 * A * k; m.sx -= .05 * A * k; }                                                  /* のびる */
+    else if (kind === "pulse") { q = Math.pow(Math.abs(sin(lt / 240)), 3); m.sx += .035 * A * q; m.sy += .035 * A * q; }                                      /* どきどき */
+    else if (kind === "peek") { m.x += 46 * A * dir * ease; m.rot += .012 * dir * ease; m.sx += .04 * ease; m.sy += .04 * ease; }                            /* ずいっと寄る */
+    else if (kind === "away") { m.x -= 30 * A * dir * ease; m.rot -= .014 * dir * ease; }                                                                    /* 後ずさり */
+    else if (kind === "float") { m.y -= 12 * A * (.5 + .5 * sin(lt / 520 - PI / 2)) * ease; m.rot += .008 * sin(lt / 800); }                                  /* ふわふわ */
+    else if (kind === "zoom") { k = (lt < 200 ? back(lt / 200) : 1) * (lt < 1500 ? 1 : clamp(1 - (lt - 1500) / 320)); m.sx += .15 * A * k; m.sy += .15 * A * k; }  /* どーんと大きく */
+    else if (kind === "shrink") { m.sx -= .09 * A * ease; m.sy -= .09 * A * ease; }                                                                          /* しゅんと小さく */
+    else if (kind === "dance") { m.rot += .03 * A * sin(lt / 190); m.y -= 9 * A * Math.abs(sin(lt / 190)); m.x += 6 * A * sin(lt / 380); }                    /* るんるん */
+    var body = String(pose).split("#")[0].split("+");
+    if (!own && body.indexOf("raise") >= 0 && lt < 520) m.y -= 10 * sin(lt / 520 * PI);
+    if (!own && body.indexOf("point") >= 0 && lt < 300) m.x += 8 * dir * sin(lt / 300 * PI);
+    if (ch.motion === "yukkuri" && speakingNow) { q = Math.abs(sin(lt / 170)); m.sy += .05 * q; m.sx -= .03 * q; }
+    return m;
+  }
   /* 仮のキャラクター（画像が無いとき）: 丸い顔・髪の帯・目・口。色は cast の color */
   function drawDummy(ch, x, by, h, open, blink, face) {
     var col = ch.color || C.accent, r = h * .22, cy = by - h + r + 20;
@@ -1629,45 +1732,210 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     if (face === "angry") { ctx.strokeStyle = "#2a2230"; ctx.lineWidth = 5; [-1, 1].forEach(function (sd) { ctx.beginPath(); ctx.moveTo(x + sd * r * .55, ey - r * .32); ctx.lineTo(x + sd * r * .2, ey - r * .2); ctx.stroke(); }); }
     ctx.restore();
   }
-  var EMOTES = { "!": "！", "?": "？", "!?": "！？", "♪": "♪", "💦": "💦", "💢": "💢", "…": "…" };
+  /* 気持ちの印。絵文字の書体に頼らず、線と形で描く（どの環境でも同じに出る）。lt は出てからの ms、sd は顔の外側の向き（左の人 1・右の人 -1） */
+  var EMO_ALIAS = { "！": "!", "？": "?", "！？": "!?", "?!": "!?", "汗": "💦", "怒": "💢", "ひらめき": "💡", "キラ": "✨", "きら": "✨", "ハート": "♥", "❤": "♥", "ガーン": "gloom", "がーん": "gloom", "ZZZ": "zzz", "音符": "♪", "無言": "…", "集中": "shock", "ショック": "shock" };
+  function drawEmote(em, ex, ey, lt, col, sd) {
+    em = EMO_ALIAS[em] || em; var k = P(lt, 0, 350, back), sin = Math.sin, PI = Math.PI, i;
+    ctx.save(); ctx.translate(ex, ey); ctx.lineJoin = "round"; ctx.lineCap = "round";
+    var edge = function (w) { ctx.strokeStyle = "#ffffff"; ctx.lineWidth = w; ctx.stroke(); };
+    if (em === "💦") {   /* 汗: しずくが 2 つ、すべり落ちる */
+      for (i = 0; i < 2; i++) { var u = ((lt + i * 420) % 900) / 900, a = clamp(u * 5) * clamp((1 - u) * 3);
+        ctx.save(); ctx.globalAlpha *= a * Math.min(1, k); ctx.translate(sd * (8 + i * 34), -30 + u * 46 + i * 18); ctx.rotate(sd * .3); ctx.scale(1 - i * .25, 1 - i * .25);
+        ctx.beginPath(); ctx.moveTo(0, -30); ctx.bezierCurveTo(20, 0, 17, 22, 0, 22); ctx.bezierCurveTo(-17, 22, -20, 0, 0, -30); edge(8); ctx.fillStyle = "#58b7f0"; ctx.fill();
+        ctx.fillStyle = "rgba(255,255,255,.85)"; ctx.beginPath(); ctx.ellipse(-5, 6, 3.5, 7, .3, 0, PI * 2); ctx.fill(); ctx.restore(); } }
+    else if (em === "💢") {   /* 怒り: 4 つのかぎ形が脈打つ */
+      var ps = k * (1 + .12 * sin(lt / 110)); ctx.scale(ps, ps); ctx.translate(sd * 14, -6); ctx.beginPath();
+      [[1, 1], [-1, 1], [-1, -1], [1, -1]].forEach(function (q) { ctx.moveTo(q[0] * 34, q[1] * 10); ctx.quadraticCurveTo(q[0] * 10, q[1] * 10, q[0] * 10, q[1] * 34); });
+      edge(18); ctx.strokeStyle = "#e5323e"; ctx.lineWidth = 9; ctx.stroke(); }
+    else if (em === "💡") {   /* ひらめき: 電球と光の線 */
+      ctx.scale(k, k); ctx.translate(sd * 10, -18);
+      ctx.strokeStyle = "#f5b301"; ctx.lineWidth = 6; var rk = .6 + .4 * sin(lt / 120);
+      for (i = 0; i < 7; i++) { var an = -PI + i * PI / 6; ctx.beginPath(); ctx.moveTo(Math.cos(an) * 44, Math.sin(an) * 44 - 6); ctx.lineTo(Math.cos(an) * (54 + 10 * rk), Math.sin(an) * (54 + 10 * rk) - 6); ctx.stroke(); }
+      ctx.beginPath(); ctx.arc(0, -6, 30, PI * .78, PI * 2.22); ctx.lineTo(13, 28); ctx.lineTo(-13, 28); ctx.closePath(); edge(8); ctx.fillStyle = "#ffd84a"; ctx.fill();
+      ctx.fillStyle = "#8a8f98"; rr(-12, 30, 24, 14, 4); ctx.fill(); }
+    else if (em === "✨") {   /* きらきら: 星が 3 つ、順にまたたく */
+      [[0, -10, 30, 0], [sd * 46, -44, 18, 300], [sd * -30, -52, 14, 600]].forEach(function (q) { var tk = .55 + .45 * sin((lt + q[3]) / 170), r0 = q[2] * tk * Math.min(1, k);
+        ctx.beginPath(); for (var j = 0; j < 8; j++) { var an = j * PI / 4 - PI / 2, rr2 = j % 2 ? r0 * .3 : r0; j ? ctx.lineTo(q[0] + Math.cos(an) * rr2, q[1] + Math.sin(an) * rr2) : ctx.moveTo(q[0] + Math.cos(an) * rr2, q[1] + Math.sin(an) * rr2); }
+        ctx.closePath(); edge(6); ctx.fillStyle = "#ffd84a"; ctx.fill(); }); }
+    else if (em === "♥") {   /* ハート: ふくらみながら浮く */
+      var hb = k * (1 + .1 * sin(lt / 140)); ctx.translate(sd * 12, -10 - 8 * sin(lt / 420)); ctx.scale(hb, hb);
+      ctx.beginPath(); ctx.moveTo(0, 26); ctx.bezierCurveTo(-46, -6, -24, -44, 0, -18); ctx.bezierCurveTo(24, -44, 46, -6, 0, 26); edge(9); ctx.fillStyle = "#f0508c"; ctx.fill(); }
+    else if (em === "gloom") {   /* ガーン: 頭の上から青い縦線が下りる */
+      ctx.strokeStyle = "#5a6fb0"; ctx.lineWidth = 5; for (i = 0; i < 6; i++) { var gl = (38 + (i % 3) * 22) * clamp((lt - i * 50) / 300); ctx.globalAlpha = .75;
+        ctx.beginPath(); ctx.moveTo(-sd * 20 + sd * (-50 + i * 18), 20); ctx.lineTo(-sd * 20 + sd * (-50 + i * 18), 20 + gl); ctx.stroke(); } }
+    else if (em === "shock") {   /* ショック: 短い線が放射に走る */
+      ctx.strokeStyle = col; ctx.lineWidth = 7; var sk = clamp(lt / 200), fd = clamp(1 - (lt - 500) / 400); ctx.globalAlpha *= fd;
+      for (i = 0; i < 7; i++) { var an2 = -PI * .95 + i * PI * .9 / 6 + (sd < 0 ? 0 : PI * .05); ctx.beginPath(); ctx.moveTo(Math.cos(an2) * 30, Math.sin(an2) * 30 + 30); ctx.lineTo(Math.cos(an2) * (30 + 46 * sk), Math.sin(an2) * (30 + 46 * sk) + 30); edge(13); ctx.strokeStyle = col; ctx.lineWidth = 7; ctx.stroke(); } }
+    else if (em === "zzz") { for (i = 0; i < 3; i++) { var zu = ((lt + i * 500) % 1500) / 1500; txtEdge("z", sd * (i * 22 + zu * 14), 10 - i * 30 - zu * 26, 44 + i * 12, col, clamp(zu * 4) * clamp((1 - zu) * 3)); } }
+    else if (em === "…") { for (i = 0; i < 3; i++) { var dk = clamp((lt - i * 220) / 200); ctx.beginPath(); ctx.arc(sd * 4 + (i - 1) * 30, -10, 9 * dk, 0, PI * 2); edge(7); ctx.fillStyle = "#6b7480"; ctx.fill(); } }
+    else if (em === "♪") { ctx.translate(sd * 10, -6 * sin(lt / 300)); ctx.rotate(.14 * sin(lt / 260)); ctx.scale(k, k); txtEdge("♪", 0, 0, 96, col, 1); }
+    else if (em === "?") { ctx.rotate(.16 * sin(lt / 240) * clamp(1 - lt / 1400)); ctx.scale(k, k); txtEdge("？", 0, 0, 100, col, 1); }
+    else if (em === "!" || em === "!?") { var jk = lt < 420 ? 1 + .18 * sin(lt / 420 * PI) : 1; ctx.translate(lt < 260 ? 4 * sin(lt / 22) : 0, 0); ctx.scale(k * jk, k * jk); txtEdge(em === "!" ? "！" : "！？", 0, 0, 100, em === "!?" ? "#e5323e" : col, 1); }
+    else { ctx.scale(k, k); txtEdge(em, 0, 0, 84, col, 1); }
+    ctx.restore();
+  }
+  function txtEdge(s, x, y, size, col, alpha) {   /* 白い縁の付いた太い字 */
+    ctx.save(); ctx.globalAlpha *= alpha; ctx.font = font({ size: size, weight: 900, font: TALK.font ? '"' + TALK.font + '",' + F.sans : F.sans }); ctx.textAlign = "center"; ctx.lineJoin = "round";
+    ctx.lineWidth = size * .16; ctx.strokeStyle = "#ffffff"; ctx.strokeText(s, x, y); ctx.fillStyle = col; ctx.fillText(s, x, y); ctx.restore();
+  }
+  /* 字幕の 1 行。**強調** は色を変える。layers は外から順に [太さ, 色] */
+  function capLine(line, cx, y, o, layers, fill, emFill) {
+    var parts = String(line).split("**"), ws = parts.map(function (p2) { return tw(p2, o); }), x = cx - ws.reduce(function (a, b) { return a + b; }, 0) / 2;
+    ctx.save(); ctx.font = font(o); ctx.textAlign = "left"; ctx.lineJoin = "round";
+    layers.forEach(function (L) { var xx = x; ctx.lineWidth = L[0]; ctx.strokeStyle = L[1]; parts.forEach(function (p2, j) { if (p2) ctx.strokeText(p2, xx, y); xx += ws[j]; }); });
+    var xx = x; parts.forEach(function (p2, j) { if (p2) { ctx.fillStyle = j % 2 ? emFill : fill; ctx.fillText(p2, xx, y); } xx += ws[j]; });
+    ctx.restore();
+  }
+  function drawCaption(cur, tt) {
+    var sp = CAST[cur.who] || {}, col = sp.color || C.accent, ln = cur.line || {}, big = !!ln.big, outline = TALK.caption === "outline", lt = tt - cur.a;
+    var size = (TALK.size || (outline ? 56 : 46)) * (big ? 1.32 : 1), fam = TALK.font ? '"' + TALK.font + '",' + F.sans : F.sans, o = { size: size, weight: 800, font: fam };
+    var maxW = outline ? 1180 : 1080, lines = wrap(cur.text, maxW, o), lh = size * 1.3, ck = P(lt, 0, 200);
+    /* 2 行目が数文字だけ残るときは、2 行の長さをそろえる */
+    if (lines.length === 2 && lines[1].replace(/\*\*/g, "").length <= 5) { var even = wrap(cur.text, Math.max(maxW * .5, tw(cur.text.replace(/\*\*/g, ""), o) * .58), o); if (even.length === 2) lines = even; }
+    lines = lines.slice(0, 2);
+    var named = TALK.name === undefined ? !outline : TALK.name !== false, pk = big ? 1 + .22 * (1 - P(lt, 0, 240, back)) : 1, jx = big && lt < 300 ? 5 * Math.sin(lt / 20) * (1 - lt / 300) : 0;
+    ctx.save(); ctx.globalAlpha *= ck;
+    if (outline) {
+      var base = 1040 - (lines.length - 1) * lh; ctx.translate(960 + jx, base); ctx.scale(pk, pk); ctx.translate(-960, -base);
+      if (named) { var nm = sp.name || cur.who, nw0 = tw(nm, { size: 26, weight: 800, font: fam }) + 36; rr(960 - nw0 / 2, base - size - 44, nw0, 40, 20); ctx.fillStyle = col; ctx.fill(); ctx.lineWidth = 4; ctx.strokeStyle = "#ffffff"; ctx.stroke();
+        txt(nm, 960, base - size - 16, { size: 26, weight: 800, align: "center", color: "#ffffff", font: fam }); }
+      lines.forEach(function (l2, i) { capLine(l2, 960, base + i * lh, o, [[size * .34, "#16161d"], [size * .22, col]], "#ffffff", "#ffe45c"); });
+    } else {
+      var bh = 60 + lines.length * lh * (46 / size) * (size / 46), by0 = 1060 - bh, bx = 400, bw = 1120;
+      ctx.translate(960 + jx, by0 + bh / 2); ctx.scale(pk, pk); ctx.translate(-960, -(by0 + bh / 2));
+      rr(bx, by0, bw, bh, 18); ctx.fillStyle = "rgba(255,255,255,.92)"; ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = 6; ctx.stroke();
+      if (named) { var nw = tw(sp.name || cur.who, { size: 26, weight: 800, font: fam }) + 40; rr(bx + 24, by0 - 22, nw, 44, 22); ctx.fillStyle = col; ctx.fill();
+        txt(sp.name || cur.who, bx + 24 + nw / 2, by0 + 9, { size: 26, weight: 800, align: "center", color: "#ffffff", font: fam }); }
+      lines.forEach(function (l2, i) { capLine(l2, 960, by0 + 24 + size + i * lh, o, [[size * .2, col]], "#ffffff", "#fff3a0"); });
+    }
+    ctx.restore();
+  }
   function drawCast(tt) {
     var k = sceneAt(tt), S = SCENES[k].s, show = isTalk(S) || (SPEC.castAlways && S.type !== "end" && FIRST_TALK >= 0 && tt >= FIRST_TALK); if (!show || !CASTIDS.length) return;
     var cur = cueAt(tt), onIds = S.cast || CASTIDS, lt0 = FIRST_TALK >= 0 ? tt - FIRST_TALK : 0, sideN = { left: 0, right: 0 };
     onIds.forEach(function (id, i) {
       var ch = CAST[id]; if (!ch) return;
-      var side = ch.side || (i % 2 ? "right" : "left"), h = ch.height || 520, img0 = pickImg(ch, "normal", 0, false), w = img0 && img0.naturalWidth ? h * img0.naturalWidth / img0.naturalHeight : h * .62;
-      var nth = sideN[side === "right" ? "right" : "left"]++, x = (side === "right" ? 1920 - 40 - w / 2 - nth * w * .75 : 40 + w / 2 + nth * w * .75), by = 1080 + (ch.offsetY || 0) - nth * 30, speakingNow = cur && cur.who === id;
-      var lc = lastCueOf(id, tt), face = (speakingNow ? cur.line && cur.line.face : lc && lc.line && lc.line.face) || "normal";
+      var side = ch.side || (i % 2 ? "right" : "left"), h = ch.height || 520, img0 = pickImg(ch, "normal", 0, false), w = ch.sprite ? h * ch.sprite.w / ch.sprite.h : img0 && img0.naturalWidth ? h * img0.naturalWidth / img0.naturalHeight : h * .62;
+      var nth = sideN[side === "right" ? "right" : "left"]++, x = (side === "right" ? 1920 - 40 - w / 2 - nth * w * .75 : 40 + w / 2 + nth * w * .75) + (ch.offsetX || 0), by = 1080 + (ch.offsetY || 0) - nth * 30, speakingNow = cur && cur.who === id;
+      var st = stateOf(id, tt), face = st.face, pose = st.pose, slt = st.t0 === undefined ? 1e9 : tt - st.t0, fbase = String(face).split("#")[0].split("@")[0];
       var ent = P(lt0, i * 200, i * 200 + 700, back), dx = (1 - Math.min(1, ent)) * (side === "right" ? 1 : -1) * (w + 80);
-      var bob = speakingNow ? Math.abs(Math.sin((tt - cur.a) / 180)) * -10 : 0, shake = speakingNow && cur.line && cur.line.shake ? Math.sin((tt - cur.a) / 25) * 10 * clamp(1 - (tt - cur.a) / 500) : 0;
-      var open = speakingNow ? mouthOf(cur, tt) : 0, blink = blinkOf(id, tt);
-      ctx.save(); ctx.translate(dx + shake, bob); if (!speakingNow && cur && cur.who) ctx.globalAlpha *= .82;
-      var im = pickImg(ch, face, open, blink);
-      if (im && im.complete && im.naturalWidth) { ctx.save(); ctx.translate(x, by); if (ch.flip) ctx.scale(-1, 1); ctx.drawImage(im, -w / 2, -h, w, h); ctx.restore(); }
-      else drawDummy(ch, x, by, h, open, blink, face);
-      /* 気持ちの印（せりふの emote） */
-      var em = speakingNow && cur.line && cur.line.emote;
-      if (em) { var ek = P(tt, cur.a, cur.a + 350, back); ctx.save(); ctx.translate(x + (side === "right" ? -w * .3 : w * .3), by - h - 10); ctx.scale(ek, ek);
-        txt(EMOTES[em] || em, 0, 0, { size: 96, weight: 900, align: "center", color: em === "💢" ? C.warn : ch.color || C.accent }); ctx.restore(); }
+      var bob = speakingNow ? -10 * voiceLevel(cur, tt) : 0, shake = speakingNow && cur.line && cur.line.shake ? Math.sin((tt - cur.a) / 25) * 10 * clamp(1 - (tt - cur.a) / 500) : 0;
+      /* 口: 話している間は声に合わせる。反応した瞬間は、声を出さずに口だけ開く（あっ・ふふ） */
+      var open = speakingNow ? mouthOf(cur, tt) : !st.own && !st.idle && slt < 320 && /^(surprised|smile|troubled|angry)$/.test(fbase) ? (slt < 200 ? 1 : .5) : 0;
+      /* まばたき: いつもの周期に、表情が変わった瞬間の 1 回を足す。驚いた直後は目を見開いたまま */
+      var blink = fbase === "surprised" && slt < 900 ? false : blinkOf(id, tt) || (st.changed && slt > 30 && slt < 130);
+      var mo = castMotion(id, i, ch, tt, st, speakingNow, side);
+      if (ch.motion === "yukkuri") bob = 0;
+      var spk = speakingNow ? 1 + .025 * clamp((tt - cur.a) / 180) : 1;   /* 話している人を、足元を軸に少し大きく */
+      ctx.save(); ctx.translate(dx + shake + mo.x, bob + mo.y); if (TALK.dim && !speakingNow && cur && cur.who) ctx.globalAlpha *= .82;
+      var frame = function (f, p2, op, bl) { return ch.sprite ? spriteFrame(id, ch, p2, f, op, bl) : pickImg(ch, f, op, bl); };
+      var put = function (im, al) { if (!(im && (im.getContext || (im.complete && im.naturalWidth)))) return false;
+        ctx.save(); ctx.globalAlpha *= al; ctx.translate(x, by); ctx.rotate(mo.rot); ctx.scale(mo.sx * spk * mo.flip * (ch.flip ? -1 : 1), mo.sy * spk); ctx.drawImage(im, -w / 2, -h, w, h); ctx.restore(); return true; };
+      if (!put(frame(face, pose, open, blink), 1)) drawDummy(ch, x, by, h, open, blink, fbase);
+      else if (st.changed && slt < 110 && st.pface !== undefined) put(frame(st.pface, st.ppose, 0, false), 1 - slt / 110);   /* 前の絵を重ねて消していく（切り替わりをなめらかに） */
+      /* 気持ちの印: 話し手のせりふの印と、聞き手の反応の印（1.4 秒） */
+      var em = speakingNow && cur.line && cur.line.emote, elt = em ? tt - cur.a : 0;
+      if (!em && st.emote && !st.own && slt < 1400) { em = st.emote; elt = slt; }
+      if (em) drawEmote(em, x + (side === "right" ? -w * .3 : w * .3), Math.max(96, by - h - 10), elt, ch.color || C.accent, side === "right" ? -1 : 1);
       ctx.restore();
     });
-    /* 字幕の帯（話し手の色で縁取り、名札） */
-    if (cur && cur.who && (captions || recording)) {
-      var sp = CAST[cur.who] || {}, col = sp.color || C.accent, lines = wrap(cur.text.replace(/\*\*/g, ""), 1080, { size: 46, weight: 800 }).slice(0, 2);
-      var bh = 60 + lines.length * 62, by0 = 1060 - bh, bx = 400, bw = 1120, ck = P(tt, cur.a, cur.a + 200);
-      ctx.save(); ctx.globalAlpha *= ck; rr(bx, by0, bw, bh, 18); ctx.fillStyle = "rgba(255,255,255,.92)"; ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = 6; ctx.stroke();
-      var nw = tw(sp.name || cur.who, { size: 26, weight: 800 }) + 40; rr(bx + 24, by0 - 22, nw, 44, 22); ctx.fillStyle = col; ctx.fill();
-      txt(sp.name || cur.who, bx + 24 + nw / 2, by0 + 9, { size: 26, weight: 800, align: "center", color: "#ffffff" });
-      lines.forEach(function (ln, i) { ctx.save(); ctx.font = font({ size: 46, weight: 800 }); ctx.textAlign = "center"; ctx.lineJoin = "round"; ctx.lineWidth = 9; ctx.strokeStyle = col;
-        ctx.strokeText(ln, 960, by0 + 70 + i * 62); ctx.fillStyle = "#ffffff"; ctx.fillText(ln, 960, by0 + 70 + i * 62); ctx.restore(); });
-      ctx.restore();
-    }
+    if (cur && cur.who && (captions || recording)) drawCaption(cur, tt);
   }
   /* 掛け合いの場面: 背景（bg）と中央の黒板（board: 部品の台本・画像・文字列） */
+  /* ---- 絵で見せる場面（board: {type: "stage", shots: [{line, items, title, note, credit}]}）----
+     白い黒板を置かず、背景の上に絵・写真・矢印・短い言葉を並べる。shots は「何番目のせりふから出すか（line）」で切り替わり、せりふごとに絵を替えられる。
+     items: {img: 絵の名前（SPEC.images）, label: 名札, say: 吹き出し, frame: 白い縁（写真）} ／ {text: "1 行目/2 行目", color} ／ {op: "→"・"←"・"＋"・"×"・"＝"・"vs" など}
+     絵は順にぽんと現れ、ゆっくり浮く。写真は少しずつ寄る。前の絵は消えていく */
+  var STAGE_COL = ["#f08a24", "#e5484d", "#3b82f6", "#2f9e62", "#8b5cf6"];
+  function capFont(size, weight) { return { size: size, weight: weight || 800, font: TALK.font ? '"' + TALK.font + '",' + F.sans : F.sans }; }
+  function stageArrow(x0, x1, y, k, rev) {
+    var a = rev ? x1 : x0, b = rev ? x0 : x1, e = a + (b - a) * clamp(k), dir = b > a ? 1 : -1; if (k <= 0) return;
+    var path = function () { ctx.beginPath(); ctx.moveTo(a, y); ctx.lineTo(e - dir * 20, y); ctx.moveTo(e - dir * 34, y - 26); ctx.lineTo(e, y); ctx.lineTo(e - dir * 34, y + 26); };
+    ctx.save(); ctx.lineCap = "round"; ctx.lineJoin = "round"; path(); ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 26; ctx.stroke(); path(); ctx.strokeStyle = "#20242c"; ctx.lineWidth = 14; ctx.stroke(); ctx.restore();
+  }
+  function stageBubble(text, cx, y, maxW, k, tailX) {   /* 吹き出し（白い箱・濃い縁・下向きのしっぽ）。y は箱の下端 */
+    var o = capFont(34), lines = wrap(text, maxW - 48, o).slice(0, 3), w = Math.max.apply(null, lines.map(function (l) { return tw(l, o); })) + 52, h = lines.length * 46 + 26;
+    ctx.save(); ctx.translate(cx, y); ctx.scale(k, k); ctx.translate(-cx, -y);
+    rr(cx - w / 2, y - h, w, h, 20); ctx.fillStyle = "#ffffff"; ctx.fill(); ctx.strokeStyle = "#20242c"; ctx.lineWidth = 5; ctx.stroke();
+    var tx = clamp(tailX, cx - w / 2 + 30, cx + w / 2 - 30); ctx.beginPath(); ctx.moveTo(tx - 14, y - 3); ctx.lineTo(tx, y + 22); ctx.lineTo(tx + 14, y - 3); ctx.fillStyle = "#ffffff"; ctx.fill();
+    ctx.beginPath(); ctx.moveTo(tx - 14, y); ctx.lineTo(tx, y + 22); ctx.lineTo(tx + 14, y); ctx.strokeStyle = "#20242c"; ctx.lineWidth = 5; ctx.lineJoin = "round"; ctx.stroke();
+    lines.forEach(function (l, i) { txt(l, cx, y - h + 50 + i * 46, { size: 34, weight: 800, align: "center", color: "#20242c", font: o.font }); });
+    ctx.restore();
+  }
+  function drawShot(sh, slt, idx0) {
+    var items = sh.items || [], cells = items.filter(function (it) { return !it.op; }), nOp = items.length - cells.length;
+    var top = 64 + (sh.title ? 96 : 0), AH = 770 - (sh.title ? 96 : 0) - (sh.note ? 92 : 0), CX = 960, CY = top + AH / 2, gap = 34, opW = 120, AW = 1400;
+    var cw = Math.min(cells.length === 1 ? 1120 : cells.length === 2 ? 600 : 460, (AW - nOp * opW - (items.length - 1) * gap) / Math.max(1, cells.length));
+    var total = cells.length * cw + nOp * opW + (items.length - 1) * gap, x = CX - total / 2, sin = Math.sin, ci = 0;
+    var anyLabel = items.some(function (it) { return it.label; }), anySay = items.some(function (it) { return it.say; });
+    if (sh.title) { var tk = P(slt, 0, 300); ctx.save(); ctx.globalAlpha *= tk; capLine(sh.title, CX, top - 30 - (1 - tk) * 14, capFont(62, 900), [[20, "#16161d"]], "#ffffff", "#ffe45c"); ctx.restore(); }
+    items.forEach(function (it, i) {
+      var dl = 80 + i * 130, k = P(slt, dl, dl + 340, back), al = clamp((slt - dl) / 160), w = it.op ? opW : cw, cx = x + w / 2; x += w + gap;
+      if (al <= 0) return;
+      ctx.save(); ctx.globalAlpha *= al;
+      if (it.op) { var op = it.op;
+        if (op === "→" || op === "->" || op === "⇒") stageArrow(cx - opW / 2 + 6, cx + opW / 2 - 6, CY, clamp((slt - dl) / 300), false);
+        else if (op === "←" || op === "<-") stageArrow(cx - opW / 2 + 6, cx + opW / 2 - 6, CY, clamp((slt - dl) / 300), true);
+        else { ctx.translate(cx, CY + 34); ctx.scale(k, k); capLine(op, 0, 0, capFont(op.length > 1 ? 72 : 104, 900), [[22, "#ffffff"]], "#20242c", "#20242c"); }
+        ctx.restore(); return; }
+      var col = it.color || STAGE_COL[(ci + (idx0 || 0)) % STAGE_COL.length]; ci++;
+      if (it.text !== undefined) {   /* 短い言葉: / で改行。1 つだけなら大きく */
+        var ls = String(it.text).split("/"), longest = Math.max.apply(null, ls.map(function (l) { return l.replace(/\*\*/g, "").trim().length; }));
+        var sz = Math.max(40, Math.min(it.size || (cells.length === 1 ? 136 : 84), cw / Math.max(2, longest) * .98, AH / (ls.length * 1.4))), y0 = CY - (ls.length - 1) * sz * .65 + sz * .36;
+        ls.forEach(function (l, j) { var lk = P(slt, dl + j * 150, dl + j * 150 + 300, back); ctx.save(); ctx.globalAlpha *= clamp((slt - dl - j * 150) / 160);
+          ctx.translate(cx, y0 + j * sz * 1.3); ctx.scale(lk, lk); capLine(l.trim(), 0, 0, capFont(sz, 900), [[sz * .3, "#16161d"]], j ? "#ffffff" : (it.color || "#ffffff"), "#ffe45c"); ctx.restore(); });
+        ctx.restore(); return; }
+      /* 絵: 上から 吹き出し・名札・絵。名札と吹き出しは絵のすぐ上に置く（下は立ち絵と字幕に隠れるため） */
+      var im = IMGS["@" + it.img], offTop = (anySay ? 92 : 0) + (anyLabel ? 70 : 0), hBox = AH - offTop, yTop = top + offTop;
+      if (im && im.complete && im.naturalWidth) {
+        var sc = Math.min(cw / im.naturalWidth, hBox / im.naturalHeight), dw = im.naturalWidth * sc, dh = im.naturalHeight * sc, iy = yTop + hBox / 2;
+        var fl = it.frame ? 0 : 6 * sin(slt / 900 + i * 1.7), zm = it.frame ? 1 + .03 * clamp(slt / 6000) : 1, tilt = it.frame && cells.length > 1 ? (i % 2 ? .02 : -.02) : 0;
+        ctx.save(); ctx.translate(cx, iy + fl); ctx.rotate(tilt); ctx.scale(k * zm, k * zm);
+        if (it.frame) { ctx.shadowColor = "rgba(0,0,0,.35)"; ctx.shadowBlur = 30; ctx.shadowOffsetY = 10; ctx.fillStyle = "#ffffff"; ctx.fillRect(-dw / 2 - 12, -dh / 2 - 12, dw + 24, dh + 24); ctx.shadowColor = "transparent"; }
+        else { ctx.shadowColor = "rgba(0,0,0,.28)"; ctx.shadowBlur = 18; ctx.shadowOffsetY = 8; }
+        ctx.drawImage(im, -dw / 2, -dh / 2, dw, dh); ctx.shadowColor = "transparent";
+        if (it.credit) { ctx.font = font(capFont(20, 700)); ctx.textAlign = "right"; ctx.lineJoin = "round"; ctx.lineWidth = 5; ctx.strokeStyle = "rgba(0,0,0,.8)"; ctx.strokeText(it.credit, dw / 2 - 10, dh / 2 - 12); ctx.fillStyle = "#ffffff"; ctx.fillText(it.credit, dw / 2 - 10, dh / 2 - 12); }
+        ctx.restore();
+        var edge = iy - dh / 2 * (it.frame ? 1 : .9) - (it.frame ? 12 : 0);
+        if (it.label) { var ls2 = Math.max(22, Math.min(38, 38 * (cw + 40 - 44) / Math.max(1, tw(it.label, capFont(38))))), lo = capFont(ls2), lw = tw(it.label, lo) + 44, lh2 = ls2 * 1.58; ctx.save(); ctx.translate(cx, edge - 38); ctx.scale(k, k);   /* 長い名札は字を小さく */
+          rr(-lw / 2, -lh2 / 2, lw, lh2, 14); ctx.fillStyle = col; ctx.fill(); ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 5; ctx.stroke(); txt(it.label, 0, ls2 * .37, { size: ls2, weight: 800, align: "center", color: "#ffffff", font: lo.font }); ctx.restore(); }
+        if (it.say) stageBubble(it.say, cx, edge - (it.label ? 94 : 26), Math.max(cw, 420), P(slt, dl + 380, dl + 700, back), cx);
+      }
+      ctx.restore();
+    });
+    if (sh.note) { var nk = P(slt, 300 + items.length * 130, 650 + items.length * 130); ctx.save(); ctx.globalAlpha *= nk; capLine(sh.note, CX, top + AH + 66 + (1 - nk) * 14, capFont(58, 900), [[19, "#16161d"]], "#ffe45c", "#ffffff"); ctx.restore(); }
+  }
+  function drawStage(s, b, lt) {
+    var shots = b.shots || []; if (!shots.length) return;
+    var starts = shots.map(function (sh, i) { if (!i && !sh.line) return 0; var c = (s._cues || []).filter(function (c2) { return c2[4] === sh.line; })[0]; return c ? Math.max(0, c[0] - 200) : 0; }), n = 0;
+    for (var i = 0; i < shots.length; i++) if (lt >= starts[i]) n = i;
+    var slt = lt - starts[n];
+    if (n > 0 && slt < 200) { ctx.save(); ctx.globalAlpha *= 1 - slt / 200; ctx.translate(0, -18 * slt / 200); drawShot(shots[n - 1], 1e7, n - 1); ctx.restore(); }
+    drawShot(shots[n], slt, n);
+    if (EVC && TALK.sfx !== false) shots.forEach(function (sh, j) { sfxEv(starts[j] + 150, (TALK.sfx || {}).show || "pop", { v: .26, pitch: (j % 4) * 2 }); });
+  }
+  /* 左上の話題の札（tag）と、右上の項目の札（corner） */
+  function stageTags(s, lt) {
+    var o = capFont(40);
+    if (s.tag) { var k = P(lt, 100, 480), w = tw(s.tag, o) + 56; ctx.save(); ctx.translate(-(1 - k) * (w + 60), 0); rr(34, 30, w, 70, 12); ctx.fillStyle = "#d9343f"; ctx.fill(); ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 5; ctx.stroke();
+      txt(s.tag, 34 + w / 2, 80, { size: 40, weight: 800, align: "center", color: "#ffffff", font: o.font }); ctx.restore(); }
+    if (s.corner) { var o2 = capFont(32), k2 = P(lt, 200, 580), w2 = tw(s.corner, o2) + 48; ctx.save(); ctx.translate((1 - k2) * (w2 + 60), 0); rr(1886 - w2, 34, w2, 58, 10); ctx.fillStyle = "rgba(255,255,255,.94)"; ctx.fill(); ctx.strokeStyle = "#20242c"; ctx.lineWidth = 4; ctx.stroke();
+      txt(s.corner, 1886 - w2 / 2, 75, { size: 32, weight: 800, align: "center", color: "#20242c", font: o2.font }); ctx.restore(); }
+  }
+  var TALK_SFX = { "!": "pop", "?": "question", "!?": "stab", "♪": "bling", "💦": "slip", "💢": "woodblock", "…": "downer", "💡": "correct", "✨": "sparkle", "♥": "heart-pop", gloom: "downer", shock: "stab", big: "hyoshigi", shake: "impact" };
   R.talk = function (s, lt, d) {
+    /* 効果音のきっかけ: せりふの印・大きい字幕・揺れ・聞き手の反応の印。続けて鳴らしすぎない（2.4 秒あける。se で名指しした音は必ず鳴らす） */
+    if (EVC && TALK.sfx !== false) { var smap = Object.assign({}, TALK_SFX, TALK.sfx || {}), lastT = -9999;
+      (s._cues || []).forEach(function (c) { var ln = s.lines[c[4]]; if (!ln || !ln.who) return;
+        var name = ln.se || (ln.big ? smap.big : null) || (ln.shake ? smap.shake : null) || smap[EMO_ALIAS[ln.emote] || ln.emote];
+        if (name && name !== "none" && (ln.se || c[0] - lastT > 2400)) { sfxEv(c[0] + 60, name, { v: ln.se ? .6 : .42 }); lastT = c[0]; }
+        (ln.react || []).forEach(function (r) { var rt = c[0] + (c[1] - c[0]) * (r.at === undefined ? .5 : r.at), rn = r.se || smap[EMO_ALIAS[r.emote] || r.emote];
+          if (rn && rn !== "none" && (r.se || rt - lastT > 2400)) { sfxEv(rt + 40, rn, { v: .36 }); lastT = rt; } }); });
+      if (s.board && (typeof s.board === "string" || s.board.type === "image")) sfxEv(140, "appear"); }
     var bgi = IMGS[s.bg];
     if (bgi && bgi.complete && bgi.naturalWidth) { var sc = Math.max(W / bgi.naturalWidth, H / bgi.naturalHeight); ctx.drawImage(bgi, 960 - bgi.naturalWidth * sc / 2, 540 - bgi.naturalHeight * sc / 2, bgi.naturalWidth * sc, bgi.naturalHeight * sc); }
-    var b = s.board; if (!b) return;
+    var b = s.board; if (!b) { stageTags(s, lt); return; }
+    if (b.type === "stage") { drawStage(s, b, lt); stageTags(s, lt); return; }
     var bx = 330, byy = 70, bw = 1260, bh = bw * 9 / 16 * .92, k = P(lt, 0, 500);
     ctx.save(); ctx.globalAlpha *= k; ctx.translate(0, (1 - k) * 20);
     panel(bx - 16, byy - 16, bw + 32, bh + 32, { r: 24, fill: s.boardColor || C.panel, stroke: C.accent, lw: 6 });
@@ -1675,7 +1943,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     if (typeof b === "string") { var ls = wrap(b, bw - 120, { size: 64, weight: 800, font: F.display }); ls.forEach(function (ln, i) { rich(ln, bx + bw / 2, byy + bh / 2 - (ls.length - 1) * 42 + i * 84 + 22, { size: 64, weight: 800, font: F.display, align: "center" }); }); }
     else if (b.type === "image") { var im = IMGS[b.src]; if (im && im.complete && im.naturalWidth) { var s2 = Math.min(bw / im.naturalWidth, bh / im.naturalHeight); ctx.drawImage(im, bx + (bw - im.naturalWidth * s2) / 2, byy + (bh - im.naturalHeight * s2) / 2, im.naturalWidth * s2, im.naturalHeight * s2); } }
     else sub(b.type || "statement", b, lt, d, { x: bx, y: byy - bh * .02, scale: bw / 1920 });
-    ctx.restore(); ctx.restore();
+    ctx.restore(); ctx.restore(); stageTags(s, lt);
   };
 
   /* ================= HTML・SVG で描く場面（dom） ================= */
@@ -1720,10 +1988,10 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       if (AUD._samples && MA.loadSamples) MA.loadSamples(ac, AUD._samples);
       /* せりふの音声ファイル（WAV）を復号しておく */
       CUES.forEach(function (c) { if (!c.line || !c.line.voice || VBUF[c.key]) return; var key = c.key; VBUF[key] = null;
-        fetch(c.line.voice).then(function (x) { return x.arrayBuffer(); }).then(function (buf) { return ac.decodeAudioData(buf); }).then(function (b) { VBUF[key] = b; }).catch(function (e) { console.warn("voice:", e); }); });
+        audioBytes(c.line.voice).then(function (buf) { return ac.decodeAudioData(buf); }).then(function (b) { VBUF[key] = b; }).catch(function (e) { console.warn("voice:", e); }); });
       /* ファイルの効果音は先に復号しておく */
       Object.keys(SFXD).forEach(function (k) { var r = SFXD[k]; if (!r.file) return;
-        fetch(r.file).then(function (x) { return x.arrayBuffer(); }).then(function (buf) { return ac.decodeAudioData(buf); }).then(function (b) { SFXBUF[k] = b; }).catch(function (e) { console.warn("sfx file:", k, e); }); });
+        audioBytes(r.file).then(function (buf) { return ac.decodeAudioData(buf); }).then(function (b) { SFXBUF[k] = b; }).catch(function (e) { console.warn("sfx file:", k, e); }); });
     } catch (e) { ac = null; } }
 
   /* ---- 音楽: 章ごとに曲の頭から。音符は「章の中の時刻」だけで決まる（MotionAudio.notes）。
@@ -1865,10 +2133,45 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   /* 読み上げ中の字幕。字幕の終わりに来ても読み終わっていなければ、動画をそこで待たせる（audio.wait: false で無効） */
   var speaking = null;
   var VBUF = {}, vsrc = null;
+  /* 音声のデータを読む。埋め込み（data: の base64）は fetch を使わずに直す（fetch を止めている場所でも鳴るように） */
+  function audioBytes(url) {
+    var m = /^data:[^;,]*;base64,/.exec(url || "");
+    if (!m) return fetch(url).then(function (x) { return x.arrayBuffer(); });
+    return new Promise(function (ok) { var bin = atob(url.slice(m[0].length)), n = bin.length, u = new Uint8Array(n); for (var i = 0; i < n; i++) u[i] = bin.charCodeAt(i); ok(u.buffer); });
+  }
+  /* 声の速さを変えても、高さは変えない: 波形を短い区間（30ms）に切り、つながりのよい位置を探しながら、間隔を詰めて（広げて）重ね直す（WSOLA）。
+     速さごとに 1 度だけ作って覚えておく。r は速さ（2 で倍速）。モノラルにして返す */
+  var VSTR = {}, VSTR_SPEED = 0;
+  function stretchVoice(key, b, r) {
+    if (VSTR_SPEED !== r) { VSTR = {}; VSTR_SPEED = r; }
+    if (VSTR[key]) return VSTR[key];
+    var sr = b.sampleRate, x = b.getChannelData(0), n = x.length, win = Math.max(64, Math.round(sr * .03) & ~1), hs = win / 2, tol = Math.round(sr * .008), step = sr > 20000 ? 2 : 1;
+    var frames = Math.max(1, Math.ceil(n / r / hs)), out = new Float32Array(frames * hs + win), w = new Float32Array(win), i, k, d;
+    for (i = 0; i < win; i++) w[i] = .5 - .5 * Math.cos(2 * Math.PI * (i + .5) / win);
+    var prev = 0;
+    for (k = 0; k < frames; k++) {
+      var target = Math.round(k * hs * r), best = 0;
+      if (k > 0) {   /* 前の区間の「続き」（prev + hs から）に、いちばん似た位置を target の前後から探す */
+        var ref = prev + hs, bestC = -Infinity;
+        for (d = -tol; d <= tol; d += step) { var q = target + d; if (q < 0 || q + hs >= n || ref + hs >= n) continue;
+          var c = 0; for (i = 0; i < hs; i += step) c += x[q + i] * x[ref + i];
+          if (c > bestC) { bestC = c; best = d; } }
+      }
+      var pos = Math.max(0, Math.min(n - 1, target + best)), o0 = k * hs;
+      for (i = 0; i < win && pos + i < n; i++) out[o0 + i] += x[pos + i] * w[i];
+      prev = pos;
+    }
+    var len = Math.max(1, Math.round(n / r)), ob = ac.createBuffer(1, len, sr);
+    ob.getChannelData(0).set(out.subarray(0, len));
+    return (VSTR[key] = ob);
+  }
   function playVoice(cue, off) {
     if (!ac || !audioOn || AUD.narration === false) return false; var b = VBUF[cue.key]; if (!b) return !!(cue.line && cue.line.voice);
-    stopVoice(); var s = ac.createBufferSource(), g0 = ac.createGain(); s.buffer = b; s.playbackRate.value = speed; g0.gain.value = cue.line.volume === undefined ? 1 : cue.line.volume;
-    s.connect(g0); g0.connect(master); try { s.start(0, Math.max(0, off || 0) / 1000); } catch (e) { return true; }
+    stopVoice(); var s = ac.createBufferSource(), g0 = ac.createGain(), sp = speed || 1, keep = AUD.keepPitch !== false && sp !== 1;
+    try { s.buffer = keep ? stretchVoice(cue.key, b, sp) : b; } catch (e) { console.warn("voice stretch:", e); s.buffer = b; keep = false; }
+    if (!keep) s.playbackRate.value = sp;   /* audio.keepPitch: false なら、今までどおり速さと一緒に高さも変わる */
+    g0.gain.value = cue.line.volume === undefined ? 1 : cue.line.volume;
+    s.connect(g0); g0.connect(master); try { s.start(0, Math.max(0, off || 0) / 1000 / (keep ? sp : 1)); } catch (e) { return true; }
     var me = { cue: cue, file: true, started: performance.now(), maxMs: 1e9 }; speaking = me; vsrc = s;
     s.onended = function () { if (speaking === me) speaking = null; if (vsrc === s) vsrc = null; }; return true;
   }
@@ -2309,8 +2612,10 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   var aub = $("mv-audio"); if (aub) { aub.setAttribute("aria-pressed", String(audioOn)); aub.setAttribute("aria-label", audioOn ? "音声をオフにする" : "音声をオンにする"); }
   var IMG_TYPES = { tour: ["src"], scrollshot: ["src"], swipe: ["before", "after"] };
   var preload = function (src) { if (!src || IMGS[src]) return; var im = new Image(); im.onload = function () { needsDraw = true; }; im.src = src; IMGS[src] = im; };
+  Object.keys(CAST).forEach(function (id) { var sp = CAST[id].sprite; if (sp) Object.keys(sp.images || {}).forEach(function (k) { preload(sp.images[k]); }); });
   Object.keys(CAST).forEach(function (id) { var im = CAST[id].images || {}; Object.keys(im).forEach(function (f) { var v = im[f]; if (typeof v === "string") preload(v); else Object.keys(v || {}).forEach(function (s2) { preload(v[s2]); }); }); });
   SCENES.forEach(function (sc) { preload(sc.s.bg); if (sc.s.board && sc.s.board.type === "image") preload(sc.s.board.src); });
+  Object.keys(SPEC.images || {}).forEach(function (k) { if (IMGS["@" + k]) return; var im = new Image(); im.onload = function () { needsDraw = true; }; im.src = SPEC.images[k]; IMGS["@" + k] = im; });   /* 絵で見せる場面（stage）の絵。名前で引く */
   SCENES.forEach(function (sc) { if ((sc.s.type === "image" || sc.s.type === "layout") && sc.s.src && !IMGS[sc.s.src]) { var im = new Image(); im.onload = function () { needsDraw = true; }; im.src = sc.s.src; IMGS[sc.s.src] = im; } });
   /* 画面の解説の部品（tour・scrollshot・swipe）の画像 */
   SCENES.forEach(function (sc) { if (IMG_TYPES[sc.s.type]) IMG_TYPES[sc.s.type].forEach(function (k) { if (typeof sc.s[k] === "string") preload(sc.s[k]); }); });
