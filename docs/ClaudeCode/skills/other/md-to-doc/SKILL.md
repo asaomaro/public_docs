@@ -630,7 +630,7 @@ python3 <skill_dir>/figkit.py spec.json --insert out.html # 各図の slot / rep
 - 向くのは、手順の実演・画面の変化・全体像を順に見せる説明。文章と図で足りる節には使わない（1 文書に 1〜2 本まで）。
 - motion-video スキルが無い環境では、注意の枠に置き換わる。
 - 埋め込んだプレイヤーの ⚙ からも、WebM の保存・編集用の映像・音のトラック（WAV）の書き出しができる。
-  字幕（SRT・VTT）・YouTube のチャプター・YMM4・AviUtl のファイルは、台本を motion-video の `build.py --export` に掛けて作る（motion-video の SKILL.md）。
+  字幕（SRT・VTT）・YouTube のチャプター・YMM4・AviUtl のファイルは、台本を video-export スキルに渡して作る。
 
 ### 4f. 動く図（motion-video の部品を、プレイヤー無しで図として置く）
 

@@ -288,27 +288,11 @@ def to_spec(meta, chapters, cast):
     return spec, credits
 
 
-def main():
-    ap = argparse.ArgumentParser(description="ゆっくり解説・ずんだもん解説の台本から、掛け合いの動画（単一 HTML）を作る")
-    ap.add_argument("script", nargs="?", help="台本（テキスト）")
-    ap.add_argument("-o", "--out", help="出力 HTML（既定: 台本と同じ場所・同じ名前）")
-    ap.add_argument("--voicevox", action="store_true", help="VOICEVOX でせりふの声を作る（engine: voicevox の登場人物）")
-    ap.add_argument("--voicevox-url", default="http://127.0.0.1:50021")
-    ap.add_argument("--voices-dir", help="用意した WAV のフォルダ（名前順に、声の無いせりふへ順に当てる）")
-    ap.add_argument("--timeline", action="store_true", help="HTML を作らず時間割りを出す")
-    ap.add_argument("--list-casts", action="store_true", help="登場人物のプリセットを出す")
-    ap.add_argument("--export", help="編集・投稿用のファイルも書き出す（youtube・ymm4・exo をカンマで。all で全部。motion-video の export.py）")
-    ap.add_argument("--export-dir", help="書き出す場所（既定: 台本と同じ場所の <台本名>_export/）")
-    ap.add_argument("--fps", type=int, default=30, help="YMM4・AviUtl のプロジェクトのフレームレート（既定 30）")
-    ap.add_argument("--win-dir", help="YMM4・AviUtl のプロジェクトに書く素材の場所（Windows のパス）")
-    a = ap.parse_args()
-    if a.list_casts or not a.script:
-        print("# 登場人物のプリセット（台本の cast: に並べる。chars/<名前>/ に立ち絵を置く）")
-        for k, v in PRESETS.items():
-            print("  %-9s %-8s 声: %-9s %s" % (k, v["name"], (v.get("voice") or {}).get("engine", "-"), v.get("note", v.get("credit", ""))))
-        return
-    base = os.path.dirname(os.path.abspath(a.script))
-    meta, chapters, errs = parse(open(a.script, encoding="utf-8").read())
+def make_spec(script, voicevox=False, voicevox_url="http://127.0.0.1:50021", voices_dir=None):
+    """台本（テキスト）から motion-video の台本を作り、声を当て、確かめ、時間割を決める。誤りがあれば止める。
+    返り値は (台本, motion-video の build, 登場人物, クレジット)。video-export スキル（書き出し）もこれで読む。"""
+    base = os.path.dirname(os.path.abspath(script))
+    meta, chapters, errs = parse(open(script, encoding="utf-8").read())
     for e in errs:
         print("error:", e, file=sys.stderr)
     if errs:
@@ -318,25 +302,25 @@ def main():
     if unknown:
         sys.exit("error: cast に無い話し手: %s（台本の先頭の cast: に足してください）" % "、".join(unknown))
     spec, credits = to_spec(meta, chapters, cast)
-    if a.voicevox:
-        n = voicevox_lines(spec, a.voicevox_url, os.path.join(base, os.path.splitext(os.path.basename(a.script))[0] + "_voices"), spec["audio"]["pronounce"])
+    if voicevox:
+        n = voicevox_lines(spec, voicevox_url, os.path.join(base, os.path.splitext(os.path.basename(script))[0] + "_voices"), spec["audio"]["pronounce"])
         print("VOICEVOX: %d 個のせりふの声を作りました（作り済みは使い回し）" % n)
-    credits = make_credits(meta, cast, a.voicevox)
+    credits = make_credits(meta, cast, voicevox)
     sc_ = sample_credit(spec)
     if sc_:
         credits.append(sc_)
     last = spec["chapters"][-1]["scenes"][-1]
     if last.get("type") == "end":
         last["lines"] = credits[:7]
-    if a.voices_dir:
-        used, have = assign_voice_files(spec, os.path.join(base, a.voices_dir) if not os.path.isabs(a.voices_dir) else a.voices_dir)
+    if voices_dir:
+        used, have = assign_voice_files(spec, os.path.join(base, voices_dir) if not os.path.isabs(voices_dir) else voices_dir)
         print("WAV: %d 個をせりふに当てました（フォルダに %d 個）" % (used, have))
     for ch in spec["chapters"]:
         for sc in ch["scenes"]:
             for ln in talk_lines(sc):
                 if ln.get("voice") and os.path.isabs(ln["voice"]):
                     ln["voice"] = os.path.relpath(ln["voice"], base)
-    stem = os.path.splitext(os.path.abspath(a.script))[0]
+    stem = os.path.splitext(os.path.abspath(script))[0]
     json.dump(spec, open(stem + ".json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     mv = motion_video()
     errs = mv.validate(spec, base)
@@ -346,6 +330,28 @@ def main():
         sys.exit(1)
     for w in mv.plan(spec):
         print("warn:", w, file=sys.stderr)
+    spec["_exportName"] = mv.export_name(spec, script)
+    spec["_exportCredits"] = credits   # 書き出しの概要欄に載せる（HTML には入れない）
+    return spec, mv, cast, credits
+
+
+def main():
+    ap = argparse.ArgumentParser(description="ゆっくり解説・ずんだもん解説の台本から、掛け合いの動画（単一 HTML）を作る")
+    ap.add_argument("script", nargs="?", help="台本（テキスト）")
+    ap.add_argument("-o", "--out", help="出力 HTML（既定: 台本と同じ場所・同じ名前）")
+    ap.add_argument("--voicevox", action="store_true", help="VOICEVOX でせりふの声を作る（engine: voicevox の登場人物）")
+    ap.add_argument("--voicevox-url", default="http://127.0.0.1:50021")
+    ap.add_argument("--voices-dir", help="用意した WAV のフォルダ（名前順に、声の無いせりふへ順に当てる）")
+    ap.add_argument("--timeline", action="store_true", help="HTML を作らず時間割りを出す")
+    ap.add_argument("--list-casts", action="store_true", help="登場人物のプリセットを出す")
+    a = ap.parse_args()
+    if a.list_casts or not a.script:
+        print("# 登場人物のプリセット（台本の cast: に並べる。chars/<名前>/ に立ち絵を置く）")
+        for k, v in PRESETS.items():
+            print("  %-9s %-8s 声: %-9s %s" % (k, v["name"], (v.get("voice") or {}).get("engine", "-"), v.get("note", v.get("credit", ""))))
+        return
+    spec, mv, cast, credits = make_spec(a.script, a.voicevox, a.voicevox_url, a.voices_dir)
+    stem = os.path.splitext(os.path.abspath(a.script))[0]
     total = sum(s["_dur"] for ch in spec["chapters"] for s in ch["scenes"])
     if a.timeline:
         t = 0
@@ -358,10 +364,6 @@ def main():
                 t += s["_dur"]
         print("合計 %s" % mv.fmt(total))
         return
-    spec["_exportName"] = mv.export.base_name(spec, a.script)
-    if a.export:
-        spec["_exportCredits"] = credits
-        mv.export.run(spec, a.script, a.export, a.export_dir, a.fps, a.win_dir)
     out = a.out or stem + ".html"
     open(out, "w", encoding="utf-8").write(mv.build_html(spec, spec["theme"], spec["player"]))
     print("OK : %s（%s）" % (out, mv.fmt(total)))

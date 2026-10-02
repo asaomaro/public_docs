@@ -16,7 +16,6 @@ sys.path.insert(0, HERE)
 import sound  # noqa: E402  曲・効果音の定義（同じ場所の sound.py）
 import icons  # noqa: E402  線で描くアイコン集（同じ場所の icons.py。md-to-doc と共有）
 import voice  # noqa: E402  声を前もって作る（VOICEVOX）・用意した WAV を当てる
-import export  # noqa: E402  編集・投稿用の書き出し（字幕・チャプター・YMM4・AviUtl。同じ場所の export.py）
 
 # ──────────────────────────────────────────────────────────────────────────
 # 映像の配色テーマ（canvas は映像の中、chrome はプレイヤーの操作部）
@@ -561,7 +560,7 @@ def prepare_voices(spec, base, mode, url=voice.DEFAULT_URL, vdir=None, outdir=No
                 vs.append({"voice": uri, "_env": env}); ds.append(int(dur))
             else:
                 s["_voices"], s["_vdurs"], s["_vtexts"] = vs, ds, cues
-                s["_vpaths"] = [os.path.abspath(p) for p in paths]   # 書き出し（--export）用。HTML には入れない
+                s["_vpaths"] = [os.path.abspath(p) for p in paths]   # 書き出し（video-export スキル）用。HTML には入れない
     if mode == "files" and fi < len(files):
         errs.append("WAV が %d 個余りました（ナレーションの字幕とせりふは合わせて %d 個）。--timeline で字幕の数を確かめる" % (len(files) - fi, fi))
     credits = vv.credits() if vv else ([au["voice_credit"]] if au.get("voice_credit") else [])
@@ -805,7 +804,7 @@ def validate(spec, base):
                         errs.append("%s: lines[%d] の音声は WAV（PCM）にしてください（%s）" % (where, li, e))
                         continue
                     ln["voice"], _ = _embed(p, base, "audio/wav")
-                    ln["_vpath"] = os.path.abspath(p)   # 書き出し（--export）用。HTML には入れない
+                    ln["_vpath"] = os.path.abspath(p)   # 書き出し（video-export スキル）用。HTML には入れない
     errs += sound.prepare(spec, base)
     return errs
 
@@ -1086,7 +1085,7 @@ def build_fragment(spec, theme_key, player, uid=None):
         + '<button type="button" class="mv-setitem" id="mv-recclean">編集用の映像（字幕・音なし WebM）</button>'
         '<button type="button" class="mv-setitem" id="mv-expaudio">音のトラックを書き出す（WAV）</button>'
         '<p class="mv-setnote">編集ソフト・YouTube 用。声・音楽・効果音・全部を別々の WAV に書き出します（声は前もって作った声だけ）。'
-        '字幕・チャプター・YMM4・AviUtl のファイルは build.py --export で作ります。</p>'
+        '字幕・チャプター・YMM4・AviUtl のファイルは video-export スキルで作ります。</p>'
         + ''
         '</div></div>'
         '</div></div>'
@@ -1098,7 +1097,7 @@ def build_fragment(spec, theme_key, player, uid=None):
         '</div>')
     style = ("--c-bg:%s;--c-bg2:%s;--c-line:%s;--c-ink:%s;--c-muted:%s;--c-accent:%s"
              % (ch["bg"], ch["bg2"], ch["line"], ch["ink"], ch["muted"], ch["accent"]))
-    data = json.dumps(export.public(spec), ensure_ascii=False).replace("</", "<\\/")
+    data = json.dumps(public(spec), ensure_ascii=False).replace("</", "<\\/")
     frag = (
         '<section class="mv-player" id="mv-player" data-player="%s" tabindex="0" aria-label="%s" style="%s">'
         '<script type="application/json" data-mv-spec>%s</script><script type="application/json" data-mv-theme>%s</script>'
@@ -1286,6 +1285,66 @@ def print_list():
     print("\ncustom の道具は --api、手本は recipes.md")
 
 
+PRIVATE = ("_vpath", "_vpaths", "_exportCredits")   # 書き出しにだけ使う印（ローカルのパスなど）。HTML には入れない
+
+
+def public(v):
+    """HTML に埋め込む台本（書き出し用の印を外したもの）。元の台本は変えない。"""
+    if isinstance(v, dict):
+        return {k: public(x) for k, x in v.items() if k not in PRIVATE}
+    if isinstance(v, list):
+        return [public(x) for x in v]
+    return v
+
+
+def export_name(spec, path):
+    """プレイヤーが保存する WebM・WAV の名前の元（video-export スキルの書き出しと同じ名前）。"""
+    title = spec.get("title") or os.path.splitext(os.path.basename(path))[0] or "video"
+    return re.sub(r'[\\/:*?"<>|]', "_", title)
+
+
+def load(path, voicevox=False, voicevox_url=voice.DEFAULT_URL, voices_dir=None, voices_out=None):
+    """台本（JSON）を読み、声を当て（voicevox・voices_dir）、確かめ、時間割を決めた台本を返す。誤りがあれば止める。
+    video-export スキル（書き出し）もこれで読む。"""
+    spec = json.load(open(path, encoding="utf-8"))
+    base = os.path.dirname(os.path.abspath(path))
+    if (voicevox or voices_dir) and isinstance(spec.get("chapters"), list):
+        out_v = voices_out or os.path.splitext(os.path.abspath(path))[0] + "_voices"
+        verrs, vcred = prepare_voices(spec, base, "voicevox" if voicevox else "files", voicevox_url, voices_dir, out_v)
+        spec["_credits"] = ["音声: " + "・".join(vcred)] if vcred else []
+        for e in verrs:
+            print("error:", e, file=sys.stderr)
+        if verrs:
+            sys.exit(1)
+        n = sum(len(s_.get("_vdurs") or []) for c_ in spec["chapters"] for s_ in c_["scenes"])
+        print("声: ナレーションの字幕 %d 個に前もって作った声を当てました（作り済みの WAV は使い回し）" % n, file=sys.stderr)
+    elif ((spec.get("audio") or {}).get("voice") or {}).get("engine") == "voicevox":
+        print("warn: audio.voice は VOICEVOX ですが --voicevox が無いので、ブラウザの読み上げで再生します（時間は見積もり）", file=sys.stderr)
+    errs = validate(spec, base)
+    if errs:
+        for e in errs:
+            print("error:", e, file=sys.stderr)
+        sys.exit(1)
+    warns = plan(spec)
+    expr = spec.get("expression", "mixed")
+    if expr not in EXPRESSIONS:
+        warns.append("expression %r は %s のいずれか（mixed として扱います）" % (expr, "/".join(EXPRESSIONS)))
+        expr = "mixed"
+    kinds = [s["type"] for ch in spec["chapters"] for s in ch["scenes"]]
+    if expr == "components" and "custom" in kinds:
+        warns.append("expression=components なのに custom の場面が %d 個あります" % kinds.count("custom"))
+    au = spec.get("audio") or {}
+    own = [k for k in ("music",) if isinstance(au.get(k), dict) and (au[k].get("code") or au[k].get("layers"))] + (["sfxDefs"] if au.get("sfxDefs") else []) + (["instruments"] if au.get("instruments") else [])
+    if expr == "components" and own:
+        warns.append("expression=components なのに自作の音（%s）があります（部品だけのときは用意された曲・効果音を使う）" % ", ".join(own))
+    if expr == "free" and "custom" not in kinds:
+        warns.append("expression=free なのに custom の場面がありません（見せ場は custom で描く）")
+    for w in warns:
+        print("warn:", w, file=sys.stderr)
+    spec["_exportName"] = export_name(spec, path)
+    return spec
+
+
 def main():
     ap = argparse.ArgumentParser(description="台本（JSON）から動画のように再生できる単一 HTML を作る")
     ap.add_argument("spec", nargs="?", help="台本の JSON")
@@ -1302,10 +1361,6 @@ def main():
     ap.add_argument("--voicevox", action="store_true", help="VOICEVOX でナレーションの声を前もって作り、埋め込む（話者は audio.voice）")
     ap.add_argument("--voicevox-url", default=voice.DEFAULT_URL, help="VOICEVOX の場所（既定 %(default)s）")
     ap.add_argument("--voices-dir", help="用意した WAV を名前順に、ナレーションの字幕（とせりふ）へ順に当てて埋め込む")
-    ap.add_argument("--export", help="編集・投稿用のファイルを書き出す（youtube・ymm4・exo をカンマで。all で全部）。字幕・チャプター・YMM4 の台本とプロジェクト・AviUtl の exo")
-    ap.add_argument("--export-dir", help="書き出す場所（既定: 台本と同じ場所の <台本名>_export/）")
-    ap.add_argument("--fps", type=int, default=30, help="YMM4・AviUtl のプロジェクトのフレームレート（既定 30）")
-    ap.add_argument("--win-dir", help="YMM4・AviUtl のプロジェクトに書く素材の場所（Windows のパス。例 C:\\Users\\me\\Videos\\intro_export）。既定は書き出す場所")
     ap.add_argument("--voices-out", help="VOICEVOX で作った WAV の置き場所（既定: 台本と同じ場所の <台本名>_voices/）")
     args = ap.parse_args()
     if args.api:
@@ -1325,47 +1380,13 @@ def main():
     if args.list or not args.spec:
         print_list()
         return
-    spec = json.load(open(args.spec, encoding="utf-8"))
-    base = os.path.dirname(os.path.abspath(args.spec))
-    if (args.voicevox or args.voices_dir) and isinstance(spec.get("chapters"), list):
-        out_v = args.voices_out or os.path.splitext(os.path.abspath(args.spec))[0] + "_voices"
-        verrs, vcred = prepare_voices(spec, base, "voicevox" if args.voicevox else "files", args.voicevox_url, args.voices_dir, out_v)
-        spec["_credits"] = ["音声: " + "・".join(vcred)] if vcred else []
-        for e in verrs:
-            print("error:", e, file=sys.stderr)
-        if verrs:
-            sys.exit(1)
-        n = sum(len(s_.get("_vdurs") or []) for c_ in spec["chapters"] for s_ in c_["scenes"])
-        print("声: ナレーションの字幕 %d 個に前もって作った声を当てました（作り済みの WAV は使い回し）" % n, file=sys.stderr)
-    elif ((spec.get("audio") or {}).get("voice") or {}).get("engine") == "voicevox":
-        print("warn: audio.voice は VOICEVOX ですが --voicevox が無いので、ブラウザの読み上げで再生します（時間は見積もり）", file=sys.stderr)
-    errs = validate(spec, base)
-    if errs:
-        for e in errs:
-            print("error:", e, file=sys.stderr)
-        sys.exit(1)
+    spec = load(args.spec, args.voicevox, args.voicevox_url, args.voices_dir, args.voices_out)
     player = args.player or spec.get("player", "studio")
     theme = args.theme or spec.get("theme", "navy-brass")
     if player not in PLAYERS:
         sys.exit("error: 不明な player %r（%s）" % (player, "/".join(PLAYERS)))
     if theme not in THEMES:
         sys.exit("error: 不明な theme %r（%s）" % (theme, "/".join(THEMES)))
-    warns = plan(spec)
-    expr = spec.get("expression", "mixed")
-    if expr not in EXPRESSIONS:
-        warns.append("expression %r は %s のいずれか（mixed として扱います）" % (expr, "/".join(EXPRESSIONS)))
-        expr = "mixed"
-    kinds = [s["type"] for ch in spec["chapters"] for s in ch["scenes"]]
-    if expr == "components" and "custom" in kinds:
-        warns.append("expression=components なのに custom の場面が %d 個あります" % kinds.count("custom"))
-    au = spec.get("audio") or {}
-    own = [k for k in ("music",) if isinstance(au.get(k), dict) and (au[k].get("code") or au[k].get("layers"))] + (["sfxDefs"] if au.get("sfxDefs") else []) + (["instruments"] if au.get("instruments") else [])
-    if expr == "components" and own:
-        warns.append("expression=components なのに自作の音（%s）があります（部品だけのときは用意された曲・効果音を使う）" % ", ".join(own))
-    if expr == "free" and "custom" not in kinds:
-        warns.append("expression=free なのに custom の場面がありません（見せ場は custom で描く）")
-    for w in warns:
-        print("warn:", w, file=sys.stderr)
     total = sum(s["_dur"] for ch in spec["chapters"] for s in ch["scenes"])
     if args.timeline:
         t = 0
@@ -1380,9 +1401,6 @@ def main():
                 t += s["_dur"]
         print("合計 %s（%d 章・%d 場面）" % (fmt(total), len(spec["chapters"]), sum(len(c["scenes"]) for c in spec["chapters"])))
         return
-    spec["_exportName"] = export.base_name(spec, args.spec)
-    if args.export:
-        export.run(spec, args.spec, args.export, args.export_dir, args.fps, args.win_dir)
     out = args.out or os.path.splitext(os.path.abspath(args.spec))[0] + (".embed.html" if args.embed else ".html")
     open(out, "w", encoding="utf-8").write(build_embed(spec, theme, player) if args.embed else build_html(spec, theme, player))
     print("OK : %s（%s・%s・%s）" % (out, player, theme, fmt(total)))

@@ -85,16 +85,8 @@ python3 <skill_dir>/kaisetsu.py 台本.txt                        # 声なし（
 - 途中の台本（motion-video の JSON）は `<台本名>.json` に出る。細かい調整はそれを直して `motion-video/build.py` で作ってもよい。
 - 作ったら 1 回開いて、黒板の文字の大きさ・字幕の長さ・掛け合いの間を見る。
 
-**YouTube・YMM4・AviUtl 用に書き出す**（「YouTube に上げたい」「ゆっくりMovieMaker で仕上げたい」「AviUtl で編集したい」と言われたとき）
-
-```bash
-python3 <skill_dir>/kaisetsu.py 台本.txt --voicevox --export youtube,ymm4 --win-dir "C:\Users\me\Videos\台本_export"
-```
-
-- `<台本名>_export/` に、字幕（SRT・VTT。「名前：せりふ」）・概要欄に貼るチャプターとクレジット・YMM4 の台本 CSV（A 列キャラクター名・B 列セリフ）と `.ymmp`・AviUtl の `.exo`・せりふの声（`voices/`）が出る。
-  種類と置き方は motion-video の SKILL.md の「編集・投稿用に書き出す」と、書き出した `README.txt`。
-- 映像（字幕・音なし WebM）と音（声・音楽・効果音・全部の WAV）は、HTML の ⚙ から書き出して同じフォルダに置く。
-- YMM4 の CSV は、YMM4 側のキャラクター名（例: 「ずんだもん」「四国めたん」）と A 列の名前が一致している必要がある。違うときは台本の `<名前>.name` を YMM4 の名前に合わせる。
+**YouTube・YMM4・AviUtl 用に書き出す**（「YouTube に上げたい」「ゆっくりMovieMaker で仕上げたい」「AviUtl で編集したい」と言われたとき）は、
+**video-export スキル**に台本（.txt）をそのまま渡す。YMM4 の台本 CSV の名前は、台本の `<名前>.name` を YMM4 のキャラクター名に合わせる。
 
 ### 4. 渡す
 - HTML の場所を伝える（`SendUserFile`）。

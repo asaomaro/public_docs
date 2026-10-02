@@ -1,14 +1,20 @@
-"""編集・投稿用の書き出し。build.py（と yukkuri-kaisetsu の kaisetsu.py）の --export が使う。
+"""video-export — motion-video・yukkuri-kaisetsu の動画を、YouTube への投稿と編集ソフト向けに書き出す。
 
-時間割は build.py の plan（台本どおり。前もって作った声があれば声の長さ）で決まり、プレイヤーの
-「編集用の映像（字幕・音なし WebM）」「音のトラックを書き出す（WAV）」も同じ時間割で書き出すので、ここで作る
-字幕・プロジェクトと時刻がそろう。
+  python3 export.py 台本.json --to youtube,ymm4,exo --voicevox      # motion-video の台本
+  python3 export.py 台本.txt  --to all --voicevox --win-dir "C:\\..."  # yukkuri-kaisetsu の台本
+
+台本は隣の motion-video の build.py（.txt は yukkuri-kaisetsu の kaisetsu.py）で読み、時間割を決める（台本どおり。
+前もって作った声があれば声の長さ）。同じ時間割の HTML も書き出す場所に作るので、その ⚙ の
+「編集用の映像（字幕・音なし WebM）」「音のトラックを書き出す（WAV）」で書き出した映像・音と、ここで作る
+字幕・プロジェクトの時刻がそろう。
 
 - youtube: 字幕（SRT・WebVTT。訳した字幕も）・チャプターの一覧（概要欄に貼る形）
 - ymm4:    ゆっくりMovieMaker4 の台本（CSV。「キャラクター名,セリフ」）と、映像・音・声・字幕を並べたプロジェクト（.ymmp）
 - exo:     AviUtl（拡張編集）のオブジェクトファイル（.exo）。映像・音・声・字幕を層に並べる
 """
+import argparse
 import csv
+import importlib.util
 import io
 import json
 import ntpath
@@ -20,23 +26,8 @@ import uuid
 import wave
 
 KINDS = ("youtube", "ymm4", "exo")
-PRIVATE = ("_vpath", "_vpaths", "_exportCredits")   # 書き出しにだけ使う印（ローカルのパスなど）。HTML には入れない
 W, H, HZ = 1920, 1080, 48000
-
-
-def public(v):
-    """HTML に埋め込む台本（書き出し用の印を外したもの）。元の台本は変えない。"""
-    if isinstance(v, dict):
-        return {k: public(x) for k, x in v.items() if k not in PRIVATE}
-    if isinstance(v, list):
-        return [public(x) for x in v]
-    return v
-
-
-def base_name(spec, spec_path):
-    """書き出すファイルの名前の元（プレイヤーが保存する WebM・WAV の名前と同じ）。"""
-    title = spec.get("title") or os.path.splitext(os.path.basename(spec_path))[0] or "video"
-    return re.sub(r'[\\/:*?"<>|]', "_", title)
+HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def plain(text):
@@ -162,10 +153,10 @@ def export_youtube(spec, tl, outdir, base, lang, warns):
     for c, ln in zip(chs, lens):
         if ln < 10000:
             warns.append("章「%s」は %.1f 秒です。YouTube のチャプターはどれも 10 秒以上が必要です" % (c["title"], ln / 1000))
-    credits = list(spec.get("_credits") or []) + list(spec.get("_exportCredits") or [])
-    mc = (spec.get("audio") or {}).get("music_credit")
-    if mc and mc not in credits:
-        credits.append(mc)
+    credits = []
+    for c in list(spec.get("_credits") or []) + list(spec.get("_exportCredits") or []) + [(spec.get("audio") or {}).get("music_credit")]:
+        if c and c not in credits:
+            credits.append(c)
     desc = [spec.get("title", ""), ""] + ["%s %s" % (clock(c["t"]), c["title"]) for c in chs]
     if credits:
         desc += [""] + credits
@@ -383,7 +374,7 @@ def export_exo(spec, tl, outdir, base, fps, path, warns):
 README = """書き出したファイル（{title}）
 
 ■ プレイヤーから書き出して、このフォルダに置くもの
-  HTML を開き、⚙（設定）から:
+  このフォルダの {base}.html を開き、⚙（設定）から:
   - 「編集用の映像（字幕・音なし WebM）」 → {base}_video.webm（最初から 1 倍速で録画するので、動画の長さだけかかります）
   - 「音のトラックを書き出す（WAV）」     → {base}_voice.wav / {base}_music.wav / {base}_sfx.wav / {base}_mix.wav
   ダウンロードされたファイルを、このフォルダ（{dir}）へ移してください。
@@ -415,7 +406,7 @@ def run(spec, spec_path, kinds, outdir=None, fps=30, win_dir=None):
     bad = [k for k in kinds if k not in KINDS]
     if bad:
         sys.exit("error: --export は %s（カンマで区切る。all で全部）: %s" % ("・".join(KINDS), ", ".join(bad)))
-    base = spec.get("_exportName") or base_name(spec, spec_path)
+    base = spec["_exportName"]
     outdir = os.path.abspath(outdir or os.path.splitext(os.path.abspath(spec_path))[0] + "_export")
     os.makedirs(outdir, exist_ok=True)
     tl = timeline(spec)
@@ -443,3 +434,50 @@ def run(spec, spec_path, kinds, outdir=None, fps=30, win_dir=None):
     if "ymm4" in kinds or "exo" in kinds:
         print("  あとで置く（HTML の ⚙ から書き出す）: " + "・".join(need))
     return outdir
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# 台本を読む（隣のスキル）
+# ──────────────────────────────────────────────────────────────────────────
+def sibling(skill, name):
+    path = os.path.join(HERE, "..", skill, name)
+    if not os.path.isfile(path):
+        sys.exit("error: %s スキルが見つかりません（%s）。同じ場所に置いてください" % (skill, path))
+    sp = importlib.util.spec_from_file_location("%s_%s" % (skill.replace("-", "_"), name[:-3]), path)
+    mod = importlib.util.module_from_spec(sp)
+    sp.loader.exec_module(mod)
+    return mod
+
+
+def main():
+    ap = argparse.ArgumentParser(description="motion-video・yukkuri-kaisetsu の動画を、YouTube と編集ソフト（YMM4・AviUtl）向けに書き出す")
+    ap.add_argument("script", help="台本（motion-video の .json か、yukkuri-kaisetsu の .txt）")
+    ap.add_argument("--to", default="all", help="書き出す種類（youtube・ymm4・exo をカンマで。既定 all）")
+    ap.add_argument("--out-dir", help="書き出す場所（既定: 台本と同じ場所の <台本名>_export/）")
+    ap.add_argument("--fps", type=int, default=30, help="YMM4・AviUtl のプロジェクトのフレームレート（既定 30）")
+    ap.add_argument("--win-dir", help="YMM4・AviUtl のプロジェクトに書く素材の場所（書き出したフォルダを置く Windows のパス）")
+    ap.add_argument("--voicevox", action="store_true", help="VOICEVOX で声を前もって作る（公開する動画はこれか --voices-dir）")
+    ap.add_argument("--voicevox-url", default="http://127.0.0.1:50021")
+    ap.add_argument("--voices-dir", help="用意した WAV を名前順に、字幕（とせりふ）へ順に当てる")
+    ap.add_argument("--player", help="書き出す場所に作る HTML のプレイヤー（台本の player を上書き）")
+    ap.add_argument("--theme", help="書き出す場所に作る HTML の配色（台本の theme を上書き）")
+    a = ap.parse_args()
+    if a.script.lower().endswith(".txt"):
+        ks = sibling("yukkuri-kaisetsu", "kaisetsu.py")
+        spec, mv, _, _ = ks.make_spec(a.script, a.voicevox, a.voicevox_url, a.voices_dir)
+    else:
+        mv = sibling("motion-video", "build.py")
+        spec = mv.load(a.script, a.voicevox, a.voicevox_url, a.voices_dir)
+    player = a.player or spec.get("player", "studio")
+    theme = a.theme or spec.get("theme", "navy-brass")
+    if player not in mv.PLAYERS or theme not in mv.THEMES:
+        sys.exit("error: player は %s、theme は %s のいずれか" % ("/".join(mv.PLAYERS), "/".join(mv.THEMES)))
+    outdir = run(spec, a.script, a.to, a.out_dir, a.fps, a.win_dir)
+    # 同じ時間割の HTML（⚙ から映像と音を書き出す）
+    html_path = os.path.join(outdir, spec["_exportName"] + ".html")
+    open(html_path, "w", encoding="utf-8").write(mv.build_html(spec, theme, player))
+    print("  %s … ⚙ から映像（字幕・音なし WebM）と音（WAV）を書き出して、このフォルダに置く" % os.path.basename(html_path))
+
+
+if __name__ == "__main__":
+    main()
