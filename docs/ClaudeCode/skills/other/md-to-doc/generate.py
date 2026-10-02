@@ -565,6 +565,7 @@ CALLOUT_LABELS = {
 #   _IMG_MODE = "embed" … ローカル画像を data URI で埋め込む（単一HTMLで自己完結）
 #   _IMG_MODE = "link"  … ローカル画像は外部フォルダ参照のまま（出力HTMLからの相対パス）
 _IMG_BASE = None     # 処理対象 md のディレクトリ（相対パス解決の基準）
+_VIDEO_EXPORT = [False]   # 埋め込む動画のどれかが export="on"（書き出し付き）か。実行部は 1 ページで共通なので文書ごとに決める
 _IMG_OUTDIR = None   # 出力HTMLのディレクトリ（link 時の相対パス起点）
 _IMG_MODE = "embed"
 _IMG_MIME = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
@@ -4897,6 +4898,7 @@ def convert_file(path, theme_key, eyebrow=None, auto_figure="off", toc_mode="sid
     _IMG_OUTDIR = os.path.abspath(outdir) if outdir else _IMG_BASE
     _IMG_MODE = image_mode
     raw = open(path, encoding="utf-8").read()
+    _VIDEO_EXPORT[0] = wants_video_export(raw)
     meta, body = split_frontmatter(raw)
     lines = body.replace("\r\n", "\n").split("\n")
 
@@ -4974,6 +4976,7 @@ PART_RE = re.compile(r"<!--\s*MD2DOC-PART(?:\s+layout\s*=\s*([\w-]+))?\s*-->(.*?
 def finalize_html(path, theme_key, src=None):
     global _IMG_BASE, _IMG_OUTDIR, _IMG_MODE, _ACCENTS
     doc = open(path, encoding="utf-8").read()
+    _VIDEO_EXPORT[0] = wants_video_export(doc)
     _IMG_BASE = os.path.dirname(os.path.abspath(src)) if src else os.path.dirname(os.path.abspath(path))
     _IMG_OUTDIR = os.path.dirname(os.path.abspath(path))
     _ACCENTS = accent_vars(theme_key)
@@ -5046,6 +5049,11 @@ def video_attrs(text):
     return dict(re.findall(r'(\w+)\s*=\s*"([^"]*)"', text))
 
 
+def wants_video_export(text):
+    """文書の動画のどれかが export="on"（⚙ の書き出し付き）か。既定は配布用（書き出しなし）。"""
+    return any(video_attrs(m.group(1)).get("export") == "on" for m in VIDEO_RE.finditer(text))
+
+
 def video_fragment(attrs, base, doc_theme):
     mv = _motion_video()
     if not mv:
@@ -5070,7 +5078,8 @@ def video_fragment(attrs, base, doc_theme):
     if theme not in mv.THEMES:
         theme = VIDEO_THEME.get(doc_theme, "daylight")
     cap = attrs.get("caption") or ""
-    frag = mv.build_embed(spec, theme, player)
+    # 既定は配布用（⚙ の書き出し＝WebM で保存・編集用の映像・音のトラックと、その実行部を省く）。export="on" で書き出し付き
+    frag = mv.build_embed(spec, theme, player, export=attrs.get("export") == "on", engine_export=_VIDEO_EXPORT[0])
     return '<figure class="md2doc-video">%s%s</figure>' % (
         frag, '<figcaption style="color:var(--muted);font-size:13px;margin-top:6px">%s</figcaption>' % html.escape(cap) if cap else "")
 

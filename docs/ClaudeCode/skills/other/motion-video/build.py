@@ -1144,10 +1144,13 @@ def engine_js(export=True):
     return js
 
 
-def build_embed(spec, theme_key, player, export=True):
-    """ほかの HTML（md-to-doc の文書など）に差し込む断片。CSS と実行部は一度だけ効く。export=False は配布用（書き出しなし）。"""
+def build_embed(spec, theme_key, player, export=True, engine_export=None):
+    """ほかの HTML（md-to-doc の文書など）に差し込む断片。CSS と実行部は一度だけ効く。export=False は配布用（書き出しなし）。
+    実行部は 1 ページで最初のものが全部のプレイヤーに効くので、書き出し付きのプレイヤーが 1 つでもあるページでは
+    engine_export=True（全部の断片で書き出し付きの実行部）にする。省くと export と同じ。"""
     return ('<div class="mv-embed">%s<style>%s</style><script>%s</script></div>'
-            % (build_fragment(spec, theme_key, player, export=export), player_css(), engine_js(export)))
+            % (build_fragment(spec, theme_key, player, export=export), player_css(),
+               engine_js(export if engine_export is None else engine_export)))
 
 
 def build_html(spec, theme_key, player, export=True):

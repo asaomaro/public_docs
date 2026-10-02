@@ -71,7 +71,7 @@ def build_figure(scene, light_key, dark_key, opts=None, base="."):
         return None, errs
     mv.plan(spec)
     spec["audio"]["_sfx"] = {}   # 図は音を鳴らさないので、効果音の定義（約 40 KB）を入れない
-    frag = mv.build_fragment(spec, light_key, "minimal")
+    frag = mv.build_fragment(spec, light_key, "minimal", export=False)   # 図は書き出さない
     # 図はプレイヤーとして操作させない（キー操作・フォーカスを受けない）。起動は figure.js が受け持つ
     # data-mv-ready: engine.js の自動起動の対象から外す（figure.js が起動する）
     frag = frag.replace(' tabindex="0"', " data-mv-ready", 1)
@@ -88,8 +88,8 @@ def build_figure(scene, light_key, dark_key, opts=None, base="."):
 
 
 def runtime(has_engine=False):
-    """ページに 1 度だけ置く: プレイヤーの CSS（図の分も）・描画部（has_engine なら省く）・図の制御。"""
+    """ページに 1 度だけ置く: プレイヤーの CSS（図の分も）・描画部（has_engine なら省く。図だけのページは書き出しの部分を除いた配布用）・図の制御。"""
     js = open(os.path.join(HERE, "figure.js"), encoding="utf-8").read()
     return ("<style>%s%s</style>%s<script>%s</script>"
             % ("" if has_engine else mv.player_css(), FIG_CSS,
-               "" if has_engine else "<script>%s</script>" % mv.engine_js().replace("</script", "<\\/script"), js))
+               "" if has_engine else "<script>%s</script>" % mv.engine_js(export=False).replace("</script", "<\\/script"), js))
