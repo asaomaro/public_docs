@@ -15,12 +15,14 @@
     --accent:#7aa2ff; --accent-soft:#1e2a44; --on-accent:#0d1320; --warn:#f0a35a; }
 }
 *{box-sizing:border-box}
+[hidden]{display:none !important}
 html,body{margin:0}
 body{background:var(--bg);color:var(--ink);
   font:14px/1.6 "Segoe UI","Hiragino Kaku Gothic ProN","Yu Gothic UI","Noto Sans JP",system-ui,sans-serif}
 main{padding:20px 22px 12px}
 h1{font-size:18px;margin:0 0 2px}
 .intro{color:var(--muted);margin:0 0 14px;white-space:pre-wrap}
+.recall{display:flex;gap:10px;align-items:center;margin:-6px 0 12px;font-size:13px;color:var(--muted)}
 fieldset{border:1px solid var(--line);background:var(--card);border-radius:12px;
   margin:0 0 12px;padding:12px 14px 14px;min-width:0}
 fieldset.missing{border-color:var(--warn)}
@@ -28,8 +30,13 @@ legend{float:left;width:100%;padding:0;margin:0 0 2px;font-weight:700;font-size:
 legend .num{display:inline-block;min-width:22px;height:22px;line-height:22px;text-align:center;
   border-radius:11px;background:var(--accent-soft);color:var(--accent);font-size:12px;margin-right:8px}
 legend .kind{font-weight:400;font-size:12px;color:var(--muted);margin-left:8px}
+legend .tag{font-weight:600;font-size:11px;line-height:18px;padding:0 7px;margin-left:8px;border-radius:9px;
+  border:1px solid var(--line);color:var(--muted);vertical-align:1px}
 .help{clear:both;color:var(--muted);font-size:13px;margin:0 0 8px;white-space:pre-wrap}
+.clear{clear:both}
 .opts{clear:both;display:grid;gap:8px;grid-template-columns:repeat(auto-fill,minmax(var(--min,220px),1fr))}
+.grp{grid-column:1/-1;margin:6px 0 -2px;font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.04em}
+.grp:first-child{margin-top:0}
 .opt{position:relative;display:block;border:1.5px solid var(--line);border-radius:10px;
   padding:8px 10px 8px 34px;cursor:pointer;background:var(--card);transition:border-color .1s,background .1s}
 .opt:hover{border-color:var(--accent)}
@@ -37,27 +44,91 @@ legend .kind{font-weight:400;font-size:12px;color:var(--muted);margin-left:8px}
   width:16px;height:16px;accent-color:var(--accent)}
 .opt:has(input:checked){border-color:var(--accent);background:var(--accent-soft)}
 .opt:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:2px}
-.opt .name{font-weight:600}
+.name{font-weight:600}
 .opt .key{font:12px ui-monospace,Consolas,monospace;color:var(--muted);margin-left:6px}
 .opt .badge{display:inline-block;font-size:11px;font-weight:700;line-height:18px;padding:0 7px;margin-left:6px;
   border-radius:9px;background:var(--accent);color:var(--on-accent);vertical-align:1px}
-.opt .desc{display:block;color:var(--muted);font-size:12.5px;line-height:1.5;margin-top:1px}
+.desc{display:block;color:var(--muted);font-size:12.5px;line-height:1.5;margin-top:1px}
 .opt .sw{display:flex;gap:3px;margin-top:6px}
 .opt .sw i{flex:1;height:8px;border-radius:4px;border:1px solid rgba(128,128,128,.25)}
-input[type=text],textarea{width:100%;font:inherit;color:inherit;background:var(--bg);
+/* 絞り込み */
+.filterbar{clear:both;display:flex;gap:10px;align-items:center;margin:0 0 8px}
+.filterbar .cnt{font-size:12px;color:var(--muted);white-space:nowrap}
+/* 試聴 */
+.mini,.play,.zoom{padding:1px 9px;font-size:12px;border-radius:7px}
+.play{display:inline-block;margin-top:6px}
+/* プレビュー（画像・コード） */
+.thumb{position:relative;display:block;margin:6px 0 0 -24px;border:1px solid var(--line);border-radius:7px;
+  background:var(--bg);overflow:hidden}
+.thumb img{display:block;width:100%;height:var(--thumb,130px);object-fit:contain}
+.zoom{position:absolute;right:5px;bottom:5px;opacity:.85}
+pre.code{margin:0;padding:9px 11px;font:12.5px/1.5 ui-monospace,"Cascadia Mono",Consolas,Menlo,monospace;
+  white-space:pre;tab-size:2;overflow:auto}
+pre.code span{display:block;min-height:1.5em}
+pre.code .add{background:rgba(46,160,67,.2)}
+pre.code .del{background:rgba(248,81,73,.2)}
+pre.code .hunk{color:var(--muted)}
+.opt pre.code{margin:6px 0 0 -24px;max-height:190px;border:1px solid var(--line);border-radius:7px;background:var(--bg);cursor:text}
+.sidewrap{clear:both;display:grid;grid-template-columns:minmax(190px,36%) 1fr;gap:10px;align-items:start}
+.sidewrap .opts{grid-template-columns:1fr}
+.pv{position:sticky;top:8px;border:1px solid var(--line);border-radius:10px;background:var(--bg);
+  min-height:110px;max-height:calc(100vh - 90px);overflow:auto}
+.pv-h{position:sticky;top:0;display:flex;gap:8px;justify-content:space-between;padding:5px 11px;font-size:12px;
+  color:var(--muted);background:var(--bg);border-bottom:1px solid var(--line)}
+.pv-h b{color:var(--ink)}
+.pv img{display:block;max-width:100%;margin:0 auto;cursor:zoom-in}
+.pv .none{padding:30px 11px;text-align:center;color:var(--muted);font-size:13px}
+#lb{position:fixed;inset:0;z-index:10;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:10px;padding:14px;background:rgba(8,10,14,.9);color:#fff}
+#lb img{max-width:100%;max-height:calc(100vh - 110px);object-fit:contain;background:#fff;border-radius:6px}
+#lb .cap{font-size:14px;text-align:center}
+#lb .bar{display:flex;gap:8px;align-items:center}
+/* 並べ替え */
+.rank{clear:both;list-style:none;margin:0;padding:0;counter-reset:rk;display:grid;gap:6px}
+.rank li{counter-increment:rk;display:flex;align-items:center;gap:10px;border:1.5px solid var(--line);border-radius:10px;
+  padding:7px 10px;background:var(--card);cursor:grab}
+.rank li::before{content:counter(rk);min-width:24px;height:24px;line-height:24px;text-align:center;border-radius:12px;
+  background:var(--accent-soft);color:var(--accent);font-weight:700;font-size:12px}
+.rank li:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.rank li.dragging{opacity:.45;border-style:dashed}
+.rank .grip{color:var(--muted);font-size:16px;line-height:1}
+.rank .body{flex:1;min-width:0}
+.rank button{padding:0 9px;font-size:13px;line-height:24px}
+/* 表（行ごとに 1 つ選ぶ） */
+.tblwrap{clear:both;overflow:auto;border:1px solid var(--line);border-radius:10px}
+.tbl{width:100%;border-collapse:collapse}
+.tbl th{position:sticky;top:0;text-align:left;font-size:12px;color:var(--muted);font-weight:700;padding:6px 10px;
+  background:var(--bg);border-bottom:1px solid var(--line)}
+.tbl td{padding:6px 10px;border-top:1px solid var(--line);vertical-align:middle}
+.tbl tr:first-child td{border-top:0}
+.tbl td.pick{white-space:nowrap}
+.tbl tr.changed td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+.tbl select{font:inherit;color:inherit;background:var(--bg);border:1.5px solid var(--line);border-radius:8px;padding:4px 6px;max-width:260px}
+.seg{display:inline-flex;border:1.5px solid var(--line);border-radius:8px;overflow:hidden}
+.seg label{padding:3px 11px;cursor:pointer;font-size:13px;border-left:1px solid var(--line)}
+.seg label:first-child{border-left:0}
+.seg input{position:absolute;opacity:0;pointer-events:none}
+.seg label:has(input:checked){background:var(--accent);color:var(--on-accent);font-weight:700}
+.seg label:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:-2px}
+/* 入力欄 */
+input[type=text],input[type=search],textarea{width:100%;font:inherit;color:inherit;background:var(--bg);
   border:1.5px solid var(--line);border-radius:8px;padding:6px 9px}
-input[type=text]:focus,textarea:focus{outline:none;border-color:var(--accent)}
+input[type=text]:focus,input[type=search]:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent)}
 .opt.other input[type=text]{margin-top:4px}
 textarea{resize:vertical;min-height:54px}
+textarea.mono{font:12.5px/1.55 ui-monospace,"Cascadia Mono",Consolas,Menlo,monospace;white-space:pre;tab-size:2}
+.editbar{display:flex;justify-content:flex-end;margin-top:6px;min-height:22px}
 footer{position:sticky;bottom:0;display:flex;align-items:center;gap:10px;padding:10px 22px;
   background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(8px);border-top:1px solid var(--line)}
 #status{flex:1;color:var(--muted);font-size:13px}
 #status.warn{color:var(--warn);font-weight:600}
 button{font:inherit;border-radius:9px;padding:7px 16px;cursor:pointer;border:1.5px solid var(--line);
   background:var(--card);color:var(--ink)}
+button:disabled{opacity:.45;cursor:default}
 button.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:700}
 button kbd{font:11px ui-monospace,Consolas,monospace;opacity:.75;margin-left:6px}
 .end{padding:60px 22px;text-align:center;color:var(--muted)}
+@media (max-width:640px){.sidewrap{grid-template-columns:1fr}.pv{position:static;max-height:50vh}}
 </style>
 </head>
 <body>
@@ -67,11 +138,23 @@ button kbd{font:11px ui-monospace,Consolas,monospace;opacity:.75;margin-left:6px
   <button type="button" id="cancel">キャンセル<kbd>Esc</kbd></button>
   <button type="button" id="submit" class="primary"><span id="submitLabel"></span><kbd>Ctrl+Enter</kbd></button>
 </footer>
+<div id="lb" hidden>
+  <img id="lbImg" alt="">
+  <div class="cap" id="lbCap"></div>
+  <div class="bar">
+    <button type="button" id="lbPrev" aria-label="前へ">‹</button>
+    <button type="button" id="lbPick" class="primary">これを選ぶ<kbd>Enter</kbd></button>
+    <button type="button" id="lbNext" aria-label="次へ">›</button>
+    <button type="button" id="lbClose">閉じる<kbd>Esc</kbd></button>
+  </div>
+</div>
 <script>
 const SPEC = __SPEC__;
 const QS = SPEC.questions;
 const base = location.pathname.replace(/[^/]*$/, '');
 let finished = false;
+// 質問の id → 操作。get(): 今の値 / miss(v): 未回答か / set(d): 値を入れる / custom(): 自由入力か / edited(): 文面を直したか
+const ctl = {};
 
 function el(tag, attrs, ...kids) {
   const n = document.createElement(tag);
@@ -82,6 +165,335 @@ function el(tag, attrs, ...kids) {
   for (const kid of kids) if (kid) n.append(kid);
   return n;
 }
+const norm = (s) => String(s ?? '').normalize('NFKC').toLowerCase();
+const esc = (s) => CSS.escape(s);
+
+// ── 人が見ているかを受け口へ知らせる（操作が無いままなら、受け口が「人がいない」とみて閉じる） ──
+(() => {
+  let first = null, sent = false;
+  const seen = () => { if (!sent) { sent = true; fetch(base + 'seen', { method: 'POST' }).catch(() => {}); } };
+  // 開いた直後、止まったポインタの下で起きる動きの通知は数えない（位置が変わってはじめて操作とみる）
+  addEventListener('pointermove', (e) => {
+    if (!first) first = [e.screenX, e.screenY];
+    else if (e.screenX !== first[0] || e.screenY !== first[1]) seen();
+  });
+  for (const t of ['pointerdown', 'keydown', 'wheel', 'touchstart']) addEventListener(t, seen, { passive: true });
+})();
+
+// ── プレビュー（選択肢の image・code） ──
+function codeBlock(o) {
+  const pre = el('pre', { class: 'code' });
+  if (o.lang === 'diff') {
+    for (const line of String(o.code).split('\n')) {
+      const c = line.startsWith('@@') ? 'hunk' : line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : '';
+      pre.append(el('span', { class: c, text: line }));
+    }
+  } else pre.textContent = o.code;
+  return pre;
+}
+// 既定: コードがあれば横の枠（side）、画像だけならカードの中（inline）
+function previewMode(q) {
+  if (!q.options.some(o => o.code != null || o.image)) return null;
+  return q.preview || (q.options.some(o => o.code != null) ? 'side' : 'inline');
+}
+const inputOf = (q, o) => main.querySelector(`input[name="${esc(q.id)}"][value="${esc(o.value)}"]`);
+
+// 画像の拡大表示（←→ で同じ質問の画像を移り、Enter でその選択肢を選ぶ）
+const lb = document.getElementById('lb');
+let lbState = null;
+function lbShow(q, o) {
+  const items = q.options.filter(x => x.image);
+  lbState = { q, items, i: Math.max(0, items.indexOf(o)) };
+  lbDraw();
+  lb.hidden = false;
+  document.getElementById('lbPick').focus();
+}
+function lbDraw() {
+  const { items, i } = lbState, o = items[i];
+  document.getElementById('lbImg').src = o.image;
+  document.getElementById('lbCap').textContent = `${o.label}（${i + 1} / ${items.length}）`;
+  document.getElementById('lbPrev').hidden = document.getElementById('lbNext').hidden = items.length < 2;
+}
+function lbMove(d) { const n = lbState.items.length; lbState.i = (lbState.i + d + n) % n; lbDraw(); }
+function lbClose() { lb.hidden = true; lbState = null; }
+function lbPick() {
+  const { q, items, i } = lbState, inp = inputOf(q, items[i]);
+  lbClose();
+  if (!inp.checked) inp.click();
+  inp.focus();
+}
+document.getElementById('lbPrev').addEventListener('click', () => lbMove(-1));
+document.getElementById('lbNext').addEventListener('click', () => lbMove(1));
+document.getElementById('lbPick').addEventListener('click', lbPick);
+document.getElementById('lbClose').addEventListener('click', lbClose);
+lb.addEventListener('click', (e) => { if (e.target === lb) lbClose(); });
+
+// ── 試聴（選択肢の audio。鳴らすのは 1 つだけ） ──
+let playing = null;
+function stopAudio() {
+  if (!playing) return;
+  playing.audio.pause();
+  playing.audio.currentTime = 0;
+  playing.btn.textContent = '▶ 試聴';
+  playing = null;
+}
+function audioButton(o) {
+  const btn = el('button', { type: 'button', class: 'play', text: '▶ 試聴' });
+  let audio = null;
+  const fail = () => { if (playing && playing.btn === btn) playing = null; btn.textContent = '再生できません'; btn.disabled = true; };
+  btn.addEventListener('click', (e) => {
+    e.preventDefault();
+    const mine = playing && playing.btn === btn;
+    stopAudio();
+    if (mine) return;
+    if (!audio) { audio = new Audio(o.audio); audio.onended = stopAudio; audio.onerror = fail; }
+    playing = { audio, btn };
+    btn.textContent = '■ 停止';
+    audio.play().catch(fail);
+  });
+  return btn;
+}
+
+// ── 質問の型ごとの組み立て ──
+const showPvLater = [];  // 画面に入れてから、最初のプレビューを出す
+
+// 選ぶ（single・multi）
+function buildChoice(q, fs) {
+  const box = el('div', { class: 'opts' });
+  const hasDesc = q.options.some(o => o.desc);
+  const mode = previewMode(q);
+  box.style.setProperty('--min', (q.minWidth || (hasDesc || mode === 'inline' ? 220 : 150)) + 'px');
+  if (q.thumb) box.style.setProperty('--thumb', q.thumb + 'px');
+  const itype = q.type === 'multi' ? 'checkbox' : 'radio';
+  const defs = [].concat(q.default == null ? [] : q.default).map(String);
+  const pv = mode === 'side' ? el('div', { class: 'pv' }) : null;
+  // 横の枠に、その選択肢のプレビューを出す（触れている選択肢 → 無ければ選択中 → 無ければ先頭）
+  const showPv = (o) => {
+    o = o || q.options.find(x => (inputOf(q, x) || {}).checked) || q.options[0];
+    if (pv.dataset.v === o.value) return;
+    pv.dataset.v = o.value;
+    pv.replaceChildren(el('div', { class: 'pv-h' }, el('b', { text: o.label }), el('span', { text: o.lang || '' })));
+    if (o.image) {
+      const img = el('img', { src: o.image, alt: o.label });
+      img.addEventListener('click', () => lbShow(q, o));
+      pv.append(img);
+    }
+    if (o.code != null) pv.append(codeBlock(o));
+    if (!o.image && o.code == null) pv.append(el('div', { class: 'none', text: 'プレビューはありません' }));
+  };
+  const cards = [];
+  let group;
+  for (const o of q.options) {
+    if (o.group && o.group !== group) box.append(el('div', { class: 'grp', text: (group = o.group) }));
+    const lab = el('label', { class: 'opt' },
+      el('input', { type: itype, name: q.id, value: o.value, checked: defs.includes(o.value) }),
+      el('span', { class: 'name', text: o.label }),
+      o.label !== o.value && q.showValue !== false && el('span', { class: 'key', text: o.value }),
+      o.recommended && el('span', { class: 'badge', text: 'おすすめ' }),
+      o.desc && el('span', { class: 'desc', text: o.desc }));
+    if (Array.isArray(o.colors) && o.colors.length) {
+      const sw = el('span', { class: 'sw' });
+      for (const c of o.colors) { const i = el('i'); i.style.background = c; sw.append(i); }
+      lab.append(sw);
+    }
+    if (o.audio) lab.append(audioButton(o));
+    if (mode === 'inline') {
+      if (o.image) {
+        const zoom = el('button', { type: 'button', class: 'zoom', text: '拡大' });
+        zoom.addEventListener('click', (e) => { e.preventDefault(); lbShow(q, o); });
+        lab.append(el('span', { class: 'thumb' }, el('img', { src: o.image, alt: '', loading: 'lazy' }), zoom));
+      }
+      if (o.code != null) lab.append(codeBlock(o));
+    } else if (mode === 'side') {
+      lab.addEventListener('mouseenter', () => showPv(o));
+      lab.addEventListener('focusin', () => showPv(o));
+    }
+    lab._text = norm([o.label, o.value, o.desc, o.group].join(' '));
+    cards.push(lab);
+    box.append(lab);
+  }
+  let otherPick = null, otherText = null;
+  if (q.allowOther) {
+    otherText = el('input', { type: 'text', placeholder: q.otherPlaceholder || '自由に入力' });
+    otherPick = el('input', { type: itype, name: q.id, value: '__other__' });
+    otherText.addEventListener('input', () => { if (otherText.value) otherPick.checked = true; refresh(); });
+    otherText.addEventListener('focus', () => { otherPick.checked = true; refresh(); });
+    box.append(el('label', { class: 'opt other' }, otherPick, el('span', { class: 'name', text: q.otherLabel || 'その他' }), otherText));
+  }
+  // 絞り込み（選択肢が 12 件以上なら自動で付く。選択中のものは隠さない）
+  if (q.filter ?? q.options.length >= 12) {
+    const inp = el('input', { type: 'search', placeholder: '絞り込み（名前・説明・分類）', 'aria-label': q.label + ' の絞り込み' });
+    const cnt = el('span', { class: 'cnt' });
+    const apply = () => {
+      const words = norm(inp.value).split(/\s+/).filter(Boolean);
+      let n = 0;
+      for (const lab of cards) {
+        const hit = words.every(w => lab._text.includes(w));
+        lab.hidden = !(hit || lab.querySelector('input').checked);
+        if (hit) n++;
+      }
+      for (const g of box.querySelectorAll('.grp')) {
+        let any = false;
+        for (let s = g.nextElementSibling; s && !s.classList.contains('grp'); s = s.nextElementSibling) any = any || !s.hidden;
+        g.hidden = !any;
+      }
+      cnt.textContent = words.length ? `${n} / ${cards.length} 件` : `${cards.length} 件`;
+    };
+    inp.addEventListener('input', apply);
+    fs.append(el('div', { class: 'filterbar' }, inp, cnt));
+    apply();
+  }
+  if (pv) {
+    box.addEventListener('mouseleave', () => showPv());
+    box.addEventListener('change', () => showPv());
+    fs.append(el('div', { class: 'sidewrap' }, box, pv));
+    showPvLater.push(showPv);
+  } else fs.append(box);
+
+  const inputs = () => [...box.querySelectorAll(`input[name="${esc(q.id)}"]`)];
+  ctl[q.id] = {
+    get() {
+      const vals = inputs().filter(i => i.checked)
+        .map(i => i.value === '__other__' ? otherText.value.trim() : i.value).filter(v => v !== '');
+      return q.type === 'multi' ? vals : (vals[0] ?? null);
+    },
+    miss: (v) => q.type === 'single' ? v == null : (q.required ? v.length === 0 : false),
+    custom: () => !!(otherPick && otherPick.checked),
+    set(d) {
+      const want = [].concat(d == null ? [] : d).map(String);
+      for (const i of inputs()) i.checked = want.includes(i.value);
+      if (pv) showPv();
+    },
+  };
+}
+
+// 書く（text）
+function buildText(q, fs) {
+  const inp = q.multiline ? el('textarea', { name: q.id, class: 'clear', placeholder: q.placeholder })
+                          : el('input', { type: 'text', name: q.id, class: 'clear', placeholder: q.placeholder });
+  inp.value = q.default || '';
+  fs.append(inp);
+  ctl[q.id] = { get: () => inp.value.trim(), miss: (v) => !!q.required && v === '', set: (d) => { inp.value = d || ''; } };
+}
+
+// 文面を直して返す（edit）
+function buildEdit(q, fs) {
+  const orig = String(q.text ?? q.default ?? '');
+  const ta = el('textarea', { name: q.id, class: 'clear' + (q.mono === false ? '' : ' mono'), spellcheck: 'false' });
+  ta.value = orig;
+  ta.rows = q.rows || Math.min(Math.max(orig.split('\n').length + 1, 5), 22);
+  const back = el('button', { type: 'button', class: 'mini', text: '元に戻す', hidden: true });
+  back.addEventListener('click', () => { ta.value = orig; back.hidden = true; refresh(); });
+  ta.addEventListener('input', () => { back.hidden = ta.value === orig; });
+  fs.append(ta, el('div', { class: 'editbar' }, back));
+  ctl[q.id] = {
+    get: () => ta.value.replace(/\s+$/, ''),
+    miss: (v) => q.required !== false && v === '',
+    edited: () => ta.value !== orig,
+  };
+}
+
+// 並べ替える（rank）
+function buildRank(q, fs) {
+  const list = el('ol', { class: 'rank' });
+  const byValue = new Map(q.options.map(o => [o.value, o]));
+  let drag = null;
+  const move = (li, d) => {
+    const to = d < 0 ? li.previousElementSibling : li.nextElementSibling;
+    if (!to) return;
+    list.insertBefore(li, d < 0 ? to : to.nextElementSibling);
+    li.focus();
+    refresh();
+  };
+  const item = (o) => {
+    const up = el('button', { type: 'button', text: '↑', 'aria-label': '上へ' });
+    const down = el('button', { type: 'button', text: '↓', 'aria-label': '下へ' });
+    const li = el('li', { draggable: 'true', tabindex: '0', 'data-v': o.value },
+      el('span', { class: 'grip', text: '⠿', 'aria-hidden': 'true' }),
+      el('span', { class: 'body' }, el('span', { class: 'name', text: o.label }), o.desc && el('span', { class: 'desc', text: o.desc })),
+      up, down);
+    up.addEventListener('click', () => move(li, -1));
+    down.addEventListener('click', () => move(li, 1));
+    li.addEventListener('keydown', (e) => {
+      if (e.target !== li || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+      e.preventDefault();
+      move(li, e.key === 'ArrowUp' ? -1 : 1);
+    });
+    li.addEventListener('dragstart', (e) => {
+      drag = li;
+      li.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', o.value);
+    });
+    li.addEventListener('dragend', () => { li.classList.remove('dragging'); drag = null; refresh(); });
+    return li;
+  };
+  list.addEventListener('dragover', (e) => {
+    if (!drag) return;
+    e.preventDefault();
+    const over = e.target.closest('li');
+    if (!over || over === drag || over.parentNode !== list) return;
+    const r = over.getBoundingClientRect();
+    list.insertBefore(drag, e.clientY < r.top + r.height / 2 ? over : over.nextElementSibling);
+  });
+  const set = (d) => {
+    const want = Array.isArray(d) ? d.map(String) : [];
+    const ok = want.length === byValue.size && want.every(v => byValue.has(v)) && new Set(want).size === want.length;
+    list.replaceChildren(...(ok ? want : [...byValue.keys()]).map(v => item(byValue.get(v))));
+  };
+  set(q.default);
+  fs.append(list);
+  ctl[q.id] = { get: () => [...list.children].map(li => li.dataset.v), miss: () => false, set };
+}
+
+// 表（行ごとに 1 つ選ぶ）。選択肢が 5 つまでは並んだボタン、それより多ければ選択欄
+function buildTable(q, fs) {
+  const first = q.options[0].value;
+  const picks = new Map();  // 行の value → { get, set }
+  const body = el('tbody');
+  for (const r of q.rows) {
+    const init = String(r.default ?? q.default ?? first);
+    const tr = el('tr', null, el('td', null, el('span', { class: 'name', text: r.label }), r.desc && el('span', { class: 'desc', text: r.desc })));
+    const cell = el('td', { class: 'pick' });
+    let get, set;
+    if (q.options.length > 5) {
+      const sel = el('select', { 'aria-label': r.label });
+      let parent = sel, group;
+      for (const o of q.options) {
+        if (o.group !== group) { group = o.group; parent = group ? sel.appendChild(el('optgroup', { label: group })) : sel; }
+        parent.append(el('option', { value: o.value, text: o.label === o.value ? o.label : `${o.label}（${o.value}）` }));
+      }
+      get = () => sel.value;
+      set = (v) => { sel.value = v; };
+      cell.append(sel);
+    } else {
+      const seg = el('span', { class: 'seg' });
+      for (const o of q.options) {
+        seg.append(el('label', { title: o.desc }, el('input', { type: 'radio', name: `${q.id}/${r.value}`, value: o.value }), o.label));
+      }
+      get = () => (seg.querySelector('input:checked') || {}).value;
+      set = (v) => { for (const i of seg.querySelectorAll('input')) i.checked = i.value === v; };
+      cell.append(seg);
+    }
+    const mark = () => tr.classList.toggle('changed', get() !== init);
+    cell.addEventListener('change', mark);
+    set(init);
+    picks.set(r.value, { get, set: (v) => { set(v); mark(); } });
+    tr.append(cell);
+    body.append(tr);
+  }
+  const head = el('thead', null, el('tr', null, el('th', { text: q.rowLabel || '項目' }), el('th', { text: q.pickLabel || '選ぶ' })));
+  fs.append(el('div', { class: 'tblwrap' }, el('table', { class: 'tbl' }, head, body)));
+  ctl[q.id] = {
+    get: () => Object.fromEntries([...picks].map(([k, p]) => [k, p.get()])),
+    miss: () => false,
+    // d は { 行: 値 }。書かれていない行は、その行の最初の既定（r._default0 が無ければ今の既定）へ
+    set(d) { for (const r of q.rows) picks.get(r.value).set(String((d || {})[r.value] ?? r._default0 ?? r.default ?? q.default ?? first)); },
+  };
+}
+
+const BUILD = { single: buildChoice, multi: buildChoice, text: buildText, edit: buildEdit, rank: buildRank, table: buildTable };
+const KIND = { multi: '複数選べます', rank: 'ドラッグか ↑↓ で並べ替え', edit: 'そのまま直せます' };
 
 // ── 画面を組む ──
 document.title = SPEC.title || '質問';
@@ -90,69 +502,38 @@ main.append(el('h1', { text: SPEC.title || '質問' }));
 if (SPEC.intro) main.append(el('p', { class: 'intro', text: SPEC.intro }));
 document.getElementById('submitLabel').textContent = SPEC.submit || '決定';
 
-QS.forEach((q) => {
+// 前回の回答を既定にしているとき（定義の remember）は、そのことを示し、元の既定へ戻せるようにする
+const recalled = QS.filter(q => q._remembered);
+if (recalled.length) {
+  const back = el('button', { type: 'button', class: 'mini', text: '今回の既定に戻す' });
+  const bar = el('div', { class: 'recall' }, el('span', { text: `前回の回答を既定にしています（${recalled.length} 件）` }), back);
+  back.addEventListener('click', () => {
+    for (const q of recalled) ctl[q.id].set(q.type === 'table' ? null : q._default0);
+    for (const t of main.querySelectorAll('legend .tag')) t.remove();
+    bar.remove();
+    refresh();
+  });
+  main.append(bar);
+}
+
+for (const q of QS) {
   const fs = el('fieldset', { id: 'q-' + q.id });
-  const kind = q.type === 'multi' ? '複数選べます' : (q.type === 'text' && !q.required ? '任意' : '');
-  fs.append(el('legend', null, el('span', { class: 'num' }), q.label, kind && el('span', { class: 'kind', text: kind })));
+  const kind = KIND[q.type] || (q.type === 'text' && !q.required ? '任意' : '');
+  fs.append(el('legend', null, el('span', { class: 'num' }), q.label, kind && el('span', { class: 'kind', text: kind }),
+    q._remembered && el('span', { class: 'tag', text: '前回の回答' })));
   if (q.help) fs.append(el('p', { class: 'help', text: q.help }));
-  if (q.type === 'text') {
-    const inp = q.multiline ? el('textarea', { name: q.id, placeholder: q.placeholder })
-                            : el('input', { type: 'text', name: q.id, placeholder: q.placeholder });
-    inp.value = q.default || '';
-    inp.style.clear = 'both';
-    fs.append(inp);
-  } else {
-    const box = el('div', { class: 'opts' });
-    const hasDesc = q.options.some(o => o.desc);
-    box.style.setProperty('--min', (q.minWidth || (hasDesc ? 220 : 150)) + 'px');
-    const itype = q.type === 'multi' ? 'checkbox' : 'radio';
-    const defs = [].concat(q.default == null ? [] : q.default).map(String);
-    for (const o of q.options) {
-      const lab = el('label', { class: 'opt' },
-        el('input', { type: itype, name: q.id, value: o.value, checked: defs.includes(o.value) }),
-        el('span', { class: 'name', text: o.label }),
-        o.label !== o.value && q.showValue !== false && el('span', { class: 'key', text: o.value }),
-        o.recommended && el('span', { class: 'badge', text: 'おすすめ' }),
-        o.desc && el('span', { class: 'desc', text: o.desc }));
-      if (Array.isArray(o.colors) && o.colors.length) {
-        const sw = el('span', { class: 'sw' });
-        for (const c of o.colors) { const i = el('i'); i.style.background = c; sw.append(i); }
-        lab.append(sw);
-      }
-      box.append(lab);
-    }
-    if (q.allowOther) {
-      const txt = el('input', { type: 'text', 'data-other': q.id, placeholder: q.otherPlaceholder || '自由に入力' });
-      const pick = el('input', { type: itype, name: q.id, value: '__other__' });
-      txt.addEventListener('input', () => { if (txt.value) pick.checked = true; refresh(); });
-      txt.addEventListener('focus', () => { pick.checked = true; refresh(); });
-      box.append(el('label', { class: 'opt other' }, pick, el('span', { class: 'name', text: q.otherLabel || 'その他' }), txt));
-    }
-    fs.append(box);
-  }
+  BUILD[q.type](q, fs);
   main.append(fs);
-});
+}
+for (const show of showPvLater) show();
 if (SPEC.note !== false) {
   const fs = el('fieldset', { id: 'note-box' });
   fs.append(el('legend', null, '補足', el('span', { class: 'kind', text: '任意・選択肢に無い希望があれば' })));
-  const ta = el('textarea', { id: 'note', placeholder: typeof SPEC.note === 'string' ? SPEC.note : '' });
-  ta.style.clear = 'both';
-  fs.append(ta);
+  fs.append(el('textarea', { id: 'note', class: 'clear', placeholder: typeof SPEC.note === 'string' ? SPEC.note : '' }));
   main.append(fs);
 }
 
 // ── 回答を読む ──
-function valueOf(q) {
-  if (q.type === 'text') return main.querySelector(`[name="${CSS.escape(q.id)}"]`).value.trim();
-  const picked = [...main.querySelectorAll(`input[name="${CSS.escape(q.id)}"]:checked`)].map(i => i.value);
-  const other = (main.querySelector(`[data-other="${CSS.escape(q.id)}"]`) || {}).value;
-  const vals = picked.map(v => v === '__other__' ? (other || '').trim() : v).filter(v => v !== '');
-  return q.type === 'multi' ? vals : (vals[0] ?? null);
-}
-function isCustom(q) {
-  const o = main.querySelector(`input[name="${CSS.escape(q.id)}"][value="__other__"]`);
-  return !!(o && o.checked);
-}
 function visible(q, answers) {
   for (const [dep, want] of Object.entries(q.showIf || {})) {
     if (!(dep in answers)) return false;
@@ -161,27 +542,24 @@ function visible(q, answers) {
   }
   return true;
 }
-function missing(q, v) {
-  if (q.type === 'single') return v == null;
-  return q.required ? v.length === 0 : false;
-}
 // 上から順に見て、表示条件（showIf）を満たす質問だけを回答に入れる
 function collect() {
-  const answers = {}, custom = [], lacking = [];
+  const answers = {}, custom = [], edited = [], lacking = [];
   let n = 0;
   for (const q of QS) {
-    const fs = document.getElementById('q-' + q.id);
+    const fs = document.getElementById('q-' + q.id), c = ctl[q.id];
     const show = visible(q, answers);
     fs.hidden = !show;
     if (!show) continue;
     fs.querySelector('.num').textContent = ++n;
-    const v = valueOf(q);
-    const miss = missing(q, v);
+    const v = c.get();
+    const miss = c.miss(v);
     if (miss) lacking.push(q); else fs.classList.remove('missing');
     if (!miss || q.type !== 'single') answers[q.id] = v;
-    if (q.type !== 'text' && isCustom(q)) custom.push(q.id);
+    if (c.custom && c.custom()) custom.push(q.id);
+    if (c.edited && c.edited()) edited.push(q.id);
   }
-  return { answers, custom, lacking };
+  return { answers, custom, edited, lacking };
 }
 function refresh() {
   const { lacking } = collect();
@@ -194,6 +572,7 @@ function refresh() {
 // ── 送る・閉じる ──
 function end(msg) {
   finished = true;
+  stopAudio();
   window.close();
   // 閉じられない開き方（ふつうのタブ）だったときの表示
   setTimeout(() => {
@@ -203,17 +582,18 @@ function end(msg) {
 }
 async function submit(extra) {
   if (finished) return;
-  const { answers, custom, lacking } = collect();
+  const { answers, custom, edited, lacking } = collect();
   if (lacking.length) {
     for (const q of lacking) document.getElementById('q-' + q.id).classList.add('missing');
     document.getElementById('q-' + lacking[0].id).scrollIntoView({ behavior: 'smooth', block: 'center' });
     const st = document.getElementById('status');
-    st.textContent = `未回答 ${lacking.length} 件 — 選んでから決定してください`;
+    st.textContent = `未回答 ${lacking.length} 件 — 答えてから決定してください`;
     st.classList.add('warn');
     return;
   }
   const out = Object.assign({ answers }, extra || {});
   if (custom.length) out.custom = custom;
+  if (edited.length) out.edited = edited;
   const note = (document.getElementById('note') || {}).value;
   if (note && note.trim()) out.note = note.trim();
   finished = true;
@@ -243,12 +623,28 @@ main.addEventListener('input', refresh);
 document.getElementById('submit').addEventListener('click', () => submit());
 document.getElementById('cancel').addEventListener('click', cancel);
 document.addEventListener('keydown', (e) => {
+  if (lbState) {  // 拡大表示の間は、キーを拡大表示だけが受ける
+    if (e.key === 'Escape') lbClose();
+    else if (e.key === 'ArrowLeft') lbMove(-1);
+    else if (e.key === 'ArrowRight') lbMove(1);
+    else if (e.key === 'Enter') lbPick();
+    else return;
+    e.preventDefault();
+    return;
+  }
+  const search = e.target.matches && e.target.matches('input[type=search]');
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); submit(); }
+  else if (e.key === 'Escape' && search && e.target.value) {  // 絞り込み中の Esc は、まず絞り込みを消す
+    e.preventDefault();
+    e.target.value = '';
+    e.target.dispatchEvent(new Event('input', { bubbles: true }));
+  }
   else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+  else if (e.key === 'Enter' && search) e.preventDefault();
   else if (e.key === 'Enter' && e.target.matches('input[type=text]')) { e.preventDefault(); submit(); }
 });
 
-// 受け取り側が先に終わった（時間切れ・中断）ら、ウィンドウを残さない
+// 受け取り側が先に終わった（時間切れ・中断・人がいないと判断）ら、ウィンドウを残さない
 const es = new EventSource(base + 'events');
 es.onerror = async () => {
   if (finished) return;
