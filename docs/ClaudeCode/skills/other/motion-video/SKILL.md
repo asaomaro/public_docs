@@ -396,7 +396,10 @@ python3 <skill_dir>/build.py spec.json --dist           # 配布用（設定の�
   絵の代わりに `{"icon": アイコンの名前}`（白い丸の上に線で描かれて動く）・`{"part": 部品の台本}`（白い板の上に縮めて置く。ほかの絵より広く取る）も置ける（`label`・`say` は同じ）。
   `{"draw": "…JS…", "plate": "dark"・"light"・"none"}` は描き下ろし: `custom` と同じ `(ctx, lt, d, H, s)` の本体を、並びの外に（板を敷いて）描く。`s.box` が描く範囲、`lt` はその並びが出てからの ms、`s.cue(n)` は n 個あとのせりふが始まる ms。
   絵は台本の `images: {名前: 画像}` から名前で引く（同じ絵を何度使っても 1 回だけ埋め込む）。場面の `tag`・`corner` は左上・右上の札。
-- **掛け合いの設定**（台本の `talk`）: `caption`（`"box"` 白い箱とキャラ色の縁・`"outline"` 箱なしの太い縁）・`name`（名札）・`size`・`font`（`fonts: [{family, src, weight}]` で埋め込んだ書体）・
+- **掛け合いの設定**（台本の `talk`）: `caption`（`"box"` 白い箱とキャラ色の縁・`"outline"` 箱なしの太い縁・`"bar"` 下に暗い箱を置きっぱなし・`"band"` 白く透ける帯・`"strip"` 黒い帯に黄色い字・
+  `"bubble"` 話し手のそばの白い箱。立ち絵の無い語り手は下の中央）・`capWidth`（置きっぱなしの字幕の折り返し幅）・`nameTag`（立ち絵の頭の上に名札）・
+  `stage: {plate: "white"・"paper"・"dark", photo: "full", align: "ground"}`（絵で見せる場面の板・写真 1 枚の並びを画面いっぱいに・絵を地面に立たせる）・`tags: {tag, tagInk, corner}`（札の色）。
+  登場人物の `hidden: true` は、声だけの語り手・`name`（名札）・`size`・`font`（`fonts: [{family, src, weight}]` で埋め込んだ書体）・
   `relax`（素の顔に戻るまでの ms。false で戻らない）・`dim`（話していない人を薄く）・`sfx`（印と大きい字幕に付ける効果音。false で付けない）。
   せりふの `big` は字幕を大きく出し、`se` は効果音を名指しする。章の表示は `chrome: false` で消せる。
 - 画像が無い登場人物は、仮のキャラクター（`color` の丸顔。smile・surprised・angry を描き分け）で描く。

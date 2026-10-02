@@ -19,6 +19,7 @@ FACES, POSES, ITEMS, MOTIONS = list(LABELS["faces"]), list(LABELS["poses"]), lis
 FALLBACK = {"smile": ["normal"], "surprised": ["normal"], "angry": ["doubt", "troubled", "normal"], "sad": ["troubled", "normal"],
             "troubled": ["sad", "normal"], "think": ["doubt", "troubled", "normal"], "shy": ["smile", "normal"], "smug": ["smile", "normal"],
             "doubt": ["think", "troubled", "normal"], "dizzy": ["troubled", "surprised", "normal"], "love": ["shy", "smile", "normal"]}   # 無い表情の代わり（近い順）
+STYLES = json.load(open(os.path.join(HERE, "styles.json"), encoding="utf-8"))   # 動画の型（style:）
 BGS = json.load(open(os.path.join(HERE, "backgrounds.json"), encoding="utf-8"))   # 背景のカタログ（bg/）
 BGMS = json.load(open(os.path.join(HERE, "bgm.json"), encoding="utf-8"))          # BGM のカタログ（bgm/）
 WEBM_ONLY = []   # 台本で使った、HTML に埋め込んで配れない曲（embed: false）
@@ -370,8 +371,16 @@ def build_cast(meta, base):
                 break
         if meta.get("%s.credit" % cid):
             c["image_credit"] = meta["%s.credit" % cid]
-        if "height" not in c:   # 立ち絵は大きく、足元は画面の下に切れる（解説動画の定番の大きさ）。変えるなら cast_height:・cast_offset:
-            c["height"], c["offsetY"] = int(meta.get("cast_height", 700)), int(meta.get("cast_offset", 110))
+        # 立ち絵の大きさ: 型（style:）ごとの既定。頭だけの絵（ゆっくり）と全身の絵で別。変えるなら cast_height:・cast_offset:
+        st = STYLES.get(meta.get("style", "talk"), STYLES["talk"])["cast"]
+        sp0 = c.get("sprite")
+        head = bool(sp0 and sp0["h"] / sp0["w"] < 1.3) or "height" in c
+        hh, oy = st["head" if head else "stand"]
+        if meta.get("style", "talk") == "talk" and "height" in c:
+            hh, oy = c["height"], c.get("offsetY", 0)
+        c["height"], c["offsetY"] = int(meta.get("cast_height", hh)), int(meta.get("cast_offset", oy))
+        if cid in [x.strip() for x in re.split(r"[,、\s]+", meta.get("narrator", "")) if x.strip()]:
+            c["hidden"] = True   # 語り手: 声だけで、立ち絵を出さない
         v = c.get("voice") or {}
         mult = float(meta.get("%s.speed" % cid) or meta.get("speed") or DEFAULT_SPEED)   # 話速（全体は speed:、1 人だけは <名前>.speed:）
         if v.get("engine") == "aquestalk":   # ゆっくりボイス。ライブラリを置いていなければ、ブラウザの読み上げで代わる
@@ -1072,6 +1081,11 @@ def to_spec(meta, chapters, cast, base):
         talk["relax"] = False
     if off("se"):
         talk["sfx"] = False
+    talk.update(json.loads(json.dumps(STYLES[meta.get("style", "talk")]["talk"])))
+    if talk["caption"] in ("bar", "band", "strip"):   # 置きっぱなしの字幕: 全身の立ち絵にかからない幅で折り返す
+        wide = max([0] + [c["height"] * c["sprite"]["w"] / c["sprite"]["h"] for c in cast.values() if c.get("sprite") and not c.get("hidden") and c["sprite"]["h"] / c["sprite"]["w"] >= 1.3])
+        if wide:
+            talk["capWidth"] = int(1920 - 2 * (wide * .8 + 40))
     spec["talk"] = talk
     spec["chrome"] = False   # 章の表示は、左上の札（tag）で出す
     if not off("tags"):
@@ -1079,6 +1093,27 @@ def to_spec(meta, chapters, cast, base):
             for sc in ch["scenes"]:
                 if "tag" not in sc and ci > 0 and sc.get("type") == "talk":
                     sc["tag"] = ch["title"]
+    # 一瞬だけ出る人（cameo:）は、自分が話すか反応する場面だけ画面に出す
+    cameos = [x.strip() for x in re.split(r"[,、\s]+", meta.get("cameo", "")) if x.strip() in cast]
+    if cameos:
+        regular = [k for k in cast if k not in cameos]
+        for k in cameos:
+            cast[k]["cameo"] = True
+        for ch in chapters:
+            for sc in ch["scenes"]:
+                if sc.get("type") != "talk":
+                    continue
+                inn = {ln.get("who") for ln in sc.get("lines", []) if isinstance(ln, dict)} | {r.get("who") for ln in sc.get("lines", []) if isinstance(ln, dict) for r in ln.get("react") or []}
+                sc["cast"] = regular + [k for k in cameos if k in inn]
+    if "name" not in talk and len([c for c in cast.values() if not c.get("hidden")]) >= 3:   # 3 人以上: 字幕に名前を出す（誰のせりふか分かるように）
+        talk["name"] = True
+    if meta.get("chapter_tag") == "corner":   # 列挙・物語の型: 章の題を、右上の札に出す（1 章目は導入なので出さない）
+        for ci, ch in enumerate(chapters):
+            for sc in ch["scenes"]:
+                if sc.get("type") == "talk" and ci > 0:
+                    if sc.get("tag") == ch["title"]:
+                        sc.pop("tag")
+                    sc.setdefault("corner", "%d. %s" % (ci, ch["title"]) if meta.get("style") == "list" and ci < len(chapters) - 1 and not re.match(r"^[\d①-⑳第]", ch["title"]) else ch["title"])
     spec["_image_paths"], missing = stage_images(meta, chapters, base)
     for ref in dict.fromkeys(missing):
         print("warn: @show の絵「%s」が見つかりません（illust.py get か fetch_images.py get で取る）。名前だけを文字で出します" % ref, file=sys.stderr)
@@ -1112,6 +1147,10 @@ def load_spec(script):
         print("error:", e, file=sys.stderr)
     if errs:
         sys.exit(1)
+    if meta.get("style", "talk") not in STYLES or meta.get("style", "talk").startswith("_"):
+        sys.exit("error: style: %s はありません（%s）" % (meta["style"], "・".join(k for k in STYLES if not k.startswith("_"))))
+    for k, v in STYLES[meta.get("style", "talk")]["meta"].items():   # 型の既定（台本に書いた設定が勝つ）
+        meta.setdefault(k, v)
     cast = build_cast(meta, base)
     unknown = sorted({ln["who"] for ch in chapters for sc in ch["scenes"] for ln in sc.get("lines", [])} - set(cast))
     if unknown:
@@ -1190,6 +1229,29 @@ def make_spec(script, voicevox=False, voicevox_url="http://127.0.0.1:50021", voi
     return spec, mv, cast, credits
 
 
+def facing_sheet(out):
+    """立ち絵ごとに、左に置いた姿と右に置いた姿を並べる（facing: left・right があれば、画面の内側を向くように返した後の姿）。"""
+    from PIL import Image, ImageDraw
+    ids = sorted(d for d in os.listdir(os.path.join(HERE, "chars")) if os.path.isfile(os.path.join(HERE, "chars", d, "normal.png")))
+    W, H, cols = 300, 300, 6
+    sheet = Image.new("RGB", (W * cols, (H + 24) * ((len(ids) + cols - 1) // cols)), "#8aa6b8")
+    d = ImageDraw.Draw(sheet)
+    for i, cid in enumerate(ids):
+        im = Image.open(os.path.join(HERE, "chars", cid, "normal.png")).convert("RGBA")
+        im = im.crop(im.getbbox())
+        im = im.crop((0, 0, im.width, min(im.height, int(im.width * 1.2))))
+        f = PRESETS.get(cid, {}).get("facing")
+        x, y = (i % cols) * W, (i // cols) * (H + 24)
+        for j, side in enumerate(("left", "right")):
+            t = im.transpose(Image.FLIP_LEFT_RIGHT) if f in ("left", "right") and f == side else im
+            t.thumbnail((W // 2 - 6, H))
+            sheet.paste(t, (x + j * (W // 2) + (W // 2 - t.width) // 2, y + 24 + H - t.height), t)
+        d.text((x + 4, y + 5), "%s  facing: %s" % (cid, f or "-"), fill="#000000")
+        d.text((x + 4, y + 24 + 4), "L (screen left)        R (screen right)", fill="#203040")
+    sheet.save(out)
+    print("OK : %s（左の列は画面の左に、右の列は画面の右に置いたときの姿。両方とも内側＝画面の中央を向いていればよい）" % out)
+
+
 def take_shots(html, times, outdir):
     """作った HTML を Chrome（画面なし）で開き、その時刻へ動かして、映像だけを 1280×720 の PNG に撮る。"""
     import shutil, subprocess, tempfile
@@ -1231,8 +1293,18 @@ def main():
     ap.add_argument("--voice-rate", type=int, default=16000, help="--compact のときの声のサンプリング周波数（既定 16000。12000 にすると、もう 2 割ほど小さくなるが、声が少しこもる）")
     ap.add_argument("--dist", action="store_true", help="配布用: 設定の書き出し（WebM で保存・編集用の映像・音のトラック）と、その実行部を除いて HTML を小さくする")
     ap.add_argument("--list-assets", action="store_true", help="背景と BGM のカタログ（名前と説明）を出す")
+    ap.add_argument("--facing-sheet", metavar="PNG", help="集めた立ち絵を、画面の左に置いたときと右に置いたときの向き（facing で返した後）で並べた見本を作る。向きが内側を向いているかを確かめる")
+    ap.add_argument("--list-styles", action="store_true", help="動画の型（style:）の一覧を出す")
     ap.add_argument("--list-casts", action="store_true", help="登場人物のプリセットと、立ち絵にある表情・ポーズを出す")
     a = ap.parse_args()
+    if a.facing_sheet:
+        facing_sheet(a.facing_sheet)
+        return
+    if a.list_styles:
+        for k, v in STYLES.items():
+            if not k.startswith("_"):
+                print("%-7s %s\n        %s\n        向くもの: %s" % (k, v["name"], v["desc"], v["fit"]))
+        return
     if a.list_assets:
         print("# 背景（台本の bg: か @bg: に名前を書く。時間帯は _evening・_night）")
         for k, e in BGS.items():
