@@ -629,6 +629,10 @@ python3 <skill_dir>/figkit.py spec.json --insert out.html # 各図の slot / rep
   効果音は `"sfx": {"kit": "soft", "density": "low"}` 程度に抑える。
 - 向くのは、手順の実演・画面の変化・全体像を順に見せる説明。文章と図で足りる節には使わない（1 文書に 1〜2 本まで）。
 - motion-video スキルが無い環境では、注意の枠に置き換わる。
+- 埋め込む動画は**既定で配布用**（⚙ の書き出し＝WebM で保存・編集用の映像・音のトラックと、その実行部を省く。motion-video の `--dist`）。
+  書き出しを使いたい動画だけ `export="on"` を付ける（例 `<!--MD2DOC-VIDEO src="intro.json" export="on"-->`）。
+  実行部は 1 ページで共通なので、1 つでも `export="on"` があれば文書全体で書き出し付きの実行部になる（ボタンは付けた動画にだけ出る）。
+  字幕（SRT・VTT）・YouTube のチャプター・YMM4・AviUtl のファイルは、台本を video-export スキルに渡して作る。
 
 ### 4f. 動く図（motion-video の部品を、プレイヤー無しで図として置く）
 

@@ -78,12 +78,16 @@ python3 <skill_dir>/kaisetsu.py 台本.txt --timeline            # せりふの�
 python3 <skill_dir>/kaisetsu.py 台本.txt --voicevox            # VOICEVOX で声を作ってから HTML（作り済みの声は使い回す）
 python3 <skill_dir>/kaisetsu.py 台本.txt --voices-dir voices/  # 用意した WAV を名前順にせりふへ当てる
 python3 <skill_dir>/kaisetsu.py 台本.txt                        # 声なし（ブラウザの読み上げ）で HTML
+python3 <skill_dir>/kaisetsu.py 台本.txt --voicevox --dist     # 配布用（⚙ の書き出しを省いて小さくする。motion-video の --dist）
 ```
 
 - VOICEVOX は既定で `http://127.0.0.1:50021`（`--voicevox-url` で変える）。起動していなければ、その旨のエラーで止まる。
 - 声は `<台本名>_voices/` に WAV で保存され、動画の長さは WAV の長さで決まる。口は WAV の音量で動く。
 - 途中の台本（motion-video の JSON）は `<台本名>.json` に出る。細かい調整はそれを直して `motion-video/build.py` で作ってもよい。
 - 作ったら 1 回開いて、黒板の文字の大きさ・字幕の長さ・掛け合いの間を見る。
+
+**YouTube・YMM4・AviUtl 用に書き出す**（「YouTube に上げたい」「ゆっくりMovieMaker で仕上げたい」「AviUtl で編集したい」と言われたとき）は、
+**video-export スキル**に台本（.txt）をそのまま渡す。YMM4 の台本 CSV の名前は、台本の `<名前>.name` を YMM4 のキャラクター名に合わせる。
 
 ### 4. 渡す
 - HTML の場所を伝える（`SendUserFile`）。
