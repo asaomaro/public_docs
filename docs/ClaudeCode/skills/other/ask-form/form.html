@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>質問</title>
+<style>
+:root{
+  --bg:#f6f7f9; --card:#fff; --ink:#1c2330; --muted:#667085; --line:#dfe3ea;
+  --accent:#2f5fe0; --accent-soft:#edf2ff; --on-accent:#fff; --warn:#b4540a;
+  color-scheme:light dark;
+}
+@media (prefers-color-scheme:dark){
+  :root{ --bg:#12161d; --card:#1a202a; --ink:#e7ecf4; --muted:#98a3b5; --line:#2b3442;
+    --accent:#7aa2ff; --accent-soft:#1e2a44; --on-accent:#0d1320; --warn:#f0a35a; }
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);
+  font:14px/1.6 "Segoe UI","Hiragino Kaku Gothic ProN","Yu Gothic UI","Noto Sans JP",system-ui,sans-serif}
+main{padding:20px 22px 12px}
+h1{font-size:18px;margin:0 0 2px}
+.intro{color:var(--muted);margin:0 0 14px;white-space:pre-wrap}
+fieldset{border:1px solid var(--line);background:var(--card);border-radius:12px;
+  margin:0 0 12px;padding:12px 14px 14px;min-width:0}
+fieldset.missing{border-color:var(--warn)}
+legend{float:left;width:100%;padding:0;margin:0 0 2px;font-weight:700;font-size:15px}
+legend .num{display:inline-block;min-width:22px;height:22px;line-height:22px;text-align:center;
+  border-radius:11px;background:var(--accent-soft);color:var(--accent);font-size:12px;margin-right:8px}
+legend .kind{font-weight:400;font-size:12px;color:var(--muted);margin-left:8px}
+.help{clear:both;color:var(--muted);font-size:13px;margin:0 0 8px;white-space:pre-wrap}
+.opts{clear:both;display:grid;gap:8px;grid-template-columns:repeat(auto-fill,minmax(var(--min,220px),1fr))}
+.opt{position:relative;display:block;border:1.5px solid var(--line);border-radius:10px;
+  padding:8px 10px 8px 34px;cursor:pointer;background:var(--card);transition:border-color .1s,background .1s}
+.opt:hover{border-color:var(--accent)}
+.opt input[type=radio],.opt input[type=checkbox]{position:absolute;left:10px;top:11px;margin:0;
+  width:16px;height:16px;accent-color:var(--accent)}
+.opt:has(input:checked){border-color:var(--accent);background:var(--accent-soft)}
+.opt:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:2px}
+.opt .name{font-weight:600}
+.opt .key{font:12px ui-monospace,Consolas,monospace;color:var(--muted);margin-left:6px}
+.opt .badge{display:inline-block;font-size:11px;font-weight:700;line-height:18px;padding:0 7px;margin-left:6px;
+  border-radius:9px;background:var(--accent);color:var(--on-accent);vertical-align:1px}
+.opt .desc{display:block;color:var(--muted);font-size:12.5px;line-height:1.5;margin-top:1px}
+.opt .sw{display:flex;gap:3px;margin-top:6px}
+.opt .sw i{flex:1;height:8px;border-radius:4px;border:1px solid rgba(128,128,128,.25)}
+input[type=text],textarea{width:100%;font:inherit;color:inherit;background:var(--bg);
+  border:1.5px solid var(--line);border-radius:8px;padding:6px 9px}
+input[type=text]:focus,textarea:focus{outline:none;border-color:var(--accent)}
+.opt.other input[type=text]{margin-top:4px}
+textarea{resize:vertical;min-height:54px}
+footer{position:sticky;bottom:0;display:flex;align-items:center;gap:10px;padding:10px 22px;
+  background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(8px);border-top:1px solid var(--line)}
+#status{flex:1;color:var(--muted);font-size:13px}
+#status.warn{color:var(--warn);font-weight:600}
+button{font:inherit;border-radius:9px;padding:7px 16px;cursor:pointer;border:1.5px solid var(--line);
+  background:var(--card);color:var(--ink)}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:700}
+button kbd{font:11px ui-monospace,Consolas,monospace;opacity:.75;margin-left:6px}
+.end{padding:60px 22px;text-align:center;color:var(--muted)}
+</style>
+</head>
+<body>
+<main id="main"></main>
+<footer id="footer">
+  <span id="status"></span>
+  <button type="button" id="cancel">キャンセル<kbd>Esc</kbd></button>
+  <button type="button" id="submit" class="primary"><span id="submitLabel"></span><kbd>Ctrl+Enter</kbd></button>
+</footer>
+<script>
+const SPEC = __SPEC__;
+const QS = SPEC.questions;
+const base = location.pathname.replace(/[^/]*$/, '');
+let finished = false;
+
+function el(tag, attrs, ...kids) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === false || v == null) continue;
+    if (k === 'class') n.className = v; else if (k === 'text') n.textContent = v; else n.setAttribute(k, v === true ? '' : v);
+  }
+  for (const kid of kids) if (kid) n.append(kid);
+  return n;
+}
+
+// ── 画面を組む ──
+document.title = SPEC.title || '質問';
+const main = document.getElementById('main');
+main.append(el('h1', { text: SPEC.title || '質問' }));
+if (SPEC.intro) main.append(el('p', { class: 'intro', text: SPEC.intro }));
+document.getElementById('submitLabel').textContent = SPEC.submit || '決定';
+
+QS.forEach((q) => {
+  const fs = el('fieldset', { id: 'q-' + q.id });
+  const kind = q.type === 'multi' ? '複数選べます' : (q.type === 'text' && !q.required ? '任意' : '');
+  fs.append(el('legend', null, el('span', { class: 'num' }), q.label, kind && el('span', { class: 'kind', text: kind })));
+  if (q.help) fs.append(el('p', { class: 'help', text: q.help }));
+  if (q.type === 'text') {
+    const inp = q.multiline ? el('textarea', { name: q.id, placeholder: q.placeholder })
+                            : el('input', { type: 'text', name: q.id, placeholder: q.placeholder });
+    inp.value = q.default || '';
+    inp.style.clear = 'both';
+    fs.append(inp);
+  } else {
+    const box = el('div', { class: 'opts' });
+    const hasDesc = q.options.some(o => o.desc);
+    box.style.setProperty('--min', (q.minWidth || (hasDesc ? 220 : 150)) + 'px');
+    const itype = q.type === 'multi' ? 'checkbox' : 'radio';
+    const defs = [].concat(q.default == null ? [] : q.default).map(String);
+    for (const o of q.options) {
+      const lab = el('label', { class: 'opt' },
+        el('input', { type: itype, name: q.id, value: o.value, checked: defs.includes(o.value) }),
+        el('span', { class: 'name', text: o.label }),
+        o.label !== o.value && q.showValue !== false && el('span', { class: 'key', text: o.value }),
+        o.recommended && el('span', { class: 'badge', text: 'おすすめ' }),
+        o.desc && el('span', { class: 'desc', text: o.desc }));
+      if (Array.isArray(o.colors) && o.colors.length) {
+        const sw = el('span', { class: 'sw' });
+        for (const c of o.colors) { const i = el('i'); i.style.background = c; sw.append(i); }
+        lab.append(sw);
+      }
+      box.append(lab);
+    }
+    if (q.allowOther) {
+      const txt = el('input', { type: 'text', 'data-other': q.id, placeholder: q.otherPlaceholder || '自由に入力' });
+      const pick = el('input', { type: itype, name: q.id, value: '__other__' });
+      txt.addEventListener('input', () => { if (txt.value) pick.checked = true; refresh(); });
+      txt.addEventListener('focus', () => { pick.checked = true; refresh(); });
+      box.append(el('label', { class: 'opt other' }, pick, el('span', { class: 'name', text: q.otherLabel || 'その他' }), txt));
+    }
+    fs.append(box);
+  }
+  main.append(fs);
+});
+if (SPEC.note !== false) {
+  const fs = el('fieldset', { id: 'note-box' });
+  fs.append(el('legend', null, '補足', el('span', { class: 'kind', text: '任意・選択肢に無い希望があれば' })));
+  const ta = el('textarea', { id: 'note', placeholder: typeof SPEC.note === 'string' ? SPEC.note : '' });
+  ta.style.clear = 'both';
+  fs.append(ta);
+  main.append(fs);
+}
+
+// ── 回答を読む ──
+function valueOf(q) {
+  if (q.type === 'text') return main.querySelector(`[name="${CSS.escape(q.id)}"]`).value.trim();
+  const picked = [...main.querySelectorAll(`input[name="${CSS.escape(q.id)}"]:checked`)].map(i => i.value);
+  const other = (main.querySelector(`[data-other="${CSS.escape(q.id)}"]`) || {}).value;
+  const vals = picked.map(v => v === '__other__' ? (other || '').trim() : v).filter(v => v !== '');
+  return q.type === 'multi' ? vals : (vals[0] ?? null);
+}
+function isCustom(q) {
+  const o = main.querySelector(`input[name="${CSS.escape(q.id)}"][value="__other__"]`);
+  return !!(o && o.checked);
+}
+function visible(q, answers) {
+  for (const [dep, want] of Object.entries(q.showIf || {})) {
+    if (!(dep in answers)) return false;
+    const have = [].concat(answers[dep] ?? []);
+    if (![].concat(want).map(String).some(w => have.includes(w))) return false;
+  }
+  return true;
+}
+function missing(q, v) {
+  if (q.type === 'single') return v == null;
+  return q.required ? v.length === 0 : false;
+}
+// 上から順に見て、表示条件（showIf）を満たす質問だけを回答に入れる
+function collect() {
+  const answers = {}, custom = [], lacking = [];
+  let n = 0;
+  for (const q of QS) {
+    const fs = document.getElementById('q-' + q.id);
+    const show = visible(q, answers);
+    fs.hidden = !show;
+    if (!show) continue;
+    fs.querySelector('.num').textContent = ++n;
+    const v = valueOf(q);
+    const miss = missing(q, v);
+    if (miss) lacking.push(q); else fs.classList.remove('missing');
+    if (!miss || q.type !== 'single') answers[q.id] = v;
+    if (q.type !== 'text' && isCustom(q)) custom.push(q.id);
+  }
+  return { answers, custom, lacking };
+}
+function refresh() {
+  const { lacking } = collect();
+  const st = document.getElementById('status');
+  st.textContent = lacking.length ? `未回答 ${lacking.length} 件` : 'すべて回答済み';
+  st.classList.remove('warn');
+  return lacking;
+}
+
+// ── 送る・閉じる ──
+function end(msg) {
+  finished = true;
+  window.close();
+  // 閉じられない開き方（ふつうのタブ）だったときの表示
+  setTimeout(() => {
+    document.getElementById('footer').hidden = true;
+    main.replaceChildren(el('div', { class: 'end', text: msg + ' このウィンドウは閉じて構いません。' }));
+  }, 150);
+}
+async function submit(extra) {
+  if (finished) return;
+  const { answers, custom, lacking } = collect();
+  if (lacking.length) {
+    for (const q of lacking) document.getElementById('q-' + q.id).classList.add('missing');
+    document.getElementById('q-' + lacking[0].id).scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const st = document.getElementById('status');
+    st.textContent = `未回答 ${lacking.length} 件 — 選んでから決定してください`;
+    st.classList.add('warn');
+    return;
+  }
+  const out = Object.assign({ answers }, extra || {});
+  if (custom.length) out.custom = custom;
+  const note = (document.getElementById('note') || {}).value;
+  if (note && note.trim()) out.note = note.trim();
+  finished = true;
+  try {
+    await fetch(base + 'answer', { method: 'POST', body: JSON.stringify(out) });
+    end('回答を受け取りました。');
+  } catch (e) {
+    finished = false;
+    document.getElementById('status').textContent = '送れませんでした（受け取り側が終了しています）';
+    document.getElementById('status').classList.add('warn');
+  }
+}
+async function cancel() {
+  if (finished) return;
+  finished = true;
+  try { await fetch(base + 'cancel', { method: 'POST' }); } catch (e) {}
+  end('キャンセルしました。');
+}
+
+main.addEventListener('change', (e) => {
+  refresh();
+  // 質問が 1 つだけ（単一選択・補足なし）なら、選んだ時点で決定する
+  if (QS.length === 1 && QS[0].type === 'single' && SPEC.note === false
+      && e.target.type === 'radio' && e.target.value !== '__other__') submit();
+});
+main.addEventListener('input', refresh);
+document.getElementById('submit').addEventListener('click', () => submit());
+document.getElementById('cancel').addEventListener('click', cancel);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); submit(); }
+  else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+  else if (e.key === 'Enter' && e.target.matches('input[type=text]')) { e.preventDefault(); submit(); }
+});
+
+// 受け取り側が先に終わった（時間切れ・中断）ら、ウィンドウを残さない
+const es = new EventSource(base + 'events');
+es.onerror = async () => {
+  if (finished) return;
+  try { await fetch(base + 'ping'); } catch (e) { es.close(); end('受け付けは終了しました。'); }
+};
+
+// ── ウィンドウを中身の高さに合わせ、画面の中央へ ──
+function fit(tries) {
+  // 開いた直後は寸法がまだ決まっていないことがあるので、決まるまで待つ
+  if (innerHeight < 80 || outerHeight < innerHeight) {
+    if ((tries || 0) < 20) setTimeout(() => fit((tries || 0) + 1), 50);
+    return;
+  }
+  try {
+    const frame = outerHeight - innerHeight;
+    const w = SPEC._width || outerWidth;
+    const content = main.offsetHeight + document.getElementById('footer').offsetHeight;
+    const h = Math.min(content + frame + 2, SPEC._maxHeight || 820, screen.availHeight - 40);
+    resizeTo(w, h);
+    moveTo((screen.availLeft || 0) + (screen.availWidth - w) / 2, (screen.availTop || 0) + (screen.availHeight - h) / 2);
+  } catch (e) {}
+}
+refresh();
+addEventListener('load', () => fit());
+window.focus();
+if (SPEC._auto) setTimeout(() => submit({
+  _window: { w: outerWidth, h: outerHeight, iw: innerWidth, ih: innerHeight, sh: document.documentElement.scrollHeight, x: screenX, y: screenY, focus: document.hasFocus(),
+             standalone: matchMedia('(display-mode: standalone)').matches || !window.menubar.visible }
+}), 1200);
+</script>
+</body>
+</html>

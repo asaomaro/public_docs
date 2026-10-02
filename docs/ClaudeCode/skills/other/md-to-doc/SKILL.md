@@ -22,10 +22,31 @@ Markdown を、配布しやすい**単一HTML**（外部依存なし）に変換
 
 ## 重要: 実行時は必ず「順番に選択」させる
 
-ユーザーに **テーマ → 出力モード** の順で `AskUserQuestion` を使って選ばせてから生成する。
+ユーザーに **テーマ・出力モードなど（手順 1〜3g）** を選ばせてから生成する。
 引数で明示指定がある場合のみ確認を省略してよい。
 
-### `AskUserQuestion` の上限と、それに対する運用ルール（必守）
+### まず 1 つのウィンドウでまとめて聞く（`--ask`）
+
+質問は、ask-form スキル（隣の `../ask-form/`）の単発ウィンドウに**すべてまとめて**出す。テーマ 13 種・レイアウト 5 種が
+全件並び、3c の回答で 3d を、出力モードで 3g を出し分ける。3e（画像）は md にローカル画像があるときだけ出る。
+
+```bash
+# Bash の timeout は 600000 にする（回答を待つ間ブロックする）
+python3 <skill_dir>/generate.py "<input.md>" --ask --recommend <md に合うテーマ 3 件。先頭が既定>
+# 例: --recommend manual,formal,minimal   （選び方は手順 1 の (b)）
+# → {"status":"answered","answers":{"theme":"manual","mode":"single","toc":"sidebar","layout":"cards",
+#     "design":"deterministic","auto-figure":"light","image-mode":"embed","motion":"key"},"note":"…"}
+```
+
+- **`answers` のキーは `generate.py` の引数名そのまま**（`theme` → `--theme`、`auto-figure` → `--auto-figure`）。
+  キーが無い項目は聞いていない（出し分けで隠れた）ので、引数を付けない＝既定にする。
+- `note`（補足の欄）があれば読んで反映する。`custom` に入った項目は自由入力なので、解釈してから使う。
+- 終了コード 2（`cancelled`）・4（`timeout`）は、既定で進めずユーザーにどうするかを聞く。
+- **終了コード 3（`unavailable`。画面の無い環境・ask-form が無い等）のときは、下の `AskUserQuestion` の運用で聞く。**
+- 回答を得たあとは 3f（節ごとの仕分け案の合意。`design=deterministic` のとき）へ進む。手順 1〜3g の各項の説明は、
+  回答の意味を読むための資料として使う。
+
+### `--ask` が使えないとき: `AskUserQuestion` の上限と、それに対する運用ルール（必守）
 
 `AskUserQuestion` には **1問あたり選択肢 4つまで / 1回の呼び出しで 4問まで** という上限がある
 （「その他」は自動で付くので、明示する選択肢は最大 4つ）。
