@@ -1034,39 +1034,11 @@ def to_spec(meta, chapters, cast, base):
     return spec, credits
 
 
-def main():
-    ap = argparse.ArgumentParser(description="ゆっくり解説・ずんだもん解説の台本から、掛け合いの動画（単一 HTML）を作る")
-    ap.add_argument("script", nargs="?", help="台本（テキスト）。--list-casts のときは、詳しく見る登場人物の名前")
-    ap.add_argument("-o", "--out", help="出力 HTML（既定: 台本と同じ場所・同じ名前）")
-    ap.add_argument("--voicevox", action="store_true", help="VOICEVOX でせりふの声を作る（engine: voicevox の登場人物）")
-    ap.add_argument("--voicevox-url", default="http://127.0.0.1:50021")
-    ap.add_argument("--voices-dir", help="用意した WAV のフォルダ（名前順に、声の無いせりふへ順に当てる）")
-    ap.add_argument("--timeline", action="store_true", help="HTML を作らず時間割りを出す")
-    ap.add_argument("--readings", action="store_true", help="VOICEVOX がせりふをどう読むか（かな）を出す。読み間違いを pronounce: で直すため")
-    ap.add_argument("--yukkuri-bat", action="store_true", help="ゆっくりボイスのせりふを、Windows の AquesTalkPlayer で WAV にするバッチファイル（<台本名>_yukkuri.bat）を書く")
-    ap.add_argument("--compact", action="store_true", help="HTML を小さくする（声を 16kHz に、背景と写真を幅 1280 の JPEG に。3 分で 5MB ほど減る）")
-    ap.add_argument("--list-assets", action="store_true", help="背景と BGM のカタログ（名前と説明）を出す")
-    ap.add_argument("--list-casts", action="store_true", help="登場人物のプリセットと、立ち絵にある表情・ポーズを出す")
-    a = ap.parse_args()
-    if a.list_assets:
-        print("# 背景（台本の bg: か @bg: に名前を書く。時間帯は _evening・_night）")
-        for k, e in BGS.items():
-            if not k.startswith("_"):
-                print("  %-22s %-14s %s%s" % (k, e["name"], e["desc"], "" if os.path.isfile(os.path.join(HERE, "bg", e["file"])) else "  ※ファイルなし（fetch_assets.py）"))
-        print("# BGM（台本の music: か @music: に名前を書く。ほかに motion-video の曲の名前も使える）")
-        for mood, label in BGMS["_moods"].items():
-            print("## %s" % label)
-            for k, e in BGMS.items():
-                if not k.startswith("_") and e["mood"] == mood:
-                    have = os.path.isfile(os.path.join(HERE, "bgm", e["file"]))
-                    note = ("  ※WebM 専用（HTML は配れない）" + ("" if have else "・手で取る: " + e["page"])) if e.get("embed") is False else "" if have else "  ※ファイルなし（fetch_assets.py）"
-                    print("  %-14s %s ／ %s（%s%s）%s" % (k, e["desc"], e["title"], e["author"], "・%.1fMB" % e["mb"] if e.get("mb") else "", note))
-        return
-    if a.list_casts or not a.script:   # --list-casts [名前]
-        list_casts(a.script)
-        return
-    base = os.path.dirname(os.path.abspath(a.script))
-    meta, chapters, errs = parse(open(a.script, encoding="utf-8").read())
+def load_spec(script):
+    """台本（テキスト）を読み、登場人物と演技を決めて、motion-video の台本にする（声はまだ当てない）。誤りがあれば止める。
+    返り値は (設定, 台本, 登場人物, クレジット, 台本のあるフォルダ)。"""
+    base = os.path.dirname(os.path.abspath(script))
+    meta, chapters, errs = parse(open(script, encoding="utf-8").read())
     for e in errs:
         print("error:", e, file=sys.stderr)
     if errs:
@@ -1082,35 +1054,29 @@ def main():
     for w in resolve_faces(chapters, cast):
         print("warn:", w, file=sys.stderr)
     spec, credits = to_spec(meta, chapters, cast, base)
-    if a.readings:
-        readings(spec, a.voicevox_url, spec["audio"]["pronounce"])
-        return
-    if a.yukkuri_bat:
-        path, n = yukkuri_bat(spec, os.path.splitext(os.path.abspath(a.script))[0], spec["audio"]["pronounce"])
-        if not path:
-            sys.exit("error: ゆっくりボイスの登場人物（reimu・marisa など）のせりふがありません")
-        print("OK : %s（%d 個のせりふ）" % (path, n))
-        print("  1. Windows で AquesTalkPlayer を入手して展開する（https://www.a-quest.com/products/aquestalkplayer.html）")
-        print("  2. %s をメモ帳で開き、PLAYER= の行を AquesTalkPlayer.exe の場所に直す" % os.path.basename(path))
-        print("  3. ダブルクリックで実行する（%s_yukkuri フォルダに WAV ができる）" % os.path.splitext(os.path.basename(a.script))[0])
-        print("  4. python3 %s %s --voices-dir %s_yukkuri" % (os.path.basename(__file__), a.script, os.path.splitext(os.path.basename(a.script))[0]))
-        return
-    if a.voicevox:
-        n = voicevox_lines(spec, a.voicevox_url, os.path.join(base, os.path.splitext(os.path.basename(a.script))[0] + "_voices"), spec["audio"]["pronounce"],
-                           meta.get("voice_style", "auto").lower() not in ("off", "no", "false"))
+    return meta, spec, cast, credits, base
+
+
+def make_spec(script, voicevox=False, voicevox_url="http://127.0.0.1:50021", voices_dir=None, compact_html=False):
+    """台本（テキスト）から motion-video の台本を作り、声を当て、確かめ、時間割を決める。誤りがあれば止める。
+    返り値は (台本, motion-video の build, 登場人物, クレジット)。video-export スキル（書き出し）もこれで読む。
+    途中の台本は <台本名>.json、章の時刻とクレジットは <台本名>.info.json に書く。"""
+    meta, spec, cast, credits, base = load_spec(script)
+    stem = os.path.splitext(os.path.abspath(script))[0]
+    if voicevox:
+        n = voicevox_lines(spec, voicevox_url, stem + "_voices", spec["audio"]["pronounce"], meta.get("voice_style", "auto").lower() not in ("off", "no", "false"))
         print("VOICEVOX: %d 個のせりふの声を作りました（作り済みは使い回し）" % n)
-    credits = make_credits(meta, cast, a.voicevox)
+    credits = make_credits(meta, cast, voicevox)
     sc_ = sample_credit(spec)
     if sc_:
         credits.append(sc_)
     last = spec["chapters"][-1]["scenes"][-1]
     if last.get("type") == "end":
         last["lines"] = credits[:9]
-    if a.voices_dir:
-        used, have = assign_voice_files(spec, os.path.join(base, a.voices_dir) if not os.path.isabs(a.voices_dir) else a.voices_dir)
+    if voices_dir:
+        used, have = assign_voice_files(spec, os.path.join(base, voices_dir) if not os.path.isabs(voices_dir) else voices_dir)
         print("WAV: %d 個をせりふに当てました（フォルダに %d 個）" % (used, have))
-    stem = os.path.splitext(os.path.abspath(a.script))[0]
-    if a.compact:
+    if compact_html:
         compact(spec, base, stem)
     import base64   # @show の絵は、名前の表（images）に 1 回ずつ埋め込む
     spec["images"] = {k: "data:%s;base64,%s" % (IMG_MIME[os.path.splitext(p)[1].lower()], base64.b64encode(open(p, "rb").read()).decode("ascii"))
@@ -1136,6 +1102,8 @@ def main():
         sys.exit(1)
     for w in mv.plan(spec):
         print("warn:", w, file=sys.stderr)
+    spec["_exportName"] = mv.export_name(spec, script)
+    spec["_exportCredits"] = credits   # 書き出しの概要欄に載せる（HTML には入れない）
     total = sum(s["_dur"] for ch in spec["chapters"] for s in ch["scenes"])
     t, marks = 0, []
     for ch in spec["chapters"]:
@@ -1145,6 +1113,59 @@ def main():
             "cast": [{"id": k, "name": c.get("name", k)} for k, c in cast.items()], "facts": meta.get("facts", ""), "webm_only": WEBM_ONLY,
             "lines": sum(len(talk_lines(s)) for ch in spec["chapters"] for s in ch["scenes"])}
     json.dump(info, open(stem + ".info.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)   # 公開まわり（yukkuri-publish）が読む
+    return spec, mv, cast, credits
+
+
+def main():
+    ap = argparse.ArgumentParser(description="ゆっくり解説・ずんだもん解説の台本から、掛け合いの動画（単一 HTML）を作る")
+    ap.add_argument("script", nargs="?", help="台本（テキスト）。--list-casts のときは、詳しく見る登場人物の名前")
+    ap.add_argument("-o", "--out", help="出力 HTML（既定: 台本と同じ場所・同じ名前）")
+    ap.add_argument("--voicevox", action="store_true", help="VOICEVOX でせりふの声を作る（engine: voicevox の登場人物。ゆっくりボイスもここで作る）")
+    ap.add_argument("--voicevox-url", default="http://127.0.0.1:50021")
+    ap.add_argument("--voices-dir", help="用意した WAV のフォルダ（名前順に、声の無いせりふへ順に当てる）")
+    ap.add_argument("--timeline", action="store_true", help="HTML を作らず時間割りを出す")
+    ap.add_argument("--readings", action="store_true", help="VOICEVOX がせりふをどう読むか（かな）を出す。読み間違いを pronounce: で直すため")
+    ap.add_argument("--yukkuri-bat", action="store_true", help="ゆっくりボイスのせりふを、Windows の AquesTalkPlayer で WAV にするバッチファイル（<台本名>_yukkuri.bat）を書く")
+    ap.add_argument("--compact", action="store_true", help="HTML を小さくする（声を 16kHz に、背景と写真を幅 1280 の JPEG に。3 分で 5MB ほど減る）")
+    ap.add_argument("--dist", action="store_true", help="配布用: 設定の書き出し（WebM で保存・編集用の映像・音のトラック）と、その実行部を除いて HTML を小さくする")
+    ap.add_argument("--list-assets", action="store_true", help="背景と BGM のカタログ（名前と説明）を出す")
+    ap.add_argument("--list-casts", action="store_true", help="登場人物のプリセットと、立ち絵にある表情・ポーズを出す")
+    a = ap.parse_args()
+    if a.list_assets:
+        print("# 背景（台本の bg: か @bg: に名前を書く。時間帯は _evening・_night）")
+        for k, e in BGS.items():
+            if not k.startswith("_"):
+                print("  %-22s %-14s %s%s" % (k, e["name"], e["desc"], "" if os.path.isfile(os.path.join(HERE, "bg", e["file"])) else "  ※ファイルなし（fetch_assets.py）"))
+        print("# BGM（台本の music: か @music: に名前を書く。ほかに motion-video の曲の名前も使える）")
+        for mood, label in BGMS["_moods"].items():
+            print("## %s" % label)
+            for k, e in BGMS.items():
+                if not k.startswith("_") and e["mood"] == mood:
+                    have = os.path.isfile(os.path.join(HERE, "bgm", e["file"]))
+                    note = ("  ※WebM 専用（HTML は配れない）" + ("" if have else "・手で取る: " + e["page"])) if e.get("embed") is False else "" if have else "  ※ファイルなし（fetch_assets.py）"
+                    print("  %-14s %s ／ %s（%s%s）%s" % (k, e["desc"], e["title"], e["author"], "・%.1fMB" % e["mb"] if e.get("mb") else "", note))
+        return
+    if a.list_casts or not a.script:   # --list-casts [名前]
+        list_casts(a.script)
+        return
+    name = os.path.splitext(os.path.basename(a.script))[0]
+    if a.readings or a.yukkuri_bat:
+        meta, spec, cast, credits, base = load_spec(a.script)
+        if a.readings:
+            readings(spec, a.voicevox_url, spec["audio"]["pronounce"])
+            return
+        path, n = yukkuri_bat(spec, os.path.splitext(os.path.abspath(a.script))[0], spec["audio"]["pronounce"])
+        if not path:
+            sys.exit("error: ゆっくりボイスの登場人物（reimu・marisa など）のせりふがありません")
+        print("OK : %s（%d 個のせりふ）" % (path, n))
+        print("  1. Windows で AquesTalkPlayer を入手して展開する（https://www.a-quest.com/products/aquestalkplayer.html）")
+        print("  2. %s をメモ帳で開き、PLAYER= の行を AquesTalkPlayer.exe の場所に直す" % os.path.basename(path))
+        print("  3. ダブルクリックで実行する（%s_yukkuri フォルダに WAV ができる）" % name)
+        print("  4. python3 %s %s --voices-dir %s_yukkuri" % (os.path.basename(__file__), a.script, name))
+        return
+    spec, mv, cast, credits = make_spec(a.script, a.voicevox, a.voicevox_url, a.voices_dir, a.compact)
+    stem = os.path.splitext(os.path.abspath(a.script))[0]
+    total = sum(s["_dur"] for ch in spec["chapters"] for s in ch["scenes"])
     if a.timeline:
         t = 0
         for ch in spec["chapters"]:
@@ -1157,8 +1178,8 @@ def main():
         print("合計 %s" % mv.fmt(total))
         return
     out = a.out or stem + ".html"
-    open(out, "w", encoding="utf-8").write(mv.build_html(spec, spec["theme"], spec["player"]))
-    print("OK : %s（%s・%.1fMB）" % (out, mv.fmt(total), os.path.getsize(out) / 1e6))
+    open(out, "w", encoding="utf-8").write(mv.build_html(spec, spec["theme"], spec["player"], not a.dist))
+    print("OK : %s（%s・%.1fMB%s）" % (out, mv.fmt(total), os.path.getsize(out) / 1e6, "・配布用" if a.dist else ""))
     for k in WEBM_ONLY:
         e = BGMS[k]
         print("warn: BGM「%s」（%s）は、音源を取り出せる形では配れません（%s）。この HTML は手元だけで使い、プレイヤーの「WebM で保存」で動画にして配ってください"

@@ -166,6 +166,7 @@ python3 <skill_dir>/kaisetsu.py 台本.txt --voicevox --compact  # HTML を小�
 python3 <skill_dir>/kaisetsu.py 台本.txt --voices-dir voices/  # 用意した WAV を名前順にせりふへ当てる
 python3 <skill_dir>/kaisetsu.py 台本.txt --yukkuri-bat          # 霊夢・魔理沙のせりふを、Windows の AquesTalkPlayer で WAV にするバッチファイルを書く
 python3 <skill_dir>/kaisetsu.py 台本.txt                        # 声なし（ブラウザの読み上げ）で HTML
+python3 <skill_dir>/kaisetsu.py 台本.txt --voicevox --dist     # 配布用（⚙ の書き出しを省いて小さくする。motion-video の --dist）
 ```
 
 - **声を作る前に `--readings` を見る**。固有名詞・英字・数字・むずかしい漢字の読みを確かめ、違っていたら `pronounce` に足す。
@@ -177,6 +178,9 @@ python3 <skill_dir>/kaisetsu.py 台本.txt                        # 声なし（
 - 字幕の書体を埋め込むには fontTools が要る（`pip install fonttools`。無ければ OS の書体で描く）。
 - 章の時刻・クレジット・画像の出どころは `<台本名>.info.json` に出る。途中の台本（motion-video の JSON）は `<台本名>.json`。
 - **作ったら画面を見る**。絵が立ち絵や字幕に隠れていないか、名札が読めるか、同じ絵が長く続いていないか。
+
+**YouTube・YMM4・AviUtl 用に書き出す**（「YouTube に上げたい」「ゆっくりMovieMaker で仕上げたい」「AviUtl で編集したい」と言われたとき）は、
+**video-export スキル**に台本（.txt）をそのまま渡す。YMM4 の台本 CSV の名前は、台本の `<名前>.name` を YMM4 のキャラクター名に合わせる。
 
 ### 4. 渡す
 - HTML の場所を伝える（`SendUserFile`）。公開するなら、yukkuri-publish で題・概要欄・サムネイルを作る。
