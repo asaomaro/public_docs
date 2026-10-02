@@ -626,25 +626,27 @@ def image_tag(alt_escaped, src_escaped):
 
 
 def inline(text):
-    out = []
-    i = 0
-    # コードスパンを先に退避
-    parts = re.split(r"(`[^`]+`)", text)
-    for part in parts:
-        if part.startswith("`") and part.endswith("`") and len(part) >= 2:
-            out.append("<code>%s</code>" % html.escape(part[1:-1]))
-            continue
-        s = html.escape(part)
-        # 画像 ![alt](src) はリンクより先に処理（先頭の ! を取りこぼさないため）
-        s = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)",
-                   lambda m: image_tag(m.group(1), m.group(2)), s)
-        s = re.sub(r"\[([^\]]+)\]\(([^)]+)\)",
-                   lambda m: '<a href="%s">%s</a>' % (html.escape(m.group(2), quote=True), m.group(1)), s)
-        s = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", s)
-        s = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"<em>\1</em>", s)
-        s = re.sub(r"~~([^~]+)~~", r"<del>\1</del>", s)
-        out.append(s)
-    return "".join(out)
+    # コードスパンを先に退避し、最後に戻す（中身を装飾として解釈させない。
+    # 分割せず目印に置き換えるので、**太字の中に `コード`** があっても太字が閉じる）
+    codes = []
+
+    def stash(m):
+        codes.append("<code>%s</code>" % html.escape(m.group(1)))
+        return "\x00%d\x00" % (len(codes) - 1)
+
+    def plain(t):  # 属性（alt・URL）に入る所は、タグにせず元の文字へ戻す
+        return re.sub(r"\x00(\d+)\x00", lambda m: re.sub(r"</?code>", "", codes[int(m.group(1))]), t)
+
+    s = html.escape(re.sub(r"`([^`]+)`", stash, text.replace("\x00", "")))
+    # 画像 ![alt](src) はリンクより先に処理（先頭の ! を取りこぼさないため）
+    s = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)",
+               lambda m: image_tag(plain(m.group(1)), plain(m.group(2))), s)
+    s = re.sub(r"\[([^\]]+)\]\(([^)]+)\)",
+               lambda m: '<a href="%s">%s</a>' % (html.escape(plain(m.group(2)), quote=True), m.group(1)), s)
+    s = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", s)
+    s = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"<em>\1</em>", s)
+    s = re.sub(r"~~([^~]+)~~", r"<del>\1</del>", s)
+    return re.sub(r"\x00(\d+)\x00", lambda m: codes[int(m.group(1))], s)
 
 
 def slugify(text, used):
