@@ -294,7 +294,12 @@ python3 <skill_dir>/build.py spec.json --timeline      # 場面の長さ・字�
 python3 <skill_dir>/build.py spec.json -o out.html      # HTML を作る（--player / --theme で上書き可）
 python3 <skill_dir>/build.py spec.json --voicevox       # VOICEVOX でナレーションの声を前もって作って埋め込む
 python3 <skill_dir>/build.py spec.json --voices-dir voices/   # 用意した WAV を名前順に字幕へ当てて埋め込む
+python3 <skill_dir>/build.py spec.json --dist           # 配布用（設定の書き出しを省く。--embed にも効く）
 ```
+
+**配布用（`--dist`）** — 見る人に配る・公開するだけの HTML。⚙ の書き出し（WebM で保存・編集用の映像・音のトラック）を出さず、
+その実行部（engine.js の `@export-begin`〜`@export-end`）も HTML に入れない。再生・字幕・音声・チャプターなどはそのまま。
+減るのは十数 KB（HTML の大きさの多くは楽器の録音の音・画像・声）。自分で編集・書き出しに使う HTML は `--dist` を付けずに作る。
 
 **声を前もって作る（公開する動画に）**
 

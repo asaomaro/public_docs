@@ -344,6 +344,7 @@ def main():
     ap.add_argument("--voices-dir", help="用意した WAV のフォルダ（名前順に、声の無いせりふへ順に当てる）")
     ap.add_argument("--timeline", action="store_true", help="HTML を作らず時間割りを出す")
     ap.add_argument("--list-casts", action="store_true", help="登場人物のプリセットを出す")
+    ap.add_argument("--dist", action="store_true", help="配布用: 設定の書き出し（WebM で保存・編集用の映像・音のトラック）と、その実行部を除いて HTML を小さくする")
     a = ap.parse_args()
     if a.list_casts or not a.script:
         print("# 登場人物のプリセット（台本の cast: に並べる。chars/<名前>/ に立ち絵を置く）")
@@ -365,8 +366,8 @@ def main():
         print("合計 %s" % mv.fmt(total))
         return
     out = a.out or stem + ".html"
-    open(out, "w", encoding="utf-8").write(mv.build_html(spec, spec["theme"], spec["player"]))
-    print("OK : %s（%s）" % (out, mv.fmt(total)))
+    open(out, "w", encoding="utf-8").write(mv.build_html(spec, spec["theme"], spec["player"], not a.dist))
+    print("OK : %s（%s%s）" % (out, mv.fmt(total), "・配布用" if a.dist else ""))
     if credits:
         print("クレジット: " + " / ".join(credits))
 

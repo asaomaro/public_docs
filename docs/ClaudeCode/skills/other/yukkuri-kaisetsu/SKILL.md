@@ -78,6 +78,7 @@ python3 <skill_dir>/kaisetsu.py 台本.txt --timeline            # せりふの�
 python3 <skill_dir>/kaisetsu.py 台本.txt --voicevox            # VOICEVOX で声を作ってから HTML（作り済みの声は使い回す）
 python3 <skill_dir>/kaisetsu.py 台本.txt --voices-dir voices/  # 用意した WAV を名前順にせりふへ当てる
 python3 <skill_dir>/kaisetsu.py 台本.txt                        # 声なし（ブラウザの読み上げ）で HTML
+python3 <skill_dir>/kaisetsu.py 台本.txt --voicevox --dist     # 配布用（⚙ の書き出しを省いて小さくする。motion-video の --dist）
 ```
 
 - VOICEVOX は既定で `http://127.0.0.1:50021`（`--voicevox-url` で変える）。起動していなければ、その旨のエラーで止まる。

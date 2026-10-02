@@ -1029,8 +1029,9 @@ PLAYER_CSS = r"""
 _UID = [0]
 
 
-def build_fragment(spec, theme_key, player, uid=None):
-    """プレイヤー 1 つ分の HTML（1 ページに何個でも置ける。台本と配色はプレイヤーの中の JSON に入る）。"""
+def build_fragment(spec, theme_key, player, uid=None, export=True):
+    """プレイヤー 1 つ分の HTML（1 ページに何個でも置ける。台本と配色はプレイヤーの中の JSON に入る）。
+    export=False（配布用）は、設定の書き出し（WebM で保存・編集用の映像・音のトラック）を出さない。"""
     th = THEMES[theme_key]
     ch = th["chrome"]
     _UID[0] += 1
@@ -1079,13 +1080,13 @@ def build_fragment(spec, theme_key, player, uid=None):
         '<button type="button" data-mus="1">入</button><button type="button" data-mus="0">切</button></span></div>'
         '<div class="mv-setrow"><span>効果音</span><span class="mv-seg3" role="group" aria-label="効果音">'
         '<button type="button" data-sfx="1">入</button><button type="button" data-sfx="0">切</button></span></div>'
-        '<button type="button" class="mv-setitem" id="mv-rec">動画ファイル（WebM）で保存</button>'
-        + '<p class="mv-setnote">保存は最初から 1 倍速で再生して録画します（字幕は映像に焼き込み。%s）。</p>' % (
+        + (('<button type="button" class="mv-setitem" id="mv-rec">動画ファイル（WebM）で保存</button>'
+        '<p class="mv-setnote">保存は最初から 1 倍速で再生して録画します（字幕は映像に焼き込み。%s）。</p>' % (
             "前もって作った声も入ります" if any(s_.get("_voices") for c_ in spec["chapters"] for s_ in c_["scenes"]) else "読み上げの声は入りません")
         + '<button type="button" class="mv-setitem" id="mv-recclean">編集用の映像（字幕・音なし WebM）</button>'
         '<button type="button" class="mv-setitem" id="mv-expaudio">音のトラックを書き出す（WAV）</button>'
         '<p class="mv-setnote">編集ソフト・YouTube 用。声・音楽・効果音・全部を別々の WAV に書き出します（声は前もって作った声だけ）。'
-        '字幕・チャプター・YMM4・AviUtl のファイルは video-export スキルで作ります。</p>'
+        '字幕・チャプター・YMM4・AviUtl のファイルは video-export スキルで作ります。</p>') if export else "")
         + ''
         '</div></div>'
         '</div></div>'
@@ -1125,19 +1126,32 @@ def player_css():
     return re.sub(r"#mv-([\w-]+)", r'[data-mv="\1"]', PLAYER_CSS)
 
 
-def engine_js():
-    """音の合成（audio.js）・部品（parts-*.js）・描画とプレイヤー（engine.js）。1 ページで 1 度だけ効く。"""
+# 配布用（--dist）の engine.js で、書き出しの部分（@export-begin〜@export-end）の代わりに置くもの。
+# 止める・最後まで再生したときに呼ばれる関数だけ残し、書き出しのボタンがあれば隠す（同じページに書き出し付きの断片があっても壊れない）
+EXPORT_STUB = ('  function finishRec() {} function cancelRec() {}\n'
+               '  ["mv-rec", "mv-recclean", "mv-expaudio"].forEach(function (k) { var b = $(k); if (b) b.hidden = true; });\n')
+EXPORT_RE = re.compile(r"  /\* @export-begin.*?/\* @export-end \*/\n", re.S)
+
+
+def engine_js(export=True):
+    """音の合成（audio.js）・部品（parts-*.js）・描画とプレイヤー（engine.js）。1 ページで 1 度だけ効く。
+    export=False（配布用）は、書き出しの部分を除く。"""
     parts = sorted(f for f in os.listdir(HERE) if f.startswith("parts-") and f.endswith(".js"))
-    return "\n".join(open(os.path.join(HERE, f), encoding="utf-8").read() for f in ["audio.js"] + parts + ["engine.js"])
+    js = "\n".join(open(os.path.join(HERE, f), encoding="utf-8").read() for f in ["audio.js"] + parts + ["engine.js"])
+    if not export:
+        js, n = EXPORT_RE.subn(lambda m: EXPORT_STUB, js)
+        assert n == 1, "engine.js の @export-begin〜@export-end が見つかりません"
+    return js
 
 
-def build_embed(spec, theme_key, player):
-    """ほかの HTML（md-to-doc の文書など）に差し込む断片。CSS と実行部は一度だけ効く。"""
+def build_embed(spec, theme_key, player, export=True):
+    """ほかの HTML（md-to-doc の文書など）に差し込む断片。CSS と実行部は一度だけ効く。export=False は配布用（書き出しなし）。"""
     return ('<div class="mv-embed">%s<style>%s</style><script>%s</script></div>'
-            % (build_fragment(spec, theme_key, player), player_css(), engine_js()))
+            % (build_fragment(spec, theme_key, player, export=export), player_css(), engine_js(export)))
 
 
-def build_html(spec, theme_key, player):
+def build_html(spec, theme_key, player, export=True):
+    """1 ページの HTML。export=False は配布用（設定の書き出しと、その実行部を除いて小さくする）。"""
     title = spec.get("title") or "動画"
     desc = spec.get("description") or ""
     head = '<header class="mv-head"><h1>%s</h1>%s</header>' % (html.escape(title), "<p>%s</p>" % html.escape(desc) if desc else "")
@@ -1148,7 +1162,7 @@ def build_html(spec, theme_key, player):
             "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>%s</title>"
             "<style>%s%s</style></head><body><main class=\"mv-page\">%s%s%s</main><script>%s</script></body></html>\n"
             % (html.escape(spec.get("lang", "ja")), html.escape(title), PAGE_CSS, player_css(), head,
-               build_fragment(spec, theme_key, player, "mv"), keys if player != "kiosk" else "", engine_js()))
+               build_fragment(spec, theme_key, player, "mv", export), keys if player != "kiosk" else "", engine_js(export)))
 
 
 def sound_board():
@@ -1361,6 +1375,7 @@ def main():
     ap.add_argument("--voicevox", action="store_true", help="VOICEVOX でナレーションの声を前もって作り、埋め込む（話者は audio.voice）")
     ap.add_argument("--voicevox-url", default=voice.DEFAULT_URL, help="VOICEVOX の場所（既定 %(default)s）")
     ap.add_argument("--voices-dir", help="用意した WAV を名前順に、ナレーションの字幕（とせりふ）へ順に当てて埋め込む")
+    ap.add_argument("--dist", action="store_true", help="配布用: 設定の書き出し（WebM で保存・編集用の映像・音のトラック）と、その実行部を除いて HTML を小さくする")
     ap.add_argument("--voices-out", help="VOICEVOX で作った WAV の置き場所（既定: 台本と同じ場所の <台本名>_voices/）")
     args = ap.parse_args()
     if args.api:
@@ -1402,8 +1417,8 @@ def main():
         print("合計 %s（%d 章・%d 場面）" % (fmt(total), len(spec["chapters"]), sum(len(c["scenes"]) for c in spec["chapters"])))
         return
     out = args.out or os.path.splitext(os.path.abspath(args.spec))[0] + (".embed.html" if args.embed else ".html")
-    open(out, "w", encoding="utf-8").write(build_embed(spec, theme, player) if args.embed else build_html(spec, theme, player))
-    print("OK : %s（%s・%s・%s）" % (out, player, theme, fmt(total)))
+    open(out, "w", encoding="utf-8").write(build_embed(spec, theme, player, not args.dist) if args.embed else build_html(spec, theme, player, not args.dist))
+    print("OK : %s（%s・%s・%s%s）" % (out, player, theme, fmt(total), "・配布用" if args.dist else ""))
 
 
 def fmt(ms):

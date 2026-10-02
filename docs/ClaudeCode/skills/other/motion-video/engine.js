@@ -2275,6 +2275,8 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       } catch (e) { console.warn("pip:", e); }
     });
   }
+  /* @export-begin — 書き出し（WebM で保存・編集用の映像・音のトラック）。配布用（build.py --dist）では、ここから @export-end までを
+   * build.py の EXPORT_STUB（finishRec・cancelRec の空の関数）に置き換えて HTML を小さくする */
   /* 動画ファイル（WebM）で保存: 最初から 1 倍速で再生しながら Canvas を録画する（字幕は焼き込み。読み上げの声は録れない）
    * clean（編集用の映像）: 1920×1080・字幕なし・音なし。声を待たず、台本どおりの時間割（build.py --export の字幕・音・プロジェクトと揃う）で録る */
   var recBtn = $("mv-rec"), recBadge = $("mv-recbadge"), recCleanBtn = $("mv-recclean");
@@ -2402,6 +2404,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       .catch(function (e) { console.warn("export:", e); }).then(done);
   }
   if (expBtn) expBtn.addEventListener("click", exportAudio);
+  /* @export-end */
 
   /* 起動 */
   var sel = $("mv-speed"); if (sel) sel.value = String(speed);
