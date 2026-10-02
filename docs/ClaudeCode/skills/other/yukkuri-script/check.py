@@ -12,7 +12,9 @@
 import argparse, copy, importlib.util, json, os, re, statistics, sys, unicodedata
 
 HERE = os.path.dirname(os.path.realpath(__file__))
-CHARS = {k: v for k, v in json.load(open(os.path.join(HERE, "characters.json"), encoding="utf-8")).items() if not k.startswith("_")}
+_CJ = json.load(open(os.path.join(HERE, "characters.json"), encoding="utf-8"))
+CHARS = {k: v for k, v in _CJ.items() if not k.startswith("_")}
+RELATIONS = {k: v for k, v in _CJ.get("_relations", {}).items() if not k.startswith("_")}   # よく一緒に出る組み合わせ（"metan+zundamon" の形。名前の順）
 PUNCT = re.compile(r"[\s　、。，．！？!?…‥「」『』（）()・♪〜ー―\-*]")
 CPS = 4.8           # VOICEVOX の話速 1.0 で 1 秒に読む字数（記号を除く。句読点の間を含む。3 分の台本で実測）
 LINE_GAP, SCENE_GAP, END_SEC = 0.3, 2.5, 6.0
@@ -266,6 +268,48 @@ def run(path, facts_path=None):
                     R.add("warn", "口調", "%s: %sが %d%% しかありません（%d%% 以上に）" % (name, rule["what"], round(r * 100), round(rule["min"] * 100)))
                 elif r > rule["max"]:
                     R.add("warn", "口調", "%s: %sが %d%% あります（%d%% まで。相づち・体言止めをまぜる）" % (name, rule["what"], round(r * 100), round(rule["max"] * 100)))
+
+    # 4.5 性格・関係・登場の仕方（3 人以上・一瞬だけ出る人・語り手）
+    ids = lambda key: [x.strip() for x in re.split(r"[,、\s]+", meta.get(key, "")) if x.strip()]
+    cameo, narr = set(ids("cameo")), set(ids("narrator"))
+    main = [k for k in by if k not in cameo and k not in narr]
+    nm = lambda k: cast.get(k, {}).get("name") or CHARS.get(k, {}).get("name", k)
+    called = lambda k: {nm(k), re.sub(r"^(四国|春日部|東北|ゆっくり)", "", nm(k))} | {P2.get("calls", {}).get(k) for P2 in CHARS.values()} - {None, ""}
+    if total >= 150:   # 性格の見せ場（公式の設定・定番の持ちネタ）が一度も無い
+        for who in main:
+            sig = CHARS.get(who, {}).get("signature")
+            if sig and len(by[who]) >= 8 and not any(re.search(p, l["text"]) for p in sig["patterns"] for l in L):
+                R.add("info", "性格", "%s の持ち味（%s）が台本に一度も出てきません。1 か所入れると、その人らしくなる" % (nm(who), sig["desc"]))
+    for k in [x for x in listeners if x in main]:   # 聞き手が解説している（教える側・教わる側の入れ替わり）
+        ex = [l for l in by[k] if l["n"] >= 32 and not re.search(r"[？?！!…]$|ってこと|なの？|のだ？", l["text"])]
+        if len(by[k]) >= 6 and len(ex) / len(by[k]) > .3:
+            R.add("warn", "関係", "聞き手の %s が、長い説明を %d 回しています（せりふの %d%%）。教える側と教わる側が入れ替わって見える。説明は %s に回し、%s は問い・驚き・言い直しにする"
+                  % (nm(k), len(ex), round(100 * len(ex) / len(by[k])), nm(explainer), nm(k)), ex[0]["no"])
+    pair = "+".join(sorted([explainer] + [x for x in listeners if x in main][:1]))
+    rel = RELATIONS.get(pair) or next((v for kk, v in RELATIONS.items() if set(kk.split("+")) == set(main)), None)
+    if rel and rel.get("roles") and rel["roles"].get("explainer") not in (None, explainer) and len(main) == 2:
+        R.add("info", "関係", "%s が解説役です。定番は逆（%s）。わざとなら、冒頭で役を入れ替える理由を一言入れる" % (nm(explainer), rel["convention"][:40]))
+    if len(main) >= 3:   # 3 人以上: 全員に役を。少なすぎる人は、一瞬だけ出る人（cameo）にする
+        for k in main:
+            share = len(by[k]) / len(L)
+            if k != explainer and share < .12:
+                R.add("warn", "関係", "%s のせりふが %d%% だけです（3 人目は 15〜35%%）。役（ボケ・ツッコミ・進行・専門家）を持たせて増やすか、台本の先頭の cameo: に書いて、出番の場面だけに出す"
+                      % (nm(k), round(share * 100)))
+    for k in cameo | ({k for k in by if len(main) >= 3 and len(by[k]) / len(L) < .05} - narr):   # 一瞬だけ出る人: 出てきたときに、誰か分かるように
+        if k not in by:
+            continue
+        i0 = next(i for i, l in enumerate(L) if l["who"] == k)
+        near = L[max(0, i0 - 2):i0 + 3]
+        if not any(n2 and n2 in l["text"] for l in near for n2 in called(k)):
+            R.add("warn", "関係", "%s が初めて出る所で、だれも名前を呼ばず、本人も名乗っていません（見る人に誰か分かるように、前後のせりふで名前を出す）" % nm(k), L[i0]["no"])
+        chs = sorted({l["ch"] for l in by[k]})
+        if k in cameo and len(chs) >= 3:
+            R.add("info", "関係", "%s（cameo）が %d つの章に出ています。一瞬だけ出る人なら 1〜2 章に絞り、通して出るなら cameo: から外す" % (nm(k), len(chs)))
+    for k in narr:
+        if k in by and any(re.search(r"(のだ|だぜ|わよ)[。！!]?$", l["text"]) for l in by[k]):
+            R.add("info", "関係", "語り手（%s）のせりふに、キャラクターの口調が出ています。語りは、です・ます か言い切りで" % nm(k))
+    if rel:
+        stats["関係（定番）"] = rel.get("convention", "")[:60]
 
     # 5. 演技（表情・体・動きのラベル）
     try:
