@@ -1869,8 +1869,9 @@ def regroup_sections(out, lays, head_lay):
     return final
 
 
-def suggest_layouts(lines):
-    """節ごとのレイアウトの割り当て案（3f で提示する材料）。[(節名, レイアウト, 理由)]"""
+def suggest_layouts(lines, all_sections=False):
+    """節ごとのレイアウトの割り当て案（3f で提示する材料）。[(節名, レイアウト, 理由)]
+    all_sections なら、案の無い節も箇条書きがあれば (節名, None, 理由) で入れる。"""
     secs, cur, in_fence = [], None, False
     for ln in lines:
         if re.match(r"^\s{0,3}(`{3,}|~{3,})", ln):
@@ -1940,6 +1941,8 @@ def suggest_layouts(lines):
             pick = ("cards", "並列の %d 項目に小項目" % n)
         if pick:
             out.append((name, pick[0], pick[1]))
+        elif all_sections and n:
+            out.append((name, None, "箇条書きが %d 件" % n))
     return out
 
 
@@ -5213,16 +5216,50 @@ def ask_spec(inputs, recommend):
         ("key", "要所だけ動かす", "流れ・手順など、動きで理解が進む図を 1〜2 個選んで動かす。"),
         ("rich", "図をすべて動かす", "すべての図が流れの向きに沿って順に現れる。"))})
     names = "・".join(os.path.basename(p) for p in inputs[:3]) + (" ほか" if len(inputs) > 3 else "")
-    return {"title": "md-to-doc の設定", "intro": names, "submit": "この内容で生成", "questions": qs}
+    qs[0]["remember"] = False  # テーマは文書ごとのおすすめを既定にする（前回の回答で上書きしない）
+    return {"title": "md-to-doc の設定", "intro": names, "submit": "この内容で生成", "remember": "md-to-doc",
+            "questions": qs}
 
 
-def run_ask(spec):
-    """隣の ask-form スキルで質問の画面を出し、その結果（JSON 1 行）と終了コードをそのまま返す。"""
+def ask_layouts_spec(inputs, default_layout):
+    """節ごとのレイアウトの仕分け（3f）を、ask-form の表で直してもらう定義。行は箇条書きのある節。"""
+    groups = (("基本", ("plain", "cards", "timeline", "accordion")),
+              ("追加", ("tabs", "checklist", "defs", "stats", "chips", "tree", "proscons")),
+              ("節の見せ方", SECTION_LAYOUTS), ("そのほか", MORE_LAYOUTS))
+    options = [{"value": v, "label": v, "group": g} for g, vs in groups for v in vs]
+    rows, seen = [], set()
+    for path in inputs:
+        _, body = split_frontmatter(open(path, encoding="utf-8").read())
+        for name, lay, why in suggest_layouts(body.replace("\r\n", "\n").split("\n"), all_sections=True):
+            if name in seen or "=" in name or "," in name:  # --layout-map に書けない節名は出さない
+                continue
+            seen.add(name)
+            rows.append({"value": name, "label": name, "desc": ("案: %s — %s" % (lay, why)) if lay else why,
+                         "default": lay or default_layout})
+    if not rows:
+        return None
+    return {"title": "節ごとのレイアウト", "submit": "この割り当てで生成", "note": False,
+            "intro": "既定は %s です。案を入れてあるので、変えたい節だけ選び直してください。" % default_layout,
+            "questions": [{"id": "layout-map", "label": "割り当て", "type": "table", "rowLabel": "節",
+                           "pickLabel": "レイアウト", "default": default_layout, "options": options, "rows": rows}]}
+
+
+def run_ask(spec, edit=None):
+    """隣の ask-form スキルで質問の画面を出し、その結果（JSON 1 行）を出して終了コードを返す。
+    edit があれば、回答ありの結果に手を加えてから出す。"""
     here = os.path.abspath(__file__)
     for base in (os.path.dirname(here), os.path.dirname(os.path.realpath(here))):
         ask = os.path.join(base, os.pardir, "ask-form", "ask.py")
         if os.path.exists(ask):
-            r = subprocess.run([sys.executable, ask, "-", "--width", "1080", "--height", "1000"], input=json.dumps(spec, ensure_ascii=False).encode("utf-8"))
+            r = subprocess.run([sys.executable, ask, "-", "--width", "1080", "--height", "1000"],
+                               input=json.dumps(spec, ensure_ascii=False).encode("utf-8"), stdout=subprocess.PIPE)
+            out = r.stdout.decode("utf-8")
+            if edit and r.returncode == 0:
+                try:
+                    out = json.dumps(edit(json.loads(out)), ensure_ascii=False) + "\n"
+                except ValueError:
+                    pass
+            sys.stdout.write(out)
             return r.returncode
     print(json.dumps({"status": "unavailable", "reason": "ask-form スキルが見つかりません"}, ensure_ascii=False))
     return 3
@@ -5239,6 +5276,8 @@ def main():
     ap.add_argument("--ask", action="store_true",
                     help="生成前の質問を ask-form の 1 画面で聞き、回答の JSON を出す（HTML は作らない）")
     ap.add_argument("--ask-spec", action="store_true", help="--ask で出す質問の定義（JSON）だけを出す")
+    ap.add_argument("--ask-layouts", action="store_true",
+                    help="節ごとのレイアウトの仕分けを ask-form の表で直してもらい、--layout-map の文字列を出す（HTML は作らない）")
     ap.add_argument("--recommend", default="", metavar="キー,...",
                     help="--ask で先頭に並べる、md の内容に合うテーマ（先頭が既定。例: manual,formal,minimal）")
     ap.add_argument("--mode", default="single", choices=["single", "print", "site"])
@@ -5287,6 +5326,20 @@ def main():
             ch, fit = THEME_INFO.get(k, ("", ""))
             print("| `%s` | %s | %s | %s |" % (k, t["label"], ch, fit))
         return
+    if args.ask_layouts:
+        spec = ask_layouts_spec(args.inputs, args.layout)
+        if spec is None:  # 箇条書きのある節が無い＝仕分けるものが無い
+            print(json.dumps({"status": "answered", "answers": {"layout-map": {}}, "layoutMap": ""}, ensure_ascii=False))
+            return
+        if args.ask_spec:
+            print(json.dumps(spec, ensure_ascii=False, indent=1))
+            return
+
+        def add_map(res):
+            picked = (res.get("answers") or {}).get("layout-map") or {}
+            res["layoutMap"] = ",".join("%s=%s" % (k, v) for k, v in picked.items() if v != args.layout)
+            return res
+        sys.exit(run_ask(spec, add_map))
     if args.ask or args.ask_spec:
         rec = [k.strip() for k in args.recommend.split(",") if k.strip()] or ["corporate"]
         bad = [k for k in rec if k not in THEMES]

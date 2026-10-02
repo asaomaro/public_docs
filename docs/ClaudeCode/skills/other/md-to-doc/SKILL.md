@@ -43,6 +43,7 @@ python3 <skill_dir>/generate.py "<input.md>" --ask --recommend <md に合うテ�
 - `note`（補足の欄）があれば読んで反映する。`custom` に入った項目は自由入力なので、解釈してから使う。
 - 終了コード 2（`cancelled`）・4（`timeout`）は、既定で進めずユーザーにどうするかを聞く。
 - **終了コード 3（`unavailable`。画面の無い環境・ask-form が無い等）のときは、下の `AskUserQuestion` の運用で聞く。**
+- 出力モード・目次などは、前回の回答が既定として入る（テーマは文書ごとのおすすめが既定）。
 - 回答を得たあとは 3f（節ごとの仕分け案の合意。`design=deterministic` のとき）へ進む。手順 1〜3g の各項の説明は、
   回答の意味を読むための資料として使う。
 
@@ -216,7 +217,20 @@ python3 <skill_dir>/generate.py --list-themes
 セクションごとの割り当て案を作り、表で提示して合意を取る（`AskUserQuestion` は使わず、
 本文テキストで案を出して「これで生成してよいか」を確認する）。
 
-**まず `--suggest-layouts` で案の叩き台を作る**（HTML は作らない。Markdown の形から機械的に判定する）:
+**ask-form が使えるときは、表で直してもらう**（`--ask` で回答を得られた環境）:
+
+```bash
+# Bash の timeout は 600000。--layout は 3c で選んだ既定値
+python3 <skill_dir>/generate.py "<input.md>" --ask-layouts --layout <3c の値>
+# → {"status":"answered","answers":{"layout-map":{"導入手順":"timeline",…}},"layoutMap":"導入手順=timeline,主な機能=cards"}
+```
+
+- 箇条書きのある節が行になり、機械的な判定の案が既定で入っている。ユーザーは変えたい節だけ選び直す。
+- 出す前に、案を元 md の内容と照らす。**誤判定だと思う節は、本文に一言添えてから出す**（表の既定は機械的な案のまま）。
+- 結果の `layoutMap` を、そのまま `--layout-map "…"` に渡す（既定値と同じ節は入っていない。空なら `--layout-map` を付けない）。
+- 終了コード 3 のときは、下の手順（本文に表で案を出して合意を取る）で進める。
+
+**ask-form が使えないときは、`--suggest-layouts` で案の叩き台を作る**（HTML は作らない。Markdown の形から機械的に判定する）:
 
 ```bash
 python3 <skill_dir>/generate.py "<input.md>" --theme <key> --suggest-layouts
