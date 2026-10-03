@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
-"""動画を作る前の指示を、ask-form の 1 つのウィンドウで聞く（何の動画か・見る人・使い道・長さ・表現・プレイヤー・配色・動き・音）。
+"""動画を作る前の指示を、ask-form の 1 つのウィンドウで聞く（何の動画か・見る人・使い道・長さ・表現・プレイヤー・配色・背景・動き・音）。
 
   python3 order.py                           # 聞いて、結果を ./order.json に書く（台本の骨組み spec と、作るときの引数 build も入る）
   python3 order.py --subject "Sodashitsu の紹介"   # 何の動画かを入れた状態で出す
   python3 order.py --out intro/order.json
   python3 order.py --spec                    # 出す質問の定義（JSON）だけを見る
-  python3 order.py --no-previews             # プレイヤーの見本の画面を撮らない（Chrome が無いときも撮らない）
+  python3 order.py --no-previews             # プレイヤーと動く背景の見本の画面を撮らない（Chrome が無いときも撮らない）
 
-選択肢は build.py・sound.py の表から作る: プレイヤーは実物の画面の見本つき（初回に Chrome で撮り ~/.cache/motion-video/order/ に置く）、
-配色は色の帯、曲は分類ごと（聞き比べは build.py --sounds）、話者は動いている VOICEVOX から引く。
+選択肢は build.py・sound.py の表から作る: プレイヤーと動く背景は実物の画面の見本つき（初回に Chrome で撮り ~/.cache/motion-video/order/ に置く）、
+SVG の背景はファイルそのものが見本、配色は色の帯、曲は分類ごと（聞き比べは build.py --sounds）、話者は動いている VOICEVOX から引く。
 前回の回答は次回の既定になる（何の動画か・資料・自由記述は持ち越さない）。
 終了コード: 0 回答あり / 2 キャンセル / 3 ウィンドウを出せない（AskUserQuestion で聞き直す。--spec の質問を分けて使う） / 4 時間切れ
 """
-import argparse, json, os, shutil, subprocess, sys, tempfile, urllib.request
+import argparse, base64, json, os, re, shutil, subprocess, sys, tempfile, urllib.request
+import html as html_mod
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -67,6 +68,63 @@ def player_previews(make=True):
     return {p: f for p, f in out.items() if os.path.isfile(f) and os.path.getsize(f) > 8000}
 
 
+def backdrop_previews(make=True):
+    """動く背景ごとの見本の画像（JPEG）。無ければ、Chrome を 1 回だけ動かして全部を描き、~/.cache に置く。撮れなければ空。"""
+    out = {k: os.path.join(CACHE, "bg-%s.jpg" % k) for k in build.BACKDROPS}
+    have = lambda: {k: f for k, f in out.items() if os.path.isfile(f) and os.path.getsize(f) > 1500}
+    chrome = next((c for c in ("google-chrome", "chromium", "chromium-browser", "chrome") if shutil.which(c)), None)
+    if len(have()) == len(out) or not make or not chrome:
+        return have()
+    os.makedirs(CACHE, exist_ok=True)
+    spec = {"title": "背景の見本", "lang": "ja", "theme": "navy-brass", "chrome": False, "audio": {"narration": False, "music": None, "sfx": False},
+            "chapters": [{"title": "a", "scenes": [{"type": "statement", "lines": [" "], "fx": False}]}]}
+    try:
+        errs = build.validate(spec, HERE)
+        if errs:
+            raise ValueError("; ".join(errs[:3]))
+        build.plan(spec)
+        html = build.build_html(spec, "navy-brass", "studio", True)
+    except Exception as e:   # 作れなければ見本なしで聞く
+        print("warn: 動く背景の見本を作れません（%s）" % e, file=sys.stderr)
+        return have()
+    # 1 枚ずつ 480×270 に描き、data URL を <pre> に書く（--dump-dom で受け取る）
+    hook = ('<script>window.addEventListener("load",function(){setTimeout(function(){try{var cv=__MV__.drawAt(0),x=cv.getContext("2d"),B=__MV__.backdrops,o={},'
+            'c=document.createElement("canvas");c.width=480;c.height=270;Object.keys(B).forEach(function(n){x.save();B[n].draw(.3,{});x.restore();'
+            'c.getContext("2d").drawImage(cv,0,0,480,270);o[n]=c.toDataURL("image/jpeg",.8)});var p=document.createElement("pre");p.id="mv-bg-shots";'
+            'p.textContent=JSON.stringify(o);document.body.appendChild(p)}catch(e){}},600)})</script>')
+    with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False, encoding="utf-8") as f:
+        f.write(html + hook)
+    try:
+        r = subprocess.run([chrome, "--headless=new", "--no-sandbox", "--window-size=1100,960", "--virtual-time-budget=6000", "--dump-dom", "file://" + f.name],
+                           capture_output=True, text=True, timeout=90)
+        m = re.search(r'<pre id="mv-bg-shots">(.*?)</pre>', r.stdout, re.S)
+        for k, uri in (json.loads(html_mod.unescape(m.group(1))) if m else {}).items():
+            if k in out and uri.startswith("data:image/jpeg;base64,"):
+                with open(out[k], "wb") as g:
+                    g.write(base64.b64decode(uri.split(",", 1)[1]))
+    except Exception as e:
+        print("warn: 動く背景の見本を撮れません（%s）" % e, file=sys.stderr)
+    finally:
+        os.remove(f.name)
+    return have()
+
+
+def background_options(previews=True):
+    """背景の選択肢（動く背景・SVG の背景）。分類ごとに並べ、見本の画像を付ける（SVG はファイルそのもの。配色に合わせるものは紺と真鍮の色で見える）。"""
+    shots, sv, opts = backdrop_previews(previews), build.bg_svgs(), []
+    for k, d in build.BACKDROPS.items():
+        o = {"value": k, "label": k, "desc": d, "group": "動く背景（ループする。色は配色に合う）"}
+        if k in shots:
+            o["image"] = shots[k]
+        opts.append(o)
+    groups = (("themed", None, "SVG の背景・配色に合わせる"), ("scenery", "dark", "SVG の背景・景色と場所（暗い絵。暗い配色で）"), ("scenery", "light", "SVG の背景・景色と場所（明るい絵。明るい配色で）"))
+    for kind, tone, group in groups:
+        for k, e in sv.items():
+            if e["kind"] == kind and e.get("tone") == tone:
+                opts.append({"value": k, "label": "%s（%s）" % (e["label"], k), "desc": e["desc"], "group": group, "image": os.path.join(build.BG_DIR, e["file"])})
+    return opts
+
+
 def voicevox_speakers(url=VOICEVOX):
     """動いている VOICEVOX の話者（名前・スタイル）。つながらなければ None。"""
     try:
@@ -89,6 +147,7 @@ def build_spec(subject="", previews=True):
     for k, t in build.THEMES.items():
         c = t["canvas"]
         palettes.append({"value": k, "label": "%s（%s）" % (t["label"], k), "desc": t["desc"], "colors": [c["bg0"], c["panel"], c["accent"], c["accent2"], c["ink"]]})
+    backgrounds = background_options(previews)
     motions = [{"value": "auto", "label": "おまかせ（内容と見る人から選ぶ）", "recommended": True}]
     motions += [{"value": k, "label": k, "desc": v} for k, v in build.MOTION_STYLES.items()]
     tracks = [{"value": k, "label": "%s（%s）" % (v["name"], k), "group": v["cat"], "desc": v["desc"]} for k, v in sound.MUSIC.items()]
@@ -139,6 +198,12 @@ def build_spec(subject="", previews=True):
         {"id": "palette", "label": "配色", "default": "auto", "options": palettes, "help": "帯の色は、地・板・差し色 2 つ・文字"},
         {"id": "brand", "label": "ブランド名・ブランドの色（任意）", "type": "text", "remember": False, "placeholder": "例: Sodashitsu、#1f6feb",
          "help": "名前は右上に出す。色はいちばん近い配色を選ぶ（配色の上書きはしない）"},
+        {"id": "bg", "label": "背景", "default": "auto", "options": [
+            {"value": "auto", "label": "おまかせ（内容から選ぶ）", "desc": "静かな地を 1 つ決め、題・言い切り・締めなどの見せ場だけ替える", "recommended": True},
+            {"value": "pick", "label": "全場面の地を選ぶ（動く背景 %d 種・SVG の背景 %d 枚から）" % (len(build.BACKDROPS), len(build.bg_svgs())), "desc": "見せ場の場面だけ替えるかは、内容から決める"},
+            {"value": "theme", "label": "配色の地のまま（背景を足さない）", "desc": "配色の色と模様だけ。情報の多い動画・落ち着いた説明に"}]},
+        {"id": "bg_name", "label": "全場面の地", "showIf": {"bg": "pick"}, "default": "soft", "options": backgrounds, "preview": "inline", "thumb": 96,
+         "help": "「配色に合わせる」の見本は紺と真鍮の色。選んだ配色の色に置き換わる。全部を動かして見るページは python3 build.py --backgrounds -o backgrounds.html"},
         {"id": "motion", "label": "動きの性格", "default": "auto", "options": motions,
          "help": "切り替え・文字の出方・演出・カメラの既定がまとめて決まる"},
         {"id": "audio", "label": "音", "default": "full", "options": [
@@ -194,6 +259,8 @@ def skeleton(a):
         s["theme"] = a["palette"]
     if a.get("motion", "auto") != "auto":
         s["motion"] = a["motion"]
+    if a.get("bg") == "pick" and a.get("bg_name"):   # 全場面の地。おまかせ・配色の地のままは書かない（answers.bg を見て、台本を書くときに決める）
+        s["bg"] = a["bg_name"]
     au, mode = {}, a.get("audio", "full")
     au["narration"] = mode in ("full", "composed", "narration")
     if mode in ("narration", "silent"):
@@ -244,6 +311,14 @@ def warnings(a):
         w.append("作曲・自作の効果音は、表現が「自由」のとき向け（部品の表現でも使えるが、手間に見合うか）")
     if a.get("voice") == "voicevox" and not voicevox_speakers():
         w.append("VOICEVOX が動いていない。作る前に起動する（%s）" % VOICEVOX)
+    e = build.bg_svgs().get(a.get("bg_name")) if a.get("bg") == "pick" else None
+    if e and e.get("tone"):   # 景色の背景は色が決まっている
+        pal, word = a.get("palette", "auto"), {"dark": "暗い", "light": "明るい"}[e["tone"]]
+        if pal == "auto":
+            w.append("背景「%s」は%s絵。配色は、%s地のものから選ぶ" % (e["label"], word, word))
+        elif pal in build.THEMES and build.bg_warnings({"theme": pal, "bg": a["bg_name"]}):
+            w.append("背景「%s」は%s絵で、配色「%s」と明るさが合わない（字が読みにくい）。配色を替えるか、bg を {\"src\": \"%s\", \"dim\": 0.5} にして抑える"
+                     % (e["label"], word, build.THEMES[pal]["label"], a["bg_name"]))
     if a.get("use") == "embed" and a.get("player") not in ("auto", "minimal"):
         w.append("埋め込みには、操作部の小さいミニマルが向く")
     return w
@@ -254,7 +329,7 @@ def main():
     ap.add_argument("--subject", default="")
     ap.add_argument("--out", default="order.json")
     ap.add_argument("--spec", action="store_true", help="質問の定義を出すだけ")
-    ap.add_argument("--no-previews", action="store_true", help="プレイヤーの見本の画面を撮らない")
+    ap.add_argument("--no-previews", action="store_true", help="プレイヤーと動く背景の見本の画面を撮らない")
     a = ap.parse_args()
     spec = build_spec(a.subject, not a.no_previews)
     if a.spec:
