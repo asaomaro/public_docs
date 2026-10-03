@@ -1939,9 +1939,15 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var fn = STAGE_DRAW.get(it);
     if (!fn) { try { fn = new Function("ctx", "lt", "d", "H", "s", Array.isArray(it.draw) ? it.draw.join("\n") : it.draw); } catch (e) { fn = function () {}; console.error("stage draw:", e); } STAGE_DRAW.set(it, fn); }
     var cs = CURSHOT; it.cue = function (n) { if (!cs) return 1e9; var c = (cs.s._cues || []).filter(function (c2) { return c2[4] === cs.line + (n || 0); })[0]; return c ? c[0] - cs.t0 : 1e9; };
-    it.box = box;   /* 描く範囲（立ち絵と字幕に隠れない所）。plate: "dark"（既定）・"light"・"none" で、その範囲に板を敷く */
+    it.box = box;   /* 描く範囲（立ち絵と字幕に隠れない所）。plate: "dark"（既定）・"light"・"board"（黒板）・"none" で、その範囲に板を敷く */
     if (it.plate !== "none") { var pk = P(slt, 0, 320); ctx.save(); ctx.globalAlpha *= pk; ctx.translate(0, (1 - pk) * 16); ctx.shadowColor = "rgba(0,0,0,.35)"; ctx.shadowBlur = 26; ctx.shadowOffsetY = 8;
-      rr(box.x, box.y, box.w, box.h, 26); ctx.fillStyle = it.plate === "light" ? "rgba(255,255,255,.96)" : "rgba(18,26,40,.93)"; ctx.fill(); ctx.shadowColor = "transparent"; ctx.strokeStyle = it.plate === "light" ? "#20242c" : "#ffffff"; ctx.lineWidth = 5; ctx.stroke(); ctx.restore(); }
+      if (it.plate === "board") {   /* 黒板: 深い緑の板に木の枠と粉受け。暗い板と同じく、明るい色の字と線で描く（図解の手本の作り。Web の画面のような暗い板に見えない） */
+        rr(box.x, box.y, box.w, box.h, 8); ctx.fillStyle = "#8a5a33"; ctx.fill(); ctx.shadowColor = "transparent";
+        var g0 = ctx.createLinearGradient(0, box.y, 0, box.y + box.h); g0.addColorStop(0, "#2b5445"); g0.addColorStop(1, "#1f4034");
+        ctx.fillStyle = g0; ctx.fillRect(box.x + 16, box.y + 16, box.w - 32, box.h - 40);
+        ctx.fillStyle = "#a9713f"; ctx.fillRect(box.x + 8, box.y + box.h - 24, box.w - 16, 16); ctx.fillStyle = "#f4f1e6"; ctx.fillRect(box.x + box.w - 150, box.y + box.h - 30, 46, 8); ctx.fillStyle = "#f2c94c"; ctx.fillRect(box.x + box.w - 92, box.y + box.h - 30, 34, 8);   /* 粉受けとチョーク */
+        ctx.restore(); }
+      else { rr(box.x, box.y, box.w, box.h, 26); ctx.fillStyle = it.plate === "light" ? "rgba(255,255,255,.96)" : "rgba(18,26,40,.93)"; ctx.fill(); ctx.shadowColor = "transparent"; ctx.strokeStyle = it.plate === "light" ? "#20242c" : "#ffffff"; ctx.lineWidth = 5; ctx.stroke(); ctx.restore(); } }
     var txt0 = HELP.txt; if (it.plate === "none") HELP.txt = function (s2, x, y, o) { return txt0(s2, x, y, Object.assign({ stroke: "#16161d" }, o || {})); };
     ctx.save(); EVMUTE++; try { fn(ctx, slt, d, HELP, it); } catch (e) { if (!it._err) { it._err = String(e && e.message || e); console.error("stage draw:", e); } } finally { EVMUTE--; HELP.txt = txt0; } ctx.restore();
     if (it._err) txt("draw のエラー: " + it._err, box.x + 24, box.y + box.h - 20, { size: 26, weight: 700, color: "#ff5a4d" });   /* 描く途中で止まったら、板の下に出す（--shots で気づける） */
@@ -1953,9 +1959,24 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     if (ST.photo === "full" && solo.length === 1 && solo[0].img && solo[0].frame && (sh.items || []).length === 1) {
       var fim = IMGS["@" + solo[0].img];
       if (fim && fim.complete && fim.naturalWidth) { var fk = P(slt, 0, 260), fs = Math.max(1920 / fim.naturalWidth, capY / fim.naturalHeight) * (1 + .04 * clamp(slt / 8000)), fw = fim.naturalWidth * fs, fh = fim.naturalHeight * fs;
-        ctx.save(); ctx.globalAlpha *= fk; ctx.beginPath(); ctx.rect(0, 0, 1920, capY); ctx.clip(); ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, 1920, capY); ctx.drawImage(fim, 960 - fw / 2, capY / 2 - fh / 2, fw, fh);
-        if (solo[0].label) { var fo = capFont(34), flw = tw("【" + solo[0].label + "】", fo) + 28; var fly = capY < 1080 ? capY - 76 : 150; ctx.fillStyle = "rgba(0,0,0,.72)"; ctx.fillRect(960 - flw / 2, fly, flw, 50); txt("【" + solo[0].label + "】", 960, fly + 36, { size: 34, weight: 800, align: "center", color: "#ffffff", font: fo.font }); }
-        if (solo[0].credit) { ctx.font = font(capFont(20, 700)); ctx.textAlign = "right"; ctx.lineJoin = "round"; ctx.lineWidth = 5; ctx.strokeStyle = "rgba(0,0,0,.8)"; ctx.textAlign = "left"; ctx.strokeText(solo[0].credit, 24, 28); ctx.fillStyle = "#ffffff"; ctx.fillText(solo[0].credit, 24, 28); }
+        ctx.save(); ctx.globalAlpha *= fk; ctx.beginPath(); ctx.rect(0, 0, 1920, capY); ctx.clip(); ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, 1920, capY);
+        /* 縦長の写真は、画面いっぱいに広げると主題が切れる。ぼかして暗くした同じ写真を敷き、その上に全体が入る大きさで置く（白い縁つき） */
+        var sideX = 0;   /* 縦長のとき: 写真の左右の空きの中央までの距離（名札は左、吹き出しは右に置いて、写真に重ねない） */
+        if (fim.naturalHeight / fim.naturalWidth > capY / 1920 * 1.45) {
+          ctx.save(); ctx.filter = "blur(26px) brightness(.5)"; ctx.drawImage(fim, 960 - fw / 2, capY / 2 - fh / 2, fw, fh); ctx.restore();
+          var ch2 = capY - 70, cw2 = fim.naturalWidth * ch2 / fim.naturalHeight, cz = 1 + .03 * clamp(slt / 8000);
+          ctx.save(); ctx.translate(960, capY / 2); ctx.scale(cz, cz); ctx.shadowColor = "rgba(0,0,0,.5)"; ctx.shadowBlur = 30; ctx.fillStyle = "#ffffff"; ctx.fillRect(-cw2 / 2 - 8, -ch2 / 2 - 8, cw2 + 16, ch2 + 16);
+          ctx.shadowColor = "transparent"; ctx.drawImage(fim, -cw2 / 2, -ch2 / 2, cw2, ch2); ctx.restore();
+          sideX = cw2 / 2 + (960 - cw2 / 2) / 2;
+        } else ctx.drawImage(fim, 960 - fw / 2, capY / 2 - fh / 2, fw, fh);
+        if (solo[0].say) {   /* 絵の吹き出し（全画面でも出す）: 上の中央に白い箱 */
+          var so = capFont(40, 800), sw = tw(solo[0].say, so) + 56, sk = P(slt, 300, 620, back); var half = sideX ? 2 * (sideX - 480) : 0;
+          ctx.save(); ctx.translate(sideX ? 960 + half - sw / 2 + 60 : 960, sideX ? 150 : 96); ctx.scale(sk, sk);
+          rr(-sw / 2, -40, sw, 76, 24); ctx.fillStyle = "#ffffff"; ctx.fill(); ctx.lineWidth = 5; ctx.strokeStyle = "#20242c"; ctx.stroke();
+          var tx0 = sideX ? -sw / 2 + 40 : 0; ctx.beginPath(); ctx.moveTo(tx0 - 16, 34); ctx.lineTo(tx0 - (sideX ? 26 : 0), 66); ctx.lineTo(tx0 + 16, 34); ctx.closePath(); ctx.fillStyle = "#ffffff"; ctx.fill();
+          txt(solo[0].say, 0, 14, { size: 40, weight: 800, align: "center", color: "#20242c", font: so.font }); ctx.restore(); }
+        if (solo[0].label) { var fo = capFont(34), flw = tw("【" + solo[0].label + "】", fo) + 28; var fly = capY < 1080 ? capY - 76 : 150, flx = sideX ? Math.max(flw / 2 + 20, 960 - sideX) : 960; ctx.fillStyle = "rgba(0,0,0,.72)"; ctx.fillRect(flx - flw / 2, fly, flw, 50); txt("【" + solo[0].label + "】", flx, fly + 36, { size: 34, weight: 800, align: "center", color: "#ffffff", font: fo.font }); }
+        if (solo[0].credit) { ctx.font = font(capFont(20, 700)); ctx.textAlign = "right"; ctx.lineJoin = "round"; ctx.lineWidth = 5; ctx.strokeStyle = "rgba(0,0,0,.8)"; ctx.textAlign = "right"; ctx.strokeText(solo[0].credit, 1896, 28); ctx.fillStyle = "#ffffff"; ctx.fillText(solo[0].credit, 1896, 28); }
         ctx.restore();
         if (sh.title) { var ftk = P(slt, 0, 300); ctx.save(); ctx.globalAlpha *= ftk; capLine(sh.title, 960, 130, capFont(62, 900), [[20, "#16161d"]], "#ffffff", "#ffe45c"); ctx.restore(); }
         if (sh.note) { var fnk = P(slt, 400, 750); ctx.save(); ctx.globalAlpha *= fnk; capLine(sh.note, 960, capY - 110, capFont(58, 900), [[19, "#16161d"]], "#ffe45c", "#ffffff"); ctx.restore(); }
