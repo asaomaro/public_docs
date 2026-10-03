@@ -7,7 +7,7 @@
  *   el.spec = 検査済みの定義（fixtures/normalize.json の「正規化後」の形）。入れ替えると描き直す
  *   el.busy = true の間は、決定・キャンセルを押せない（送信中）
  *   el.resolveMedia = (ref, "image" | "audio") => 出してよい URL か null。無ければ画像・音のプレビューを出さない
- *   el.submit() / el.relayout() / el.notify(文, 警告か) / el.value / el.pageCount / el.contentHeight
+ *   el.submit() / el.step(±1) / el.relayout() / el.notify(文, 警告か) / el.value / el.pageCount / el.contentHeight
  *   イベント（bubbles・composed）: ask-submit {answers, custom?, edited?, note?} / ask-cancel / ask-unsupported {reason}
  *     未回答があるときは ask-submit を出さず、該当のページと質問を示す。Esc では ask-cancel を出さない（取り消しは置いた側）
  *   配色: --ask-bg --ask-fg --ask-border --ask-accent --ask-accent-fg --ask-error --ask-warn（任意で --ask-card --ask-muted --ask-accent-soft）
@@ -17,7 +17,7 @@
  *   定義の文字は textContent で出す（innerHTML を使わない）。色・数は確かめてから個別のプロパティに入れる。
  *   通信しない。window・document に触らない（リスナーは Shadow DOM の中・部品の要素・自分に付けた ResizeObserver だけで、外すときに外す）。
  */
-const VERSION = '1.0.1';
+const VERSION = '1.1.0';
 const TYPES = ['single', 'multi', 'text', 'edit', 'rank', 'table'];
 const FIELDS = ['title', 'intro', 'submit', 'note', 'notePlaceholder', 'paging',
   'id', 'label', 'type', 'help', 'page', 'options', 'default', 'allowOther', 'otherLabel', 'otherPlaceholder', 'showIf', 'required',
@@ -205,7 +205,7 @@ function mount(host, root, SPEC) {
     } else pre.textContent = String(o.code);
     return pre;
   }
-  const inputOf = (q, o) => FS.get(q.id).querySelector(`input[name="${CSS.escape(q.id)}"][value="${CSS.escape(o.value)}"]`);
+  const inputOf = (q, o) => FS.get(q.id).querySelector(`input[name="${CSS.escape(q.id)}"][value="${CSS.escape(o.value)}"]:not([data-other])`);
 
   // 画像の拡大表示（←→ で同じ質問の画像を移り、Enter でその選択肢を選ぶ）
   const lbImg = el('img', { alt: '' }), lbCap = el('div', { class: 'cap' });
@@ -224,11 +224,12 @@ function mount(host, root, SPEC) {
     const items = q.options.filter(x => x._image);
     lbState = { q, items, i: Math.max(0, items.indexOf(o)) };
     lbDraw();
+    root.append(lb);
     lb.hidden = false;
     lbPickBtn.focus();
   }
   function lbMove(d) { const n = lbState.items.length; lbState.i = (lbState.i + d + n) % n; lbDraw(); }
-  function lbClose() { lb.hidden = true; lbState = null; }
+  function lbClose() { lb.hidden = true; lb.remove(); lbState = null; }
   function lbPick() {
     const { q, items, i } = lbState, inp = inputOf(q, items[i]);
     lbClose();
@@ -332,7 +333,7 @@ function mount(host, root, SPEC) {
     let otherPick = null, otherText = null;
     if (q.allowOther) {
       otherText = el('input', { type: 'text', maxlength: TEXT_MAX, placeholder: q.otherPlaceholder || '自由に入力', 'aria-label': (q.otherLabel || 'その他') + 'の内容' });
-      otherPick = el('input', { type: itype, name: q.id, value: '__other__' });
+      otherPick = el('input', { type: itype, name: q.id, value: '', 'data-other': true });   // 「その他」は値ではなく印で見分ける（定義の値とぶつからない）
       otherText.addEventListener('input', () => { if (otherText.value) otherPick.checked = true; refresh(); });
       otherText.addEventListener('focus', () => { otherPick.checked = true; refresh(); });
       box.append(el('label', { class: 'opt other' }, otherPick, el('span', { class: 'name', text: q.otherLabel || 'その他' }), otherText));
@@ -370,15 +371,15 @@ function mount(host, root, SPEC) {
     const inputs = () => [...box.querySelectorAll(`input[name="${CSS.escape(q.id)}"]`)];
     ctl[q.id] = {
       get() {
-        const vals = inputs().filter(i => i.checked)
-          .map(i => i.value === '__other__' ? otherText.value.trim() : i.value).filter(v => v !== '');
+        const vals = inputs().filter(i => i.checked && !(i === otherPick && otherText.value.trim() === ''))
+          .map(i => i === otherPick ? otherText.value.trim() : i.value);
         return q.type === 'multi' ? vals : (vals[0] ?? null);
       },
       miss: (v) => q.type === 'single' ? v == null : (q.required ? v.length === 0 : false),
       custom: () => !!(otherPick && otherPick.checked),
       set(d) {
         const want = arr(d).map(String);
-        for (const i of inputs()) i.checked = want.includes(i.value);
+        for (const i of inputs()) i.checked = i !== otherPick && want.includes(i.value);
         if (pv) showPv();
       },
     };
@@ -557,7 +558,7 @@ function mount(host, root, SPEC) {
     inner.append(noteBox);
     ITEMS.push(noteBox);
   }
-  root.replaceChildren(el('style', { text: STYLE }), body, footer, lb);
+  root.replaceChildren(el('style', { text: STYLE }), body, footer);   // 拡大表示（lb）は、開いたときにだけ入れる
 
   // ── ページ ──
   // 質問の page（ページの題。同じ題が続くあいだが 1 ページ）で分ける。page が無ければ、定義の paging に従う:
@@ -678,7 +679,7 @@ function mount(host, root, SPEC) {
       fs.querySelector('.num').textContent = ++n;
       const v = c.get();
       const miss = c.miss(v);
-      if (miss) lacking.push(q); else fs.classList.remove('missing');
+      if (miss) lacking.push(q); else { fs.classList.remove('missing'); fs.removeAttribute('aria-invalid'); }
       if (!miss || q.type !== 'single') answers[q.id] = v;
       if (c.custom && c.custom()) custom.push(q.id);
       if (c.edited && c.edited()) edited.push(q.id);
@@ -710,9 +711,12 @@ function mount(host, root, SPEC) {
     if (host.busy) return;
     const { out, lacking } = value();
     if (lacking.length) {
-      for (const q of lacking) FS.get(q.id).classList.add('missing');
-      go(PAGES.indexOf(FS.get(lacking[0].id)._page), true);   // 未回答のあるページへ
-      FS.get(lacking[0].id).scrollIntoView({ behavior: 'smooth', block: 'center' });
+      for (const q of lacking) { FS.get(q.id).classList.add('missing'); FS.get(q.id).setAttribute('aria-invalid', 'true'); }
+      const firstFs = FS.get(lacking[0].id);
+      go(PAGES.indexOf(firstFs._page), true);   // 未回答のあるページへ
+      const target = firstFs.querySelector('input:not([type=search]),textarea,select');
+      if (target) target.focus({ preventScroll: true });   // その質問へフォーカスを移す
+      firstFs.scrollIntoView({ behavior: 'smooth', block: 'center' });
       status.textContent = `未回答 ${lacking.length} 件 — 答えてから決定してください`;
       status.classList.add('warn');
       return;
@@ -727,9 +731,15 @@ function mount(host, root, SPEC) {
   let how = '';   // 直前の操作（'pointer' か、押したキー）
   root.addEventListener('pointerdown', () => { how = 'pointer'; }, true);
   root.addEventListener('keydown', (e) => { how = e.key; }, true);
-  inner.addEventListener('change', (e) => {
+  inner.addEventListener('change', refresh);
+  // 選択肢のクリック（ポインタ・Space）。既に選ばれている選択肢でも決定する（change は起きないので、click で見る）。
+  // 矢印キーで移ったときにブラウザが出す click では決定しない
+  inner.addEventListener('click', (e) => {
+    const t = e.target;
+    if (!instant || t.type !== 'radio' || t.dataset.other != null || !(how === 'pointer' || how === ' ' || how === 'Enter')) return;
+    t.checked = true;
     refresh();
-    if (instant && e.target.type === 'radio' && e.target.value !== '__other__' && (how === 'pointer' || how === ' ' || how === 'Enter')) submit();
+    submit();
   });
   inner.addEventListener('input', refresh);
   submitBtn.addEventListener('click', submit);
@@ -766,7 +776,7 @@ function mount(host, root, SPEC) {
       used();
       if (nextBtn.hidden) submit(); else step(1);
     }
-    else if (e.key === 'Enter' && instant && t.matches && t.matches('input[type=radio]') && t.value !== '__other__') {  // 即確定: Enter で選んで決定
+    else if (e.key === 'Enter' && instant && t.matches && t.matches('input[type=radio]:not([data-other])')) {  // 即確定: Enter で選んで決定
       used();
       t.checked = true;
       refresh();
@@ -778,6 +788,7 @@ function mount(host, root, SPEC) {
   refresh();
   return {
     submit,
+    step,
     autoPages,
     value() { const { out, lacking } = value(); return Object.assign(out, { lacking: lacking.map(q => q.id) }); },
     setBusy(b) { submitBtn.disabled = cancelBtn.disabled = !!b; },
@@ -840,6 +851,8 @@ export class AskFormElement extends HTMLElement {
 
   /** 今の回答で決定する（未回答があれば、決定せずにその質問を示す）。 */
   submit() { if (this.#ui) this.#ui.submit(); }
+  /** ページを移る（+1 で次・-1 で前。質問が 1 つも出ていないページは飛ばす）。部品の外でキーを受けたとき用。 */
+  step(delta) { if (this.#ui) this.#ui.step(delta < 0 ? -1 : 1); }
   /** 高さでのページ分けをやり直す（置いた側が高さを決め直したとき）。 */
   relayout() { if (this.#ui) this.#sized = this.#ui.autoPages(); }
   /** 状態の行に文を出す（送れなかった、など）。 */
