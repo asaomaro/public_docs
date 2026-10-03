@@ -9,7 +9,7 @@
 描画は台本と時刻だけで決まる（同じ台本 → 同じ動画。シークしても同じ画）。
 外部への依存は無い（書体は OS のもの。画像は data URI で埋め込む）。
 """
-import sys, os, re, json, html, base64, argparse, mimetypes, urllib.parse, urllib.request
+import sys, os, re, json, html, base64, argparse, mimetypes, shutil, tempfile, urllib.parse, urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -189,7 +189,8 @@ SCENE_TYPES.update({
 })
 COMMON = ("共通: narration（ナレーション＝字幕。文字列か配列）・duration（秒。省略時は自動）・heading・transition（切り替え。下の一覧）"
           "・overlays（重ねの層）・camera（カメラ。型の名前か keyframe）・anim（文字の出方。title・statement・quote・end・kinetic・impact・logo）"
-          "・fx（演出の層の配列。false で性格の既定も止める）・shake（[{at, amp, dur}] 画面の揺れ）・sfx（効果音）")
+          "・fx（演出の層の配列。false で性格の既定も止める）・shake（[{at, amp, dur}] 画面の揺れ）・sfx（効果音）"
+          "・bg（背景。名前は --list-bg。台本・章にも書ける）")
 
 OVERLAY_KINDS = {
     "note": (["text"], '注記の吹き出し。target で引き出し線', '{"kind":"note","text":"ここが**新しい**","x":1300,"y":200,"target":[900,420],"at":0.3,"until":0.9}'),
@@ -245,6 +246,106 @@ FX = {
     "leaks": "光漏れ（上）", "spotlight": "動くスポットライト（上）", "sparkles": "きらめき（上）",
 }
 FX.update({"cubes": "奥行きの中を回りながら漂う針金の箱"})
+# 動く背景（parts-backdrops.js）。台本・章・場面の bg に名前を書く。どれも継ぎ目なく繰り返し、色は配色に合わせる
+BACKDROPS = {
+    "flow": "色のにじみがゆっくり混ざり合う", "aurora": "オーロラの帯が揺れる", "bokeh": "淡い光の玉が漂う", "rays": "上から差す光の筋が揺れる",
+    "spotlights": "下からの照明が左右に振れる", "blobs": "四隅の丸い形がゆらぐ",
+    "waves": "下で重なる波が流れる", "ribbons": "細い線の束がうねる", "ridges": "重なる線の山が波打つ", "ocean": "水平線と、寄せる波と、光の道",
+    "stripes": "斜めの縞が流れる", "sunburst": "放射の光がゆっくり回る",
+    "stars": "瞬きながら流れる星", "meteors": "星空に流れ星", "warp": "奥から迫る星（ワープ）", "galaxy": "渦を巻く銀河が回る",
+    "rise": "光の粒が昇る", "snow": "雪が降る", "rain": "雨が降る", "bubbles": "泡が昇る", "fireflies": "蛍が明滅しながら漂う",
+    "petals": "花びらが舞い落ちる（color で色）", "confetti": "紙吹雪が舞い落ちる", "sparkles": "きらめきが瞬く", "clouds": "雲が流れる",
+    "grid-floor": "奥から手前へ流れる格子の床", "grid-scroll": "方眼が斜めに流れる", "dots-wave": "点の並びに波紋が広がる", "halftone": "網点が波のように大きくなる",
+    "hex-pulse": "六角形の並びに光の波が広がる", "tiles": "大きなタイルが順に灯る", "pixels": "細かいマスが明滅する", "ripples": "水の輪が広がる",
+    "radar": "レーダーの走査が回る", "tunnel": "四角い枠の中を進み続ける", "prism": "重なる三角が互い違いに回る", "orbits": "軌道の上を星が回る",
+    "helix": "二重らせんが回る", "plexus": "点と線の網が漂う", "circuit": "基板の配線を光が走る", "matrix": "文字が流れ落ちる",
+    "equalizer": "音の棒が上下する", "scan": "走査線の光が上から下へ流れる",
+}
+BG_DIR = os.path.join(HERE, "bg")
+_BG_SVG = []
+
+
+def bg_svgs():
+    """SVG の背景の一覧（bg/index.json。bg_make.py が書く）: {名前: {file, label, desc, kind: themed|scenery, tone}}"""
+    if not _BG_SVG:
+        p = os.path.join(BG_DIR, "index.json")
+        _BG_SVG.append(json.load(open(p, encoding="utf-8")) if os.path.isfile(p) else {})
+    return _BG_SVG[0]
+
+
+def bg_resolve(v, base, spec, where, errs):
+    """背景の指定（名前・画像のファイル・{src, dim, speed, color}）を確かめ、HTML に入れる形にして返す。
+    動く背景と SVG の背景は名前のまま返す（SVG の本文は spec["bgs"] に 1 回だけ入れ、色は engine.js が配色に置き換える）。画像は data URI にする。"""
+    if not v:
+        return v
+    o = dict(v) if isinstance(v, dict) else None
+    src = o.get("src") if o is not None else v
+    if not isinstance(src, str) or not src:
+        errs.append("%s: bg は、背景の名前（--list-bg）・画像のファイル・{src, dim, speed} のいずれか" % where)
+        return v
+    for k in ("dim", "speed"):
+        if o and k in o and not (isinstance(o[k], (int, float)) and not isinstance(o[k], bool) and (0 <= o[k] <= 1 if k == "dim" else o[k] > 0)):
+            errs.append("%s: bg の %s は %s" % (where, k, "0〜1 の数（配色の地の色を重ねて抑える割合）" if k == "dim" else "0 より大きい数（動く背景の速さの倍率）"))
+    if src in BACKDROPS:
+        pass
+    elif src in bg_svgs():
+        spec.setdefault("bgs", {})[src] = open(os.path.join(BG_DIR, bg_svgs()[src]["file"]), encoding="utf-8").read().strip()
+    else:
+        uri, miss = _embed(src, base)
+        if miss:
+            errs.append("%s: bg の画像が見つかりません: %s（背景の名前は --list-bg）" % (where, miss))
+            return v
+        src = uri
+    if o is not None:
+        o["src"] = src
+        return o
+    return src
+
+
+def bg_warnings(spec, theme=None):
+    """景色の背景（色が決まっている）の明るさが、配色の明るさと合わないものを知らせる（字が読みにくくなる）。"""
+    canvas = THEMES.get(theme or spec.get("theme") or "navy-brass", THEMES["navy-brass"])["canvas"]
+    h = canvas["bg0"].lstrip("#")
+    tone = "dark" if len(h) == 6 and (int(h[0:2], 16) * .299 + int(h[2:4], 16) * .587 + int(h[4:6], 16) * .114) < 128 else "light"
+    bad = []
+    for v in [spec.get("bg")] + [s.get("bg") for ch in spec.get("chapters") or [] for s in ch.get("scenes") or [] if not is_dialogue(s)]:
+        src, dim = (v.get("src"), v.get("dim", 0)) if isinstance(v, dict) else (v, 0)
+        e = bg_svgs().get(src) if isinstance(src, str) else None
+        if e and e.get("tone") and e["tone"] != tone and dim < .3 and src not in bad:
+            bad.append(src)
+    if not bad:
+        return []
+    return ["背景 %s は%sい絵ですが、配色は%sい地のもの（字は%sい色）なので、字が読みにくくなります。明るさの合う配色に替えるか、"
+            "{\"src\": 名前, \"dim\": 0.5} で背景を抑えてください" % ("・".join(bad), "明る" if tone == "dark" else "暗", "暗" if tone == "dark" else "明る", "明る" if tone == "dark" else "暗")]
+
+
+def print_backgrounds():
+    sv = bg_svgs()
+    print("# 背景（台本・章・場面の bg に名前を書く。台本の bg は全場面の地、章・場面の bg はそこだけ替える。false で配色の地に戻す）")
+    print('  書き方: "bg": "aurora"　または　"bg": {"src": "sky-night", "dim": 0.4, "speed": 0.5}')
+    print("  dim: 配色の地の色を重ねて背景を抑える割合（0〜1）。speed: 動く背景の速さの倍率。color: 単色の動く背景の色（配色の色の名前か #rrggbb）")
+    print("  画像のファイル（PNG・JPEG・SVG）も書ける。見比べるページは --backgrounds -o backgrounds.html")
+    print("\n## 動く背景（%d 種。継ぎ目なく繰り返す。色は配色に合わせる）" % len(BACKDROPS))
+    for k, d in BACKDROPS.items():
+        print("  %-12s %s" % (k, d))
+    for kind, head in (("themed", "SVG の背景・配色に合わせる（%d 枚。色は配色に置き換わる）"), ("scenery", "SVG の背景・景色と場所（%d 枚。色は決まっている。tone が配色の明るさと合うものを選ぶ）")):
+        rows = [(k, e) for k, e in sv.items() if e["kind"] == kind]
+        print("\n## " + head % len(rows))
+        for k, e in rows:
+            print("  %-16s %s%s — %s" % (k, e["label"], "（%s）" % {"dark": "暗い", "light": "明るい"}[e["tone"]] if e.get("tone") else "", e["desc"]))
+
+
+def backgrounds_demo():
+    """背景を見比べる動画の台本（1 つ 3 秒。章: 動く背景・配色に合わせる・景色）。"""
+    def scene(name, label, note, extra=None):
+        return dict({"type": "statement", "lines": [label], "note": name + (" — " + note if note else ""), "bg": name, "duration": 3, "fx": False, "transition": "fade"}, **(extra or {}))
+    sv = bg_svgs()
+    chapters = [{"title": "動く背景", "desc": "%d 種" % len(BACKDROPS), "scenes": [scene(k, k, d) for k, d in BACKDROPS.items()]}]
+    for kind, title in (("themed", "配色に合わせる背景"), ("scenery", "景色・場所の背景")):
+        rows = [(k, e) for k, e in sv.items() if e["kind"] == kind]
+        chapters.append({"title": title, "desc": "%d 枚" % len(rows), "scenes": [scene(k, e["label"], e["desc"]) for k, e in rows]})
+    return {"title": "背景の見本", "description": "motion-video の背景のプリセット（動く背景・SVG）を順に見る", "lang": "ja", "player": "studio", "theme": "navy-brass",
+            "motion": "gentle", "expression": "components", "endFade": 0, "audio": {"narration": False, "music": None, "sfx": False}, "chapters": chapters}
 CAMERA_PRESETS = {
     "push-in": "ゆっくり寄る", "pull-out": "寄った所から引く", "pan-left": "左へ流す", "pan-right": "右へ流す", "rise": "上へ上がる",
     "punch": "言い切りで素早く寄る", "tilt": "傾きを戻しながら", "drift": "ゆらゆら漂う", "dolly": "大きく寄った所から回りながら引く",
@@ -844,16 +945,15 @@ def validate(spec, base):
                     v[key] = uri
                 else:
                     c["images"][face] = uri
+    if spec.get("bg"):
+        spec["bg"] = bg_resolve(spec["bg"], base, spec, "台本", errs)
     for ci, ch in enumerate(spec.get("chapters") or []):
         for si, s in enumerate(ch.get("scenes") or []):
             where = "第 %d 章の場面 %d" % (ci + 1, si + 1)
-            for key in ("bg",):
-                if s.get(key):
-                    uri, miss = _embed(s[key], base)
-                    if miss:
-                        errs.append("%s: %s の画像が見つかりません: %s" % (where, key, miss))
-                    else:
-                        s[key] = uri
+            if "bg" not in s and ch.get("bg") is not None:   # 章の背景は、背景を書いていない場面に配る
+                s["bg"] = ch["bg"]
+            if s.get("bg"):
+                s["bg"] = bg_resolve(s["bg"], base, spec, where, errs)
             if isinstance(s.get("board"), dict) and s["board"].get("type") == "image" and s["board"].get("src"):
                 uri, miss = _embed(s["board"]["src"], base)
                 if miss:
@@ -1376,6 +1476,7 @@ def print_list():
     print("\n# アイコン（部品の icon・重ねの層の icon・H.icon）\n  %d 種。一覧は --list-icons。icon には絵文字も書ける" % len(icons.ICONS))
     print("\n# 音（曲 %d・効果音 %d・効果音の組 %d）\n  一覧と書き方は --list-sounds、聞き比べるページは --sounds -o sounds.html"
           % (len(sound.MUSIC), len(sound.SFX), len(sound.KITS)))
+    print("\n# 背景（台本・章・場面の bg。動く背景 %d 種・SVG の背景 %d 枚）\n  一覧と書き方は --list-bg、見比べるページは --backgrounds -o backgrounds.html" % (len(BACKDROPS), len(bg_svgs())))
     print("\ncustom の道具は --api、手本は recipes.md")
 
 
@@ -1468,7 +1569,7 @@ def load(path, voicevox=False, voicevox_url=voice.DEFAULT_URL, voices_dir=None, 
         for e in errs:
             print("error:", e, file=sys.stderr)
         sys.exit(1)
-    warns = plan(spec)
+    warns = plan(spec) + bg_warnings(spec)
     expr = spec.get("expression", "mixed")
     if expr not in EXPRESSIONS:
         warns.append("expression %r は %s のいずれか（mixed として扱います）" % (expr, "/".join(EXPRESSIONS)))
@@ -1500,6 +1601,8 @@ def main():
     ap.add_argument("--embed", action="store_true", help="ページではなく、ほかの HTML に差し込む断片を出す（md-to-doc の文書など）")
     ap.add_argument("--list-sounds", action="store_true", help="曲・効果音・効果音の組・出来事と、audio の書き方を出す")
     ap.add_argument("--list-icons", action="store_true", help="線で描くアイコンの一覧を出す")
+    ap.add_argument("--list-bg", action="store_true", help="背景（動く背景・SVG の背景）の一覧と、bg の書き方を出す")
+    ap.add_argument("--backgrounds", action="store_true", help="背景を見比べる動画の HTML を作る（-o で出力先。--theme で配色を替えて見られる）")
     ap.add_argument("--sounds", action="store_true", help="曲と効果音を聞き比べる HTML を作る（-o で出力先。既定 sounds.html）")
     ap.add_argument("--voicevox", action="store_true", help="VOICEVOX でナレーションの声を前もって作り、埋め込む（話者は audio.voice）")
     ap.add_argument("--voicevox-url", default=voice.DEFAULT_URL, help="VOICEVOX の場所（既定 %(default)s）")
@@ -1521,6 +1624,20 @@ def main():
         out = args.out or os.path.abspath("sounds.html")
         open(out, "w", encoding="utf-8").write(sound_board())
         print("OK : %s（曲 %d・効果音 %d）" % (out, len(sound.MUSIC), len(sound.SFX)))
+        return
+    if args.list_bg:
+        print_backgrounds()
+        return
+    if args.backgrounds:
+        out = args.out or os.path.abspath("backgrounds.html")
+        tmp = tempfile.mkdtemp()
+        try:
+            json.dump(backgrounds_demo(), open(os.path.join(tmp, "backgrounds.json"), "w", encoding="utf-8"), ensure_ascii=False)
+            spec = load(os.path.join(tmp, "backgrounds.json"))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+        open(out, "w", encoding="utf-8").write(build_html(spec, args.theme or "navy-brass", args.player or "studio", not args.dist))
+        print("OK : %s（動く背景 %d 種・SVG の背景 %d 枚）" % (out, len(BACKDROPS), len(bg_svgs())))
         return
     if args.list or not args.spec:
         print_list()

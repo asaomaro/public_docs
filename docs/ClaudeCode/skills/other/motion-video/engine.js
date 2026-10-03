@@ -592,8 +592,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
 
   R.end = function (s, lt, d, T) {
     if (s.variant === "credits") {   /* 掛け合いの動画の締め: 本編と同じ背景と立ち絵のまま、大きな一言と、小さな字のクレジット（輪の印は出さない。行が多くても画面に収める） */
-      var bgi = IMGS[s.bg];
-      if (bgi && bgi.complete && bgi.naturalWidth) { var bs = Math.max(W / bgi.naturalWidth, H / bgi.naturalHeight); ctx.drawImage(bgi, 960 - bgi.naturalWidth * bs / 2, 540 - bgi.naturalHeight * bs / 2, bgi.naturalWidth * bs, bgi.naturalHeight * bs); }
+      paintBg(s.bg, T === undefined ? lt : T);
       ctx.fillStyle = "rgba(12,14,20,.58)"; ctx.fillRect(0, 0, W, H);
       var fam = TALK.font ? '"' + TALK.font + '",' + F.sans : F.sans, to = { size: 96, weight: 900, font: fam }, tk = P(lt, 150, 750, back);
       ctx.save(); ctx.globalAlpha *= clamp(tk); ctx.translate(960, 120); ctx.scale(.9 + .1 * tk, .9 + .1 * tk); ctx.translate(-960, -120);
@@ -1394,9 +1393,9 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     });
   }
   /* 部品のファイル（parts-*.js）が足す文字の出方・切り替え・演出の層（X.textAnims・X.transitions・X.fxs に登録する） */
-  var TEXTX = {}, TRX = {}, FXX = {};
+  var TEXTX = {}, TRX = {}, FXX = {}, BGX = {};
   var HELP = { C: C, F: F, W: W, H: H, clamp: clamp, lin: lin, linear: linear, eo: eo,
-               textAnims: TEXTX, transitions: TRX, fxs: FXX, fxUnder: FX_UNDER, charLayout: charLayout, eases: EASES,
+               textAnims: TEXTX, transitions: TRX, fxs: FXX, backdrops: BGX, fxUnder: FX_UNDER, charLayout: charLayout, eases: EASES,
                cue: function (i) { return cueStart(i); }, cueEnd: function (i) { return cueEnd(i); }, cues: function () { return CUR_CUES ? CUR_CUES.slice() : []; }, eio: eio, back: back, P: P, mix: mix, rr: rr, txt: txt, tw: tw, wrap: wrap,
                rich: rich, icon: icon, panel: panel, stateMark: stateMark, emblem: emblem, accentAt: accentAt, slots: slots,
                qpt: qpt, rand: rand, arrow: arrow, packet: packet, node: node, appWindow: appWindow, toast: toast, typed: typed, count: fmtNum,
@@ -1409,7 +1408,20 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
 
   /* ================= 背景と 1 コマ ================= */
   function scaleCtx() { ctx.setTransform(cv.width / W, 0, 0, cv.height / H, 0, 0); }
-  function backdrop(t) {
+  /* 背景（台本・章・場面の bg）: 動く背景の名前（parts-backdrops.js）・SVG の背景の名前（SPEC.bgs）・画像。{src, dim, speed} の形でも書ける。
+     動く背景は、周期の中の位置（0..1）だけで描くので、必ず継ぎ目なく繰り返す。dim は、配色の地の色を重ねて背景を抑える割合 */
+  function bgOf(v) { return !v ? null : typeof v === "string" ? { src: v } : v.src ? v : null; }
+  function bgSame(a, b) { a = bgOf(a); b = bgOf(b); return !!a && !!b && a.src === b.src && (a.dim || 0) === (b.dim || 0) && (a.speed || 1) === (b.speed || 1); }
+  function paintBg(v, t) {
+    var b = bgOf(v); if (!b) return false;
+    var m = BGX[b.src];
+    if (m) { var u = (t * (b.speed || 1) / m.period) % 1; ctx.save(); try { m.draw(u < 0 ? u + 1 : u, b); } finally { ctx.restore(); } }
+    else { var im = IMGS[b.src]; if (!im || !im.complete || !im.naturalWidth) return false;
+      var sc = Math.max(W / im.naturalWidth, H / im.naturalHeight); ctx.drawImage(im, 960 - im.naturalWidth * sc / 2, 540 - im.naturalHeight * sc / 2, im.naturalWidth * sc, im.naturalHeight * sc); }
+    if (b.dim) { ctx.save(); ctx.globalAlpha *= clamp(b.dim); ctx.fillStyle = C.bg0; ctx.fillRect(0, 0, W, H); ctx.restore(); }
+    return true;
+  }
+  function themeBackdrop(t) {
     var g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, C.bg1); g.addColorStop(1, C.bg0);
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
     var pat = TH.pattern, drift = (t / 90) % 120;
@@ -1423,6 +1435,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       rg.addColorStop(0, C.grid); rg.addColorStop(1, "rgba(0,0,0,0)"); ctx.fillStyle = rg; ctx.fillRect(0, 0, W, H); }
     ctx.restore();
   }
+  function backdrop(t) { if (!SPEC.bg || !paintBg(SPEC.bg, t)) themeBackdrop(t); }
   function chrome(t) {
     var i = chapterAt(t), lt = t - CHAPTERS[i].t, len = chLen(i);
     var a = P(lt, 200, 700) * (i < CHAPTERS.length - 1 ? 1 - P(lt, len - 500, len) : 1);
@@ -1456,6 +1469,8 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     if (o.xf) o.xf();
     if (o.clip) { o.clip(); if (o.bg !== false) backdrop(t); }
     if (o.blur && "filter" in ctx) ctx.filter = "blur(" + o.blur.toFixed(1) + "px)";
+    /* 場面の背景（台本全体の背景と違うときだけ。false は配色の地に戻す）。掛け合いと、そのクレジットは部品が自分で描く */
+    if (S.bg !== undefined && S.type !== "talk" && S.variant !== "credits" && !bgSame(S.bg, SPEC.bg)) { if (!paintBg(S.bg, t) && S.bg === false) themeBackdrop(t); }
     if (tr === "slide") ctx.translate((1 - inK) * 80, 0);
     if (nextTr === "slide") ctx.translate(-(1 - outK) * 80, 0);
     if (tr === "zoom" || nextTr === "zoom") { var z = mix(.96, 1, inK) * mix(1.04, 1, outK); ctx.translate(960, 540); ctx.scale(z, z); ctx.translate(-960, -540); }
@@ -2183,7 +2198,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       txt(s.corner, 1886 - w2 / 2, 75, { size: 32, weight: 800, align: "center", color: TG.corner ? "#ffffff" : "#20242c", font: o2.font }); ctx.restore(); }
   }
   var TALK_SFX = { "!": "pop", "?": "question", "!?": "stab", "♪": "bling", "💦": "slip", "💢": "woodblock", "…": "downer", "💡": "correct", "✨": "sparkle", "♥": "heart-pop", gloom: "downer", shock: "stab", big: "hyoshigi", shake: "impact" };
-  R.talk = function (s, lt, d) {
+  R.talk = function (s, lt, d, T) {
     /* 効果音のきっかけ: せりふの印・大きい字幕・揺れ・聞き手の反応の印。続けて鳴らしすぎない（2.4 秒あける。se で名指しした音は必ず鳴らす） */
     if (EVC && TALK.sfx !== false) { var smap = Object.assign({}, TALK_SFX, TALK.sfx || {}), lastT = -9999;
       (s._cues || []).forEach(function (c) { var ln = s.lines[c[4]]; if (!ln || !ln.who) return;
@@ -2192,8 +2207,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
         (ln.react || []).forEach(function (r) { var rt = c[0] + (c[1] - c[0]) * (r.at === undefined ? .5 : r.at), rn = r.se || smap[EMO_ALIAS[r.emote] || r.emote];
           if (rn && rn !== "none" && (r.se || rt - lastT > 2400)) { sfxEv(rt + 40, rn, { v: .36 }); lastT = rt; } }); });
       if (s.board && (typeof s.board === "string" || s.board.type === "image")) sfxEv(140, "appear"); }
-    var bgi = IMGS[s.bg];
-    if (bgi && bgi.complete && bgi.naturalWidth) { var sc = Math.max(W / bgi.naturalWidth, H / bgi.naturalHeight); ctx.drawImage(bgi, 960 - bgi.naturalWidth * sc / 2, 540 - bgi.naturalHeight * sc / 2, bgi.naturalWidth * sc, bgi.naturalHeight * sc); }
+    paintBg(s.bg, T === undefined ? lt : T);
     if ((TALK.stage || {}).plate === "paper") { var pg = ctx.createRadialGradient(960, 440, 200, 960, 440, 1300); pg.addColorStop(0, "#d8cba6"); pg.addColorStop(1, "#9c8f6c"); ctx.fillStyle = pg; ctx.fillRect(0, 0, 1920, 1080); }
     var b = s.board; if (!b) { stageTags(s, lt); return; }
     if (b.type === "stage") { drawStage(s, b, lt, d); stageTags(s, lt); return; }
@@ -3052,7 +3066,14 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   var preload = function (src) { if (!src || IMGS[src]) return; var im = new Image(); im.onload = function () { needsDraw = true; }; im.src = src; IMGS[src] = im; };
   Object.keys(CAST).forEach(function (id) { var sp = CAST[id].sprite; if (sp) Object.keys(sp.images || {}).forEach(function (k) { preload(sp.images[k]); }); });
   Object.keys(CAST).forEach(function (id) { var im = CAST[id].images || {}; Object.keys(im).forEach(function (f) { var v = im[f]; if (typeof v === "string") preload(v); else Object.keys(v || {}).forEach(function (s2) { preload(v[s2]); }); }); });
-  SCENES.forEach(function (sc) { preload(sc.s.bg); if (sc.s.board && sc.s.board.type === "image") preload(sc.s.board.src); });
+  /* SVG の背景（SPEC.bgs: 名前 → SVG の文字）。:root の色の変数を、いまの配色に置き換えてから画像にする */
+  var BGVARS = ":root{--bg0:" + C.bg0 + ";--bg1:" + C.bg1 + ";--ink:" + C.ink + ";--muted:" + C.muted + ";--faint:" + C.faint + ";--panel:" + C.panel + ";--panel2:" + C.panel2 + ";--edge:" + C.edge +
+               ";--a1:" + C.accent + ";--a2:" + C.accent2 + ";--a3:" + (C.accents[2] || C.accent) + ";--a4:" + (C.accents[3] || C.accent2) + "}";
+  Object.keys(SPEC.bgs || {}).forEach(function (k) { if (IMGS[k]) return; var im = new Image(); im.onload = function () { needsDraw = true; };
+    im.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(String(SPEC.bgs[k]).replace(/:root\{[^}]*\}/, BGVARS)); IMGS[k] = im; });
+  var bgSrc = function (v) { v = bgOf(v); return v && !BGX[v.src] ? v.src : null; };
+  preload(bgSrc(SPEC.bg));
+  SCENES.forEach(function (sc) { preload(bgSrc(sc.s.bg)); if (sc.s.board && sc.s.board.type === "image") preload(sc.s.board.src); });
   Object.keys(SPEC.images || {}).forEach(function (k) { if (IMGS["@" + k]) return; var im = new Image(); im.onload = function () { needsDraw = true; }; im.src = SPEC.images[k]; IMGS["@" + k] = im; });   /* 絵で見せる場面（stage）の絵。名前で引く */
   SCENES.forEach(function (sc) { if ((sc.s.type === "image" || sc.s.type === "layout") && sc.s.src && !IMGS[sc.s.src]) { var im = new Image(); im.onload = function () { needsDraw = true; }; im.src = sc.s.src; IMGS[sc.s.src] = im; } });
   /* 画面の解説の部品（tour・scrollshot・swipe）の画像 */
@@ -3081,7 +3102,8 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
               sfxNames: function () { return Object.keys(SFXD); },
               textWidth: function (text, size) { return tw(text, { size: size || 50, weight: 800 }); },
               capFit: function (text, maxW, size) { var f = capFit(text, maxW, size || 50); return { lines: f.lines.slice(), size: f.o.size }; },
-              endFade: +SPEC.endFade || 0,
+              endFade: +SPEC.endFade || 0, backdrops: BGX,
+              drawAt: function (ms) { draw(ms); return cv; },   /* その時刻の 1 コマを今すぐ描く（確かめる用） */
               capWrap: function (text, maxW, size, lim) { return capWrap(text, maxW, { size: size || 56, weight: 800, font: F.sans }, lim); },   /* 字幕の折り返し（確かめる用） */
               get audio() { return { ctx: ac, mt: mclock.mt, section: mclock.sec, notes: mclock.count || 0, sfx: sfxCount, vol: VOL, gain: master ? master.gain.value : null }; } };
   root.__mv = api; window.__MV__ = api;
