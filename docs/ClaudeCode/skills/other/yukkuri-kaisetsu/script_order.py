@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """動画を作る前の指示を、ask-form の 1 つのウィンドウで聞く（テーマ・長さ・型・登場人物・音楽・絵・使い道・確かめ方）。
 
-  python3 order.py                          # 聞いて、結果を ./order.json に書く（台本の先頭に書く設定 header も入る）
-  python3 order.py --theme "空はなぜ青い"    # テーマを入れた状態で出す
-  python3 order.py --out sky-blue/order.json
-  python3 order.py --spec                   # 出す質問の定義（JSON）だけを見る
+  python3 script_order.py                          # 聞いて、結果を ./order.json に書く（台本の先頭に書く設定 header も入る）
+  python3 script_order.py --theme "空はなぜ青い"    # テーマを入れた状態で出す
+  python3 script_order.py --out sky-blue/order.json
+  python3 script_order.py --spec                   # 出す質問の定義（JSON）だけを見る
 
-選択肢は、手元にあるものから作る: 登場人物は立ち絵を集めた人（yukkuri-kaisetsu の chars/。顔の見本つき）、
+選択肢は、手元にあるものから作る: 登場人物は立ち絵を集めた人（chars/。顔の見本つき）、
 音楽は bgm/ にある曲（試聴つき。OpenTracks の曲は「WebM でだけ配れる」と出る）、型は styles.json。
 前回の回答は次回の既定になる（テーマと自由記述は持ち越さない）。
 終了コード: 0 回答あり / 2 キャンセル / 3 ウィンドウを出せない（AskUserQuestion で聞き直す。--spec の質問を分けて使う） / 4 時間切れ
@@ -14,7 +14,6 @@
 import argparse, json, os, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-KDIR = os.path.join(os.path.dirname(HERE), "yukkuri-kaisetsu")
 ASK = os.path.join(os.path.dirname(HERE), "ask-form", "ask.py")
 load = lambda p: json.load(open(p, encoding="utf-8"))
 
@@ -22,13 +21,13 @@ POPULAR = ["zundamon", "metan", "reimu", "marisa", "tsumugi", "zunko", "kiritan"
 
 
 def cast_options(with_none=False):
-    casts, chars = load(os.path.join(KDIR, "casts.json")), load(os.path.join(HERE, "characters.json"))
+    casts, chars = load(os.path.join(HERE, "casts.json")), load(os.path.join(HERE, "characters.json"))
     opts = [{"value": "", "label": "なし", "group": "なし"}] if with_none else []
     rows = []
     for cid, c in casts.items():
         if cid.startswith("_") or not isinstance(c, dict) or len(cid) < 2:
             continue
-        d = os.path.join(KDIR, "chars", cid)
+        d = os.path.join(HERE, "chars", cid)
         if not os.path.isdir(d):
             continue
         src = ""
@@ -49,13 +48,13 @@ def cast_options(with_none=False):
 
 
 def bgm_options():
-    J, moods = load(os.path.join(KDIR, "bgm.json")), {}
+    J, moods = load(os.path.join(HERE, "bgm.json")), {}
     moods = J.get("_moods", {})
     rows = []
     for k, v in J.items():
         if k.startswith("_") or not isinstance(v, dict) or "file" not in v:
             continue
-        p = os.path.join(KDIR, "bgm", v["file"])
+        p = os.path.join(HERE, "bgm", v["file"])
         if not os.path.isfile(p):
             continue
         webm = v.get("embed") is False
@@ -68,7 +67,7 @@ def bgm_options():
 
 
 def build_spec(theme=""):
-    styles = load(os.path.join(KDIR, "styles.json"))
+    styles = load(os.path.join(HERE, "styles.json"))
     style_opts = [{"value": "auto", "label": "おまかせ（題材から選ぶ）", "recommended": True, "desc": "しくみ→掛け合いか図解、〇選→列挙、事件・怪談→物語か寸劇、商品→比べる"}]
     style_opts += [{"value": k, "label": "%s（%s）" % (v["name"], k), "desc": v["desc"][:70] + "。向くもの: " + v["fit"][:40]} for k, v in styles.items() if not k.startswith("_")]
     casts = cast_options()
@@ -179,7 +178,7 @@ def header(a):
 def warnings(a):
     """答えどうしの食い違い（作る前に、使う人に伝える）。"""
     w = []
-    J = load(os.path.join(KDIR, "bgm.json"))
+    J = load(os.path.join(HERE, "bgm.json"))
     t = J.get(a.get("track") or "", {})
     if a.get("music") == "pick" and t.get("embed") is False and a.get("use") == "artifact":
         w.append("選んだ曲「%s」は HTML に入れて配れない（OpenTracks）ので、アーティファクトには入れられない。HTML に入れられる曲に替えるか、使い道を手元か YouTube（WebM）にする" % t.get("title"))

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """掛け合いの台本（yukkuri-kaisetsu の書き方）を検査する。長さ・冒頭・掛け合いの型・口調・演技・画面の変化・読み・出典を見て、直す所を出す。
 
-  python3 check.py 台本.txt                     # 検査（error があれば終了コード 1）
-  python3 check.py 台本.txt --facts 事実.md     # 出典の一覧と突き合わせる（既定: 台本の facts: か、<台本名>.facts.md）
-  python3 check.py 台本.txt --stats             # 数字だけ見る
-  python3 check.py 台本.txt --strict            # warn でも終了コード 1
+  python3 script_check.py 台本.txt                     # 検査（error があれば終了コード 1）
+  python3 script_check.py 台本.txt --facts 事実.md     # 出典の一覧と突き合わせる（既定: 台本の facts: か、<台本名>.facts.md）
+  python3 script_check.py 台本.txt --stats             # 数字だけ見る
+  python3 script_check.py 台本.txt --strict            # warn でも終了コード 1
 
 台本の先頭に書ける項目（どれも省ける）: length: 3（分）・roles: metan=解説, zundamon=聞き手・facts: 事実.md
-基準の出どころは yukkuri-kaisetsu/research.md。口調の決まりは characters.json。
+基準の出どころは research.md。口調の決まりは characters.json。
 """
 import argparse, copy, importlib.util, json, os, re, statistics, sys, unicodedata
 
@@ -31,9 +31,9 @@ NUM_UNIT = r"(?:%|％|倍|年|月|日|時間|分|秒|万|億|兆|円|ドル|人|
 
 
 def load_kaisetsu():
-    path = os.path.join(HERE, "..", "yukkuri-kaisetsu", "kaisetsu.py")
+    path = os.path.join(HERE, "kaisetsu.py")
     if not os.path.isfile(path):
-        sys.exit("error: yukkuri-kaisetsu スキルが見つかりません（%s）。同じ場所に置いてください" % path)
+        sys.exit("error: kaisetsu.py が見つかりません（%s）。script_check.py と同じ場所に置いてください" % path)
     spec = importlib.util.spec_from_file_location("kaisetsu", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)

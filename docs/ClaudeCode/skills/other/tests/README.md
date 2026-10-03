@@ -1,6 +1,6 @@
 # 動画のスキルの回帰テスト
 
-motion-video・yukkuri-kaisetsu（yukkuri-script・yukkuri-qa を含む）・video-export・fact-check の、**実際に起きた不具合が戻っていないか**を確かめる。
+motion-video・yukkuri-kaisetsu（台本の検査と yukkuri-qa を含む）・video-export・fact-check の、**実際に起きた不具合が戻っていないか**を確かめる。
 
 ```bash
 cd docs/ClaudeCode/skills/other

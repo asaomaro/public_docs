@@ -6,7 +6,7 @@ description: ゆっくり解説・ずんだもん解説の動画を公開する�
 # yukkuri-publish — 題・概要欄・サムネイルを作る
 
 yukkuri-kaisetsu が動画と一緒に書き出す `<台本名>.info.json`（章の時刻・クレジット・画像の出どころ）と、
-yukkuri-script の `<台本名>.facts.md`（出典）から、公開まわりを作る。
+台本づくりで書いた `<台本名>.facts.md`（出典。yukkuri-kaisetsu の `script.md` の手順 1）から、公開まわりを作る。
 
 ## 手順
 
