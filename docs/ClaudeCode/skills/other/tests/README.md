@@ -23,7 +23,7 @@ python3 -W ignore::ResourceWarning -m unittest discover -s tests -t tests -k Eng
 | `test_motion_voices.py` | 1 文ずつの声（文の途中で語尾が下がって切れた）・文の中の字幕の時刻・声の付け忘れ（声の無い HTML で上書きした）・HTML の中の声の数・書き出しの声 |
 | `test_motion_build.py` | 同梱の見本がすべて HTML になる・同じ曲のファイルは 1 回だけ入る・場面の曲・指示のフォームの定義と骨組み |
 | `test_checks.py` | motion-video の check.py（項目と字幕の数のずれ・読み・声の無い HTML・同じ部品の連続）・台本の検査（絵の使い回し・同じ構図の連続）・出典の URL のかっこ |
-| `test_yukkuri.py` | 声の付け忘れ・声に渡す文の空白・話す速さ・場面の `@music`（効かなかった）・yukkuri-qa が HTML そのものの声を数える |
+| `test_yukkuri.py` | 声の付け忘れ・声に渡す文の空白・話す速さ・場面の `@music`（効かなかった）・yukkuri-qa が HTML そのものの声を数える・指示のフォームが立ち絵と曲の無い環境でも出せる（選択肢が 0 件になって止まった） |
 | `test_docs.py` | motion-video の説明書: SKILL.md が手順だけに短く保たれている（150 行まで）・`reference/` の資料と SKILL.md が互いを指している・書いたファイル名が実在する |
 | `test_engine.py` | 文の中の字幕が前の声の続きになる・字幕がカタカナ語・英単語の途中で折れない（「フレームワー／ク」）・書き出しにファイルの BGM が入る（fetch を使っていて無音だった）・場面ごとの曲の区切り |
 
