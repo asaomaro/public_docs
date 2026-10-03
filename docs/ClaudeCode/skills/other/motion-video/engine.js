@@ -1893,7 +1893,9 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     if (m === "bar") {   /* 後ろをぼかして透かし、暗い色を薄く重ねる（背景を箱の上で切らない。字は太い黒縁なので読める） */
       var box = function () { rr(36, y, 1848, 1080 - y - 14, 18); }, frost = capFrost(box, 36, 1848, y);
       box(); ctx.fillStyle = frost ? "rgba(16,16,22,.56)" : "rgba(20,20,26,.88)"; ctx.fill(); ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 4; ctx.stroke(); }
-    else if (m === "band") { ctx.fillStyle = "rgba(255,255,255,.74)"; ctx.fillRect(0, y, 1920, 1080 - y); }
+    else if (m === "band") {   /* 白い帯も同じく透かす（濃い色の字に白い縁） */
+      var fr1 = capFrost(function () { ctx.beginPath(); ctx.rect(0, y, 1920, 1080 - y); }, 0, 1920, y);
+      ctx.fillStyle = fr1 ? "rgba(255,255,255,.58)" : "rgba(255,255,255,.74)"; ctx.fillRect(0, y, 1920, 1080 - y); }
     else if (m === "strip") {   /* 黒い帯も同じく透かす（箱より少し濃く。黄色い字に黒い縁） */
       var fr2 = capFrost(function () { ctx.beginPath(); ctx.rect(0, y, 1920, 1080 - y); }, 0, 1920, y);
       ctx.fillStyle = fr2 ? "rgba(0,0,0,.6)" : "rgba(0,0,0,.9)"; ctx.fillRect(0, y, 1920, 1080 - y); }
