@@ -114,18 +114,16 @@ class DrawPlate(unittest.TestCase):
         self.assertIn("solo[0].big", open(os.path.join(fakes.MV, "engine.js"), encoding="utf-8").read())
 
     def test_caption_width_with_two_on_one_side(self):
-        """3 人（左に 2 人）のとき、帯の字幕は 2 人ぶんの立ち絵を避けて折り返す（1 行の長い字幕が立ち絵にかかった）。"""
-        import kaisetsu
-        seen = {}
-        for n, cast in ((2, "metan, zundamon"), (3, "metan, zundamon, tsumugi")):
-            talk = {"caption": "bar"}
-            c = {k: {"height": 600, "sprite": {"w": 400, "h": 800}, "side": s} for k, s in zip(cast.split(", "), ("left", "right", "left"))}
-            wide = 600 * 400 / 800
-            per = max(sum(1 for v in c.values() if v["side"] == sd) for sd in ("left", "right"))
-            seen[n] = int(1920 - 2 * (wide * (.8 + .75 * (per - 1)) + 40))
-        self.assertLess(seen[3], seen[2])
+        """3 人（左に 2 人・右に 1 人）のとき、帯の字幕は側ごとに立ち絵を避け、まん中を空いている右へ寄せる
+        （1 行の長い字幕の頭が、左の 2 人目の立ち絵にかかった）。2 人のときは、まん中のまま。"""
         src = open(os.path.join(fakes.YK, "kaisetsu.py"), encoding="utf-8").read()
-        self.assertIn(".75 * (per - 1)", src)
+        self.assertIn('talk["capX"]', src)
+        self.assertIn("TALK.capX", open(os.path.join(fakes.MV, "engine.js"), encoding="utf-8").read())
+        wide, n = 272, {"left": 2, "right": 1}
+        edge = {sd: wide * (.95 + .75 * (n[sd] - 1)) + 40 for sd in n}
+        left_figures = 40 + wide * (1 + .75) * .93          # 左の 2 人が占める幅（絵の余白を除く）
+        self.assertGreaterEqual(edge["left"], left_figures - 5)
+        self.assertGreater(edge["left"] + (1920 - edge["left"] - edge["right"]) / 2, 960, "まん中が右へ寄っていない")
 
 
 class Ending(unittest.TestCase):
@@ -152,7 +150,7 @@ class Ending(unittest.TestCase):
     def test_ending_is_short(self):
         """締めの画面が 20 秒近くあった（行の数だけ延びていた）。全部を一度に出すので 6 秒。end_seconds で変えられる。"""
         self.assertEqual(build.min_seconds({"type": "end", "variant": "credits", "lines": ["a"] * 20}), 6.0)
-        self.assertGreater(build.min_seconds({"type": "end", "lines": ["a"] * 20}), 15)
+        self.assertEqual(build.min_seconds({"type": "end", "lines": ["a"] * 20}), 6.0, "motion-video の締めも、行の数では延ばさない")
         head = "---\ntitle: t\ncast: metan, zundamon\n%s---\n# 本題\nmetan: 話すわ。\n"
         self.assertEqual(make(script=head % "end_seconds: 12\n")[0]["chapters"][-1]["scenes"][-1].get("duration"), 12.0)
 

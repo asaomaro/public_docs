@@ -117,7 +117,7 @@ SCENE_TYPES = {
     "code": (["code"], "コードを見せ、行の範囲を順に強調して注記", '{"type":"code","heading":"設定","code":"const a = 1;\\nexport default a;","highlight":[{"lines":[1],"note":"値を決める"},{"lines":[2,2]}]}'),
     "window": (["panes"], "アプリの画面の模型（pane の状態・通知が変わる）", '{"type":"window","title":"Sodashitsu — api","sidebar":[{"label":"impl","state":"working","active":true}],"panes":[{"title":"impl","tag":"claude","state":"working","states":[{"at":0.4,"state":"done"}],"lines":["› 実装して","  ✓ 24 passed"]}],"toasts":[{"at":0.45,"title":"impl が完了しました","sub":"api · p1","kind":"done"}]}'),
     "image": (["src"], "画像（ゆっくり寄る。src は台本からの相対パス・URL・data URI）", '{"type":"image","src":"shot.png","caption":"画面の例","kenburns":true}'),
-    "end": ([], "締め（紋章・コマンドや連絡先の行・題名・一文。紋章の文字は markText）", '{"type":"end","title":"Sodashitsu","lines":[{"text":"$ soda serve","note":"ブラウザで開く"}],"tagline":"舵を一つの場所で"}'),
+    "end": ([], "締め（大きな題名・一文・コマンドや連絡先の行。6 秒。mark か markText を書いたときだけ、題の上に紋章）", '{"type":"end","title":"Sodashitsu","lines":[{"text":"$ soda serve","note":"ブラウザで開く"}],"tagline":"舵を一つの場所で"}'),
     "cards": (["items"], "カードの格子が弾んで現れる（2〜6 枚）", '{"type":"cards","heading":"主な機能","items":[{"title":"MCP","text":"AI から操作","icon":"🤖"},{"title":"Web","text":"ブラウザで"}]}'),
     "timeline": (["items"], "年表・マイルストーン（線が伸び、点と文字が上下交互に）", '{"type":"timeline","heading":"歩み","items":[{"date":"2024","label":"公開"},{"date":"2026","label":"v1.0","highlight":true}]}'),
     "chat": (["messages"], "会話の吹き出し（入力中の点のあとに現れる）", '{"type":"chat","messages":[{"from":"user","text":"受注を照会して"},{"from":"AI","text":"**128 件**あります"}]}'),
@@ -442,7 +442,7 @@ def min_seconds(s):
     elif t == "code":
         base += 2.2 * len(s.get("highlight", []))
     elif t == "end":
-        base += 2.0 if s.get("variant") == "credits" else 0.8 * len(s.get("lines", [])) + 2.5   # credits（掛け合いの動画の締め）は全部を一度に出すので、行の数では延ばさない（6 秒）
+        base += 2.0   # 締めは 6 秒（行は続けて出すので、行の数では延ばさない。ナレーションが長ければ、その長さ）
     elif t in ("cards", "timeline"):
         base += 1.0 * len(s.get("items", []))
     elif t == "chat":
@@ -1442,6 +1442,11 @@ def load(path, voicevox=False, voicevox_url=voice.DEFAULT_URL, voices_dir=None, 
     video-export スキル（書き出し）もこれで読む。"""
     spec = json.load(open(path, encoding="utf-8"))
     base = os.path.dirname(os.path.abspath(path))
+    try:   # 締めの場面で終わる動画は、最後の 2 秒で映像と音を一緒に消す（endFade: 0 で切る）
+        if "endFade" not in spec and spec["chapters"][-1]["scenes"][-1].get("type") == "end":
+            spec["endFade"] = 2000
+    except (KeyError, IndexError, TypeError, AttributeError):
+        pass
     if not voicevox and not voices_dir and ((spec.get("audio") or {}).get("voice") or {}).get("engine") == "voicevox" and voicevox_alive(voicevox_url):
         voicevox = True   # --voicevox の付け忘れで、声の無い HTML（ブラウザの声）に上書きしない
         print("VOICEVOX が動いているので、声を入れます（--voicevox を付けたのと同じ）", file=sys.stderr)
