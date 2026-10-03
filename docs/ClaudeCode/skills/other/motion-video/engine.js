@@ -1895,12 +1895,12 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var vert = vertOn();
     if (!vert && (CAPBAR[TALK.caption] || TALK.caption === "bubble")) return drawCaption2(cur, tt);
     var sp = CAST[cur.who] || {}, col = sp.color || C.accent, ln = cur.line || {}, big = !!ln.big, outline = vert || TALK.caption === "outline", lt = tt - cur.a;
-    var size = (vert ? Math.max(TALK.size || 0, 62) : TALK.size || (outline ? 56 : 46)) * (big ? (vert ? 1.15 : 1.32) : 1), fam = TALK.font ? '"' + TALK.font + '",' + F.sans : F.sans, o = { size: size, weight: 800, font: fam };
+    var size = (vert ? Math.max(TALK.size || 0, 62) : TALK.size || (outline ? 56 : 46)) * (big && !vert ? 1.32 : 1), fam = TALK.font ? '"' + TALK.font + '",' + F.sans : F.sans, o = { size: size, weight: 800, font: fam };
     var maxW = vert ? 960 : outline ? 1180 : 1080, lines = capWrap(cur.text, maxW, o), lh = size * 1.3, ck = P(lt, 0, 200);
     /* 2 行目が数文字だけ残るときは、2 行の長さをそろえる */
     if (lines.length === 2 && lines[1].replace(/\*\*/g, "").length <= 5) { var even = capWrap(cur.text, Math.max(maxW * .5, tw(cur.text.replace(/\*\*/g, ""), o) * .58), o, maxW); if (even.length === 2) lines = even; }
     lines = lines.slice(0, vert ? 3 : 2);
-    var named = TALK.name === undefined ? !outline : TALK.name !== false, pk = big ? 1 + .22 * (1 - P(lt, 0, 240, back)) : 1, jx = big && lt < 300 ? 5 * Math.sin(lt / 20) * (1 - lt / 300) : 0;
+    var named = TALK.name === undefined ? !outline : TALK.name !== false, pk = big ? 1 + (vert ? .08 : .22) * (1 - P(lt, 0, 240, back)) : 1, jx = big && lt < 300 ? 5 * Math.sin(lt / 20) * (1 - lt / 300) : 0;
     ctx.save(); ctx.globalAlpha *= ck;
     if (outline) {
       var base = (vert ? 760 + size + (named ? 60 : 0) : 1040 - (lines.length - 1) * lh); ctx.translate(960 + jx, base); ctx.scale(pk, pk); ctx.translate(-960, -base);
@@ -2093,7 +2093,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       else { ctx.shadowColor = "rgba(0,0,0,.3)"; ctx.shadowBlur = 24; ctx.shadowOffsetY = 8; rr(330, 40, 1260, Math.min(capY, 900) - 70, 10); ctx.fillStyle = ST.plate === "dark" ? "rgba(18,26,40,.93)" : "#ffffff"; ctx.fill(); ctx.shadowColor = "transparent"; ctx.strokeStyle = ST.plate === "dark" ? "#ffffff" : "#20242c"; ctx.lineWidth = 5; ctx.stroke(); }
       ctx.restore(); }
     var top0 = 64 + (sh.title ? 96 : 0), AH0 = 770 - (sh.title ? 96 : 0) - (sh.note ? 92 : 0);
-    (sh.items || []).forEach(function (it) { if (it.draw) stageDraw(it, slt, d, { x: 360, y: top0, w: 1200, h: AH0 }); });
+    (sh.items || []).forEach(function (it) { if (it.draw) stageDraw(it, slt, d, vertOn() ? { x: 960 - 500, y: top0, w: 1000, h: AH0 } : { x: 360, y: top0, w: 1200, h: AH0 }); });   /* 縦の画面は、まん中の 1080 だけが映る */
     var items = (sh.items || []).filter(function (it) { return !it.draw; }), cells = items.filter(function (it) { return !it.op; }), nOp = items.length - cells.length;
     var top = 64 + (sh.title ? 96 : 0), AH = 770 - (sh.title ? 96 : 0) - (sh.note ? 92 : 0), CX = 960, gap = 34, opW = 120, AW = TALK.stageWidth || (CASTIDS.length ? 1240 : 1400);   /* 立ち絵があるときは、絵が立ち絵の頭にかからない幅に */
     if (ST.plate === "white" || ST.plate === "dark") { AW = 1160; top += sh.title ? 10 : 36; AH -= sh.title ? 30 : 56; }
