@@ -130,6 +130,22 @@ class Engine(unittest.TestCase):
                     self.assertFalse(re.search(r"[A-Za-z]$", a) and re.match(r"[A-Za-z]", b), lines)   # 英単語の途中
                     self.assertFalse(re.match(r"[、。」）]", b), lines)                                  # 行頭の句読点・閉じかっこ
 
+    def test_vertical_frame(self):
+        """ショート（talk.format: "short"）: 舞台が縦になり、題の下に絵・字幕・立ち絵が描かれる（下の端まで何かが描かれている）。"""
+        sp = {"title": "縦の題", "lang": "ja", "audio": {"narration": False, "music": None, "sfx": False}, "talk": {"format": "short"},
+              "cast": {"a": {"name": "A", "color": "#e0457b", "side": "left"}, "b": {"name": "B", "color": "#3aa657", "side": "right"}},
+              "chapters": [{"title": "c", "scenes": [{"type": "talk", "cast": ["a", "b"], "lines": [{"who": "a", "text": "縦の画面でも話すわ。"}, {"who": "b", "text": "そうなのだ。"}]}]}]}
+        js = """(function(){var cv=document.getElementById("mv-canvas"),r=cv.getBoundingClientRect();__MV__.seek(900);
+          var g=cv.getContext("2d"),w=cv.width,h=cv.height,n=0,d=g.getImageData(0,Math.round(h*.8),w,Math.round(h*.18)).data,seen={};
+          for(var i=0;i<d.length;i+=4){seen[(d[i]>>4)+","+(d[i+1]>>4)+","+(d[i+2]>>4)]=1}
+          return {ratio:r.width/r.height, cw:w, ch:h, colors:Object.keys(seen).length}})()"""
+        got = self.run_js(build_html(sp, voicevox=False), js)
+        self.assertAlmostEqual(got["ratio"], 9 / 16, delta=.02)
+        self.assertLess(got["cw"], got["ch"])
+        self.assertGreater(got["colors"], 3, "下の帯に立ち絵が描かれていない")
+        sp["talk"] = {}
+        self.assertAlmostEqual(self.run_js(build_html(sp, voicevox=False), js)["ratio"], 16 / 9, delta=.05)
+
     def test_export_has_file_music(self):
         sp = {"title": "t", "lang": "ja", "audio": {"narration": False, "music": {"file": "bgm.wav", "loop": True}, "sfx": False},
               "chapters": [{"title": "a", "scenes": [{"type": "title", "title": "t", "duration": 4}]}]}

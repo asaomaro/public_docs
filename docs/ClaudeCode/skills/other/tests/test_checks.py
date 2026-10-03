@@ -91,6 +91,17 @@ class ScriptCheck(unittest.TestCase):
         msgs = self.run_check("# 本題\nmetan: ブラウザを開けない所でも使えるわ。\nzundamon: すごいのだ。\n")
         self.assertTrue(any("開け" in m for m in msgs), msgs)
 
+    def test_chapters_too_short_for_the_style(self):
+        """2026-10-03: 10 選を 5 分で作り、1 か所 25 秒になった。章 1 つが型の目安より短ければ、声を作る前に知らせる。"""
+        def script(per):
+            out = ["# オープニング", "metan: はじめるわ。"]
+            for i in range(6):
+                out += ["# 場所%d" % i] + ["metan: ここはとても遠くて行きにくい場所だと言われているのよ。", "zundamon: そんなに遠いのだ？ 行ってみたいのだ。"] * per
+            return "\n".join(out + ["# まとめ", "metan: おわりよ。"]) + "\n"
+        short = [m for m in self.run_check(script(1)) if "章 1 つが約" in m]
+        self.assertTrue(short and "章を" in short[0] and "使う人に確かめる" in short[0], short)
+        self.assertFalse([m for m in self.run_check(script(6)) if "章 1 つが約" in m])
+
 
 class FactCheck(unittest.TestCase):
     def test_url_with_parentheses(self):

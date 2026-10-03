@@ -1583,7 +1583,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       txt(ln, 960, y0 + i * 58 - 4, { size: 40, weight: 700, align: "center", color: "#f5f8f9" }); });
   }
   var thumbMode = false;
-  function draw(t) {
+  function drawBody(t) {
     scaleCtx(); backdrop(t);
     var k = sceneAt(t), tr = trOf(k), lt = t - SCENES[k].t0, SW = SWEEPS[tr];
     if (k > 0 && SW && lt < SW) transition(tr, k, t, lt, SW);
@@ -1591,6 +1591,41 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       if (k > 0 && lt < FADE && tr !== "cut" && !SW) drawScene(k - 1, t);
       drawScene(k, t);
     }
+  }
+  /* ---- 縦の画面（ショート。talk.format: "short"）----
+     場面・立ち絵・字幕を、横の画面（1920×1080）のまま 3 枚の層に描き、縦の枠（1080×1920）に組み直す:
+     上から 題 → 絵（横の画面の中央 1080×900）→ 字幕 → 立ち絵（左右の端の 600 ずつ）。後ろには、絵をぼかして敷く。 */
+  var VW = 1080, VH = 1920, VPASS = "", VLAYER = {};
+  function vertOn() { return (SPEC.talk || {}).format === "short"; }
+  function vPaint(name, q, fn) {
+    var c = VLAYER[name] || (VLAYER[name] = document.createElement("canvas")), w = Math.max(2, Math.round(W * q)), h = Math.max(2, Math.round(H * q));
+    if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+    var cv0 = cv, ctx0 = ctx; cv = c; ctx = c.getContext("2d"); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, w, h); scaleCtx(); VPASS = name;
+    try { fn(); } finally { VPASS = ""; cv = cv0; ctx = ctx0; }
+    return c;
+  }
+  function drawVert(t) {
+    var q = cv.width / VW;
+    var sc = vPaint("scene", q, function () { drawBody(t); });
+    var ca = vPaint("cast", q, function () { drawCast(t); });
+    var cp = vPaint("cap", q, function () { var cur = cueAt(t), capOn = recording ? !recording.clean : captions; if (cur && cur.who && capOn) drawCaption(cur, t); });
+    var PX = (W - VW) / 2, PY = 300, PH = 900, CW = 720, CH = 600, CK = .75;   /* 絵: 横の画面の中央を切り出す位置・縦の枠での上の端・高さ。立ち絵: 左右の端から切り出す幅・高さと、縮める割合 */
+    ctx.setTransform(q, 0, 0, q, 0, 0);
+    ctx.fillStyle = "#14141a"; ctx.fillRect(0, 0, VW, VH);
+    if ("filter" in ctx) { ctx.save(); ctx.filter = "blur(" + (26 * q).toFixed(1) + "px) brightness(.45)"; ctx.drawImage(sc, (PX + 240) * q, 0, 600 * q, 1066 * q, -60, -60, VW + 120, VH + 120); ctx.restore(); }
+    if (isTalk(SCENES[sceneAt(t)].s)) ctx.drawImage(sc, PX * q, 0, VW * q, PH * q, 0, PY, VW, PH);
+    else { var fh = VW * H / W; ctx.drawImage(sc, 0, 0, W * q, H * q, 0, PY + (PH - fh) / 2, VW, fh); }   /* 掛け合いでない場面（題・クレジット）は、切らずに全体を幅に合わせる */
+    /* 題（上） */
+    var ttl = String(SPEC.title || ""), to = { size: 62, weight: 900, font: TALK.font ? '"' + TALK.font + '",' + F.sans : F.sans }, tl = capWrap(ttl, 980, to).slice(0, 2);
+    tl.forEach(function (l2, i) { capLine(l2, VW / 2, 150 + (i - (tl.length - 1) / 2) * 80 + 22, to, [[20, "#16161d"]], "#ffffff", "#ffe45c"); });
+    /* 立ち絵（下の左右）→ 字幕（その上） */
+    ctx.drawImage(ca, 0, (H - CH) * q, CW * q, CH * q, 0, VH - CH * CK, CW * CK, CH * CK);
+    ctx.drawImage(ca, (W - CW) * q, (H - CH) * q, CW * q, CH * q, VW - CW * CK, VH - CH * CK, CW * CK, CH * CK);
+    ctx.drawImage(cp, PX * q, (H - 400) * q, VW * q, 400 * q, 0, PY + PH - 60, VW, 400);
+  }
+  function draw(t) {
+    if (vertOn() && !VPASS) { drawVert(t); if (!thumbMode) syncDom(t); return; }
+    drawBody(t);
     drawCast(t);
     chrome(t);
     if (recording && captions && !recording.clean) burnCaption(t);
@@ -1823,17 +1858,18 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     return [plain.slice(0, best).trim(), plain.slice(best).trim()];
   }
   function drawCaption(cur, tt) {
-    if (CAPBAR[TALK.caption] || TALK.caption === "bubble") return drawCaption2(cur, tt);
-    var sp = CAST[cur.who] || {}, col = sp.color || C.accent, ln = cur.line || {}, big = !!ln.big, outline = TALK.caption === "outline", lt = tt - cur.a;
-    var size = (TALK.size || (outline ? 56 : 46)) * (big ? 1.32 : 1), fam = TALK.font ? '"' + TALK.font + '",' + F.sans : F.sans, o = { size: size, weight: 800, font: fam };
-    var maxW = outline ? 1180 : 1080, lines = capWrap(cur.text, maxW, o), lh = size * 1.3, ck = P(lt, 0, 200);
+    var vert = vertOn();
+    if (!vert && (CAPBAR[TALK.caption] || TALK.caption === "bubble")) return drawCaption2(cur, tt);
+    var sp = CAST[cur.who] || {}, col = sp.color || C.accent, ln = cur.line || {}, big = !!ln.big, outline = vert || TALK.caption === "outline", lt = tt - cur.a;
+    var size = (vert ? Math.max(TALK.size || 0, 62) : TALK.size || (outline ? 56 : 46)) * (big ? (vert ? 1.15 : 1.32) : 1), fam = TALK.font ? '"' + TALK.font + '",' + F.sans : F.sans, o = { size: size, weight: 800, font: fam };
+    var maxW = vert ? 960 : outline ? 1180 : 1080, lines = capWrap(cur.text, maxW, o), lh = size * 1.3, ck = P(lt, 0, 200);
     /* 2 行目が数文字だけ残るときは、2 行の長さをそろえる */
     if (lines.length === 2 && lines[1].replace(/\*\*/g, "").length <= 5) { var even = capWrap(cur.text, Math.max(maxW * .5, tw(cur.text.replace(/\*\*/g, ""), o) * .58), o, maxW); if (even.length === 2) lines = even; }
-    lines = lines.slice(0, 2);
+    lines = lines.slice(0, vert ? 3 : 2);
     var named = TALK.name === undefined ? !outline : TALK.name !== false, pk = big ? 1 + .22 * (1 - P(lt, 0, 240, back)) : 1, jx = big && lt < 300 ? 5 * Math.sin(lt / 20) * (1 - lt / 300) : 0;
     ctx.save(); ctx.globalAlpha *= ck;
     if (outline) {
-      var base = 1040 - (lines.length - 1) * lh; ctx.translate(960 + jx, base); ctx.scale(pk, pk); ctx.translate(-960, -base);
+      var base = (vert ? 760 + size + (named ? 60 : 0) : 1040 - (lines.length - 1) * lh); ctx.translate(960 + jx, base); ctx.scale(pk, pk); ctx.translate(-960, -base);
       if (named) { var nm = sp.name || cur.who, nw0 = tw(nm, { size: 26, weight: 800, font: fam }) + 36; rr(960 - nw0 / 2, base - size - 44, nw0, 40, 20); ctx.fillStyle = col; ctx.fill(); ctx.lineWidth = 4; ctx.strokeStyle = "#ffffff"; ctx.stroke();
         txt(nm, 960, base - size - 16, { size: 26, weight: 800, align: "center", color: "#ffffff", font: fam }); }
       lines.forEach(function (l2, i) { capLine(l2, 960, base + i * lh, o, [[size * .34, "#16161d"], [size * .22, col]], "#ffffff", "#ffe45c"); });
@@ -1873,12 +1909,16 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     ctx.translate(960, cy2); ctx.scale(pk, pk); ctx.translate(-960, -cy2);
     var fill = m === "strip" ? (TALK.capColor === "speaker" ? tintCol(col, .45) : "#ffe45c") : m === "bar" ? tintCol(col, .38) : tintCol(col, -.3), edge = m === "band" ? [[size2 * .2, "#ffffff"]] : [[size2 * .2, "#000000"]];
     lines.forEach(function (l2, i) { capLine(l2, 960, base + i * lh2, o2, edge, fill, m === "band" ? "#d9343f" : "#ffffff"); });
+    if (TALK.name === true) {   /* 置きっぱなしの字幕でも、話し手の名前の札を帯の上の端に出す（3 人以上は、縁の色だけでは誰のせりふか分からない） */
+      var nm3 = sp.name || cur.who, no3 = { size: 28, weight: 800, font: fam }, nw3 = tw(nm3, no3) + 40, ny3 = y0 - 24;
+      rr(960 - nw3 / 2, ny3, nw3, 44, 22); ctx.fillStyle = col; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = "#ffffff"; ctx.stroke();
+      txt(nm3, 960, ny3 + 32, { size: 28, weight: 800, align: "center", color: "#ffffff", font: fam }); }
     ctx.restore();
   }
   function drawCast(tt) {
     var k = sceneAt(tt), S = SCENES[k].s, show = isTalk(S) || (SPEC.castAlways && S.type !== "end" && FIRST_TALK >= 0 && tt >= FIRST_TALK); if (!show || !CASTIDS.length) return;
     var cur = cueAt(tt), onIds = S.cast || CASTIDS, lt0 = FIRST_TALK >= 0 ? tt - FIRST_TALK : 0, sideN = { left: 0, right: 0 }, capOn = recording ? !recording.clean : captions;
-    if (CAPBAR[TALK.caption] && capOn) capBack();
+    if (CAPBAR[TALK.caption] && capOn && !vertOn()) capBack();
     CPOS = {};
     onIds.forEach(function (id, i) {
       var ch = CAST[id]; if (!ch || ch.hidden) return;   /* hidden: 声だけの語り手（立ち絵を出さない） */
@@ -1909,7 +1949,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
         rr(x - nw2 / 2, ny2 - 44, nw2, 44, 8); ctx.fillStyle = TALK.nameTag === true ? "#f08a24" : TALK.nameTag; ctx.fill(); txt(nt, x, ny2 - 12, { size: 30, weight: 800, align: "center", color: "#ffffff", font: no.font }); }
       ctx.restore();
     });
-    if (cur && cur.who && capOn) drawCaption(cur, tt);
+    if (cur && cur.who && capOn && VPASS !== "cast") drawCaption(cur, tt);
   }
   /* 掛け合いの場面: 背景（bg）と中央の黒板（board: 部品の台本・画像・文字列） */
   /* ---- 絵で見せる場面（board: {type: "stage", shots: [{line, items, title, note, credit}]}）----
@@ -1954,12 +1994,12 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   }
   function drawShot(sh, slt, idx0, d) {
     /* TALK.stage: {plate: "white"（中央の白い板）・"paper"（紙の色の全面）・"dark", photo: "full"（写真 1 枚だけの並びは画面いっぱいに）, align: "ground"（絵を地面に立たせる）} */
-    var ST = TALK.stage || {}, capY = CAPBAR[TALK.caption] ? capTop() : 1080;
+    var ST = TALK.stage || {}, capY = CAPBAR[TALK.caption] && !vertOn() ? capTop() : 1080;
     var solo = (sh.items || []).filter(function (it) { return !it.op && !it.draw; });
     if (ST.photo === "full" && solo.length === 1 && solo[0].img && solo[0].frame && (sh.items || []).length === 1) {
       var fim = IMGS["@" + solo[0].img];
       if (fim && fim.complete && fim.naturalWidth) { var fk = P(slt, 0, 260), fs = Math.max(1920 / fim.naturalWidth, capY / fim.naturalHeight) * (1 + .04 * clamp(slt / 8000)), fw = fim.naturalWidth * fs, fh = fim.naturalHeight * fs;
-        ctx.save(); ctx.globalAlpha *= fk; ctx.beginPath(); ctx.rect(0, 0, 1920, capY); ctx.clip(); ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, 1920, capY);
+        ctx.save(); ctx.globalAlpha *= fk; ctx.fillStyle = "#000000"; if (capY < 1080) ctx.fillRect(0, capY, 1920, 1080 - capY);   /* 字幕の箱のまわりに、白い地を見せない */ ctx.beginPath(); ctx.rect(0, 0, 1920, capY); ctx.clip(); ctx.fillRect(0, 0, 1920, capY);
         /* 縦長の写真は、画面いっぱいに広げると主題が切れる。ぼかして暗くした同じ写真を敷き、その上に全体が入る大きさで置く（白い縁つき） */
         var sideX = 0;   /* 縦長のとき: 写真の左右の空きの中央までの距離（名札は左、吹き出しは右に置いて、写真に重ねない） */
         if (fim.naturalHeight / fim.naturalWidth > capY / 1920 * 1.45) {
@@ -1975,8 +2015,8 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
           rr(-sw / 2, -40, sw, 76, 24); ctx.fillStyle = "#ffffff"; ctx.fill(); ctx.lineWidth = 5; ctx.strokeStyle = "#20242c"; ctx.stroke();
           var tx0 = sideX ? -sw / 2 + 40 : 0; ctx.beginPath(); ctx.moveTo(tx0 - 16, 34); ctx.lineTo(tx0 - (sideX ? 26 : 0), 66); ctx.lineTo(tx0 + 16, 34); ctx.closePath(); ctx.fillStyle = "#ffffff"; ctx.fill();
           txt(solo[0].say, 0, 14, { size: 40, weight: 800, align: "center", color: "#20242c", font: so.font }); ctx.restore(); }
-        if (solo[0].label) { var fo = capFont(34), flw = tw("【" + solo[0].label + "】", fo) + 28; var fly = capY < 1080 ? capY - 76 : 150, flx = sideX ? Math.max(flw / 2 + 20, 960 - sideX) : 960; ctx.fillStyle = "rgba(0,0,0,.72)"; ctx.fillRect(flx - flw / 2, fly, flw, 50); txt("【" + solo[0].label + "】", flx, fly + 36, { size: 34, weight: 800, align: "center", color: "#ffffff", font: fo.font }); }
-        if (solo[0].credit) { ctx.font = font(capFont(20, 700)); ctx.textAlign = "right"; ctx.lineJoin = "round"; ctx.lineWidth = 5; ctx.strokeStyle = "rgba(0,0,0,.8)"; ctx.textAlign = "right"; ctx.strokeText(solo[0].credit, 1896, 28); ctx.fillStyle = "#ffffff"; ctx.fillText(solo[0].credit, 1896, 28); }
+        if (solo[0].label) { var fo = capFont(34), flw = tw("【" + solo[0].label + "】", fo) + 28; var fly = vertOn() ? 826 : capY < 1080 ? capY - 76 : 150, flx = sideX ? Math.max(flw / 2 + 20, 960 - sideX) : 960; ctx.fillStyle = "rgba(0,0,0,.72)"; ctx.fillRect(flx - flw / 2, fly, flw, 50); txt("【" + solo[0].label + "】", flx, fly + 36, { size: 34, weight: 800, align: "center", color: "#ffffff", font: fo.font }); }
+        if (solo[0].credit) { ctx.font = font(capFont(20, 700)); ctx.textAlign = "right"; ctx.lineJoin = "round"; ctx.lineWidth = 5; ctx.strokeStyle = "rgba(0,0,0,.8)"; ctx.textAlign = "right"; ctx.strokeText(solo[0].credit, vertOn() ? 1484 : 1896, 28); ctx.fillStyle = "#ffffff"; ctx.fillText(solo[0].credit, vertOn() ? 1484 : 1896, 28); }
         ctx.restore();
         if (sh.title) { var ftk = P(slt, 0, 300); ctx.save(); ctx.globalAlpha *= ftk; capLine(sh.title, 960, 130, capFont(62, 900), [[20, "#16161d"]], "#ffffff", "#ffe45c"); ctx.restore(); }
         if (sh.note) { var fnk = P(slt, 400, 750); ctx.save(); ctx.globalAlpha *= fnk; capLine(sh.note, 960, capY - 110, capFont(58, 900), [[19, "#16161d"]], "#ffe45c", "#ffffff"); ctx.restore(); }
@@ -2802,7 +2842,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     try {
       var rec = { cancel: false, speed: speed, clean: !!clean, audio: audioOn };
       if (clean) { hush(); musicStop(); audioOn = false; nominalTiming(); }
-      cv.width = clean ? 1920 : 1280; cv.height = clean ? 1080 : 720;
+      var vr = vertOn(); cv.width = vr ? (clean ? 1080 : 720) : clean ? 1920 : 1280; cv.height = vr ? (clean ? 1920 : 1280) : clean ? 1080 : 720;
       var stream = cv.captureStream(30);
       if (!clean) { ensureAudio();
         if (ac && master && ac.createMediaStreamDestination) { var dest = ac.createMediaStreamDestination(); master.connect(dest); dest.stream.getAudioTracks().forEach(function (tr) { stream.addTrack(tr); }); } }

@@ -196,5 +196,68 @@ class OrderFormWithoutAssets(unittest.TestCase):
         self.assertNotIn("music", m.header(a), "作曲（builtin）は、台本の先頭に music を書かない")
 
 
+class LengthFit(unittest.TestCase):
+    """2026-10-03: 「関西の秘境10選」を 5 分で受けて、1 か所 25 秒の薄い動画を最後まで作った。題の数と長さが合わなければ、作る前に知らせる。"""
+
+    def setUp(self):
+        self.m = OrderFormWithoutAssets.order(self)
+
+    def test_count_from_title(self):
+        for theme, n in (("関西の秘境10選", 10), ("危険な生き物ベスト20", 20), ("世界三大がっかり名所", 3), ("知らないと損する 7 つの制度", 7),
+                         ("空はなぜ青いのか", 0), ("1954年の事件", 0), ("十二支の由来", 0)):
+            self.assertEqual(self.m.item_count(theme), n, theme)
+
+    def test_warns_before_making(self):
+        a = {"theme": "関西の秘境10選", "length": "5", "intro": "chaban", "explainer": "metan", "listener": "zunko", "ensemble": "pair", "music": "builtin"}
+        w = self.m.warnings(a)
+        self.assertTrue(w and w[0].startswith("長さが足りない"), w)
+        self.assertIn("10 分にする", w[0])
+        self.assertIn("5 個に減らす", w[0])
+        for ok in (dict(a, length="10"), dict(a, length="15"), dict(a, theme="世界三大がっかり名所", length="3", intro=""), dict(a, theme="空はなぜ青いのか")):
+            self.assertFalse([x for x in self.m.warnings(ok) if "長さが足りない" in x], ok)
+
+    def test_auto_length(self):
+        """長さ「おまかせ」は、題の項目の数から決める（10 選 → 12 分）。数が無ければ、物語・寸劇は 10 分、ほかは 5 分。"""
+        a = {"theme": "関西の秘境10選", "length": "auto", "intro": "chaban", "explainer": "metan", "listener": "zunko", "ensemble": "pair", "music": "builtin"}
+        self.assertEqual(self.m.header(a)["length"], "12")
+        self.assertFalse([x for x in self.m.warnings(a) if "長さが足りない" in x])
+        self.assertEqual(self.m.header(dict(a, theme="空はなぜ青いのか"))["length"], "5")
+        self.assertEqual(self.m.header(dict(a, theme="ある村の怪談", style="story"))["length"], "10")
+        self.assertEqual(self.m.header(dict(a, length="5"))["length"], "5", "選んだ長さはそのまま")
+        Q = {q["id"]: q for q in self.m.build_spec("")["questions"]}
+        self.assertEqual(Q["length"]["default"], "auto")
+        self.assertEqual(Q["length"]["options"][0]["value"], "auto")
+
+    def test_help_on_the_form(self):
+        Q = {q["id"]: q for q in self.m.build_spec("")["questions"]}
+        self.assertIn("10 選なら", Q["length"]["help"])
+
+
+class ShortFormat(unittest.TestCase):
+    """ショート（縦の画面）: format: short が engine へ渡り、HTML の舞台が 9:16 になる。フォームの「ショート」は format: short を書く。"""
+
+    def test_script_to_spec_and_html(self):
+        head = "---\ntitle: t\ncast: metan, zundamon\n%s---\n# 本題\nmetan: 話すわ。\n"
+        spec, mv, _, _, _, _ = make(script=head % "format: short\nlength: 1\n")
+        self.assertEqual(spec["talk"].get("format"), "short")
+        self.assertEqual(spec["talk"]["stage"]["photo"], "full")
+        with fakes.quiet():
+            page = mv.build_html(spec, spec["theme"], spec["player"], True)
+        self.assertIn("aspect-ratio:9/16", page)
+        wide = make(script=head % "")
+        self.assertNotIn("format", wide[0]["talk"])
+        with fakes.quiet():
+            self.assertNotIn("aspect-ratio:9/16", wide[1].build_html(wide[0], wide[0]["theme"], wide[0]["player"], True))
+
+    def test_form_header(self):
+        m = OrderFormWithoutAssets.order(self)
+        a = {"theme": "沖島", "length": "1", "intro": "chaban", "explainer": "metan", "listener": "zundamon", "ensemble": "pair", "music": "builtin"}
+        h = m.header(a)
+        self.assertEqual((h["length"], h.get("format")), ("1", "short"))
+        self.assertNotIn("intro", h, "ショートには茶番を入れない")
+        self.assertTrue([w for w in m.warnings(a) if "茶番を入れない" in w])
+        self.assertNotIn("format", m.header(dict(a, length="5")))
+
+
 if __name__ == "__main__":
     unittest.main()

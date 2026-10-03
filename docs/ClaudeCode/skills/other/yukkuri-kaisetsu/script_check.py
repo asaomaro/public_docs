@@ -19,6 +19,8 @@ PUNCT = re.compile(r"[\s　、。，．！？!?…‥「」『』（）()・♪�
 CPS = 4.8           # VOICEVOX の話速 1.0 で 1 秒に読む字数（記号を除く。句読点の間を含む。3 分の台本で実測）
 LINE_GAP, SCENE_GAP, END_SEC = 0.3, 2.5, 6.0
 MAX_LINE, HARD_LINE = 40, 60
+# 章 1 つの長さの目安（秒）。上は手本の動画（yukkuri-qa の norms.json の chapter_sec）、下は 3 分の台本の「本題 1 つ 40 秒」（patterns.md の 1。見積もりでは 30 秒ほど）まで下げてある
+CHAPTER_SEC = {"talk": (30, 240), "zukai": (40, 420), "list": (40, 240), "panel": (40, 300), "story": (120, 430), "geki": (60, 460), "review": (30, 240)}
 AIZUCHI = {"へぇ": r"^(へぇ|へえ|へー|ほぉ|ほう|ふーん|ふむ)", "なるほど": r"^なるほど", "そうなんだ": r"^(そうなん|そうだったん|そうなの(?!？|\?))", "えっ": r"^(えっ|ええっ|えぇ|え、|えー)",
            "すごい": r"^(すご|すげ)", "たしかに": r"^(たしかに|確かに)", "まさか": r"^(まさか|うそ|ウソ|マジ|まじ)"}
 AGREE = re.compile(r"^(そう(よ|だ|なの|ね|いうこと|です)?[、。！!]|その通り|そのとおり|正解|そういうこと|いい質問|よく気づ|よくわかった)")
@@ -161,6 +163,20 @@ def run(path, facts_path=None):
         if goal and abs(total - goal) / goal > .2:
             R.add("warn", "長さ", "見積もり %s は、目標の %s 分から 2 割より離れています（%d 字。目標に合わせるなら約 %d 字）"
                   % (stats["見積もりの長さ"], meta["length"], chars, round(chars * goal / total / 10) * 10))
+    # 章 1 つの長さが、その型の目安に合っているか（「10 選を 5 分」のように、項目が多すぎて 1 つが薄くなるのを、声を作る前に見つける）
+    style = (meta.get("style") or "talk").strip().lower()
+    lo, hi = CHAPTER_SEC.get(style, CHAPTER_SEC["talk"])
+    frame = {0, len(chapters) - 1} | {i for i, c in enumerate(chapters) if re.search(r"茶番|オープニング|はじめに|まとめ|エンディング|おわりに", c["title"])}
+    body = [sum(S["sec"] for S in scenes if S["ch"] == i) for i in range(len(chapters)) if i not in frame]
+    if len(body) >= 2:
+        mid = statistics.median(body)
+        stats["章 1 つの長さ（中央）"] = "%d 秒（%d 章。この型の目安は %d 秒〜%d 分）" % (mid, len(body), lo, hi // 60)
+        if mid < lo:
+            fits = max(int(sum(body) // lo), 1)
+            need = -(-int(total - sum(body) + len(body) * lo) // 60)
+            R.add("warn" if mid < lo * .75 else "info", "長さ",
+                  "章 1 つが約 %d 秒で、%s の型の目安（%d 秒〜%d 分）より短い。1 つずつが薄くなる。全体を約 %d 分にするか、章を %d 個に減らす（使う人に確かめる）"
+                  % (mid, style, lo, hi // 60, need, fits))
     if statistics.pstdev(l["n"] for l in L) < 6 and len(L) >= 10:
         R.add("warn", "掛け合い", "せりふの長さがそろいすぎています（ばらつき %.1f）。短い相づち（12 字以下）と長めの説明をまぜる" % statistics.pstdev(l["n"] for l in L))
     if len(L) >= 10 and sum(1 for l in L if l["n"] <= 12) / len(L) < .1:
