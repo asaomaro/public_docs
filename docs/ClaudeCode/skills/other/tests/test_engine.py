@@ -184,6 +184,40 @@ class Engine(unittest.TestCase):
         self.assertLess(max(lev) - min(lev), 4, lev)
         self.assertEqual(sorted(self.run_js(build_html(sp, voicevox=False), "__MV__.sfxNames()")), sorted(g), "効果音が増減した: python3 sfx_levels.py で測り直す")
 
+    def test_end_scene_plain(self):
+        """motion-video の締め: 題の頭の 1 字を輪に入れた紋章（「ご」）は出さない・行が多くてもはみ出さない・最後は映像と音を消す（endFade）。"""
+        def spec(n, **kw):
+            end = dict({"type": "end", "title": "ご視聴ありがとうございました", "lines": ["行 %d" % i for i in range(n)]}, **kw)
+            return {"title": "t", "lang": "ja", "audio": {"narration": False, "music": None, "sfx": False},
+                    "chapters": [{"title": "a", "scenes": [{"type": "title", "title": "t"}]}, {"title": "z", "scenes": [end]}]}
+        js = """new Promise(function(ok){var seen=[], o=CanvasRenderingContext2D.prototype.fillText; CanvasRenderingContext2D.prototype.fillText=function(s,x,y){seen.push([String(s),x,y]);return o.apply(this,arguments)};
+          __MV__.seek(__MV__.DUR-2500); setTimeout(function(){ CanvasRenderingContext2D.prototype.fillText=o;
+          ok({texts: seen.map(function(a){return a[0]}), maxY: Math.max.apply(null, [0].concat(seen.map(function(a){return a[2]}))), dur: __MV__.DUR, fade: __MV__.endFade}) }, 500)})"""
+        for n in (3, 12):
+            got = self.run_js(build_html(spec(n), voicevox=False), js)
+            self.assertNotIn("ご", got["texts"], "題の頭の 1 字の紋章が出ている")
+            self.assertLessEqual(got["maxY"], 1000, "行が画面の下にはみ出す（%d 行）" % n)
+            self.assertTrue(any("行 %d" % (n - 1) in x for x in got["texts"]), "最後の行が出ていない")
+        got = self.run_js(build_html(spec(3, markText="舵"), voicevox=False), js)
+        self.assertIn("舵", got["texts"], "markText を書いたときは紋章を出す")
+        self.assertEqual(got["fade"], 2000)
+
+    def test_caption_breaks_at_punctuation(self):
+        """2026-10-03: 3 人の台本（字幕の幅が狭い）で、字幕が「すれ違うた／めの場所」「行きやすいそう／よ。」と折れ、3 行目が箱の外に切れた。
+        句読点の後で 2 行に分けられるなら、そこで折る（収まらなければ、字を 8 割まで小さくして探す）。"""
+        sp = {"title": "t", "lang": "ja", "audio": {"narration": False}, "chapters": [{"title": "a", "scenes": [{"type": "title", "title": "t"}]}]}
+        cases = ["もとは 1943 年にできた、列車がすれ違うための場所なの。駅になったのは 1987 年よ。", "車なら、国道で近くまでは行きやすいそうよ。駅への道は狭いけれど。",
+                 "だから、無いって言ってるでしょう！ きっぷ代も各自よ！"]
+        got = self.run_js(build_html(sp, voicevox=False), "[%s].map(function(t){return __MV__.capFit(t, 1100, 50)})" % ",".join(json.dumps(c, ensure_ascii=False) for c in cases))
+        for text, fit in zip(cases, got):
+            lines = fit["lines"]
+            with self.subTest(text):
+                self.assertEqual(len(lines), 2, lines)
+                self.assertGreaterEqual(fit["size"], 39, "字を小さくしすぎ")
+                self.assertRegex(lines[0], r"[、。！？]$")
+                self.assertEqual("".join(lines).replace(" ", ""), text.replace(" ", ""))
+        self.assertEqual(self.run_js(build_html(sp, voicevox=False), '__MV__.capFit("短いわ。", 1100, 50)'), {"lines": ["短いわ。"], "size": 50})
+
     def test_export_has_file_music(self):
         sp = {"title": "t", "lang": "ja", "audio": {"narration": False, "music": {"file": "bgm.wav", "loop": True}, "sfx": False},
               "chapters": [{"title": "a", "scenes": [{"type": "title", "title": "t", "duration": 4}]}]}

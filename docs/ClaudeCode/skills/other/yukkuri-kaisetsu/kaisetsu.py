@@ -1293,8 +1293,13 @@ def to_spec(meta, chapters, cast, base):
     if talk["caption"] in ("bar", "band", "strip"):   # 置きっぱなしの字幕: 全身の立ち絵にかからない幅で折り返す
         wide = max([0] + [c["height"] * c["sprite"]["w"] / c["sprite"]["h"] for c in cast.values() if c.get("sprite") and not c.get("hidden") and c["sprite"]["h"] / c["sprite"]["w"] >= 1.3])
         if wide:   # 同じ側に 2 人以上立つと、2 人目は 0.75 人ぶん内側に出る（engine.js の drawCast）。多い側に合わせる
-            per = max([1] + [sum(1 for c in cast.values() if not c.get("hidden") and not c.get("cameo") and c.get("side", "left") == sd) for sd in ("left", "right")])
-            talk["capWidth"] = int(1920 - 2 * (wide * (.8 + .75 * (per - 1)) + 40))
+            n = {sd: sum(1 for c in cast.values() if not c.get("hidden") and not c.get("cameo") and c.get("side", "left") == sd) for sd in ("left", "right")}
+            if n["left"] == n["right"]:
+                talk["capWidth"] = int(1920 - 2 * (wide * (.8 + .75 * (max(n["left"], 1) - 1)) + 40))
+            else:   # 左右の人数が違う: 側ごとに立ち絵の幅を空け、字幕のまん中を空いている側へ寄せる（片側に合わせて両側をせばめると、行の頭が立ち絵にかかった）
+                edge = {sd: wide * (.95 + .75 * (max(n[sd], 1) - 1)) + 40 for sd in n}
+                talk["capWidth"] = int(1920 - edge["left"] - edge["right"])
+                talk["capX"] = int(edge["left"] + talk["capWidth"] / 2)
     spec["talk"] = talk
     spec["chrome"] = False   # 章の表示は、左上の札（tag）で出す
     if not off("tags"):
