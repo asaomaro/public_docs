@@ -3072,6 +3072,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
                   for (i = 0; i < d.length; i++) { var v = d[i] * d[i]; if (Math.abs(d[i]) > pk) pk = Math.abs(d[i]); acc += v; if (i >= win) acc -= d[i - win] * d[i - win]; if (acc > best) best = acc; }
                   return { peak: pk, rms: Math.sqrt(best / win) }; }); },
               sfxNames: function () { return Object.keys(SFXD); },
+              textWidth: function (text, size) { return tw(text, { size: size || 50, weight: 800 }); },
               capFit: function (text, maxW, size) { var f = capFit(text, maxW, size || 50); return { lines: f.lines.slice(), size: f.o.size }; },
               endFade: +SPEC.endFade || 0,
               capWrap: function (text, maxW, size, lim) { return capWrap(text, maxW, { size: size || 56, weight: 800, font: F.sans }, lim); },   /* 字幕の折り返し（確かめる用） */
