@@ -1,0 +1,498 @@
+{
+ "soft": {
+  "file": "soft.svg",
+  "label": "やわらかな光",
+  "desc": "右上と左下に、淡い光がにじむ。どの内容にも合う無難な地",
+  "kind": "themed"
+ },
+ "mesh": {
+  "file": "mesh.svg",
+  "label": "色のにじみ",
+  "desc": "4 色の光が四隅から混ざり合う。明るく今っぽい紹介に",
+  "kind": "themed"
+ },
+ "vignette": {
+  "file": "vignette.svg",
+  "label": "周りを暗く",
+  "desc": "中央がほのかに明るく、周りが暗い。言葉を真ん中に置く場面に",
+  "kind": "themed"
+ },
+ "horizon": {
+  "file": "horizon.svg",
+  "label": "床と壁",
+  "desc": "奥に地平の光があり、手前に床が広がる。スタジオのような落ち着いた地",
+  "kind": "themed"
+ },
+ "wave-bottom": {
+  "file": "wave-bottom.svg",
+  "label": "下の波",
+  "desc": "下に、重なる波。上が広く空くので、見出しや箇条書きを置きやすい",
+  "kind": "themed"
+ },
+ "wave-top": {
+  "file": "wave-top.svg",
+  "label": "上下の波",
+  "desc": "上と下に、波の帯。中央の横長の所に内容を置く",
+  "kind": "themed"
+ },
+ "curves": {
+  "file": "curves.svg",
+  "label": "流れる線",
+  "desc": "何本もの細い線が、束になってゆるく流れる。上品・技術のどちらにも",
+  "kind": "themed"
+ },
+ "topo": {
+  "file": "topo.svg",
+  "label": "等高線",
+  "desc": "地図の等高線のような輪が広がる。調査・計画・探索の話に",
+  "kind": "themed"
+ },
+ "grid-fade": {
+  "file": "grid-fade.svg",
+  "label": "消えていく格子",
+  "desc": "中央に格子があり、周りへ消えていく。設計・仕組みの説明に",
+  "kind": "themed"
+ },
+ "dots-fade": {
+  "file": "dots-fade.svg",
+  "label": "隅の点",
+  "desc": "右上と左下に、点の並びが浮かぶ。中央は空く",
+  "kind": "themed"
+ },
+ "iso": {
+  "file": "iso.svg",
+  "label": "斜めの格子",
+  "desc": "三角の格子（立体図の方眼）。構造・建築・立体の話に",
+  "kind": "themed"
+ },
+ "hex": {
+  "file": "hex.svg",
+  "label": "蜂の巣",
+  "desc": "六角形の並びが、右上と左下に浮かぶ。技術・化学・つながりの話に",
+  "kind": "themed"
+ },
+ "lowpoly": {
+  "file": "lowpoly.svg",
+  "label": "三角の面",
+  "desc": "三角の面を敷きつめた地。色の濃さが面ごとに少しずつ違う",
+  "kind": "themed"
+ },
+ "pcb": {
+  "file": "pcb.svg",
+  "label": "基板",
+  "desc": "基板の配線と端子。ハードウェア・IT・仕組みの話に",
+  "kind": "themed"
+ },
+ "blueprint": {
+  "file": "blueprint.svg",
+  "label": "設計図",
+  "desc": "方眼と、寸法線・円・十字の印。設計・計画・製図の話に",
+  "kind": "themed"
+ },
+ "rings": {
+  "file": "rings.svg",
+  "label": "同心円",
+  "desc": "右下と左上の隅から、輪が広がる。広がり・波及・中心の話に",
+  "kind": "themed"
+ },
+ "arcs": {
+  "file": "arcs.svg",
+  "label": "隅の弧",
+  "desc": "左上と右下の隅に、太い弧が重なる。親しみやすい紹介・イベントに",
+  "kind": "themed"
+ },
+ "diagonal": {
+  "file": "diagonal.svg",
+  "label": "斜めの縞",
+  "desc": "細い斜めの縞が全面に入る。控えめで、どの部品とも合う",
+  "kind": "themed"
+ },
+ "burst": {
+  "file": "burst.svg",
+  "label": "放射の光",
+  "desc": "下の中央から、光の筋が放射に広がる。発表・お祝い・強調に",
+  "kind": "themed"
+ },
+ "dots-corner": {
+  "file": "dots-corner.svg",
+  "label": "網点",
+  "desc": "右下と左上の隅へ、点が大きくなっていく。漫画・ポップな紹介に",
+  "kind": "themed"
+ },
+ "soft-shapes": {
+  "file": "soft-shapes.svg",
+  "label": "まるい形",
+  "desc": "四隅に、ゆるい丸みの形。やさしい・親しみやすい内容に",
+  "kind": "themed"
+ },
+ "memphis": {
+  "file": "memphis.svg",
+  "label": "散らした図形",
+  "desc": "丸・三角・十字・波線を周りに散らす。楽しい・にぎやかな紹介に",
+  "kind": "themed"
+ },
+ "plus": {
+  "file": "plus.svg",
+  "label": "十字の並び",
+  "desc": "小さな十字が周りに並ぶ。医療・計算・足し算の話や、控えめな地に",
+  "kind": "themed"
+ },
+ "lights": {
+  "file": "lights.svg",
+  "label": "光の玉",
+  "desc": "大小の淡い光の玉が浮かぶ。祝い・夜・やわらかい雰囲気に",
+  "kind": "themed"
+ },
+ "spotlight": {
+  "file": "spotlight.svg",
+  "label": "照明",
+  "desc": "上から 2 本の光が差し、床に光の輪ができる。発表・表彰・主役の紹介に",
+  "kind": "themed"
+ },
+ "frame": {
+  "file": "frame.svg",
+  "label": "飾り枠",
+  "desc": "二重の枠と、四隅の飾り。式典・招待・表彰・古風な内容に",
+  "kind": "themed"
+ },
+ "bands": {
+  "file": "bands.svg",
+  "label": "斜めの帯",
+  "desc": "右上と左下の隅を、色の帯が斜めに横切る。勢いのある告知・発表に",
+  "kind": "themed"
+ },
+ "bars": {
+  "file": "bars.svg",
+  "label": "棒の列",
+  "desc": "下に、高さの違う棒が並ぶ。数字・音・成長の話に",
+  "kind": "themed"
+ },
+ "network": {
+  "file": "network.svg",
+  "label": "つながり",
+  "desc": "点と線の網が広がる。ネットワーク・関係・連携の話に",
+  "kind": "themed"
+ },
+ "split": {
+  "file": "split.svg",
+  "label": "斜めの 2 色",
+  "desc": "画面を斜めに 2 色に分ける。比べる・表と裏・切り替わりの場面に",
+  "kind": "themed"
+ },
+ "chevrons": {
+  "file": "chevrons.svg",
+  "label": "山形の並び",
+  "desc": "山形の線が並ぶ。進む・流れ・上向きの話に",
+  "kind": "themed"
+ },
+ "speckle": {
+  "file": "speckle.svg",
+  "label": "ざらつき",
+  "desc": "細かい粒のざらつきと、周りの暗がり。フィルム・紙のような手ざわりに",
+  "kind": "themed"
+ },
+ "orbit": {
+  "file": "orbit.svg",
+  "label": "軌道",
+  "desc": "右上の光のまわりを、楕円の軌道と星が回る。宇宙・循環・製品の周辺の話に",
+  "kind": "themed"
+ },
+ "ridge": {
+  "file": "ridge.svg",
+  "label": "山並み",
+  "desc": "下に、重なる山の影。道のり・目標・挑戦の話に",
+  "kind": "themed"
+ },
+ "city": {
+  "file": "city.svg",
+  "label": "街の影",
+  "desc": "下に、建物の影が並ぶ。社会・都市・ビジネスの話に",
+  "kind": "themed"
+ },
+ "checker": {
+  "file": "checker.svg",
+  "label": "市松",
+  "desc": "淡い市松の模様。和風・ゲーム・遊びの話に",
+  "kind": "themed"
+ },
+ "seigaiha": {
+  "file": "seigaiha.svg",
+  "label": "青海波",
+  "desc": "波を重ねた和の模様。和風・伝統・めでたい話に",
+  "kind": "themed"
+ },
+ "asanoha": {
+  "file": "asanoha.svg",
+  "label": "麻の葉",
+  "desc": "麻の葉の和の模様。和風・伝統・成長の話に",
+  "kind": "themed"
+ },
+ "shippo": {
+  "file": "shippo.svg",
+  "label": "七宝",
+  "desc": "輪をつないだ和の模様。和風・縁・つながりの話に",
+  "kind": "themed"
+ },
+ "uroko": {
+  "file": "uroko.svg",
+  "label": "鱗",
+  "desc": "三角を並べた和の模様。和風・厄除け・きりっとした内容に",
+  "kind": "themed"
+ },
+ "papercut": {
+  "file": "papercut.svg",
+  "label": "切り紙の重なり",
+  "desc": "左下と右上から、紙を重ねたような形がせり出す。物語・絵本・やさしい説明に",
+  "kind": "themed"
+ },
+ "stairs": {
+  "file": "stairs.svg",
+  "label": "段々",
+  "desc": "右下に、階段のように積み上がる段。成長・段階・積み上げの話に",
+  "kind": "themed"
+ },
+ "window": {
+  "file": "window.svg",
+  "label": "窓の光",
+  "desc": "窓から差す光が、壁に斜めに落ちる。朝・静けさ・暮らしの話に",
+  "kind": "themed"
+ },
+ "sky-day": {
+  "file": "sky-day.svg",
+  "label": "青空",
+  "desc": "青い空に、白い雲。明るい紹介・あいさつ・外の話に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "sky-sunset": {
+  "file": "sky-sunset.svg",
+  "label": "夕焼け",
+  "desc": "紫から橙へ移る夕焼けの空と、沈む日。締め・ふり返り・物語に",
+  "kind": "scenery",
+  "tone": "dark"
+ },
+ "sky-night": {
+  "file": "sky-night.svg",
+  "label": "夜空",
+  "desc": "星と三日月の夜空。夜・静けさ・夢・宇宙の入口に",
+  "kind": "scenery",
+  "tone": "dark"
+ },
+ "sky-dawn": {
+  "file": "sky-dawn.svg",
+  "label": "朝焼け",
+  "desc": "桃色と淡い黄の朝の空。はじまり・希望・新しい話に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "mountains": {
+  "file": "mountains.svg",
+  "label": "山なみ",
+  "desc": "澄んだ空の下、遠くまで重なる青い山。旅・目標・自然の話に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "mountains-night": {
+  "file": "mountains-night.svg",
+  "label": "夜の山",
+  "desc": "星空の下の、暗い山の影と月。夜・静けさ・挑戦の前に",
+  "kind": "scenery",
+  "tone": "dark"
+ },
+ "sea": {
+  "file": "sea.svg",
+  "label": "海",
+  "desc": "青い空と水平線、きらめく海。夏・旅・ひらけた話に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "sea-sunset": {
+  "file": "sea-sunset.svg",
+  "label": "夕暮れの海",
+  "desc": "夕日が沈む海と、水面の光の道。締め・余韻・思い出に",
+  "kind": "scenery",
+  "tone": "dark"
+ },
+ "city-night": {
+  "file": "city-night.svg",
+  "label": "夜の街",
+  "desc": "明かりのともる夜のビル街。都会・仕事・ニュースの話に",
+  "kind": "scenery",
+  "tone": "dark"
+ },
+ "city-day": {
+  "file": "city-day.svg",
+  "label": "昼の街",
+  "desc": "青空の下のビル街。会社・社会・暮らしの話に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "space": {
+  "file": "space.svg",
+  "label": "宇宙",
+  "desc": "星雲と星、輪のある惑星。宇宙・未来・大きな構想の話に",
+  "kind": "scenery",
+  "tone": "dark"
+ },
+ "forest": {
+  "file": "forest.svg",
+  "label": "森",
+  "desc": "霧のかかった、深い緑の針葉樹の森。自然・静けさ・探検の話に",
+  "kind": "scenery",
+  "tone": "dark"
+ },
+ "desert": {
+  "file": "desert.svg",
+  "label": "砂漠",
+  "desc": "大きな日と、なだらかな砂丘。旅・乾いた地・遠い道のりの話に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "snowfield": {
+  "file": "snowfield.svg",
+  "label": "雪原",
+  "desc": "雪の丘と針葉樹、舞う雪。冬・静けさ・年末年始の話に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "field": {
+  "file": "field.svg",
+  "label": "草原",
+  "desc": "青空と、なだらかな緑の丘。のびのびした話・子ども向け・春夏に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "sakura": {
+  "file": "sakura.svg",
+  "label": "桜",
+  "desc": "淡い桃色の空に、桜の枝と花びら。春・入学・門出・和の話に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "autumn": {
+  "file": "autumn.svg",
+  "label": "紅葉",
+  "desc": "あたたかい色の空に、舞う落ち葉。秋・実り・ふり返りの話に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "underwater": {
+  "file": "underwater.svg",
+  "label": "海の中",
+  "desc": "上から光が差す青い海の中と、泡。海・深さ・もぐる話に",
+  "kind": "scenery",
+  "tone": "dark"
+ },
+ "fireworks": {
+  "file": "fireworks.svg",
+  "label": "花火",
+  "desc": "夜空に上がる花火と、街の影。祭り・お祝い・夏の夜に",
+  "kind": "scenery",
+  "tone": "dark"
+ },
+ "rainbow": {
+  "file": "rainbow.svg",
+  "label": "虹",
+  "desc": "やわらかな色の虹と雲。子ども向け・多様さ・楽しい話に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "blackboard": {
+  "file": "blackboard.svg",
+  "label": "黒板",
+  "desc": "木の枠の、深緑の黒板。授業・解説・勉強の話に",
+  "kind": "scenery",
+  "tone": "dark"
+ },
+ "whiteboard": {
+  "file": "whiteboard.svg",
+  "label": "ホワイトボード",
+  "desc": "銀の枠の白い板と、ペン。会議・打ち合わせ・仕事の説明に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "notebook": {
+  "file": "notebook.svg",
+  "label": "ノート",
+  "desc": "罫線と赤い縦線の入ったノートの紙。勉強・メモ・手順の話に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "graph-paper": {
+  "file": "graph-paper.svg",
+  "label": "方眼紙",
+  "desc": "水色の方眼紙。図・計算・設計・理科の話に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "kraft": {
+  "file": "kraft.svg",
+  "label": "クラフト紙",
+  "desc": "茶色いクラフト紙の手ざわり。手づくり・素朴・あたたかい話に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "cork": {
+  "file": "cork.svg",
+  "label": "コルクボード",
+  "desc": "木の枠のコルクの板。お知らせ・写真や付箋を並べる話に",
+  "kind": "scenery",
+  "tone": "dark"
+ },
+ "washi": {
+  "file": "washi.svg",
+  "label": "和紙",
+  "desc": "繊維と金の粒の入った生成りの和紙。和風・手紙・しきたりの話に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "curtain": {
+  "file": "curtain.svg",
+  "label": "舞台の幕",
+  "desc": "赤い幕と木の床の舞台。発表会・寸劇・はじまりとおしまいに",
+  "kind": "scenery",
+  "tone": "dark"
+ },
+ "room": {
+  "file": "room.svg",
+  "label": "部屋",
+  "desc": "窓のある明るい部屋の壁と床。暮らし・家・身近な話に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "washitsu": {
+  "file": "washitsu.svg",
+  "label": "和室",
+  "desc": "障子と畳の和室。和風・昔の話・落ち着いた語りに",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "wood": {
+  "file": "wood.svg",
+  "label": "木の板",
+  "desc": "濃い色の木の板の壁。喫茶・手づくり・あたたかい語りに",
+  "kind": "scenery",
+  "tone": "dark"
+ },
+ "brick": {
+  "file": "brick.svg",
+  "label": "れんがの壁",
+  "desc": "赤茶のれんがの壁。街角・店・カジュアルな語りに",
+  "kind": "scenery",
+  "tone": "dark"
+ },
+ "bookshelf": {
+  "file": "bookshelf.svg",
+  "label": "本棚",
+  "desc": "本がぎっしり並ぶ本棚。読書・学び・調べものの話に",
+  "kind": "scenery",
+  "tone": "dark"
+ },
+ "studio": {
+  "file": "studio.svg",
+  "label": "ニュースのスタジオ",
+  "desc": "青い光の帯と、つやのある床のスタジオ。ニュース・報告・番組風に",
+  "kind": "scenery",
+  "tone": "dark"
+ }
+}

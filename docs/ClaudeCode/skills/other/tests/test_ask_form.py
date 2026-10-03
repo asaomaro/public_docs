@@ -168,5 +168,119 @@ class Collect(unittest.TestCase):
                     self.assertEqual(got["sent"], body)
 
 
+KEYS = {" ": ("Space", 32, " "), "Enter": ("Enter", 13, "\r"), "ArrowDown": ("ArrowDown", 40, None), "Tab": ("Tab", 9, None)}
+INSTANT_PAGE = """<!doctype html><meta charset="utf-8"><body style="margin:0">
+<script type="module">
+%(component)s
+</script>
+<script type="module">
+window.SENT = [];
+const f = document.createElement('ask-form');
+f.style.height = '400px';
+f.addEventListener('ask-submit', (e) => { window.SENT.push(e.detail); });
+document.body.append(f);
+f.spec = %(spec)s;
+window.FORM = f;
+window.READY = true;
+</script>
+"""
+
+
+@unittest.skipUnless(CHROME or os.environ.get("REQUIRE_CHROME"), "Chrome が無い")
+class InstantConfirm(unittest.TestCase):
+    """質問が 1 つだけ（単一選択・補足なし）のときの即確定を、**実際のキー入力とクリック**（DevTools Protocol の入力）で確かめる。
+
+    プログラムから起こした click では見えない違いがある: Chromium は、既に選ばれているラジオで Space を押しても click を出さない
+    （Sodashitsu の E2E で見つかった。click 頼みだと、既定で選ばれている選択肢を Space で決定できなかった）。"""
+
+    @classmethod
+    def setUpClass(cls):
+        if not CHROME:
+            raise AssertionError("Chrome が無いので ask-form.js を確かめられません")
+        from test_engine import Chrome
+        cls.chrome = Chrome()
+        cls.component = open(os.path.join(AF, "ask-form.js"), encoding="utf-8").read()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.chrome.close()
+
+    def open(self, default="a", allow_other=False):
+        q = {"id": "q", "label": "Q", "options": ["a", "b", "c"], "allowOther": allow_other}
+        if default:
+            q["default"] = default
+        spec = public(ask.normalize({"title": "t", "note": False, "questions": [q]}))
+        c = self.chrome
+        path = os.path.join(c.dir, "instant%d.html" % c.n)
+        open(path, "w", encoding="utf-8").write(INSTANT_PAGE % {"component": self.component, "spec": json.dumps(spec, ensure_ascii=False)})
+        c.call("Page.enable", c.sid)
+        c.call("Page.navigate", c.sid, url="file://" + path)
+        c.eval("new Promise(function(ok){function w(){window.READY&&FORM.shadowRoot.querySelector('input')?setTimeout(ok,100):setTimeout(w,50)};w()})")
+
+    def focus(self, value):
+        self.chrome.eval("FORM.shadowRoot.querySelector('input[value=%s]').focus()" % json.dumps(value))
+
+    def key(self, key):
+        code, vk, text = KEYS[key]
+        c = self.chrome
+        down = {"type": "keyDown" if text else "rawKeyDown", "key": key, "code": code, "windowsVirtualKeyCode": vk}
+        if text:
+            down["text"] = text
+        c.call("Input.dispatchKeyEvent", c.sid, **down)
+        c.call("Input.dispatchKeyEvent", c.sid, type="keyUp", key=key, code=code, windowsVirtualKeyCode=vk)
+
+    def click(self, selector):
+        c = self.chrome
+        x, y = c.eval("(function(){var r=FORM.shadowRoot.querySelector(%s).getBoundingClientRect();return [r.left+r.width/2,r.top+r.height/2]})()" % json.dumps(selector))
+        for t in ("mousePressed", "mouseReleased"):
+            c.call("Input.dispatchMouseEvent", c.sid, type=t, x=x, y=y, button="left", clickCount=1)
+
+    def sent(self):
+        return self.chrome.eval("new Promise(function(ok){setTimeout(function(){ok(SENT.map(function(d){return d.answers.q}))},150)})")
+
+    def test_space_on_the_already_checked_option(self):
+        self.open(default="a")
+        self.focus("a")
+        self.key(" ")
+        self.assertEqual(self.sent(), ["a"])
+
+    def test_space_on_an_unchecked_option_confirms_once(self):
+        self.open(default=None)
+        self.focus("b")
+        self.key(" ")
+        self.assertEqual(self.sent(), ["b"])
+
+    def test_arrow_does_not_confirm_then_space_does(self):
+        self.open(default="a")
+        self.focus("a")
+        self.key("ArrowDown")
+        self.assertEqual(self.sent(), [])
+        self.key(" ")
+        self.assertEqual(self.sent(), ["b"])
+
+    def test_enter_on_the_already_checked_option(self):
+        self.open(default="a")
+        self.focus("a")
+        self.key("Enter")
+        self.assertEqual(self.sent(), ["a"])
+
+    def test_click_on_the_already_checked_card(self):
+        self.open(default="a")
+        self.click("label.opt")
+        self.assertEqual(self.sent(), ["a"])
+
+    def test_click_on_another_card_confirms_once(self):
+        self.open(default="a")
+        self.click("label.opt:nth-of-type(2)")
+        self.assertEqual(self.sent(), ["b"])
+
+    def test_other_does_not_confirm(self):
+        """「その他」は、選んだだけでは決定しない（入力してから決定する）。"""
+        self.open(default="a", allow_other=True)
+        self.chrome.eval("FORM.shadowRoot.querySelector('input[data-other]').focus()")
+        self.key(" ")
+        self.assertEqual(self.sent(), [])
+
+
 if __name__ == "__main__":
     unittest.main()

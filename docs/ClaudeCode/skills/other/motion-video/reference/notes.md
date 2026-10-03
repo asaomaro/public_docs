@@ -10,7 +10,7 @@
 - `image` の画像は data URI で埋め込むので、画像が多い・大きいと HTML が大きくなる。
 - 読み上げの声が無い環境（例: 声の入っていない Linux）では、効果音と音楽だけになり、その旨がプレイヤーの下に出る。
 - 絵文字のアイコン（`bullets` の `icon`）は OS の絵文字の書体で描く。絵文字の書体が無い環境では四角になる。
-- 見本: `examples/data-tour.json`（時間とともに動くデータと画面の解説。画像は `examples/assets/`）・`examples/depth-type.json`（立体・奥行きの部品と文字の演出・切り替え depth/swing・演出の層 cubes）・`examples/dynamic.json`（動きの性格 dynamic・動きの強い部品・切り替え・文字の出方・演出の層・新しい重ねの層）・`examples/showcase.json`（追加した部品・切り替え・`dom` の場面をすべて使う。`theater`）・`examples/sodashitsu.json`（部品だけ）・`examples/sodashitsu-mixed.json`（混在。pane が割れて増える・ブラウザと端末版の並び・
+- 見本: `examples/data-tour.json`（時間とともに動くデータと画面の解説。画像は `examples/assets/`）・`examples/depth-type.json`（立体・奥行きの部品と文字の演出・切り替え depth/swing・演出の層 cubes）・`examples/backgrounds.json`（台本・章・場面の背景。動く背景と SVG の背景）・`examples/dynamic.json`（動きの性格 dynamic・動きの強い部品・切り替え・文字の出方・演出の層・新しい重ねの層）・`examples/showcase.json`（追加した部品・切り替え・`dom` の場面をすべて使う。`theater`）・`examples/sodashitsu.json`（部品だけ）・`examples/sodashitsu-mixed.json`（混在。pane が割れて増える・ブラウザと端末版の並び・
   SSH の線・OS 風の通知・カメラ・注記を `custom` と `overlays` で）。
 - テーマを足すときは `build.py` の `THEMES` に 1 つ足す（canvas の配色・書体・背景の模様・操作部の配色）。
 - 部品を足すときは `engine.js` の `R.<type>` と、`build.py` の `SCENE_TYPES`（必須の項目・説明・例）と `MIN_SEC` に足す。
