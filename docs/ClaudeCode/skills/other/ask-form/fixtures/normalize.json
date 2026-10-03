@@ -18,7 +18,9 @@
   "code_invalid": "code が文字列でない",
   "media_type": "画像・音のファイルの種類が違う（ask-form だけ）",
   "media_missing": "画像・音のファイルが無い（ask-form だけ）",
-  "too_large": "上限の超過（Sodashitsu だけ）"
+  "too_large": "上限の超過（Sodashitsu だけ）",
+  "view_invalid": "見せる成果物（view）の形が違う（ask-form だけ）",
+  "view_missing": "見せる成果物（view）のファイルが無い（ask-form だけ）"
  },
  "cases": [
   {
