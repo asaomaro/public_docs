@@ -1807,9 +1807,15 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var tryAt = function (re, pen) { var m; re.lastIndex = 0; while ((m = re.exec(plain))) { var i = m.index + m[0].length; if (i < 3 || i > plain.length - 3) continue;
       if ((plain.slice(0, i).match(/\*\*/g) || []).length % 2) continue;   /* 強調（**…**）の中では折らない */
       var a = tw(plain.slice(0, i).replace(/\*\*/g, ""), o), b = total - a; if (a > maxW || b > maxW) continue; var d = Math.abs(a - b) + pen; if (d < bestD) { bestD = d; best = i; } } };
-    tryAt(/[、。！？!?…　 ]+/g, 0);
+    tryAt(/[、。！？!?…　]+/g, 0);
+    if (best < 0 || bestD > total * .5) tryAt(/[^「『（(]+?(?=[「『（(])/g, total * .05);   /* かぎかっこ・かっこの前でも折れる */   /* 半角の空白（英字と仮名の間）では折らない。「React／を」のように助詞が行頭に来るため */
     if (best < 0 || bestD > total * .5) tryAt(/[ぁ-ん](?:は|が|を|に|で|と|も|の|へ|から|まで|より|って|ので|けど|ても|たら|なら)(?=[^ぁ-ん])/g, total * .12);
-    return best < 0 ? lines : [plain.slice(0, best).trim(), plain.slice(best).trim()];
+    if (best < 0) {   /* 幅で折ったとき: 2 行目の頭の句読点・閉じかっこは 1 行目の終わりへ（行頭に「、」を置かない） */
+      var m2 = /^[、。，．！？!?」』）)…ー]+/.exec(lines[1]); if (m2) { lines = [lines[0] + m2[0], lines[1].slice(m2[0].length)]; }
+      var m3 = /[A-Za-z0-9.\-]+$/.exec(lines[0]);   /* 英字の語の直後で折れて、2 行目が助詞から始まるときは、英字の語ごと 2 行目へ */
+      if (m3 && /^[をのがにはでとへもや]/.test(lines[1]) && m3[0].length < lines[0].length - 2 && tw(m3[0] + lines[1], o) <= maxW) lines = [lines[0].slice(0, -m3[0].length), m3[0] + lines[1]];
+      return lines; }
+    return [plain.slice(0, best).trim(), plain.slice(best).trim()];
   }
   function drawCaption(cur, tt) {
     if (CAPBAR[TALK.caption] || TALK.caption === "bubble") return drawCaption2(cur, tt);
