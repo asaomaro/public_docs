@@ -22,6 +22,7 @@ python3 -W ignore::ResourceWarning -m unittest discover -s tests -t tests -k Eng
 | `test_speech.py` | 声に渡す文の空白（英字・数字の前後で一呼吸おいた）・読みの置き換えの順・読み違えやすい書き方・1 文の声の中の字幕の切り替え時刻 |
 | `test_motion_voices.py` | 1 文ずつの声（文の途中で語尾が下がって切れた）・文の中の字幕の時刻・声の付け忘れ（声の無い HTML で上書きした）・HTML の中の声の数・書き出しの声 |
 | `test_motion_build.py` | 同梱の見本がすべて HTML になる・同じ曲のファイルは 1 回だけ入る・場面の曲・指示のフォームの定義と骨組み |
+| `test_ask_form.py` | ask-form の定義の検査と、部品 `<ask-form>` の回答の集め方（共通の試験データ `ask-form/fixtures/`。Sodashitsu も同じデータを読む）・部品の決まり（通信しない・ページ全体に触らない） |
 | `test_checks.py` | motion-video の check.py（項目と字幕の数のずれ・読み・声の無い HTML・同じ部品の連続）・台本の検査（絵の使い回し・同じ構図の連続・章 1 つが型の目安より短い）・出典の URL のかっこ |
 | `test_yukkuri.py` | 声の付け忘れ・声に渡す文の空白・話す速さ・場面の `@music`（効かなかった）・yukkuri-qa が HTML そのものの声を数える・指示のフォームが立ち絵と曲の無い環境でも出せる（選択肢が 0 件になって止まった）・題の項目の数と長さが合わなければ作る前に知らせる（10 選を 5 分で作り、1 か所 25 秒になった）・長さのおまかせ・ショート（`format: short`）が engine と HTML へ渡る・締めの画面（本編と同じ作り・6 秒・曲が続く・暗転）・声と BGM の大きさをそろえる |
 | `test_docs.py` | motion-video の説明書: SKILL.md が手順だけに短く保たれている（150 行まで）・`reference/` の資料と SKILL.md が互いを指している・書いたファイル名が実在する |

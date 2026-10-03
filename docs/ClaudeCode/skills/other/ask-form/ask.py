@@ -48,6 +48,7 @@ EXIT = {"answered": 0, "error": 1, "cancelled": 2, "unavailable": 3, "timeout": 
 TYPES = ("single", "multi", "text", "edit", "rank", "table")
 CHOICE_TYPES = ("single", "multi", "rank", "table")   # options を持つ型
 PREVIEWS = ("side", "inline")
+SCALAR = (str, int, float, bool)
 IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
                ".webp": "image/webp", ".avif": "image/avif", ".svg": "image/svg+xml"}
 AUDIO_TYPES = {".wav": "audio/wav", ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".oga": "audio/ogg",
@@ -68,6 +69,17 @@ SELFTEST_SPEC = {
 
 
 # ── 質問の定義を検査して、既定を埋める ─────────────────────────────────────
+class SpecError(ValueError):
+    """定義の誤り。reason は誤りの分類（fixtures/normalize.json と、同じ検査をする Sodashitsu とで共通の名前）。"""
+
+    def __init__(self, reason, message):
+        super().__init__(message)
+        self.reason = reason
+
+
+COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
+
+
 def normalize(spec, base_dir="."):
     """定義を検査して既定を埋める。選択肢の image・audio がローカルのファイルなら、受け口から配る番号付きの
     アドレス（file/N）に書き換え、(パス, 種類) の一覧を spec["_files"] に入れる。"""
@@ -80,62 +92,109 @@ def normalize(spec, base_dir="."):
         path = os.path.join(base_dir, os.path.expanduser(ref))
         ctype = types.get(os.path.splitext(path)[1].lower())
         if not ctype:
-            raise ValueError("%s: %s は %s のいずれか（%s）" % (where, key, " / ".join(sorted(types)), ref))
+            raise SpecError("media_type", "%s: %s は %s のいずれか（%s）" % (where, key, " / ".join(sorted(types)), ref))
         if not os.path.isfile(path):
-            raise ValueError("%s: %s のファイルがありません（%s）" % (where, key, path))
+            raise SpecError("media_missing", "%s: %s のファイルがありません（%s）" % (where, key, path))
         files.append((os.path.abspath(path), ctype))
         o[key] = "file/%d" % (len(files) - 1)
 
     def items(q, key, where):
         lst = q.get(key)
         if not isinstance(lst, list) or not lst:
-            raise ValueError("%s: %s に 1 つ以上入れてください" % (where, key))
+            raise SpecError("options_empty", "%s: %s に 1 つ以上入れてください" % (where, key))
         for j, o in enumerate(lst):
             if isinstance(o, str):
                 o = lst[j] = {"value": o, "label": o}
             if not isinstance(o, dict) or "value" not in o:
-                raise ValueError("%s.%s[%d]: value が必要です" % (where, key, j))
+                raise SpecError("option_value_required", "%s.%s[%d]: value が必要です" % (where, key, j))
             o["value"] = str(o["value"])
-            o.setdefault("label", o["value"])
+            if not isinstance(o.get("label"), str):
+                o["label"] = o["value"]
+            if o.get("recommended") is True:
+                o["recommended"] = True
+            else:
+                o.pop("recommended", None)
+            colors = [c for c in o["colors"] if isinstance(c, str) and COLOR_RE.match(c)][:16] if isinstance(o.get("colors"), list) else []
+            if colors:
+                o["colors"] = colors
+            else:
+                o.pop("colors", None)
         values = [o["value"] for o in lst]
         if len(set(values)) != len(values):
-            raise ValueError("%s: %s の value が重複しています" % (where, key))
+            raise SpecError("option_value_duplicate", "%s: %s の value が重複しています" % (where, key))
         return lst
 
     if not isinstance(spec, dict) or not isinstance(spec.get("questions"), list) or not spec["questions"]:
-        raise ValueError('"questions" に質問を 1 つ以上入れてください')
+        raise SpecError("questions_empty", '"questions" に質問を 1 つ以上入れてください')
+    paging = spec.get("paging")
+    if not (paging in (None, "auto") or isinstance(paging, bool) or (isinstance(paging, int) and paging >= 1)):
+        raise SpecError("paging_invalid", '"paging" は "auto"（高さに収まらないときだけ分ける）/ false（分けない）/ 1 ページの質問の数')
     seen = set()
     for i, q in enumerate(spec["questions"]):
         where = "questions[%d]" % i
         if not isinstance(q, dict) or not q.get("id") or not q.get("label"):
-            raise ValueError("%s: id と label が必要です" % where)
+            raise SpecError("id_label_required", "%s: id と label が必要です" % where)
         if q["id"] in seen:
-            raise ValueError("%s: id「%s」が重複しています" % (where, q["id"]))
+            raise SpecError("id_duplicate", "%s: id「%s」が重複しています" % (where, q["id"]))
         seen.add(q["id"])
+        if q.get("page") is not None and not isinstance(q["page"], str):
+            raise SpecError("page_invalid", "%s: page はページの題（文字列）で渡してください" % where)
         q.setdefault("type", "single")
         if q["type"] not in TYPES:
-            raise ValueError("%s: type は %s のいずれか" % (where, " / ".join(TYPES)))
+            raise SpecError("unknown_type", "%s: type は %s のいずれか" % (where, " / ".join(TYPES)))
+        # 部品（ask-form.js）が受ける形に揃える（fixtures/normalize.json の「正規化後」。Sodashitsu の normalizeAskSpec と同じ形）
+        q["allowOther"] = q.get("allowOther") is True
+        q["required"] = (q.get("required") is not False) if q["type"] == "edit" else (q.get("required") is True)
+        q["multiline"] = q.get("multiline") is True
+        mw = q.get("minWidth")
+        if not (isinstance(mw, int) and not isinstance(mw, bool) and 60 <= mw <= 600):
+            q.pop("minWidth", None)
+        if q["type"] == "text" and not isinstance(q.get("default"), str):
+            q.pop("default", None)
+        sif = q.get("showIf")
+        if not sif:
+            q.pop("showIf", None)
+        elif not isinstance(sif, dict):
+            raise SpecError("showif_invalid", "%s: showIf は {質問の id: 値} で渡してください" % where)
+        else:
+            q["showIf"] = {str(k): [str(x) for x in (v if isinstance(v, list) else [v]) if isinstance(x, SCALAR)] for k, v in sif.items()}
+        if q["type"] == "single" and isinstance(q.get("default"), list):
+            q["default"] = q["default"][0] if q["default"] else None
+        if q["type"] == "single" and q.get("default") is not None:
+            q["default"] = str(q["default"])
+        if q["type"] == "multi" and isinstance(q.get("default"), list):
+            q["default"] = [str(x) for x in q["default"] if isinstance(x, SCALAR)]
+        if q.get("default") is None:
+            q.pop("default", None)
         if q["type"] not in CHOICE_TYPES:
+            q["options"] = []
             continue
         for j, o in enumerate(items(q, "options", where)):
             ow = "%s.options[%d]" % (where, j)
             if "code" in o and not isinstance(o["code"], str):
-                raise ValueError("%s: code は文字列で渡してください" % ow)
+                raise SpecError("code_invalid", "%s: code は文字列で渡してください" % ow)
             local_file(o, "image", IMAGE_TYPES, ow)
             local_file(o, "audio", AUDIO_TYPES, ow)
         if q["type"] == "table":
             values = {o["value"] for o in q["options"]}
             for j, r in enumerate(items(q, "rows", where)):
                 if r.get("default") is not None and str(r["default"]) not in values:
-                    raise ValueError("%s.rows[%d]: default「%s」が options にありません" % (where, j, r["default"]))
+                    raise SpecError("row_default_unknown", "%s.rows[%d]: default「%s」が options にありません" % (where, j, r["default"]))
         if q.get("preview") not in (None,) + PREVIEWS:
-            raise ValueError("%s: preview は %s のいずれか" % (where, " / ".join(PREVIEWS)))
+            raise SpecError("preview_invalid", "%s: preview は %s のいずれか" % (where, " / ".join(PREVIEWS)))
         if q["type"] == "multi" and isinstance(q.get("default"), str):
             q["default"] = [q["default"]]
+    if not isinstance(spec.get("title"), str):
+        spec["title"] = "質問"
+    if not isinstance(spec.get("submit"), str):
+        spec["submit"] = "決定"
+    if isinstance(spec.get("note"), str):       # 補足の欄の入力例
+        spec["notePlaceholder"] = spec["note"]
+    spec["note"] = spec.get("note") is not False
     for i, q in enumerate(spec["questions"]):
         for dep in (q.get("showIf") or {}):
             if dep not in seen:
-                raise ValueError("questions[%d].showIf: 「%s」という id の質問がありません" % (i, dep))
+                raise SpecError("showif_unknown_id", "questions[%d].showIf: 「%s」という id の質問がありません" % (i, dep))
     spec["_files"] = files
     return spec
 
@@ -386,7 +445,7 @@ def make_handler(state, token, page, files=()):
 SODA_TYPES = ("single", "multi", "text")   # sodactl ask が対応する型
 
 
-def ask_via_soda(spec, timeout):
+def ask_via_soda(spec, timeout, raw=None):
     """sodactl ask で聞く。結果（answered / cancelled / timeout）を返す。出せない・使わないときは None
     （呼び出し側はウィンドウへ進む）。"""
     if os.environ.get("ASK_FORM_SODA", "").lower() in ("off", "0", "no"):
@@ -402,7 +461,7 @@ def ask_via_soda(spec, timeout):
             return None
     try:
         p = subprocess.run([sodactl, "ask", "--timeout", str(max(1, timeout) * 1000)],
-                           input=json.dumps(spec, ensure_ascii=False), capture_output=True, text=True,
+                           input=json.dumps(raw if raw is not None else spec, ensure_ascii=False), capture_output=True, text=True,
                            encoding="utf-8", timeout=timeout + 30)
         result = json.loads(p.stdout.strip().splitlines()[-1]) if p.returncode == 0 else None
     except (OSError, ValueError, IndexError, subprocess.TimeoutExpired):
@@ -449,6 +508,7 @@ def main():
             spec = json.loads(raw)
         # image・audio の相対パスは、定義のファイルの場所（標準入力なら今の場所）から解く
         base_dir = "." if args.spec in (None, "-") else os.path.dirname(os.path.abspath(args.spec))
+        raw_spec = json.loads(json.dumps(spec))   # sodactl ask へは、書かれたままの定義を渡す
         spec = normalize(spec, base_dir)
     except (OSError, ValueError) as e:
         print("ask-form: 質問の定義を読めません: %s" % e, file=sys.stderr)
@@ -461,7 +521,7 @@ def main():
     if spec.get("remember") and not args.selftest:
         apply_remembered(spec)
     if not args.selftest:
-        result = ask_via_soda(spec, args.timeout)
+        result = ask_via_soda(spec, args.timeout, raw_spec)
         if result:
             if result["status"] == "answered" and spec.get("remember"):
                 save_remembered(spec, result.get("answers") or {})
@@ -487,7 +547,9 @@ def main():
     spec["_width"] = args.width
     spec["_maxHeight"] = args.height
     template = open(os.path.join(HERE, "form.html"), encoding="utf-8").read()
-    page = template.replace("__SPEC__", json.dumps(spec, ensure_ascii=False).replace("</", "<\\/"))
+    component = open(os.path.join(HERE, "ask-form.js"), encoding="utf-8").read()   # 画面の部品（<ask-form>）。殻に埋め込んで配る
+    page = (template.replace("__COMPONENT__", component.replace("</script", "<\\/script"))
+            .replace("__SPEC__", json.dumps(spec, ensure_ascii=False).replace("</", "<\\/")))
 
     state = State()
     token = secrets.token_urlsafe(12)
