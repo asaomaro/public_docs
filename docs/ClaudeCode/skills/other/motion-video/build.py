@@ -9,7 +9,7 @@
 描画は台本と時刻だけで決まる（同じ台本 → 同じ動画。シークしても同じ画）。
 外部への依存は無い（書体は OS のもの。画像は data URI で埋め込む）。
 """
-import sys, os, re, json, html, base64, argparse, mimetypes
+import sys, os, re, json, html, base64, argparse, mimetypes, urllib.parse, urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -407,6 +407,9 @@ def spoken(text, pronounce):
     s = re.sub(r"\*\*", "", text)
     for k in sorted(pronounce or {}, key=len, reverse=True):   # 長い語から（engine.js と同じ順）
         s = s.replace(k, pronounce[k])
+    # 日本語と英字・数字の間の空白を詰める（英字どうしの間は残す）。VOICEVOX は空白を読点と同じ息継ぎにするので、
+    # 「pane を分けて」が「ペイン、を分けて」と切れ、「10 回」は「じゅう、かい」と読まれる。字幕は元のまま
+    s = re.sub(r"[ \u3000]+(?=[^\x00-\x7f])|(?<=[^\x00-\x7f])[ \u3000]+", "", s)
     return s.strip()
 
 
@@ -496,8 +499,14 @@ CUE_LIMIT = {"ja": 34, "zh": 34, "ko": 34}
 
 def split_cues(text, lang):
     """ナレーションを字幕の単位に切る（文ごと。長い文は読点で分ける）。"""
-    out = []
+    return [c for g in split_sentences(text, lang) for c in g]
+
+
+def split_sentences(text, lang):
+    """文ごとの字幕の並び [[字幕, …], …]。声は文ごとに 1 つ作り、字幕は文の中で切り替える（文の途中で声を切らない）。"""
+    groups = []
     for sent in SENT.findall(text):
+        out = []
         sent = sent.strip()
         if not sent:
             continue
@@ -512,10 +521,41 @@ def split_cues(text, lang):
             out.append(sent[:cut + 1].strip())
             sent = sent[cut + 1:].strip()
         out.append(sent)
+        groups.append(out)
+    return groups
+
+
+def voice_splits(q, counts, total_ms):
+    """1 文の声（audio_query の q）の中で、字幕が切り替わる時刻（ms）の並び。counts は字幕ごとの拍（モーラ）の数（Voicevox.moras）。
+    前の字幕の拍を数え終えた所の、直後の間（読点の息継ぎ）の終わりで切る。拍の数が合わなければ、拍の割合で切る。"""
+    if len(counts) < 2:
+        return []
+    sp = float(q.get("speedScale") or 1.0)
+    t, marks = float(q.get("prePhonemeLength", .1)), []   # marks: 拍ごとの (それまでの拍の数, その拍の終わり・直後の間の終わり)
+    n = 0
+    for ap in q.get("accent_phrases", []):
+        for m in ap.get("moras", []):
+            t += (m.get("consonant_length") or 0) + (m.get("vowel_length") or 0)
+            n += 1
+            marks.append([n, t])
+        if ap.get("pause_mora") and marks:
+            t += ap["pause_mora"].get("vowel_length") or 0
+            marks[-1][1] = t
+    full = t + float(q.get("postPhonemeLength", .1))
+    k = total_ms / 1000.0 / (full / sp) if full else 1   # 見積もりの長さを、作った WAV の長さに合わせる
+    out, acc = [], 0
+    ends = {a: b for a, b in marks}
+    for c in counts[:-1]:
+        acc += c
+        if acc in ends and n == sum(counts):
+            out.append(int(ends[acc] / sp * k * 1000))
+        else:
+            out.append(int(total_ms * acc / max(1, sum(counts))))
     return out
 
 
-VOICE_GAP = 250   # 前もって作った声の、字幕と字幕の間（ms）
+VOICE_GAP = 250   # 前もって作った声の、文と文の間（ms）。文の中の字幕の切り替えには間を置かない
+NARRATION_SPEED = 1.1   # VOICEVOX のナレーションの既定の速さ（audio.voice.speed か audio.speed で変える）。説明の動画は 1.1〜1.2 倍が聞きやすい
 
 
 def prepare_voices(spec, base, mode, url=voice.DEFAULT_URL, vdir=None, outdir=None):
@@ -545,29 +585,41 @@ def prepare_voices(spec, base, mode, url=voice.DEFAULT_URL, vdir=None, outdir=No
                     elif fi < len(files):
                         ln["voice"] = files[fi]; fi += 1
                 continue
-            cues = split_cues(narration_text(s), lang)
+            groups = split_sentences(narration_text(s), lang)
+            cues = [c for g in groups for c in g]
             if not cues:
                 continue
-            paths = []
-            for c in cues:
+            # VOICEVOX: 1 文を 1 つの声にし、字幕はその声の中の読点の時刻で切り替える（文の途中で語尾が下がって切れない）。
+            # 用意した WAV: 今までどおり字幕ごとに 1 つ
+            units = []   # (WAV, その WAV が受け持つ字幕, audio_query)
+            for g in (groups if mode == "voicevox" else [[c] for c in cues]):
                 if mode == "voicevox":
-                    paths.append(vv.synth(spoken(c, pron), vcfg, outdir))
+                    vcfg2 = dict(vcfg, speed=vcfg.get("speed", au.get("speed", NARRATION_SPEED)))
+                    path, q = vv.query(spoken("".join(g) if lang[:2] in ("ja", "zh") else " ".join(g), pron), vcfg2, outdir)
+                    units.append((path, g, q))
                 elif fi < len(files):
-                    paths.append(files[fi]); fi += 1
-            if len(paths) < len(cues):   # WAV が足りない場面はブラウザの声のまま
+                    units.append((files[fi], g, None)); fi += 1
+            if sum(len(u[1]) for u in units) < len(cues):   # WAV が足りない場面はブラウザの声のまま
                 continue
-            vs, ds = [], []
-            for p in paths:
+            vs, ds, gaps, vps = [], [], [], []
+            for p, g, q in units:
                 try:
                     dur, env = wav_info(p)
                 except Exception as e:
                     errs.append("音声は WAV（PCM）にしてください: %s（%s）" % (p, e))
                     break
                 uri, _ = _embed(p, base, "audio/wav")
-                vs.append({"voice": uri, "_env": env}); ds.append(int(dur))
+                cuts = voice_splits(q, [vv.moras(spoken(c, pron), vcfg2, outdir) for c in g], int(dur)) if q and len(g) > 1 else []
+                edges = [0] + cuts + [int(dur)]
+                head = len(vs)
+                for i in range(len(g)):
+                    vs.append({"voice": uri, "_env": env} if i == 0 else {"cont": head})   # cont: 前の字幕の声の続き（新しく鳴らさない）
+                    ds.append(edges[i + 1] - edges[i])
+                    gaps.append(VOICE_GAP if i == len(g) - 1 else 0)
+                    vps.append(os.path.abspath(p) if i == 0 else None)
             else:
-                s["_voices"], s["_vdurs"], s["_vtexts"] = vs, ds, cues
-                s["_vpaths"] = [os.path.abspath(p) for p in paths]   # 書き出し（video-export スキル）用。HTML には入れない
+                s["_voices"], s["_vdurs"], s["_vtexts"], s["_vgaps"] = vs, ds, cues, gaps
+                s["_vpaths"] = vps   # 書き出し（video-export スキル）用。HTML には入れない
     if mode == "files" and fi < len(files):
         errs.append("WAV が %d 個余りました（ナレーションの字幕とせりふは合わせて %d 個）。--timeline で字幕の数を確かめる" % (len(files) - fi, fi))
     credits = vv.credits() if vv else ([au["voice_credit"]] if au.get("voice_credit") else [])
@@ -606,9 +658,10 @@ def plan(spec):
             if s.get("_vdurs"):
                 # 前もって作った声（VOICEVOX・用意した WAV）: 字幕は声の長さどおりに並べ、場面の長さも声で決まる
                 t, cl = 500.0, []
+                gaps = s.get("_vgaps") or [VOICE_GAP] * len(s["_vdurs"])
                 for i, (c, dur) in enumerate(zip(s["_vtexts"], s["_vdurs"])):
                     cl.append([int(t), int(t + dur), c, "", i])
-                    t += dur + VOICE_GAP
+                    t += dur + gaps[i]
                 need = max(min_seconds(s) * 1000, t - VOICE_GAP + 700)
                 if s.get("duration") and float(s["duration"]) * 1000 < t - VOICE_GAP + 300:
                     warns.append("第 %d 章「%s」の場面 %d（%s）: duration %.1f 秒では声（%.1f 秒）が収まらないので、声の長さに合わせます"
@@ -1338,11 +1391,54 @@ def export_name(spec, path):
     return re.sub(r'[\\/:*?"<>|]', "_", title)
 
 
+def voicevox_alive(url=voice.DEFAULT_URL):
+    try:
+        urllib.request.urlopen(url.rstrip("/") + "/version", timeout=3).read()
+        return True
+    except Exception:
+        return False
+
+
+ODD_READINGS = [   # VOICEVOX が読み違えやすい書き方（正規表現, 理由と直し方）。spoken() の後の文に当てる
+    # 数と助数詞（1 つ・3 日・10 回）は、間の空白を spoken() が詰めれば正しく読まれる（空白があると「いち、つ」「じゅう、かい」になる）
+    (re.compile(r"開け(?:な|ら|ま)"), "「開け」は「あけ／ひらけ」のどちらにも読める。かなで書くか言い換える"),
+    (re.compile(r"[A-Za-z][A-Za-z0-9.+#_-]*"), "英字のまま（1 文字ずつ・英語読みになる）。audio.pronounce に読みを足す"),
+]
+
+
+def readings(spec, url=voice.DEFAULT_URL):
+    """ナレーションの文ごとの読み（VOICEVOX のかな）と、読み違えやすい所。[(場所, 文, かな, [指摘…])]。VOICEVOX につながらなければ かな は空。"""
+    au = spec.get("audio") or {}
+    pron, lang, vcfg = au.get("pronounce") or {}, spec.get("lang", "ja"), au.get("voice") or {}
+    vv = voice.Voicevox(url) if voicevox_alive(url) else None
+    sid = vv.speaker_id(vcfg.get("speaker") or voice.DEFAULT_SPEAKER[0], vcfg.get("style") or "ノーマル") if vv else None
+    rows = []
+    for ci, ch in enumerate(spec.get("chapters") or []):
+        for si, s in enumerate(ch.get("scenes") or []):
+            texts = [ln.get("text", "") for ln in s["lines"]] if is_dialogue(s) else ["".join(g) for g in split_sentences(narration_text(s), lang)]
+            for t in texts:
+                sp = spoken(t, pron)
+                notes = []
+                for rx, why in ODD_READINGS:
+                    hit = rx.findall(sp)
+                    if hit:
+                        notes.append("%s: %s" % ("・".join(dict.fromkeys(hit)), why))
+                kana = ""
+                if vv:
+                    q = json.loads(voice._http(url.rstrip("/") + "/audio_query?" + urllib.parse.urlencode({"text": sp, "speaker": sid}), data=b""))
+                    kana = q.get("kana", "")
+                rows.append(("第 %d 章 場面 %d" % (ci + 1, si + 1), t, kana, notes))
+    return rows
+
+
 def load(path, voicevox=False, voicevox_url=voice.DEFAULT_URL, voices_dir=None, voices_out=None):
     """台本（JSON）を読み、声を当て（voicevox・voices_dir）、確かめ、時間割を決めた台本を返す。誤りがあれば止める。
     video-export スキル（書き出し）もこれで読む。"""
     spec = json.load(open(path, encoding="utf-8"))
     base = os.path.dirname(os.path.abspath(path))
+    if not voicevox and not voices_dir and ((spec.get("audio") or {}).get("voice") or {}).get("engine") == "voicevox" and voicevox_alive(voicevox_url):
+        voicevox = True   # --voicevox の付け忘れで、声の無い HTML（ブラウザの声）に上書きしない
+        print("VOICEVOX が動いているので、声を入れます（--voicevox を付けたのと同じ）", file=sys.stderr)
     if (voicevox or voices_dir) and isinstance(spec.get("chapters"), list):
         out_v = voices_out or os.path.splitext(os.path.abspath(path))[0] + "_voices"
         verrs, vcred = prepare_voices(spec, base, "voicevox" if voicevox else "files", voicevox_url, voices_dir, out_v)
@@ -1354,7 +1450,8 @@ def load(path, voicevox=False, voicevox_url=voice.DEFAULT_URL, voices_dir=None, 
         n = sum(len(s_.get("_vdurs") or []) for c_ in spec["chapters"] for s_ in c_["scenes"])
         print("声: ナレーションの字幕 %d 個に前もって作った声を当てました（作り済みの WAV は使い回し）" % n, file=sys.stderr)
     elif ((spec.get("audio") or {}).get("voice") or {}).get("engine") == "voicevox":
-        print("warn: audio.voice は VOICEVOX ですが --voicevox が無いので、ブラウザの読み上げで再生します（時間は見積もり）", file=sys.stderr)
+        print("warn: audio.voice は VOICEVOX ですが、VOICEVOX につながらないので、ブラウザの読み上げ（別の声）で再生します（時間は見積もり）。"
+              "VOICEVOX を起動して作り直してください", file=sys.stderr)
     errs = validate(spec, base)
     if errs:
         for e in errs:
@@ -1397,6 +1494,7 @@ def main():
     ap.add_argument("--voicevox-url", default=voice.DEFAULT_URL, help="VOICEVOX の場所（既定 %(default)s）")
     ap.add_argument("--voices-dir", help="用意した WAV を名前順に、ナレーションの字幕（とせりふ）へ順に当てて埋め込む")
     ap.add_argument("--dist", action="store_true", help="配布用: 設定の書き出し（WebM で保存・編集用の映像・音のトラック）と、その実行部を除いて HTML を小さくする")
+    ap.add_argument("--readings", action="store_true", help="ナレーションの読み（VOICEVOX のかな）と、読み違えやすい所を出す（HTML は作らない）。声を作る前に見る")
     ap.add_argument("--voices-out", help="VOICEVOX で作った WAV の置き場所（既定: 台本と同じ場所の <台本名>_voices/）")
     args = ap.parse_args()
     if args.api:
@@ -1415,6 +1513,16 @@ def main():
         return
     if args.list or not args.spec:
         print_list()
+        return
+    if args.readings:
+        rows = readings(json.load(open(args.spec, encoding="utf-8")), args.voicevox_url)
+        for where, t, kana, notes in rows:
+            print("%s: %s%s" % (where, t, ("\n    → " + kana) if kana else ""))
+            for n in notes:
+                print("    ! " + n)
+        odd = sum(1 for r in rows if r[3])
+        print("%s: %d 文のうち %d 文に、読み違えやすい所があります（! の行）%s" % ("OK" if not odd else "warn", len(rows), odd,
+              "" if rows and rows[0][2] else "。VOICEVOX につながらないので、かなは出していません"))
         return
     spec = load(args.spec, args.voicevox, args.voicevox_url, args.voices_dir, args.voices_out)
     player = args.player or spec.get("player", "studio")

@@ -17,8 +17,10 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       (s._cues || []).forEach(function (c, j) {
         /* 前もって作ったナレーションの声は s._voices（c[3] が ""）、掛け合いのせりふは s.lines */
         var ln = c[3] === "" && s._voices ? s._voices[c[4]] || null : c[3] !== undefined && s.lines ? s.lines[c[4]] || {} : null;
+        /* 1 文の声が字幕 2 つ以上にまたがるとき、2 つ目からは { cont: 文の頭の字幕 } で、声を新しく鳴らさず前の声の続きとする */
+        var par = ln && ln.cont !== undefined && c[3] === "" ? CUES[sc.cues[ln.cont]] : null;
         sc.cues.push(CUES.length);
-        CUES.push({ a: DUR + c[0], b: DUR + c[1], text: c[2], who: c[3] || null, line: ln, key: ln ? SCENES.length + ":" + c[4] : null,
+        CUES.push({ a: DUR + c[0], b: DUR + c[1], text: c[2], who: c[3] || null, line: par ? par.line : ln, key: par ? par.key : ln ? SCENES.length + ":" + c[4] : null, par: par,
                     est: p ? (p.L ? (p.L[j] || [0])[0] : (p.e || [])[j] || 0) : 0 }); });
       DUR += d;
     });
@@ -2111,7 +2113,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       /* 楽器の録音の音（sound.py の samples）を復号しておく。復号が済むまでの音は合成の音で鳴る */
       if (AUD._samples && MA.loadSamples) MA.loadSamples(ac, AUD._samples);
       /* せりふの音声ファイル（WAV）を復号しておく */
-      CUES.forEach(function (c) { if (!c.line || !c.line.voice || VBUF[c.key]) return; var key = c.key; VBUF[key] = null;
+      CUES.forEach(function (c) { if (c.par || !c.line || !c.line.voice || VBUF[c.key]) return; var key = c.key; VBUF[key] = null;
         audioBytes(c.line.voice).then(function (buf) { return ac.decodeAudioData(buf); }).then(function (b) { VBUF[key] = b; }).catch(function (e) { console.warn("voice:", e); }); });
       /* ファイルの効果音は先に復号しておく */
       Object.keys(SFXD).forEach(function (k) { var r = SFXD[k]; if (!r.file) return;
@@ -2358,11 +2360,14 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   }
   function stopVoice() { if (vsrc) { try { vsrc.stop(); } catch (e) {} vsrc = null; } }
   function say(text, cue) {
+    if (cue && cue.par) return;   /* 前の字幕の声が続いている */
     if (cue && cue.line && cue.line.voice) { playVoice(cue, 0); return; }
     if (!synth || !audioOn || !voice || AUD.narration === false) return;
     try { synth.cancel(); var s = text.replace(/\*\*/g, "");
       /* 長い語から置き換える（「ts5250」より先に「5250」を置き換えない。JS は数字だけのキーを先に並べるため順に頼らない） */
       Object.keys(AUD.pronounce || {}).sort(function (a, b) { return b.length - a.length; }).forEach(function (k) { s = s.split(k).join(AUD.pronounce[k]); });
+      /* 日本語と英字・数字の間の空白を詰める（声によっては空白で一呼吸おく。build.py の spoken と同じ） */
+      s = s.replace(/[ \u3000]+(?=[^\x00-\x7f])/g, "").replace(/([^\x00-\x7f])[ \u3000]+/g, "$1");
       var u = new SpeechSynthesisUtterance(s), cv0 = cue && cue.who && CAST[cue.who] && CAST[cue.who].voice || {};
       u.voice = voice; u.lang = voice.lang; u.volume = VOL; u.rate = Math.min(2.4, (cv0.rate || AUD.rate || 1.1) * speed); if (cv0.pitch) u.pitch = cv0.pitch;
       var me = { u: u, cue: cue || null, started: performance.now(), maxMs: 4000 + s.length * 420 / u.rate, sp: speed };
@@ -2458,7 +2463,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     try { document.dispatchEvent(new CustomEvent("mv-exclusive", { detail: root })); } catch (e) {}
     var rb0 = $("mv-resume"); if (rb0) rb0.hidden = true;
     var c = CUES.filter(function (c) { return t >= c.a && t < c.b; })[0];
-    if (c && audioOn && c.line && c.line.voice) playVoice(c, t - c.a);
+    if (c && audioOn && c.line && c.line.voice) playVoice(c.par || c, t - (c.par || c).a);
     else if (c && audioOn && (t - c.a) < (c.b - c.a) * .35) say(c.text, c);
     pickVoice(); syncUI(); poke();
   }
@@ -2466,7 +2471,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   function stop() { playing = false; hush(); musicStop(); cancelRec(); t = 0; started = false; needsDraw = true; syncUI(); poke(); }
   function toggle() { playing ? pause() : play(); }
   function seek(ms) { t = clamp(ms, 0, DUR); hush(); needsDraw = true; started = true; if (playing) musicReset(); if (t >= DUR) { playing = false; musicStop(); }
-    else if (playing) { var cq = CUES.filter(function (c) { return t >= c.a && t < c.b; })[0]; if (cq && cq.line && cq.line.voice) playVoice(cq, t - cq.a); } syncUI(); }
+    else if (playing) { var cq = CUES.filter(function (c) { return t >= c.a && t < c.b; })[0]; if (cq && cq.line && cq.line.voice) playVoice(cq.par || cq, t - (cq.par || cq).a); } syncUI(); }
   function chapterStep(dir) { var i = chapterAt(t), n = i + dir; if (dir < 0 && t - CHAPTERS[i].t > 2000) n = i;
     n = clamp(n, 0, CHAPTERS.length - 1); seek(CHAPTERS[n].t); ensureAudio(); kitPlay("nav"); }
   function setSpeed(v) { speed = v; var sel = $("mv-speed"); if (sel) sel.value = String(v); store.set("speed", String(v)); if (playing) { hush(); musicReset(); } }
@@ -2821,7 +2826,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     return Promise.resolve(fill(oc, oc.destination)).then(function () { return oc.startRendering(); });
   }
   function hasMusic() { return msegs().some(function (m) { return m.key && MUS[m.key]; }); }
-  function voiceCues() { return AUD.narration === false ? [] : CUES.filter(function (c) { return c.key && VBUF[c.key]; }); }
+  function voiceCues() { return AUD.narration === false ? [] : CUES.filter(function (c) { return c.key && !c.par && VBUF[c.key]; }); }
   function fillVoice(oc, out) {
     voiceCues().forEach(function (c) { var s = oc.createBufferSource(), g = oc.createGain(); s.buffer = VBUF[c.key];
       g.gain.value = c.line.volume === undefined ? 1 : c.line.volume; s.connect(g); g.connect(out); s.start(c.a / 1000); });

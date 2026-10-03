@@ -699,12 +699,12 @@ def list_casts(only=None):
 # 声（VOICEVOX・用意した WAV）
 # ──────────────────────────────────────────────────────────────────────────
 def speakable(text, pronounce):
-    """読み上げに渡す文。読みを置き換え、数字と前後の文字の間の空白を詰める（「1859 年」を「…きゅう、とし」と読ませない）。字幕は元のまま。"""
+    """読み上げに渡す文。読みを置き換え、日本語と英字・数字の間の空白を詰める。字幕は元のまま。
+    VOICEVOX は空白を読点と同じ息継ぎにするので、「pane を分けて」が「ペイン、を分けて」と切れ、「1859 年」は「…きゅう、とし」と読まれる。"""
     text = text.replace("**", "")
     for k in sorted(pronounce, key=len, reverse=True):
         text = text.replace(k, pronounce[k])
-    text = re.sub(r"(?<=\d)[ \u3000]+(?=[^\s\dA-Za-z])", "", text)
-    return re.sub(r"(?<=[^\x00-\x7f])[ \u3000]+(?=\d)", "", text)
+    return re.sub(r"[ \u3000]+(?=[^\x00-\x7f])|(?<=[^\x00-\x7f])[ \u3000]+", "", text)   # 片側が日本語の空白だけ（英字どうしの間は残す）
 
 
 # 表情 → 声のスタイル（その話者に、左から順に最初にあったもの）。台本の先頭の voice_style: off で止める
@@ -764,6 +764,12 @@ def readings(spec, url, pronounce):
                 req = urllib.request.Request(url + "/audio_query?" + urllib.parse.urlencode({"text": text, "speaker": sid}), data=b"", method="POST")
                 kana = json.loads(urllib.request.urlopen(req, timeout=30).read()).get("kana", "")
                 print("%s: %s\n    → %s" % (c.get("name", ln["who"]), ln["text"], kana))
+                sys.path.insert(0, os.path.join(HERE, "..", "motion-video"))
+                import build as MV   # 読み違えやすい書き方（motion-video と同じ規則）
+                for rx, why in MV.ODD_READINGS:
+                    hit = rx.findall(text)
+                    if hit:
+                        print("    ! %s: %s" % ("・".join(dict.fromkeys(hit)), why))
 
 
 def yukkuri_bat(spec, stem, pronounce):
