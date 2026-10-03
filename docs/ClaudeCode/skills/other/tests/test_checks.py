@@ -102,6 +102,17 @@ class ScriptCheck(unittest.TestCase):
         self.assertTrue(short and "章を" in short[0] and "使う人に確かめる" in short[0], short)
         self.assertFalse([m for m in self.run_check(script(6)) if "章 1 つが約" in m])
 
+    def test_screens_without_background(self):
+        """2026-10-03: 列挙の型で、写真でない画面（地図・図解・挿絵）が白い地に浮いていた。背景の無い画面は「直す」。@bg は次に書くまで続く。"""
+        body = '# 本題\n@show: 太陽 "太陽"\nmetan: 絵だけの画面よ。\nzundamon: そうなのだ。\n'
+        bare = lambda msgs: [m for m in msgs if "背景の無い画面" in m]
+        self.assertTrue(bare(self.run_check(body)))
+        self.assertFalse(bare(self.run_check("@bg: sky\n" + body.replace("# 本題\n", "# 本題\n@bg: sky\n"))))
+        two = '# 一\n@bg: sky\n@show: 太陽 "太陽"\nmetan: 背景ありよ。\n# 二\n@show: 月 "月"\nmetan: ここも同じ背景が続くわ。\n'
+        self.assertFalse(bare(self.run_check(two)), "@bg が次の場面・次の章へ続いていない")
+        late = '# 一\n@show: 太陽 "太陽"\nmetan: まだ背景が無いわ。\n# 二\n@bg: sky\n@show: 月 "月"\nmetan: ここからあるわ。\n'
+        self.assertIn("1 枚", bare(self.run_check(late))[0])
+
 
 class FactCheck(unittest.TestCase):
     def test_url_with_parentheses(self):

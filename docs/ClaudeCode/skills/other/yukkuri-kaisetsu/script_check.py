@@ -401,6 +401,14 @@ def run(path, facts_path=None):
         if per > 3.2:
             R.add("warn", "画面", "1 つの画面でせりふが平均 %.1f 個続きます（1〜3 個ごとに絵を替える）" % per)
 
+    # 背景の無い画面（白い地に絵だけが浮く）は、直す（NG）。@bg は次に書くまで続くので、先頭の bg: か最初の場面の @bg: があればよい
+    import copy as _copy
+    bchap = _copy.deepcopy(chapters)
+    K.carry_bg(meta, bchap)
+    bare = K.bare_scenes(meta, bchap, base)
+    if bare:
+        R.add("error", "画面", "背景の無い画面が %d 枚あります（例: 「%s」の「%s…」）。台本の先頭に bg: を書くか、その場面の前に @bg: を書く（名前は kaisetsu.py --list-assets）"
+              % (len(bare), bare[0][0], bare[0][1][:14]))
     # 6.5 絵の選び方（画面の採点で多かった指摘を、台本の段階で数える）
     img_dir = os.path.join(base, meta.get("images", "images"))
     cj = os.path.join(img_dir, "credits.json")

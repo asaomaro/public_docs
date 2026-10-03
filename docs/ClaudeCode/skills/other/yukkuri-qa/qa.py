@@ -76,6 +76,11 @@ def measure(spec, meta, info, R):
     total = t
     talk = [c for c in chapters if any(l["scene"] in spec["chapters"][i]["scenes"] for l in lines for i in [chapters.index(c)])]
 
+    bare = meta.get("_bare") or []
+    R.stat("画面", "背景の無い画面", "%d 枚" % len(bare), "0 枚")
+    if bare:
+        R.add("warn", "画面", "背景の無い画面が %d 枚あります（白い地に絵だけが浮く。本編の写真の画面と作りが合わない）。台本の先頭に bg: を書くか、その場面の前に @bg: を書く: %s"
+              % (len(bare), "／".join("「%s」%s…" % (c, s[:10]) for c, s in bare[:4])))
     # ---- 構成 ----
     R.stat("構成", "長さ", fmt(total))
     R.stat("構成", "型", "%s（%s）" % (style, K.STYLES.get(style, {}).get("name", "?")))

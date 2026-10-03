@@ -976,6 +976,15 @@ def prepare(spec, base):
             _check_recipe(r, where, errs)
             defs[k] = r
     au["_sfx"] = {k: {x: y for x, y in r.items() if x not in ("cat", "name", "desc")} for k, r in defs.items()}
+    # 聞こえる大きさをそろえる倍率（sfx_levels.json を sfx_levels.py が測って書く。audio.sfx.level: false で止める）
+    if not (isinstance(sfx, dict) and sfx.get("level") is False):
+        try:
+            import sfx_levels
+            for k, g in sfx_levels.gains(sfx_levels.load()).items():
+                if k in au["_sfx"] and abs(g - 1) > .02:
+                    au["_sfx"][k]["lv"] = g
+        except ImportError:
+            pass
     if sfx is False:
         # 効果音を使わないときは音色の表を埋め込まない（全部で約 40 KB。動画・文書の図ごとに入っていた）
         au["_sfx"] = {}
@@ -1033,6 +1042,8 @@ def prepare(spec, base):
                     elif v and (v if isinstance(v, str) else v[0]) not in defs:
                         errs.append("%s: map の効果音 %r は無い" % (where, v))
     au["_sfxcfg"] = {"kit": kitout, "density": DENSITY.get(cfg.get("density", "normal"), 2), "volume": cfg.get("volume", 1)}
+    if cfg.get("transitionVolume") is not None:   # 章・場面の切り替えの音だけに掛ける倍率
+        au["_sfxcfg"]["transitionVolume"] = float(cfg["transitionVolume"])
     return errs
 
 

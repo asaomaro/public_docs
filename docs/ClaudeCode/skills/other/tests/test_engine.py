@@ -146,6 +146,44 @@ class Engine(unittest.TestCase):
         sp["talk"] = {}
         self.assertAlmostEqual(self.run_js(build_html(sp, voicevox=False), js)["ratio"], 16 / 9, delta=.05)
 
+    def test_transition_sounds(self):
+        """章・場面の切り替えの音は audio.sfx.transitionVolume で小さくでき、締めのクレジット（variant: credits）へは鳴らさずに替わる。"""
+        def spec(tv):
+            sfx = {"kit": "playful", "density": "low"}
+            if tv is not None:
+                sfx["transitionVolume"] = tv
+            return {"title": "t", "lang": "ja", "audio": {"narration": False, "music": None, "sfx": sfx},
+                    "chapters": [{"title": "a", "scenes": [{"type": "title", "title": "一"}]}, {"title": "b", "scenes": [{"type": "title", "title": "二"}]},
+                                 {"title": "おわりに", "scenes": [{"type": "end", "variant": "credits", "title": "おわり", "lines": ["x"]}]}]}
+        js = """(function(){var S=__MV__.segments?0:0, sc=[], q=__MV__.SFX; __MV__.seek(0);
+          var ch=__MV__.CHAPTERS.map(function(c){return c.t});
+          return {starts: ch, ev: q.map(function(e){return {T:e.T, v:e.v, name:e.name}})}})()"""
+        full = self.run_js(build_html(spec(None), voicevox=False), js)
+        half = self.run_js(build_html(spec(.5), voicevox=False), js)
+        def near(got, T):
+            return [e for e in got["ev"] if abs(e["T"] - T) < 200]
+        b0, e0 = full["starts"][1], full["starts"][2]
+        self.assertTrue(near(full, b0), "章の切り替えの音が無い: %r" % full)
+        self.assertAlmostEqual(near(half, half["starts"][1])[0]["v"], near(full, b0)[0]["v"] * .5, places=3)
+        self.assertFalse(near(full, e0), "クレジットへの切り替えで音が鳴る")
+
+    def test_sfx_loudness_is_levelled(self):
+        """2026-10-03: 章の切り替えの音（twinkle）だけが、ほかの効果音より 10 dB 近く大きく聞こえた（波形の山はそろっていたが、実効値がばらばらだった）。
+        sfx_levels.json の倍率を掛けると、よく使う音の実効値の開きが小さくなる。"""
+        import math
+        import sfx_levels
+        g = sfx_levels.gains(sfx_levels.load())
+        self.assertGreater(len(g), 150, "sfx_levels.json が無いか、古い（python3 sfx_levels.py で測り直す）")
+        sp = {"title": "t", "lang": "ja", "audio": {"narration": False, "music": None, "sfx": {"kit": "playful"}}, "chapters": [{"title": "a", "scenes": [{"type": "title", "title": "t"}]}]}
+        names = ["twinkle", "sparkle", "pop", "hyoshigi", "bling", "stab"]
+        js = "Promise.all(%s.map(function(n){return Promise.all([__MV__.sfxLevel(n), __MV__.sfxLevel(n,{raw:false})])}))" % json.dumps(names)
+        got = self.run_js(build_html(sp, voicevox=False), js)
+        raw = [20 * math.log10(a["rms"]) for a, _ in got]
+        lev = [20 * math.log10(b["rms"]) for _, b in got]
+        self.assertGreater(max(raw) - min(raw), 8, raw)
+        self.assertLess(max(lev) - min(lev), 4, lev)
+        self.assertEqual(sorted(self.run_js(build_html(sp, voicevox=False), "__MV__.sfxNames()")), sorted(g), "効果音が増減した: python3 sfx_levels.py で測り直す")
+
     def test_export_has_file_music(self):
         sp = {"title": "t", "lang": "ja", "audio": {"narration": False, "music": {"file": "bgm.wav", "loop": True}, "sfx": False},
               "chapters": [{"title": "a", "scenes": [{"type": "title", "title": "t", "duration": 4}]}]}

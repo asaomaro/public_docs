@@ -591,6 +591,24 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   };
 
   R.end = function (s, lt, d, T) {
+    if (s.variant === "credits") {   /* 掛け合いの動画の締め: 本編と同じ背景と立ち絵のまま、大きな一言と、小さな字のクレジット（輪の印は出さない。行が多くても画面に収める） */
+      var bgi = IMGS[s.bg];
+      if (bgi && bgi.complete && bgi.naturalWidth) { var bs = Math.max(W / bgi.naturalWidth, H / bgi.naturalHeight); ctx.drawImage(bgi, 960 - bgi.naturalWidth * bs / 2, 540 - bgi.naturalHeight * bs / 2, bgi.naturalWidth * bs, bgi.naturalHeight * bs); }
+      ctx.fillStyle = "rgba(12,14,20,.58)"; ctx.fillRect(0, 0, W, H);
+      var fam = TALK.font ? '"' + TALK.font + '",' + F.sans : F.sans, to = { size: 96, weight: 900, font: fam }, tk = P(lt, 150, 750, back);
+      ctx.save(); ctx.globalAlpha *= clamp(tk); ctx.translate(960, 120); ctx.scale(.9 + .1 * tk, .9 + .1 * tk); ctx.translate(-960, -120);
+      capLine(s.title || "", 960, 152, to, [[30, "#16161d"]], "#ffffff", "#ffe45c"); ctx.restore();
+      var rows2 = (s.lines || []).map(function (r) { return typeof r === "string" ? r : r.text; }), PW = 1280, PH = 430, CWd = PW / 2 - 50, sz = 28, out = [], per = 1;
+      for (; sz >= 16; sz -= 2) {   /* 2 段に組み、立ち絵の頭の上（y 660 まで）に収まる字の大きさを選ぶ */
+        out = []; rows2.forEach(function (r) { wrap(r, CWd, { size: sz, weight: 600, font: fam }).forEach(function (l, i) { out.push((i ? "　" : "") + l); }); });
+        per = Math.ceil(out.length / 2); if (per * sz * 1.5 <= PH - 50) break; }
+      var lh = sz * 1.5, ph = per * lh + 50, py = 230, ck = P(lt, 500, 1100);
+      ctx.save(); ctx.globalAlpha *= ck; rr(960 - PW / 2, py, PW, ph, 22); ctx.fillStyle = "rgba(0,0,0,.52)"; ctx.fill();
+      out.forEach(function (l, i) { var col = i < per ? 0 : 1, row = col ? i - per : i;
+        txt(l, 960 - PW / 2 + 34 + col * (PW / 2), py + 25 + sz + row * lh - sz * .15, { size: sz, weight: 600, color: "#f1f3f6", font: fam }); });
+      ctx.restore();
+      return;
+    }
     emblem(s.mark || "ring", 960, 290, 110 * P(lt, 0, 1000, back), lt * .00018, 1, s.markText || s.title);
     var rows = s.lines || [], y = 470;
     rows.forEach(function (r, i) {
@@ -1623,12 +1641,16 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     ctx.drawImage(ca, (W - CW) * q, (H - CH) * q, CW * q, CH * q, VW - CW * CK, VH - CH * CK, CW * CK, CH * CK);
     ctx.drawImage(cp, PX * q, (H - 400) * q, VW * q, 400 * q, 0, PY + PH - 60, VW, 400);
   }
+  /* 終わりの暗転（台本の endFade: ms）: 最後の endFade の間に、映像を黒へ、音（master）を 0 へ */
+  var ENDFADE = +SPEC.endFade || 0, endK = 1;
+  function endVeil(t) { if (!ENDFADE || VPASS || t <= DUR - ENDFADE) return; ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = clamp(1 - (DUR - t) / ENDFADE); ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, cv.width, cv.height); ctx.restore(); }
   function draw(t) {
-    if (vertOn() && !VPASS) { drawVert(t); if (!thumbMode) syncDom(t); return; }
+    if (vertOn() && !VPASS) { drawVert(t); endVeil(t); if (!thumbMode) syncDom(t); return; }
     drawBody(t);
     drawCast(t);
     chrome(t);
     if (recording && captions && !recording.clean) burnCaption(t);
+    endVeil(t);
     if (!thumbMode) syncDom(t);
   }
 
@@ -1916,9 +1938,9 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     ctx.restore();
   }
   function drawCast(tt) {
-    var k = sceneAt(tt), S = SCENES[k].s, show = isTalk(S) || (SPEC.castAlways && S.type !== "end" && FIRST_TALK >= 0 && tt >= FIRST_TALK); if (!show || !CASTIDS.length) return;
+    var k = sceneAt(tt), S = SCENES[k].s, show = isTalk(S) || S.variant === "credits" || (SPEC.castAlways && S.type !== "end" && FIRST_TALK >= 0 && tt >= FIRST_TALK); if (!show || !CASTIDS.length) return;
     var cur = cueAt(tt), onIds = S.cast || CASTIDS, lt0 = FIRST_TALK >= 0 ? tt - FIRST_TALK : 0, sideN = { left: 0, right: 0 }, capOn = recording ? !recording.clean : captions;
-    if (CAPBAR[TALK.caption] && capOn && !vertOn()) capBack();
+    if (CAPBAR[TALK.caption] && capOn && !vertOn() && S.type !== "end") capBack();
     CPOS = {};
     onIds.forEach(function (id, i) {
       var ch = CAST[id]; if (!ch || ch.hidden) return;   /* hidden: 声だけの語り手（立ち絵を出さない） */
@@ -2015,7 +2037,11 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
           rr(-sw / 2, -40, sw, 76, 24); ctx.fillStyle = "#ffffff"; ctx.fill(); ctx.lineWidth = 5; ctx.strokeStyle = "#20242c"; ctx.stroke();
           var tx0 = sideX ? -sw / 2 + 40 : 0; ctx.beginPath(); ctx.moveTo(tx0 - 16, 34); ctx.lineTo(tx0 - (sideX ? 26 : 0), 66); ctx.lineTo(tx0 + 16, 34); ctx.closePath(); ctx.fillStyle = "#ffffff"; ctx.fill();
           txt(solo[0].say, 0, 14, { size: 40, weight: 800, align: "center", color: "#20242c", font: so.font }); ctx.restore(); }
-        if (solo[0].label) { var fo = capFont(34), flw = tw("【" + solo[0].label + "】", fo) + 28; var fly = vertOn() ? 826 : capY < 1080 ? capY - 76 : 150, flx = sideX ? Math.max(flw / 2 + 20, 960 - sideX) : 960; ctx.fillStyle = "rgba(0,0,0,.72)"; ctx.fillRect(flx - flw / 2, fly, flw, 50); txt("【" + solo[0].label + "】", flx, fly + 36, { size: 34, weight: 800, align: "center", color: "#ffffff", font: fo.font }); }
+        if (solo[0].label && solo[0].big) {   /* 題のように大きく出す名札（動画の題の画面など）。暗い帯の上に、白い太い字 */
+          var bo = capFont(132, 900), bl = capWrap(solo[0].label, 1500, bo).slice(0, 2), by0 = Math.min(capY, 1080) * .5 - (bl.length - 1) * 82, bk = P(slt, 120, 520, back);
+          ctx.save(); ctx.globalAlpha *= clamp(bk); ctx.fillStyle = "rgba(0,0,0,.42)"; ctx.fillRect(0, by0 - 150, 1920, 210 + (bl.length - 1) * 164);
+          bl.forEach(function (l2, i) { capLine(l2, 960, by0 + i * 164, bo, [[34, "#16161d"]], "#ffffff", "#ffe45c"); }); ctx.restore(); }
+        else if (solo[0].label) { var fo = capFont(34), flw = tw("【" + solo[0].label + "】", fo) + 28; var fly = vertOn() ? 826 : capY < 1080 ? capY - 76 : 150, flx = sideX ? Math.max(flw / 2 + 20, 960 - sideX) : 960; ctx.fillStyle = "rgba(0,0,0,.72)"; ctx.fillRect(flx - flw / 2, fly, flw, 50); txt("【" + solo[0].label + "】", flx, fly + 36, { size: 34, weight: 800, align: "center", color: "#ffffff", font: fo.font }); }
         if (solo[0].credit) { ctx.font = font(capFont(20, 700)); ctx.textAlign = "right"; ctx.lineJoin = "round"; ctx.lineWidth = 5; ctx.strokeStyle = "rgba(0,0,0,.8)"; ctx.textAlign = "right"; ctx.strokeText(solo[0].credit, vertOn() ? 1484 : 1896, 28); ctx.fillStyle = "#ffffff"; ctx.fillText(solo[0].credit, vertOn() ? 1484 : 1896, 28); }
         ctx.restore();
         if (sh.title) { var ftk = P(slt, 0, 300); ctx.save(); ctx.globalAlpha *= ftk; capLine(sh.title, 960, 130, capFont(62, 900), [[20, "#16161d"]], "#ffffff", "#ffe45c"); ctx.restore(); }
@@ -2309,6 +2335,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var A = ctx || ac, B = bus || sfxBus;
     if (!A || (!ctx && (!audioOn || !sfxOn)) || !name) return; var r = SFXD[name]; if (!r) return; sfxCount++;
     o = o || {}; var when = A.currentTime + Math.max(0, delay || 0);
+    if (r.lv && r.lv !== 1 && !o.raw) { var LG = A.createGain(); LG.gain.value = r.lv; LG.connect(B); B = LG; }   /* 聞こえる大きさをそろえる倍率（sound.py が sfx_levels.json から書く） */
     if (r.file) { var b = SFXBUF[name]; if (!b) return; var src = A.createBufferSource(), g = A.createGain(); src.buffer = b;
       src.playbackRate.value = Math.pow(2, (o.pitch || 0) / 12); g.gain.value = (o.v === undefined ? 1 : o.v) * (r.v || 1); src.connect(g); g.connect(B); src.start(when); return; }
     if (r.code) { var fn = SFXFN[name]; if (!fn) { try { fn = SFXFN[name] = new Function("ac", "out", "when", "A", "o", r.code); } catch (e) { fn = SFXFN[name] = function () {}; console.error("sfx code:", e); } }
@@ -2339,8 +2366,10 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     SCENES.forEach(function (sc, k) {
       var ss = sc.s.sfx, auto = !(ss === false || (ss && !Array.isArray(ss) && ss.auto === false)), smap = ss && !Array.isArray(ss) && ss.map || {};
       var push = function (T, ev, o, name) { raw.push({ T: T, ev: ev, o: o || {}, name: name, map: smap, k: k }); };
-      if (k > 0) { if (SCENES[k - 1].ci !== sc.ci) push(sc.t0 + 60, "chapter"); else { var tr = trOf(k), ev = KIT["tr." + tr] || !TR_EV[tr] ? "tr." + tr : TR_EV[tr];
-        push(sc.t0 - (tr === "cut" || tr === "flash" || tr === "glitch" ? 0 : 150), ev); } }
+      var TRV = SFXCFG.transitionVolume === undefined ? {} : { v: SFXCFG.transitionVolume };   /* 章・場面の切り替えの音だけ、音量を変える（audio.sfx.transitionVolume） */
+      if (k > 0 && sc.s.variant === "credits") {}   /* 締めのクレジットへは、音を鳴らさずに切り替える */
+      else if (k > 0) { if (SCENES[k - 1].ci !== sc.ci) push(sc.t0 + 60, "chapter", TRV); else { var tr = trOf(k), ev = KIT["tr." + tr] || !TR_EV[tr] ? "tr." + tr : TR_EV[tr];
+        push(sc.t0 - (tr === "cut" || tr === "flash" || tr === "glitch" ? 0 : 150), ev, TRV); } }
       if (auto) (sc.evs || []).forEach(function (e) { if (e.ev !== "__shake") push(sc.t0 + clamp(e.at, 0, sc.d), e.ev, e.o, SFXD[e.ev] ? e.ev : null); });
       (Array.isArray(ss) ? ss : ss && ss.add || []).forEach(function (a) {
         push(sc.t0 + (a.ms !== undefined ? a.ms : (a.at || 0) * sc.d), a.event, { v: a.v, pitch: a.pitch, force: true }, a.name);
@@ -2694,6 +2723,8 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     syncCaption(false);
   }
   function frame(now) {
+    if (ENDFADE && ac && master) { var ek = playing && t > DUR - ENDFADE ? clamp((DUR - t) / ENDFADE) : 1;   /* 終わりの暗転に合わせて、音も消していく */
+      if (Math.abs(ek - endK) > .01) { endK = ek; master.gain.setTargetAtTime((audioOn ? VOL : 0) * ek, ac.currentTime, .03); } }
     if (playing) {
       var nt = Math.min(DUR, t + Math.min(100, now - lastNow) * speed);
       /* 読み上げが字幕の終わりまでに終わらなければ、読み終わるまで字幕の終わりの手前で待つ（終わりの知らせが来ない時の上限つき） */
@@ -2992,6 +3023,14 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       for (var i = 0; i + n <= d.length; i += n) { var s2 = 0; for (var j = i; j < i + n; j += 8) s2 += d[j] * d[j]; out.push(Math.round(Math.sqrt(s2 / (n / 8)) * 1000) / 1000); } return out; }); },
     segments: function () { return msegs().map(function (m) { return { t: m.t, end: m.end, key: m.key, cont: m.cont }; }); }, seek: seek, play: play, pause: pause, get t() { return t; }, get speaking() { return !!speaking; }, get DUR() { return DUR; }, CHAPTERS: CHAPTERS,
               get voiceRate() { return VK; }, retime: retime, CUES: CUES, SFX: SFXQ,
+              /* 効果音 1 つを音だけ書き出して、大きさを測る（peak: 最大の振れ、rms: いちばん大きい 0.3 秒の実効値）。音量をそろえるための道具（build.py --sfx-levels） */
+              sfxLevel: function (name, o) { ensureAudio(); var sr = 44100, oc = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, sr * 3, sr), g = oc.createGain(); g.connect(oc.destination);
+                var wait = SFXD[name] && SFXD[name].file ? new Promise(function (ok) { var n = 0; (function w() { if (SFXBUF[name] || n++ > 50) ok(); else setTimeout(w, 100); })(); }) : Promise.resolve();
+                return wait.then(function () { sfxPlay(name, .05, Object.assign({ raw: true }, o || {}), oc, g); return oc.startRendering(); }).then(function (buf) {
+                  var d = buf.getChannelData(0), pk = 0, win = Math.round(sr * .3), acc = 0, best = 0, i;
+                  for (i = 0; i < d.length; i++) { var v = d[i] * d[i]; if (Math.abs(d[i]) > pk) pk = Math.abs(d[i]); acc += v; if (i >= win) acc -= d[i - win] * d[i - win]; if (acc > best) best = acc; }
+                  return { peak: pk, rms: Math.sqrt(best / win) }; }); },
+              sfxNames: function () { return Object.keys(SFXD); },
               capWrap: function (text, maxW, size, lim) { return capWrap(text, maxW, { size: size || 56, weight: 800, font: F.sans }, lim); },   /* 字幕の折り返し（確かめる用） */
               get audio() { return { ctx: ac, mt: mclock.mt, section: mclock.sec, notes: mclock.count || 0, sfx: sfxCount, vol: VOL, gain: master ? master.gain.value : null }; } };
   root.__mv = api; window.__MV__ = api;
