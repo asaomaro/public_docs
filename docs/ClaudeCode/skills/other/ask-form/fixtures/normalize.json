@@ -839,47 +839,6 @@
       }
      ]
     }
-   },
-   "sodashitsu": {
-    "note": "作業 A で page・paging を通すまでは、どちらも落ちる",
-    "expect": {
-     "ok": true,
-     "spec": {
-      "title": "質問",
-      "submit": "決定",
-      "note": true,
-      "questions": [
-       {
-        "allowOther": false,
-        "required": false,
-        "multiline": false,
-        "id": "a",
-        "label": "A",
-        "type": "single",
-        "options": [
-         {
-          "value": "x",
-          "label": "x"
-         }
-        ]
-       },
-       {
-        "allowOther": false,
-        "required": false,
-        "multiline": false,
-        "id": "b",
-        "label": "B",
-        "type": "single",
-        "options": [
-         {
-          "value": "x",
-          "label": "x"
-         }
-        ]
-       }
-      ]
-     }
-    }
    }
   },
   {
@@ -1116,12 +1075,6 @@
    "expect": {
     "ok": false,
     "reason": "paging_invalid"
-   },
-   "sodashitsu": {
-    "note": "paging を通すまでは、知らない項目として落ちて通る",
-    "expect": {
-     "ok": true
-    }
    }
   },
   {
@@ -1141,12 +1094,6 @@
    "expect": {
     "ok": false,
     "reason": "page_invalid"
-   },
-   "sodashitsu": {
-    "note": "page を通すまでは、知らない項目として落ちて通る",
-    "expect": {
-     "ok": true
-    }
    }
   }
  ]
