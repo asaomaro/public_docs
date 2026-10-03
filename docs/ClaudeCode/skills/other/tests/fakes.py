@@ -18,6 +18,7 @@ import struct
 import sys
 import tempfile
 import wave
+import zlib
 from unittest import mock
 
 OTHER = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -46,6 +47,26 @@ def write_wav(path, segments, sr=SR):
         w.setsampwidth(2)
         w.setframerate(sr)
         w.writeframes(bytes(frames))
+
+
+def write_png(path, w, h, pixel, pad=0):
+    """PIL に頼らずに PNG（RGB）を書く。pixel(x, y) → (r, g, b)。pad は、中身と関係なくファイルを太らせるバイト数（tEXt）。"""
+    def chunk(kind, body):
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body) & 0xffffffff)
+    raw = b"".join(b"\0" + b"".join(bytes(pixel(x, y)) for x in range(w)) for y in range(h))
+    data = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+    if pad:
+        data += chunk(b"tEXt", b"Comment\0" + os.urandom(pad))
+    data += chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+    with open(path, "wb") as f:
+        f.write(data)
+    return path
+
+
+def noise(x, y):
+    """写真のように色の多い画素（毎回同じ）。"""
+    v = (x * 7919 + y * 104729) * 2654435761 & 0xffffff
+    return (v >> 16, v >> 8 & 255, v & 255)
 
 
 def tokens(text):

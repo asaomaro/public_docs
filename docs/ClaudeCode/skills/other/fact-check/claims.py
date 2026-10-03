@@ -180,20 +180,59 @@ def found(url, text):
     return bool(Q) and Q in norm(page_text(url))
 
 
+URL_RE = re.compile(r"https?://[^\s　、）]+")
+QUOTE_RE = re.compile(r"「([^」]+)」")
+SHORT = 10   # 判定の表の根拠では、これより短い「」は語（引用でない）とみて照らさない。照らさなかった数は必ず出す
+
+
+def quotes_of(text):
+    """照らす引用を、書かれた場所ごとに集める。[(名前, [引用], [URL], [(照らさなかった引用, 理由)])]
+
+    事実の一覧は「原文:」のある行ごと（小見出し ### があってもなくても、全部の行）。判定の表は ### のかたまりごとの「- 根拠:」。"""
+    out, n = [], 0
+    for no, line in enumerate(text.splitlines(), 1):   # 事実の一覧: 1 行に 事実 — 原文: 「…」 — 出典: URL
+        if not re.search(r"原文[:：]", line) or re.match(r"\s*- 根拠[:：]", line):
+            continue
+        n += 1
+        m = re.search(r"\[(F\w+)\]", line)
+        cid = m.group(1) if m else "%d 行目" % no
+        qs = [q for seg in re.findall(r"原文[:：](.*?)(?=—\s*出典|出典[:：]|$)", line) for q in QUOTE_RE.findall(seg)]
+        urls = [clean_url(u) for u in URL_RE.findall(line)]
+        skip = []
+        if not qs:
+            skip.append(("（原文: の後に「…」がありません）", "引用が無い"))
+        elif not urls:
+            skip, qs = [(q, "同じ行に出典の URL が無い") for q in qs], []
+        out.append((cid, qs, urls, skip))
+    for b in re.split(r"(?m)^### ", text)[1:]:   # 判定の表
+        m2 = re.search(r"(?m)^- 根拠[:：](.*)$", b)
+        if not m2:
+            continue
+        cid, head = (b.split() or ["?"])[0], b.splitlines()[0]
+        urls = [clean_url(u) for u in URL_RE.findall(b)]
+        qs, skip = [], []
+        for q in QUOTE_RE.findall(m2.group(1)):
+            if norm(q) in norm(head):   # 見出し（確かめている文）と同じ言葉は、出どころの引用ではない
+                skip.append((q, "確かめている文そのもの（出どころの引用ではない）"))
+            elif len(q) < SHORT:
+                skip.append((q, "%d 字より短い（語とみなした。引用なら quote で 1 つずつ照らす）" % SHORT))
+            elif not urls:
+                skip.append((q, "出典の URL が無い"))
+            else:
+                qs.append(q)
+        out.append((cid, qs, urls, skip))
+    return out
+
+
 def verify(path):
-    """判定の表（### ごと）か事実の一覧（1 行ごと）の中の引用「…」を、同じかたまりにある URL のページと照らす。"""
+    """判定の表（### ごとの「- 根拠:」）と事実の一覧（「原文:」のある行すべて）の引用「…」を、同じ所にある URL のページと照らす。
+
+    照らさなかった引用があれば、数と理由を必ず出す（黙って OK にしない）。"""
     text = open(path, encoding="utf-8").read()
-    blocks = re.split(r"(?m)^### ", text)[1:] or [l for l in text.splitlines() if "http" in l and "「" in l]
     ok = ng = 0
-    for b in blocks:
-        cid = b.split()[0] if b.strip() else "?"
-        cid = re.sub(r"^-$", "", cid) or (re.search(r"\[(F\d+)\]", b) or [0, "?"])[1]
-        m = re.search(r"\[(F\d+)\]", b[:20])
-        cid = m.group(1) if m else cid
-        urls = [clean_url(u) for u in re.findall(r"https?://[^\s　、）]+", b)]
-        m2 = re.search(r"(?m)^- 根拠:(.*)$", b) or re.search(r"原文[:：](.*?)(?:— 出典|$)", b)   # 引用は、判定の表なら「根拠」、事実の一覧なら「原文:」の後だけを見る
-        head = b.splitlines()[0] if b.strip() and "\n" in b.strip() else ""   # 判定の表では、見出し（確かめている文）と同じ引用は除く
-        quotes = [q for q in re.findall(r"「([^」]{10,})」", m2.group(1) if m2 else "") if re.search(r"[A-Za-z]{4}|[ぁ-ん]{2}", q) and norm(q) not in norm(head)]
+    skipped = []
+    for cid, quotes, urls, skip in quotes_of(text):
+        skipped += [(cid, q, why) for q, why in skip]
         for q in quotes:
             hit = False
             for u in urls:
@@ -206,8 +245,19 @@ def verify(path):
             ok, ng = ok + hit, ng + (not hit)
             if not hit:
                 print("NG : %s の引用が、出典のどのページにも見つかりません: 「%s」" % (cid, q[:70] + ("…" if len(q) > 70 else "")))
-    print("%s : 引用 %d 個のうち、ページにあったもの %d・見つからないもの %d" % ("OK" if not ng else "結果", ok + ng, ok, ng))
-    return 1 if ng else 0
+    if skipped:
+        why = {}
+        for cid, q, w in skipped:
+            why.setdefault(w, []).append("%s「%s」" % (cid, q[:40] + ("…" if len(q) > 40 else "")) if not q.startswith("（") else "%s %s" % (cid, q))
+        print("照らさなかった引用: %d 個" % len(skipped))
+        for w, xs in why.items():
+            print("  %s: %d 個 — %s" % (w, len(xs), "、".join(xs)))
+    hard = [s for s in skipped if "短い" not in s[2] and "確かめている文" not in s[2]]   # 引用も URL も無い行は、照らせていない（直す）
+    if not ok + ng and not skipped:
+        print("結果: 照らす引用が 1 つも見つかりません（事実の一覧は「原文: 「…」 — 出典: URL」、判定の表は「- 根拠: 「…」」と書く）")
+        return 1
+    print("%s : 引用 %d 個のうち、ページにあったもの %d・見つからないもの %d・照らさなかったもの %d" % ("OK" if not ng and not skipped else "結果", ok + ng + len(skipped), ok, ng, len(skipped)))
+    return 1 if ng or hard else 0
 
 
 def quote(url, text):

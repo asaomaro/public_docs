@@ -1,6 +1,7 @@
 """yukkuri-kaisetsu の台本 → 動画（偽の VOICEVOX で）と、yukkuri-qa の出来上がりの検査。"""
 import os
 import unittest
+from unittest import mock
 
 import fakes
 import build
@@ -397,6 +398,142 @@ class ShortFormat(unittest.TestCase):
         self.assertNotIn("intro", h, "ショートには茶番を入れない")
         self.assertTrue([w for w in m.warnings(a) if "茶番を入れない" in w])
         self.assertNotIn("format", m.header(dict(a, length="5")))
+
+
+LIST = """---
+title: テスト 3 選
+cast: metan, zundamon
+roles: metan=解説, zundamon=聞き手
+style: list
+intro: chaban
+---
+# 茶番
+metan: 茶番よ。
+zundamon: 茶番なのだ。
+# オープニング
+metan: 今日は 3 つ紹介するわ。
+# カブトエビ
+metan: 1 つめよ。
+zundamon: 田んぼにいるのだ。
+# イチョウ
+@corner: 街路樹の木
+metan: 2 つめよ。
+# シーラカンス
+@corner:
+metan: 3 つめよ。
+zundamon: 札は出さないのだ。
+# まとめ
+metan: まとめよ。
+# エンディング
+metan: おわりよ。
+"""
+
+
+class Corner(unittest.TestCase):
+    def test_numbers_only_item_chapters(self):
+        """2026-10-03: 列挙の型で茶番とオープニングの章があると、右上の札の番号がずれた（オープニングが「1.」、項目が「2. カブトエビ」…）。
+        番号は項目の章だけに振る。@corner: を書いた章はそれを使い、空なら出さない（前は消えなかった）。"""
+        spec = make(script=LIST)[0]
+        got = {ch["title"]: [sc.get("corner") for sc in ch["scenes"] if sc.get("type") == "talk"] for ch in spec["chapters"]}
+        self.assertEqual(got["カブトエビ"], ["1. カブトエビ"])
+        self.assertEqual(got["イチョウ"], ["街路樹の木"])
+        self.assertEqual(got["オープニング"], ["オープニング"])     # 項目でない章は、番号なしの題
+        self.assertEqual(got["まとめ"], ["まとめ"])
+        self.assertEqual(got["エンディング"], ["エンディング"])
+        self.assertFalse(any(got["シーラカンス"]), got["シーラカンス"])
+        self.assertFalse(any(sc.get("corner") for sc in spec["chapters"][0]["scenes"]))
+
+
+class Show(unittest.TestCase):
+    def test_bubble_position(self):
+        """2026-10-03: 画面いっぱいの写真の吹き出しは、いつも上の中央に出て、像や人の顔に重なった。台本から left・right・bottom を選べる。"""
+        import kaisetsu
+        it = kaisetsu.parse_show('daibutsu "牛久大仏" > "高さ 120m" left frame')["items"][0]
+        self.assertEqual((it["label"], it["say"], it["sayAt"], it["frame"]), ("牛久大仏", "高さ 120m", "left", True))
+        self.assertEqual(kaisetsu.parse_show('daibutsu > "下に出す" bottom')["items"][0]["sayAt"], "bottom")
+        self.assertNotIn("sayAt", kaisetsu.parse_show('daibutsu "牛久大仏" > "高さ 120m"')["items"][0])
+        self.assertEqual(kaisetsu.parse_show('daibutsu "牛久大仏" frame big')["items"][0], {"ref": "daibutsu", "label": "牛久大仏", "frame": True, "big": True})
+
+    def test_png_photo_goes_full(self):
+        """2026-10-03: PNG の写真は、1 枚だけでも画面いっぱいにならなかった（写真かどうかを拡張子の .jpg で決めていた）。
+        色の多い、透明な所の無い PNG は写真とみる。地図・図・挿絵の PNG は、そのまま。frame・noframe を書けば、そちらに従う。"""
+        import kaisetsu
+        body = '# 本題\n@show: photo "写真"\nmetan: 写真よ。\n@show: map "地図"\nzundamon: 地図なのだ。\n@show: map "地図" frame\nmetan: 縁つきよ。\n@show: photo "写真" noframe\nzundamon: 縁なしなのだ。\n'
+        d = fakes.tmpdir()
+        os.makedirs(os.path.join(d, "images"))
+        fakes.write_png(os.path.join(d, "images", "photo.png"), 240, 160, fakes.noise)
+        fakes.write_png(os.path.join(d, "images", "map.png"), 240, 160, lambda x, y: (160, 200, 240) if (x // 24 + y // 24) % 5 else (250, 240, 180))
+        path = os.path.join(d, "y.txt")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(SCRIPT.split("# はじめに")[0].replace("---\n# ", "---\n") + body)
+        with fakes.fake_voicevox(False), fakes.quiet():
+            spec = kaisetsu.make_spec(path, False)[0]
+        frames = [it["frame"] for ch in spec["chapters"] for sc in ch["scenes"] if isinstance(sc.get("board"), dict) for sh in sc["board"].get("shots", []) for it in sh["items"]]
+        self.assertEqual(frames, [True, False, True, False])
+
+    def test_board_bullets_fit(self):
+        """2026-10-03: @board bullets の字がとても小さかった（黒板は部品を縮めて置く）。箇条書きは、板に収まる範囲で字を大きくする。"""
+        import kaisetsu
+        self.assertEqual(kaisetsu.parse_board("bullets: まとめ | 一つめ | 二つめ")["zoom"], "fit")
+        self.assertEqual(kaisetsu.parse_board('{"type": "bullets", "items": ["a"]}')["zoom"], "fit")
+        self.assertEqual(kaisetsu.parse_board('{"type": "bullets", "items": ["a"], "zoom": 1}')["zoom"], 1)
+
+
+class QaNotes(unittest.TestCase):
+    def test_rerun_keeps_scores(self):
+        """2026-10-03: qa.py を回し直すと、<名前>.qa.md の「目で見る」の下に書き足してあった採点が消えた。測った値だけを書き換える。"""
+        import qa
+        path = make(script=SCRIPT)[5]
+        out = os.path.splitext(path)[0] + ".qa.md"
+
+        def run():
+            with mock.patch("sys.argv", ["qa.py", path, "--no-shots"]), fakes.fake_voicevox(False), fakes.quiet():
+                try:
+                    qa.main()
+                except SystemExit:
+                    pass
+            return open(out, encoding="utf-8").read()
+
+        first = run()
+        self.assertEqual(first.count("## 目で見る"), 1)
+        note = "\n### 見た結果（1 回目・写っている画面 24 枚）\n- A 絵の中身: 3\n- 直す所: 5 枚目の名札\n\n## 2 回目の採点\n- A 絵の中身: 4\n"
+        with open(out, "a", encoding="utf-8") as f:
+            f.write(note)
+        again = run()
+        self.assertIn(note.strip(), again)
+        self.assertEqual(again.count("## 測った値"), 1)
+        self.assertEqual(again.count("- 別のエージェントに rubric.md"), 1)
+        self.assertLess(again.index("## 測った値"), again.index("### 見た結果"))
+        self.assertEqual(run(), again, "3 回目でも、書き足した分が増えも減りもしない")
+
+
+class FetchImages(unittest.TestCase):
+    def setUp(self):
+        import importlib.util
+        sp = importlib.util.spec_from_file_location("fetch_images_t", os.path.join(fakes.YK, "fetch_images.py"))
+        self.F = importlib.util.module_from_spec(sp)
+        sp.loader.exec_module(self.F)
+
+    def test_deleted_image_is_not_a_traceback(self):
+        """2026-10-03: Commons で削除済みの画像を取ろうとすると、404 のトレースバックで落ちた。何が起きたかを 1 行で言って止まる。"""
+        import urllib.error
+
+        def gone(req, *a, **k):
+            raise urllib.error.HTTPError(req.full_url, 404, "Not Found", None, None)
+        with mock.patch("urllib.request.urlopen", gone):
+            with self.assertRaises(SystemExit) as e:
+                self.F.get("https://upload.wikimedia.org/x.jpg", binary=True)
+        self.assertIn("削除された", str(e.exception.code))
+        self.assertIn("404", str(e.exception.code))
+
+    def test_openverse_listing_and_symbol_author(self):
+        """2026-10-03: --source openverse の候補に題が出なかった（URL だけ）。Flickr の作者名「*_*」が、そのままクレジットに入った。"""
+        e = {"id": "https://live.staticflickr.com/1/2_b.jpg", "title": "Ushiku Daibutsu", "w": 1024, "h": 768, "license": "CC BY 2.0", "license_url": "", "author": "*_*",
+             "desc": "", "url": "https://live.staticflickr.com/1/2_b.jpg", "page": "https://www.flickr.com/photos/o_0/2", "note": "", "from": "flickr"}
+        self.assertIn("Ushiku Daibutsu", self.F.listing(1, e))
+        self.assertIn("（題なし）", self.F.listing(1, dict(e, title="")))
+        self.assertEqual(self.F.credit(e)["short"], "flickr の *_*（CC BY 2.0）")
+        self.assertEqual(self.F.credit(dict(e, author="Ikusuki"))["short"], "Ikusuki（CC BY 2.0）")
 
 
 if __name__ == "__main__":

@@ -49,6 +49,16 @@ def talk_lines(sc):
     return [ln for ln in sc.get("lines", []) if isinstance(ln, dict) and ln.get("who")]
 
 
+def shooter():
+    """画面を撮る道具（motion-video の shoot.py。PNG を開く道具もここにある）。"""
+    if "mod" not in shooter.__dict__:
+        path = os.path.join(HERE, "..", "motion-video", "shoot.py")
+        spec = importlib.util.spec_from_file_location("motion_video_shoot", path)
+        shooter.mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(shooter.mod)
+    return shooter.mod
+
+
 def motion_video():
     path = os.path.join(HERE, "..", "motion-video", "build.py")
     if not os.path.isfile(path):
@@ -70,7 +80,10 @@ def parse_board(rest):
     """@board の中身: 文字列 / image: パス / {JSON} / bullets|steps|statement: 見出し | 項目 | …"""
     rest = rest.strip()
     if rest.startswith("{"):
-        return json.loads(rest)
+        b = json.loads(rest)
+        if isinstance(b, dict) and b.get("type") == "bullets":
+            b.setdefault("zoom", "fit")
+        return b
     m = re.match(r"^(\w+)\s*:\s*(.*)$", rest)
     if m and m.group(1) in ("image", "bullets", "steps", "statement", "title", "cards", "stats"):
         kind, body = m.group(1), m.group(2)
@@ -78,7 +91,7 @@ def parse_board(rest):
         if kind == "image":
             return {"type": "image", "src": parts[0], "caption": parts[1] if len(parts) > 1 else ""}
         if kind == "bullets":
-            return {"type": kind, "heading": parts[0], "items": [p for p in parts[1:] if p]}
+            return {"type": kind, "heading": parts[0], "items": [p for p in parts[1:] if p], "zoom": "fit"}   # 黒板は部品を縮めて置くので、箇条書きは収まる範囲で字を大きくする
         if kind == "steps":
             return {"type": kind, "heading": parts[0], "items": [{"label": p.split("—")[0].strip(), "sub": p.split("—")[1].strip() if "—" in p else ""} for p in parts[1:] if p]}
         if kind == "cards":
@@ -156,18 +169,20 @@ def parse_show(rest):
                 it["color"] = TEXT_COLORS.get(m.group(2), m.group(2))
             shot["items"].append(it)
             continue
-        m = re.match(r'^(\S+)(?:\s+"([^"]*)")?(?:\s*>\s*"([^"]*)")?(?:\s+(frame|noframe))?(?:\s+(big))?$', cell)
+        m = re.match(r'^(\S+)(?:\s+"([^"]*)")?(?:\s*>\s*"([^"]*)"(?:\s+(top|left|right|bottom))?)?(?:\s+(frame|noframe))?(?:\s+(big))?$', cell)
         if not m:
-            raise ValueError('「%s」（絵の名前 "名札" > "吹き出し"、"短い言葉"、→ などの記号 のどれかを | で区切る）' % cell)
+            raise ValueError('「%s」（絵の名前 "名札" > "吹き出し"、"短い言葉"、→ などの記号 のどれかを | で区切る。吹き出しの後ろに left・right・bottom、その後ろに frame・big を書ける）' % cell)
         it = {"ref": m.group(1)}
         if it["ref"].startswith("icon:"):
             it = {"icon": it["ref"][5:]}
         for k, v in (("label", m.group(2)), ("say", m.group(3))):
             if v:
                 it[k] = v
-        if m.group(4):
-            it["frame"] = m.group(4) == "frame"
+        if m.group(4) and m.group(4) != "top":
+            it["sayAt"] = m.group(4)   # 画面いっぱいの写真の吹き出しの位置（既定は上の中央。写真の顔や像に重なるときに left・right・bottom）
         if m.group(5):
+            it["frame"] = m.group(5) == "frame"
+        if m.group(6):
             it["big"] = True     # 画面いっぱいの写真の名札を、題のように大きく出す
         shot["items"].append(it)
     if not shot["items"]:
@@ -197,7 +212,7 @@ def parse(text):
         if ch is None:
             new_chapter("はじめに")
         sc = {"type": "talk", "lines": []}
-        sc.update({k: v for k, v in sticky.items() if v})
+        sc.update(sticky)   # 空（@corner: だけ）も渡す: 「この章では札を出さない」の意味
         sc.update(kw)
         ch["scenes"].append(sc)
 
@@ -252,8 +267,6 @@ def parse(text):
                 sticky[key] = rest
                 if sc is not None and not sc["lines"]:
                     sc[key] = rest
-                    if not rest:
-                        sc.pop(key, None)
             elif key in ("bg", "transition", "camera", "fx"):
                 if sc is None or sc["lines"]:
                     pending[key] = rest if key != "fx" else [x.strip() for x in rest.split(",")]
@@ -719,6 +732,14 @@ VOICE_STYLES = {"angry": ["ツンツン", "おこ", "怒り"], "sad": ["なみ�
                 "love": ["あまあま"], "dizzy": ["ヘロヘロ"], "troubled+": ["ヘロヘロ", "なみだめ"], "smile+": ["よろこび", "喜び", "たのしい", "楽しい"], "surprised+": ["びっくり", "驚き"]}
 
 
+FRAME_RE = re.compile(r"茶番|オープニング|はじめに|まとめ|エンディング|おわりに")
+
+
+def frame_chapters(chapters):
+    """項目でない章（最初と最後の章、題が 茶番・オープニング・はじめに・まとめ・エンディング・おわりに の章）の番号。script_check.py と同じ決まり。"""
+    return {0, len(chapters) - 1} | {i for i, c in enumerate(chapters) if FRAME_RE.search(c["title"])}
+
+
 KEEP_MUSIC = "_back"   # 差し込んだ部品が曲を替えた後、続きの場面を元の曲（その章の曲）へ戻す印。to_spec が曲の名前に直す
 
 
@@ -841,13 +862,12 @@ def bare_scenes(meta, chapters, base="."):
         return []
     full = st.get("photo") == "full" or meta.get("photo", "").strip() == "full" or meta.get("format", "").strip().lower() in ("short", "shorts", "ショート", "縦")
 
-    def is_photo(it):
+    def photo_item(it):
         if it.get("frame") is not None:
             return bool(it["frame"])
         ref = str(it.get("ref") or "")
-        if re.search(r"\.jpe?g$", ref, re.I):
-            return True
-        return any(os.path.isfile(os.path.join(base, d, ref + e)) for d in ("images", "") for e in (".jpg", ".jpeg", ".JPG"))
+        path = next((c for c in (os.path.join(base, d, ref + e) for d in ("", meta.get("images", "images")) for e in ("",) + IMG_EXT + (".JPG",)) if os.path.isfile(c)), None)
+        return bool(path) and is_photo(path)
 
     out = []
     for ch in chapters:
@@ -862,7 +882,7 @@ def bare_scenes(meta, chapters, base="."):
             if isinstance(b, dict) and b.get("type") == "stage":
                 for sh in b.get("shots", []):
                     cells = [it for it in sh.get("items", []) if "op" not in it]
-                    if full and len(cells) == 1 and (cells[0].get("ref") or cells[0].get("img")) and is_photo(cells[0]):
+                    if full and len(cells) == 1 and (cells[0].get("ref") or cells[0].get("img")) and photo_item(cells[0]):
                         continue
                     ln = lines[sh["line"]]["text"] if sh.get("line") is not None and sh["line"] < len(lines) else first
                     out.append((ch["title"], ln))
@@ -1201,6 +1221,28 @@ def asset(name, catalog, sub, base, credits):
 IMG_MIME = {".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif"}
 
 
+_PHOTO = {}
+
+
+def is_photo(path):
+    """写真か（白い縁を付け、1 枚だけなら画面いっぱいに出す絵か）。JPEG は写真。PNG は、透明な所が無く、色の数が多いものを写真とみる
+    （上の 240 行を 3 画素おきに見て、色が 1000 種類以上・いちばん多い色が半分未満）。挿絵・地図・図の PNG はそのまま。違っていたら台本で frame・noframe を書く。"""
+    ext = os.path.splitext(path)[1].lower()
+    if ext in (".jpg", ".jpeg"):
+        return True
+    if ext != ".png":
+        return False
+    key = (os.path.abspath(path), os.path.getmtime(path))
+    if key not in _PHOTO:
+        px = shooter().png_pixels(open(path, "rb").read(), 3, 240)
+        count = {}
+        for p in px or []:
+            count[p] = count.get(p, 0) + 1
+        opaque = bool(px) and not (len(px[0]) in (2, 4) and any(p[-1] != 255 for p in px))
+        _PHOTO[key] = opaque and len(count) >= 1000 and max(count.values()) < len(px) * .5
+    return _PHOTO[key]
+
+
 def stage_images(meta, chapters, base):
     """@show の絵の名前を、ファイルに当てる（台本の隣か images/。拡張子は省ける）。{名前: パス} と、見つからなかった名前を返す。
     写真（JPEG）は白い縁を付け、取ってきた絵のクレジット（credits.json）を覚える。"""
@@ -1233,7 +1275,7 @@ def stage_images(meta, chapters, base):
                     table[key] = path
                     it["img"] = key
                     ext = os.path.splitext(path)[1].lower()
-                    it.setdefault("frame", ext in (".jpg", ".jpeg"))
+                    it.setdefault("frame", is_photo(path))
                     cj = os.path.join(os.path.dirname(path), "credits.json")
                     e = json.load(open(cj, encoding="utf-8")).get(os.path.basename(path)) if os.path.isfile(cj) else None
                     if e and e.get("from") == "いらすとや":   # 商用は 1 つの制作物に 20 点まで・素材としての再配布は不可（irasutoya スキル）
@@ -1436,12 +1478,14 @@ def to_spec(meta, chapters, cast, base):
     if "name" not in talk and len([c for c in cast.values() if not c.get("hidden")]) >= 3:   # 3 人以上: 字幕に名前を出す（誰のせりふか分かるように）
         talk["name"] = True
     if meta.get("chapter_tag") == "corner":   # 列挙・物語の型: 章の題を、右上の札に出す（1 章目は導入なので出さない）
+        frame, no = frame_chapters(chapters), 0
         for ci, ch in enumerate(chapters):
+            no += ci not in frame   # 番号は項目の章だけに振る（茶番・オープニング・まとめ・エンディングは数えない）
             for sc in ch["scenes"]:
                 if sc.get("type") == "talk" and ci > 0:
                     if sc.get("tag") == ch["title"]:
                         sc.pop("tag")
-                    sc.setdefault("corner", "%d. %s" % (ci, ch["title"]) if meta.get("style") == "list" and ci < len(chapters) - 1 and not re.match(r"^[\d①-⑳第]", ch["title"]) else ch["title"])
+                    sc.setdefault("corner", "%d. %s" % (no, ch["title"]) if meta.get("style") == "list" and ci not in frame and not re.match(r"^[\d①-⑳第]", ch["title"]) else ch["title"])
     spec["_image_paths"], missing = stage_images(meta, chapters, base)
     for ref in dict.fromkeys(missing):
         print("warn: @show の絵「%s」が見つかりません（illust.py get か fetch_images.py get で取る）。名前だけを文字で出します" % ref, file=sys.stderr)
@@ -1616,33 +1660,15 @@ def facing_sheet(out):
 
 
 def take_shots(html, times, outdir, size=None):
-    """作った HTML を Chrome（画面なし）で開き、その時刻へ動かして、映像だけを 1280×720 の PNG に撮る。"""
-    import shutil, subprocess, tempfile
-    chrome = next((c for c in ("google-chrome", "chromium", "chromium-browser", "chrome") if shutil.which(c)), None)
-    if not chrome:
-        print("warn: Chrome が見つからないので、画面を撮れません（HTML をブラウザで開いて見る）", file=sys.stderr)
-        return
-    os.makedirs(outdir, exist_ok=True)
-    src = open(html, encoding="utf-8").read()
-    size = size or ("720,1280" if '"format": "short"' in src or '"format":"short"' in src else "1280,720")   # 縦の画面（ショート）は縦に撮る
-    for t in times:
-        sec = sum(float(x) * 60 ** i for i, x in enumerate(reversed(t.strip().split(":"))))
-        hook = ('<style>.mv-stage{position:fixed!important;inset:0!important;z-index:99999!important;max-width:none!important;width:100vw!important;height:100vh!important}</style>'
-                '<script>window.addEventListener("load",function(){var t=%d;setTimeout(function(){try{__MV__.seek(t)}catch(e){}},700);setTimeout(function(){try{__MV__.seek(t)}catch(e){}},2600)})</script>' % round(sec * 1000))   # 2 回目: 大きい写真の読み込みを待ってから描き直す
-        with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False, encoding="utf-8", dir=os.path.dirname(html)) as f:
-            f.write(src + hook)
-        png = os.path.join(outdir, "%07.2f.png" % sec)
-        try:
-            for budget in (6000, 9000, 12000):   # 画面なしの Chrome は、ときどき白い画面を撮る。白ければ（PNG が小さければ）撮り直す
-                subprocess.run([chrome, "--headless=new", "--no-sandbox", "--hide-scrollbars", "--window-size=" + size, "--virtual-time-budget=%d" % budget,
-                                "--screenshot=" + png, "file://" + f.name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
-                if os.path.isfile(png) and os.path.getsize(png) > 20000:
-                    break
-            print("撮った絵: %s" % png)
-        except Exception as e:
-            print("warn: %s 秒の画面を撮れませんでした（%s）" % (t, e), file=sys.stderr)
-        finally:
-            os.remove(f.name)
+    """作った HTML を Chrome（画面なし）で開き、その時刻へ動かして、映像だけを 1280×720 の PNG に撮る。
+
+    Chrome は 1 回だけ起動し、絵が読み終わって描かれるのを待ってから撮る。一色（真っ白）の画面は中身で見分けて撮り直す（motion-video の shoot.py）。"""
+    S = shooter()
+    secs = [S.seconds(t) for t in times]
+    if isinstance(size, str):
+        size = tuple(int(x) for x in size.split(","))
+    for png in S.shoot(html, [(round(sec * 1000), os.path.join(outdir, "%07.2f.png" % sec)) for sec in secs], size):
+        print("撮った絵: %s" % png)
 
 
 def main():
