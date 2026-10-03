@@ -2826,7 +2826,10 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     if (ENDFADE && ac && master) { var ek = playing && t > DUR - ENDFADE ? clamp((DUR - t) / ENDFADE) : 1;   /* 終わりの暗転に合わせて、音も消していく */
       if (Math.abs(ek - endK) > .01) { endK = ek; master.gain.setTargetAtTime((audioOn ? VOL : 0) * ek, ac.currentTime, .03); } }
     if (playing) {
-      var nt = Math.min(DUR, t + Math.min(100, now - lastNow) * speed);
+      /* 1 コマが長くかかったとき（別のタブから戻った・重い絵を開いた）は、進める量を 0.1 秒までにする（急に飛ばない）。
+         録画の間は 1 秒まで進める: 0.1 秒で切ると、コマが遅れるたびに映像が実際の時間より遅れ、録った動画が台本より長くなる（9 分で 6 秒延びた。声は時刻どおりに鳴るので、ずれが積もる） */
+      var STEP = recording ? 1000 : 100;
+      var nt = Math.min(DUR, t + Math.min(STEP, now - lastNow) * speed);
       /* 読み上げが字幕の終わりまでに終わらなければ、読み終わるまで字幕の終わりの手前で待つ（終わりの知らせが来ない時の上限つき） */
       if (speaking && speaking.cue && !speaking.file && AUD.wait !== false) {
         if (performance.now() - speaking.started > speaking.maxMs) { speaking = null; root.classList.remove("mv-waiting"); }
@@ -2835,7 +2838,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       /* slides: 章の終わりで止まる（「次へ」で続きを再生） */
       var slideStop = false;
       if (SLIDES && !recording && nt < DUR && chapterAt(nt) > chapterAt(t)) { nt = CHAPTERS[chapterAt(nt)].t; slideStop = true; }
-      var prev = t; t = nt; onAdvance(prev, t); musicTick(Math.min(100, now - lastNow)); syncDuck();
+      var prev = t; t = nt; onAdvance(prev, t); musicTick(Math.min(STEP, now - lastNow)); syncDuck();
       if (now - lastSave > 2000) { lastSave = now; store.set(POSKEY, String(t >= DUR - 3000 ? 0 : Math.round(t))); }
       if (slideStop) { playing = false; hush(); musicStop(); }
       if (t >= DUR) { if (KIOSK && !recording) { t = 0; hush(); musicReset(); } else { playing = false; musicStop(); if (recording) finishRec(); } }

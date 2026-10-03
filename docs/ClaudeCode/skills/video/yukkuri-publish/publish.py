@@ -39,21 +39,46 @@ def sources(base, meta, stem):
     return list(dict.fromkeys(re.findall(r"https?://[^\s）)、]+", text)))
 
 
-def description(meta, info, src):
-    out = []
-    if meta.get("summary"):
-        out += [meta["summary"], ""]
-    out += ["▼目次"] + ["%s %s" % (c["at"], c["title"]) for c in info["chapters"]] + [""]
-    if src:
-        out += ["▼出典・参考"] + ["・" + s for s in src] + [""]
-    cr = [c for c in info["credits"] if not c.startswith("画像:")]
-    out += ["▼クレジット"] + cr
-    if info.get("images"):
-        out += ["画像:"] + ["・" + i["full"] for i in info["images"]]
-    out.append("")
-    if meta.get("tags"):
-        out.append(" ".join("#" + t.strip().lstrip("#") for t in re.split(r"[,、]", meta["tags"]) if t.strip()))
-    return "\n".join(out).rstrip() + "\n"
+DESC_LIMIT = 5000   # YouTube の概要欄は 5000 バイトまで（かなで約 1,600 字）
+
+
+def description(meta, info, src, limit=DESC_LIMIT):
+    """概要欄と、収まらずに外へ出した画像のクレジットの全文（外へ出さなければ None）。
+    写真が多い動画は、画像のクレジット（題・作者・ライセンス・URL）だけで上限を超える。超えたら順に縮める:
+    1) ライセンスの URL を外す  2) 作者とライセンスだけにまとめ、題と URL つきの全文は別のファイルに出す。"""
+    imgs = info.get("images") or []
+
+    def build(lines):
+        out = []
+        if meta.get("summary"):
+            out += [meta["summary"], ""]
+        out += ["▼目次"] + ["%s %s" % (c["at"], c["title"]) for c in info["chapters"]] + [""]
+        if src:
+            out += ["▼出典・参考"] + ["・" + s for s in src] + [""]
+        out += ["▼クレジット"] + [c for c in info["credits"] if not c.startswith("画像:")]
+        if lines:
+            out += ["画像:"] + lines
+        out.append("")
+        if meta.get("tags"):
+            out.append(" ".join("#" + t.strip().lstrip("#") for t in re.split(r"[,、]", meta["tags"]) if t.strip()))
+        return "\n".join(out).rstrip() + "\n"
+
+    full = ["・" + i["full"] for i in imgs]
+    text = build(full)
+    if len(text.encode("utf-8")) <= limit:
+        return text, None
+    mid = ["・" + ("「%s」%s／%s／%s" % (i["title"], i["author"], i["license"], i["page"]) if i.get("page") and i.get("license") and i.get("from") != "いらすとや" else i["full"]) for i in imgs]
+    text = build(mid)
+    if len(text.encode("utf-8")) <= limit:
+        return text, None
+    by = {}   # ライセンスごとに作者をまとめる
+    for i in imgs:
+        if i.get("from") == "いらすとや":
+            by.setdefault("イラスト", []).append("いらすとや https://www.irasutoya.com/")
+        else:
+            by.setdefault("%s（%s）" % (i.get("license") or "ライセンス不明", i.get("from") or "出どころ不明"), []).append(re.sub(r"（[^（）]*）$", "", i.get("short") or "") or i.get("author") or "作者不明")   # short は「作者（ライセンス）」。Commons の長い但し書きを除いた名前
+    short = ["・%s: %s" % (k, "、".join(dict.fromkeys(v))) for k, v in by.items()] + ["・写真の題と出どころの URL は、コメント欄の一覧に"]
+    return build(short), "この動画で使った画像（題・作者・ライセンス・出どころ）\n" + "\n".join(full) + "\n"
 
 
 def checks(meta, info, src, K):
@@ -181,8 +206,17 @@ def main():
         print("warn:", w, file=sys.stderr)
     if a.check:
         return
-    open(stem + ".description.txt", "w", encoding="utf-8").write(description(meta, info, src))
-    print("OK : %s" % (stem + ".description.txt"))
+    text, credits = description(meta, info, src)
+    open(stem + ".description.txt", "w", encoding="utf-8").write(text)
+    print("OK : %s（%d バイト）" % (stem + ".description.txt", len(text.encode("utf-8"))))
+    if credits:
+        open(stem + ".credits.txt", "w", encoding="utf-8").write(credits)
+        print("warn: 画像のクレジットが概要欄（%d バイトまで）に収まらないので、作者とライセンスだけにまとめました。題と URL つきの全文は %s（動画のコメント欄に貼って固定する）"
+              % (DESC_LIMIT, stem + ".credits.txt"))
+    elif os.path.exists(stem + ".credits.txt"):
+        os.remove(stem + ".credits.txt")
+    if len(text.encode("utf-8")) > DESC_LIMIT:
+        print("warn: 概要欄が %d バイトあります（YouTube は %d バイトまで）。出典を減らします" % (len(text.encode("utf-8")), DESC_LIMIT))
     if not a.no_thumb:
         lines = thumbnail(meta, base, K, stem + ".thumbnail.png")
         print("OK : %s（%s）" % (stem + ".thumbnail.png", " / ".join(lines)))
