@@ -11,6 +11,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import unittest
 
 import fakes
@@ -189,6 +190,7 @@ class Index(unittest.TestCase):
         spec = public(ask.normalize(dict({"title": "t", "questions": questions}, **top)))
         c = self.chrome
         c.call("Emulation.setDeviceMetricsOverride", c.sid, width=1000, height=400, deviceScaleFactor=1, mobile=False)
+        c.call("Emulation.setFocusEmulationEnabled", c.sid, enabled=True)   # 画面なしでも、フォーカスの出来事（focusin）が起きるように
         path = os.path.join(c.dir, "index%d.html" % c.n)
         open(path, "w", encoding="utf-8").write(INSTANT_PAGE % {"component": self.component, "spec": json.dumps(spec, ensure_ascii=False)})
         c.call("Page.enable", c.sid)
@@ -248,6 +250,37 @@ class Index(unittest.TestCase):
             if not seen or seen[-1] != cur:
                 seen.append(cur)
         self.assertEqual(seen, ["q%d" % i for i in range(1, 9)] + [""], "下げていく途中で、どの質問にも順に印が付く")
+
+    def test_mark_when_everything_fits(self):
+        """目次が出ていて、全部が収まっている（スクロールしない）ときは、最初の質問に印が付く。フォーカスを移すと、印もその質問へ移る
+        （前は、スクロールできないと「いちばん下」とみなして、開いた直後から最後の質問に印が付いた）。"""
+        self.open(self.MANY[:2], paging=True, note=False)
+        st = self.state()
+        self.assertTrue(st["shown"])
+        self.assertEqual((st["cur"], st["top"]), ("q1", 0))
+        st = self.state("FORM.shadowRoot.querySelector('[data-ask-question=q2] input').focus()")
+        self.assertEqual(st["cur"], "q2")
+
+    def test_submit_with_unanswered_moves_the_mark(self):
+        """未回答のまま決定すると、最初の未回答の質問へ移り、目次の印もその質問に付く
+        （前は、フォーカスと表示は移るのに、印が元のままだった）。"""
+        qs = [dict(q) for q in self.MANY]
+        del qs[1]["default"]
+        self.open(qs)
+        st = self.state("var b=FORM.shadowRoot.querySelector('.body');b.scrollTop=b.scrollHeight")
+        self.assertEqual(st["cur"], "")
+        st = self.state("FORM.submit()")
+        self.assertEqual((st["cur"], st["focus"], st["lack"]), ("q2", "q2", ["q2"]))
+        time.sleep(0.6)                      # なめらかに移り終えた後も、印はそのまま
+        self.assertEqual(self.state()["cur"], "q2")
+
+    def test_paging_false_wins_over_page(self):
+        """paging: false は、page を書いていても目次を出さない。"""
+        qs = [dict(q, page="まとまり %d" % (i // 3)) for i, q in enumerate(self.MANY)]
+        self.open(qs, paging=False)
+        self.assertFalse(self.state()["shown"])
+        self.open(qs[:2], note=False)        # paging を書かなければ、page があれば収まっていても出す
+        self.assertTrue(self.state()["shown"])
 
     def test_long_index_scrolls_and_follows_the_mark(self):
         """質問が多いと、目次にも縦のスクロールバーが出る。印が移ると、目次もその項目が見える所へ動く。"""
