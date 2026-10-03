@@ -347,6 +347,13 @@ class Record(unittest.TestCase):
         with fakes.quiet():
             open(html, "w", encoding="utf-8").write(build.build_html(build.load(path), "midnight", "studio", True))
         b = shoot.Browser(chrome, (1280, 720), record.FLAGS)
+        real = b.call
+
+        def call(method, session=None, **params):   # Chrome が、保存先に自分のファイルを落としたことにする（CI で、部品の CRX を録画と取り違えた）
+            if method == "Browser.setDownloadBehavior":
+                open(os.path.join(params["downloadPath"], "downloads.html"), "wb").write(b"Cr24....")
+            return real(method, session, **params)
+        b.call = call
         try:
             sel = lambda: b.eval("[].map.call(document.querySelectorAll('select[data-mv^=rec]'),function(e){return e.getAttribute('data-mv')+'='+e.value}).join(' ')")
             b.open(html)

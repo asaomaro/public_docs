@@ -30,7 +30,8 @@ MV = find_motion_video()
 if MV and MV not in sys.path:
     sys.path.insert(0, MV)
 
-FLAGS = ["--autoplay-policy=no-user-gesture-required", "--allow-file-access-from-files"]
+FLAGS = ["--autoplay-policy=no-user-gesture-required", "--allow-file-access-from-files",
+         "--disable-component-update", "--disable-background-networking"]   # 録っている間に、Chrome が自分の部品を取りに行かないように
 PROBE = """<!doctype html><meta charset="utf-8"><style>html,body{margin:0;background:#000;height:100%%;overflow:hidden}video{width:100vw;height:100vh;object-fit:contain}</style>
 <video id="v" src="%s" preload="auto"></video>"""
 
@@ -70,7 +71,8 @@ def record(b, html, out, opt=None, log=say):
         t0, last, f0, info = time.time(), -1, None, {"dur": dur, "audio": False}
         while True:
             time.sleep(1)
-            done = [f for f in glob.glob(os.path.join(tmp, "*")) if not f.endswith(".crdownload")]
+            # 動画のファイルだけを見る（Chrome が自分の部品を同じ場所へ落とすことがあり、それを録画と取り違えた: CI で 33MB の CRX を拾った）
+            done = [f for f in glob.glob(os.path.join(tmp, "*")) if os.path.splitext(f)[1].lower() in (".webm", ".mp4")]
             if done:
                 break
             st = b.eval("({t:__MV__.t,f:window.__f,w:document.querySelector('.mv-player canvas').width,h:document.querySelector('.mv-player canvas').height,"
@@ -105,8 +107,9 @@ def probe(b, out, png, at):
         r = b.eval("""new Promise(function(ok){var n=0;(function w(){var v=document.getElementById('v');
   if(v&&v.readyState>=1){var fin=function(){ok({w:v.videoWidth,h:v.videoHeight,dur:v.duration})};
     if(isFinite(v.duration))fin();else{v.addEventListener('durationchange',function(){if(isFinite(v.duration))fin()});v.currentTime=1e9;setTimeout(fin,15000)}}
-  else if((v&&v.error)||n++>600)ok(null);else setTimeout(w,100)})()})""")
-        if not r:
+  else if((v&&v.error)||n++>600)ok({error:v&&v.error?v.error.code+' '+v.error.message:'timeout rs='+(v?v.readyState+' ns='+v.networkState:'no video')});else setTimeout(w,100)})()})""")
+        if not r or r.get("error"):
+            print("warn: 録ったファイルを開けません（%s・%d バイト）" % ((r or {}).get("error", "応答なし"), os.path.getsize(out)), file=sys.stderr)
             return None
         r["rms"] = b.eval("""new Promise(function(ok){var v=document.getElementById('v'),t0=%f*v.duration;
   try{var ac=new AudioContext(),src=ac.createMediaElementSource(v),an=ac.createAnalyser();an.fftSize=2048;src.connect(an);var g=ac.createGain();g.gain.value=0;an.connect(g);g.connect(ac.destination);
