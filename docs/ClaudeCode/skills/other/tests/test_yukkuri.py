@@ -136,5 +136,65 @@ class AutomationTells(unittest.TestCase):
         self.assertTrue(any("その場面のためだけの作り" in x for x in w), w)
 
 
+class OrderFormWithoutAssets(unittest.TestCase):
+    """指示のフォーム（script_order.py）が、立ち絵・曲を集めていない環境でも出せる。
+    （登場人物と曲の選択肢が 0 件になり、ask-form が定義の誤りで止まった。クローンしたばかりの環境・コンテナで起きる）"""
+
+    def order(self, chars=()):
+        """立ち絵は chars の人だけ・曲は 1 つも集めていない状態の script_order を返す。"""
+        import importlib.util
+        sp = importlib.util.spec_from_file_location("yorder_t", os.path.join(fakes.YK, "script_order.py"))
+        m = importlib.util.module_from_spec(sp)
+        sp.loader.exec_module(m)
+        d = fakes.tmpdir()
+        m.CHARS, m.BGM = os.path.join(d, "chars"), os.path.join(d, "bgm")
+        for cid in chars:
+            os.makedirs(os.path.join(m.CHARS, cid))
+        os.makedirs(m.BGM, exist_ok=True)
+        return m
+
+    def check(self, spec):
+        import json
+        import subprocess
+        import sys
+        ask = os.path.join(fakes.OTHER, "ask-form", "ask.py")
+        if not os.path.isfile(ask):
+            self.skipTest("ask-form が無い")
+        r = subprocess.run([sys.executable, ask, "-", "--check"], input=json.dumps(spec, ensure_ascii=False), capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+
+    def test_no_assets(self):
+        m = self.order()
+        spec = m.build_spec("テスト")
+        Q = {q["id"]: q for q in spec["questions"]}
+        self.check(spec)
+        self.assertGreaterEqual(len(Q["explainer"]["options"]), 40, "立ち絵が 1 人も無ければ、プリセットの全員を並べる")
+        self.assertFalse(any("image" in o for o in Q["explainer"]["options"]))
+        self.assertNotIn("track", Q, "曲が無ければ、曲を選ぶ質問は出さない")
+        self.assertEqual([o["value"] for o in Q["music"]["options"]], ["builtin", "none"], "bgm/ の曲が要る選び方は出さない")
+        self.assertEqual(Q["music"]["default"], "builtin")
+        self.assertEqual((Q["explainer"]["default"], Q["listener"]["default"]), ("metan", "zundamon"))
+
+    def test_some_art_only(self):
+        m = self.order(chars=("tsumugi", "zunko"))
+        spec = m.build_spec("テスト")
+        Q = {q["id"]: q for q in spec["questions"]}
+        self.check(spec)
+        values = [o["value"] for o in Q["explainer"]["options"]]
+        self.assertEqual(sorted(values), ["tsumugi", "zunko"], "集めた人がいれば、その人だけを並べる")
+        for qid in ("explainer", "listener", "third", "cameo", "narrator"):
+            self.assertIn(Q[qid]["default"], values, "%s の既定が選択肢に無い" % qid)
+        self.assertNotEqual(Q["explainer"]["default"], Q["listener"]["default"])
+
+    def test_warns_when_drawn_as_placeholder(self):
+        m = self.order(chars=("metan",))
+        a = {"explainer": "metan", "listener": "zundamon", "ensemble": "pair", "length": "5", "music": "builtin"}
+        w = [x for x in m.warnings(a) if "仮のキャラクター" in x]
+        self.assertEqual(len(w), 1)
+        self.assertIn("zundamon", w[0])
+        self.assertNotIn("metan", w[0])
+        self.assertNotIn("music", m.header(a), "作曲（builtin）は、台本の先頭に music を書かない")
+
+
 if __name__ == "__main__":
     unittest.main()

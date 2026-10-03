@@ -8,33 +8,44 @@
 
 選択肢は、手元にあるものから作る: 登場人物は立ち絵を集めた人（chars/。顔の見本つき）、
 音楽は bgm/ にある曲（試聴つき。OpenTracks の曲は「WebM でだけ配れる」と出る）、型は styles.json。
+素材が無い環境（クローンしたばかり・コンテナ）でも出せる: 立ち絵が 1 人も無ければ、プリセット（casts.json）の全員を
+顔の見本なしで並べ（仮のキャラクターで作る）、bgm/ に曲が無ければ、曲を選ぶ質問と「おまかせ」「曲を選ぶ」を出さない。
 前回の回答は次回の既定になる（テーマと自由記述は持ち越さない）。
 終了コード: 0 回答あり / 2 キャンセル / 3 ウィンドウを出せない（AskUserQuestion で聞き直す。--spec の質問を分けて使う） / 4 時間切れ
 """
 import argparse, json, os, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+CHARS = os.path.join(HERE, "chars")   # 集めた立ち絵（リポジトリには入らない）
+BGM = os.path.join(HERE, "bgm")       # 集めた曲（同上）
 ASK = os.path.join(os.path.dirname(HERE), "ask-form", "ask.py")
 load = lambda p: json.load(open(p, encoding="utf-8"))
 
 POPULAR = ["zundamon", "metan", "reimu", "marisa", "tsumugi", "zunko", "kiritan", "itako"]
 
 
-def cast_options(with_none=False):
+def has_art(cid):
+    return os.path.isdir(os.path.join(CHARS, cid))
+
+
+def cast_options():
+    """登場人物の選択肢。立ち絵を集めた人だけを並べる。1 人も集めていなければ、プリセットの全員を顔の見本なしで並べる
+    （立ち絵が無くても、仮のキャラクターで最後まで作れるので、フォームも出せるようにする）。"""
     casts, chars = load(os.path.join(HERE, "casts.json")), load(os.path.join(HERE, "characters.json"))
-    opts = [{"value": "", "label": "なし", "group": "なし"}] if with_none else []
+    ids = [cid for cid, c in casts.items() if not cid.startswith("_") and isinstance(c, dict) and len(cid) >= 2]
+    collected = [cid for cid in ids if has_art(cid)]
     rows = []
-    for cid, c in casts.items():
-        if cid.startswith("_") or not isinstance(c, dict) or len(cid) < 2:
-            continue
-        d = os.path.join(HERE, "chars", cid)
-        if not os.path.isdir(d):
-            continue
-        src = ""
-        if os.path.isfile(os.path.join(d, "sprite.json")):
-            src = load(os.path.join(d, "sprite.json")).get("source", "")
-        group = ("よく出る" if cid in POPULAR else "ゆっくり" if cid in ("reimu", "marisa") else "坂本アヒルさんの立ち絵" if "坂本アヒル" in src
-                 else "moiky さんの立ち絵" if "moiky" in src else "公式の立ち絵")
+    for cid in collected or ids:
+        c, d = casts[cid], os.path.join(CHARS, cid)
+        if collected:
+            src = ""
+            if os.path.isfile(os.path.join(d, "sprite.json")):
+                src = load(os.path.join(d, "sprite.json")).get("source", "")
+            group = ("よく出る" if cid in POPULAR else "ゆっくり" if cid in ("reimu", "marisa") else "坂本アヒルさんの立ち絵" if "坂本アヒル" in src
+                     else "moiky さんの立ち絵" if "moiky" in src else "公式の立ち絵")
+        else:
+            engine = (c.get("voice") or {}).get("engine")
+            group = "よく出る" if cid in POPULAR else "ゆっくり" if engine == "aquestalk" else "VOICEVOX の話者"
         P = chars.get(cid, {})
         desc = "・".join(x for x in (P.get("role", "")[:30], P.get("persona", "")[:40]) if x)
         o = {"value": cid, "label": c.get("name", cid), "group": group, "desc": desc}
@@ -42,9 +53,15 @@ def cast_options(with_none=False):
         if os.path.isfile(img):
             o["image"] = img
         rows.append(o)
-    order = ["よく出る", "坂本アヒルさんの立ち絵", "moiky さんの立ち絵", "公式の立ち絵", "ゆっくり"]
+    order = ["よく出る", "坂本アヒルさんの立ち絵", "moiky さんの立ち絵", "公式の立ち絵", "VOICEVOX の話者", "ゆっくり"]
     rows.sort(key=lambda o: (order.index(o["group"]), POPULAR.index(o["value"]) if o["value"] in POPULAR else 99))
-    return opts + rows
+    return rows
+
+
+def pick(want, options, avoid=()):
+    """既定にする値。want が選択肢にあればそれ、無ければ avoid に無い最初の選択肢（集めた立ち絵が一部だけのとき）。"""
+    values = [o["value"] for o in options]
+    return want if want in values else next((v for v in values if v not in avoid), values[0])
 
 
 def bgm_options():
@@ -54,7 +71,7 @@ def bgm_options():
     for k, v in J.items():
         if k.startswith("_") or not isinstance(v, dict) or "file" not in v:
             continue
-        p = os.path.join(HERE, "bgm", v["file"])
+        p = os.path.join(BGM, v["file"])
         if not os.path.isfile(p):
             continue
         webm = v.get("embed") is False
@@ -72,6 +89,17 @@ def build_spec(theme=""):
     style_opts += [{"value": k, "label": "%s（%s）" % (v["name"], k), "desc": v["desc"][:70] + "。向くもの: " + v["fit"][:40]} for k, v in styles.items() if not k.startswith("_")]
     casts = cast_options()
     bgm = bgm_options()
+    art = any(has_art(o["value"]) for o in casts)
+    cast_q = {"options": casts, "minWidth": 118} if not art else {"options": casts, "preview": "inline", "thumb": 84, "minWidth": 118}
+    explainer = pick("metan", casts)
+    listener = pick("zundamon", casts, avoid=(explainer,))
+    music_opts = [
+        {"value": "auto", "label": "おまかせ（雰囲気に合う曲を選ぶ）", "recommended": True, "desc": "章ごとに雰囲気を当てて選び、茶番・本編・締めで替える（music: auto）。使い道がアーティファクトなら、HTML に入れられる曲から"},
+        {"value": "pick", "label": "曲を選ぶ（下で試聴して選ぶ）"},
+        {"value": "builtin", "label": "motion-video の作曲（素材を使わない）", "desc": "Web Audio で鳴らす。配布の心配が無い"},
+        {"value": "none", "label": "なし"}]
+    if not bgm:   # 曲を集めていない: おまかせ・曲を選ぶは選べない（music: auto は bgm/ の曲から選ぶので、BGM なしになる）
+        music_opts = [dict(o, recommended=True) if o["value"] == "builtin" else o for o in music_opts if o["value"] in ("builtin", "none")]
     Q = [
         {"id": "theme", "label": "テーマ", "type": "text", "required": True, "default": theme, "placeholder": "例: 空はなぜ青いのか", "remember": False,
          "help": "1 本で答えられる問いか、題材の名前。広すぎるとき（「歴史について」）は、切り口を 3 つ出して選んでもらう"},
@@ -97,12 +125,13 @@ def build_spec(theme=""):
             {"value": "trio", "label": "3 人", "desc": "3 人目にも役（ボケ・ツッコミ・進行・専門家）を持たせる"},
             {"value": "cameo", "label": "2 人＋一瞬だけのゲスト", "desc": "ゲストは出番の場面だけ出る"},
             {"value": "narrator", "label": "語り手（声だけ）＋登場人物", "desc": "寸劇・物語の型で多い"}]},
-        {"id": "explainer", "label": "解説役", "default": "metan", "options": casts, "preview": "inline", "thumb": 84, "minWidth": 118,
-         "help": "立ち絵を集めてある人だけが並ぶ。顔の見本を押すと大きく見られる"},
-        {"id": "listener", "label": "聞き手", "default": "zundamon", "options": casts, "preview": "inline", "thumb": 84, "minWidth": 118},
-        {"id": "third", "label": "3 人目", "showIf": {"ensemble": "trio"}, "default": "tsumugi", "options": casts, "preview": "inline", "thumb": 84, "minWidth": 118},
-        {"id": "cameo", "label": "一瞬だけ出るゲスト", "showIf": {"ensemble": "cameo"}, "default": "kiritan", "options": casts, "preview": "inline", "thumb": 84, "minWidth": 118},
-        {"id": "narrator", "label": "語り手（声だけ）", "showIf": {"ensemble": "narrator"}, "default": "reimu", "options": casts, "preview": "inline", "thumb": 84, "minWidth": 118},
+        dict(cast_q, id="explainer", label="解説役", default=explainer,
+             help=("立ち絵を集めてある人だけが並ぶ。顔の見本を押すと大きく見られる" if art else
+                   "立ち絵をまだ集めていないので、プリセットの全員を並べている。仮のキャラクター（色つきの丸顔）で作る。立ち絵の集め方は assets.md")),
+        dict(cast_q, id="listener", label="聞き手", default=listener),
+        dict(cast_q, id="third", label="3 人目", showIf={"ensemble": "trio"}, default=pick("tsumugi", casts, avoid=(explainer, listener))),
+        dict(cast_q, id="cameo", label="一瞬だけ出るゲスト", showIf={"ensemble": "cameo"}, default=pick("kiritan", casts, avoid=(explainer, listener))),
+        dict(cast_q, id="narrator", label="語り手（声だけ）", showIf={"ensemble": "narrator"}, default=pick("reimu", casts, avoid=(explainer, listener))),
         {"id": "intro", "label": "冒頭", "default": "hook", "options": [
             {"value": "hook", "label": "すぐ本題（つかみ 15 秒）", "recommended": True},
             {"value": "chaban", "label": "冒頭に茶番（おふざけの寸劇 15〜40 秒）"},
@@ -117,11 +146,8 @@ def build_spec(theme=""):
             {"value": "artifact", "label": "アーティファクトで見る（16MB まで）", "desc": "声と絵を小さくする。ダウンロードした曲（OpenTracks）は入れられない"},
             {"value": "youtube", "label": "YouTube に上げる（WebM に書き出す）", "desc": "題・概要欄・サムネイルも作る"},
             {"value": "monetize", "label": "YouTube で収益化する", "desc": "素材ごとに収益化の可否を確かめる。いらすとやは 20 点まで、ゆっくりボイスは使用ライセンスが要る"}]},
-        {"id": "music", "label": "音楽", "default": "auto", "options": [
-            {"value": "auto", "label": "おまかせ（雰囲気に合う曲を選ぶ）", "recommended": True, "desc": "章ごとに雰囲気を当てて選び、茶番・本編・締めで替える（music: auto）。使い道がアーティファクトなら、HTML に入れられる曲から"},
-            {"value": "pick", "label": "曲を選ぶ（下で試聴して選ぶ）"},
-            {"value": "builtin", "label": "motion-video の作曲（素材を使わない）", "desc": "Web Audio で鳴らす。配布の心配が無い"},
-            {"value": "none", "label": "なし"}]},
+        dict({"id": "music", "label": "音楽", "default": "auto" if bgm else "builtin", "options": music_opts},
+             **({} if bgm else {"help": "bgm/ に曲を集めていないので、おまかせ・曲を選ぶは出していない（集め方は assets.md。fetch_assets.py）"})),
         {"id": "track", "label": "曲", "showIf": {"music": "pick"}, "default": (bgm[0]["value"] if bgm else ""), "options": bgm,
          "help": "手元の bgm/ にある曲。▶ で試聴できる（曲の頭から鳴る）。「WebM でだけ配れる」曲は、HTML を配らない"},
         {"id": "pictures", "label": "絵の集め方（使ってよいもの）", "type": "multi", "default": ["photo", "irasutoya", "draw", "emoji"], "options": [
@@ -139,6 +165,8 @@ def build_spec(theme=""):
             {"value": "qa", "label": "出来上がりの検査（yukkuri-qa。画面の採点）", "desc": "2 回まで"},
             {"value": "publish", "label": "題・概要欄・サムネイルを作る（yukkuri-publish）"}]},
     ]
+    if not bgm:
+        Q = [q for q in Q if q["id"] != "track"]
     return {"title": "解説動画の指示", "intro": "決めたことから台本と動画を作ります。既定のままでよい所は触らずに「この内容で作る」を押してください。",
             "submit": "この内容で作る", "remember": "yukkuri-order", "note": "ほかに伝えたいこと（任意）", "questions": Q}
 
@@ -190,6 +218,11 @@ def warnings(a):
         w.append("ショート（縦の画面）はまだ作れない。横の 1 分で作る")
     if a.get("explainer") == a.get("listener"):
         w.append("解説役と聞き手が同じ人になっている")
+    e = a.get("ensemble", "pair")
+    people = [a.get("explainer"), a.get("listener")] + [a.get(k) for k, on in (("third", "trio"), ("cameo", "cameo")) if e == on]
+    bare = list(dict.fromkeys(p for p in people if p and not has_art(p)))
+    if bare:
+        w.append("立ち絵が無い人（%s）は、仮のキャラクター（色つきの丸顔）で描く。立ち絵の集め方は assets.md" % "・".join(bare))
     return w
 
 
