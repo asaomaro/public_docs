@@ -98,6 +98,36 @@ class OrderForm(unittest.TestCase):
         self.assertIn("--voicevox", b["args"])
         self.assertEqual(self.order.skeleton(answers[1])[0]["player"], "kiosk")
 
+    def test_background_question(self):
+        """背景: おまかせが既定。選ぶときは、動く背景と SVG の背景の全部が選択肢に出て、選んだ名前が台本の bg になる。"""
+        q = {x["id"]: x for x in self.spec["questions"]}
+        self.assertEqual(q["bg"]["default"], "auto")
+        self.assertEqual(q["bg_name"]["showIf"], {"bg": "pick"})
+        names = [o["value"] for o in q["bg_name"]["options"]]
+        self.assertEqual(sorted(names), sorted(list(build.BACKDROPS) + list(build.bg_svgs())))
+        self.assertIn(q["bg_name"]["default"], names)
+        groups = [o["group"] for o in q["bg_name"]["options"]]
+        self.assertEqual(len([1 for a, b in zip(groups, groups[1:]) if a != b]) + 1, len(set(groups)), "同じ分類の選択肢は続けて並べる")
+        for o in q["bg_name"]["options"]:   # SVG の背景は、ファイルそのものが見本
+            if o["value"] in build.bg_svgs():
+                self.assertTrue(os.path.isfile(o["image"]), o["value"])
+        for a, want in (({"bg": "auto"}, None), ({"bg": "theme", "bg_name": "aurora"}, None), ({"bg": "pick", "bg_name": "aurora"}, "aurora"), ({"bg": "pick", "bg_name": "sky-day"}, "sky-day")):
+            with self.subTest(a):
+                s, _ = self.order.skeleton(dict(a, subject="x", audio="silent"))
+                self.assertEqual(s.get("bg"), want)
+                s["chapters"] = [{"title": "a", "scenes": [{"type": "title", "title": "t"}]}]
+                self.assertEqual(build.validate(s, fakes.MV), [])
+
+    def test_background_warnings(self):
+        """景色の背景（色が決まっている）は、配色の明るさと合わなければ知らせる。配色がおまかせなら、合う配色を選ぶよう知らせる。"""
+        w = self.order.warnings
+        with fakes.fake_voicevox(alive=False):
+            self.assertTrue(any("合わない" in x for x in w({"bg": "pick", "bg_name": "sky-day", "palette": "navy-brass"})))
+            self.assertFalse(any("背景" in x for x in w({"bg": "pick", "bg_name": "sky-day", "palette": "daylight"})))
+            self.assertTrue(any("明るい地" in x for x in w({"bg": "pick", "bg_name": "sky-day", "palette": "auto"})))
+            self.assertFalse(any("背景" in x for x in w({"bg": "pick", "bg_name": "aurora", "palette": "daylight"})))
+            self.assertFalse(any("背景" in x for x in w({"bg": "auto", "bg_name": "sky-day", "palette": "navy-brass"})))
+
     def test_warnings(self):
         w = self.order.warnings({"use": "youtube", "voice": "browser"})
         self.assertTrue(any("WebM" in x for x in w))
