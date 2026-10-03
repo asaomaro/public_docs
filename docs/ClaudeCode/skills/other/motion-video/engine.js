@@ -1865,6 +1865,14 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   function capTop() { var sz = TALK.size || (TALK.caption === "band" ? 44 : 50); return TALK.caption === "band" ? 1080 - (sz * 2.6 + 70) : 1080 - (sz * 2.6 + 62); }
   function tintCol(col, t) { var m = /^#?([0-9a-f]{6})$/i.exec(col || ""); if (!m) return col; var n = parseInt(m[1], 16);
     return "rgb(" + [n >> 16, n >> 8 & 255, n & 255].map(function (v) { return Math.round(t < 0 ? v * (1 + t) : v + (255 - v) * t); }).join(",") + ")"; }   /* t > 0 で白へ、t < 0 で黒へ寄せる */
+  /* すりガラス: 帯・箱の後ろ（背景・写真）をぼかして写す。path() が形、x0・w0 は左端と幅、y から画面の下まで。できない環境では false（濃い色で塗る） */
+  function capFrost(path, x0, w0, y) {
+    if (!("filter" in ctx) || !ctx.getTransform) return false;
+    var tm = ctx.getTransform(), cvs = ctx.canvas, pad = 48 * tm.a, sx = Math.max(0, Math.floor(x0 * tm.a + tm.e - pad)), sy = Math.max(0, Math.floor(y * tm.d + tm.f - pad)),
+        sw = Math.min(cvs.width - sx, Math.ceil(w0 * tm.a + 2 * pad)), sh = Math.min(cvs.height - sy, Math.ceil((1080 - y) * tm.d + 2 * pad));
+    if (sw > 0 && sh > 0) { ctx.save(); path(); ctx.clip(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.filter = "blur(" + (16 * tm.a).toFixed(1) + "px)"; ctx.drawImage(cvs, sx, sy, sw, sh, sx, sy, sw, sh); ctx.restore(); }
+    return true;
+  }
   function capBack() {   /* 置きっぱなしの帯・箱（せりふの無い間も出ている） */
     var y = capTop(), m = TALK.caption;
     if (m === "bar") {   /* 後ろをぼかして透かし、暗い色を薄く重ねる（背景を箱の上で切らない。字は太い黒縁なので読める） */
@@ -1879,14 +1887,6 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   function capWrap(text, maxW, o, lim) {   /* lim: 語を 2 行目へ送るときの幅の上限（2 行をそろえるために狭く折るときは、本来の幅） */
     var lines = wrap(text, maxW, o); if (lines.length !== 2) return lines;
     var plain = String(text), best = -1, bestD = 1e9, total = tw(plain.replace(/\*\*/g, ""), o);
-  /* すりガラス: 帯・箱の後ろ（背景・写真）をぼかして写す。path() が形、x0・w0 は左端と幅、y から画面の下まで。できない環境では false（濃い色で塗る） */
-  function capFrost(path, x0, w0, y) {
-    if (!("filter" in ctx) || !ctx.getTransform) return false;
-    var tm = ctx.getTransform(), cvs = ctx.canvas, pad = 48 * tm.a, sx = Math.max(0, Math.floor(x0 * tm.a + tm.e - pad)), sy = Math.max(0, Math.floor(y * tm.d + tm.f - pad)),
-        sw = Math.min(cvs.width - sx, Math.ceil(w0 * tm.a + 2 * pad)), sh = Math.min(cvs.height - sy, Math.ceil((1080 - y) * tm.d + 2 * pad));
-    if (sw > 0 && sh > 0) { ctx.save(); path(); ctx.clip(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.filter = "blur(" + (16 * tm.a).toFixed(1) + "px)"; ctx.drawImage(cvs, sx, sy, sw, sh, sx, sy, sw, sh); ctx.restore(); }
-    return true;
-  }
     var tryAt = function (re, pen) { var m; re.lastIndex = 0; while ((m = re.exec(plain))) { var i = m.index + m[0].length; if (i < 3 || i > plain.length - 3) continue;
       if ((plain.slice(0, i).match(/\*\*/g) || []).length % 2) continue;   /* 強調（**…**）の中では折らない */
       var a = tw(plain.slice(0, i).replace(/\*\*/g, ""), o), b = total - a; if (a > maxW || b > maxW) continue; var d = Math.abs(a - b) + pen; if (d < bestD) { bestD = d; best = i; } } };

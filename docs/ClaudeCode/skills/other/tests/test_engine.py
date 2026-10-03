@@ -146,6 +146,22 @@ class Engine(unittest.TestCase):
         sp["talk"] = {}
         self.assertAlmostEqual(self.run_js(build_html(sp, voicevox=False), js)["ratio"], 16 / 9, delta=.05)
 
+    def test_caption_backs_draw(self):
+        """置きっぱなしの字幕の箱（bar）と帯（strip・band）が描かれる。字幕の無い時刻でも、下の端の色が「箱・帯なし」と違う
+        （2026-10: 後ろをぼかす capFrost の定義が capWrap の中に入って capBack から見えず、箱・帯と、その後に描く立ち絵が出なかった）。"""
+        def bottom(cap):
+            sp = {"title": "t", "lang": "ja", "audio": {"narration": False, "music": None, "sfx": False}, "talk": {"caption": cap} if cap else {},
+                  "cast": {"a": {"name": "A", "color": "#e0457b", "side": "left"}, "b": {"name": "B", "color": "#3aa657", "side": "right"}},
+                  "chapters": [{"title": "c", "scenes": [{"type": "talk", "cast": ["a", "b"], "lines": [{"who": "a", "text": "字幕の後ろを見るわ。", "pause": 3}, {"who": "b", "text": "そうなのだ。"}]}]}]}
+            js = """new Promise(function(ok){__MV__.seek(150);setTimeout(function(){var cv=document.getElementById("mv-canvas"),g=cv.getContext("2d"),
+              d=g.getImageData(Math.round(cv.width*.3),Math.round(cv.height*.9),Math.round(cv.width*.4),Math.round(cv.height*.06)).data,s=0;
+              for(var i=0;i<d.length;i+=4)s+=d[i]+d[i+1]+d[i+2];ok(s/(d.length/4*3))},400)})"""
+            return self.run_js(build_html(sp, voicevox=False), js)
+        plain = bottom(None)
+        for cap in ("bar", "strip", "band"):
+            with self.subTest(cap):
+                self.assertGreater(abs(bottom(cap) - plain), 2, "字幕の箱・帯が描かれていない")   # 暗い地に、透ける暗い箱: 差は 4〜6（描かれないと 0）
+
     def test_transition_sounds(self):
         """章・場面の切り替えの音は audio.sfx.transitionVolume で小さくでき、締めのクレジット（variant: credits）へは鳴らさずに替わる。"""
         def spec(tv):
