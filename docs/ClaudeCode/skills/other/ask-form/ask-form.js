@@ -18,7 +18,7 @@
  *   定義の文字は textContent で出す（innerHTML を使わない）。色・数は確かめてから個別のプロパティに入れる。
  *   通信しない。window・document に触らない（リスナーは Shadow DOM の中・部品の要素・自分に付けた ResizeObserver だけで、外すときに外す）。
  */
-const VERSION = '1.2.0';
+const VERSION = '1.2.1';
 const TYPES = ['single', 'multi', 'text', 'edit', 'rank', 'table'];
 const FIELDS = ['title', 'intro', 'submit', 'note', 'notePlaceholder', 'paging',
   'id', 'label', 'type', 'help', 'page', 'options', 'default', 'allowOther', 'otherLabel', 'otherPlaceholder', 'showIf', 'required',
@@ -38,9 +38,9 @@ const STYLE = `
 :host(:focus){outline:none}
 *{box-sizing:border-box}
 [hidden]{display:none !important}
-.body{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain}
-.cols{display:flex;align-items:flex-start}
-.inner{flex:1 1 auto;min-width:0;padding:20px 22px 12px}
+.body{flex:1 1 auto;min-width:0;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+.main{flex:1 1 auto;min-height:0;display:flex}
+.inner{padding:20px 22px 12px}
 h1{font-size:18px;margin:0 0 2px;outline:none;overflow-wrap:anywhere}
 .intro{color:var(--_muted);margin:0 0 14px;white-space:pre-wrap;overflow-wrap:anywhere}
 .recall{display:flex;gap:10px;align-items:center;margin:-6px 0 12px;font-size:13px;color:var(--_muted)}
@@ -49,11 +49,11 @@ fieldset{border:1px solid var(--_line);background:var(--_card);border-radius:12p
 fieldset.missing{border-color:var(--_err)}
 fieldset.off{display:none}
 /* 目次（質問が多いとき、質問の題を横に並べる。今見ている質問に印が付く） */
-.index{flex:none;position:sticky;top:0;width:212px;max-height:100vh;overflow-y:auto;overscroll-behavior:contain;
-  padding:20px 4px 12px 14px;display:flex;flex-direction:column;gap:1px}
+.index{flex:none;width:212px;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;padding:20px 4px 12px 14px}
+.index>*{flex:none}
 .index .sec{margin:10px 0 2px 8px;font-size:11px;font-weight:700;color:var(--_muted);letter-spacing:.04em;overflow-wrap:anywhere}
 .index .sec:first-child{margin-top:0}
-.index button{display:flex;gap:7px;align-items:baseline;width:100%;text-align:left;padding:4px 8px;font-size:13px;line-height:1.45;
+.index button{display:flex;gap:7px;align-items:baseline;width:100%;margin:0 0 1px;text-align:left;padding:4px 8px;font-size:13px;line-height:1.45;
   border:0;border-left:3px solid transparent;border-radius:0 7px 7px 0;background:none;color:var(--_muted)}
 .index button:hover{color:var(--_fg);background:var(--_card)}
 .index button .n{flex:none;min-width:18px;text-align:right;font-size:11px;font-variant-numeric:tabular-nums}
@@ -199,7 +199,8 @@ function mount(host, root, SPEC) {
   const submitBtn = el('button', { type: 'button', class: 'primary', 'data-ask-submit': true }, SPEC.submit || '決定', el('kbd', { text: 'Ctrl+Enter' }));
   const footer = el('footer', null, status, cancelBtn, submitBtn);
   const index = el('nav', { class: 'index', hidden: true, 'aria-label': '質問の一覧' });
-  body.append(el('div', { class: 'cols' }, index, inner));
+  body.append(inner);
+  const main = el('div', { class: 'main' }, index, body);   // 目次は、質問の並び（body）の外。自分の高さの中でスクロールする
 
   // ── プレビュー（選択肢の image・code） ──
   function codeBlock(o) {
@@ -566,7 +567,7 @@ function mount(host, root, SPEC) {
     inner.append(noteBox);
     ITEMS.push(noteBox);
   }
-  root.replaceChildren(el('style', { text: STYLE }), body, footer);   // 拡大表示（lb）は、開いたときにだけ入れる
+  root.replaceChildren(el('style', { text: STYLE }), main, footer);   // 拡大表示（lb）は、開いたときにだけ入れる
 
   // ── 目次 ──
   // 質問の題を横に並べる。スクロールに合わせて、今見ている質問に印が付く。押すとその質問へ移る。
@@ -592,15 +593,21 @@ function mount(host, root, SPEC) {
     cur = i;
     ENTRIES.forEach((e, k) => { e.btn.classList.toggle('cur', k === i); e.btn.setAttribute('aria-current', k === i ? 'true' : 'false'); });
     if (index.hidden) return;
-    const b = ENTRIES[i].btn, r = b.getBoundingClientRect(), box = index.getBoundingClientRect();   // 目次の中で、今の項目が見える所へ
-    if (r.top < box.top + 8) index.scrollTop -= box.top + 8 - r.top;
-    else if (r.bottom > box.bottom - 8) index.scrollTop += r.bottom - box.bottom + 8;
+    // 目次が長くてスクロールするときは、今の項目が見える所へ目次も動かす（前後の項目が 1〜2 個見える余白を残す）
+    const b = ENTRIES[i].btn, r = b.getBoundingClientRect(), box = index.getBoundingClientRect(), pad = Math.min(56, box.height / 4);
+    if (r.top < box.top + pad) index.scrollTop -= box.top + pad - r.top;
+    else if (r.bottom > box.bottom - pad) index.scrollTop += r.bottom - box.bottom + pad;
   }
-  // 今見ている質問: 上の端を過ぎた最後の質問。目次で選んだ質問が見えている間は、その質問（下の端の短い質問は、上の端まで来ないため）
+  // 今見ている質問: 「読んでいる線」を過ぎた最後の質問。線は、ふだんは上の端のすぐ下。
+  // 下の端に近づくと（残りが画面 1 枚分を切ると）、線を上の端から下の端へ少しずつ下げる。こうすると、最後の画面に
+  // 並んで収まっている短い質問にも順に印が移り、いちばん下まで下げたときに最後の項目に印が付く。
+  // 目次で選んだ質問が見えている間は、その質問を今の項目にする
   function spy() {
-    const y = body.scrollTop, h = body.clientHeight;
+    const y = body.scrollTop, h = body.clientHeight, max = Math.max(0, body.scrollHeight - h);
+    const tail = Math.min(h, max), k0 = tail > 0 ? Math.min(1, Math.max(0, (y - (max - tail)) / tail)) : 1;
+    const line = y + 40 + k0 * (h - 40);
     let at = -1;
-    ENTRIES.forEach((e, k) => { if (!e.fs.hidden && (at < 0 || topOf(e.fs) <= y + 40)) at = k; });
+    ENTRIES.forEach((e, k) => { if (!e.fs.hidden && (at < 0 || topOf(e.fs) <= line)) at = k; });
     if (want != null) {
       const t = ENTRIES[want].fs.hidden ? -1 : topOf(ENTRIES[want].fs);
       if (t >= y - 2 && t < y + h) at = want; else want = null;
@@ -644,7 +651,6 @@ function mount(host, root, SPEC) {
       else { index.hidden = true; show = inner.offsetHeight > body.clientHeight + 1; }
     }
     index.hidden = !show;
-    index.style.maxHeight = body.clientHeight + 'px';
     spy();
     return true;
   }

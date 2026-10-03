@@ -236,6 +236,39 @@ class Index(unittest.TestCase):
         st = self.state("FORM.step(-1)")       # 置いた側のキー（前の質問へ）
         self.assertEqual(st["cur"], "q6")
 
+    def test_bottom_marks_the_last_and_short_items_in_turn(self):
+        """いちばん下まで下げると、最後の項目に印が付く。最後の画面に並んで収まる短い質問にも、下げる途中で順に印が移る
+        （上の端を過ぎた質問だけを見ていると、下の端の短い質問には印が来ない）。"""
+        self.open(self.MANY)
+        st = self.state("var b=FORM.shadowRoot.querySelector('.body');b.scrollTop=b.scrollHeight")
+        self.assertEqual(st["cur"], "")          # 補足（最後の項目）
+        seen = []
+        for k in range(0, 21):
+            cur = self.state("var b=FORM.shadowRoot.querySelector('.body');b.scrollTop=(b.scrollHeight-b.clientHeight)*%s" % (k / 20))["cur"]
+            if not seen or seen[-1] != cur:
+                seen.append(cur)
+        self.assertEqual(seen, ["q%d" % i for i in range(1, 9)] + [""], "下げていく途中で、どの質問にも順に印が付く")
+
+    def test_long_index_scrolls_and_follows_the_mark(self):
+        """質問が多いと、目次にも縦のスクロールバーが出る。印が移ると、目次もその項目が見える所へ動く。"""
+        self.open([{"id": "q%d" % i, "label": "質問 %d" % i, "default": "a", "options": ["a", "b"]} for i in range(1, 41)])
+        js = """(function(){var R=FORM.shadowRoot,ix=R.querySelector('.index'),c=R.querySelector('.index .cur').getBoundingClientRect(),x=ix.getBoundingClientRect(),
+          f=FORM.getBoundingClientRect(),ft=R.querySelector('footer').getBoundingClientRect();
+          return {scrolls:ix.scrollHeight>ix.clientHeight+20, bar:getComputedStyle(ix).overflowY, top:ix.scrollTop, fits:x.top>=f.top-1&&x.bottom<=ft.top+1,
+                  curIn:c.top>=x.top&&c.bottom<=x.bottom}})()"""
+        a = self.chrome.eval(js)
+        self.assertTrue(a["scrolls"] and a["bar"] == "auto" and a["fits"], a)   # 目次は画面の中に収まり、中がスクロールする
+        self.assertEqual(a["top"], 0)
+        st = self.state("var b=FORM.shadowRoot.querySelector('.body');b.scrollTop=b.scrollHeight")
+        self.assertEqual(st["cur"], "")
+        z = self.chrome.eval(js)
+        self.assertGreater(z["top"], 100)
+        self.assertTrue(z["curIn"], z)
+        st = self.state("var b=FORM.shadowRoot.querySelector('.body'),f=FORM.shadowRoot.querySelector('[data-ask-question=q20]');"
+                        "b.scrollTop=f.getBoundingClientRect().top-b.getBoundingClientRect().top+b.scrollTop")
+        self.assertEqual(st["cur"], "q20")
+        self.assertTrue(self.chrome.eval(js)["curIn"])
+
     def test_sections_hidden_questions_and_unanswered(self):
         qs = [dict(q) for q in self.MANY]
         qs[0]["page"], qs[4]["page"] = "基本", "音"
