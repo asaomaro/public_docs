@@ -57,6 +57,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     ctx.textAlign = o.align || "left"; ctx.textBaseline = o.base || "alphabetic";
     if (o.alpha !== undefined) ctx.globalAlpha *= o.alpha;
     if (o.spacing && "letterSpacing" in ctx) ctx.letterSpacing = o.spacing + "px";
+    if (o.stroke) { ctx.lineJoin = "round"; ctx.lineWidth = o.strokeWidth || Math.max(4, (o.size || 24) * .22); ctx.strokeStyle = o.stroke; ctx.strokeText(s, x, y); }   /* stroke: 縁取りの色（明るい背景の上の字に） */
     ctx.fillText(s, x, y); ctx.restore();
   }
   function tw(s, o) { ctx.save(); ctx.font = font(o || {}); var w = ctx.measureText(s).width; ctx.restore(); return w; }
@@ -1892,7 +1893,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       /* 気持ちの印: 話し手のせりふの印と、聞き手の反応の印（1.4 秒） */
       var em = speakingNow && cur.line && cur.line.emote, elt = em ? tt - cur.a : 0;
       if (!em && st.emote && !st.own && slt < 1400) { em = st.emote; elt = slt; }
-      if (em) drawEmote(em, x + (side === "right" ? -w * .3 : w * .3), Math.max(96, by - h - 10), elt, ch.color || C.accent, side === "right" ? -1 : 1);
+      if (em) drawEmote(em, clamp(x + (side === "right" ? w * .22 : -w * .22), 70, 1850), Math.max(96, by - h - 10), elt, ch.color || C.accent, side === "right" ? 1 : -1);   /* 印は頭の外側に（中央の絵と字に重ねない） */
       if (TALK.nameTag && ent >= 1) { var nt = ch.name || id, no = capFont(30), nw2 = tw(nt, no) + 32, ny2 = Math.max(70, by - h - 14);   /* 頭の上の名札（寸劇の型） */
         rr(x - nw2 / 2, ny2 - 44, nw2, 44, 8); ctx.fillStyle = TALK.nameTag === true ? "#f08a24" : TALK.nameTag; ctx.fill(); txt(nt, x, ny2 - 12, { size: 30, weight: 800, align: "center", color: "#ffffff", font: no.font }); }
       ctx.restore();
@@ -1930,7 +1931,8 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     it.box = box;   /* 描く範囲（立ち絵と字幕に隠れない所）。plate: "dark"（既定）・"light"・"none" で、その範囲に板を敷く */
     if (it.plate !== "none") { var pk = P(slt, 0, 320); ctx.save(); ctx.globalAlpha *= pk; ctx.translate(0, (1 - pk) * 16); ctx.shadowColor = "rgba(0,0,0,.35)"; ctx.shadowBlur = 26; ctx.shadowOffsetY = 8;
       rr(box.x, box.y, box.w, box.h, 26); ctx.fillStyle = it.plate === "light" ? "rgba(255,255,255,.96)" : "rgba(18,26,40,.93)"; ctx.fill(); ctx.shadowColor = "transparent"; ctx.strokeStyle = it.plate === "light" ? "#20242c" : "#ffffff"; ctx.lineWidth = 5; ctx.stroke(); ctx.restore(); }
-    ctx.save(); EVMUTE++; try { fn(ctx, slt, d, HELP, it); } catch (e) { if (!it._err) { it._err = String(e && e.message || e); console.error("stage draw:", e); } } finally { EVMUTE--; } ctx.restore();
+    var txt0 = HELP.txt; if (it.plate === "none") HELP.txt = function (s2, x, y, o) { return txt0(s2, x, y, Object.assign({ stroke: "#16161d" }, o || {})); };
+    ctx.save(); EVMUTE++; try { fn(ctx, slt, d, HELP, it); } catch (e) { if (!it._err) { it._err = String(e && e.message || e); console.error("stage draw:", e); } } finally { EVMUTE--; HELP.txt = txt0; } ctx.restore();
     if (it._err) txt("draw のエラー: " + it._err, box.x + 24, box.y + box.h - 20, { size: 26, weight: 700, color: "#ff5a4d" });   /* 描く途中で止まったら、板の下に出す（--shots で気づける） */
   }
   function drawShot(sh, slt, idx0, d) {
@@ -1954,7 +1956,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var top0 = 64 + (sh.title ? 96 : 0), AH0 = 770 - (sh.title ? 96 : 0) - (sh.note ? 92 : 0);
     (sh.items || []).forEach(function (it) { if (it.draw) stageDraw(it, slt, d, { x: 360, y: top0, w: 1200, h: AH0 }); });
     var items = (sh.items || []).filter(function (it) { return !it.draw; }), cells = items.filter(function (it) { return !it.op; }), nOp = items.length - cells.length;
-    var top = 64 + (sh.title ? 96 : 0), AH = 770 - (sh.title ? 96 : 0) - (sh.note ? 92 : 0), CX = 960, gap = 34, opW = 120, AW = 1400;
+    var top = 64 + (sh.title ? 96 : 0), AH = 770 - (sh.title ? 96 : 0) - (sh.note ? 92 : 0), CX = 960, gap = 34, opW = 120, AW = TALK.stageWidth || (CASTIDS.length ? 1240 : 1400);   /* 立ち絵があるときは、絵が立ち絵の頭にかからない幅に */
     if (ST.plate === "white" || ST.plate === "dark") { AW = 1160; top += sh.title ? 10 : 36; AH -= sh.title ? 30 : 56; }
     var CY = top + AH / 2;
     var cw = Math.min(cells.length === 1 ? 1120 : cells.length === 2 ? 600 : 460, (AW - nOp * opW - (items.length - 1) * gap) / Math.max(1, cells.length));
@@ -2113,6 +2115,25 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   var MUSVOL = AUD.musicVolume === undefined ? 1 : AUD.musicVolume;
   var musicOn = true, sfxOn = true;   /* 見る人の設定（設定の「音楽」「効果音」）。起動時に読み込む */
   function musicKeyOf(ci) { var ch = SPEC.chapters[ci]; return ch && ch._music !== undefined ? ch._music : AUD._musicKey; }
+  /* 曲の区切り: 章の頭（章の曲か全体の曲）と、曲を書いた場面の頭（その章の終わりまで）。同じ曲が続くなら区切らない（途切れずに流れる）。
+     cont: 全体の曲のまま → 映像の先頭からの位置で鳴らす。そのほかは区切りの頭から */
+  var MSEG = null;
+  function msegs() {
+    if (MSEG) return MSEG; MSEG = [];
+    SCENES.forEach(function (sc) {
+      var ch = SPEC.chapters[sc.ci], first = !MSEG.length || MSEG[MSEG.length - 1].ci !== sc.ci, key, cont;
+      if (sc.s._music !== undefined) { key = sc.s._music; cont = false; }
+      else if (first) { key = musicKeyOf(sc.ci); cont = ch._music === undefined; }
+      else return;
+      var last = MSEG[MSEG.length - 1];
+      if (last && last.key === key && last.cont === cont) return;   /* 同じ曲が続く: 区切らず、そのまま流す */
+      MSEG.push({ t: sc.t0, key: key, cont: cont, ci: sc.ci });
+    });
+    MSEG.forEach(function (m, i) { m.end = i < MSEG.length - 1 ? MSEG[i + 1].t : DUR; });
+    return MSEG;
+  }
+  function msegAt(tt) { var L = msegs(), i = 0; for (var k = 0; k < L.length; k++) if (tt >= L[k].t) i = k; return i; }
+  var XFADE = AUD.musicFade === undefined ? 900 : AUD.musicFade;   /* 曲が替わるときの重ね（ms） */
   function energyOf(ci) {
     var ch = SPEC.chapters[ci], n = CHAPTERS.length;
     if (ch && ch.energy) return ch.energy;
@@ -2125,43 +2146,79 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     if (mclock.bus) { var old = mclock.bus; old.gain.cancelScheduledValues(ac.currentTime); old.gain.setTargetAtTime(0, ac.currentTime, .06);
       setTimeout(function () { try { old.disconnect(); } catch (e) {} }, 600); }
     mclock.bus = null; mclock.sec = -1;
-    Object.keys(mclock.files).forEach(function (k) { try { mclock.files[k].el.pause(); } catch (e) {} });
+    Object.keys(mclock.files).forEach(function (k) { var f = mclock.files[k]; f.on = false; f.out.gain.cancelScheduledValues(ac.currentTime); f.out.gain.value = 0;
+      [f.a, f.b].forEach(function (p) { if (p) try { p.el.pause(); } catch (e) {} }); });
   }
   function musicReset() { musicStop(); mclock.mt = t; }
+  /* 曲のファイル: 曲ごとに音量のつまみ（out）を持ち、替わるときは out を XFADE かけて上げ下げする（前の曲が消えていく間に次の曲が入る）。
+     ループ用でない曲（loop: false）は、同じ曲を 2 つ持ち、終わりの数秒を次の頭に重ねてつなぐ */
+  /* 曲の「音楽としての終わり」: 最後のフェードアウトと無音を除いた所（0.1 秒ごとの音量が、曲の中ほどの音量の 3 割を最後に超えた所）。くり返すときは、ここで次の頭に重ねる */
+  var MTRIM = {};
+  function musicEnd(buf) {
+    var d = buf.getChannelData(0), n = Math.floor(buf.sampleRate / 10), lv = [];
+    for (var i = 0; i + n <= d.length; i += n) { var s2 = 0; for (var j = i; j < i + n; j += 16) s2 += d[j] * d[j]; lv.push(Math.sqrt(s2 / (n / 16))); }
+    var med = lv.slice().sort(function (a, b) { return a - b; })[Math.floor(lv.length * .5)] || 0, k = lv.length - 1;
+    while (k > 0 && lv[k] < med * .3) k--;
+    return Math.min(buf.duration, (k + 1) / 10 + .3);
+  }
+  function trimOf(key, def) {
+    if (MTRIM[key] !== undefined || !def.file || def.loop === true) return;
+    MTRIM[key] = null;
+    try { audioBytes(def.file).then(function (b) { return new OfflineAudioContext(1, 1, 44100).decodeAudioData(b); })
+      .then(function (buf) { MTRIM[key] = musicEnd(buf); }).catch(function () {}); } catch (e) {}
+  }
+  Object.keys(MUS).forEach(function (k) { trimOf(k, MUS[k]); });
   function fileOf(key, def) {
     var f = mclock.files[key]; if (f) return f;
-    var el = new Audio(def.file); el.loop = def.loop !== false; el.preservesPitch = true;
-    var g = ac.createGain(); g.gain.value = (def.volume === undefined ? .35 : def.volume) * MUSVOL;
-    try { ac.createMediaElementSource(el).connect(g); g.connect(duckG); } catch (e) { console.warn("music file:", e); }
-    return (mclock.files[key] = { el: el, g: g });
+    var mk = function () { var el = new Audio(def.file); el.preservesPitch = true; var g = ac.createGain(); g.gain.value = 0;
+      try { ac.createMediaElementSource(el).connect(g); } catch (e) { console.warn("music file:", e); } return { el: el, g: g }; };
+    var out = ac.createGain(); out.gain.value = 0; out.connect(duckG);
+    var A = mk(), B = def.loop === true ? null : mk(); A.g.connect(out); if (B) B.g.connect(out); else A.el.loop = true;   /* loop: true はループ用に作られた曲（そのまま回す） */
+    return (mclock.files[key] = { a: A, b: B, out: out, key: key, vol: (def.volume === undefined ? .35 : def.volume) * MUSVOL, on: false, offAt: 0 });
+  }
+  function syncEl(p, at, gain) {
+    p.el.playbackRate = speed;
+    if (p.el.paused) { try { p.el.currentTime = at; } catch (e) {} p.el.play().catch(function () {}); }
+    else if (Math.abs(p.el.currentTime - at) > .3) { try { p.el.currentTime = at; } catch (e) {} }
+    p.g.gain.setTargetAtTime(gain, ac.currentTime, .04);
+  }
+  function filePlay(f, pos) {   /* pos: 曲の中の秒 */
+    var dur = f.a.el.duration;
+    if (!f.b) { if (dur && isFinite(dur)) pos = pos % dur; syncEl(f.a, pos, 1); return; }
+    if (MTRIM[f.key]) dur = Math.min(dur || 1e9, MTRIM[f.key]);
+    if (!dur || !isFinite(dur)) { syncEl(f.a, pos, 1); return; }
+    var X = Math.min(3, dur * .12), L = dur - X, n = Math.floor(pos / L), lp = pos - n * L, cur = n % 2 ? f.b : f.a, prev = n % 2 ? f.a : f.b;
+    if (n > 0 && lp < X) { syncEl(cur, lp, lp / X); syncEl(prev, lp + L, 1 - lp / X); }
+    else { syncEl(cur, lp, 1); prev.g.gain.setTargetAtTime(0, ac.currentTime, .04); if (!prev.el.paused && lp > X + .5) try { prev.el.pause(); } catch (e) {} }
   }
   function musicTick(dtReal) {
     if (!ac || !audioOn || !playing || !MA || !musicOn) return;
     mclock.mt += dtReal * speed;
-    var ci = chapterAt(t), key = musicKeyOf(ci), def = key ? MUS[key] : null, off = mclock.mt - t;
-    if (ci !== mclock.sec) {
-      mclock.sec = ci; mclock.secStart = CHAPTERS[ci].t + off; mclock.upTo = mclock.mt; mclock.fresh = true;
+    var si = msegAt(t), M = msegs()[si], key = M ? M.key : null, def = key ? MUS[key] : null, off = mclock.mt - t, ci = chapterAt(t);
+    if (si !== mclock.sec) {
+      mclock.sec = si; mclock.secStart = (M ? M.t : 0) + off; mclock.upTo = mclock.mt; mclock.fresh = true;
       if (!mclock.bus) { mclock.bus = ac.createGain(); mclock.bus.gain.value = MUSVOL * (def && def.g ? def.g : 1); mclock.bus.connect(duckG); }
       else mclock.bus.gain.setTargetAtTime(MUSVOL * (def && def.g ? def.g : 1), ac.currentTime, .3);
-      Object.keys(mclock.files).forEach(function (k) { if (k !== key) try { mclock.files[k].el.pause(); } catch (e) {} });
+      Object.keys(mclock.files).forEach(function (k) { var f = mclock.files[k]; if (k !== key && f.on) { f.on = false; f.offAt = mclock.mt;
+        f.out.gain.cancelScheduledValues(ac.currentTime); f.out.gain.setTargetAtTime(0, ac.currentTime, XFADE / 3000); } });
     }
+    Object.keys(mclock.files).forEach(function (k) { var f = mclock.files[k];   /* 消え終わった曲を止める */
+      if (!f.on && f.offAt && mclock.mt - f.offAt > XFADE * 2) { f.offAt = 0; [f.a, f.b].forEach(function (p) { if (p) try { p.el.pause(); } catch (e) {} }); } });
     if (!def) return;
     if (def.file) {
-      /* ファイル: 映像の先頭（章の曲なら章の先頭）からの位置に合わせて鳴らし、0.3 秒よりずれたら合わせ直す */
-      var f = fileOf(key, def), pos = (AUD._musicKey === key && !SPEC.chapters[ci]._music ? mclock.mt : mclock.mt - mclock.secStart) / 1000, dur = f.el.duration;
-      if (dur && isFinite(dur)) pos = def.loop === false ? Math.min(pos, dur) : pos % dur;
-      f.el.playbackRate = speed;
-      if (f.el.paused) { try { f.el.currentTime = pos; } catch (e) {} f.el.play().catch(function () {}); }
-      else if (Math.abs(f.el.currentTime - pos) > .3) { try { f.el.currentTime = pos; } catch (e) {} }
+      var f = fileOf(key, def), pos = (M.cont ? mclock.mt : mclock.mt - mclock.secStart) / 1000;
+      if (!f.on) { f.on = true; f.offAt = 0; f.out.gain.cancelScheduledValues(ac.currentTime);
+        f.out.gain.setTargetAtTime(f.vol, ac.currentTime, (mclock.fresh && mclock.mt - mclock.secStart < 200 && si > 0 ? XFADE : 120) / 3000); }
+      filePlay(f, pos); mclock.fresh = false;
       return;
     }
-    var secEnd = (ci < CHAPTERS.length - 1 ? CHAPTERS[ci + 1].t : DUR) + off, to = Math.min(mclock.mt + 300 * speed, secEnd), from = mclock.upTo;
+    var segEnd = (M ? M.end : DUR) + off, to = Math.min(mclock.mt + 300 * speed, segEnd), from = mclock.upTo;
     if (to <= from) return;
-    var info = { ci: ci, energy: energyOf(ci), len: secEnd - mclock.secStart }, lf = from - mclock.secStart;
+    var info = { ci: ci, energy: energyOf(ci), len: segEnd - mclock.secStart }, lf = from - mclock.secStart, t0m = M ? M.t : 0;
     MA.notes(def, info, mclock.fresh ? Math.max(0, lf - 12000) : lf, to - mclock.secStart).forEach(function (n) {
       var st = n.t, en = n.t + (n.d || 0);
       if (st < lf) { if (!mclock.fresh || n.drum || en <= lf + 60 || !MA.isSus(n.inst, INSTX)) return; }   /* 途中から: 伸ばしている音だけ */
-      var tv = CHAPTERS[ci].t + st, fade = clamp(tv / 1200 + .15) * clamp((DUR - tv) / 2500);   /* 映像の最初と最後で下げる */
+      var tv = t0m + st, fade = clamp(tv / 1200 + .15) * clamp((DUR - tv) / 2500);   /* 映像の最初と最後で下げる */
       if (fade <= 0) return;
       var when = ac.currentTime + Math.max(0, mclock.secStart + st - mclock.mt) / speed / 1000;
       MA.note(ac, mclock.bus, n, when, Math.max(.05, (en - Math.max(st, lf)) / speed / 1000), fade, INSTX, st < lf); mclock.count = (mclock.count || 0) + 1;
@@ -2739,7 +2796,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   var expBtn = $("mv-expaudio"), exporting = false;
   if (expBtn && !(window.OfflineAudioContext && MA)) expBtn.hidden = true;
   var SR = 48000;
-  function decodeUrl(url) { return fetch(url).then(function (x) { return x.arrayBuffer(); }).then(function (b) { return ac.decodeAudioData(b); }).catch(function (e) { console.warn("export:", e); return null; }); }
+  function decodeUrl(url, ctx2) { return audioBytes(url).then(function (b) { return (ctx2 || ac).decodeAudioData(b); })   /* fetch を使わない（埋め込みの data: を読めない環境がある）。ac がまだ無ければ書き出しの文脈で */.catch(function (e) { console.warn("export:", e); return null; }); }
   /* 声・ファイルの効果音・楽器の録音の音の復号を待つ（数が変わらなくなるまで。長くても ms まで） */
   function waitDecoded(ms) {
     return new Promise(function (res) { var t0 = performance.now(), last = "", same = 0;
@@ -2754,7 +2811,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var oc = new OfflineAudioContext(2, Math.ceil((DUR + 1500) / 1000 * SR), SR);
     return Promise.resolve(fill(oc, oc.destination)).then(function () { return oc.startRendering(); });
   }
-  function hasMusic() { return CHAPTERS.some(function (c, ci) { var k = musicKeyOf(ci); return k && MUS[k]; }); }
+  function hasMusic() { return msegs().some(function (m) { return m.key && MUS[m.key]; }); }
   function voiceCues() { return AUD.narration === false ? [] : CUES.filter(function (c) { return c.key && VBUF[c.key]; }); }
   function fillVoice(oc, out) {
     voiceCues().forEach(function (c) { var s = oc.createBufferSource(), g = oc.createGain(); s.buffer = VBUF[c.key];
@@ -2762,17 +2819,27 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   }
   /* 音楽: musicTick と同じく章ごとに曲の頭から（全体の曲のファイルは映像の先頭からの位置）。映像の最初と最後で下げる */
   function fillMusic(oc, out) {
-    var jobs = [];
-    CHAPTERS.forEach(function (C, ci) {
-      var key = musicKeyOf(ci), def = key ? MUS[key] : null; if (!def) return;
-      var t0 = C.t, len = chLen(ci), bus = oc.createGain(); bus.connect(out);
+    var jobs = [], X = XFADE / 1000;
+    msegs().forEach(function (M, si) {
+      var key = M.key, def = key ? MUS[key] : null; if (!def) return;
+      var t0 = M.t, len = M.end - M.t, ci = M.ci, bus = oc.createGain(); bus.connect(out);
       if (def.file) {
-        bus.gain.value = (def.volume === undefined ? .35 : def.volume) * MUSVOL;
-        jobs.push(decodeUrl(def.file).then(function (b) { if (!b) return;
-          var src = oc.createBufferSource(), off = (AUD._musicKey === key && !SPEC.chapters[ci]._music ? t0 : 0) / 1000;
-          src.buffer = b; src.loop = def.loop !== false; src.connect(bus);
-          if (src.loop) off = off % b.duration; else if (off >= b.duration) return;
-          src.start(t0 / 1000, off); src.stop((t0 + len) / 1000); }));
+        var vol = (def.volume === undefined ? .35 : def.volume) * MUSVOL, a0 = t0 / 1000, a1 = (t0 + len) / 1000;
+        bus.gain.setValueAtTime(si > 0 ? 0 : vol, a0); if (si > 0) bus.gain.linearRampToValueAtTime(vol, a0 + X);   /* 前の曲と重ねて入れ替える */
+        var last = si === msegs().length - 1; bus.gain.setValueAtTime(vol, a1); if (!last) bus.gain.linearRampToValueAtTime(0, a1 + X);
+        jobs.push(decodeUrl(def.file, oc).then(function (b) { if (!b) return;
+          var off = (M.cont ? t0 : 0) / 1000, stopAt = last ? a1 : a1 + X;
+          if (def.loop === true) { var src = oc.createBufferSource(); src.buffer = b; src.loop = true; src.connect(bus); src.start(a0, off % b.duration); src.stop(stopAt); return; }
+          /* ループ用でない曲: 音楽としての終わり（フェードアウトの前）の数秒を、次の頭に重ねて、くり返しをつなぐ */
+          var D = musicEnd(b), XX = Math.min(3, D * .12), Lc = D - XX, n0 = Math.floor(off / Lc), t = a0, pos = off - n0 * Lc;
+          for (var n = n0; t < stopAt; n++) {
+            var s2 = oc.createBufferSource(), g = oc.createGain(); s2.buffer = b; s2.connect(g); g.connect(bus);
+            var startAt = t, endAt = Math.min(stopAt, t + (D - pos));
+            g.gain.setValueAtTime(n > n0 ? 0 : 1, startAt); if (n > n0) g.gain.linearRampToValueAtTime(1, startAt + XX);
+            g.gain.setValueAtTime(1, Math.max(startAt, endAt - XX)); g.gain.linearRampToValueAtTime(endAt < stopAt ? 0 : 1, endAt);
+            s2.start(startAt, pos); s2.stop(endAt);
+            t = t + (Lc - pos); pos = 0;
+          } }));
         return;
       }
       bus.gain.value = MUSVOL * (def.g || 1);
@@ -2846,7 +2913,9 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   if (KIOSK && !(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches)) { started = true; playing = true; lastNow = performance.now(); syncUI(); }
   /* 同じページのほかのプレイヤーを再生したら、こちらは止める（読み上げの声は 1 つしか無いため） */
   document.addEventListener("mv-exclusive", function (e) { if (e.detail !== root && playing && !SPEC.figure) pause(); });
-  var api = { seek: seek, play: play, pause: pause, get t() { return t; }, get speaking() { return !!speaking; }, get DUR() { return DUR; }, CHAPTERS: CHAPTERS,
+  var api = { renderMusic: function () { return renderStem(fillMusic).then(function (b) { var d = b.getChannelData(0), out = [], n = Math.floor(b.sampleRate / 10);   /* 音楽の音量を 0.1 秒ごとに（確かめる用） */
+      for (var i = 0; i + n <= d.length; i += n) { var s2 = 0; for (var j = i; j < i + n; j += 8) s2 += d[j] * d[j]; out.push(Math.round(Math.sqrt(s2 / (n / 8)) * 1000) / 1000); } return out; }); },
+    segments: function () { return msegs().map(function (m) { return { t: m.t, end: m.end, key: m.key, cont: m.cont }; }); }, seek: seek, play: play, pause: pause, get t() { return t; }, get speaking() { return !!speaking; }, get DUR() { return DUR; }, CHAPTERS: CHAPTERS,
               get voiceRate() { return VK; }, retime: retime, CUES: CUES, SFX: SFXQ,
               get audio() { return { ctx: ac, mt: mclock.mt, section: mclock.sec, notes: mclock.count || 0, sfx: sfxCount, vol: VOL, gain: master ? master.gain.value : null }; } };
   root.__mv = api; window.__MV__ = api;

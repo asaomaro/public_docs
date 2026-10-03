@@ -23,7 +23,7 @@ if (noon > 0) {
   ctx.fillStyle = "#fff6c8"; ctx.beginPath(); ctx.arc(OX, ny, 34, 0, 6.2832); ctx.fill();
   ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 12; ctx.setLineDash([4, 22]); ctx.beginPath(); ctx.moveTo(OX, ny + 50); ctx.lineTo(OX, ny + 50 + (GY - TH - ny - 50) * noon); ctx.stroke(); ctx.setLineDash([]);
   ctx.lineWidth = 16; ctx.beginPath(); ctx.moveTo(OX, GY - TH); ctx.lineTo(OX, GY - TH + (EY - 40 - GY + TH) * noon); ctx.stroke();
-  H.txt("昼は短い", OX + 150, GY - TH + 44, { size: 44, weight: 900, align: "center", color: "#ffffff" });
+  H.txt("昼は短い", OX + 150, GY - TH - 20, { size: 44, weight: 900, align: "center", color: "#fff6c8", stroke: "#16161d" });
   ctx.globalAlpha = 1;
 }
 /* 夕方: 低い太陽からの光は、空気の層を横に長く通る。② で、太陽から離れるほど 白 → 黄 → 赤 に変わる */
@@ -46,9 +46,9 @@ if (eve > 0) {
   }
   /* 言葉: ① は「夕方は長い」、② で「青は途中で散らばる」「赤が残る」に替わる */
   var ly = EY - 190;
-  ctx.globalAlpha = eve * (1 - lose); H.txt("夕方は長い", (x0 + x1) / 2, EY - 60, { size: 52, weight: 900, align: "center", color: "#ffffff" });
+  ctx.globalAlpha = eve * (1 - lose); H.txt("夕方は長い", (x0 + x1) / 2, ly, { size: 52, weight: 900, align: "center", color: "#ffffff" });
   ctx.globalAlpha = lose; H.txt("青は途中で散らばる", (x0 + x1) / 2 - 40, ly, { size: 50, weight: 900, align: "center", color: "#4aa8ff" });
-  ctx.globalAlpha = H.clamp(lose * 2 - 1); H.txt("赤が残る", OX - 150, EY - 36, { size: 50, weight: 900, align: "center", color: "#ff6a5c" });
+  ctx.globalAlpha = H.clamp(lose * 2 - 1); H.txt("赤が残る", OX - 150, EY + 80, { size: 50, weight: 900, align: "center", color: "#ff6a5c", stroke: "#16161d" });
   ctx.globalAlpha = 1;
 }
 ctx.restore();
