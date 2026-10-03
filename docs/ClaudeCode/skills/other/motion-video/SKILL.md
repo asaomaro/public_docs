@@ -476,3 +476,4 @@ python3 <skill_dir>/build.py spec.json --embed -o intro.embed.html   # 断片（
   ファイルの曲は、`"loop": true` ならそのまま回し、書かなければ、曲の終わりのフェードアウトと無音を除いた所で次の頭に重ねてくり返す。
 - テーマを足すときは `build.py` の `THEMES` に 1 つ足す（canvas の配色・書体・背景の模様・操作部の配色）。
 - 部品を足すときは `engine.js` の `R.<type>` と、`build.py` の `SCENE_TYPES`（必須の項目・説明・例）と `MIN_SEC` に足す。
+- **`engine.js`・`build.py`・`sound.py`・`voice.py`・`kaisetsu.py` を変えたら、回帰テストを回す**: `python3 -W ignore::ResourceWarning -m unittest discover -s ../tests -t ../tests`（この SKILL.md の場所から。3 秒ほど。素材と VOICEVOX は要らない）。motion-video と yukkuri-kaisetsu は `engine.js` を共有するので、片方の変更がもう片方を壊す。中身と足し方は `../tests/README.md`。
