@@ -565,6 +565,7 @@ CALLOUT_LABELS = {
 #   _IMG_MODE = "embed" … ローカル画像を data URI で埋め込む（単一HTMLで自己完結）
 #   _IMG_MODE = "link"  … ローカル画像は外部フォルダ参照のまま（出力HTMLからの相対パス）
 _IMG_BASE = None     # 処理対象 md のディレクトリ（相対パス解決の基準）
+_VIDEO_EXPORT = [False]   # 埋め込む動画のどれかが export="on"（書き出し付き）か。実行部は 1 ページで共通なので文書ごとに決める
 _IMG_OUTDIR = None   # 出力HTMLのディレクトリ（link 時の相対パス起点）
 _IMG_MODE = "embed"
 _IMG_MIME = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
@@ -626,25 +627,27 @@ def image_tag(alt_escaped, src_escaped):
 
 
 def inline(text):
-    out = []
-    i = 0
-    # コードスパンを先に退避
-    parts = re.split(r"(`[^`]+`)", text)
-    for part in parts:
-        if part.startswith("`") and part.endswith("`") and len(part) >= 2:
-            out.append("<code>%s</code>" % html.escape(part[1:-1]))
-            continue
-        s = html.escape(part)
-        # 画像 ![alt](src) はリンクより先に処理（先頭の ! を取りこぼさないため）
-        s = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)",
-                   lambda m: image_tag(m.group(1), m.group(2)), s)
-        s = re.sub(r"\[([^\]]+)\]\(([^)]+)\)",
-                   lambda m: '<a href="%s">%s</a>' % (html.escape(m.group(2), quote=True), m.group(1)), s)
-        s = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", s)
-        s = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"<em>\1</em>", s)
-        s = re.sub(r"~~([^~]+)~~", r"<del>\1</del>", s)
-        out.append(s)
-    return "".join(out)
+    # コードスパンを先に退避し、最後に戻す（中身を装飾として解釈させない。
+    # 分割せず目印に置き換えるので、**太字の中に `コード`** があっても太字が閉じる）
+    codes = []
+
+    def stash(m):
+        codes.append("<code>%s</code>" % html.escape(m.group(1)))
+        return "\x00%d\x00" % (len(codes) - 1)
+
+    def plain(t):  # 属性（alt・URL）に入る所は、タグにせず元の文字へ戻す
+        return re.sub(r"\x00(\d+)\x00", lambda m: re.sub(r"</?code>", "", codes[int(m.group(1))]), t)
+
+    s = html.escape(re.sub(r"`([^`]+)`", stash, text.replace("\x00", "")))
+    # 画像 ![alt](src) はリンクより先に処理（先頭の ! を取りこぼさないため）
+    s = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)",
+               lambda m: image_tag(plain(m.group(1)), plain(m.group(2))), s)
+    s = re.sub(r"\[([^\]]+)\]\(([^)]+)\)",
+               lambda m: '<a href="%s">%s</a>' % (html.escape(plain(m.group(2)), quote=True), m.group(1)), s)
+    s = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", s)
+    s = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"<em>\1</em>", s)
+    s = re.sub(r"~~([^~]+)~~", r"<del>\1</del>", s)
+    return re.sub(r"\x00(\d+)\x00", lambda m: codes[int(m.group(1))], s)
 
 
 def slugify(text, used):
@@ -1866,8 +1869,9 @@ def regroup_sections(out, lays, head_lay):
     return final
 
 
-def suggest_layouts(lines):
-    """節ごとのレイアウトの割り当て案（3f で提示する材料）。[(節名, レイアウト, 理由)]"""
+def suggest_layouts(lines, all_sections=False):
+    """節ごとのレイアウトの割り当て案（3f で提示する材料）。[(節名, レイアウト, 理由)]
+    all_sections なら、案の無い節も箇条書きがあれば (節名, None, 理由) で入れる。"""
     secs, cur, in_fence = [], None, False
     for ln in lines:
         if re.match(r"^\s{0,3}(`{3,}|~{3,})", ln):
@@ -1937,6 +1941,8 @@ def suggest_layouts(lines):
             pick = ("cards", "並列の %d 項目に小項目" % n)
         if pick:
             out.append((name, pick[0], pick[1]))
+        elif all_sections and n:
+            out.append((name, None, "箇条書きが %d 件" % n))
     return out
 
 
@@ -1951,11 +1957,19 @@ _EMOJI = re.compile(r"^\s*([\U0001F000-\U0001FAFF☀-➿⬀-⯿←-⇿️⃣]+)\
 _ICONS = [None]
 
 
+def find_skill(name):
+    """ほかのスキルのフォルダを探す: 隣 → 1 つ上の階層の別のまとまり（other/・video/ など）→ ~/.claude/skills。無ければ None。"""
+    import glob
+    up = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+    cands = [os.path.join(up, name)] + sorted(glob.glob(os.path.join(os.path.dirname(up), "*", name))) + [os.path.join(os.path.expanduser("~"), ".claude", "skills", name)]
+    return next((c for c in cands if os.path.isdir(c)), None)
+
+
 def _icons():
-    """隣の motion-video スキルの icons.py（線で描くアイコン集）を読み込む（無ければ None）。"""
+    """同じ場所の icons.py（線で描くアイコン集。motion-video のものの写し）を読み込む（無ければ None）。"""
     if _ICONS[0] is None:
         import importlib.util
-        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "motion-video", "icons.py")
+        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "icons.py")
         if not os.path.isfile(path):
             _ICONS[0] = False
         else:
@@ -4897,6 +4911,7 @@ def convert_file(path, theme_key, eyebrow=None, auto_figure="off", toc_mode="sid
     _IMG_OUTDIR = os.path.abspath(outdir) if outdir else _IMG_BASE
     _IMG_MODE = image_mode
     raw = open(path, encoding="utf-8").read()
+    _VIDEO_EXPORT[0] = wants_video_export(raw)
     meta, body = split_frontmatter(raw)
     lines = body.replace("\r\n", "\n").split("\n")
 
@@ -4974,6 +4989,7 @@ PART_RE = re.compile(r"<!--\s*MD2DOC-PART(?:\s+layout\s*=\s*([\w-]+))?\s*-->(.*?
 def finalize_html(path, theme_key, src=None):
     global _IMG_BASE, _IMG_OUTDIR, _IMG_MODE, _ACCENTS
     doc = open(path, encoding="utf-8").read()
+    _VIDEO_EXPORT[0] = wants_video_export(doc)
     _IMG_BASE = os.path.dirname(os.path.abspath(src)) if src else os.path.dirname(os.path.abspath(path))
     _IMG_OUTDIR = os.path.dirname(os.path.abspath(path))
     _ACCENTS = accent_vars(theme_key)
@@ -5027,11 +5043,10 @@ _MV = [None]
 
 
 def _motion_video():
-    """隣の motion-video スキルの build.py を読み込む（無ければ None）。"""
+    """motion-video スキル（あれば使う。別のまとまり video/ にある）の build.py を読み込む（無ければ None）。"""
     if _MV[0] is None:
         import importlib.util
-        here = os.path.dirname(os.path.realpath(__file__))
-        path = os.path.join(here, "..", "motion-video", "build.py")
+        path = os.path.join(find_skill("motion-video") or "-", "build.py")
         if not os.path.isfile(path):
             _MV[0] = False
         else:
@@ -5044,6 +5059,11 @@ def _motion_video():
 
 def video_attrs(text):
     return dict(re.findall(r'(\w+)\s*=\s*"([^"]*)"', text))
+
+
+def wants_video_export(text):
+    """文書の動画のどれかが export="on"（⚙ の書き出し付き）か。既定は配布用（書き出しなし）。"""
+    return any(video_attrs(m.group(1)).get("export") == "on" for m in VIDEO_RE.finditer(text))
 
 
 def video_fragment(attrs, base, doc_theme):
@@ -5070,7 +5090,8 @@ def video_fragment(attrs, base, doc_theme):
     if theme not in mv.THEMES:
         theme = VIDEO_THEME.get(doc_theme, "daylight")
     cap = attrs.get("caption") or ""
-    frag = mv.build_embed(spec, theme, player)
+    # 既定は配布用（⚙ の書き出し＝WebM で保存・編集用の映像・音のトラックと、その実行部を省く）。export="on" で書き出し付き
+    frag = mv.build_embed(spec, theme, player, export=attrs.get("export") == "on", engine_export=_VIDEO_EXPORT[0])
     return '<figure class="md2doc-video">%s%s</figure>' % (
         frag, '<figcaption style="color:var(--muted);font-size:13px;margin-top:6px">%s</figcaption>' % html.escape(cap) if cap else "")
 
@@ -5095,7 +5116,7 @@ _MF = [None]
 def _motion_figure_mod():
     if _MF[0] is None:
         import importlib.util
-        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "motion-video", "figure.py")
+        path = os.path.join(find_skill("motion-video") or "-", "figure.py")
         if not os.path.isfile(path):
             _MF[0] = False
         else:
@@ -5139,6 +5160,118 @@ def add_motion_runtime(doc):
     return doc[:i] + rt + doc[i:] if i >= 0 else doc + rt
 
 
+# ── 生成前の質問（テーマ・出力モードなど）を ask-form の 1 画面にまとめる ──
+# 質問の id は generate.py の引数名と同じ（theme → --theme、auto-figure → --auto-figure）。
+LOCAL_IMG_RE = re.compile(r"!\[[^\]]*\]\(\s*(?!https?://|data:|//)[^)\s]+")
+
+
+def ask_spec(inputs, recommend):
+    """ask-form に渡す質問の定義を作る。recommend は md の内容に合うテーマのキー（先頭が既定）。"""
+    def opts(*rows):
+        return [{"value": v, "label": l, "desc": d} for v, l, d in rows]
+
+    order = recommend + [k for k in THEMES if k not in recommend]
+    themes = []
+    for k in order:
+        ch, fit = THEME_INFO.get(k, ("", ""))
+        themes.append({"value": k, "label": THEMES[k]["label"], "desc": "%s。向く文書: %s" % (ch, fit),
+                       "colors": [THEMES[k]["vars"]["--accent"]] + THEMES[k]["accents"][1:4],
+                       "recommended": k in recommend})
+    has_image = False
+    for path in inputs:
+        try:
+            has_image = has_image or bool(LOCAL_IMG_RE.search(open(path, encoding="utf-8").read()))
+        except OSError:
+            pass
+    many = len(inputs) > 1
+    qs = [
+        {"id": "theme", "label": "テーマ", "options": themes, "default": order[0],
+         "help": "ライト/ダークは全テーマが両方持ち、読み手がヘッダーで切り替えられます。"},
+        {"id": "mode", "label": "出力モード", "default": "site" if many else "single", "options": opts(
+            ("single", "単一HTML", "1 ファイル完結。メール添付・USB 配布に最適。"),
+            ("print", "印刷/PDF重視", "紙・PDF 配布を主目的に、改ページ・余白を最適化。"),
+            ("site", "複数md→サイト化", "複数ファイルを束ね、一覧 index.html を作って相互リンク。"))},
+        {"id": "toc", "label": "目次", "default": "sidebar", "options": opts(
+            ("sidebar", "左サイドに目次", "本文の左に目次（開閉・検索・章ごとの折りたたみ）。"),
+            ("menu", "ヘッダーメニュー", "上部の固定メニューのみ。本文は全幅。"),
+            ("both", "両方", "ヘッダーメニュー＋左サイド目次。"),
+            ("none", "目次なし", "どちらも出さない。"))},
+        {"id": "layout", "label": "リストの見せ方（既定値）", "default": "plain",
+         "help": "節ごとの指定が無い箇条書きに使う既定値です。節ごとの割り当ては、このあと案を出します。",
+         "options": opts(
+            ("plain", "箇条書き", "通常のリスト。"),
+            ("cards", "カード", "項目をカードのグリッドに。一覧性・見栄え重視。"),
+            ("timeline", "タイムライン", "番号付きの縦タイムライン。手順・工程・時系列向き。"),
+            ("accordion", "アコーディオン", "折りたたみ。項目が多く詳細を隠したいとき。"),
+            ("freeform", "完全フリーフォーム", "形式に縛られず、Claude が内容ごとに自由にデザイン（文書全体）。"))},
+        {"id": "design", "label": "構築方法", "default": "deterministic",
+         "showIf": {"layout": ["plain", "cards", "timeline", "accordion"]}, "options": opts(
+            ("deterministic", "決定論的", "スクリプトが型どおりに変換。同じ入力なら同じ出力。"),
+            ("ai", "AIがこのテイストで構築", "Claude が節ごとに内容を読んで部品を選び、作り込む。"))},
+        {"id": "auto-figure", "label": "図解の自動補完", "default": "off", "options": opts(
+            ("off", "しない", "本文そのまま。図は mermaid ブロックのみ。"),
+            ("light", "控えめに補う", "最も効果的な 1〜2 個だけ図解。"),
+            ("rich", "積極的に図解", "図にできる箇所は積極的に図解。"))},
+    ]
+    if has_image:
+        qs.append({"id": "image-mode", "label": "画像の扱い", "default": "embed", "options": opts(
+            ("embed", "埋め込み", "画像を HTML に埋め込み、1 ファイルで自己完結。"),
+            ("link", "外部フォルダ参照", "HTML は軽いが、配布時は画像フォルダも一緒に運ぶ。"))})
+    qs.append({"id": "motion", "label": "説明図の動き", "default": "off",
+               "showIf": {"mode": ["single", "site"]}, "options": opts(
+        ("off", "動かさない", "静止した図のみ。"),
+        ("key", "要所だけ動かす", "流れ・手順など、動きで理解が進む図を 1〜2 個選んで動かす。"),
+        ("rich", "図をすべて動かす", "すべての図が流れの向きに沿って順に現れる。"))})
+    names = "・".join(os.path.basename(p) for p in inputs[:3]) + (" ほか" if len(inputs) > 3 else "")
+    qs[0]["remember"] = False  # テーマは文書ごとのおすすめを既定にする（前回の回答で上書きしない）
+    return {"title": "md-to-doc の設定", "intro": names, "submit": "この内容で生成", "remember": "md-to-doc",
+            "questions": qs}
+
+
+def ask_layouts_spec(inputs, default_layout):
+    """節ごとのレイアウトの仕分け（3f）を、ask-form の表で直してもらう定義。行は箇条書きのある節。"""
+    groups = (("基本", ("plain", "cards", "timeline", "accordion")),
+              ("追加", ("tabs", "checklist", "defs", "stats", "chips", "tree", "proscons")),
+              ("節の見せ方", SECTION_LAYOUTS), ("そのほか", MORE_LAYOUTS))
+    options = [{"value": v, "label": v, "group": g} for g, vs in groups for v in vs]
+    rows, seen = [], set()
+    for path in inputs:
+        _, body = split_frontmatter(open(path, encoding="utf-8").read())
+        for name, lay, why in suggest_layouts(body.replace("\r\n", "\n").split("\n"), all_sections=True):
+            if name in seen or "=" in name or "," in name:  # --layout-map に書けない節名は出さない
+                continue
+            seen.add(name)
+            rows.append({"value": name, "label": name, "desc": ("案: %s — %s" % (lay, why)) if lay else why,
+                         "default": lay or default_layout})
+    if not rows:
+        return None
+    return {"title": "節ごとのレイアウト", "submit": "この割り当てで生成", "note": False,
+            "intro": "既定は %s です。案を入れてあるので、変えたい節だけ選び直してください。" % default_layout,
+            "questions": [{"id": "layout-map", "label": "割り当て", "type": "table", "rowLabel": "節",
+                           "pickLabel": "レイアウト", "default": default_layout, "options": options, "rows": rows}]}
+
+
+def run_ask(spec, edit=None):
+    """隣の ask-form スキルで質問の画面を出し、その結果（JSON 1 行）を出して終了コードを返す。
+    edit があれば、回答ありの結果に手を加えてから出す。"""
+    here = os.path.abspath(__file__)
+    for base in (os.path.dirname(here), os.path.dirname(os.path.realpath(here))):
+        ask = os.path.join(base, os.pardir, "ask-form", "ask.py")
+        if os.path.exists(ask):
+            r = subprocess.run([sys.executable, ask, "-", "--width", "1080", "--height", "1000"],
+                               input=json.dumps(spec, ensure_ascii=False).encode("utf-8"), stdout=subprocess.PIPE)
+            out = r.stdout.decode("utf-8")
+            if edit and r.returncode == 0:
+                try:
+                    out = json.dumps(edit(json.loads(out)), ensure_ascii=False) + "\n"
+                except ValueError:
+                    pass
+            sys.stdout.write(out)
+            return r.returncode
+    print(json.dumps({"status": "unavailable", "reason": "ask-form スキルが見つかりません"}, ensure_ascii=False))
+    return 3
+
+
 def main():
     ap = argparse.ArgumentParser(description="Markdown を視覚的なHTMLドキュメントに変換")
     ap.add_argument("inputs", nargs="*", help="入力 .md（複数可）")
@@ -5147,6 +5280,13 @@ def main():
     ap.add_argument("--src", default=None, help="--finalize で、断片の中の画像の相対パスの基準にする元の .md")
     ap.add_argument("--theme", choices=list(THEMES.keys()), help="テーマ（一覧は --list-themes）")
     ap.add_argument("--list-themes", action="store_true", help="テーマの一覧（キー・名前・性格・向く文書）を出す")
+    ap.add_argument("--ask", action="store_true",
+                    help="生成前の質問を ask-form の 1 画面で聞き、回答の JSON を出す（HTML は作らない）")
+    ap.add_argument("--ask-spec", action="store_true", help="--ask で出す質問の定義（JSON）だけを出す")
+    ap.add_argument("--ask-layouts", action="store_true",
+                    help="節ごとのレイアウトの仕分けを ask-form の表で直してもらい、--layout-map の文字列を出す（HTML は作らない）")
+    ap.add_argument("--recommend", default="", metavar="キー,...",
+                    help="--ask で先頭に並べる、md の内容に合うテーマ（先頭が既定。例: manual,formal,minimal）")
     ap.add_argument("--mode", default="single", choices=["single", "print", "site"])
     ap.add_argument("--outdir", default=None, help="出力先（既定: 入力と同じ場所）")
     ap.add_argument("--eyebrow", default=None, help="ヘッダー上部の小見出し")
@@ -5193,6 +5333,30 @@ def main():
             ch, fit = THEME_INFO.get(k, ("", ""))
             print("| `%s` | %s | %s | %s |" % (k, t["label"], ch, fit))
         return
+    if args.ask_layouts:
+        spec = ask_layouts_spec(args.inputs, args.layout)
+        if spec is None:  # 箇条書きのある節が無い＝仕分けるものが無い
+            print(json.dumps({"status": "answered", "answers": {"layout-map": {}}, "layoutMap": ""}, ensure_ascii=False))
+            return
+        if args.ask_spec:
+            print(json.dumps(spec, ensure_ascii=False, indent=1))
+            return
+
+        def add_map(res):
+            picked = (res.get("answers") or {}).get("layout-map") or {}
+            res["layoutMap"] = ",".join("%s=%s" % (k, v) for k, v in picked.items() if v != args.layout)
+            return res
+        sys.exit(run_ask(spec, add_map))
+    if args.ask or args.ask_spec:
+        rec = [k.strip() for k in args.recommend.split(",") if k.strip()] or ["corporate"]
+        bad = [k for k in rec if k not in THEMES]
+        if bad:
+            ap.error("--recommend の %s はテーマにありません（一覧は --list-themes）" % "/".join(bad))
+        spec = ask_spec(args.inputs, rec)
+        if args.ask_spec:
+            print(json.dumps(spec, ensure_ascii=False, indent=1))
+            return
+        sys.exit(run_ask(spec))
     if not args.theme:
         ap.error("--theme を指定してください（一覧は --list-themes）")
     default_mode = default_mode_of(args.theme, args.default_mode)

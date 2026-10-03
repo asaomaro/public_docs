@@ -1,0 +1,475 @@
+{
+ "_comment": "背景のカタログ。台本の bg:（全場面）・@bg:（次の場面）に名前を書く。時間帯は名前の後ろに _evening・_night。画像は bg/ に置く（リポジトリには入れない。fetch_assets.py で取り直す）。credit は締めの画面に出す表記",
+ "classroom": {
+  "file": "classroom.jpg",
+  "name": "教室（前）（日中）",
+  "desc": "黒板と教卓が見える教室。授業・解説の定番",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/front_of_classroom/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/front_of_classroom/front_of_classroom_1.jpg"
+ },
+ "classroom_evening": {
+  "file": "classroom_evening.jpg",
+  "name": "教室（前）（夕方）",
+  "desc": "黒板と教卓が見える教室。授業・解説の定番",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/front_of_classroom/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/front_of_classroom/front_of_classroom_2.jpg"
+ },
+ "classroom_night": {
+  "file": "classroom_night.jpg",
+  "name": "教室（前）（夜）",
+  "desc": "黒板と教卓が見える教室。授業・解説の定番",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/front_of_classroom/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/front_of_classroom/front_of_classroom_3.jpg"
+ },
+ "classroom_back": {
+  "file": "classroom_back.jpg",
+  "name": "教室（後ろ）（日中）",
+  "desc": "机が並ぶ教室の後ろ側。放課後の雑談",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/back_of_classroom/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/back_of_classroom/back_of_classroom_1.jpg"
+ },
+ "classroom_back_evening": {
+  "file": "classroom_back_evening.jpg",
+  "name": "教室（後ろ）（夕方）",
+  "desc": "机が並ぶ教室の後ろ側。放課後の雑談",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/back_of_classroom/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/back_of_classroom/back_of_classroom_2.jpg"
+ },
+ "classroom_back_night": {
+  "file": "classroom_back_night.jpg",
+  "name": "教室（後ろ）（夜）",
+  "desc": "机が並ぶ教室の後ろ側。放課後の雑談",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/back_of_classroom/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/back_of_classroom/back_of_classroom_3.jpg"
+ },
+ "blackboard": {
+  "file": "blackboard.jpg",
+  "name": "黒板",
+  "desc": "黒板を正面から。板書・まとめ",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/blackboard/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/blackboard/blackboard_1.png"
+ },
+ "living": {
+  "file": "living.jpg",
+  "name": "リビング（日中）",
+  "desc": "ソファのある明るい居間。日常・雑談の定番",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/living2/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/living2/living2_1.jpg"
+ },
+ "living_evening": {
+  "file": "living_evening.jpg",
+  "name": "リビング（夕方）",
+  "desc": "ソファのある明るい居間。日常・雑談の定番",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/living2/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/living2/living2_2.jpg"
+ },
+ "living_night": {
+  "file": "living_night.jpg",
+  "name": "リビング（夜）",
+  "desc": "ソファのある明るい居間。日常・雑談の定番",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/living2/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/living2/living2_4.jpg"
+ },
+ "room": {
+  "file": "room.jpg",
+  "name": "一人部屋（日中）",
+  "desc": "ベッドのある自分の部屋。くつろいだ話",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/single_room/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/single_room/single_room_1.jpg"
+ },
+ "room_evening": {
+  "file": "room_evening.jpg",
+  "name": "一人部屋（夕方）",
+  "desc": "ベッドのある自分の部屋。くつろいだ話",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/single_room/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/single_room/single_room_2.jpg"
+ },
+ "room_night": {
+  "file": "room_night.jpg",
+  "name": "一人部屋（夜）",
+  "desc": "ベッドのある自分の部屋。くつろいだ話",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/single_room/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/single_room/single_room_4.jpg"
+ },
+ "chanoma": {
+  "file": "chanoma.jpg",
+  "name": "茶の間",
+  "desc": "昭和レトロな茶の間。懐かしい話・昔話",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/retro_living/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/retro_living/retro_living_1.jpg"
+ },
+ "washitsu": {
+  "file": "washitsu.jpg",
+  "name": "和室（日中）",
+  "desc": "旅館のような畳の部屋。落ち着いた話・和の話題",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/ryokan-room/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/ryokan_room/ryokan_room_1.jpg"
+ },
+ "washitsu_evening": {
+  "file": "washitsu_evening.jpg",
+  "name": "和室（夕方）",
+  "desc": "旅館のような畳の部屋。落ち着いた話・和の話題",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/ryokan-room/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/ryokan_room/ryokan_room_2.jpg"
+ },
+ "washitsu_night": {
+  "file": "washitsu_night.jpg",
+  "name": "和室（夜）",
+  "desc": "旅館のような畳の部屋。落ち着いた話・和の話題",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/ryokan-room/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/ryokan_room/ryokan_room_4.jpg"
+ },
+ "shrine": {
+  "file": "shrine.jpg",
+  "name": "神社（日中）",
+  "desc": "境内と社殿。ゆっくり解説の定番・歴史や言い伝え",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/shrine/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/shrine/shrine_1.jpg"
+ },
+ "shrine_evening": {
+  "file": "shrine_evening.jpg",
+  "name": "神社（夕方）",
+  "desc": "境内と社殿。ゆっくり解説の定番・歴史や言い伝え",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/shrine/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/shrine/shrine_2.jpg"
+ },
+ "shrine_night": {
+  "file": "shrine_night.jpg",
+  "name": "神社（夜）",
+  "desc": "境内と社殿。ゆっくり解説の定番・歴史や言い伝え",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/shrine/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/shrine/shrine_3.jpg"
+ },
+ "road": {
+  "file": "road.jpg",
+  "name": "田舎道（日中）",
+  "desc": "緑の多い田舎の道。のどかな話・旅",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/country_road/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/country_road/country_road_1.jpg"
+ },
+ "road_evening": {
+  "file": "road_evening.jpg",
+  "name": "田舎道（夕方）",
+  "desc": "緑の多い田舎の道。のどかな話・旅",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/country_road/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/country_road/country_road_2.jpg"
+ },
+ "road_night": {
+  "file": "road_night.jpg",
+  "name": "田舎道（夜）",
+  "desc": "緑の多い田舎の道。のどかな話・旅",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/country_road/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/country_road/country_road_3.jpg"
+ },
+ "riverside": {
+  "file": "riverside.jpg",
+  "name": "川沿いの道（日中）",
+  "desc": "土手の遊歩道と空。散歩・しみじみした話",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/levee_trail/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/levee_trail/levee_trail_1.jpg"
+ },
+ "riverside_evening": {
+  "file": "riverside_evening.jpg",
+  "name": "川沿いの道（夕方）",
+  "desc": "土手の遊歩道と空。散歩・しみじみした話",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/levee_trail/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/levee_trail/levee_trail_2.jpg"
+ },
+ "riverside_night": {
+  "file": "riverside_night.jpg",
+  "name": "川沿いの道（夜）",
+  "desc": "土手の遊歩道と空。散歩・しみじみした話",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/levee_trail/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/levee_trail/levee_trail_3.jpg"
+ },
+ "library": {
+  "file": "library.jpg",
+  "name": "図書室（日中）",
+  "desc": "本棚と机。調べもの・勉強・知識の話",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/library_room/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/library_room/library_room_1.jpg"
+ },
+ "library_night": {
+  "file": "library_night.jpg",
+  "name": "図書室（夜）",
+  "desc": "本棚と机。調べもの・勉強・知識の話",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/library_room/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/library_room/library_room_4.jpg"
+ },
+ "pcroom": {
+  "file": "pcroom.jpg",
+  "name": "パソコン部屋（日中）",
+  "desc": "机とモニター。IT・ゲーム・作業の話",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/pc_room2/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/pc_room2/pc_room2_1.jpg"
+ },
+ "pcroom_evening": {
+  "file": "pcroom_evening.jpg",
+  "name": "パソコン部屋（夕方）",
+  "desc": "机とモニター。IT・ゲーム・作業の話",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/pc_room2/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/pc_room2/pc_room2_2.jpg"
+ },
+ "pcroom_night": {
+  "file": "pcroom_night.jpg",
+  "name": "パソコン部屋（夜）",
+  "desc": "机とモニター。IT・ゲーム・作業の話",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/pc_room2/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/pc_room2/pc_room2_4.jpg"
+ },
+ "building": {
+  "file": "building.jpg",
+  "name": "施設の外観（日中）",
+  "desc": "研究所や学校のような建物の外。組織・施設の話",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/facility2/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/facility2/facility2_1.jpg"
+ },
+ "building_evening": {
+  "file": "building_evening.jpg",
+  "name": "施設の外観（夕方）",
+  "desc": "研究所や学校のような建物の外。組織・施設の話",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/facility2/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/facility2/facility2_2.jpg"
+ },
+ "building_night": {
+  "file": "building_night.jpg",
+  "name": "施設の外観（夜）",
+  "desc": "研究所や学校のような建物の外。組織・施設の話",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/facility2/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/facility2/facility2_3.jpg"
+ },
+ "city": {
+  "file": "city.jpg",
+  "name": "都会の街中（日中）",
+  "desc": "ビルと店の並ぶ通り。社会・経済・流行の話",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/urban_street/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/urban_street/urban_street_1.jpg"
+ },
+ "city_evening": {
+  "file": "city_evening.jpg",
+  "name": "都会の街中（夕方）",
+  "desc": "ビルと店の並ぶ通り。社会・経済・流行の話",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/urban_street/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/urban_street/urban_street_2.jpg"
+ },
+ "city_night": {
+  "file": "city_night.jpg",
+  "name": "都会の街中（夜）",
+  "desc": "ビルと店の並ぶ通り。社会・経済・流行の話",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/urban_street/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/urban_street/urban_street_3.jpg"
+ },
+ "town": {
+  "file": "town.jpg",
+  "name": "住宅街（日中）",
+  "desc": "家の並ぶ道。身近な暮らしの話",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/residential_street2/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/residential_street2/residential_street2_1.jpg"
+ },
+ "town_evening": {
+  "file": "town_evening.jpg",
+  "name": "住宅街（夕方）",
+  "desc": "家の並ぶ道。身近な暮らしの話",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/residential_street2/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/residential_street2/residential_street2_2.jpg"
+ },
+ "town_night": {
+  "file": "town_night.jpg",
+  "name": "住宅街（夜）",
+  "desc": "家の並ぶ道。身近な暮らしの話",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/residential_street2/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/residential_street2/residential_street2_3.jpg"
+ },
+ "cafe": {
+  "file": "cafe.jpg",
+  "name": "喫茶店（日中）",
+  "desc": "落ち着いた店内。ゆったりした対談",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/cafe/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/cafe/cafe_1.jpg"
+ },
+ "cafe_evening": {
+  "file": "cafe_evening.jpg",
+  "name": "喫茶店（夕方）",
+  "desc": "落ち着いた店内。ゆったりした対談",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/cafe/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/cafe/cafe_2.jpg"
+ },
+ "office": {
+  "file": "office.jpg",
+  "name": "オフィス（日中）",
+  "desc": "机とパソコンの並ぶ職場。仕事・ビジネスの話",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/medium_office/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/medium_office/medium_office_1.jpg"
+ },
+ "office_evening": {
+  "file": "office_evening.jpg",
+  "name": "オフィス（夕方）",
+  "desc": "机とパソコンの並ぶ職場。仕事・ビジネスの話",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/medium_office/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/medium_office/medium_office_2.jpg"
+ },
+ "rooftop": {
+  "file": "rooftop.jpg",
+  "name": "学校の屋上（日中）",
+  "desc": "空が広い屋上。本音・青春・締めの話",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/school_rooftop/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/school_rooftop/school_rooftop_1.jpg"
+ },
+ "rooftop_evening": {
+  "file": "rooftop_evening.jpg",
+  "name": "学校の屋上（夕方）",
+  "desc": "空が広い屋上。本音・青春・締めの話",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/school_rooftop/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/school_rooftop/school_rooftop_2.jpg"
+ },
+ "rooftop_night": {
+  "file": "rooftop_night.jpg",
+  "name": "学校の屋上（夜）",
+  "desc": "空が広い屋上。本音・青春・締めの話",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_c/school_rooftop/",
+  "url": "https://min-chi.material.jp/mc/materials/background-c/school_rooftop/school_rooftop_3.jpg"
+ },
+ "lines_blue": {
+  "file": "lines_blue.jpg",
+  "name": "流線（青）",
+  "desc": "黒地に青い光の線。強調・緊迫・盛り上がり",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_a/horizontal_lines_1/",
+  "url": "https://min-chi.material.jp/mc/materials/background-a/horizontal_lines_1/horizontal_lines_1_1.jpg"
+ },
+ "lines_purple": {
+  "file": "lines_purple.jpg",
+  "name": "流線（紫）",
+  "desc": "黒地に紫の光の線。不思議・怪しい話",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_a/horizontal_lines_1/",
+  "url": "https://min-chi.material.jp/mc/materials/background-a/horizontal_lines_1/horizontal_lines_1_2.jpg"
+ },
+ "lines_red": {
+  "file": "lines_red.jpg",
+  "name": "流線（赤）",
+  "desc": "黒地に赤い光の線。危険・怒り・警告",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_a/horizontal_lines_1/",
+  "url": "https://min-chi.material.jp/mc/materials/background-a/horizontal_lines_1/horizontal_lines_1_3.jpg"
+ },
+ "lines_yellow": {
+  "file": "lines_yellow.jpg",
+  "name": "流線（黄）",
+  "desc": "黒地に黄色の光の線。ひらめき・発見",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_a/horizontal_lines_1/",
+  "url": "https://min-chi.material.jp/mc/materials/background-a/horizontal_lines_1/horizontal_lines_1_4.jpg"
+ },
+ "lines_green": {
+  "file": "lines_green.jpg",
+  "name": "流線（緑）",
+  "desc": "黒地に緑の光の線。成功・前進",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_a/horizontal_lines_1/",
+  "url": "https://min-chi.material.jp/mc/materials/background-a/horizontal_lines_1/horizontal_lines_1_5.jpg"
+ },
+ "lines_gray": {
+  "file": "lines_gray.jpg",
+  "name": "流線（灰）",
+  "desc": "黒地に白い光の線。回想・衝撃",
+  "credit": "みんちりえ（https://min-chi.material.jp/）",
+  "page": "https://min-chi.material.jp/fm/bg_a/horizontal_lines_1/",
+  "url": "https://min-chi.material.jp/mc/materials/background-a/horizontal_lines_1/horizontal_lines_1_6.jpg"
+ },
+ "sky": {
+  "file": "sky.jpg",
+  "name": "青空",
+  "desc": "雲に囲まれた青空のイラスト。明るい導入・まとめ",
+  "credit": "OKUMONO（https://sozaino.site）",
+  "page": "https://sozaino.site/archives/16769",
+  "url": "https://sozaino.site/wp-content/uploads/2024/03/okumono_moku16.png"
+ },
+ "grass": {
+  "file": "grass.jpg",
+  "name": "草原と空",
+  "desc": "草原と空のイラスト。のんびり・はじまり",
+  "credit": "OKUMONO（https://sozaino.site）",
+  "page": "https://sozaino.site/archives/10082",
+  "url": "https://sozaino.site/wp-content/uploads/2022/11/sougen53.png"
+ },
+ "moon": {
+  "file": "moon.jpg",
+  "name": "満月の夜",
+  "desc": "紫の夜空と満月のイラスト。夜の話・ふしぎな話",
+  "credit": "OKUMONO（https://sozaino.site）",
+  "page": "https://sozaino.site/archives/32887",
+  "url": "https://sozaino.site/wp-content/uploads/2026/09/okumono_moon2632.png"
+ },
+ "stars": {
+  "file": "stars.jpg",
+  "name": "星空",
+  "desc": "水彩風の星空。しんみり・宇宙・エンディング",
+  "credit": "OKUMONO（https://sozaino.site）",
+  "page": "https://sozaino.site/archives/9727",
+  "url": "https://sozaino.site/wp-content/uploads/2022/11/suisaihoshi2.png"
+ },
+ "gradient": {
+  "file": "gradient.jpg",
+  "name": "グラデーション",
+  "desc": "紫のかわいいグラデーション。場所を決めない解説",
+  "credit": "OKUMONO（https://sozaino.site）",
+  "page": "https://sozaino.site/archives/10528",
+  "url": "https://sozaino.site/wp-content/uploads/2022/12/g1.png"
+ },
+ "dusk": {
+  "file": "dusk.jpg",
+  "name": "夕暮れの空",
+  "desc": "青と桃色の雲の空。余韻・エンディング",
+  "credit": "きまぐれアフター背景素材置き場",
+  "page": "https://gakaisozai.seesaa.net/article/200806article_12.html",
+  "url": "https://gakaisozai.up.seesaa.net/image/BG000b02_1920.jpg"
+ }
+}

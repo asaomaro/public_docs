@@ -22,10 +22,32 @@ Markdown を、配布しやすい**単一HTML**（外部依存なし）に変換
 
 ## 重要: 実行時は必ず「順番に選択」させる
 
-ユーザーに **テーマ → 出力モード** の順で `AskUserQuestion` を使って選ばせてから生成する。
+ユーザーに **テーマ・出力モードなど（手順 1〜3g）** を選ばせてから生成する。
 引数で明示指定がある場合のみ確認を省略してよい。
 
-### `AskUserQuestion` の上限と、それに対する運用ルール（必守）
+### まず 1 つのウィンドウでまとめて聞く（`--ask`）
+
+質問は、ask-form スキル（隣の `../ask-form/`）の単発ウィンドウに**すべてまとめて**出す。テーマ 13 種・レイアウト 5 種が
+全件並び、3c の回答で 3d を、出力モードで 3g を出し分ける。3e（画像）は md にローカル画像があるときだけ出る。
+
+```bash
+# Bash の timeout は 600000 にする（回答を待つ間ブロックする）
+python3 <skill_dir>/generate.py "<input.md>" --ask --recommend <md に合うテーマ 3 件。先頭が既定>
+# 例: --recommend manual,formal,minimal   （選び方は手順 1 の (b)）
+# → {"status":"answered","answers":{"theme":"manual","mode":"single","toc":"sidebar","layout":"cards",
+#     "design":"deterministic","auto-figure":"light","image-mode":"embed","motion":"key"},"note":"…"}
+```
+
+- **`answers` のキーは `generate.py` の引数名そのまま**（`theme` → `--theme`、`auto-figure` → `--auto-figure`）。
+  キーが無い項目は聞いていない（出し分けで隠れた）ので、引数を付けない＝既定にする。
+- `note`（補足の欄）があれば読んで反映する。`custom` に入った項目は自由入力なので、解釈してから使う。
+- 終了コード 2（`cancelled`）・4（`timeout`）は、既定で進めずユーザーにどうするかを聞く。
+- **終了コード 3（`unavailable`。画面の無い環境・ask-form が無い等）のときは、下の `AskUserQuestion` の運用で聞く。**
+- 出力モード・目次などは、前回の回答が既定として入る（テーマは文書ごとのおすすめが既定）。
+- 回答を得たあとは 3f（節ごとの仕分け案の合意。`design=deterministic` のとき）へ進む。手順 1〜3g の各項の説明は、
+  回答の意味を読むための資料として使う。
+
+### `--ask` が使えないとき: `AskUserQuestion` の上限と、それに対する運用ルール（必守）
 
 `AskUserQuestion` には **1問あたり選択肢 4つまで / 1回の呼び出しで 4問まで** という上限がある
 （「その他」は自動で付くので、明示する選択肢は最大 4つ）。
@@ -195,7 +217,20 @@ python3 <skill_dir>/generate.py --list-themes
 セクションごとの割り当て案を作り、表で提示して合意を取る（`AskUserQuestion` は使わず、
 本文テキストで案を出して「これで生成してよいか」を確認する）。
 
-**まず `--suggest-layouts` で案の叩き台を作る**（HTML は作らない。Markdown の形から機械的に判定する）:
+**ask-form が使えるときは、表で直してもらう**（`--ask` で回答を得られた環境）:
+
+```bash
+# Bash の timeout は 600000。--layout は 3c で選んだ既定値
+python3 <skill_dir>/generate.py "<input.md>" --ask-layouts --layout <3c の値>
+# → {"status":"answered","answers":{"layout-map":{"導入手順":"timeline",…}},"layoutMap":"導入手順=timeline,主な機能=cards"}
+```
+
+- 箇条書きのある節が行になり、機械的な判定の案が既定で入っている。ユーザーは変えたい節だけ選び直す。
+- 出す前に、案を元 md の内容と照らす。**誤判定だと思う節は、本文に一言添えてから出す**（表の既定は機械的な案のまま）。
+- 結果の `layoutMap` を、そのまま `--layout-map "…"` に渡す（既定値と同じ節は入っていない。空なら `--layout-map` を付けない）。
+- 終了コード 3 のときは、下の手順（本文に表で案を出して合意を取る）で進める。
+
+**ask-form が使えないときは、`--suggest-layouts` で案の叩き台を作る**（HTML は作らない。Markdown の形から機械的に判定する）:
 
 ```bash
 python3 <skill_dir>/generate.py "<input.md>" --theme <key> --suggest-layouts
@@ -236,7 +271,7 @@ python3 <skill_dir>/generate.py "<input.md>" --theme <key> --suggest-layouts
 | やること・やらないこと | `dodont` | 先頭が `✓`・`✗`（`Do`・`Don't`・`やる`・`やらない` も可） |
 | 利用者の声 | `voices` | `- 声 — 名前（役割）` |
 | 判断の分かれ道 | `decision` | 問いの項目に小項目 `はい → …`・`いいえ → …`（入れ子で続く） |
-| できること・特徴をアイコンで | `icongrid` | `- :bolt: 速い — 3 分で`（アイコンは motion-video の `build.py --list-icons`） |
+| できること・特徴をアイコンで | `icongrid` | `- :bolt: 速い — 3 分で`（アイコンの名前は `python3 -c "import icons; icons.print_icons()"`。このスキルの場所で） |
 | 段階・階層（上ほど少なく重要） | `pyramid` | `- 頂点 — 説明` を上から順に 3〜5 件 |
 | 繰り返す工程（PDCA など） | `cycle` | `- 工程 — 説明` を 3〜8 件。`{中心}` を付けた項目は輪の中央に |
 | 2 軸で 4 つに分ける | `quad` | 4 項目（左上・右上・左下・右下の順）。1 項目目に `{x: 効果 →, y: 工数 →}` で軸、`{おすすめ}` で強調 |
@@ -620,7 +655,7 @@ python3 <skill_dir>/figkit.py spec.json --insert out.html # 各図の slot / rep
 <!--MD2DOC-VIDEO src="intro.json" player="minimal" caption="概要（1 分）"-->
 ```
 
-- `src` は motion-video の台本（md からの相対パス）。書き方は motion-video スキルの SKILL.md と `build.py --list`。
+- `src` は motion-video の台本（md からの相対パス）。書き方は motion-video スキルの SKILL.md（手順）・`reference/`（部品・動き・音などの資料）と `build.py --list`。
 - `player` の既定は `minimal`（文書に馴染む）。`theme` を省くと文書のテーマに近い配色になる
   （corporate→daylight、darktech→midnight、editorial・paper→paper、contrast→mono、blueprint→navy-brass など）。
 - 決定論的な構築（md に書く）でも、AI 構築（本文に書いて `--finalize`）でも同じ書き方で効く。
@@ -628,7 +663,12 @@ python3 <skill_dir>/figkit.py spec.json --insert out.html # 各図の slot / rep
   文書の中の動画は音を出さずに見られることも多いので、曲は `calm`・`study`・`minimal` など控えめなものにし、
   効果音は `"sfx": {"kit": "soft", "density": "low"}` 程度に抑える。
 - 向くのは、手順の実演・画面の変化・全体像を順に見せる説明。文章と図で足りる節には使わない（1 文書に 1〜2 本まで）。
-- motion-video スキルが無い環境では、注意の枠に置き換わる。
+- motion-video スキル（別のまとまり `../../video/motion-video/`。隣 → 別のまとまり → `~/.claude/skills` の順に探す）が無い環境では、注意の枠に置き換わる。
+  動画の埋め込みと動く図（4f）だけが motion-video を使う。アイコン集（`icons.py`）は motion-video のものの写しを持つので、無くても出る。
+- 埋め込む動画は**既定で配布用**（⚙ の書き出し＝WebM で保存・編集用の映像・音のトラックと、その実行部を省く。motion-video の `--dist`）。
+  書き出しを使いたい動画だけ `export="on"` を付ける（例 `<!--MD2DOC-VIDEO src="intro.json" export="on"-->`）。
+  実行部は 1 ページで共通なので、1 つでも `export="on"` があれば文書全体で書き出し付きの実行部になる（ボタンは付けた動画にだけ出る）。
+  字幕（SRT・VTT）・YouTube のチャプター・YMM4・AviUtl のファイルは、台本を video-export スキルに渡して作る。
 
 ### 4f. 動く図（motion-video の部品を、プレイヤー無しで図として置く）
 

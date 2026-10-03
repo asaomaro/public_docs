@@ -1,0 +1,55 @@
+# 動画のスキル（video/ の motion-video・yukkuri-kaisetsu・video-export）と、そこから使う other/ の ask-form・fact-check の回帰テスト
+#
+# なぜ CI が要るか:
+#   motion-video の engine.js・build.py は、yukkuri-kaisetsu の動画も描く。片方のための変更が、もう片方を
+#   黙って壊す（書き出しの BGM が無音・場面の曲が効かない・声の無い HTML など、実際に何度も起きた）。
+#   テストは素材（立ち絵・BGM）・VOICEVOX が無くても回るように作ってある（声は偽の VOICEVOX）。
+#   ubuntu-latest には Chrome が入っているので、engine.js のテスト（test_engine.py）も飛ばさずに走る。
+name: video skills
+
+on:
+  push:
+    paths:
+      - 'docs/ClaudeCode/skills/video/motion-video/**'
+      - 'docs/ClaudeCode/skills/video/yukkuri-*/**'
+      - 'docs/ClaudeCode/skills/video/video-export/**'
+      - 'docs/ClaudeCode/skills/other/fact-check/**'
+      - 'docs/ClaudeCode/skills/other/ask-form/**'
+      - 'docs/ClaudeCode/skills/other/md-to-doc/icons.py'
+      - 'docs/ClaudeCode/skills/video/tests/**'
+      - '.github/workflows/video-skills.yml'
+  pull_request:
+    paths:
+      - 'docs/ClaudeCode/skills/video/motion-video/**'
+      - 'docs/ClaudeCode/skills/video/yukkuri-*/**'
+      - 'docs/ClaudeCode/skills/video/video-export/**'
+      - 'docs/ClaudeCode/skills/other/fact-check/**'
+      - 'docs/ClaudeCode/skills/other/ask-form/**'
+      - 'docs/ClaudeCode/skills/other/md-to-doc/icons.py'
+      - 'docs/ClaudeCode/skills/video/tests/**'
+      - '.github/workflows/video-skills.yml'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: docs/ClaudeCode/skills/video
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Chrome の確認（無いと test_engine.py が飛ぶ）
+        run: google-chrome --version
+      - name: 回帰テスト
+        env:
+          # Chrome が無くて engine.js のテストが飛んだら落とす（飛んだ所は未検証の穴になる）
+          REQUIRE_CHROME: '1'
+        run: python3 -W ignore::ResourceWarning -m unittest discover -s tests -t tests -v
+      - name: ask-form のテスト（other/ask-form/tests）
+        working-directory: docs/ClaudeCode/skills/other/ask-form
+        env:
+          REQUIRE_CHROME: '1'
+        run: python3 -W ignore::ResourceWarning -m unittest discover -s tests -t tests -v

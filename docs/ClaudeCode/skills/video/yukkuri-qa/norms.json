@@ -1,0 +1,22 @@
+{
+ "_comment": "検査の目安。出どころ: frames = 視聴回数の多い 22 チャンネル・約 170 本の静止画（約 500 コマ）、chapters = そのうち概要欄に目次のある 70 本、articles = 制作者の解説記事（実際の動画で測った値ではない）。yukkuri-kaisetsu の research.md の 2・3・11・12。",
+ "common": {
+  "picture_ratio": [0.9, "絵・写真・図のある画面の割合（frames: 見たコマのほぼ全部に絵がある）"],
+  "view_sec_max": [25, "同じ画面が続く長さの上限・秒（articles。冒頭 1 分は 15 秒）"],
+  "view_sec_max_intro": [15, ""],
+  "words_ratio_max": [0.1, "字だけの画面（大きな語だけ・語 → 語）の割合の上限（2026-10-03 の手本との比べ: 手本 6 本の 18 コマに 0、このスキルの 2 本の 6 コマに 3）"],
+  "caption_lines": [2, "字幕の行数の上限（frames: 2 行まで）"],
+  "caption_chars": [44, "せりふ 1 つの字数の上限（frames: 1 行 13〜22 字 × 2 行）"],
+  "sfx_per_min": [[3, 20], "効果音の回数・1 分あたり（articles: 3 秒に 1 回を超えるとうるさい）"],
+  "chars_per_min": [[280, 400], "1 分あたりの字数（articles: 300〜350、390 とするものもある）"],
+  "same_face_run": [6, "同じ表情が続くせりふの数の上限"],
+  "intro_sec": [[10, 90], "最初の章（つかみ・オープニング）の長さ・秒（chapters: 中央値 41、4 分の 1 〜 4 分の 3 が 32〜71）"]
+ },
+ "talk":   {"chapter_sec": [[40, 240], "章の長さ"], "chapters": [[3, 9], "章の数"], "photo_ratio": [0, ""]},
+ "zukai":  {"chapter_sec": [[60, 420], "章の長さ"], "chapters": [[3, 9], "章の数"], "photo_ratio": [0, ""], "figure_ratio": [0.5, "図（絵と矢印・部品・描き下ろし・短い言葉つきの絵）の画面の割合"]},
+ "list":   {"chapter_sec": [[90, 240], "項目 1 つの長さ（chapters: 中央値 149、92〜238）"], "chapters": [[6, 10], "章の数（導入＋項目 5〜7＋締め。chapters: 中央値 7）"], "photo_ratio": [0.5, "写真の画面の割合"]},
+ "panel":  {"chapter_sec": [[60, 300], "章の長さ"], "chapters": [[4, 9], "章の数"], "photo_ratio": [0, ""]},
+ "story":  {"chapter_sec": [[150, 430], "章の長さ（chapters: 中央値 287）"], "chapters": [[5, 9], "章の数（導入＋4〜6 章＋考察。chapters: 中央値 7）"], "photo_ratio": [0.6, "写真の画面の割合"]},
+ "geki":   {"chapter_sec": [[60, 460], "章の長さ（chapters: 中央値 210〜240）"], "chapters": [[4, 9], "章の数"], "photo_ratio": [0, ""], "say_ratio": [0.4, "人の絵に吹き出しか、話し手の箱のある画面の割合"]},
+ "review": {"chapter_sec": [[30, 240], "章の長さ"], "chapters": [[4, 12], "章の数"], "photo_ratio": [0.6, "写真の画面の割合"]}
+}

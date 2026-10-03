@@ -1,0 +1,1100 @@
+{
+ "about": "定義の検査の、共通の試験データ。ask-form（ask.py の normalize()）と Sodashitsu（normalizeAskSpec）が同じこのファイルを読む。 expect.spec は「正規化後」の形で、部品 <ask-form> が受ける定義の形の正。比べるのは、ここに書いた項目だけ（実装が足す内部の項目——ask-form の _files など——は比べない）。 誤りは文言ではなく reason（分類）で比べる。実装ごとの差は、その実装の名前の欄（sodashitsu など）に expect を書いて上書きする（差を黙って飛ばさない）。",
+ "reasons": {
+  "questions_empty": "questions が無い・空",
+  "id_label_required": "質問に id か label が無い",
+  "id_duplicate": "質問の id の重複",
+  "unknown_type": "知らない型",
+  "unsupported_type": "型は知っているが、その実装では出せない",
+  "options_empty": "選択肢（か表の行）が無い・空",
+  "option_value_required": "選択肢に value が無い",
+  "option_value_duplicate": "選択肢の value の重複",
+  "showif_unknown_id": "表示条件が、無い質問を指す",
+  "showif_invalid": "表示条件の形が違う",
+  "paging_invalid": "paging の値が違う",
+  "page_invalid": "page が文字列でない",
+  "row_default_unknown": "表の行の既定が、選択肢に無い",
+  "preview_invalid": "preview の値が違う",
+  "code_invalid": "code が文字列でない",
+  "media_type": "画像・音のファイルの種類が違う（ask-form だけ）",
+  "media_missing": "画像・音のファイルが無い（ask-form だけ）",
+  "too_large": "上限の超過（Sodashitsu だけ）"
+ },
+ "cases": [
+  {
+   "name": "最小の定義: 既定が埋まる",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "options": [
+       "x",
+       "y"
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "ok": true,
+    "spec": {
+     "title": "質問",
+     "submit": "決定",
+     "note": true,
+     "questions": [
+      {
+       "allowOther": false,
+       "required": false,
+       "multiline": false,
+       "id": "a",
+       "label": "A",
+       "type": "single",
+       "options": [
+        {
+         "value": "x",
+         "label": "x"
+        },
+        {
+         "value": "y",
+         "label": "y"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "題・決定の文言・説明",
+   "spec": {
+    "title": "T",
+    "intro": "I",
+    "submit": "S",
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "options": [
+       "x"
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "ok": true,
+    "spec": {
+     "title": "T",
+     "intro": "I",
+     "submit": "S",
+     "note": true,
+     "questions": [
+      {
+       "allowOther": false,
+       "required": false,
+       "multiline": false,
+       "id": "a",
+       "label": "A",
+       "type": "single",
+       "options": [
+        {
+         "value": "x",
+         "label": "x"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "補足: 文字列は入力例になる",
+   "spec": {
+    "note": "例: 金曜は避けたい",
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "options": [
+       "x"
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "ok": true,
+    "spec": {
+     "title": "質問",
+     "submit": "決定",
+     "note": true,
+     "notePlaceholder": "例: 金曜は避けたい",
+     "questions": [
+      {
+       "allowOther": false,
+       "required": false,
+       "multiline": false,
+       "id": "a",
+       "label": "A",
+       "type": "single",
+       "options": [
+        {
+         "value": "x",
+         "label": "x"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "補足: false で出さない",
+   "spec": {
+    "note": false,
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "options": [
+       "x"
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "ok": true,
+    "spec": {
+     "title": "質問",
+     "submit": "決定",
+     "note": false,
+     "questions": [
+      {
+       "allowOther": false,
+       "required": false,
+       "multiline": false,
+       "id": "a",
+       "label": "A",
+       "type": "single",
+       "options": [
+        {
+         "value": "x",
+         "label": "x"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "選択肢: 値は文字列に揃え、表示名の既定は値。おすすめは true だけ残す",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "default": 2,
+      "options": [
+       {
+        "value": 1,
+        "label": "一",
+        "desc": "説明",
+        "recommended": true
+       },
+       {
+        "value": 2,
+        "recommended": false
+       },
+       {
+        "value": "z",
+        "recommended": "yes"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "ok": true,
+    "spec": {
+     "title": "質問",
+     "submit": "決定",
+     "note": true,
+     "questions": [
+      {
+       "allowOther": false,
+       "required": false,
+       "multiline": false,
+       "id": "a",
+       "label": "A",
+       "type": "single",
+       "default": "2",
+       "options": [
+        {
+         "value": "1",
+         "label": "一",
+         "desc": "説明",
+         "recommended": true
+        },
+        {
+         "value": "2",
+         "label": "2"
+        },
+        {
+         "value": "z",
+         "label": "z"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "色: #rgb・#rgba・#rrggbb・#rrggbbaa だけ残す。1 つも残らなければ項目ごと落とす",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "options": [
+       {
+        "value": "x",
+        "colors": [
+         "#fff",
+         "#12345678",
+         "red",
+         "url(x)",
+         "#12"
+        ]
+       },
+       {
+        "value": "y",
+        "colors": [
+         "blue"
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "ok": true,
+    "spec": {
+     "title": "質問",
+     "submit": "決定",
+     "note": true,
+     "questions": [
+      {
+       "allowOther": false,
+       "required": false,
+       "multiline": false,
+       "id": "a",
+       "label": "A",
+       "type": "single",
+       "options": [
+        {
+         "value": "x",
+         "label": "x",
+         "colors": [
+          "#fff",
+          "#12345678"
+         ]
+        },
+        {
+         "value": "y",
+         "label": "y"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "複数選択: 既定の文字列は配列に揃える",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "type": "multi",
+      "default": "x",
+      "required": true,
+      "options": [
+       "x",
+       "y"
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "ok": true,
+    "spec": {
+     "title": "質問",
+     "submit": "決定",
+     "note": true,
+     "questions": [
+      {
+       "allowOther": false,
+       "required": true,
+       "multiline": false,
+       "id": "a",
+       "label": "A",
+       "type": "multi",
+       "default": [
+        "x"
+       ],
+       "options": [
+        {
+         "value": "x",
+         "label": "x"
+        },
+        {
+         "value": "y",
+         "label": "y"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "単一選択: 既定が配列なら先頭",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "default": [
+       "y",
+       "x"
+      ],
+      "options": [
+       "x",
+       "y"
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "ok": true,
+    "spec": {
+     "title": "質問",
+     "submit": "決定",
+     "note": true,
+     "questions": [
+      {
+       "allowOther": false,
+       "required": false,
+       "multiline": false,
+       "id": "a",
+       "label": "A",
+       "type": "single",
+       "default": "y",
+       "options": [
+        {
+         "value": "x",
+         "label": "x"
+        },
+        {
+         "value": "y",
+         "label": "y"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "自由記述: 選択肢は空の配列。複数行・入力例・既定",
+   "spec": {
+    "questions": [
+     {
+      "id": "t",
+      "label": "T",
+      "type": "text",
+      "multiline": true,
+      "placeholder": "例",
+      "default": "初期値",
+      "help": "補足の文"
+     }
+    ]
+   },
+   "expect": {
+    "ok": true,
+    "spec": {
+     "title": "質問",
+     "submit": "決定",
+     "note": true,
+     "questions": [
+      {
+       "allowOther": false,
+       "required": false,
+       "multiline": true,
+       "id": "t",
+       "label": "T",
+       "type": "text",
+       "placeholder": "例",
+       "default": "初期値",
+       "help": "補足の文",
+       "options": []
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "その他の自由入力",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "allowOther": true,
+      "otherLabel": "ほか",
+      "otherPlaceholder": "入力",
+      "options": [
+       "x"
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "ok": true,
+    "spec": {
+     "title": "質問",
+     "submit": "決定",
+     "note": true,
+     "questions": [
+      {
+       "allowOther": true,
+       "required": false,
+       "multiline": false,
+       "id": "a",
+       "label": "A",
+       "type": "single",
+       "otherLabel": "ほか",
+       "otherPlaceholder": "入力",
+       "options": [
+        {
+         "value": "x",
+         "label": "x"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "真偽の項目は true のときだけ真（文字列の \"true\" は偽）",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "type": "multi",
+      "allowOther": "true",
+      "required": 1,
+      "options": [
+       "x"
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "ok": true,
+    "spec": {
+     "title": "質問",
+     "submit": "決定",
+     "note": true,
+     "questions": [
+      {
+       "allowOther": false,
+       "required": false,
+       "multiline": false,
+       "id": "a",
+       "label": "A",
+       "type": "multi",
+       "options": [
+        {
+         "value": "x",
+         "label": "x"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "表示条件: 値は文字列の配列に揃える",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "options": [
+       "x",
+       "y"
+      ]
+     },
+     {
+      "id": "b",
+      "label": "B",
+      "showIf": {
+       "a": "y"
+      },
+      "options": [
+       "p"
+      ]
+     },
+     {
+      "id": "c",
+      "label": "C",
+      "showIf": {
+       "a": [
+        "x",
+        1
+       ]
+      },
+      "options": [
+       "p"
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "ok": true,
+    "spec": {
+     "title": "質問",
+     "submit": "決定",
+     "note": true,
+     "questions": [
+      {
+       "allowOther": false,
+       "required": false,
+       "multiline": false,
+       "id": "a",
+       "label": "A",
+       "type": "single",
+       "options": [
+        {
+         "value": "x",
+         "label": "x"
+        },
+        {
+         "value": "y",
+         "label": "y"
+        }
+       ]
+      },
+      {
+       "allowOther": false,
+       "required": false,
+       "multiline": false,
+       "id": "b",
+       "label": "B",
+       "type": "single",
+       "showIf": {
+        "a": [
+         "y"
+        ]
+       },
+       "options": [
+        {
+         "value": "p",
+         "label": "p"
+        }
+       ]
+      },
+      {
+       "allowOther": false,
+       "required": false,
+       "multiline": false,
+       "id": "c",
+       "label": "C",
+       "type": "single",
+       "showIf": {
+        "a": [
+         "x",
+         "1"
+        ]
+       },
+       "options": [
+        {
+         "value": "p",
+         "label": "p"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "表示条件: 空・null は無いものとして落とす",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "showIf": {},
+      "options": [
+       "x"
+      ]
+     },
+     {
+      "id": "b",
+      "label": "B",
+      "showIf": null,
+      "options": [
+       "x"
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "ok": true,
+    "spec": {
+     "title": "質問",
+     "submit": "決定",
+     "note": true,
+     "questions": [
+      {
+       "allowOther": false,
+       "required": false,
+       "multiline": false,
+       "id": "a",
+       "label": "A",
+       "type": "single",
+       "options": [
+        {
+         "value": "x",
+         "label": "x"
+        }
+       ]
+      },
+      {
+       "allowOther": false,
+       "required": false,
+       "multiline": false,
+       "id": "b",
+       "label": "B",
+       "type": "single",
+       "options": [
+        {
+         "value": "x",
+         "label": "x"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "選択肢の最小幅: 60〜600 の整数だけ残す",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "minWidth": 180,
+      "options": [
+       "x"
+      ]
+     },
+     {
+      "id": "b",
+      "label": "B",
+      "minWidth": 5,
+      "options": [
+       "x"
+      ]
+     },
+     {
+      "id": "c",
+      "label": "C",
+      "minWidth": "200",
+      "options": [
+       "x"
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "ok": true,
+    "spec": {
+     "title": "質問",
+     "submit": "決定",
+     "note": true,
+     "questions": [
+      {
+       "allowOther": false,
+       "required": false,
+       "multiline": false,
+       "id": "a",
+       "label": "A",
+       "type": "single",
+       "minWidth": 180,
+       "options": [
+        {
+         "value": "x",
+         "label": "x"
+        }
+       ]
+      },
+      {
+       "allowOther": false,
+       "required": false,
+       "multiline": false,
+       "id": "b",
+       "label": "B",
+       "type": "single",
+       "options": [
+        {
+         "value": "x",
+         "label": "x"
+        }
+       ]
+      },
+      {
+       "allowOther": false,
+       "required": false,
+       "multiline": false,
+       "id": "c",
+       "label": "C",
+       "type": "single",
+       "options": [
+        {
+         "value": "x",
+         "label": "x"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "ページ: 質問の page と、全体の paging",
+   "spec": {
+    "paging": 5,
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "page": "基本",
+      "options": [
+       "x"
+      ]
+     },
+     {
+      "id": "b",
+      "label": "B",
+      "options": [
+       "x"
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "ok": true,
+    "spec": {
+     "title": "質問",
+     "submit": "決定",
+     "note": true,
+     "paging": 5,
+     "questions": [
+      {
+       "allowOther": false,
+       "required": false,
+       "multiline": false,
+       "id": "a",
+       "label": "A",
+       "type": "single",
+       "page": "基本",
+       "options": [
+        {
+         "value": "x",
+         "label": "x"
+        }
+       ]
+      },
+      {
+       "allowOther": false,
+       "required": false,
+       "multiline": false,
+       "id": "b",
+       "label": "B",
+       "type": "single",
+       "options": [
+        {
+         "value": "x",
+         "label": "x"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "誤り: questions が無い",
+   "spec": {
+    "title": "x"
+   },
+   "expect": {
+    "ok": false,
+    "reason": "questions_empty"
+   }
+  },
+  {
+   "name": "誤り: questions が空",
+   "spec": {
+    "questions": []
+   },
+   "expect": {
+    "ok": false,
+    "reason": "questions_empty"
+   }
+  },
+  {
+   "name": "誤り: id が無い",
+   "spec": {
+    "questions": [
+     {
+      "label": "A",
+      "options": [
+       "x"
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "ok": false,
+    "reason": "id_label_required"
+   }
+  },
+  {
+   "name": "誤り: label が無い",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "options": [
+       "x"
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "ok": false,
+    "reason": "id_label_required"
+   }
+  },
+  {
+   "name": "誤り: id の重複",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "options": [
+       "x"
+      ]
+     },
+     {
+      "id": "a",
+      "label": "B",
+      "options": [
+       "x"
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "ok": false,
+    "reason": "id_duplicate"
+   }
+  },
+  {
+   "name": "誤り: 知らない型",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "type": "slider",
+      "options": [
+       "x"
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "ok": false,
+    "reason": "unknown_type"
+   },
+   "sodashitsu": {
+    "note": "Sodashitsu は「対応していない型」として unavailable を返す（edit・rank・table も、作業 B までは同じ）",
+    "expect": {
+     "ok": false,
+     "reason": "unsupported_type"
+    }
+   }
+  },
+  {
+   "name": "誤り: 選択肢が空",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "options": []
+     }
+    ]
+   },
+   "expect": {
+    "ok": false,
+    "reason": "options_empty"
+   }
+  },
+  {
+   "name": "誤り: 選択肢が無い",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A"
+     }
+    ]
+   },
+   "expect": {
+    "ok": false,
+    "reason": "options_empty"
+   }
+  },
+  {
+   "name": "誤り: 選択肢に value が無い",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "options": [
+       {
+        "label": "x"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "ok": false,
+    "reason": "option_value_required"
+   }
+  },
+  {
+   "name": "誤り: 選択肢の value の重複（文字列に揃えた後で比べる）",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "options": [
+       "1",
+       {
+        "value": 1
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "ok": false,
+    "reason": "option_value_duplicate"
+   }
+  },
+  {
+   "name": "誤り: 表示条件が、無い質問を指す",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "showIf": {
+       "zzz": "x"
+      },
+      "options": [
+       "x"
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "ok": false,
+    "reason": "showif_unknown_id"
+   }
+  },
+  {
+   "name": "誤り: 表示条件が辞書でない",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "showIf": "b",
+      "options": [
+       "x"
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "ok": false,
+    "reason": "showif_invalid"
+   }
+  },
+  {
+   "name": "誤り: paging の値",
+   "spec": {
+    "paging": "many",
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "options": [
+       "x"
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "ok": false,
+    "reason": "paging_invalid"
+   }
+  },
+  {
+   "name": "誤り: page が文字列でない",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "page": 2,
+      "options": [
+       "x"
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "ok": false,
+    "reason": "page_invalid"
+   }
+  }
+ ]
+}

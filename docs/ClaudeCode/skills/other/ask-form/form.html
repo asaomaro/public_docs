@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>質問</title>
+<style>
+/* 単独ウィンドウの殻。画面そのものは部品 <ask-form>（ask-form.js。ask.py が下に埋め込む）が描く。
+   ここが受け持つのは、配色を渡す・通信・ウィンドウの大きさ合わせ・閉じること。 */
+:root{color-scheme:light dark}
+html,body{margin:0;height:100%}
+body{background:#f6f7f9;color:#1c2330;
+  font:14px/1.6 "Segoe UI","Hiragino Kaku Gothic ProN","Yu Gothic UI","Noto Sans JP",system-ui,sans-serif}
+ask-form{height:100vh;
+  --ask-bg:#f6f7f9;--ask-card:#fff;--ask-fg:#1c2330;--ask-muted:#667085;--ask-border:#dfe3ea;
+  --ask-accent:#2f5fe0;--ask-accent-soft:#edf2ff;--ask-accent-fg:#fff;--ask-error:#b4540a;--ask-warn:#b4540a}
+@media (prefers-color-scheme:dark){
+  body{background:#12161d;color:#e7ecf4}
+  ask-form{--ask-bg:#12161d;--ask-card:#1a202a;--ask-fg:#e7ecf4;--ask-muted:#98a3b5;--ask-border:#2b3442;
+    --ask-accent:#7aa2ff;--ask-accent-soft:#1e2a44;--ask-accent-fg:#0d1320;--ask-error:#f0a35a;--ask-warn:#f0a35a}
+}
+.end{padding:60px 22px;text-align:center;opacity:.7}
+</style>
+</head>
+<body>
+<ask-form id="form" tabindex="-1"></ask-form>
+<script type="module">
+__COMPONENT__
+</script>
+<script type="module">
+const SPEC = __SPEC__;
+const form = document.getElementById('form');
+const base = location.pathname.replace(/[^/]*$/, '');
+let finished = false, extra = null;
+
+// ── 人が見ているかを受け口へ知らせる（操作が無いままなら、受け口が「人がいない」とみて閉じる） ──
+(() => {
+  let first = null, sent = false;
+  const seen = () => { if (!sent) { sent = true; fetch(base + 'seen', { method: 'POST' }).catch(() => {}); } };
+  // 開いた直後、止まったポインタの下で起きる動きの通知は数えない（位置が変わってはじめて操作とみる）
+  addEventListener('pointermove', (e) => {
+    if (!first) first = [e.screenX, e.screenY];
+    else if (e.screenX !== first[0] || e.screenY !== first[1]) seen();
+  });
+  for (const t of ['pointerdown', 'keydown', 'wheel', 'touchstart']) addEventListener(t, seen, { passive: true });
+})();
+
+// ── 部品に定義を渡す ──
+document.title = SPEC.title || '質問';
+form.resolveMedia = (ref) => ref;   // 定義の画像・音は、ask.py が配るもの（file/N）か URL に書き換えてある
+form.spec = SPEC;
+form.focus();                        // キー（Ctrl+Enter・質問の移動）が最初から部品に届くように
+
+// ── 送る・閉じる ──
+function end(msg) {
+  finished = true;
+  window.close();
+  // 閉じられない開き方（ふつうのタブ）だったときの表示
+  setTimeout(() => {
+    const d = document.createElement('div');
+    d.className = 'end';
+    d.textContent = msg + ' このウィンドウは閉じて構いません。';
+    document.body.replaceChildren(d);
+  }, 150);
+}
+form.addEventListener('ask-submit', async (e) => {
+  if (finished) return;
+  finished = true;
+  form.busy = true;
+  try {
+    await fetch(base + 'answer', { method: 'POST', body: JSON.stringify(Object.assign({}, e.detail, extra || {})) });
+    end('回答を受け取りました。');
+  } catch (err) {
+    finished = false;
+    form.busy = false;
+    form.notify('送れませんでした（受け取り側が終了しています）', true);
+  }
+});
+async function cancel() {
+  if (finished) return;
+  finished = true;
+  try { await fetch(base + 'cancel', { method: 'POST' }); } catch (e) {}
+  end('キャンセルしました。');
+}
+form.addEventListener('ask-cancel', cancel);
+// 部品が自分の用（拡大表示を閉じる・絞り込みを消す）で使わなかった Esc は、取り消し
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !e.defaultPrevented) { e.preventDefault(); cancel(); }
+});
+
+// 受け取り側が先に終わった（時間切れ・中断・人がいないと判断）ら、ウィンドウを残さない
+const es = new EventSource(base + 'events');
+es.onerror = async () => {
+  if (finished) return;
+  try { await fetch(base + 'ping'); } catch (e) { es.close(); end('受け付けは終了しました。'); }
+};
+
+// ── ウィンドウを中身の高さに合わせ、画面の中央へ ──
+function fit(tries) {
+  // 開いた直後は寸法がまだ決まっていないことがあるので、決まるまで待つ
+  if (innerHeight < 80 || outerHeight < innerHeight) {
+    if ((tries || 0) < 20) setTimeout(() => fit((tries || 0) + 1), 50);
+    else form.relayout();   // 寸法が分からない開き方（ふつうのタブ）では、今の高さで目次を出すかを決める
+    return;
+  }
+  try {
+    const frame = outerHeight - innerHeight;
+    const cap = Math.min(SPEC._maxHeight || 820, screen.availHeight - 40);
+    form.style.height = (cap - frame) + 'px';   // 使える最大の高さで目次を出すかを決めてから、中身の高さに合わせて縮める
+    form.relayout();
+    const w = Math.min((SPEC._width || outerWidth) + form.indexWidth, screen.availWidth - 20);   // 目次が出たら、その分だけ幅を広げる
+    const h = Math.min(form.contentHeight + frame + 2, cap);
+    form.style.height = '';
+    resizeTo(w, h);
+    moveTo((screen.availLeft || 0) + (screen.availWidth - w) / 2, (screen.availTop || 0) + (screen.availHeight - h) / 2);
+  } catch (e) {}
+}
+addEventListener('load', () => fit());
+window.focus();
+if (SPEC._auto) setTimeout(() => {
+  extra = { _window: { w: outerWidth, h: outerHeight, iw: innerWidth, ih: innerHeight, sh: document.documentElement.scrollHeight, x: screenX, y: screenY,
+                       focus: document.hasFocus(), pages: form.pageCount, component: customElements.get('ask-form').version,
+                       standalone: matchMedia('(display-mode: standalone)').matches || !window.menubar.visible } };
+  form.submit();
+}, 1200);
+</script>
+</body>
+</html>
