@@ -3,6 +3,7 @@
 
   python3 ask.py spec.json        # 質問の定義（JSON）をファイルで渡す
   python3 ask.py - < spec.json    # 標準入力で渡す
+  python3 ask.py --review out.html notes.md   # 成果物を見せて、承認・修正の依頼・中止を聞く（定義は要らない）
   python3 ask.py --selftest       # 人の操作なしで、開く→答える→閉じる を確かめる（定義も渡せる）
 
 標準出力に 1 行の JSON を出して終わる。終了コード:
@@ -53,6 +54,12 @@ IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
                ".webp": "image/webp", ".avif": "image/avif", ".svg": "image/svg+xml"}
 AUDIO_TYPES = {".wav": "audio/wav", ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".oga": "audio/ogg",
                ".opus": "audio/ogg", ".m4a": "audio/mp4", ".aac": "audio/aac", ".flac": "audio/flac"}
+# 見せる成果物（定義の view）。HTML は隔離した枠に、画像はそのまま、ほかは文字として出す
+VIEW_HTML = {".html": "text/html; charset=utf-8", ".htm": "text/html; charset=utf-8"}
+VIEW_TEXT_MAX = 2 * 1024 * 1024   # 文字として出すファイルの大きさの上限
+VIEW_SANDBOX = "allow-scripts allow-popups allow-downloads"   # 枠の中に許すこと（同じ origin としては扱わない）
+TIMEOUT = 540                     # 回答を待つ秒数の既定
+TIMEOUT_VIEW = 3540               # 成果物を見せるときの既定（読む時間が要る）
 OPEN_WAIT = 20      # ウィンドウがつながるまで待つ秒数（超えたら unavailable）
 CLOSE_GRACE = 2.5   # 接続が切れてから「閉じられた」とみなすまでの秒数（再読み込みを許す）
 
@@ -191,12 +198,79 @@ def normalize(spec, base_dir="."):
     if isinstance(spec.get("note"), str):       # 補足の欄の入力例
         spec["notePlaceholder"] = spec["note"]
     spec["note"] = spec.get("note") is not False
+    views = normalize_view(spec, base_dir)
     for i, q in enumerate(spec["questions"]):
         for dep in (q.get("showIf") or {}):
             if dep not in seen:
                 raise SpecError("showif_unknown_id", "questions[%d].showIf: 「%s」という id の質問がありません" % (i, dep))
     spec["_files"] = files
+    spec["_views"] = views
     return spec
+
+
+def normalize_view(spec, base_dir):
+    """定義の view（質問の横に見せる成果物）を検査する。1 つ（辞書かパス）か、いくつか（配列。タブで切り替える）。
+    項目は file（ファイル）か text（その場の文字）と、任意の title。HTML と画像は受け口から配る番号付きのアドレス（view/N）に書き換え、
+    (パス, 種類) の一覧を返す。ほかのファイル（Markdown・テキスト・コード）は、中身を文字として定義に入れる。"""
+    raw = spec.get("view")
+    if raw is None:
+        spec.pop("view", None)
+        return []
+    items = raw if isinstance(raw, list) else [raw]
+    if not items:
+        raise SpecError("view_invalid", '"view" に、見せるものを 1 つ以上入れてください')
+    out, served = [], []
+    for i, v in enumerate(items):
+        where = "view[%d]" % i if isinstance(raw, list) else "view"
+        if isinstance(v, str):
+            v = {"file": v}
+        if not isinstance(v, dict) or (("file" in v) == ("text" in v)):
+            raise SpecError("view_invalid", "%s: file（ファイル）か text（文字）のどちらか 1 つを書いてください" % where)
+        if "text" in v:
+            if not isinstance(v["text"], str):
+                raise SpecError("view_invalid", "%s: text は文字列で渡してください" % where)
+            out.append({"title": str(v.get("title") or "テキスト"), "kind": "text", "text": v["text"]})
+            continue
+        if not isinstance(v["file"], str) or not v["file"]:
+            raise SpecError("view_invalid", "%s: file はファイルのパスで渡してください" % where)
+        path = os.path.abspath(os.path.join(base_dir, os.path.expanduser(v["file"])))
+        if not os.path.isfile(path):
+            raise SpecError("view_missing", "%s: ファイルがありません（%s）" % (where, path))
+        ext = os.path.splitext(path)[1].lower()
+        item = {"title": str(v.get("title") or os.path.basename(path)), "path": path}
+        if ext in VIEW_HTML or ext in IMAGE_TYPES:
+            served.append((path, VIEW_HTML.get(ext) or IMAGE_TYPES[ext]))
+            item.update(kind="html" if ext in VIEW_HTML else "image", src="view/%d" % (len(served) - 1))
+        else:
+            if os.path.getsize(path) > VIEW_TEXT_MAX:
+                raise SpecError("view_invalid", "%s: 文字として出すには大きすぎます（%d MB まで。HTML にして渡してください）" % (where, VIEW_TEXT_MAX // 1024 // 1024))
+            try:
+                item.update(kind="text", text=open(path, encoding="utf-8").read())
+            except UnicodeDecodeError:
+                raise SpecError("view_invalid", "%s: 文字として読めません（HTML・画像・UTF-8 のテキストを渡してください）" % where)
+        out.append(item)
+    spec["view"] = out
+    spec.setdefault("paging", False)   # 質問の欄は幅が狭いので、目次は出さない（書いてあればそれに従う）
+    return served
+
+
+def review_spec(files, title=None):
+    """成果物を見せて、承認か修正の依頼かを聞く定義（--review）。答えは decision（approve / revise / stop）と comment・remark。"""
+    return {
+        "title": title or "成果物の確認",
+        "submit": "この内容で返す",
+        "note": False,
+        "view": [{"file": f} for f in files],
+        "questions": [
+            {"id": "decision", "label": "どうしますか", "default": "approve", "minWidth": 120, "showValue": False, "options": [
+                {"value": "approve", "label": "承認", "desc": "このまま進める。", "recommended": True},
+                {"value": "revise", "label": "修正を依頼", "desc": "直してほしい所を書く。"},
+                {"value": "stop", "label": "中止", "desc": "この作業をやめる。"}]},
+            {"id": "comment", "label": "直してほしい所", "type": "text", "multiline": True, "required": True, "showIf": {"decision": "revise"},
+             "placeholder": "どこを、どう直すか"},
+            {"id": "remark", "label": "一言（任意）", "type": "text", "multiline": True, "showIf": {"decision": ["approve", "stop"]}},
+        ],
+    }
 
 
 # ── 前回の回答を既定にする（定義の "remember": "名前"） ───────────────────
@@ -355,7 +429,7 @@ class State:
                 self.result = result
 
 
-def make_handler(state, token, page, files=()):
+def make_handler(state, token, page, files=(), views=(), vtoken=None):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
@@ -371,10 +445,36 @@ def make_handler(state, token, page, files=()):
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "no-referrer")   # 枠の中へ、このページのアドレス（合言葉）を渡さない
             self.end_headers()
             self.wfile.write(body)
 
+        def _view(self):
+            """見せる成果物。回答の受け口とは別の合言葉の下で配る（枠の中のスクリプトが、自分のアドレスから回答の受け口を作れないように）。
+            枠の外で開かれても隔離されるよう、応答にも sandbox を付ける。"""
+            m = re.match(r"^/%s/view/(\d+)$" % re.escape(vtoken), self.path.split("?")[0]) if vtoken else None
+            if not m or int(m.group(1)) >= len(views):
+                return False
+            path, ctype = views[int(m.group(1))]
+            try:
+                body = open(path, "rb").read()
+            except OSError:
+                self._send(404)
+                return True
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Content-Security-Policy", "sandbox " + VIEW_SANDBOX)
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.end_headers()
+            self.wfile.write(body)
+            return True
+
         def do_GET(self):
+            if self._view():
+                return
             if not self._ok():
                 return self._send(404)
             rel = self.path.split("?")[0][len(token) + 2:]
@@ -453,6 +553,8 @@ def ask_via_soda(spec, timeout, raw=None):
     sodactl = shutil.which("sodactl")
     if not sodactl or not os.environ.get("SODA_PANE_ID"):
         return None
+    if spec.get("view"):   # 成果物を見せる枠は sodactl ask には無い。ウィンドウで聞く
+        return None
     for q in spec["questions"]:
         if q["type"] not in SODA_TYPES:
             return None
@@ -471,6 +573,15 @@ def ask_via_soda(spec, timeout, raw=None):
     return result
 
 
+def build_page(spec, vtoken=None):
+    """殻（form.html）に、部品（ask-form.js）と定義を埋め込む。"""
+    spec = dict(spec, _viewBase="/%s/" % vtoken if vtoken else None)
+    template = open(os.path.join(HERE, "form.html"), encoding="utf-8").read()
+    component = open(os.path.join(HERE, "ask-form.js"), encoding="utf-8").read()   # 画面の部品（<ask-form>）。殻に埋め込んで配る
+    return (template.replace("__COMPONENT__", component.replace("</script", "<\\/script"))
+            .replace("__SPEC__", json.dumps(spec, ensure_ascii=False).replace("</", "<\\/")))
+
+
 def done(result):
     print(json.dumps(result, ensure_ascii=False))
     sys.exit(EXIT[result["status"]])
@@ -486,10 +597,13 @@ def env_int(name, default):
 def main():
     ap = argparse.ArgumentParser(description="質問をまとめて単発ウィンドウに出し、回答を JSON で受け取る")
     ap.add_argument("spec", nargs="?", help="質問の定義（JSON ファイル。- で標準入力）")
-    ap.add_argument("--timeout", type=int, default=540, help="回答を待つ秒数（既定 540）")
+    ap.add_argument("--timeout", type=int, default=None, help="回答を待つ秒数（既定 %d。成果物を見せるときは %d）" % (TIMEOUT, TIMEOUT_VIEW))
+    ap.add_argument("--review", nargs="+", metavar="FILE",
+                    help="成果物（HTML・画像・テキスト）を見せて、承認・修正の依頼・中止を聞く（定義は要らない。答えは decision と comment）")
+    ap.add_argument("--title", help="--review のウィンドウの題")
     ap.add_argument("--width", type=int, default=None,
                     help="ウィンドウの幅（既定 780。横にプレビューを出す質問・表があれば 1080）")
-    ap.add_argument("--height", type=int, default=820, help="ウィンドウの高さの上限（中身に合わせて縮む）")
+    ap.add_argument("--height", type=int, default=None, help="ウィンドウの高さの上限（中身に合わせて縮む。既定 820。成果物を見せるときは 1000 で、縮めない）")
     ap.add_argument("--away-after", type=int, default=env_int("ASK_FORM_AWAY_SECONDS", 300), metavar="秒",
                     help="このマシンの操作がこの秒数以上無ければ、画面の前に人がいないとみて unavailable を返す（既定 300。0 で判定しない）")
     ap.add_argument("--react-within", type=int, default=env_int("ASK_FORM_REACT_SECONDS", 90), metavar="秒",
@@ -499,7 +613,11 @@ def main():
     args = ap.parse_args()
 
     try:
-        if args.selftest and not args.spec:
+        if args.review:
+            if args.spec:
+                ap.error("--review のときは、定義を渡しません")
+            spec = review_spec(args.review, args.title)
+        elif args.selftest and not args.spec:
             spec = json.loads(json.dumps(SELFTEST_SPEC))
         elif not args.spec:
             ap.error("質問の定義（JSON）を指定してください")
@@ -517,7 +635,11 @@ def main():
         print("OK: 質問 %d 件" % len(spec["questions"]))
         return
 
-    files = spec.pop("_files")
+    files, views = spec.pop("_files"), spec.pop("_views")
+    if args.timeout is None:
+        args.timeout = TIMEOUT_VIEW if spec.get("view") else TIMEOUT
+    if args.height is None:
+        args.height = 1000 if spec.get("view") else 820
     if spec.get("remember") and not args.selftest:
         apply_remembered(spec)
     if not args.selftest:
@@ -542,18 +664,14 @@ def main():
         wide = any(q["type"] == "table" or q.get("preview") == "side"
                    or (q.get("preview") is None and any("code" in o for o in q.get("options", [])))
                    for q in spec["questions"])
-        args.width = 1080 if wide else 780
+        args.width = 1400 if spec.get("view") else 1080 if wide else 780
     spec["_auto"] = bool(args.selftest)
     spec["_width"] = args.width
     spec["_maxHeight"] = args.height
-    template = open(os.path.join(HERE, "form.html"), encoding="utf-8").read()
-    component = open(os.path.join(HERE, "ask-form.js"), encoding="utf-8").read()   # 画面の部品（<ask-form>）。殻に埋め込んで配る
-    page = (template.replace("__COMPONENT__", component.replace("</script", "<\\/script"))
-            .replace("__SPEC__", json.dumps(spec, ensure_ascii=False).replace("</", "<\\/")))
-
     state = State()
-    token = secrets.token_urlsafe(12)
-    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(state, token, page.encode("utf-8"), files))
+    token, vtoken = secrets.token_urlsafe(12), secrets.token_urlsafe(12)
+    page = build_page(spec, vtoken)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(state, token, page.encode("utf-8"), files, views, vtoken))
     server.daemon_threads = True
     threading.Thread(target=server.serve_forever, daemon=True).start()
     url = "http://localhost:%d/%s/" % (server.server_address[1], token)

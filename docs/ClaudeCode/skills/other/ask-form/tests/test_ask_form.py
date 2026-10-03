@@ -431,5 +431,144 @@ class InstantConfirm(unittest.TestCase):
         self.assertEqual(self.sent(), [])
 
 
+@unittest.skipUnless(CHROME or os.environ.get("REQUIRE_CHROME"), "Chrome が無い")
+class View(unittest.TestCase):
+    """質問の横に成果物を見せる枠（定義の view）。HTML は隔離した枠に、回答の受け口とは別の合言葉のアドレスから読む。
+    文字のファイルは文字として出す。部品（<ask-form>）には成果物を入れない。"""
+
+    EVIL = ("<!doctype html><meta charset='utf-8'><title>成果物</title><h1 id='h'>成果物の本文</h1><script>"
+            "window.RAN=true;"
+            "fetch('../answer',{method:'POST',body:JSON.stringify({answers:{decision:'approve'},forged:true})}).catch(function(){});"   # 自分のアドレスから回答の受け口を作ってみる
+            "fetch('../cancel',{method:'POST'}).catch(function(){});"
+            "try{window.parent.document.title='HACKED'}catch(e){}"
+            "</script>")
+
+    @classmethod
+    def setUpClass(cls):
+        if not CHROME:
+            raise AssertionError("Chrome が無いので、成果物の枠を確かめられません")
+        from chrome import Chrome
+        cls.chrome = Chrome()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.chrome.close()
+
+    STUB = ("<script>window.EventSource=function(){};window.SENT=[];window.close=function(){};"
+            "window.fetch=function(u,o){SENT.push([String(u).split('/').pop(),o&&o.body||'']);return Promise.resolve({})};</script>")
+
+    def serve(self, spec):
+        """受け口を立てる（成果物は別の合言葉 tok-view の下）。→ (状態, アドレス, ページの HTML)"""
+        import threading
+        from http.server import ThreadingHTTPServer
+        spec = ask.normalize(spec)
+        files, views = spec.pop("_files"), spec.pop("_views")
+        spec.update(_auto=False, _width=1400, _maxHeight=1000)
+        state, page = ask.State(), ask.build_page(spec, "tok-view")
+        server = ThreadingHTTPServer(("127.0.0.1", 0), ask.make_handler(state, "tok-answer", page.encode("utf-8"), files, views, "tok-view"))
+        server.daemon_threads = True
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.shutdown)
+        return state, "http://127.0.0.1:%d" % server.server_address[1], page
+
+    def open(self, spec):
+        """殻のページを、画面なしの Chrome で開く（通信は偽物に差し替える。送ったものは window.SENT に残る）。"""
+        spec = ask.normalize(spec)
+        spec.pop("_files"), spec.pop("_views")
+        spec.update(_auto=False, _width=1400, _maxHeight=1000)
+        page = ask.build_page(spec, "tok-view").replace('<div id="app">', self.STUB + '<div id="app">', 1)
+        c = self.chrome
+        path = os.path.join(c.dir, "view%d.html" % c.n)
+        open(path, "w", encoding="utf-8").write(page)
+        c.call("Emulation.setDeviceMetricsOverride", c.sid, width=1400, height=800, deviceScaleFactor=1, mobile=False)
+        c.call("Page.enable", c.sid)
+        c.call("Page.navigate", c.sid, url="file://" + path)
+        c.eval("new Promise(function(ok){function w(){var f=document.getElementById('form');f&&f.shadowRoot&&f.shadowRoot.querySelector('[data-ask-submit]')?setTimeout(ok,300):setTimeout(w,50)};w()})")
+
+    def files(self):
+        d = helpers.tmpdir()
+        html, md = os.path.join(d, "doc.html"), os.path.join(d, "notes.md")
+        open(html, "w", encoding="utf-8").write(self.EVIL)
+        open(md, "w", encoding="utf-8").write("# 見出し\n\n<script>window.HACKED=1</script>\n<b>太字</b>\n")
+        return html, md
+
+    def test_definition(self):
+        html, md = self.files()
+        spec = ask.normalize({"view": [html, {"file": md, "title": "メモ"}, {"text": "その場の文字"}], "questions": [{"id": "a", "label": "A", "options": ["x"]}]})
+        self.assertEqual([(v["kind"], v["title"]) for v in spec["view"]], [("html", "doc.html"), ("text", "メモ"), ("text", "テキスト")])
+        self.assertEqual(spec["view"][0]["src"], "view/0")
+        self.assertIn("<script>", spec["view"][1]["text"])            # 文字のファイルは、中身を文字として持つ
+        self.assertEqual(spec["_views"], [(html, "text/html; charset=utf-8")])
+        self.assertIs(spec["paging"], False)                          # 質問の欄は狭いので、目次は出さない
+        for bad, reason in (({"file": "nai.html"}, "view_missing"), ({"file": html, "text": "x"}, "view_invalid"), ({}, "view_invalid"), ([], "view_invalid"), (3, "view_invalid")):
+            with self.subTest(bad=bad):
+                with self.assertRaises(ask.SpecError) as e:
+                    ask.normalize({"view": bad, "questions": [{"id": "a", "label": "A", "options": ["x"]}]})
+                self.assertEqual(e.exception.reason, reason)
+        self.assertNotIn("view", ask.normalize({"questions": [{"id": "a", "label": "A", "options": ["x"]}]}))   # 書かなければ、今までどおり
+
+    def test_html_goes_into_an_isolated_frame(self):
+        html, md = self.files()
+        self.open(ask.review_spec([html, md]))
+        got = self.chrome.eval("""(function(){var f=document.querySelector('#stage iframe'),R=document.getElementById('form').shadowRoot;
+          return {sandbox:f.getAttribute('sandbox'),src:f.getAttribute('src'),ref:f.referrerPolicy,title:document.title,hasView:document.body.classList.contains('has-view'),
+                  tabs:[].slice.call(document.querySelectorAll('#tabs button')).map(function(b){return b.textContent}),
+                  formW:document.getElementById('form').getBoundingClientRect().width,viewW:document.getElementById('viewer').getBoundingClientRect().width,
+                  index:R.querySelector('.index')?!R.querySelector('.index').hidden:false,inForm:R.querySelectorAll('iframe').length,
+                  questions:[].slice.call(R.querySelectorAll('[data-ask-question]')).filter(function(x){return !x.hidden}).map(function(x){return x.dataset.askQuestion})}})()""")
+        self.assertNotIn("allow-same-origin", got["sandbox"])         # 同じ origin として扱わない（回答の受け口・親の画面に触れない）
+        self.assertIn("allow-scripts", got["sandbox"])
+        self.assertEqual((got["src"], got["ref"]), ("/tok-view/view/0", "no-referrer"))   # 回答の受け口とは別の合言葉。親のアドレスも渡さない
+        self.assertEqual((got["title"], got["hasView"], got["tabs"], got["inForm"], got["index"]), ("成果物の確認", True, ["doc.html", "notes.md"], 0, False))
+        self.assertEqual(got["questions"], ["decision", "remark"])
+        self.assertGreater(got["viewW"], 800)
+        self.assertLess(got["formW"], 500)
+
+    def test_server_keeps_artifacts_apart_from_the_answer_endpoint(self):
+        """成果物は、別の合言葉の下でだけ配る。そこから回答・取り消しは送れない。応答にも sandbox が付く（Chrome は使わない）。"""
+        import urllib.error
+        import urllib.request
+        html, md = self.files()
+        state, base, page = self.serve(ask.review_spec([html, md]))
+        self.assertNotIn("tok-answer", page)                          # ページの中に、回答の受け口の合言葉を書かない（アドレスからだけ分かる）
+        r = urllib.request.urlopen(base + "/tok-view/view/0")
+        self.assertIn("sandbox", r.headers["Content-Security-Policy"])
+        self.assertNotIn("allow-same-origin", r.headers["Content-Security-Policy"])
+        self.assertEqual(r.headers["Referrer-Policy"], "no-referrer")
+        self.assertIn("成果物の本文", r.read().decode("utf-8"))
+        self.assertEqual(urllib.request.urlopen(base + "/tok-answer/").headers["Referrer-Policy"], "no-referrer")
+        for path, method in (("/tok-answer/view/0", "GET"), ("/tok-view/", "GET"), ("/tok-view/view/9", "GET"), ("/tok-view/view/1", "GET"),
+                             ("/tok-view/answer", "POST"), ("/tok-view/cancel", "POST"), ("/tok-view/view/answer", "POST")):
+            with self.subTest(path=path):
+                with self.assertRaises(urllib.error.HTTPError) as e:
+                    urllib.request.urlopen(urllib.request.Request(base + path, data=b"{}" if method == "POST" else None, method=method))
+                self.assertEqual(e.exception.code, 404)
+        self.assertIsNone(state.result)
+
+    def test_text_is_shown_as_text_and_tabs_switch(self):
+        html, md = self.files()
+        self.open(ask.review_spec([html, md]))
+        got = self.chrome.eval("""new Promise(function(ok){document.querySelectorAll('#tabs button')[1].click();setTimeout(function(){
+          var pre=document.querySelector('#stage pre'),fr=document.querySelector('#stage iframe');
+          ok({text:pre.textContent,kids:pre.children.length,preShown:!pre.hidden,frameShown:!fr.hidden,hacked:window.HACKED||null,
+              selected:[].slice.call(document.querySelectorAll('#tabs button')).map(function(b){return b.getAttribute('aria-selected')})})},100)})""")
+        self.assertEqual(got["text"], "# 見出し\n\n<script>window.HACKED=1</script>\n<b>太字</b>\n")
+        self.assertEqual((got["kids"], got["hacked"]), (0, None))     # HTML として解釈しない
+        self.assertEqual((got["preShown"], got["frameShown"], got["selected"]), (True, False, ["false", "true"]))
+
+    def test_review_answer(self):
+        html, md = self.files()
+        self.open(ask.review_spec([html]))
+        sent = lambda: [json.loads(b) for name, b in self.chrome.eval("SENT") if name == "answer"]
+        self.assertEqual(self.chrome.eval("getComputedStyle(document.getElementById('tabs')).display"), "none")   # 1 つだけなら、タブは出さない
+        self.chrome.eval("""new Promise(function(ok){var R=document.getElementById('form').shadowRoot;
+          R.querySelector('input[value=revise]').click();
+          setTimeout(function(){document.getElementById('form').submit();setTimeout(ok,200)},100)})""")
+        self.assertEqual(sent(), [])                                  # 修正の依頼は、直してほしい所を書くまで決定できない
+        self.chrome.eval("""new Promise(function(ok){var R=document.getElementById('form').shadowRoot,t=R.querySelector('textarea[name=comment]');
+          t.value='2 章の表を直す';t.dispatchEvent(new Event('input',{bubbles:true}));document.getElementById('form').submit();setTimeout(ok,300)})""")
+        self.assertEqual([a["answers"] for a in sent()], [{"decision": "revise", "comment": "2 章の表を直す"}])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -6,7 +6,7 @@
 <title>質問</title>
 <style>
 /* 単独ウィンドウの殻。画面そのものは部品 <ask-form>（ask-form.js。ask.py が下に埋め込む）が描く。
-   ここが受け持つのは、配色を渡す・通信・ウィンドウの大きさ合わせ・閉じること。 */
+   ここが受け持つのは、配色を渡す・通信・ウィンドウの大きさ合わせ・閉じること・質問の横に成果物を見せること（定義の view）。 */
 :root{color-scheme:light dark}
 html,body{margin:0;height:100%}
 body{background:#f6f7f9;color:#1c2330;
@@ -20,10 +20,33 @@ ask-form{height:100vh;
     --ask-accent:#7aa2ff;--ask-accent-soft:#1e2a44;--ask-accent-fg:#0d1320;--ask-error:#f0a35a;--ask-warn:#f0a35a}
 }
 .end{padding:60px 22px;text-align:center;opacity:.7}
+/* 成果物を見せる枠（定義に view があるとき）。左に成果物、右に質問。成果物の中身は部品に入れない（HTML は隔離した枠で出す） */
+#app{height:100vh}
+body.has-view #app{display:flex}
+body.has-view ask-form{flex:none;width:var(--form-w,430px);height:100vh;border-left:1px solid var(--line)}
+#viewer{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;--line:#dfe3ea;--muted:#667085;--accent:#2f5fe0;--card:#fff}
+#viewer[hidden],#tabs[hidden]{display:none}
+#tabs{flex:none;display:flex;gap:4px;align-items:center;padding:8px 10px 0;border-bottom:1px solid var(--line);overflow-x:auto}
+#tabs button{font:inherit;font-size:13px;padding:5px 12px;border:1px solid transparent;border-bottom:0;border-radius:8px 8px 0 0;background:none;
+  color:var(--muted);cursor:pointer;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis}
+#tabs button[aria-selected=true]{color:inherit;font-weight:700;background:var(--card);border-color:var(--line);margin-bottom:-1px}
+#tabs button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+#stage{flex:1 1 auto;min-height:0;position:relative;background:var(--card)}
+#stage>*{position:absolute;inset:0;width:100%;height:100%;border:0;margin:0}
+#stage>[hidden]{display:none}
+#stage iframe{background:#fff}
+#stage pre{overflow:auto;padding:16px 20px;box-sizing:border-box;white-space:pre-wrap;overflow-wrap:anywhere;tab-size:2;
+  font:13px/1.65 ui-monospace,"Cascadia Mono",Consolas,Menlo,monospace}
+#stage .img{overflow:auto;display:flex;align-items:flex-start;justify-content:center;padding:16px;box-sizing:border-box}
+#stage .img img{max-width:100%}
+@media (prefers-color-scheme:dark){#viewer{--line:#2b3442;--muted:#98a3b5;--accent:#7aa2ff;--card:#1a202a}}
 </style>
 </head>
 <body>
+<div id="app">
+<section id="viewer" hidden aria-label="成果物"><div id="tabs" role="tablist"></div><div id="stage"></div></section>
 <ask-form id="form" tabindex="-1"></ask-form>
+</div>
 <script type="module">
 __COMPONENT__
 </script>
@@ -44,6 +67,61 @@ let finished = false, extra = null;
   });
   for (const t of ['pointerdown', 'keydown', 'wheel', 'touchstart']) addEventListener(t, seen, { passive: true });
 })();
+
+// ── 成果物を見せる（定義の view）──
+// HTML は、隔離した枠（sandbox。同じ origin として扱わない）に、回答の受け口とは別の合言葉のアドレスから読む。
+// 文字のファイルは文字として出す（HTML として解釈しない）。部品（<ask-form>）には何も入れない。
+const VIEWS = Array.isArray(SPEC.view) ? SPEC.view : [];
+const frames = [];
+if (VIEWS.length) {
+  document.body.classList.add('has-view');
+  const viewer = document.getElementById('viewer'), tabs = document.getElementById('tabs'), stage = document.getElementById('stage');
+  viewer.hidden = false;
+  const show = (i) => {
+    frames.forEach((f, k) => { f.hidden = k !== i; });
+    [...tabs.children].forEach((b, k) => { b.setAttribute('aria-selected', k === i ? 'true' : 'false'); b.tabIndex = k === i ? 0 : -1; });
+  };
+  VIEWS.forEach((v, i) => {
+    let node;
+    if (v.kind === 'html') {
+      node = document.createElement('iframe');
+      node.setAttribute('sandbox', 'allow-scripts allow-popups allow-downloads');
+      node.referrerPolicy = 'no-referrer';
+      node.title = v.title;
+      node.src = SPEC._viewBase + v.src;
+    } else if (v.kind === 'image') {
+      node = document.createElement('div');
+      node.className = 'img';
+      const img = document.createElement('img');
+      img.alt = v.title;
+      img.src = SPEC._viewBase + v.src;
+      node.append(img);
+    } else {
+      node = document.createElement('pre');
+      node.tabIndex = 0;
+      node.textContent = v.text;
+    }
+    node.dataset.view = String(i);
+    stage.append(node);
+    frames.push(node);
+    const tab = document.createElement('button');
+    tab.type = 'button';
+    tab.setAttribute('role', 'tab');
+    tab.textContent = v.title;
+    tab.title = v.path || v.title;
+    tab.addEventListener('click', () => show(i));
+    tabs.append(tab);
+  });
+  tabs.hidden = VIEWS.length < 2;
+  tabs.addEventListener('keydown', (e) => {   // タブは ←・→ で移る
+    const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+    if (!d) return;
+    const now = [...tabs.children].findIndex(b => b.getAttribute('aria-selected') === 'true'), to = (now + d + VIEWS.length) % VIEWS.length;
+    show(to);
+    tabs.children[to].focus();
+  });
+  show(0);
+}
 
 // ── 部品に定義を渡す ──
 document.title = SPEC.title || '質問';
@@ -106,6 +184,13 @@ function fit(tries) {
   try {
     const frame = outerHeight - innerHeight;
     const cap = Math.min(SPEC._maxHeight || 820, screen.availHeight - 40);
+    if (VIEWS.length) {   // 成果物を見せるときは、幅も高さも使えるだけ使う（中身に合わせて縮めない）
+      const w = Math.min(SPEC._width || outerWidth, screen.availWidth - 20);
+      resizeTo(w, cap);
+      moveTo((screen.availLeft || 0) + (screen.availWidth - w) / 2, (screen.availTop || 0) + (screen.availHeight - cap) / 2);
+      form.relayout();
+      return;
+    }
     form.style.height = (cap - frame) + 'px';   // 使える最大の高さで目次を出すかを決めてから、中身の高さに合わせて縮める
     form.relayout();
     const w = Math.min((SPEC._width || outerWidth) + form.indexWidth, screen.availWidth - 20);   // 目次が出たら、その分だけ幅を広げる
@@ -119,7 +204,7 @@ addEventListener('load', () => fit());
 window.focus();
 if (SPEC._auto) setTimeout(() => {
   extra = { _window: { w: outerWidth, h: outerHeight, iw: innerWidth, ih: innerHeight, sh: document.documentElement.scrollHeight, x: screenX, y: screenY,
-                       focus: document.hasFocus(), pages: form.pageCount, component: customElements.get('ask-form').version,
+                       focus: document.hasFocus(), pages: form.pageCount, views: frames.length, component: customElements.get('ask-form').version,
                        standalone: matchMedia('(display-mode: standalone)').matches || !window.menubar.visible } };
   form.submit();
 }, 1200);
