@@ -211,10 +211,11 @@ class Backgrounds(unittest.TestCase):
         import kaisetsu
         import qa
         head = "---\ntitle: t\ncast: metan, zundamon\n---\n"
-        spec, _, _, _, out, path = make(script=head + '# 一\n@bg: sky\n@show: "語"\nmetan: 一よ。\n# 二\n@show: "語 2"\nmetan: 二よ。\n')
-        bgs = [sc.get("bg") for ch in spec["chapters"] for sc in ch["scenes"] if sc.get("type") != "end"]
+        meta, chapters, _ = kaisetsu.parse(head + '# 一\n@bg: sky\n@show: "語"\nmetan: 一よ。\n# 二\n@show: "語 2"\nmetan: 二よ。\n')   # 背景の素材が無い環境でも回るよう、台本の段で見る
+        kaisetsu.carry_bg(meta, chapters)
+        bgs = [sc.get("bg") for ch in chapters for sc in ch["scenes"]]
         self.assertTrue(all(bgs) and len(set(bgs)) == 1, bgs)
-        self.assertNotIn("背景の無い画面", out)
+        self.assertFalse(kaisetsu.bare_scenes(meta, chapters))
         spec, _, _, _, out, path = make(script=head + '# 一\n@show: "語"\nmetan: 一よ。\n')
         self.assertIn("背景の無い画面が 1 枚", out)
         meta = kaisetsu.parse(open(path, encoding="utf-8").read())[0]
