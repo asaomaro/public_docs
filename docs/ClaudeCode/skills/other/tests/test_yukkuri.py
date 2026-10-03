@@ -96,6 +96,24 @@ class Html(unittest.TestCase):
         self.assertFalse(warns(full))
 
 
+class DrawPlate(unittest.TestCase):
+    def test_board_plate(self):
+        """@draw: 名前 board（黒板の板）が台本から engine へ渡る。"""
+        import kaisetsu
+        shot = kaisetsu.parse_show("draw:zu board | note: 図")
+        self.assertEqual(shot["items"][0], {"draw_ref": "zu", "plate": "board"})
+        src = open(os.path.join(fakes.MV, "engine.js"), encoding="utf-8").read()
+        self.assertIn('it.plate === "board"', src)
+
+
+class PhotoFull(unittest.TestCase):
+    def test_header_option(self):
+        """photo: full で、写真 1 枚の画面を画面いっぱいに出す設定が engine へ渡る（どの型でも）。"""
+        head = "---\ntitle: t\ncast: metan, zundamon\n%s---\n# 本題\nmetan: 話すわ。\n"
+        self.assertEqual(make(script=head % "photo: full\n")[0]["talk"].get("stage", {}).get("photo"), "full")
+        self.assertNotEqual(make(script=head % "")[0]["talk"].get("stage", {}).get("photo"), "full")
+
+
 class AutomationTells(unittest.TestCase):
     """2026-10-03: 手本と伏せて比べ、自動で作った動画の手がかり（字だけの画面・写真が無い・その場面の作りが無い）を qa.py で数える。"""
 

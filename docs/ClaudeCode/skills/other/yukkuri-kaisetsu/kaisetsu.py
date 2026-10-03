@@ -124,7 +124,7 @@ def parse_show(rest):
     for cell in split_cells(rest):
         if not cell:
             continue
-        m = re.match(r"^draw:(\S+)(?:\s+(dark|light|none))?$", cell)
+        m = re.match(r"^draw:(\S+)(?:\s+(dark|light|board|none))?$", cell)
         if m:   # 描き下ろし（中身は、台本を組むときにファイルから読む。stage_images）。後ろは下に敷く板（dark 既定・light・none）
             shot["items"].append(dict({"draw_ref": m.group(1)}, **({"plate": m.group(2)} if m.group(2) else {})))
             continue
@@ -1166,6 +1166,8 @@ def to_spec(meta, chapters, cast, base):
     if off("se"):
         talk["sfx"] = False
     talk.update(json.loads(json.dumps(STYLES[meta.get("style", "talk")]["talk"])))
+    if meta.get("photo", "").strip() == "full":   # 写真 1 枚だけの画面を、画面いっぱいに出す（どの型でも。立ち絵と絵の配置に変化が付く）
+        talk.setdefault("stage", {})["photo"] = "full"
     if talk["caption"] in ("bar", "band", "strip"):   # 置きっぱなしの字幕: 全身の立ち絵にかからない幅で折り返す
         wide = max([0] + [c["height"] * c["sprite"]["w"] / c["sprite"]["h"] for c in cast.values() if c.get("sprite") and not c.get("hidden") and c["sprite"]["h"] / c["sprite"]["w"] >= 1.3])
         if wide:
