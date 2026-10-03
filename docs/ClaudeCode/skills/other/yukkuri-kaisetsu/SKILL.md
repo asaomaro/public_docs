@@ -252,6 +252,9 @@ python3 <skill_dir>/kaisetsu.py 台本.txt --voicevox --dist     # 配布用（�
 ```
 
 - **声を作る前に `--readings` を見る**。固有名詞・英字・数字・むずかしい漢字の読みを確かめ、違っていたら `pronounce` に足す。
+  読み違えやすい書き方（「開け」は「あけ／ひらけ」など）には `!` が付く。`yukkuri-script` の check.py も同じ規則で見る。
+- せりふの中の英字・数字の前後の空白は、声に渡す前に詰める（字幕はそのまま）。VOICEVOX は空白を読点と同じ息継ぎにするので、
+  「React は」が「リアクト、は」と切れ、「13 年」が「じゅうさん、とし」と読まれるため。台本は空白を入れて書いてよい。
 - 霊夢・魔理沙の声は、ゆっくりボイス（AquesTalk1）。`--voicevox` を付けると作る。`aquestalk/` に置いてあるものから自動で選ぶ:
   鍵つきのライブラリ → AquesTalkPlayer を Wine で動かす（無償の道）→ 評価版のライブラリ（「ヌ」になる）。どれも無ければブラウザの読み上げ。
   今どれが使われるかは `python3 <skill_dir>/aquestalk.py --check`。入手と準備は `assets.md` の「声」。Wine が使えない環境では `--yukkuri-bat`。

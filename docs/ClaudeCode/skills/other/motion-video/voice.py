@@ -40,6 +40,31 @@ class Voicevox:
                      % (speaker, style or "ノーマル", "、".join(sorted({n for n, _ in self.ids}))[:400]))
         return sid
 
+    def query(self, text, v, outdir):
+        """synth と同じ声の audio_query（音の 1 つ 1 つの長さ）。WAV の隣に .json で覚えておく。字幕を声の途中で切り替える時刻を出すため。"""
+        path = self.synth(text, v, outdir)
+        qp = path[:-4] + ".json"
+        if os.path.isfile(qp):
+            return path, json.load(open(qp, encoding="utf-8"))
+        sid = self.speaker_id(v.get("speaker") or DEFAULT_SPEAKER[0], v.get("style") or (DEFAULT_SPEAKER[1] if not v.get("speaker") else "ノーマル"))
+        q = json.loads(_http(self.url + "/audio_query?" + urllib.parse.urlencode({"text": text, "speaker": sid}), data=b""))
+        q.update({"speedScale": v.get("speed", 1.0)})
+        json.dump(q, open(qp, "w", encoding="utf-8"), ensure_ascii=False)
+        return path, q
+
+    def moras(self, text, v, outdir):
+        """text を読んだときの拍（モーラ）の数（間を除く）。声は作らない。字幕の境目を、1 文の声の中で探すため。"""
+        sid = self.speaker_id(v.get("speaker") or DEFAULT_SPEAKER[0], v.get("style") or (DEFAULT_SPEAKER[1] if not v.get("speaker") else "ノーマル"))
+        key = hashlib.sha1(json.dumps(["moras", sid, text], ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
+        p = os.path.join(outdir, "%s.moras" % key)
+        if os.path.isfile(p):
+            return int(open(p).read())
+        q = json.loads(_http(self.url + "/audio_query?" + urllib.parse.urlencode({"text": text, "speaker": sid}), data=b""))
+        n = sum(len(ap.get("moras", [])) for ap in q.get("accent_phrases", []))
+        os.makedirs(outdir, exist_ok=True)
+        open(p, "w").write(str(n))
+        return n
+
     def synth(self, text, v, outdir):
         """text を v（{speaker, style, speed, vv_pitch, intonation, volume}）の声で WAV にし、パスを返す。"""
         speaker = v.get("speaker") or DEFAULT_SPEAKER[0]

@@ -435,6 +435,15 @@ def run(path, facts_path=None):
                 words.setdefault(w, l["no"])
     if words:
         R.add("warn", "読み", "英字の語に読みがありません。先頭の pronounce に足す（字幕はそのまま）: %s" % "、".join("%s（%s 行目）" % kv for kv in list(words.items())[:12]))
+    # 読み違えやすい書き方（「開け」→「あけ／ひらけ」など。規則は motion-video の build.py と同じ）
+    sys.path.insert(0, os.path.join(os.path.dirname(HERE), "motion-video"))
+    import build as MV
+    for l in L:
+        sp = MV.spoken(l["text"], pron)
+        for rx, why in MV.ODD_READINGS:
+            hit = [h for h in rx.findall(sp) if not re.match(r"[A-Za-z]", h)]   # 英字は上で見る
+            if hit:
+                R.add("warn", "読み", "%s: %s" % ("・".join(dict.fromkeys(hit)), why), l["no"])
 
     # 8. 出典
     fp = facts_path or (os.path.join(base, meta["facts"]) if meta.get("facts") else os.path.splitext(os.path.abspath(path))[0] + ".facts.md")
