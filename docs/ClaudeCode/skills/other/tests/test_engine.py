@@ -208,7 +208,8 @@ class Engine(unittest.TestCase):
         sp = {"title": "t", "lang": "ja", "audio": {"narration": False}, "chapters": [{"title": "a", "scenes": [{"type": "title", "title": "t"}]}]}
         cases = ["もとは 1943 年にできた、列車がすれ違うための場所なの。駅になったのは 1987 年よ。", "車なら、国道で近くまでは行きやすいそうよ。駅への道は狭いけれど。",
                  "だから、無いって言ってるでしょう！ きっぷ代も各自よ！"]
-        got = self.run_js(build_html(sp, voicevox=False), "[%s].map(function(t){return __MV__.capFit(t, __MV__.textWidth(t, 50) * .72, 50)})"   # 幅は文の長さの 7 割（書体が無い環境でも 2 行になる） % ",".join(json.dumps(c, ensure_ascii=False) for c in cases))
+        # 幅は文の長さの 7 割（書体の幅に頼らない。日本語の書体が無い環境でも 2 行になる）
+        got = self.run_js(build_html(sp, voicevox=False), "[%s].map(function(t){return __MV__.capFit(t, __MV__.textWidth(t, 50) * .72, 50)})" % ",".join(json.dumps(c, ensure_ascii=False) for c in cases))
         for text, fit in zip(cases, got):
             lines = fit["lines"]
             with self.subTest(text):
