@@ -1,0 +1,786 @@
+{
+ "about": "回答の集め方の、共通の試験データ。ask-form（部品 <ask-form> の collect）と Sodashitsu（collectAsk・checkAskAnswer）が同じこのファイルを読む。 spec は書かれたままの定義（各実装が自分の検査で正規化してから使う）。state は入力の状態で、画面の操作ではない: picked = 選んだ選択肢の値（「その他」を除く）、otherPicked = 「その他」を選んだか、otherText = 「その他」の入力、text = 自由記述の入力、note = 補足。state は既定（default）より優先する（書かれていない質問は何も選んでいない）。 expect.answers は決定したときに送る回答（lacking が空のとき）と、未回答があるときに集まっている回答の両方を表す。lacking は未回答の質問の id（定義の順）。custom・note は、無いときは項目ごと無い。",
+ "cases": [
+  {
+   "name": "単一選択: 選んだ値",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "options": [
+       "x",
+       "y"
+      ]
+     }
+    ]
+   },
+   "state": {
+    "picked": {
+     "a": [
+      "y"
+     ]
+    },
+    "otherPicked": {},
+    "otherText": {},
+    "text": {},
+    "note": ""
+   },
+   "expect": {
+    "answers": {
+     "a": "y"
+    },
+    "lacking": []
+   }
+  },
+  {
+   "name": "単一選択: 何も選んでいなければ未回答（回答に入らない）",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "options": [
+       "x",
+       "y"
+      ]
+     }
+    ]
+   },
+   "state": {
+    "picked": {},
+    "otherPicked": {},
+    "otherText": {},
+    "text": {},
+    "note": ""
+   },
+   "expect": {
+    "answers": {},
+    "lacking": [
+     "a"
+    ]
+   }
+  },
+  {
+   "name": "複数選択: 選んだ値は定義の順",
+   "spec": {
+    "questions": [
+     {
+      "id": "m",
+      "label": "M",
+      "type": "multi",
+      "options": [
+       "x",
+       "y",
+       "z"
+      ]
+     }
+    ]
+   },
+   "state": {
+    "picked": {
+     "m": [
+      "z",
+      "x"
+     ]
+    },
+    "otherPicked": {},
+    "otherText": {},
+    "text": {},
+    "note": ""
+   },
+   "expect": {
+    "answers": {
+     "m": [
+      "x",
+      "z"
+     ]
+    },
+    "lacking": []
+   }
+  },
+  {
+   "name": "複数選択: 空でもよい（空の配列が入る）",
+   "spec": {
+    "questions": [
+     {
+      "id": "m",
+      "label": "M",
+      "type": "multi",
+      "options": [
+       "x"
+      ]
+     }
+    ]
+   },
+   "state": {
+    "picked": {},
+    "otherPicked": {},
+    "otherText": {},
+    "text": {},
+    "note": ""
+   },
+   "expect": {
+    "answers": {
+     "m": []
+    },
+    "lacking": []
+   }
+  },
+  {
+   "name": "複数選択: 必須なら空は未回答（空の配列は入る）",
+   "spec": {
+    "questions": [
+     {
+      "id": "m",
+      "label": "M",
+      "type": "multi",
+      "required": true,
+      "options": [
+       "x"
+      ]
+     }
+    ]
+   },
+   "state": {
+    "picked": {},
+    "otherPicked": {},
+    "otherText": {},
+    "text": {},
+    "note": ""
+   },
+   "expect": {
+    "answers": {
+     "m": []
+    },
+    "lacking": [
+     "m"
+    ]
+   }
+  },
+  {
+   "name": "その他: 入力があれば値は入力（前後の空白を除く）で、custom に id が入る",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "options": [
+       "x",
+       "y"
+      ],
+      "allowOther": true
+     }
+    ]
+   },
+   "state": {
+    "picked": {},
+    "otherPicked": {
+     "a": true
+    },
+    "otherText": {
+     "a": "  25  "
+    },
+    "text": {},
+    "note": ""
+   },
+   "expect": {
+    "answers": {
+     "a": "25"
+    },
+    "custom": [
+     "a"
+    ],
+    "lacking": []
+   }
+  },
+  {
+   "name": "その他: 選んだが入力が空なら未回答（custom には入る）",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "options": [
+       "x",
+       "y"
+      ],
+      "allowOther": true
+     }
+    ]
+   },
+   "state": {
+    "picked": {},
+    "otherPicked": {
+     "a": true
+    },
+    "otherText": {
+     "a": "   "
+    },
+    "text": {},
+    "note": ""
+   },
+   "expect": {
+    "answers": {},
+    "custom": [
+     "a"
+    ],
+    "lacking": [
+     "a"
+    ]
+   }
+  },
+  {
+   "name": "その他（複数選択）: 選んだ値の後ろに入力が入る",
+   "spec": {
+    "questions": [
+     {
+      "id": "m",
+      "label": "M",
+      "type": "multi",
+      "allowOther": true,
+      "options": [
+       "x",
+       "y"
+      ]
+     }
+    ]
+   },
+   "state": {
+    "picked": {
+     "m": [
+      "x"
+     ]
+    },
+    "otherPicked": {
+     "m": true
+    },
+    "otherText": {
+     "m": "q"
+    },
+    "text": {},
+    "note": ""
+   },
+   "expect": {
+    "answers": {
+     "m": [
+      "x",
+      "q"
+     ]
+    },
+    "custom": [
+     "m"
+    ],
+    "lacking": []
+   }
+  },
+  {
+   "name": "自由記述: 前後の空白を除く。任意なら空でもよい",
+   "spec": {
+    "questions": [
+     {
+      "id": "t",
+      "label": "T",
+      "type": "text"
+     }
+    ]
+   },
+   "state": {
+    "picked": {},
+    "otherPicked": {},
+    "otherText": {},
+    "text": {
+     "t": "  あ  "
+    },
+    "note": ""
+   },
+   "expect": {
+    "answers": {
+     "t": "あ"
+    },
+    "lacking": []
+   }
+  },
+  {
+   "name": "自由記述: 任意で空なら、空の文字列が入る",
+   "spec": {
+    "questions": [
+     {
+      "id": "t",
+      "label": "T",
+      "type": "text"
+     }
+    ]
+   },
+   "state": {
+    "picked": {},
+    "otherPicked": {},
+    "otherText": {},
+    "text": {},
+    "note": ""
+   },
+   "expect": {
+    "answers": {
+     "t": ""
+    },
+    "lacking": []
+   }
+  },
+  {
+   "name": "自由記述: 必須で空白だけなら未回答",
+   "spec": {
+    "questions": [
+     {
+      "id": "t",
+      "label": "T",
+      "type": "text",
+      "required": true
+     }
+    ]
+   },
+   "state": {
+    "picked": {},
+    "otherPicked": {},
+    "otherText": {},
+    "text": {
+     "t": "   "
+    },
+    "note": ""
+   },
+   "expect": {
+    "answers": {
+     "t": ""
+    },
+    "lacking": [
+     "t"
+    ]
+   }
+  },
+  {
+   "name": "表示条件: 満たさない質問は回答に入らない",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "options": [
+       "x",
+       "y"
+      ]
+     },
+     {
+      "id": "b",
+      "label": "B",
+      "showIf": {
+       "a": "y"
+      },
+      "options": [
+       "p",
+       "q"
+      ]
+     }
+    ]
+   },
+   "state": {
+    "picked": {
+     "a": [
+      "x"
+     ],
+     "b": [
+      "p"
+     ]
+    },
+    "otherPicked": {},
+    "otherText": {},
+    "text": {},
+    "note": ""
+   },
+   "expect": {
+    "answers": {
+     "a": "x"
+    },
+    "lacking": []
+   }
+  },
+  {
+   "name": "表示条件: 満たせば入る。未回答なら未回答に数える",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "options": [
+       "x",
+       "y"
+      ]
+     },
+     {
+      "id": "b",
+      "label": "B",
+      "showIf": {
+       "a": "y"
+      },
+      "options": [
+       "p",
+       "q"
+      ]
+     }
+    ]
+   },
+   "state": {
+    "picked": {
+     "a": [
+      "y"
+     ]
+    },
+    "otherPicked": {},
+    "otherText": {},
+    "text": {},
+    "note": ""
+   },
+   "expect": {
+    "answers": {
+     "a": "y"
+    },
+    "lacking": [
+     "b"
+    ]
+   }
+  },
+  {
+   "name": "表示条件: 複数選択の質問を条件にする（どれか 1 つ含めば満たす）",
+   "spec": {
+    "questions": [
+     {
+      "id": "m",
+      "label": "M",
+      "type": "multi",
+      "options": [
+       "x",
+       "y",
+       "z"
+      ]
+     },
+     {
+      "id": "b",
+      "label": "B",
+      "showIf": {
+       "m": [
+        "y",
+        "z"
+       ]
+      },
+      "options": [
+       "p"
+      ]
+     }
+    ]
+   },
+   "state": {
+    "picked": {
+     "m": [
+      "x",
+      "z"
+     ],
+     "b": [
+      "p"
+     ]
+    },
+    "otherPicked": {},
+    "otherText": {},
+    "text": {},
+    "note": ""
+   },
+   "expect": {
+    "answers": {
+     "m": [
+      "x",
+      "z"
+     ],
+     "b": "p"
+    },
+    "lacking": []
+   }
+  },
+  {
+   "name": "表示条件: 条件の質問が未回答（回答に無い）なら満たさない",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "options": [
+       "x",
+       "y"
+      ]
+     },
+     {
+      "id": "b",
+      "label": "B",
+      "showIf": {
+       "a": "y"
+      },
+      "options": [
+       "p"
+      ]
+     }
+    ]
+   },
+   "state": {
+    "picked": {
+     "b": [
+      "p"
+     ]
+    },
+    "otherPicked": {},
+    "otherText": {},
+    "text": {},
+    "note": ""
+   },
+   "expect": {
+    "answers": {},
+    "lacking": [
+     "a"
+    ]
+   }
+  },
+  {
+   "name": "表示条件: 隠れた質問を条件にする質問も隠れる（上から順に判定する）",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "options": [
+       "x",
+       "y"
+      ]
+     },
+     {
+      "id": "b",
+      "label": "B",
+      "showIf": {
+       "a": "y"
+      },
+      "options": [
+       "p"
+      ]
+     },
+     {
+      "id": "c",
+      "label": "C",
+      "showIf": {
+       "b": "p"
+      },
+      "options": [
+       "s"
+      ]
+     }
+    ]
+   },
+   "state": {
+    "picked": {
+     "a": [
+      "x"
+     ],
+     "b": [
+      "p"
+     ],
+     "c": [
+      "s"
+     ]
+    },
+    "otherPicked": {},
+    "otherText": {},
+    "text": {},
+    "note": ""
+   },
+   "expect": {
+    "answers": {
+     "a": "x"
+    },
+    "lacking": []
+   }
+  },
+  {
+   "name": "表示条件: 複数の条件は「かつ」",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "options": [
+       "x",
+       "y"
+      ]
+     },
+     {
+      "id": "b",
+      "label": "B",
+      "options": [
+       "p",
+       "q"
+      ]
+     },
+     {
+      "id": "c",
+      "label": "C",
+      "showIf": {
+       "a": "y",
+       "b": "q"
+      },
+      "options": [
+       "s"
+      ]
+     }
+    ]
+   },
+   "state": {
+    "picked": {
+     "a": [
+      "y"
+     ],
+     "b": [
+      "p"
+     ],
+     "c": [
+      "s"
+     ]
+    },
+    "otherPicked": {},
+    "otherText": {},
+    "text": {},
+    "note": ""
+   },
+   "expect": {
+    "answers": {
+     "a": "y",
+     "b": "p"
+    },
+    "lacking": []
+   }
+  },
+  {
+   "name": "補足: 前後の空白を除いて入る",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "options": [
+       "x"
+      ]
+     }
+    ]
+   },
+   "state": {
+    "picked": {
+     "a": [
+      "x"
+     ]
+    },
+    "otherPicked": {},
+    "otherText": {},
+    "text": {},
+    "note": "  金曜は避けたい \n"
+   },
+   "expect": {
+    "answers": {
+     "a": "x"
+    },
+    "note": "金曜は避けたい",
+    "lacking": []
+   }
+  },
+  {
+   "name": "補足: 空白だけなら入らない",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "options": [
+       "x"
+      ]
+     }
+    ]
+   },
+   "state": {
+    "picked": {
+     "a": [
+      "x"
+     ]
+    },
+    "otherPicked": {},
+    "otherText": {},
+    "text": {},
+    "note": "   "
+   },
+   "expect": {
+    "answers": {
+     "a": "x"
+    },
+    "lacking": []
+   }
+  },
+  {
+   "name": "ページに分けても回答は同じ（別のページの質問も入る）",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "page": "1",
+      "options": [
+       "x",
+       "y"
+      ]
+     },
+     {
+      "id": "b",
+      "label": "B",
+      "page": "2",
+      "options": [
+       "p",
+       "q"
+      ]
+     },
+     {
+      "id": "c",
+      "label": "C",
+      "page": "3",
+      "showIf": {
+       "a": "y"
+      },
+      "options": [
+       "s"
+      ]
+     }
+    ]
+   },
+   "state": {
+    "picked": {
+     "a": [
+      "y"
+     ],
+     "b": [
+      "q"
+     ]
+    },
+    "otherPicked": {},
+    "otherText": {},
+    "text": {},
+    "note": ""
+   },
+   "expect": {
+    "answers": {
+     "a": "y",
+     "b": "q"
+    },
+    "lacking": [
+     "c"
+    ]
+   }
+  }
+ ]
+}
