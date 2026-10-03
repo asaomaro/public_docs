@@ -100,10 +100,12 @@ def probe(b, out, png, at):
         page = os.path.join(d, "probe.html")
         open(page, "w", encoding="utf-8").write(PROBE % ("file://" + urllib_quote(os.path.abspath(out))))
         b.call("Page.navigate", b.sid, url="file://" + page)
+        # 前のページ（プレイヤー）が残っている間は聞かない。ファイルを読み終わるのは、遅い機械では時間がかかる（60 秒まで待つ。前は 20 秒で、CI で開けないことがあった）
+        b.eval("new Promise(function(ok){var n=0;(function w(){document.getElementById('v')&&location.href.indexOf('probe.html')>0||n++>300?ok(1):setTimeout(w,100)})()})")
         r = b.eval("""new Promise(function(ok){var n=0;(function w(){var v=document.getElementById('v');
   if(v&&v.readyState>=1){var fin=function(){ok({w:v.videoWidth,h:v.videoHeight,dur:v.duration})};
     if(isFinite(v.duration))fin();else{v.addEventListener('durationchange',function(){if(isFinite(v.duration))fin()});v.currentTime=1e9;setTimeout(fin,15000)}}
-  else if(n++>200)ok(null);else setTimeout(w,100)})()})""")
+  else if((v&&v.error)||n++>600)ok(null);else setTimeout(w,100)})()})""")
         if not r:
             return None
         r["rms"] = b.eval("""new Promise(function(ok){var v=document.getElementById('v'),t0=%f*v.duration;
