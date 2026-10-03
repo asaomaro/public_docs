@@ -105,8 +105,9 @@ def probe(b, out, png, at):
         r = b.eval("""new Promise(function(ok){var n=0;(function w(){var v=document.getElementById('v');
   if(v&&v.readyState>=1){var fin=function(){ok({w:v.videoWidth,h:v.videoHeight,dur:v.duration})};
     if(isFinite(v.duration))fin();else{v.addEventListener('durationchange',function(){if(isFinite(v.duration))fin()});v.currentTime=1e9;setTimeout(fin,15000)}}
-  else if((v&&v.error)||n++>600)ok(null);else setTimeout(w,100)})()})""")
-        if not r:
+  else if((v&&v.error)||n++>600)ok({error:v&&v.error?v.error.code+' '+v.error.message:'timeout rs='+(v?v.readyState+' ns='+v.networkState:'no video')});else setTimeout(w,100)})()})""")
+        if not r or r.get("error"):
+            print("warn: 録ったファイルを開けません（%s・%d バイト）" % ((r or {}).get("error", "応答なし"), os.path.getsize(out)), file=sys.stderr)
             return None
         r["rms"] = b.eval("""new Promise(function(ok){var v=document.getElementById('v'),t0=%f*v.duration;
   try{var ac=new AudioContext(),src=ac.createMediaElementSource(v),an=ac.createAnalyser();an.fftSize=2048;src.connect(an);var g=ac.createGain();g.gain.value=0;an.connect(g);g.connect(ac.destination);
