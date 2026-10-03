@@ -9,8 +9,10 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import unittest
+from unittest import mock
 
 import fakes
 import build
@@ -234,6 +236,96 @@ class Engine(unittest.TestCase):
         wide = self.run_js(build_html(spec({}), voicevox=False), js)
         self.assertEqual(wide["w"], 1200)
 
+    # ---- 2026-10-03: 作業役 3 人の報告（3 人の台本・画面いっぱいの写真） ----
+    THREE = {"a": {"name": "A", "color": "#e0457b", "side": "left"}, "b": {"name": "B", "color": "#3aa657", "side": "left"}, "c": {"name": "C", "color": "#3a7be0", "side": "right"}}
+    TEXTS = ("window.__T=[];(function(){var f=CanvasRenderingContext2D.prototype.fillText;CanvasRenderingContext2D.prototype.fillText=function(s,x,y){"
+             "var m=this.getTransform(),k=this.canvas.width/1920;window.__T.push({s:String(s),x:(m.a*x+m.c*y+m.e)/k,y:(m.b*x+m.d*y+m.f)/k,px:parseFloat((this.font.match(/([0-9.]+)px/)||[0,0])[1])*Math.hypot(m.a,m.b)/k});"
+             "return f.apply(this,arguments)}})();")
+
+    def stage_spec(self, items, cast=None, talk=None):
+        return {"title": "t", "lang": "ja", "audio": {"narration": False, "music": None, "sfx": False}, "talk": dict({"caption": "bar", "stage": {"photo": "full"}}, **(talk or {})),
+                "cast": cast or self.THREE, "images": {"p": self.square_photo()},
+                "chapters": [{"title": "c", "scenes": [{"type": "talk", "cast": list(cast or self.THREE), "lines": [{"who": "a", "text": "写真を見て。"}],
+                                                        "board": {"type": "stage", "shots": [{"line": 0, "items": items}]}}]}]}
+
+    def square_photo(self):
+        import base64
+        path = fakes.write_png(os.path.join(fakes.tmpdir(), "p.png"), 64, 64, fakes.noise)
+        return "data:image/png;base64," + base64.b64encode(open(path, "rb").read()).decode()
+
+    def texts(self, spec, at=2500):
+        return self.run_js(build_html(spec, voicevox=False), self.TEXTS + "new Promise(function(ok){__MV__.seek(%d); setTimeout(function(){window.__T=[];__MV__.seek(%d);setTimeout(function(){ok(window.__T)},400)}, 600)})" % (at, at))
+
+    def test_draw_box_clear_of_two_on_one_side(self):
+        """3 人の台本（左に 2 人）では、描き下ろしの図解の箱（s.box）の左下が立ち絵に隠れた。同じ側に 2 人立つときは、箱を立ち絵にかからない幅に寄せる。"""
+        code = "window.__BOX = {x: s.box.x, w: s.box.w};"
+        spec = self.stage_spec([{"draw": code, "plate": "board"}], talk={"stage": {}})
+        box = self.run_js(build_html(spec, voicevox=False), "new Promise(function(ok){__MV__.seek(900); setTimeout(function(){ok(window.__BOX)}, 500)})")
+        self.assertGreater(box["x"], 500, box)             # 左の 2 人目（幅 322 の立ち絵は 282〜604 に立つ）の右へ
+        self.assertLessEqual(box["x"] + box["w"], 1560)
+        self.assertGreater(box["w"], 900, "寄せすぎ")
+
+    def test_full_photo_label_above_cast(self):
+        """縦長・正方形の写真を画面いっぱいに出すと、名札が写真の左下に出て、左の立ち絵に隠れた。立ち絵の頭より上に出す。"""
+        got = self.texts(self.stage_spec([{"img": "p", "frame": True, "label": "正方形の写真"}]))
+        label = [t for t in got if t["s"] == "【正方形の写真】"]
+        self.assertTrue(label, [t["s"] for t in got])
+        self.assertLess(label[-1]["y"], 1080 - 520, "名札が立ち絵（高さ 520）の頭より下にある: %r" % label[-1])
+        self.assertGreater(label[-1]["y"], 170)
+
+    def test_full_photo_bubble_lines_and_position(self):
+        """写真 1 枚の画面の吹き出しで、/ が改行にならずそのまま出た。位置は sayAt（left・right・bottom）で選べる（前はいつも上の中央）。"""
+        wide = {"p": "data:image/svg+xml," + "%3Csvg xmlns='http://www.w3.org/2000/svg' width='1600' height='900'%3E%3Crect width='1600' height='900' fill='%23486'/%3E%3C/svg%3E"}
+        def bubble(at):
+            sp = self.stage_spec([dict({"img": "p", "frame": True, "say": "上の行/下の行"}, **({"sayAt": at} if at else {}))])
+            sp["images"] = wide
+            got = self.texts(sp)
+            self.assertFalse([t["s"] for t in got if "/" in t["s"] and "行" in t["s"]], "/ がそのまま出ている")
+            up, down = [t for t in got if t["s"] == "上の行"], [t for t in got if t["s"] == "下の行"]
+            self.assertTrue(up and down, [t["s"] for t in got])
+            self.assertGreater(down[-1]["y"], up[-1]["y"] + 30)
+            return up[-1]
+        top, left, right, bottom = bubble(None), bubble("left"), bubble("right"), bubble("bottom")
+        self.assertAlmostEqual(top["x"], 960, delta=30)
+        self.assertLess(left["x"], 700)
+        self.assertGreater(right["x"], 1220)
+        self.assertGreater(bottom["y"], 540)
+        self.assertLess(top["y"], 300)
+
+    def test_board_bullets_zoom(self):
+        """黒板（縮めて置く）の箇条書きは字がとても小さかった。zoom: "fit" で、収まる範囲で字を大きくする。多すぎる項目は、はみ出さない倍率に下がる。"""
+        def size(items, zoom):
+            sc = dict({"type": "bullets", "heading": "まとめ", "items": items, "duration": 6}, **({"zoom": zoom} if zoom else {}))
+            sp = {"title": "t", "lang": "ja", "audio": {"narration": False, "music": None, "sfx": False}, "chapters": [{"title": "c", "scenes": [sc]}]}
+            got = self.texts(sp, 5500)
+            return max(t["px"] for t in got if t["s"] in items), max(t["y"] for t in got if t["s"] in items)
+        few, many = ["一つめの項目", "二つめの項目", "三つめの項目"], ["項目 %d" % i for i in range(1, 7)]
+        self.assertAlmostEqual(size(few, None)[0], 40, delta=1)
+        self.assertAlmostEqual(size(few, "fit")[0], 64, delta=1)
+        px, bottom = size(many, "fit")
+        self.assertLess(px, 64)
+        self.assertGreaterEqual(px, 40)
+        self.assertLess(bottom, 1040, "板の下にはみ出した")
+
+    def test_shoot_waits_and_is_not_blank(self):
+        """画面の撮影がときどき真っ白になった（決めた時間が過ぎたら撮っていた）。Chrome を 1 回だけ起動し、絵が読み終わって描かれるのを待って撮る。"""
+        import shoot
+        d = fakes.tmpdir()
+        html = os.path.join(d, "s.html")
+        with open(html, "w", encoding="utf-8") as f:
+            f.write(build_html(self.stage_spec([{"img": "p", "frame": True, "label": "写真"}]), voicevox=False))
+        want = [(ms, os.path.join(d, "shots", "%d.png" % ms)) for ms in (500, 1500, 2500)]
+        with fakes.quiet() as (err, _):
+            done = shoot.shoot(html, want)
+        self.assertEqual(done, [p for _, p in want], err.getvalue())
+        self.assertNotIn("一色", err.getvalue())
+        for p in done:
+            data = open(p, "rb").read()
+            self.assertEqual(struct.unpack(">II", data[16:24]), (1280, 720))
+            self.assertFalse(shoot.is_blank(data), p)
+        self.chrome.open(open(html, encoding="utf-8").read())
+        self.assertEqual(self.chrome.eval("new Promise(function(ok){setTimeout(function(){ok(__MV__.loading)},500)})"), 0)
+
     def test_export_has_file_music(self):
         sp = {"title": "t", "lang": "ja", "audio": {"narration": False, "music": {"file": "bgm.wav", "loop": True}, "sfx": False},
               "chapters": [{"title": "a", "scenes": [{"type": "title", "title": "t", "duration": 4}]}]}
@@ -248,6 +340,58 @@ class Engine(unittest.TestCase):
                            {"title": "b", "music": "tech", "scenes": [{"type": "end", "title": "e", "duration": 3}]}]}
         segs = self.run_js(build_html(sp, voicevox=False), "__MV__.segments()")
         self.assertEqual([s["key"] for s in segs], ["calm", "hope", "tech"], segs)
+
+
+class Shoot(unittest.TestCase):
+    """画面を撮る道具（motion-video の shoot.py）のうち、Chrome が無くても確かめられる所。"""
+
+    def test_white_png_is_blank_whatever_its_size(self):
+        """2026-10-03: 白い画面を PNG の大きさ（20000 バイト）で見分けていた。中身（色）で見分ける: 大きくても一色なら白い画面、小さくても絵があれば白くない。"""
+        import shoot
+        d = fakes.tmpdir()
+        white = fakes.write_png(os.path.join(d, "white.png"), 320, 180, lambda x, y: (255, 255, 255), pad=40000)
+        self.assertGreater(os.path.getsize(white), 20000)
+        self.assertTrue(shoot.is_blank(white))
+        self.assertTrue(shoot.is_blank(open(white, "rb").read()))
+        small = fakes.write_png(os.path.join(d, "small.png"), 64, 36, lambda x, y: (x * 4, y * 7, 90))
+        self.assertLess(os.path.getsize(small), 20000)
+        self.assertFalse(shoot.is_blank(small))
+        self.assertFalse(shoot.is_blank(fakes.write_png(os.path.join(d, "photo.png"), 320, 180, fakes.noise)))
+        self.assertTrue(shoot.is_blank(os.path.join(d, "none.png")))
+
+    def test_blank_shot_is_retaken_and_reported(self):
+        """白い画面は撮り直す。撮り直しても白ければ、黙って渡さずに知らせる。"""
+        import shoot
+        d = fakes.tmpdir()
+        white = open(fakes.write_png(os.path.join(d, "w.png"), 64, 36, lambda x, y: (255, 255, 255)), "rb").read()
+        good = open(fakes.write_png(os.path.join(d, "g.png"), 64, 36, fakes.noise), "rb").read()
+
+        class Fake:
+            def __init__(self, shots):
+                self.shots, self.asked = list(shots), []
+
+            def open(self, html):
+                pass
+
+            def shot(self, ms):
+                self.asked.append(ms)
+                return self.shots.pop(0) if len(self.shots) > 1 else self.shots[0]
+
+        html = os.path.join(d, "x.html")
+        open(html, "w").write("<html></html>")
+        b = Fake([white, white, good])
+        with mock.patch("time.sleep", lambda s: None), fakes.quiet() as (err, _):
+            done = shoot.shoot(html, [(1000, os.path.join(d, "o", "a.png"))], (1280, 720), browser=b)
+        self.assertEqual(b.asked, [1000, 1000, 1000])
+        self.assertEqual(open(done[0], "rb").read(), good)
+        self.assertNotIn("一色", err.getvalue())
+        with mock.patch("time.sleep", lambda s: None), fakes.quiet() as (err, _):
+            shoot.shoot(html, [(1000, os.path.join(d, "o", "b.png"))], (1280, 720), browser=Fake([white]))
+        self.assertIn("一色", err.getvalue())
+
+    def test_times(self):
+        import shoot
+        self.assertEqual([shoot.seconds(t) for t in ("6.5", "0:42", "1:02:03")], [6.5, 42.0, 3723.0])
 
 
 if __name__ == "__main__":

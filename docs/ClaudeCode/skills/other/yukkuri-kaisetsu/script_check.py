@@ -32,6 +32,8 @@ STRONG_EMOTES = {"!?", "💢", "💦"}
 NUM_UNIT = r"(?:%|％|倍|年|月|日|時間|分|秒|万|億|兆|円|ドル|人|件|個|本|回|種|位|歳|才|度|km|m|cm|mm|nm|kg|g|t|トン|キロ|メートル|グラム|パーセント|選)"
 
 
+CALL_END = re.compile(r"$|[、。，．！？!?…‥〜～ー・\s」』）)]|は|が|も|の|に|を|へ|と|って|たち|なら|こそ|まで|より")   # 呼び捨ての名前の後に来るもの（句読点・助詞）
+
 def load_kaisetsu():
     path = os.path.join(HERE, "kaisetsu.py")
     if not os.path.isfile(path):
@@ -275,6 +277,8 @@ def run(path, facts_path=None):
                     continue
                 stem = re.sub(r"(さん|ちゃん|くん|先輩|さま|様|殿)$", "", want)
                 for m in re.finditer(re.escape(stem) + r"(さん|ちゃん|くん|先輩|さま|様|殿)?", l["text"]):
+                    if not m.group(1) and not CALL_END.match(l["text"][m.end():]):   # 語の途中（「決めたんですか」「確かめたんだ」の「めたん」）は、呼び方ではない
+                        continue
                     if m.group(0) != want and not l["text"][:m.start()].endswith(("四国", "春日部")):
                         R.add("warn", "口調", "%s は相手を「%s」と呼びます（「%s」になっている）" % (name, want, m.group(0)), l["no"])
         for rule in P.get("must", []):

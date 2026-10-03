@@ -136,31 +136,20 @@ def check_html(spec, html, R):
 
 
 def shots(spec, html, outdir):
-    """各場面の 85% の時刻を撮り、一覧（sheet.jpg、PIL が無ければ PNG だけ）を作る。"""
-    chrome = next((c for c in ("google-chrome", "chromium", "chromium-browser", "chrome") if shutil.which(c)), None)
-    if not chrome or not os.path.isfile(html):
+    """各場面の 85% の時刻を撮り、一覧（sheet.jpg、PIL が無ければ PNG だけ）を作る。撮り方は shoot.py（描き終わりを待ち、一色の画面は撮り直す）。"""
+    import shoot
+    if not shoot.find_chrome() or not os.path.isfile(html):
         print("warn: Chrome か HTML が無いので、画面を撮れません", file=sys.stderr)
         return None
     os.makedirs(outdir, exist_ok=True)
-    src, t, pngs = open(html, encoding="utf-8").read(), 0, []
+    t, want = 0, []
     for ci, ch in enumerate(spec["chapters"]):
         for si, s in enumerate(ch["scenes"]):
-            at = t + s["_dur"] * .85
+            want.append((round(t + s["_dur"] * .85), os.path.join(outdir, "%02d-%02d.png" % (ci + 1, si + 1))))
             t += s["_dur"]
-            png = os.path.join(outdir, "%02d-%02d.png" % (ci + 1, si + 1))
-            hook = ('<style>.mv-stage{position:fixed!important;inset:0!important;z-index:99999!important;max-width:none!important;width:100vw!important;height:100vh!important}</style>'
-                    '<script>window.addEventListener("load",function(){[700,2600].forEach(function(w){setTimeout(function(){try{__MV__.seek(%d)}catch(e){}},w)})})</script>' % at)
-            with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False, encoding="utf-8", dir=os.path.dirname(os.path.abspath(html))) as f:
-                f.write(src + hook)
-            try:
-                for budget in (6000, 9000):
-                    subprocess.run([chrome, "--headless=new", "--no-sandbox", "--hide-scrollbars", "--window-size=1280,720", "--virtual-time-budget=%d" % budget,
-                                    "--screenshot=" + png, "file://" + f.name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
-                    if os.path.isfile(png) and os.path.getsize(png) > 20000:
-                        break
-                pngs.append(png)
-            finally:
-                os.remove(f.name)
+    pngs = shoot.shoot(html, want, (1280, 720))
+    if not pngs:
+        return None
     try:
         from PIL import Image
     except ImportError:

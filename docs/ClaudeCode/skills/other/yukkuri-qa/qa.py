@@ -5,6 +5,8 @@
   python3 qa.py 台本.txt --no-shots      # 画面を撮らない（数だけ）
   python3 qa.py 台本.txt --max-shots 36  # 撮る画面の数（既定 24。画面が替わる時刻から、まんべんなく選ぶ）
 
+回し直すと、<台本名>.qa.md の測った値・直す所・参考・見本の一覧の行は書き換え、「目で見る」の下に書き足してあった採点はそのまま残す。
+
 測るもの: 構成（章の数と長さ・冒頭）、画面（絵のある割合・同じ画面の長さ・型に合う絵の種類）、字幕（長さ）、音（BGM・効果音の回数・声）、演技（表情の続き）、仕上げ。
 台本の中身（口調・掛け合い・事実）は yukkuri-kaisetsu の script_check.py・review.md と fact-check が見る。ここで見るのは、作った動画そのもの。
 """
@@ -249,6 +251,25 @@ def shots(script, views, total, n, outdir):
     return out
 
 
+EYES = "## 目で見る（rubric.md）"
+EYES_NOTE = "- 別のエージェントに rubric.md の観点で見てもらい、結果をこの下に書く"
+
+
+def kept_notes(old):
+    """前の <名前>.qa.md の「目で見る」の下に書き足してあった分（採点の記録）。測り直しても消さずに、新しい結果の下へそのまま移す。"""
+    i = old.find(EYES)
+    if i < 0:
+        return ""
+    rest = old[i + len(EYES):].split("\n")
+    j = next((k for k, l in enumerate(rest) if l.strip() == EYES_NOTE), None)
+    if j is not None:
+        rest = rest[j + 1:]
+    else:   # 目印の行を消してあっても、道具が書いた行（見本の一覧）だけを除いて残す
+        rest = [l for l in rest if not l.startswith("- 見本の一覧:")]
+    kept = "\n".join(rest).strip("\n")
+    return "\n" + kept + "\n" if kept.strip() else ""
+
+
 def main():
     ap = argparse.ArgumentParser(description="出来上がった解説動画を、手本の動画の目安と照らす")
     ap.add_argument("script", help="台本（yukkuri-kaisetsu のテキスト）")
@@ -271,8 +292,9 @@ def main():
     out += ["| %s: %s | %s | %s |" % s for s in R.stats]
     out += ["", "## 直す所（%d）" % len(warns), ""] + (["- [%s] %s" % (r[1], r[2]) for r in warns] or ["- なし"])
     out += ["", "## 参考", ""] + (["- [%s] %s" % (r[1], r[2]) for r in R.rows if r[0] == "info"] or ["- なし"])
-    out += ["", "## 目で見る（rubric.md）", "", "- 見本の一覧: %s（全 %d 画面のうち、撮ったもの。写っていない画面は採点に入らない）" % (sheet or "（撮っていない）", len(views)), "- 別のエージェントに rubric.md の観点で見てもらい、結果をこの下に書く", ""]
-    open(stem + ".qa.md", "w", encoding="utf-8").write("\n".join(out))
+    out += ["", EYES, "", "- 見本の一覧: %s（全 %d 画面のうち、撮ったもの。写っていない画面は採点に入らない）" % (sheet or "（撮っていない）", len(views)), EYES_NOTE, ""]
+    old = open(stem + ".qa.md", encoding="utf-8").read() if os.path.isfile(stem + ".qa.md") else ""
+    open(stem + ".qa.md", "w", encoding="utf-8").write("\n".join(out) + kept_notes(old))
     for s in R.stats:
         print("  %s: %s = %s%s" % (s[0], s[1], s[2], "（目安 %s）" % s[3] if s[3] else ""))
     for r in R.rows:

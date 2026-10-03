@@ -12,7 +12,7 @@
 CC BY-SA の画像を入れた動画は、同じ条件で共有することを求められる。分からなければ使わない。
 人物の写真・ロゴ・商標には、著作権のほかの決まり（肖像・商標）がある。候補に「注意」と出たものは使わない。
 """
-import argparse, html, json, os, re, sys, urllib.parse, urllib.request
+import argparse, html, json, os, re, sys, urllib.error, urllib.parse, urllib.request
 
 UA = "yukkuri-kaisetsu-skill/1.0 (https://github.com/asaomaro/public_docs; Python urllib)"   # Wikimedia は、連絡先の入った User-Agent を求めている
 COMMONS = "https://commons.wikimedia.org/w/api.php"
@@ -22,7 +22,12 @@ LAST = os.path.join(os.path.expanduser("~"), ".cache", "yukkuri-kaisetsu-images.
 
 def get(url, binary=False):
     req = urllib.request.Request(url, headers={"User-Agent": UA})
-    data = urllib.request.urlopen(req, timeout=60).read()
+    try:
+        data = urllib.request.urlopen(req, timeout=60).read()
+    except urllib.error.HTTPError as e:   # 候補に出ても、もう削除されている画像がある（Commons・Flickr）。トレースバックで止めない
+        sys.exit("error: 取れませんでした（HTTP %d）: %s\n  %s" % (e.code, url, "この画像は削除されたか、場所が変わっています。search の別の候補を使う" if e.code in (404, 410) else "少し待ってやり直すか、別の候補を使う"))
+    except urllib.error.URLError as e:
+        sys.exit("error: つながりません（%s）: %s" % (e.reason, url))
     return data if binary else json.loads(data.decode("utf-8"))
 
 
@@ -77,10 +82,20 @@ def credit(e):
     """クレジット。short は締めの画面に出す短い形、full は概要欄に書く形。"""
     k = kind(e["license"])
     who = e["author"][:40] if e["author"] else "作者不明"
+    if e["author"] and not re.search(r"[^\W_]", e["author"]):   # 記号だけの作者名（Flickr の「*_*」など）は、名前に見えない。どこの利用者かを添える
+        who = "%s の %s" % (e["from"], who)
     short = "%s（%s）" % (who, e["license"]) if k in ("by", "by-sa") else "%s（%s）" % (e["from"], "パブリックドメイン" if k == "pd" else "CC0")
     full = "「%s」%s／%s%s／%s" % (e["title"], who, e["license"], "（" + e["license_url"] + "）" if e["license_url"] else "", e["page"])
     return {"title": e["title"], "author": e["author"], "license": e["license"], "license_url": e["license_url"], "page": e["page"], "from": e["from"],
             "short": short, "full": full}
+
+
+def listing(i, e):
+    """search の候補 1 件の表示。題は必ず出す（Openverse は id が URL なので、題が無いと何の写真か分からない）。"""
+    title = e.get("title") or "（題なし）"
+    head = e["id"] if title in e["id"] else "%s\n   %s" % (title, e["id"])
+    return "%d. %s\n   %s×%s  %s  作者: %s%s\n   %s\n   %s" % (i, head, e["w"], e["h"], e["license"], e["author"][:50] or "（不明）",
+                                                         "  注意: " + e["note"] if e["note"] else "", e["desc"], e["page"])
 
 
 def main():
@@ -104,8 +119,7 @@ def main():
         os.makedirs(os.path.dirname(LAST), exist_ok=True)
         json.dump(ok, open(LAST, "w", encoding="utf-8"), ensure_ascii=False)
         for i, e in enumerate(ok, 1):
-            print("%d. %s\n   %s×%s  %s  作者: %s%s\n   %s\n   %s" % (i, e["id"], e["w"], e["h"], e["license"], e["author"][:50] or "（不明）",
-                                                               "  注意: " + e["note"] if e["note"] else "", e["desc"], e["page"]))
+            print(listing(i, e))
         print("%d 件（見つかった %d 件のうち、使えるライセンスのもの）" % (len(ok), len(found)))
         return
     if a.id.isdigit():

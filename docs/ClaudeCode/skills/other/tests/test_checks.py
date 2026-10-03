@@ -1,6 +1,7 @@
 """確かめる道具が、実際に起きた失敗を見つけるか（motion-video の check.py・yukkuri-qa の qa.py・yukkuri-kaisetsu の script_check.py・fact-check）。"""
 import os
 import unittest
+from unittest import mock
 
 import fakes
 import build
@@ -114,6 +115,29 @@ class ScriptCheck(unittest.TestCase):
         self.assertIn("1 枚", bare(self.run_check(late))[0])
 
 
+class Calls(unittest.TestCase):
+    def test_metan_inside_a_word(self):
+        """2026-10-03: 呼び方の検査が、「決めたんですか」「確かめたんですか」の中の「めたん」を、めたんの呼び捨てと数えた。語の途中は数えない。"""
+        import importlib.util
+        sp = importlib.util.spec_from_file_location("ycheck_c", os.path.join(fakes.YK, "script_check.py"))
+        m = importlib.util.module_from_spec(sp)
+        sp.loader.exec_module(m)
+
+        def calls(line):
+            path = os.path.join(fakes.tmpdir(), "s.txt")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("---\ntitle: テスト\ncast: metan, tsumugi\nroles: metan=解説, tsumugi=聞き手\n---\n# 本題\nmetan: 説明するわ。\ntsumugi: %s\nmetan: そうよ。\n" % line)
+            with fakes.quiet():
+                R, _ = m.run(path)
+            return [x[2] for x in R.items if "と呼びます" in x[2]]
+
+        self.assertFalse(calls("それ、誰が決めたんですか。"))
+        self.assertFalse(calls("ちゃんと確かめたんスか。"))
+        self.assertFalse(calls("めたん先輩、すごいっス。"))
+        self.assertTrue(calls("めたん、すごいっス。"), "呼び捨ては見つける")
+        self.assertTrue(calls("それはめたんが言ったっス。"))
+
+
 class FactCheck(unittest.TestCase):
     def test_url_with_parentheses(self):
         """2026-10: かっこを含む URL（Wikipedia の React_(software)）の閉じかっこを切り、照合できなかった。"""
@@ -121,6 +145,56 @@ class FactCheck(unittest.TestCase):
         self.assertEqual(claims.clean_url("https://en.wikipedia.org/wiki/React_(software)）"), "https://en.wikipedia.org/wiki/React_(software)")
         self.assertEqual(claims.clean_url("https://example.com/a)"), "https://example.com/a")   # 文の「（https://…）」の閉じだけ落とす
         self.assertEqual(claims.clean_url("https://en.wikipedia.org/wiki/React_(software)。"), "https://en.wikipedia.org/wiki/React_(software)")
+
+    FACTS = """# 事実の一覧
+
+## 使う事実
+
+### 1. 高岡大仏
+- [F1] 高さは 15.85 メートル。 — 原文: 「全体の高さ 15m85cm」 — 出典: https://example.com/a
+- [F2] 青銅でできている。 — 原文: 「青銅で造られている大仏である」 — 出典: https://example.com/a
+- [F3] 3 代目にあたる。 — 原文: 「現在の大仏は3代目にあたる」 — 出典: https://example.com/a
+
+### 2. 牛久大仏
+- [F4] 高さは 120 メートル。 — 原文: 「全高120m」「世界一の青銅製の仏像である」 — 出典: https://example.com/b
+- [F5] 1993 年にできた。 — 原文: 「1993年に完成したとされている」 — 出典: https://example.com/b
+"""
+    PAGES = {"https://example.com/a": "高岡大仏は青銅で造られている大仏である。", "https://example.com/b": "牛久大仏は全高120m。世界一の青銅製の仏像である。1993年に完成したとされている。"}
+
+    def run_verify(self, text):
+        import claims
+        path = os.path.join(fakes.tmpdir(), "x.facts.md")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        with mock.patch.object(claims, "page_text", lambda u: self.PAGES[u]), fakes.quiet() as (_, out):
+            code = claims.verify(path)
+        return code, out.getvalue()
+
+    def test_verify_checks_every_quote(self):
+        """2026-10-03: 事実の一覧に ### の小見出しがあると、見出しごとに最初の引用しか照らさずに OK と出た（82 個のうち 10 個だけ）。
+        ひらがなが 2 字続かない引用（「全体の高さ 15m85cm」）も黙って飛ばした。全部の「原文:」を照らす。"""
+        code, out = self.run_verify(self.FACTS)
+        self.assertEqual(code, 1, out)
+        self.assertIn("引用 6 個のうち、ページにあったもの 4・見つからないもの 2", out)
+        self.assertIn("F1 の引用", out)    # ひらがなが続かない引用も照らす
+        self.assertIn("F3 の引用", out)    # 見出しの下の 2 つ目からも照らす
+        code, out = self.run_verify(self.FACTS.replace("「全体の高さ 15m85cm」", "「高岡大仏は青銅」").replace("「現在の大仏は3代目にあたる」", "「造られている大仏」"))
+        self.assertEqual(code, 0, out)
+        self.assertIn("OK : 引用 6 個", out)
+
+    def test_verify_tells_what_it_skipped(self):
+        """照らさなかった引用は、数と理由を出す（黙って OK にしない）。出典の URL が無い行・引用の無い行は、照らせていないので OK にしない。"""
+        code, out = self.run_verify("- [F1] あ。 — 原文: 「青銅で造られている大仏である」 — 出典: 寺の案内板\n- [F2] い。 — 原文: 青銅で造られている — 出典: https://example.com/a\n")
+        self.assertEqual(code, 1, out)
+        self.assertIn("照らさなかった引用: 2 個", out)
+        self.assertIn("出典の URL が無い", out)
+        self.assertNotIn("OK :", out)
+        table = "### C1 高岡大仏は青銅製\n- 判定: 確認できた\n- 根拠: 「青銅で造られている大仏である」とある。「青銅製」は言い換え\n- 出典: https://example.com/a\n"
+        code, out = self.run_verify(table)
+        self.assertEqual(code, 0, out)
+        self.assertIn("照らさなかった引用: 1 個", out)   # 短い語は照らさないが、そう知らせる
+        self.assertIn("ページにあったもの 1", out)
+        self.assertEqual(self.run_verify("# 何も無い\n")[0], 1)
 
 
 if __name__ == "__main__":
