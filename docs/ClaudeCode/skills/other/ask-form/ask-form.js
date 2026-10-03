@@ -17,7 +17,7 @@
  *   定義の文字は textContent で出す（innerHTML を使わない）。色・数は確かめてから個別のプロパティに入れる。
  *   通信しない。window・document に触らない（リスナーは Shadow DOM の中・部品の要素・自分に付けた ResizeObserver だけで、外すときに外す）。
  */
-const VERSION = '1.1.0';
+const VERSION = '1.1.1';
 const TYPES = ['single', 'multi', 'text', 'edit', 'rank', 'table'];
 const FIELDS = ['title', 'intro', 'submit', 'note', 'notePlaceholder', 'paging',
   'id', 'label', 'type', 'help', 'page', 'options', 'default', 'allowOther', 'otherLabel', 'otherPlaceholder', 'showIf', 'required',
@@ -214,6 +214,7 @@ function mount(host, root, SPEC) {
   const lbCloseBtn = el('button', { type: 'button' }, '閉じる', el('kbd', { text: 'Esc' }));
   const lb = el('div', { class: 'lb', hidden: true }, lbImg, lbCap, el('div', { class: 'bar' }, lbPrev, lbPickBtn, lbNext, lbCloseBtn));
   let lbState = null;
+  let how = '';   // 直前の操作（'pointer' か、押したキー）。即確定で、何で選んだかを見る
   function lbDraw() {
     const { items, i } = lbState, o = items[i];
     lbImg.src = o._image;
@@ -233,8 +234,10 @@ function mount(host, root, SPEC) {
   function lbPick() {
     const { q, items, i } = lbState, inp = inputOf(q, items[i]);
     lbClose();
+    how = '';   // 下の click では決定させない（決定は、この後の 1 回だけ）
     if (!inp.checked) inp.click();
     inp.focus();
+    if (instant) submit();
   }
   lbPrev.addEventListener('click', () => lbMove(-1));
   lbNext.addEventListener('click', () => lbMove(1));
@@ -714,7 +717,7 @@ function mount(host, root, SPEC) {
       for (const q of lacking) { FS.get(q.id).classList.add('missing'); FS.get(q.id).setAttribute('aria-invalid', 'true'); }
       const firstFs = FS.get(lacking[0].id);
       go(PAGES.indexOf(firstFs._page), true);   // 未回答のあるページへ
-      const target = firstFs.querySelector('input:not([type=search]),textarea,select');
+      const target = [...firstFs.querySelectorAll('input:not([type=search]),textarea,select')].find(x => !x.closest('[hidden]'));   // 絞り込みで隠れていないもの
       if (target) target.focus({ preventScroll: true });   // その質問へフォーカスを移す
       firstFs.scrollIntoView({ behavior: 'smooth', block: 'center' });
       status.textContent = `未回答 ${lacking.length} 件 — 答えてから決定してください`;
@@ -728,15 +731,15 @@ function mount(host, root, SPEC) {
   // 質問が 1 つだけ（単一選択・補足なし）なら、選んだ時点で決定する。ただしクリック・タップ・Space・Enter で選んだときだけ
   // （矢印キーで移っただけでは決定しない——見て回っている途中で決まってしまうため）
   const instant = QS.length === 1 && QS[0].type === 'single' && SPEC.note === false;
-  let how = '';   // 直前の操作（'pointer' か、押したキー）
   root.addEventListener('pointerdown', () => { how = 'pointer'; }, true);
   root.addEventListener('keydown', (e) => { how = e.key; }, true);
   inner.addEventListener('change', refresh);
-  // 選択肢のクリック（ポインタ・Space）。既に選ばれている選択肢でも決定する（change は起きないので、click で見る）。
-  // 矢印キーで移ったときにブラウザが出す click では決定しない
+  // 選択肢のクリック・タップ。既に選ばれている選択肢でも決定する（change は起きないので、click で見る）。
+  // キーが元の click（矢印キーで移ったとき・まだ選ばれていない選択肢で Space を押したときにブラウザが出す）では決定しない。
+  // Space・Enter は keydown で受ける（既に選ばれているラジオでは、Space を押してもブラウザが click を出さないため）
   inner.addEventListener('click', (e) => {
     const t = e.target;
-    if (!instant || t.type !== 'radio' || t.dataset.other != null || !(how === 'pointer' || how === ' ' || how === 'Enter')) return;
+    if (!instant || t.type !== 'radio' || t.dataset.other != null || how !== 'pointer') return;
     t.checked = true;
     refresh();
     submit();
@@ -776,7 +779,7 @@ function mount(host, root, SPEC) {
       used();
       if (nextBtn.hidden) submit(); else step(1);
     }
-    else if (e.key === 'Enter' && instant && t.matches && t.matches('input[type=radio]:not([data-other])')) {  // 即確定: Enter で選んで決定
+    else if ((e.key === 'Enter' || e.key === ' ') && instant && t.matches && t.matches('input[type=radio]:not([data-other])')) {  // 即確定: Space・Enter で選んで決定
       used();
       t.checked = true;
       refresh();
@@ -852,7 +855,7 @@ export class AskFormElement extends HTMLElement {
   /** 今の回答で決定する（未回答があれば、決定せずにその質問を示す）。 */
   submit() { if (this.#ui) this.#ui.submit(); }
   /** ページを移る（+1 で次・-1 で前。質問が 1 つも出ていないページは飛ばす）。部品の外でキーを受けたとき用。 */
-  step(delta) { if (this.#ui) this.#ui.step(delta < 0 ? -1 : 1); }
+  step(delta) { if (this.#ui && (delta > 0 || delta < 0)) this.#ui.step(delta < 0 ? -1 : 1); }
   /** 高さでのページ分けをやり直す（置いた側が高さを決め直したとき）。 */
   relayout() { if (this.#ui) this.#sized = this.#ui.autoPages(); }
   /** 状態の行に文を出す（送れなかった、など）。 */
