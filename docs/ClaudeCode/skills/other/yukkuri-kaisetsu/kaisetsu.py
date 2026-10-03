@@ -270,6 +270,11 @@ def parse(text):
                     pending["music"] = rest
             elif key == "scene":
                 new_scene(**pending); pending = {}
+            elif key == "insert":   # 用意した部品（オープニング・チャンネル登録のお願い など）を、ここに差し込む。中身は台本を組むときに読む（insert_parts）
+                if not rest:
+                    errs.append("%d 行目: @insert: に部品の名前がありません" % no); continue
+                meta.setdefault("_inserts", []).append({"name": rest, "ch": max(0, len(chapters) - 1), "at": len(ch["scenes"]) if ch else 0, "no": no})
+                sc = None   # 続きのせりふは、新しい場面から
             else:
                 errs.append("%d 行目: 知らない指定 @%s" % (no, key))
             continue
@@ -712,6 +717,108 @@ def speakable(text, pronounce):
 # 表情 → 声のスタイル（その話者に、左から順に最初にあったもの）。台本の先頭の voice_style: off で止める
 VOICE_STYLES = {"angry": ["ツンツン", "おこ", "怒り"], "sad": ["なみだめ", "かなしみ", "悲しみ", "かなしい"], "sad+": ["なみだめ", "ヘロヘロ"], "shy": ["あまあま", "照れ"],
                 "love": ["あまあま"], "dizzy": ["ヘロヘロ"], "troubled+": ["ヘロヘロ", "なみだめ"], "smile+": ["よろこび", "喜び", "たのしい", "楽しい"], "surprised+": ["びっくり", "驚き"]}
+
+
+KEEP_MUSIC = "_back"   # 差し込んだ部品が曲を替えた後、続きの場面を元の曲（その章の曲）へ戻す印。to_spec が曲の名前に直す
+
+
+def find_part(name, base):
+    """部品の台本を探す: 書いたパス → 台本の隣の parts/ → 1 つ上のフォルダの parts/（動画ごとのフォルダで共有する）→ スキルの parts/。"""
+    dirs = [base, os.path.join(base, "parts"), os.path.join(os.path.dirname(base), "parts"), os.path.join(HERE, "parts")]
+    return next((c for c in (os.path.join(d, name + e) for d in dirs for e in ("", ".txt")) if os.path.isfile(c)), None)
+
+
+def insert_parts(meta, chapters, base, cast):
+    """用意した部品（別の台本）を差し込む: 先頭の opening: は動画の頭に、@insert: は書いた所に。
+    部品の場面は、差し込んだ所の章に入る（章を増やさない。数秒の部品が YouTube のチャプターにならないように）。
+    部品の中の話し手は、名前のほかに 1・2（cast の順）・解説・聞き手 で書ける。{title} などは、台本の設定で置き換える。
+    部品が背景・曲を替えても、続きの場面は元の背景・曲に戻る。"""
+    inserts = ([{"name": meta["opening"], "ch": 0, "at": 0, "no": 0}] if meta.get("opening", "").lower() not in ("", "no", "off", "none") else []) + meta.pop("_inserts", [])
+    if not inserts:
+        return
+    if not chapters:
+        chapters.append({"title": "はじめに", "scenes": []})
+    carry_bg(meta, chapters)   # 先に、元の台本の背景を場面へ配る（部品が背景を替えても、続きの場面は元のまま）
+    ids = [k for k in cast if not cast[k].get("hidden")] or list(cast)
+    explainer = roles_of(meta, chapters)
+    explainer = explainer if explainer in cast else ids[0]
+    who_of = {"解説": explainer, "聞き手": next((k for k in ids if k != explainer), explainer)}
+    pron = json.loads(meta["pronounce"]) if meta.get("pronounce", "").startswith("{") else {}
+    used = []
+    for ins in sorted(inserts, key=lambda i: (i["ch"], i["at"]))[::-1]:   # 後ろから入れる（前の位置がずれない）
+        where = "%d 行目の @insert: %s" % (ins["no"], ins["name"]) if ins["no"] else "opening: %s" % ins["name"]
+        path = find_part(ins["name"], base)
+        if not path:
+            sys.exit("error: %s の部品が見つかりません（台本の隣の parts/%s.txt か、スキルの parts/ に置く。一覧は --list-parts）" % (where, ins["name"]))
+        text = re.sub(r"\{(\w+)(?:\|([^{}\n]*))?\}",   # {title}・{channel|このチャンネル}: 台本の設定の値（無ければ | の後ろ）
+                      lambda m: meta[m.group(1)] if isinstance(meta.get(m.group(1)), str) else m.group(0) if m.group(2) is None else m.group(2), open(path, encoding="utf-8").read())
+        pmeta, pch, errs = parse(text)
+        if errs:
+            sys.exit("\n".join("error: %s（%s）: %s" % (where, path, e) for e in errs))
+        if pmeta.pop("_inserts", None) or pmeta.get("opening"):
+            print("warn: %s: 部品の中の @insert:・opening: は読みません" % where, file=sys.stderr)
+        pdir, scenes = os.path.dirname(path), []
+        for c in pch:
+            if c.get("music") and c["scenes"]:   # 部品の頭の @music は、その場面の曲にする
+                c["scenes"][0].setdefault("music", c["music"])
+            scenes += c["scenes"]
+        if not scenes:
+            sys.exit("error: %s（%s）に場面がありません" % (where, path))
+        for k in ("bg", "music"):
+            if pmeta.get(k):
+                scenes[0].setdefault(k, pmeta[k])
+        if pmeta.get("seconds"):   # 部品の長さ（秒）。せりふがそれより長ければ、せりふの長さ
+            scenes[0]["duration"] = float(pmeta["seconds"])
+        if pmeta.get("pronounce", "").startswith("{"):
+            pron = dict(json.loads(pmeta["pronounce"]), **pron)   # 台本に書いた読みが勝つ
+        local = lambda ref, dirs=("",): next((os.path.join(pdir, d, ref + e) for d in dirs for e in [""] + list(IMG_MIME) + [".js"]
+                                             if os.path.isfile(os.path.join(pdir, d, ref + e))), ref)
+        for sc in scenes:
+            sc["_part"] = ins["name"]
+            for ln in sc["lines"]:
+                for x in [ln] + ln.get("react_raw", []):
+                    w = x["who"]
+                    x["who"] = ids[(int(w) - 1) % len(ids)] if w.isdigit() and w != "0" else who_of.get(w, w)
+            for k in ("bg", "music"):   # 部品の隣に置いたファイルは、部品の場所から読む
+                if sc.get(k) and re.search(r"\.\w{2,4}$", sc[k]):
+                    sc[k] = local(sc[k])
+            b = sc.get("board")
+            for it in (x for sh in b.get("shots", []) for x in sh["items"]) if isinstance(b, dict) and b.get("type") == "stage" else ():
+                if it.get("ref"):
+                    it["ref"] = local(it["ref"], ("", "images"))
+                if it.get("draw_ref"):
+                    it["draw_ref"] = local(it["draw_ref"], ("", "scenes"))
+            if isinstance(b, dict) and b.get("type") == "image" and b.get("src"):
+                b["src"] = local(b["src"], ("", "images"))
+        host = chapters[min(ins["ch"], len(chapters) - 1)]["scenes"]
+        before = [sc for c in chapters[:ins["ch"]] for sc in c["scenes"]] + host[:ins["at"]]
+        after = host[ins["at"]:] + [sc for c in chapters[ins["ch"] + 1:] for sc in c["scenes"]]
+        bg = next((sc["bg"] for sc in reversed(before) if sc.get("bg")), None) or next((sc["bg"] for sc in after if sc.get("bg")), None)
+        for sc in scenes:   # 背景を書いていない部品は、差し込んだ所の背景で出す
+            if sc.get("bg"):
+                bg = sc["bg"]
+            elif bg:
+                sc["bg"] = bg
+        if any(sc.get("music") for sc in scenes) and ins["at"] < len(host) and not host[ins["at"]].get("music"):
+            host[ins["at"]]["music"] = KEEP_MUSIC
+        host[ins["at"]:ins["at"]] = scenes
+        used.append("%s（%s・%d 場面）" % (ins["name"], "頭" if (ins["ch"], ins["at"]) == (0, 0) else "「%s」の中" % chapters[ins["ch"]]["title"][:10], len(scenes)))
+    if pron:
+        meta["pronounce"] = json.dumps(pron, ensure_ascii=False)
+    print("差し込んだ部品: " + "／".join(used[::-1]), file=sys.stderr)
+
+
+def list_parts(base="."):
+    """差し込める部品（parts/ の台本）の一覧。頭の注記（// …）を説明として出す。"""
+    seen = set()
+    for d, label in ((os.path.join(base, "parts"), "台本の隣"), (os.path.join(os.path.dirname(os.path.abspath(base)), "parts"), "1 つ上"), (os.path.join(HERE, "parts"), "スキル")):
+        for f in sorted(os.listdir(d)) if os.path.isdir(d) else ():
+            if f.endswith(".txt") and f not in seen:
+                seen.add(f)
+                note = next((ln.strip()[2:].strip() for ln in open(os.path.join(d, f), encoding="utf-8") if ln.strip().startswith("//")), "")
+                print("  %-14s %s（%s）" % (f[:-4], note, label))
+    if not seen:
+        print("  （部品がありません。parts/<名前>.txt に、台本と同じ書き方で置く）")
 
 
 def carry_bg(meta, chapters):
@@ -1254,6 +1361,13 @@ def to_spec(meta, chapters, cast, base):
 
     if meta.get("music", "none").strip() == "auto":
         auto_music(meta, chapters)
+    for ch in chapters:   # 部品が曲を替えた後の場面を、元の曲（その章でそこまで流れていた曲）へ戻す
+        cur = ch.get("music") or meta.get("music", "none")
+        for sc in ch["scenes"]:
+            if sc.get("music") == KEEP_MUSIC:
+                sc["music"] = cur
+            elif sc.get("music") and not sc.get("_part"):
+                cur = sc["music"]
     music = music_of(meta.get("music", "none"))
     for ch in chapters:
         if ch.get("music"):
@@ -1385,6 +1499,7 @@ def load_spec(script):
     for k, v in STYLES[meta.get("style", "talk")]["meta"].items():   # 型の既定（台本に書いた設定が勝つ）
         meta.setdefault(k, v)
     cast = build_cast(meta, base)
+    insert_parts(meta, chapters, base, cast)
     unknown = sorted({ln["who"] for ch in chapters for sc in ch["scenes"] for ln in sc.get("lines", [])} - set(cast))
     if unknown:
         sys.exit("error: cast に無い話し手: %s（台本の先頭の cast: に足してください）" % "、".join(unknown))
@@ -1547,6 +1662,7 @@ def main():
     ap.add_argument("--list-assets", action="store_true", help="背景と BGM のカタログ（名前と説明）を出す")
     ap.add_argument("--facing-sheet", metavar="PNG", help="集めた立ち絵を、画面の左に置いたときと右に置いたときの向き（facing で返した後）で並べた見本を作る。向きが内側を向いているかを確かめる")
     ap.add_argument("--list-styles", action="store_true", help="動画の型（style:）の一覧を出す")
+    ap.add_argument("--list-parts", action="store_true", help="差し込める部品（opening:・@insert: に書く名前。オープニング・チャンネル登録のお願い など）の一覧を出す")
     ap.add_argument("--list-casts", action="store_true", help="登場人物のプリセットと、立ち絵にある表情・ポーズを出す")
     a = ap.parse_args()
     if a.facing_sheet:
@@ -1556,6 +1672,9 @@ def main():
         for k, v in STYLES.items():
             if not k.startswith("_"):
                 print("%-7s %s\n        %s\n        向くもの: %s" % (k, v["name"], v["desc"], v["fit"]))
+        return
+    if a.list_parts:
+        list_parts(os.path.dirname(os.path.abspath(a.script)) if a.script else ".")
         return
     if a.list_assets:
         print("# 背景（台本の bg: か @bg: に名前を書く。時間帯は _evening・_night）")
