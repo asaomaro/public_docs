@@ -83,7 +83,7 @@ if (VIEWS.length) {
   };
   VIEWS.forEach((v, i) => {
     let node;
-    if (v.kind === 'html') {
+    if (v.kind === 'html' || v.kind === 'markdown') {   // Markdown は、整形して見せるページ（viewer.html）を同じ枠で読む
       node = document.createElement('iframe');
       node.setAttribute('sandbox', 'allow-scripts allow-popups allow-downloads');
       node.referrerPolicy = 'no-referrer';

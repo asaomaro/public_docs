@@ -1,0 +1,23 @@
+{
+ "about": "ask-form が Markdown と mermaid を整形して見せるのに使う、同梱のライブラリ。配布元のファイルそのまま（手で直さない）。版を上げるときは、ファイル・版・sha256 を一緒に替える。",
+ "files": {
+  "marked.umd.js": {
+   "package": "marked",
+   "version": "18.0.14",
+   "license": "MIT",
+   "license_file": "LICENSE-marked.txt",
+   "source": "https://cdn.jsdelivr.net/npm/marked@18.0.14/lib/marked.umd.js",
+   "retrieved": "2026-10-04",
+   "sha256": "21568877a938d2c4e7d74e27f18e60da96bb73a68809610ca39216e1efebae62"
+  },
+  "mermaid.min.js": {
+   "package": "mermaid",
+   "version": "12.1.0",
+   "license": "MIT",
+   "license_file": "LICENSE-mermaid.txt",
+   "source": "https://cdn.jsdelivr.net/npm/mermaid@12.1.0/dist/mermaid.min.js",
+   "retrieved": "2026-10-04",
+   "sha256": "6484afc32872a3aa16cac9a76ba1816a1ed4cc870a6593cc2e17757750f518b2"
+  }
+ }
+}
