@@ -1,0 +1,134 @@
+{
+ "title": "背景の使い方",
+ "description": "台本・章・場面の背景（動く背景と SVG の背景）の見本",
+ "lang": "ja",
+ "player": "studio",
+ "theme": "navy-brass",
+ "motion": "gentle",
+ "expression": "components",
+ "bg": "soft",
+ "audio": {
+  "narration": true,
+  "music": "calm",
+  "sfx": true
+ },
+ "chapters": [
+  {
+   "title": "はじめに",
+   "desc": "台本の背景",
+   "scenes": [
+    {
+     "type": "title",
+     "title": "背景を選ぶ",
+     "subtitle": "動く背景と SVG の背景",
+     "bg": "aurora",
+     "narration": [
+      "背景は、名前を書くだけで替えられます。",
+      "題の場面には、動く背景が向いています。"
+     ]
+    },
+    {
+     "type": "bullets",
+     "heading": "背景を書ける場所",
+     "items": [
+      "台本（全場面の地）",
+      "章（その章の場面）",
+      "場面（その場面だけ）"
+     ],
+     "narration": [
+      "台本に書くと、全場面の地になります。",
+      "章に書くと、その章だけが替わります。",
+      "場面に書くと、その場面だけが替わります。"
+     ]
+    }
+   ]
+  },
+  {
+   "title": "しくみの章",
+   "desc": "章の背景",
+   "bg": "grid-fade",
+   "scenes": [
+    {
+     "type": "steps",
+     "heading": "選ぶ順",
+     "items": [
+      {
+       "label": "静かな地を決める",
+       "sub": "台本の bg に 1 つ"
+      },
+      {
+       "label": "見せ場だけ替える",
+       "sub": "題・言い切り・締め"
+      },
+      {
+       "label": "多い場面は静かに",
+       "sub": "表・コードは false"
+      }
+     ],
+     "narration": [
+      "まず、静かな地を 1 つ決めます。",
+      "見せ場の場面だけ、強い背景に替えます。",
+      "表やコードの場面は、静かなままにします。"
+     ]
+    },
+    {
+     "type": "statement",
+     "lines": [
+      "景色は、**抑えて**使う。"
+     ],
+     "note": "dim で配色の地の色を重ねる",
+     "bg": {
+      "src": "sky-night",
+      "dim": 0.35
+     },
+     "narration": [
+      "景色の背景は、少し抑えると字が読みやすくなります。"
+     ]
+    },
+    {
+     "type": "terminal",
+     "heading": "一覧を見る",
+     "lines": [
+      {
+       "cmd": "python3 build.py --list-bg"
+      },
+      {
+       "out": "動く背景 43 種・SVG の背景 77 枚"
+      },
+      {
+       "cmd": "python3 build.py --backgrounds -o backgrounds.html"
+      }
+     ],
+     "bg": false,
+     "narration": [
+      "コードの場面は、配色の地に戻します。"
+     ]
+    }
+   ]
+  },
+  {
+   "title": "おわりに",
+   "desc": "締め",
+   "scenes": [
+    {
+     "type": "end",
+     "title": "背景を選ぶ",
+     "tagline": "静かな地を 1 つ、見せ場だけ替える。",
+     "bg": {
+      "src": "rise",
+      "speed": 0.6
+     },
+     "lines": [
+      {
+       "text": "build.py --list-bg",
+       "note": "名前と説明の一覧"
+      }
+     ],
+     "narration": [
+      "締めの場面には、ゆっくり動く背景が合います。"
+     ]
+    }
+   ]
+  }
+ ]
+}
