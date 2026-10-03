@@ -19,7 +19,16 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import build, sound   # noqa: E402
 
-ASK = os.path.join(os.path.dirname(HERE), "ask-form", "ask.py")
+
+def find_skill(name):
+    """ほかのスキルのフォルダを探す: 隣 → 1 つ上の階層の別のまとまり（other/・video/ など）→ ~/.claude/skills。無ければ None。"""
+    import glob
+    up = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+    cands = [os.path.join(up, name)] + sorted(glob.glob(os.path.join(os.path.dirname(up), "*", name))) + [os.path.join(os.path.expanduser("~"), ".claude", "skills", name)]
+    return next((c for c in cands if os.path.isdir(c)), None)
+
+
+ASK = os.path.join(find_skill("ask-form") or os.path.join(os.path.dirname(HERE), "ask-form"), "ask.py")   # ask-form は別のまとまり（other/）にある。無ければ、端末の質問に切り替える
 CACHE = os.path.join(os.path.expanduser("~"), ".cache", "motion-video", "order")
 VOICEVOX = "http://127.0.0.1:50021"
 
@@ -336,7 +345,9 @@ def main():
         print(json.dumps(spec, ensure_ascii=False, indent=1))
         return
     if not os.path.isfile(ASK):
-        sys.exit("error: ask-form スキルが見つかりません（%s）。--spec の質問を AskUserQuestion で聞く" % ASK)
+        # ask-form が無い: ウィンドウを出せないときと同じ形（unavailable・終了コード 3）で返す。呼び出し側は、端末の質問（AskUserQuestion）に切り替える
+        print(json.dumps({"status": "unavailable", "reason": "ask-form スキルが見つかりません（%s）" % ASK}, ensure_ascii=False))
+        sys.exit(3)
     r = subprocess.run([sys.executable, ASK, "-"], input=json.dumps(spec, ensure_ascii=False), capture_output=True, text=True)
     sys.stderr.write(r.stderr)
     try:

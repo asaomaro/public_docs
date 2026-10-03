@@ -1957,11 +1957,19 @@ _EMOJI = re.compile(r"^\s*([\U0001F000-\U0001FAFF☀-➿⬀-⯿←-⇿️⃣]+)\
 _ICONS = [None]
 
 
+def find_skill(name):
+    """ほかのスキルのフォルダを探す: 隣 → 1 つ上の階層の別のまとまり（other/・video/ など）→ ~/.claude/skills。無ければ None。"""
+    import glob
+    up = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+    cands = [os.path.join(up, name)] + sorted(glob.glob(os.path.join(os.path.dirname(up), "*", name))) + [os.path.join(os.path.expanduser("~"), ".claude", "skills", name)]
+    return next((c for c in cands if os.path.isdir(c)), None)
+
+
 def _icons():
-    """隣の motion-video スキルの icons.py（線で描くアイコン集）を読み込む（無ければ None）。"""
+    """同じ場所の icons.py（線で描くアイコン集。motion-video のものの写し）を読み込む（無ければ None）。"""
     if _ICONS[0] is None:
         import importlib.util
-        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "motion-video", "icons.py")
+        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "icons.py")
         if not os.path.isfile(path):
             _ICONS[0] = False
         else:
@@ -5035,11 +5043,10 @@ _MV = [None]
 
 
 def _motion_video():
-    """隣の motion-video スキルの build.py を読み込む（無ければ None）。"""
+    """motion-video スキル（あれば使う。別のまとまり video/ にある）の build.py を読み込む（無ければ None）。"""
     if _MV[0] is None:
         import importlib.util
-        here = os.path.dirname(os.path.realpath(__file__))
-        path = os.path.join(here, "..", "motion-video", "build.py")
+        path = os.path.join(find_skill("motion-video") or "-", "build.py")
         if not os.path.isfile(path):
             _MV[0] = False
         else:
@@ -5109,7 +5116,7 @@ _MF = [None]
 def _motion_figure_mod():
     if _MF[0] is None:
         import importlib.util
-        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "motion-video", "figure.py")
+        path = os.path.join(find_skill("motion-video") or "-", "figure.py")
         if not os.path.isfile(path):
             _MF[0] = False
         else:

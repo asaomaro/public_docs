@@ -1,9 +1,9 @@
 # 動画のスキルの回帰テスト
 
-motion-video・yukkuri-kaisetsu（台本の検査と yukkuri-qa を含む）・video-export・fact-check の、**実際に起きた不具合が戻っていないか**を確かめる。
+motion-video・yukkuri-kaisetsu（台本の検査と yukkuri-qa を含む）・video-export と、別のまとまり（`../other/`）の fact-check の、**実際に起きた不具合が戻っていないか**を確かめる。
 
 ```bash
-cd docs/ClaudeCode/skills/other
+cd docs/ClaudeCode/skills/video
 python3 -W ignore::ResourceWarning -m unittest discover -s tests -t tests      # 全部（3 秒ほど）
 python3 -W ignore::ResourceWarning -m unittest discover -s tests -t tests -k Engine   # 名前で絞る
 ```
@@ -21,13 +21,15 @@ python3 -W ignore::ResourceWarning -m unittest discover -s tests -t tests -k Eng
 |---|---|
 | `test_speech.py` | 声に渡す文の空白（英字・数字の前後で一呼吸おいた）・読みの置き換えの順・読み違えやすい書き方・1 文の声の中の字幕の切り替え時刻 |
 | `test_motion_voices.py` | 1 文ずつの声（文の途中で語尾が下がって切れた）・文の中の字幕の時刻・声の付け忘れ（声の無い HTML で上書きした）・HTML の中の声の数・書き出しの声 |
-| `test_motion_build.py` | 同梱の見本がすべて HTML になる・同じ曲のファイルは 1 回だけ入る・場面の曲・指示のフォームの定義と骨組み |
-| `test_ask_form.py` | ask-form の定義の検査と、部品 `<ask-form>` の回答の集め方（共通の試験データ `ask-form/fixtures/`。Sodashitsu も同じデータを読む）・部品の決まり（通信しない・ページ全体に触らない）・質問の目次（高さに収まらないときに出る・スクロールで印が移る・押すと移る・隠れた質問は出ない） |
+| `test_motion_build.py` | 同梱の見本がすべて HTML になる・アイコン集（`icons.py`）と md-to-doc の写しが同じ中身・同じ曲のファイルは 1 回だけ入る・場面の曲・指示のフォームの定義と骨組み |
 | `test_checks.py` | motion-video の check.py（項目と字幕の数のずれ・読み・声の無い HTML・同じ部品の連続）・台本の検査（絵の使い回し・同じ構図の連続・章 1 つが型の目安より短い・語の途中の「めたん」を呼び捨てと数えない）・出典の URL のかっこ・`claims.py verify` が全部の「原文:」を照らし、照らさなかった数と理由を出す（小見出しごとに 1 個しか見ずに OK と出た） |
-| `test_yukkuri.py` | 声の付け忘れ・声に渡す文の空白・話す速さ・場面の `@music`（効かなかった）・yukkuri-qa が HTML そのものの声を数える・指示のフォームが立ち絵と曲の無い環境でも出せる（選択肢が 0 件になって止まった）・題の項目の数と長さが合わなければ作る前に知らせる（10 選を 5 分で作り、1 か所 25 秒になった）・長さのおまかせ・ショート（`format: short`）が engine と HTML へ渡る・締めの画面（本編と同じ作り・6 秒・曲が続く・暗転）・声と BGM の大きさをそろえる・列挙の型の右上の札の番号（茶番・オープニングを数えない。`@corner:` が空なら出さない）・吹き出しの位置の書き方・PNG の写真を写真とみる・黒板の箇条書きの字の大きさ・`qa.py` を回し直しても採点が残る・`fetch_images.py`（削除済みの画像・題・記号だけの作者名）・部品の差し込み（`opening:`・`@insert:`。章を増やさない・話し手の当て方・背景と曲が元に戻る・見本の部品が動画になる） |
+| `test_yukkuri.py` | 声の付け忘れ・声に渡す文の空白・話す速さ・場面の `@music`（効かなかった）・yukkuri-qa が HTML そのものの声を数える・指示のフォームが立ち絵と曲の無い環境でも出せる（選択肢が 0 件になって止まった）・題の項目の数と長さが合わなければ作る前に知らせる（10 選を 5 分で作り、1 か所 25 秒になった）・長さのおまかせ・ショート（`format: short`）が engine と HTML へ渡る・締めの画面（本編と同じ作り・6 秒・曲が続く・暗転）・声と BGM の大きさをそろえる・列挙の型の右上の札の番号（茶番・オープニングを数えない。`@corner:` が空なら出さない）・吹き出しの位置の書き方・PNG の写真を写真とみる・黒板の箇条書きの字の大きさ・`qa.py` を回し直しても採点が残る・`fetch_images.py`（削除済みの画像・題・記号だけの作者名）・ask-form が無いときの指示のフォーム（`unavailable`・終了コード 3 で返す。motion-video の `order.py` も）・motion-video の背景を `@bg:` に書ける（`dim=`・`speed=`・`mv:`）・部品の差し込み（`opening:`・`@insert:`。章を増やさない・話し手の当て方・背景と曲が元に戻る・見本の部品が動画になる） |
 | `test_backgrounds.py` | motion-video の背景: 一覧と実物（SVG のファイル・動く背景の描画部）がずれていない・`bg_make.py` を回し直しても同じファイルになる・台本／章／場面の `bg` が HTML に入る（同じ SVG は 1 回だけ）・無い名前は作る前に止まる・動く背景は周期の終わりと始まりがつながる・SVG の背景が配色の色に置き換わる |
 | `test_docs.py` | motion-video の説明書: SKILL.md が手順だけに短く保たれている（150 行まで）・`reference/` の資料と SKILL.md が互いを指している・書いたファイル名が実在する |
 | `test_engine.py` | 文の中の字幕が前の声の続きになる・字幕がカタカナ語・英単語の途中で折れない（「フレームワー／ク」）・書き出しにファイルの BGM が入る（fetch を使っていて無音だった）・場面ごとの曲の区切り・ショート（縦の画面）で舞台が 9:16 になり下の帯まで描かれる・切り替えの音の音量とクレジットへの無音の切り替え・効果音の大きさがそろっている・3 人の台本で描き下ろしの箱と写真の名札が立ち絵に隠れない・写真の吹き出しの `/` の改行と位置・箇条書きの `zoom`・画面の撮影（`shoot.py`）が白い画面を中身で見分けて撮り直す（Chrome の要らない分は `Shoot`）・置きっぱなしの字幕の箱と帯が描かれる（後ろをぼかす関数の定義が別の関数の中に入り、箱・帯が出なかった） |
+
+ask-form のテストは、ask-form の中（`../other/ask-form/tests/`）にある（ask-form は動画のスキルと別のまとまりで、単独で確かめられる）。
+ここのテストのうち、ask-form・fact-check・md-to-doc を使うもの（フォームの定義の検査・出典の照合・アイコン集の写し）は、そのスキルが無ければ飛ばす。
 
 ## テストを足すとき
 

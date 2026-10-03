@@ -271,7 +271,7 @@ python3 <skill_dir>/generate.py "<input.md>" --theme <key> --suggest-layouts
 | やること・やらないこと | `dodont` | 先頭が `✓`・`✗`（`Do`・`Don't`・`やる`・`やらない` も可） |
 | 利用者の声 | `voices` | `- 声 — 名前（役割）` |
 | 判断の分かれ道 | `decision` | 問いの項目に小項目 `はい → …`・`いいえ → …`（入れ子で続く） |
-| できること・特徴をアイコンで | `icongrid` | `- :bolt: 速い — 3 分で`（アイコンは motion-video の `build.py --list-icons`） |
+| できること・特徴をアイコンで | `icongrid` | `- :bolt: 速い — 3 分で`（アイコンの名前は `python3 -c "import icons; icons.print_icons()"`。このスキルの場所で） |
 | 段階・階層（上ほど少なく重要） | `pyramid` | `- 頂点 — 説明` を上から順に 3〜5 件 |
 | 繰り返す工程（PDCA など） | `cycle` | `- 工程 — 説明` を 3〜8 件。`{中心}` を付けた項目は輪の中央に |
 | 2 軸で 4 つに分ける | `quad` | 4 項目（左上・右上・左下・右下の順）。1 項目目に `{x: 効果 →, y: 工数 →}` で軸、`{おすすめ}` で強調 |
@@ -663,7 +663,8 @@ python3 <skill_dir>/figkit.py spec.json --insert out.html # 各図の slot / rep
   文書の中の動画は音を出さずに見られることも多いので、曲は `calm`・`study`・`minimal` など控えめなものにし、
   効果音は `"sfx": {"kit": "soft", "density": "low"}` 程度に抑える。
 - 向くのは、手順の実演・画面の変化・全体像を順に見せる説明。文章と図で足りる節には使わない（1 文書に 1〜2 本まで）。
-- motion-video スキルが無い環境では、注意の枠に置き換わる。
+- motion-video スキル（別のまとまり `../../video/motion-video/`。隣 → 別のまとまり → `~/.claude/skills` の順に探す）が無い環境では、注意の枠に置き換わる。
+  動画の埋め込みと動く図（4f）だけが motion-video を使う。アイコン集（`icons.py`）は motion-video のものの写しを持つので、無くても出る。
 - 埋め込む動画は**既定で配布用**（⚙ の書き出し＝WebM で保存・編集用の映像・音のトラックと、その実行部を省く。motion-video の `--dist`）。
   書き出しを使いたい動画だけ `export="on"` を付ける（例 `<!--MD2DOC-VIDEO src="intro.json" export="on"-->`）。
   実行部は 1 ページで共通なので、1 つでも `export="on"` があれば文書全体で書き出し付きの実行部になる（ボタンは付けた動画にだけ出る）。

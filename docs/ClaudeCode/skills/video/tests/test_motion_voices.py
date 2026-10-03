@@ -79,7 +79,7 @@ class SentenceVoices(unittest.TestCase):
 
     def test_video_export_timeline(self):
         import importlib.util
-        p = os.path.join(fakes.OTHER, "video-export", "export.py")
+        p = os.path.join(fakes.VIDEO, "video-export", "export.py")
         sp_ = importlib.util.spec_from_file_location("export_t", p)
         ex = importlib.util.module_from_spec(sp_)
         sp_.loader.exec_module(ex)

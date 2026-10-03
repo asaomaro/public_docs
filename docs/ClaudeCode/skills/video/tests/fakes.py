@@ -21,11 +21,20 @@ import wave
 import zlib
 from unittest import mock
 
-OTHER = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MV = os.path.join(OTHER, "motion-video")
-YK = os.path.join(OTHER, "yukkuri-kaisetsu")
-for d in (MV, YK, os.path.join(OTHER, "yukkuri-qa"), os.path.join(OTHER, "fact-check")):
-    if d not in sys.path:
+VIDEO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # 動画のスキルのまとまり（motion-video・yukkuri-*・video-export）
+MV = os.path.join(VIDEO, "motion-video")
+YK = os.path.join(VIDEO, "yukkuri-kaisetsu")
+
+
+def skill(name):
+    """別のまとまりにあるスキル（ask-form・fact-check・md-to-doc など）のフォルダ。無ければ None（そのテストは飛ばす）。"""
+    import glob
+    cands = [os.path.join(VIDEO, name)] + sorted(glob.glob(os.path.join(os.path.dirname(VIDEO), "*", name)))
+    return next((c for c in cands if os.path.isdir(c)), None)
+
+
+for d in (MV, YK, os.path.join(VIDEO, "yukkuri-qa"), skill("fact-check")):
+    if d and d not in sys.path:
         sys.path.insert(0, d)
 
 import samples  # noqa: E402
