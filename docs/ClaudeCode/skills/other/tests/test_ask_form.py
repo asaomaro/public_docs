@@ -78,7 +78,7 @@ class Component(unittest.TestCase):
     def test_markers_for_hosts(self):
         """置いた側のテストが使う印と、受け渡しの名前。"""
         for word in ("data-ask-title", "data-ask-question", "data-ask-note", "data-ask-status", "data-ask-submit", "data-ask-cancel",
-                     "data-ask-next", "data-ask-prev", "data-ask-page", "ask-submit", "ask-cancel", "ask-unsupported",
+                     "data-ask-index", "ask-submit", "ask-cancel", "ask-unsupported",
                      "--ask-bg", "--ask-fg", "--ask-border", "--ask-accent", "--ask-accent-fg", "--ask-error", "--ask-warn",
                      "static version", "static supports", "customElements.define('ask-form'"):
             with self.subTest(word):
@@ -166,6 +166,89 @@ class Collect(unittest.TestCase):
                     self.assertEqual(got["missing"], want["lacking"])
                 else:
                     self.assertEqual(got["sent"], body)
+
+
+@unittest.skipUnless(CHROME or os.environ.get("REQUIRE_CHROME"), "Chrome が無い")
+class Index(unittest.TestCase):
+    """質問の目次（横の一覧）: 質問が高さに収まらないときに出て、スクロールに合わせて今の質問に印が付き、押すとその質問へ移る。
+    ページには分けない（2026-10: ページ分けをやめ、1 枚に並べて目次で移る形にした）。"""
+
+    @classmethod
+    def setUpClass(cls):
+        if not CHROME:
+            raise AssertionError("Chrome が無いので ask-form.js を確かめられません")
+        from test_engine import Chrome
+        cls.chrome = Chrome()
+        cls.component = open(os.path.join(AF, "ask-form.js"), encoding="utf-8").read()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.chrome.close()
+
+    def open(self, questions, **top):
+        spec = public(ask.normalize(dict({"title": "t", "questions": questions}, **top)))
+        c = self.chrome
+        c.call("Emulation.setDeviceMetricsOverride", c.sid, width=1000, height=400, deviceScaleFactor=1, mobile=False)
+        path = os.path.join(c.dir, "index%d.html" % c.n)
+        open(path, "w", encoding="utf-8").write(INSTANT_PAGE % {"component": self.component, "spec": json.dumps(spec, ensure_ascii=False)})
+        c.call("Page.enable", c.sid)
+        c.call("Page.navigate", c.sid, url="file://" + path)
+        c.eval("new Promise(function(ok){function w(){window.READY&&FORM.shadowRoot.querySelector('input')?setTimeout(ok,150):setTimeout(w,50)};w()})")
+
+    def state(self, before=""):
+        return self.chrome.eval("""new Promise(function(ok){%s;setTimeout(function(){var R=FORM.shadowRoot,ix=R.querySelector('.index'),cur=R.querySelector('.index .cur');
+          ok({shown:!ix.hidden&&ix.offsetWidth>0, width:FORM.indexWidth, pages:FORM.pageCount,
+              items:[].slice.call(R.querySelectorAll('.index button')).filter(function(b){return !b.hidden}).map(function(b){return b.dataset.askIndex}),
+              secs:[].slice.call(R.querySelectorAll('.index .sec')).filter(function(b){return !b.hidden}).map(function(b){return b.textContent}),
+              cur:cur?cur.dataset.askIndex:null, lack:[].slice.call(R.querySelectorAll('.index .lack')).map(function(b){return b.dataset.askIndex}),
+              off:R.querySelectorAll('fieldset.off').length, focus:(R.activeElement||{}).name||null, top:R.querySelector('.body').scrollTop})},200)})""" % before)
+
+    MANY = [{"id": "q%d" % i, "label": "質問 %d" % i, "default": "a", "options": ["a", "b", "c"]} for i in range(1, 9)]
+
+    def test_short_form_has_no_index(self):
+        self.open(self.MANY[:1], note=False)
+        st = self.state()
+        self.assertFalse(st["shown"])
+        self.assertEqual(st["width"], 0)
+
+    def test_long_form_shows_every_question(self):
+        self.open(self.MANY)
+        st = self.state()
+        self.assertTrue(st["shown"])
+        self.assertGreater(st["width"], 100)
+        self.assertEqual(st["items"], ["q%d" % i for i in range(1, 9)] + [""])   # 補足も並ぶ
+        self.assertEqual((st["cur"], st["off"], st["pages"]), ("q1", 0, 1))      # 1 枚に並ぶ（隠すページは無い）
+
+    def test_paging_false_hides_and_true_forces(self):
+        self.open(self.MANY, paging=False)
+        self.assertFalse(self.state()["shown"])
+        self.open(self.MANY[:2], paging=True, note=False)
+        self.assertTrue(self.state()["shown"])
+
+    def test_scroll_moves_the_mark_and_click_moves_the_view(self):
+        self.open(self.MANY)
+        st = self.state("var b=FORM.shadowRoot.querySelector('.body'),f=FORM.shadowRoot.querySelector('[data-ask-question=q4]');"
+                        "b.scrollTop=f.getBoundingClientRect().top-b.getBoundingClientRect().top+b.scrollTop")
+        self.assertEqual(st["cur"], "q4")
+        st = self.state("FORM.shadowRoot.querySelector('[data-ask-index=q7]').click()")
+        self.assertEqual((st["cur"], st["focus"]), ("q7", "q7"))
+        self.assertGreater(st["top"], 300)
+        st = self.state("FORM.step(-1)")       # 置いた側のキー（前の質問へ）
+        self.assertEqual(st["cur"], "q6")
+
+    def test_sections_hidden_questions_and_unanswered(self):
+        qs = [dict(q) for q in self.MANY]
+        qs[0]["page"], qs[4]["page"] = "基本", "音"
+        qs[5]["showIf"] = {"q1": "b"}           # 出ていない質問は、目次にも出ない
+        del qs[2]["default"]                    # 未回答
+        self.open(qs)
+        st = self.state()
+        self.assertTrue(st["shown"])
+        self.assertEqual(st["secs"], ["基本", "音"])
+        self.assertNotIn("q6", st["items"])
+        self.assertEqual(st["lack"], ["q3"])
+        st = self.state("var i=FORM.shadowRoot.querySelector('input[name=q1][value=b]');i.checked=true;i.dispatchEvent(new Event('change',{bubbles:true}))")
+        self.assertIn("q6", st["items"])
 
 
 KEYS = {" ": ("Space", 32, " "), "Enter": ("Enter", 13, "\r"), "ArrowDown": ("ArrowDown", 40, None), "Tab": ("Tab", 9, None)}

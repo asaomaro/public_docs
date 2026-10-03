@@ -1,23 +1,24 @@
 /* <ask-form> — 質問のフォームの部品（カスタム要素・依存なし・Shadow DOM）。
  *
  * ask-form の単独ウィンドウ（form.html が殻）と、ほかの画面（Sodashitsu の sodactl ask のダイアログ）が、同じこのファイルを使う。
- * 部品は「定義を描く・回答を集める・ページを分ける」だけを行い、通信・ウィンドウの操作・閉じることは置いた側（殻・枠）が行う。
+ * 部品は「定義を描く・回答を集める・質問の目次を出す」だけを行い、通信・ウィンドウの操作・閉じることは置いた側（殻・枠）が行う。
  *
  * 受け渡し
  *   el.spec = 検査済みの定義（fixtures/normalize.json の「正規化後」の形）。入れ替えると描き直す
  *   el.busy = true の間は、決定・キャンセルを押せない（送信中）
  *   el.resolveMedia = (ref, "image" | "audio") => 出してよい URL か null。無ければ画像・音のプレビューを出さない
- *   el.submit() / el.step(±1) / el.relayout() / el.notify(文, 警告か) / el.value / el.pageCount / el.contentHeight
+ *   el.submit() / el.step(±1)（次・前の質問へ） / el.relayout() / el.notify(文, 警告か) / el.value / el.contentHeight / el.indexWidth（目次の幅。出ていなければ 0）
+ *     el.pageCount は互換のために残す（いつも 1。ページには分けない）
  *   イベント（bubbles・composed）: ask-submit {answers, custom?, edited?, note?} / ask-cancel / ask-unsupported {reason}
- *     未回答があるときは ask-submit を出さず、該当のページと質問を示す。Esc では ask-cancel を出さない（取り消しは置いた側）
+ *     未回答があるときは ask-submit を出さず、その質問を示す。Esc では ask-cancel を出さない（取り消しは置いた側）
  *   配色: --ask-bg --ask-fg --ask-border --ask-accent --ask-accent-fg --ask-error --ask-warn（任意で --ask-card --ask-muted --ask-accent-soft）
- *   印: data-ask-title -question -note -status -submit -cancel -next -prev -page
+ *   印: data-ask-title -question -note -status -submit -cancel -index（目次の項目。値は質問の id、補足は空）
  *
  * 決まり（置いた側の安全のため）
  *   定義の文字は textContent で出す（innerHTML を使わない）。色・数は確かめてから個別のプロパティに入れる。
  *   通信しない。window・document に触らない（リスナーは Shadow DOM の中・部品の要素・自分に付けた ResizeObserver だけで、外すときに外す）。
  */
-const VERSION = '1.1.1';
+const VERSION = '1.2.0';
 const TYPES = ['single', 'multi', 'text', 'edit', 'rank', 'table'];
 const FIELDS = ['title', 'intro', 'submit', 'note', 'notePlaceholder', 'paging',
   'id', 'label', 'type', 'help', 'page', 'options', 'default', 'allowOther', 'otherLabel', 'otherPlaceholder', 'showIf', 'required',
@@ -38,7 +39,8 @@ const STYLE = `
 *{box-sizing:border-box}
 [hidden]{display:none !important}
 .body{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain}
-.inner{padding:20px 22px 12px}
+.cols{display:flex;align-items:flex-start}
+.inner{flex:1 1 auto;min-width:0;padding:20px 22px 12px}
 h1{font-size:18px;margin:0 0 2px;outline:none;overflow-wrap:anywhere}
 .intro{color:var(--_muted);margin:0 0 14px;white-space:pre-wrap;overflow-wrap:anywhere}
 .recall{display:flex;gap:10px;align-items:center;margin:-6px 0 12px;font-size:13px;color:var(--_muted)}
@@ -46,13 +48,19 @@ fieldset{border:1px solid var(--_line);background:var(--_card);border-radius:12p
   margin:0 0 12px;padding:12px 14px 14px;min-width:0}
 fieldset.missing{border-color:var(--_err)}
 fieldset.off{display:none}
-/* ページ（質問が多いときに分ける） */
-.steps{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 12px}
-.steps button{padding:2px 11px;font-size:13px;border-radius:14px}
-.steps button b{font-weight:700;margin-right:5px}
-.steps button.cur{background:var(--_accent);border-color:var(--_accent);color:var(--_on);font-weight:700}
-.steps button.lack:not(.cur){border-color:var(--_warn);color:var(--_warn)}
-.steps .pos{margin-left:auto;font-size:12px;color:var(--_muted)}
+/* 目次（質問が多いとき、質問の題を横に並べる。今見ている質問に印が付く） */
+.index{flex:none;position:sticky;top:0;width:212px;max-height:100vh;overflow-y:auto;overscroll-behavior:contain;
+  padding:20px 4px 12px 14px;display:flex;flex-direction:column;gap:1px}
+.index .sec{margin:10px 0 2px 8px;font-size:11px;font-weight:700;color:var(--_muted);letter-spacing:.04em;overflow-wrap:anywhere}
+.index .sec:first-child{margin-top:0}
+.index button{display:flex;gap:7px;align-items:baseline;width:100%;text-align:left;padding:4px 8px;font-size:13px;line-height:1.45;
+  border:0;border-left:3px solid transparent;border-radius:0 7px 7px 0;background:none;color:var(--_muted)}
+.index button:hover{color:var(--_fg);background:var(--_card)}
+.index button .n{flex:none;min-width:18px;text-align:right;font-size:11px;font-variant-numeric:tabular-nums}
+.index button .t{min-width:0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow-wrap:anywhere}
+.index button.cur{color:var(--_accent);font-weight:700;border-left-color:var(--_accent);background:var(--_soft)}
+.index button.lack:not(.cur){color:var(--_warn)}
+.index button.lack .n::after{content:"●";margin-left:2px;font-size:8px;vertical-align:2px;color:var(--_warn)}
 legend{float:left;width:100%;padding:0;margin:0 0 2px;font-weight:700;font-size:15px;overflow-wrap:anywhere}
 legend .num{display:inline-block;min-width:22px;height:22px;line-height:22px;text-align:center;
   border-radius:11px;background:var(--_soft);color:var(--_accent);font-size:12px;margin-right:8px}
@@ -153,7 +161,7 @@ button:disabled{opacity:.45;cursor:default}
 button.primary{background:var(--_accent);border-color:var(--_accent);color:var(--_on);font-weight:700}
 button kbd{font:11px ui-monospace,Consolas,monospace;opacity:.75;margin-left:6px}
 .unsupported{padding:40px 22px;text-align:center;color:var(--_muted)}
-@media (max-width:767px){.opts{grid-template-columns:1fr}.sidewrap{grid-template-columns:1fr}.pv{position:static;max-height:50vh}
+@media (max-width:767px){.index{display:none}.opts{grid-template-columns:1fr}.sidewrap{grid-template-columns:1fr}.pv{position:static;max-height:50vh}
   .inner{padding:14px 14px 8px}footer{padding:8px 14px}button kbd{display:none}}
 @media (pointer:coarse){input[type=text],input[type=search],textarea,select{font-size:max(16px,1em)}}
 `;
@@ -188,11 +196,10 @@ function mount(host, root, SPEC) {
   const body = el('div', { class: 'body' }), inner = el('div', { class: 'inner' });
   const status = el('span', { class: 'status', role: 'status', 'data-ask-status': true });
   const cancelBtn = el('button', { type: 'button', 'data-ask-cancel': true }, 'キャンセル', el('kbd', { text: 'Esc' }));
-  const prevBtn = el('button', { type: 'button', hidden: true, 'data-ask-prev': true }, '‹ 戻る', el('kbd', { text: 'Alt+PgUp' }));
-  const nextBtn = el('button', { type: 'button', class: 'primary', hidden: true, 'data-ask-next': true }, '次へ ›', el('kbd', { text: 'Alt+PgDn' }));
   const submitBtn = el('button', { type: 'button', class: 'primary', 'data-ask-submit': true }, SPEC.submit || '決定', el('kbd', { text: 'Ctrl+Enter' }));
-  const footer = el('footer', null, status, cancelBtn, prevBtn, nextBtn, submitBtn);
-  body.append(inner);
+  const footer = el('footer', null, status, cancelBtn, submitBtn);
+  const index = el('nav', { class: 'index', hidden: true, 'aria-label': '質問の一覧' });
+  body.append(el('div', { class: 'cols' }, index, inner));
 
   // ── プレビュー（選択肢の image・code） ──
   function codeBlock(o) {
@@ -537,9 +544,7 @@ function mount(host, root, SPEC) {
     inner.append(bar);
   }
 
-  const steps = el('nav', { class: 'steps', hidden: true, 'aria-label': 'ページ' });
-  inner.append(steps);
-  const ITEMS = [];  // 画面に並ぶ枠（質問と補足）。ページはこの並びを区切ったもの
+  const ITEMS = [];  // 画面に並ぶ枠（質問と補足）
   for (const q of QS) {
     const fs = el('fieldset', { 'data-ask-question': q.id });
     const kind = KIND[q.type] || (q.type === 'text' && !q.required ? '任意' : '');
@@ -563,103 +568,88 @@ function mount(host, root, SPEC) {
   }
   root.replaceChildren(el('style', { text: STYLE }), body, footer);   // 拡大表示（lb）は、開いたときにだけ入れる
 
-  // ── ページ ──
-  // 質問の page（ページの題。同じ題が続くあいだが 1 ページ）で分ける。page が無ければ、定義の paging に従う:
-  // 数なら 1 ページの質問の数、false なら分けない、無指定（"auto"）なら与えられた高さに収まらないときだけ高さで分ける
-  let PAGES = [{ title: '', items: ITEMS }], cur = 0;
-  const explicit = QS.some(q => q.page != null);
-  const autoPaging = !explicit && (SPEC.paging == null || SPEC.paging === 'auto' || SPEC.paging === true);
-  // 表示条件（showIf）で質問が 1 つも出ていないページは飛ばす（補足だけが残る最後のページは飛ばさない）
-  const live = (p) => p.items.some(fs => !fs.hidden);
-  function setPages(pages) {
-    PAGES = pages.filter(p => p.items.length);
-    if (noteBox && !PAGES.some(p => p.items.includes(noteBox))) PAGES[PAGES.length - 1].items.push(noteBox);  // 補足は最後のページ
-    for (const p of PAGES) for (const fs of p.items) fs._page = p;
-    steps.replaceChildren();
-    PAGES.forEach((p, i) => {
-      p.tab = el('button', { type: 'button', 'data-ask-page': String(i + 1) }, el('b', { text: String(i + 1) }), p.title);
-      p.tab.addEventListener('click', () => go(i));
-      steps.append(p.tab);
+  // ── 目次 ──
+  // 質問の題を横に並べる。スクロールに合わせて、今見ている質問に印が付く。押すとその質問へ移る。
+  // 出すかどうかは定義の paging に従う: 無指定（"auto"）なら与えられた高さに収まらないときだけ、true・数なら必ず、false なら出さない。
+  // 質問の page（まとまりの題。同じ題が続くあいだが 1 つのまとまり）は、目次の見出しになる（page を書いたら必ず出す）
+  const ENTRIES = [];        // 目次の項目 { fs, btn, n, sec }（ITEMS と同じ並び）
+  let cur = 0, want = null;  // 今見ている項目・目次で選んだ項目（その質問が見えている間は、そちらを今の項目にする）
+  {
+    let name = null, sec = null;
+    ITEMS.forEach((fs, i) => {
+      const q = QS[i];   // 補足には無い
+      if (q && q.page != null && String(q.page) !== name) { name = String(q.page); sec = el('div', { class: 'sec', text: name }); index.append(sec); }
+      const n = el('span', { class: 'n' });
+      const btn = el('button', { type: 'button', 'data-ask-index': q ? q.id : '' }, n, el('span', { class: 't', text: q ? q.label : '補足' }));
+      btn.addEventListener('click', () => go(i));
+      index.append(btn);
+      ENTRIES.push({ fs, btn, n, sec });
     });
-    steps.append(el('span', { class: 'pos' }));
-    go(Math.min(cur, PAGES.length - 1), true);
-    refresh();   // 未回答のあるページの印を付け直す
   }
-  function go(i, keep) {
-    if (i < 0 || i >= PAGES.length) return;
+  const explicit = QS.some(q => q.page != null);
+  const topOf = (fs) => fs.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop;
+  function mark(i) {
     cur = i;
-    for (const p of PAGES) for (const fs of p.items) fs.classList.toggle('off', p !== PAGES[cur]);
-    if (intro) intro.hidden = cur > 0;
-    paint();
-    if (!keep) { body.scrollTop = 0; PAGES[cur].tab.focus(); }
+    ENTRIES.forEach((e, k) => { e.btn.classList.toggle('cur', k === i); e.btn.setAttribute('aria-current', k === i ? 'true' : 'false'); });
+    if (index.hidden) return;
+    const b = ENTRIES[i].btn, r = b.getBoundingClientRect(), box = index.getBoundingClientRect();   // 目次の中で、今の項目が見える所へ
+    if (r.top < box.top + 8) index.scrollTop -= box.top + 8 - r.top;
+    else if (r.bottom > box.bottom - 8) index.scrollTop += r.bottom - box.bottom + 8;
   }
+  // 今見ている質問: 上の端を過ぎた最後の質問。目次で選んだ質問が見えている間は、その質問（下の端の短い質問は、上の端まで来ないため）
+  function spy() {
+    const y = body.scrollTop, h = body.clientHeight;
+    let at = -1;
+    ENTRIES.forEach((e, k) => { if (!e.fs.hidden && (at < 0 || topOf(e.fs) <= y + 40)) at = k; });
+    if (want != null) {
+      const t = ENTRIES[want].fs.hidden ? -1 : topOf(ENTRIES[want].fs);
+      if (t >= y - 2 && t < y + h) at = want; else want = null;
+    }
+    if (at >= 0) mark(at);
+  }
+  function go(i, quiet) {
+    if (i < 0 || i >= ENTRIES.length || ENTRIES[i].fs.hidden) return;
+    want = i;
+    body.scrollTop = Math.max(0, topOf(ENTRIES[i].fs) - 10);
+    mark(i);
+    if (quiet) return;
+    const t = [...ENTRIES[i].fs.querySelectorAll('input:not([type=search]),textarea,select,li[tabindex]')].find(x => !x.closest('[hidden]'));
+    const pick = t && t.type === 'radio' ? (ENTRIES[i].fs.querySelector('input[type=radio]:checked') || t) : t;   // ラジオは、選ばれているものへ
+    if (pick) pick.focus({ preventScroll: true });
+  }
+  // 次・前の質問へ（表示条件で隠れている質問は飛ばす）
   function step(d) {
     let i = cur + d;
-    while (i >= 0 && i < PAGES.length && !live(PAGES[i])) i += d;
+    while (i >= 0 && i < ENTRIES.length && ENTRIES[i].fs.hidden) i += d;
     go(i);
   }
-  // ページの見出しとボタンを、今の状態に合わせる
+  // 目次を、今の状態（出ている質問・番号・未回答）に合わせる
   function paint(lacking) {
-    const many = PAGES.length > 1;
-    steps.hidden = !many;
-    const shown = PAGES.filter(live);
-    let first = true, last = true;
-    PAGES.forEach((p, i) => {
-      p.tab.hidden = !live(p);
-      p.tab.classList.toggle('cur', i === cur);
-      p.tab.setAttribute('aria-current', i === cur ? 'page' : 'false');
-      if (lacking) p.tab.classList.toggle('lack', lacking.some(q => FS.get(q.id)._page === p));
-      if (live(p) && i < cur) first = false;
-      if (live(p) && i > cur) last = false;
-    });
-    steps.querySelector('.pos').textContent = many ? `${shown.indexOf(PAGES[cur]) + 1} / ${shown.length} ページ` : '';
-    prevBtn.hidden = !many || first;
-    nextBtn.hidden = !many || last;
-    submitBtn.classList.toggle('primary', !many || last);  // 途中のページでは「次へ」が主。決定はどのページからでもできる
-  }
-  // 高さで分ける。質問の枠を上から詰め、入りきらなくなったら次のページへ。部品に与えられた高さ（中身の領域の高さ）で決める
-  function autoPages() {
-    if (!autoPaging || !body.clientHeight) return false;
-    const hidden = ITEMS.filter(fs => fs.hidden);
-    for (const fs of hidden) fs.hidden = false;       // 隠れている質問（showIf）も、出たときの高さで数える
-    for (const fs of ITEMS) fs.classList.remove('off');
-    steps.hidden = true;
-    if (intro) intro.hidden = false;
-    const BAR = 40;                                    // ページの見出しの高さ
-    const top = ITEMS[0].offsetTop - inner.offsetTop;  // 題・説明の分
-    const fits = inner.offsetHeight <= body.clientHeight + 1;
-    const fill = body.clientHeight - top - 12 - BAR;
-    const hs = ITEMS.map(fs => fs.offsetHeight + 12);
-    for (const fs of hidden) fs.hidden = true;
-    const pages = [{ title: '', items: [] }];
-    if (fits) pages[0].items = ITEMS.slice();
-    else {
-      let used = 0;
-      ITEMS.forEach((fs, i) => {
-        if (used && used + hs[i] > fill) { pages.push({ title: '', items: [] }); used = 0; }
-        pages[pages.length - 1].items.push(fs);
-        used += hs[i];
-      });
+    for (const e of ENTRIES) {
+      e.btn.hidden = e.fs.hidden;
+      const num = e.fs.querySelector('.num');
+      e.n.textContent = num ? num.textContent : '';
     }
-    setPages(pages);
+    if (lacking) { const ids = new Set(lacking.map(q => q.id)); for (const e of ENTRIES) e.btn.classList.toggle('lack', ids.has(e.fs.dataset.askQuestion)); }
+    for (const sec of new Set(ENTRIES.map(e => e.sec).filter(Boolean))) sec.hidden = !ENTRIES.some(e => e.sec === sec && !e.fs.hidden);
+    if (ENTRIES[cur].fs.hidden) spy();
+  }
+  // 目次を出すかを決める（部品に与えられた高さで決める）
+  function layout() {
+    if (!body.clientHeight) return false;
+    const mode = SPEC.paging;
+    let show = false;
+    if (mode !== false && ENTRIES.length > 1) {
+      if (explicit || mode === true || typeof mode === 'number') show = true;
+      else { index.hidden = true; show = inner.offsetHeight > body.clientHeight + 1; }
+    }
+    index.hidden = !show;
+    index.style.maxHeight = body.clientHeight + 'px';
+    spy();
     return true;
   }
-  if (explicit) {
-    const pages = [];
-    let name;
-    for (const q of QS) {
-      if (!pages.length || (q.page != null && String(q.page) !== name)) pages.push({ title: (name = String(q.page ?? '')), items: [] });
-      pages[pages.length - 1].items.push(FS.get(q.id));
-    }
-    setPages(pages);
-  } else if (typeof SPEC.paging === 'number' && SPEC.paging >= 1) {
-    const pages = [];
-    QS.forEach((q, i) => {
-      if (i % SPEC.paging === 0) pages.push({ title: '', items: [] });
-      pages[pages.length - 1].items.push(FS.get(q.id));
-    });
-    setPages(pages);
-  } else setPages(PAGES);
+  body.addEventListener('scroll', spy, { passive: true });
+  for (const t of ['wheel', 'touchmove']) body.addEventListener(t, () => { want = null; }, { passive: true });
 
   // ── 回答を読む ──
   function visible(q, answers) {
@@ -693,7 +683,6 @@ function mount(host, root, SPEC) {
     const { lacking } = collect();
     status.textContent = lacking.length ? `未回答 ${lacking.length} 件` : 'すべて回答済み';
     status.classList.remove('warn');
-    if (!live(PAGES[cur])) step(PAGES.slice(cur).some(live) ? 1 : -1);   // 今のページの質問がすべて隠れたら、出ているページへ
     paint(lacking);
     return lacking;
   }
@@ -716,7 +705,6 @@ function mount(host, root, SPEC) {
     if (lacking.length) {
       for (const q of lacking) { FS.get(q.id).classList.add('missing'); FS.get(q.id).setAttribute('aria-invalid', 'true'); }
       const firstFs = FS.get(lacking[0].id);
-      go(PAGES.indexOf(firstFs._page), true);   // 未回答のあるページへ
       const target = [...firstFs.querySelectorAll('input:not([type=search]),textarea,select')].find(x => !x.closest('[hidden]'));   // 絞り込みで隠れていないもの
       if (target) target.focus({ preventScroll: true });   // その質問へフォーカスを移す
       firstFs.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -747,8 +735,6 @@ function mount(host, root, SPEC) {
   inner.addEventListener('input', refresh);
   submitBtn.addEventListener('click', submit);
   cancelBtn.addEventListener('click', () => { if (!host.busy) { stopAudio(); fire('ask-cancel', {}); } });
-  prevBtn.addEventListener('click', () => step(-1));
-  nextBtn.addEventListener('click', () => step(1));
   // キーは部品の要素で受ける（中の欄からも、部品そのものにフォーカスがあるときも届く）。扱ったキーは外へ流さない
   // （置いた側の同じキーと二重に効かないように）
   const onKey = (e) => {
@@ -764,20 +750,18 @@ function mount(host, root, SPEC) {
     }
     const t = e.composedPath()[0], search = t.matches && t.matches('input[type=search]');
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { used(); submit(); }
-    else if (e.altKey && (e.key === 'PageDown' || e.key === 'PageUp')) {  // ページを移る
-      used();
-      const b = e.key === 'PageUp' ? prevBtn : nextBtn;
-      if (!b.hidden) b.click();
-    }
+    else if (e.altKey && (e.key === 'PageDown' || e.key === 'PageUp')) { used(); step(e.key === 'PageUp' ? -1 : 1); }  // 次・前の質問へ
     else if (e.key === 'Escape' && search && t.value) {  // 絞り込み中の Esc は、まず絞り込みを消す（それ以外の Esc は外へ流す）
       used();
       t.value = '';
       t.dispatchEvent(new Event('input', { bubbles: true }));
     }
     else if (e.key === 'Enter' && search) e.preventDefault();
-    else if (e.key === 'Enter' && t.matches && t.matches('input[type=text]')) {  // 途中のページでは次へ、最後のページでは決定
+    else if (e.key === 'Enter' && t.matches && t.matches('input[type=text]')) {  // 目次が出ている（質問が多い）ときは次の質問へ、最後の質問では決定
       used();
-      if (nextBtn.hidden) submit(); else step(1);
+      const fs = t.closest('fieldset'), at = ENTRIES.findIndex(x => x.fs === fs);
+      const later = ENTRIES.some((x, k) => k > at && !x.fs.hidden && x.fs !== noteBox);
+      if (index.hidden || !later) submit(); else { cur = at; step(1); }
     }
     else if ((e.key === 'Enter' || e.key === ' ') && instant && t.matches && t.matches('input[type=radio]:not([data-other])')) {  // 即確定: Space・Enter で選んで決定
       used();
@@ -792,19 +776,13 @@ function mount(host, root, SPEC) {
   return {
     submit,
     step,
-    autoPages,
+    layout,
     value() { const { out, lacking } = value(); return Object.assign(out, { lacking: lacking.map(q => q.id) }); },
     setBusy(b) { submitBtn.disabled = cancelBtn.disabled = !!b; },
     notify(msg, warn) { status.textContent = msg; status.classList.toggle('warn', !!warn); },
-    pageCount: () => PAGES.length,
-    // いちばん高いページの高さ（置いた側が、ページを移っても変わらない高さを決めるのに使う）
-    contentHeight() {
-      const was = cur;
-      let h = 0;
-      for (let i = 0; i < PAGES.length; i++) { go(i, true); h = Math.max(h, inner.offsetHeight); }
-      go(was, true);
-      return h + footer.offsetHeight;
-    },
+    // 中身の高さ（置いた側が、ウィンドウの高さを決めるのに使う）と、目次の幅（出ていなければ 0）
+    contentHeight: () => inner.offsetHeight + footer.offsetHeight,
+    indexWidth: () => (index.hidden ? 0 : index.offsetWidth),
     destroy() { stopAudio(); host.removeEventListener('keydown', onKey); },
   };
 }
@@ -828,9 +806,9 @@ export class AskFormElement extends HTMLElement {
   }
 
   connectedCallback() {
-    // 高さでのページ分けは、最初に高さが決まったときに 1 回だけ行う（そのあと高さが変わっても作り直さない。
-    // 画面のキーボードで高さが縮んだときに、入力中の欄を見失わないため。収まらない分は中がスクロールする）
-    this.#ro = new ResizeObserver(() => { if (!this.#sized && this.#ui) this.#sized = this.#ui.autoPages(); });
+    // 目次を出すかは、最初に高さが決まったときに 1 回だけ決める（そのあと高さが変わっても変えない。
+    // 画面のキーボードで高さが縮んだときに、目次が出て入力中の欄が動かないように）
+    this.#ro = new ResizeObserver(() => { if (!this.#sized && this.#ui) this.#sized = this.#ui.layout(); });
     this.#ro.observe(this);
     if (this.#spec && !this.#ui) this.#render();
   }
@@ -854,16 +832,19 @@ export class AskFormElement extends HTMLElement {
 
   /** 今の回答で決定する（未回答があれば、決定せずにその質問を示す）。 */
   submit() { if (this.#ui) this.#ui.submit(); }
-  /** ページを移る（+1 で次・-1 で前。質問が 1 つも出ていないページは飛ばす）。部品の外でキーを受けたとき用。 */
+  /** 次・前の質問へ移る（+1 で次・-1 で前。隠れている質問は飛ばす）。部品の外でキーを受けたとき用。 */
   step(delta) { if (this.#ui && (delta > 0 || delta < 0)) this.#ui.step(delta < 0 ? -1 : 1); }
-  /** 高さでのページ分けをやり直す（置いた側が高さを決め直したとき）。 */
-  relayout() { if (this.#ui) this.#sized = this.#ui.autoPages(); }
+  /** 目次を出すかを決め直す（置いた側が高さを決め直したとき）。 */
+  relayout() { if (this.#ui) this.#sized = this.#ui.layout(); }
   /** 状態の行に文を出す（送れなかった、など）。 */
   notify(message, warn) { if (this.#ui) this.#ui.notify(String(message), warn); }
   /** 今の回答 { answers, custom?, edited?, note?, lacking: [未回答の質問の id] }（読むだけ。決定はしない）。 */
   get value() { return this.#ui ? this.#ui.value() : null; }
-  get pageCount() { return this.#ui ? this.#ui.pageCount() : 0; }
+  /** 互換のために残す（ページには分けないので、いつも 1）。 */
+  get pageCount() { return this.#ui ? 1 : 0; }
   get contentHeight() { return this.#ui ? this.#ui.contentHeight() : 0; }
+  /** 目次の幅（px。出ていなければ 0）。置いた側が、ウィンドウの幅を広げるのに使う。 */
+  get indexWidth() { return this.#ui ? this.#ui.indexWidth() : 0; }
 
   #render() {
     if (this.#ui) { this.#ui.destroy(); this.#ui = null; }
@@ -885,7 +866,7 @@ export class AskFormElement extends HTMLElement {
       return;
     }
     this.#ui.setBusy(this.#busy);
-    if (this.clientHeight) this.#sized = this.#ui.autoPages();
+    if (this.clientHeight) this.#sized = this.#ui.layout();
   }
 }
 

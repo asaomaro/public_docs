@@ -128,7 +128,7 @@ def normalize(spec, base_dir="."):
         raise SpecError("questions_empty", '"questions" に質問を 1 つ以上入れてください')
     paging = spec.get("paging")
     if not (paging in (None, "auto") or isinstance(paging, bool) or (isinstance(paging, int) and paging >= 1)):
-        raise SpecError("paging_invalid", '"paging" は "auto"（高さに収まらないときだけ分ける）/ false（分けない）/ 1 ページの質問の数')
+        raise SpecError("paging_invalid", '"paging" は "auto"（高さに収まらないときだけ目次を出す）/ true（必ず出す）/ false（出さない）')
     seen = set()
     for i, q in enumerate(spec["questions"]):
         where = "questions[%d]" % i
@@ -138,7 +138,7 @@ def normalize(spec, base_dir="."):
             raise SpecError("id_duplicate", "%s: id「%s」が重複しています" % (where, q["id"]))
         seen.add(q["id"])
         if q.get("page") is not None and not isinstance(q["page"], str):
-            raise SpecError("page_invalid", "%s: page はページの題（文字列）で渡してください" % where)
+            raise SpecError("page_invalid", "%s: page はまとまりの題（文字列）で渡してください" % where)
         q.setdefault("type", "single")
         if q["type"] not in TYPES:
             raise SpecError("unknown_type", "%s: type は %s のいずれか" % (where, " / ".join(TYPES)))

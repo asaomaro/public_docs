@@ -49,7 +49,7 @@ let finished = false, extra = null;
 document.title = SPEC.title || '質問';
 form.resolveMedia = (ref) => ref;   // 定義の画像・音は、ask.py が配るもの（file/N）か URL に書き換えてある
 form.spec = SPEC;
-form.focus();                        // キー（Ctrl+Enter・ページ移動）が最初から部品に届くように
+form.focus();                        // キー（Ctrl+Enter・質問の移動）が最初から部品に届くように
 
 // ── 送る・閉じる ──
 function end(msg) {
@@ -100,15 +100,15 @@ function fit(tries) {
   // 開いた直後は寸法がまだ決まっていないことがあるので、決まるまで待つ
   if (innerHeight < 80 || outerHeight < innerHeight) {
     if ((tries || 0) < 20) setTimeout(() => fit((tries || 0) + 1), 50);
-    else form.relayout();   // 寸法が分からない開き方（ふつうのタブ）では、今の高さでページを分ける
+    else form.relayout();   // 寸法が分からない開き方（ふつうのタブ）では、今の高さで目次を出すかを決める
     return;
   }
   try {
     const frame = outerHeight - innerHeight;
-    const w = SPEC._width || outerWidth;
     const cap = Math.min(SPEC._maxHeight || 820, screen.availHeight - 40);
-    form.style.height = (cap - frame) + 'px';   // 使える最大の高さでページを分けてから、いちばん高いページに合わせて縮める
+    form.style.height = (cap - frame) + 'px';   // 使える最大の高さで目次を出すかを決めてから、中身の高さに合わせて縮める
     form.relayout();
+    const w = Math.min((SPEC._width || outerWidth) + form.indexWidth, screen.availWidth - 20);   // 目次が出たら、その分だけ幅を広げる
     const h = Math.min(form.contentHeight + frame + 2, cap);
     form.style.height = '';
     resizeTo(w, h);
