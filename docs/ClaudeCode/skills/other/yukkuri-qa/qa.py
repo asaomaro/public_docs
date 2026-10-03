@@ -6,7 +6,7 @@
   python3 qa.py 台本.txt --max-shots 36  # 撮る画面の数（既定 24。画面が替わる時刻から、まんべんなく選ぶ）
 
 測るもの: 構成（章の数と長さ・冒頭）、画面（絵のある割合・同じ画面の長さ・型に合う絵の種類）、字幕（長さ）、音（BGM・効果音の回数・声）、演技（表情の続き）、仕上げ。
-台本の中身（口調・掛け合い・事実）は yukkuri-script の check.py・review.md と fact-check が見る。ここで見るのは、作った動画そのもの。
+台本の中身（口調・掛け合い・事実）は yukkuri-kaisetsu の script_check.py・review.md と fact-check が見る。ここで見るのは、作った動画そのもの。
 """
 import argparse, json, os, re, sys
 
@@ -193,7 +193,7 @@ def measure(spec, meta, info, R):
 
     # ---- 仕上げ ----
     stem = meta["_stem"]
-    for name, what in ((".factcheck.md", "ファクトチェック（fact-check）"), (".review.md", "台本の見直し（yukkuri-script の review.md）")):
+    for name, what in ((".factcheck.md", "ファクトチェック（fact-check）"), (".review.md", "台本の見直し（yukkuri-kaisetsu の review.md）")):
         if not os.path.isfile(stem + name):
             R.add("warn", "仕上げ", "%s の結果（%s）がありません" % (what, os.path.basename(stem + name)))
     for k in ("title", "summary", "thumb"):

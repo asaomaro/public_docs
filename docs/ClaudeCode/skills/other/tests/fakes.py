@@ -23,7 +23,7 @@ from unittest import mock
 OTHER = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MV = os.path.join(OTHER, "motion-video")
 YK = os.path.join(OTHER, "yukkuri-kaisetsu")
-for d in (MV, YK, os.path.join(OTHER, "yukkuri-script"), os.path.join(OTHER, "yukkuri-qa"), os.path.join(OTHER, "fact-check")):
+for d in (MV, YK, os.path.join(OTHER, "yukkuri-qa"), os.path.join(OTHER, "fact-check")):
     if d not in sys.path:
         sys.path.insert(0, d)
 

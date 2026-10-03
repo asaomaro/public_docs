@@ -1,4 +1,4 @@
-"""確かめる道具が、実際に起きた失敗を見つけるか（motion-video の check.py・yukkuri-qa の qa.py・yukkuri-script の check.py・fact-check）。"""
+"""確かめる道具が、実際に起きた失敗を見つけるか（motion-video の check.py・yukkuri-qa の qa.py・yukkuri-kaisetsu の script_check.py・fact-check）。"""
 import os
 import unittest
 
@@ -62,11 +62,11 @@ class MotionCheck(unittest.TestCase):
 
 
 class ScriptCheck(unittest.TestCase):
-    """yukkuri-script の check.py（台本の検査）。"""
+    """yukkuri-kaisetsu の script_check.py（台本の検査）。"""
 
     def run_check(self, body):
         import importlib.util
-        p = os.path.join(fakes.OTHER, "yukkuri-script", "check.py")
+        p = os.path.join(fakes.YK, "script_check.py")
         sp = importlib.util.spec_from_file_location("ycheck_t", p)
         m = importlib.util.module_from_spec(sp)
         sp.loader.exec_module(m)
