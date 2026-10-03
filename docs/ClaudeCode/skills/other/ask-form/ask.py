@@ -19,6 +19,13 @@ Python3 の標準ライブラリだけで動く。ウィンドウは Chromium �
   ASK_FORM=off              ウィンドウを出さず、必ず unavailable を返す（画面の前に人がいない
                             マシンで動かすとき。例: 外からつなぐブラウザ版ターミナルのサーバー側）
   ASK_FORM_BROWSER=パス     使うブラウザを指定する
+  ASK_FORM_SODA=off         Sodashitsu の pane の中でも、sodactl ask を使わずにウィンドウを開く
+
+Sodashitsu（soda）の pane の中で動いているとき（SODA_PANE_ID があり sodactl が PATH にある）は、
+ウィンドウを開く前に sodactl ask へ渡し、その pane を見ているブラウザの画面にフォームを出す
+（ブラウザが別のマシンでも届く。ASK_FORM=off でも行う）。出せないとき——つながっているブラウザが無い・
+sodactl ask が対応していない型（edit・rank・table）や画像・音・コードのプレビューがある——は、
+今までどおりこのマシンのウィンドウへ進む。
   ASK_FORM_AWAY_SECONDS=秒  --away-after の既定（300）
   ASK_FORM_REACT_SECONDS=秒 --react-within の既定（90）
 """
@@ -375,6 +382,36 @@ def make_handler(state, token, page, files=()):
     return Handler
 
 
+# ── Sodashitsu の pane の中なら、その pane を見ているブラウザの画面に出す ─────
+SODA_TYPES = ("single", "multi", "text")   # sodactl ask が対応する型
+
+
+def ask_via_soda(spec, timeout):
+    """sodactl ask で聞く。結果（answered / cancelled / timeout）を返す。出せない・使わないときは None
+    （呼び出し側はウィンドウへ進む）。"""
+    if os.environ.get("ASK_FORM_SODA", "").lower() in ("off", "0", "no"):
+        return None
+    sodactl = shutil.which("sodactl")
+    if not sodactl or not os.environ.get("SODA_PANE_ID"):
+        return None
+    for q in spec["questions"]:
+        if q["type"] not in SODA_TYPES:
+            return None
+        # プレビューは sodactl ask では出ない。見比べて選ぶ質問なので、ウィンドウで聞く
+        if any(k in o for o in q.get("options", []) for k in ("image", "audio", "code")):
+            return None
+    try:
+        p = subprocess.run([sodactl, "ask", "--timeout", str(max(1, timeout) * 1000)],
+                           input=json.dumps(spec, ensure_ascii=False), capture_output=True, text=True,
+                           encoding="utf-8", timeout=timeout + 30)
+        result = json.loads(p.stdout.strip().splitlines()[-1]) if p.returncode == 0 else None
+    except (OSError, ValueError, IndexError, subprocess.TimeoutExpired):
+        return None
+    if not isinstance(result, dict) or result.get("status") not in ("answered", "cancelled", "timeout"):
+        return None   # unavailable（つながっているブラウザが無い等）・古い sodactl・サーバのエラー
+    return result
+
+
 def done(result):
     print(json.dumps(result, ensure_ascii=False))
     sys.exit(EXIT[result["status"]])
@@ -420,6 +457,16 @@ def main():
         print("OK: 質問 %d 件" % len(spec["questions"]))
         return
 
+    files = spec.pop("_files")
+    if spec.get("remember") and not args.selftest:
+        apply_remembered(spec)
+    if not args.selftest:
+        result = ask_via_soda(spec, args.timeout)
+        if result:
+            if result["status"] == "answered" and spec.get("remember"):
+                save_remembered(spec, result.get("answers") or {})
+            done(result)
+
     browser, why = find_browser()
     if not browser:
         done({"status": "unavailable", "reason": why})
@@ -431,9 +478,6 @@ def main():
             done({"status": "unavailable",
                   "reason": "このマシンの操作が %d 秒ありません（画面の前に人がいないとみて、ウィンドウを出しませんでした）" % idle})
 
-    files = spec.pop("_files")
-    if spec.get("remember") and not args.selftest:
-        apply_remembered(spec)
     if args.width is None:
         wide = any(q["type"] == "table" or q.get("preview") == "side"
                    or (q.get("preview") is None and any("code" in o for o in q.get("options", [])))
