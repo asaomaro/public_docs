@@ -352,7 +352,10 @@ def run(path, facts_path=None):
             for i, sh in enumerate(shots):
                 ls = S["lines"][sh["line"]:shots[i + 1]["line"] if i + 1 < len(shots) else None]
                 pics = sum(1 for it in sh["items"] if it.get("ref") or it.get("img") or it.get("icon") or it.get("part") or it.get("draw_ref") or it.get("draw"))
-                views.append({"kind": "絵" if pics else "言葉", "lines": ls, "sec": sum(l["sec"] + LINE_GAP for l in ls), "t0": ls[0]["t"] if ls else S["t0"], "text": board_text(sh)})
+                views.append({"kind": "絵" if pics else "言葉", "lines": ls, "sec": sum(l["sec"] + LINE_GAP for l in ls), "t0": ls[0]["t"] if ls else S["t0"], "text": board_text(sh),
+                              "refs": [it.get("ref") for it in sh["items"] if it.get("ref")], "ops": [it.get("op") for it in sh["items"] if it.get("op")],
+                              "cells": len([it for it in sh["items"] if not it.get("op")]), "title": bool(sh.get("title")), "no": ls[0]["no"] if ls else None,
+                              "ch": ls[0]["ch"] if ls else None})
         else:
             k = b.get("type") if isinstance(b, dict) else "言葉" if b else "なし"
             views.append({"kind": "絵" if k == "image" else k, "lines": S["lines"], "sec": S["sec"], "t0": S["t0"], "text": board_text(b) if b else ""})
@@ -381,6 +384,43 @@ def run(path, facts_path=None):
         per = len(L) / len(views)
         if per > 3.2:
             R.add("warn", "画面", "1 つの画面でせりふが平均 %.1f 個続きます（1〜3 個ごとに絵を替える）" % per)
+
+    # 6.5 絵の選び方（画面の採点で多かった指摘を、台本の段階で数える）
+    img_dir = os.path.join(base, meta.get("images", "images"))
+    cj = os.path.join(img_dir, "credits.json")
+    credits = json.load(open(cj, encoding="utf-8")) if os.path.isfile(cj) else {}
+    files = {os.path.splitext(f)[0]: f for f in os.listdir(img_dir)} if os.path.isdir(img_dir) else {}
+    src_of = lambda r: (credits.get(files.get(r, ""), {}) or {}).get("from") or ("描き下ろし" if files.get(r, "").endswith(".svg") and r not in credits else None)
+    STYLE = {"いらすとや": "いらすとや", "Fluent Emoji": "絵文字"}
+    uses = {}
+    for v in views:   # 茶番と最後の章（まとめ・オチ）は数えない。茶番の小道具をオチで出し直すのはよい
+        if v.get("ch") in (0 if chaban else -1, len(chapters) - 1):
+            continue
+        for r in v.get("refs", []):
+            uses.setdefault(r, []).append(v)
+    for r, vs in uses.items():   # 同じ絵の使い回し（本編で 3 回以上）
+        if len(vs) >= 3:
+            R.add("warn", "絵", "絵「%s」を本編で %d 回使っています（画面が同じに見える。3 回目からは別の絵か図にする）" % (r, len(vs)), vs[2].get("no"))
+    for v in views:   # 1 つの画面に、絵柄の違う絵（いらすとやと 3D の絵文字）を並べない
+        st = {STYLE.get(src_of(r)) for r in v.get("refs", [])} - {None}
+        if len(st) >= 2:
+            R.add("warn", "絵", "1 つの画面に、いらすとやの絵と絵文字の絵がまざっています（%s）。どちらかにそろえる" % "・".join(v["refs"]), v.get("no"))
+    allst = {}
+    for r in uses:
+        k = STYLE.get(src_of(r))
+        if k:
+            allst[k] = allst.get(k, 0) + 1
+    if len(allst) >= 2 and min(allst.values()) >= 3:
+        R.add("info", "絵", "いらすとや %d 点と絵文字 %d 点を使っています。1 本の中では、人・物の絵の絵柄をどちらかにそろえると、手本に近づく" % (allst.get("いらすとや", 0), allst.get("絵文字", 0)))
+    run, start = 0, None   # 「A → B」の 2 つを並べる構図が続く
+    for v in views + [{}]:
+        pair = v.get("cells") == 2 and v.get("ops") and not v.get("title")
+        if pair:
+            run, start = run + 1, start or v
+        else:
+            if run >= 3:
+                R.add("warn", "絵", "「A → B」の 2 つを並べた画面が %d 枚続きます。年表・図解（@draw）・1 枚の大きな絵・題の画面などをまぜる" % run, start.get("no"))
+            run, start = 0, None
 
     # 7. 読み
     try:

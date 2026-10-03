@@ -1801,7 +1801,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     else if (m === "strip") { ctx.fillStyle = "rgba(0,0,0,.9)"; ctx.fillRect(0, y, 1920, 1080 - y); }
   }
   /* 字幕の折り返し: 2 行になるときは、読点・句点・空白の後ろで折る（語の途中で折らない）。切れ目が無ければ、助詞の後ろ、それも無ければ幅で折る */
-  function capWrap(text, maxW, o) {
+  function capWrap(text, maxW, o, lim) {   /* lim: 語を 2 行目へ送るときの幅の上限（2 行をそろえるために狭く折るときは、本来の幅） */
     var lines = wrap(text, maxW, o); if (lines.length !== 2) return lines;
     var plain = String(text), best = -1, bestD = 1e9, total = tw(plain.replace(/\*\*/g, ""), o);
     var tryAt = function (re, pen) { var m; re.lastIndex = 0; while ((m = re.exec(plain))) { var i = m.index + m[0].length; if (i < 3 || i > plain.length - 3) continue;
@@ -1813,7 +1813,10 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     if (best < 0) {   /* 幅で折ったとき: 2 行目の頭の句読点・閉じかっこは 1 行目の終わりへ（行頭に「、」を置かない） */
       var m2 = /^[、。，．！？!?」』）)…ー]+/.exec(lines[1]); if (m2) { lines = [lines[0] + m2[0], lines[1].slice(m2[0].length)]; }
       var m3 = /[A-Za-z0-9.\-]+$/.exec(lines[0]);   /* 英字の語の直後で折れて、2 行目が助詞から始まるときは、英字の語ごと 2 行目へ */
-      if (m3 && /^[をのがにはでとへもや]/.test(lines[1]) && m3[0].length < lines[0].length - 2 && tw(m3[0] + lines[1], o) <= maxW) lines = [lines[0].slice(0, -m3[0].length), m3[0] + lines[1]];
+      if (m3 && /^[をのがにはでとへもや]/.test(lines[1]) && m3[0].length < lines[0].length - 2 && tw(m3[0] + lines[1], o) <= (lim || maxW)) lines = [lines[0].slice(0, -m3[0].length), m3[0] + lines[1]];
+      /* カタカナ語・英単語の途中で折れたとき（「フレームワー／ク」）は、語ごと 2 行目へ */
+      [[/[ァ-ヶー]+$/, /^[ァ-ヶー]/], [/[A-Za-z]+$/, /^[A-Za-z]/]].forEach(function (p) { var m4 = p[0].exec(lines[0]);
+        if (m4 && p[1].test(lines[1]) && m4[0].length < lines[0].length - 2 && tw(m4[0] + lines[1], o) <= (lim || maxW)) lines = [lines[0].slice(0, -m4[0].length), m4[0] + lines[1]]; });
       return lines; }
     return [plain.slice(0, best).trim(), plain.slice(best).trim()];
   }
@@ -1823,7 +1826,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var size = (TALK.size || (outline ? 56 : 46)) * (big ? 1.32 : 1), fam = TALK.font ? '"' + TALK.font + '",' + F.sans : F.sans, o = { size: size, weight: 800, font: fam };
     var maxW = outline ? 1180 : 1080, lines = capWrap(cur.text, maxW, o), lh = size * 1.3, ck = P(lt, 0, 200);
     /* 2 行目が数文字だけ残るときは、2 行の長さをそろえる */
-    if (lines.length === 2 && lines[1].replace(/\*\*/g, "").length <= 5) { var even = wrap(cur.text, Math.max(maxW * .5, tw(cur.text.replace(/\*\*/g, ""), o) * .58), o); if (even.length === 2) lines = even; }
+    if (lines.length === 2 && lines[1].replace(/\*\*/g, "").length <= 5) { var even = capWrap(cur.text, Math.max(maxW * .5, tw(cur.text.replace(/\*\*/g, ""), o) * .58), o, maxW); if (even.length === 2) lines = even; }
     lines = lines.slice(0, 2);
     var named = TALK.name === undefined ? !outline : TALK.name !== false, pk = big ? 1 + .22 * (1 - P(lt, 0, 240, back)) : 1, jx = big && lt < 300 ? 5 * Math.sin(lt / 20) * (1 - lt / 300) : 0;
     ctx.save(); ctx.globalAlpha *= ck;
@@ -1862,7 +1865,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       ctx.restore(); return; }
     var size2 = (TALK.size || (m === "band" ? 44 : 50)) * (big ? 1.25 : 1), o2 = { size: size2, weight: 800, font: fam }, lh2 = size2 * 1.3, y0 = capTop(), hh = 1080 - y0 - (m === "bar" ? 14 : 0);
     var lines = capWrap(cur.text, Math.min(TALK.capWidth || 1e9, m === "bar" ? 1500 : 1560), o2);
-    if (lines.length === 2 && lines[1].replace(/\*\*/g, "").length <= 5) { var even = wrap(cur.text, Math.max(700, tw(cur.text.replace(/\*\*/g, ""), o2) * .58), o2); if (even.length === 2) lines = even; }
+    if (lines.length === 2 && lines[1].replace(/\*\*/g, "").length <= 5) { var even = capWrap(cur.text, Math.max(700, tw(cur.text.replace(/\*\*/g, ""), o2) * .58), o2, Math.min(TALK.capWidth || 1e9, m === "bar" ? 1500 : 1560)); if (even.length === 2) lines = even; }
     lines = lines.slice(0, 2);
     var cy2 = y0 + hh / 2, base = cy2 - (lines.length - 1) * lh2 / 2 + size2 * .36;
     ctx.translate(960, cy2); ctx.scale(pk, pk); ctx.translate(-960, -cy2);
