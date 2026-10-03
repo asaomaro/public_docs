@@ -442,7 +442,7 @@ def min_seconds(s):
     elif t == "code":
         base += 2.2 * len(s.get("highlight", []))
     elif t == "end":
-        base += 0.8 * len(s.get("lines", [])) + 2.5
+        base += 2.0 if s.get("variant") == "credits" else 0.8 * len(s.get("lines", [])) + 2.5   # credits（掛け合いの動画の締め）は全部を一度に出すので、行の数では延ばさない（6 秒）
     elif t in ("cards", "timeline"):
         base += 1.0 * len(s.get("items", []))
     elif t == "chat":

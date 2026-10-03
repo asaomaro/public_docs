@@ -156,7 +156,7 @@ def parse_show(rest):
                 it["color"] = TEXT_COLORS.get(m.group(2), m.group(2))
             shot["items"].append(it)
             continue
-        m = re.match(r'^(\S+)(?:\s+"([^"]*)")?(?:\s*>\s*"([^"]*)")?(?:\s+(frame|noframe))?$', cell)
+        m = re.match(r'^(\S+)(?:\s+"([^"]*)")?(?:\s*>\s*"([^"]*)")?(?:\s+(frame|noframe))?(?:\s+(big))?$', cell)
         if not m:
             raise ValueError('「%s」（絵の名前 "名札" > "吹き出し"、"短い言葉"、→ などの記号 のどれかを | で区切る）' % cell)
         it = {"ref": m.group(1)}
@@ -167,6 +167,8 @@ def parse_show(rest):
                 it[k] = v
         if m.group(4):
             it["frame"] = m.group(4) == "frame"
+        if m.group(5):
+            it["big"] = True     # 画面いっぱいの写真の名札を、題のように大きく出す
         shot["items"].append(it)
     if not shot["items"]:
         raise ValueError("絵も言葉もありません")
@@ -712,6 +714,117 @@ VOICE_STYLES = {"angry": ["ツンツン", "おこ", "怒り"], "sad": ["なみ�
                 "love": ["あまあま"], "dizzy": ["ヘロヘロ"], "troubled+": ["ヘロヘロ", "なみだめ"], "smile+": ["よろこび", "喜び", "たのしい", "楽しい"], "surprised+": ["びっくり", "驚き"]}
 
 
+def carry_bg(meta, chapters):
+    """背景を場面へ配る: @bg を書いた場面から、次に @bg を書く場面まで同じ背景が続く。最初の @bg より前は、先頭の bg:。
+    （前は、@bg がその場面 1 つにしか効かず、次の場面から背景が無くなっていた）"""
+    last = meta.get("bg")
+    for ch in chapters:
+        for sc in ch["scenes"]:
+            if sc.get("bg"):
+                last = sc["bg"]
+            elif last:
+                sc["bg"] = last
+
+
+def bare_scenes(meta, chapters, base="."):
+    """背景の無い画面（白い地に絵だけが浮く画面）を数える。[(章の題, 最初のせりふ), …] を返す。carry_bg の後に呼ぶ。
+    背景があるとみなすもの: 場面の背景（bg）、紙の色の画面（図解の型）、画面いっぱいの写真（列挙・物語・比べるの型か photo: full で、写真 1 枚だけの @show）。"""
+    st = (STYLES.get(meta.get("style", "talk"), STYLES["talk"]).get("talk") or {}).get("stage") or {}
+    if st.get("plate") == "paper":
+        return []
+    full = st.get("photo") == "full" or meta.get("photo", "").strip() == "full" or meta.get("format", "").strip().lower() in ("short", "shorts", "ショート", "縦")
+
+    def is_photo(it):
+        if it.get("frame") is not None:
+            return bool(it["frame"])
+        ref = str(it.get("ref") or "")
+        if re.search(r"\.jpe?g$", ref, re.I):
+            return True
+        return any(os.path.isfile(os.path.join(base, d, ref + e)) for d in ("images", "") for e in (".jpg", ".jpeg", ".JPG"))
+
+    out = []
+    for ch in chapters:
+        for sc in ch["scenes"]:
+            if sc.get("bg") or sc.get("type") == "end":
+                continue
+            lines = [ln for ln in sc.get("lines", []) if isinstance(ln, dict) and ln.get("who")]
+            b = sc.get("board")
+            if not lines and not b:
+                continue
+            first = lines[0]["text"] if lines else ""
+            if isinstance(b, dict) and b.get("type") == "stage":
+                for sh in b.get("shots", []):
+                    cells = [it for it in sh.get("items", []) if "op" not in it]
+                    if full and len(cells) == 1 and (cells[0].get("ref") or cells[0].get("img")) and is_photo(cells[0]):
+                        continue
+                    ln = lines[sh["line"]]["text"] if sh.get("line") is not None and sh["line"] < len(lines) else first
+                    out.append((ch["title"], ln))
+            else:
+                out.append((ch["title"], first))
+    return out
+
+
+def _bgm_gain():
+    try:
+        import bgm_levels
+        return bgm_levels.gains()
+    except ImportError:
+        return {}
+
+
+BGM_GAIN = _bgm_gain()   # 曲の名前 → 音量に掛ける倍率（bgm_levels.py が測った表から。表に無い曲は 1）
+
+
+VOICE_TARGET = 0.089    # 声の大きさの目安（実効値。-21 dB）。話者ごとの平均をここへそろえる
+VOICE_PEAK = 0.95       # 倍率を掛けた後の、波形の山の上限（これを超える倍率にはしない。音が割れる）
+VOICE_LIMIT = (0.5, 2.5)
+
+
+def wav_rms(path):
+    """WAV（16 bit）の、（話している所の実効値, 波形の山）。0.1 秒ごとに見て、無音と息継ぎ（-45 dB より下・平均より 10 dB 以上小さい所）を除いて平均する。読めなければ 0。"""
+    import array, wave
+    try:
+        with wave.open(path, "rb") as w:
+            if w.getsampwidth() != 2:
+                return 0.0, 0.0
+            d = array.array("h", w.readframes(w.getnframes()))
+            win = max(1, w.getframerate() * w.getnchannels() // 10)
+    except (OSError, EOFError, wave.Error):
+        return 0.0, 0.0
+    peak = max((abs(x) for x in d), default=0) / 32768.0
+    blocks = [sum(x * x for x in d[i:i + win]) / win / 32768.0 ** 2 for i in range(0, len(d) - win + 1, win)]
+    loud = [b for b in blocks if b > 10 ** -4.5]
+    if not loud:
+        return 0.0, peak
+    m = sum(loud) / len(loud)
+    keep = [b for b in loud if b > m * .1]
+    return (sum(keep) / len(keep)) ** .5, peak
+
+
+def level_voices(spec):
+    """話者ごとの声の大きさをそろえる: その人のせりふ全部の実効値の平均を測り、VOICE_TARGET になる倍率を、せりふの volume に書く（engine.js が掛ける）。
+    話者によって、同じ設定でも 6 dB ほど大きさが違う。1 人の中の強弱（ささやき・叫び）は、そのまま残す。{話者: (測った dB, 倍率)} を返す。"""
+    import math
+    by = {}
+    for ch in spec["chapters"]:
+        for sc in ch["scenes"]:
+            for ln in talk_lines(sc):
+                if isinstance(ln.get("voice"), str) and os.path.isfile(ln["voice"]):
+                    by.setdefault(ln["who"], []).append(ln)
+    out = {}
+    for who, lines in by.items():
+        got = [x for x in (wav_rms(ln["voice"]) for ln in lines) if x[0] > 0]
+        if not got:
+            continue
+        rms, peak = (sum(v * v for v, _ in got) / len(got)) ** .5, max(p for _, p in got)
+        g = round(min(VOICE_LIMIT[1], VOICE_PEAK / peak if peak else 9, max(VOICE_LIMIT[0], VOICE_TARGET / rms)), 3)
+        out[who] = (20 * math.log10(rms), g)
+        if abs(g - 1) > .03:
+            for ln in lines:
+                ln["volume"] = round(ln.get("volume", 1) * g, 3)
+    return out
+
+
 def voicevox_lines(spec, url, outdir, pronounce, styles=True):
     """VOICEVOX でせりふの WAV を作る（同じ話者・同じ文は作り直さない）。作った数を返す。VOICEVOX との通信は motion-video の voice.py。"""
     sys.path.insert(0, os.path.join(HERE, "..", "motion-video"))
@@ -1126,12 +1239,15 @@ def to_spec(meta, chapters, cast, base):
     bg_credits, music_credits = meta.setdefault("_bg_credits", []), meta.setdefault("_music_credits", [])
     vol = float(meta.get("music_volume", .3))
 
+    level = meta.get("music_level", "on").lower() not in ("off", "no", "false")
+
     def music_of(name):
         e = BGMS.get(name) if isinstance(name, str) and not name.startswith("_") else None
+        key = name if e else None
         name = asset(name, BGMS, "bgm", base, music_credits)
         if not re.search(r"\.(mp3|m4a|ogg|wav)$", name, re.I):
             return name
-        d = {"file": name, "volume": vol}
+        d = {"file": name, "volume": round(vol * (BGM_GAIN.get(key, 1) if level else 1), 3)}   # 曲ごとの大きさをそろえる（bgm_levels.json）
         if e and e.get("loop") is True:   # ループ用に作られた曲はそのまま回す。ほかは、終わりのフェードの前で次の頭に重ねてつなぐ（motion-video）
             d["loop"] = True
         return d
@@ -1148,7 +1264,8 @@ def to_spec(meta, chapters, cast, base):
     spec = {"title": meta.get("title", "解説"), "description": meta.get("description", ""), "lang": "ja",
             "player": meta.get("player", "studio"), "theme": meta.get("theme", "daylight"), "castAlways": True,
             "transition": meta.get("transition", "slide"),
-            "audio": {"narration": True, "music": music, "duck": .35, "sfx": {"kit": meta.get("kit", "playful"), "density": meta.get("density", "low")},
+            "audio": {"narration": True, "music": music, "duck": .35, "sfx": {"kit": meta.get("kit", "playful"), "density": meta.get("density", "low"),
+                              "transitionVolume": float(meta.get("transition_volume", .6))},   # 章・場面の切り替えの音は、声と曲の上で目立つので 6 割に
                       "pronounce": json.loads(meta["pronounce"]) if meta.get("pronounce", "").startswith("{") else {}},
             "cast": cast, "chapters": chapters}
     if meta.get("motion"):
@@ -1175,8 +1292,9 @@ def to_spec(meta, chapters, cast, base):
         talk.setdefault("stage", {})["photo"] = "full"
     if talk["caption"] in ("bar", "band", "strip"):   # 置きっぱなしの字幕: 全身の立ち絵にかからない幅で折り返す
         wide = max([0] + [c["height"] * c["sprite"]["w"] / c["sprite"]["h"] for c in cast.values() if c.get("sprite") and not c.get("hidden") and c["sprite"]["h"] / c["sprite"]["w"] >= 1.3])
-        if wide:
-            talk["capWidth"] = int(1920 - 2 * (wide * .8 + 40))
+        if wide:   # 同じ側に 2 人以上立つと、2 人目は 0.75 人ぶん内側に出る（engine.js の drawCast）。多い側に合わせる
+            per = max([1] + [sum(1 for c in cast.values() if not c.get("hidden") and not c.get("cameo") and c.get("side", "left") == sd) for sd in ("left", "right")])
+            talk["capWidth"] = int(1920 - 2 * (wide * (.8 + .75 * (per - 1)) + 40))
     spec["talk"] = talk
     spec["chrome"] = False   # 章の表示は、左上の札（tag）で出す
     if not off("tags"):
@@ -1208,10 +1326,14 @@ def to_spec(meta, chapters, cast, base):
     spec["_image_paths"], missing = stage_images(meta, chapters, base)
     for ref in dict.fromkeys(missing):
         print("warn: @show の絵「%s」が見つかりません（illust.py get か fetch_images.py get で取る）。名前だけを文字で出します" % ref, file=sys.stderr)
+    carry_bg(meta, chapters)
+    bare = bare_scenes(meta, chapters, base)
+    if bare:
+        print("warn: 背景の無い画面が %d 枚あります（白い地に絵だけが浮く。例: 「%s」の「%s…」）。台本の先頭に bg: を書くか、その場面の前に @bg: を書く（名前は --list-assets）"
+              % (len(bare), bare[0][0], bare[0][1][:14]), file=sys.stderr)
+    meta["_bare"] = bare
     for ch in chapters:
         for sc in ch["scenes"]:
-            if meta.get("bg") and not sc.get("bg"):
-                sc["bg"] = meta["bg"]
             if sc.get("bg"):
                 sc["bg"] = asset(sc["bg"], BGS, "bg", base, bg_credits)
             b = sc.get("board")
@@ -1223,9 +1345,24 @@ def to_spec(meta, chapters, cast, base):
                 if e and not b.get("caption"):
                     b["caption"] = e.get("title", "")
     credits = make_credits(meta, cast, False)
-    if meta.get("end", "yes") != "no":
-        chapters.append({"title": "おわりに", "scenes": [{"type": "end", "title": meta.get("end_title", "ご視聴ありがとうございました"),
-                                                           "lines": credits[:9], "narration": ""}]})
+    short = talk.get("format") == "short"   # ショートには締めの画面（クレジット）を出さない。クレジットは <台本名>.info.json に出るので、概要欄に書く
+    if short and meta.get("end", "no") != "yes":
+        spec["endFade"] = int(float(meta.get("end_fade", 0.6)) * 1000)
+    elif meta.get("end", "yes") != "no":
+        # 締めの画面は、本編と同じ背景と立ち絵のまま出す（motion-video の既定の締め＝白い地に輪の印と箱の列 は、掛け合いの動画と作りが違いすぎる）
+        last_bg = next((sc.get("bg") for ch in reversed(chapters) for sc in reversed(ch["scenes"]) if sc.get("bg")), None)
+        end = {"type": "end", "variant": "credits", "title": meta.get("end_title", "ご視聴ありがとうございました"), "lines": credits, "narration": ""}
+        if last_bg:
+            end["bg"] = last_bg
+        if meta.get("end_seconds"):   # 締めの画面の長さ（既定 6 秒。YouTube の終了画面の枠を重ねるなら 10〜20 秒に）
+            end["duration"] = float(meta["end_seconds"])
+        ending = {"title": "おわりに", "scenes": [end]}
+        prev = chapters[-1] if chapters else {}
+        tail = next((sc["music"] for sc in reversed(prev.get("scenes", [])) if sc.get("music")), None) or prev.get("music")
+        if tail:   # 締めの曲を、クレジットの間もそのまま流す（曲が同じなら区切られない）。最後は endFade で映像と一緒に消える
+            ending["music"] = tail
+        chapters.append(ending)
+        spec["endFade"] = int(float(meta.get("end_fade", 2.0)) * 1000)   # 最後の 2 秒で、映像を黒へ・音を 0 へ（end_fade: 0 で切る）
     return spec, credits
 
 
@@ -1282,10 +1419,14 @@ def make_spec(script, voicevox=False, voicevox_url="http://127.0.0.1:50021", voi
         credits.append(sc_)
     last = spec["chapters"][-1]["scenes"][-1]
     if last.get("type") == "end":
-        last["lines"] = credits[:9]
+        last["lines"] = credits if last.get("variant") == "credits" else credits[:9]
     if voices_dir:
         used, have = assign_voice_files(spec, os.path.join(base, voices_dir) if not os.path.isabs(voices_dir) else voices_dir)
         print("WAV: %d 個をせりふに当てました（フォルダに %d 個）" % (used, have))
+    if meta.get("voice_level", "on").lower() not in ("off", "no", "false"):   # 話者ごとの声の大きさをそろえる
+        lv = level_voices(spec)
+        if lv:
+            print("声の大きさ: " + "／".join("%s %.1f dB → ×%.2f" % (spec["cast"].get(w, {}).get("name", w), d, g) for w, (d, g) in lv.items()))
     if compact_html:
         compact(spec, base, stem, voice_rate)
     import base64   # @show の絵は、名前の表（images）に 1 回ずつ埋め込む

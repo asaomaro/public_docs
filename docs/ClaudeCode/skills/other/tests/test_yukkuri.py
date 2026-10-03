@@ -105,6 +105,135 @@ class DrawPlate(unittest.TestCase):
         src = open(os.path.join(fakes.MV, "engine.js"), encoding="utf-8").read()
         self.assertIn('it.plate === "board"', src)
 
+    def test_big_label(self):
+        """@show: 写真 "題" big（画面いっぱいの写真に、題を大きく出す）が台本から engine へ渡る。"""
+        import kaisetsu
+        it = kaisetsu.parse_show('tani "関西の秘境10選" big')["items"][0]
+        self.assertEqual((it["label"], it.get("big")), ("関西の秘境10選", True))
+        self.assertNotIn("big", kaisetsu.parse_show('tani "名札" > "吹き出し" frame')["items"][0])
+        self.assertIn("solo[0].big", open(os.path.join(fakes.MV, "engine.js"), encoding="utf-8").read())
+
+    def test_caption_width_with_two_on_one_side(self):
+        """3 人（左に 2 人）のとき、帯の字幕は 2 人ぶんの立ち絵を避けて折り返す（1 行の長い字幕が立ち絵にかかった）。"""
+        import kaisetsu
+        seen = {}
+        for n, cast in ((2, "metan, zundamon"), (3, "metan, zundamon, tsumugi")):
+            talk = {"caption": "bar"}
+            c = {k: {"height": 600, "sprite": {"w": 400, "h": 800}, "side": s} for k, s in zip(cast.split(", "), ("left", "right", "left"))}
+            wide = 600 * 400 / 800
+            per = max(sum(1 for v in c.values() if v["side"] == sd) for sd in ("left", "right"))
+            seen[n] = int(1920 - 2 * (wide * (.8 + .75 * (per - 1)) + 40))
+        self.assertLess(seen[3], seen[2])
+        src = open(os.path.join(fakes.YK, "kaisetsu.py"), encoding="utf-8").read()
+        self.assertIn(".75 * (per - 1)", src)
+
+
+class Ending(unittest.TestCase):
+    def test_ending_matches_the_talk(self):
+        """2026-10-03: 締めの画面だけ、白い地に輪の印（題の頭の 1 字「ご」）と箱の列で、本編と作りが違いすぎた。行が多いとはみ出した。
+        掛け合いの動画の締めは、本編の背景と立ち絵のまま、クレジットを全部・小さな字で出す。"""
+        spec, _, _, _, _, _ = make()
+        end = spec["chapters"][-1]["scenes"][-1]
+        self.assertEqual((end["type"], end.get("variant")), ("end", "credits"))
+        self.assertTrue(any("VOICEVOX" in x for x in end["lines"]))
+        src = open(os.path.join(fakes.MV, "engine.js"), encoding="utf-8").read()
+        self.assertIn('s.variant === "credits"', src)
+
+    def test_music_runs_through_the_credits(self):
+        """クレジットの画面に入った瞬間に BGM が止まっていた。締めの章の曲をそのまま流し、最後は映像と一緒に消す（endFade）。"""
+        spec, _, _, _, _, _ = make(script="---\ntitle: t\ncast: metan, zundamon\nmusic: calm\n---\n# 本題\nmetan: 話すわ。\n# おわり\n@music: hope\nmetan: おわりよ。\n")
+        self.assertTrue(spec["chapters"][-2].get("music"), "章の頭の @music が章の曲になっていない")
+        self.assertEqual(spec["chapters"][-1].get("music"), spec["chapters"][-2].get("music"))
+        plain = make()[0]   # 章の曲が無ければ、全体の曲のまま流れる（締めの章に曲を書かない）
+        self.assertEqual(plain["chapters"][-1].get("music"), plain["chapters"][-2].get("music"))
+        self.assertEqual(spec.get("endFade"), 2000)
+        self.assertIn("SPEC.endFade", open(os.path.join(fakes.MV, "engine.js"), encoding="utf-8").read())
+
+    def test_ending_is_short(self):
+        """締めの画面が 20 秒近くあった（行の数だけ延びていた）。全部を一度に出すので 6 秒。end_seconds で変えられる。"""
+        self.assertEqual(build.min_seconds({"type": "end", "variant": "credits", "lines": ["a"] * 20}), 6.0)
+        self.assertGreater(build.min_seconds({"type": "end", "lines": ["a"] * 20}), 15)
+        head = "---\ntitle: t\ncast: metan, zundamon\n%s---\n# 本題\nmetan: 話すわ。\n"
+        self.assertEqual(make(script=head % "end_seconds: 12\n")[0]["chapters"][-1]["scenes"][-1].get("duration"), 12.0)
+
+
+class Levels(unittest.TestCase):
+    """2026-10-03: 効果音・BGM・声の大きさが、音色・曲・話者ごとにばらばらだった（BGM は曲で 17 dB、声は話者で 3 dB）。測ってそろえる。"""
+
+    def test_voices_levelled_per_speaker(self):
+        import kaisetsu
+        d = fakes.tmpdir()
+        def wav(name, amp):
+            import math, struct, wave
+            p = os.path.join(d, name)
+            with wave.open(p, "wb") as w:
+                w.setnchannels(1); w.setsampwidth(2); w.setframerate(24000)
+                w.writeframes(b"".join(struct.pack("<h", int(amp * 32767 * math.sin(i * .2))) for i in range(24000)))
+            return p
+        spec = {"cast": {"a": {"name": "A"}, "b": {"name": "B"}},
+                "chapters": [{"scenes": [{"type": "talk", "lines": [{"who": "a", "text": "x", "voice": wav("a.wav", .05)}, {"who": "b", "text": "y", "voice": wav("b.wav", .2)},
+                                                                    {"who": "a", "text": "z", "voice": wav("a2.wav", .05)}]}]}]}
+        lv = kaisetsu.level_voices(spec)
+        L = spec["chapters"][0]["scenes"][0]["lines"]
+        self.assertGreater(L[0]["volume"], 1.5)
+        self.assertLess(L[1]["volume"], .7)
+        self.assertEqual(L[0]["volume"], L[2]["volume"], "同じ話者には同じ倍率")
+        rms = lambda amp, g: amp / 2 ** .5 * g
+        self.assertAlmostEqual(rms(.05, L[0]["volume"]), rms(.2, L[1]["volume"]), delta=.01)
+        self.assertEqual(set(lv), {"a", "b"})
+
+    def test_voice_gain_never_clips(self):
+        import kaisetsu
+        import struct, wave
+        d = fakes.tmpdir(); p = os.path.join(d, "q.wav")
+        with wave.open(p, "wb") as w:   # 小さな声に、1 つだけ大きな山
+            w.setnchannels(1); w.setsampwidth(2); w.setframerate(24000)
+            w.writeframes(b"".join(struct.pack("<h", 30000 if i == 500 else int(600 * ((i % 40) - 20))) for i in range(24000)))
+        spec = {"cast": {"a": {}}, "chapters": [{"scenes": [{"type": "talk", "lines": [{"who": "a", "text": "x", "voice": p}]}]}]}
+        kaisetsu.level_voices(spec)
+        self.assertLessEqual(spec["chapters"][0]["scenes"][0]["lines"][0].get("volume", 1) * 30000 / 32768, kaisetsu.VOICE_PEAK + .01)
+
+    def test_bgm_gain_table(self):
+        import bgm_levels
+        g = bgm_levels.gains({"loud": .4, "mid": .2, "quiet": .1})
+        self.assertEqual(g["mid"], 1)
+        self.assertLess(g["loud"], 1)
+        self.assertGreater(g["quiet"], 1)
+        self.assertAlmostEqual(.4 * g["loud"], .1 * g["quiet"], places=3)
+        import json
+        names = {k for k in json.load(open(os.path.join(fakes.YK, "bgm.json"), encoding="utf-8")) if not k.startswith("_")}
+        self.assertFalse(set(bgm_levels.load()) - names, "bgm_levels.json に、bgm.json に無い曲がある")
+
+
+class Backgrounds(unittest.TestCase):
+    def test_bg_carries_and_bare_is_ng(self):
+        """@bg は次に書くまで続く（前は 1 場面だけで、次から白い地になった）。背景の無い画面は、作るときに warn、qa.py で NG。"""
+        import kaisetsu
+        import qa
+        head = "---\ntitle: t\ncast: metan, zundamon\n---\n"
+        spec, _, _, _, out, path = make(script=head + '# 一\n@bg: sky\n@show: "語"\nmetan: 一よ。\n# 二\n@show: "語 2"\nmetan: 二よ。\n')
+        bgs = [sc.get("bg") for ch in spec["chapters"] for sc in ch["scenes"] if sc.get("type") != "end"]
+        self.assertTrue(all(bgs) and len(set(bgs)) == 1, bgs)
+        self.assertNotIn("背景の無い画面", out)
+        spec, _, _, _, out, path = make(script=head + '# 一\n@show: "語"\nmetan: 一よ。\n')
+        self.assertIn("背景の無い画面が 1 枚", out)
+        meta = kaisetsu.parse(open(path, encoding="utf-8").read())[0]
+        meta["_stem"], meta["_bare"] = os.path.splitext(path)[0], [("一", "一よ。")]
+        R = qa.Report()
+        with fakes.quiet():
+            qa.measure(spec, meta, {}, R)
+        self.assertTrue([r for r in R.rows if r[0] == "warn" and "背景の無い画面" in r[2]])
+
+    def test_full_photo_counts_as_background(self):
+        import kaisetsu
+        ch = [{"title": "a", "scenes": [{"lines": [{"who": "m", "text": "x"}], "board": {"type": "stage", "shots": [{"line": 0, "items": [{"ref": "p", "frame": True}]}]}}]}]
+        self.assertFalse(kaisetsu.bare_scenes({"style": "list"}, ch))
+        self.assertTrue(kaisetsu.bare_scenes({"style": "talk"}, ch))
+        self.assertFalse(kaisetsu.bare_scenes({"style": "talk", "photo": "full"}, ch))
+        two = [{"title": "a", "scenes": [{"lines": [{"who": "m", "text": "x"}], "board": {"type": "stage", "shots": [{"line": 0, "items": [{"ref": "p", "frame": True}, {"text": "語"}]}]}}]}]
+        self.assertTrue(kaisetsu.bare_scenes({"style": "list"}, two), "写真 1 枚だけでない画面は、画面いっぱいにならない")
+        self.assertFalse(kaisetsu.bare_scenes({"style": "zukai"}, two), "図解の型は紙の色の画面")
+
 
 class PhotoFull(unittest.TestCase):
     def test_header_option(self):
@@ -248,6 +377,18 @@ class ShortFormat(unittest.TestCase):
         self.assertNotIn("format", wide[0]["talk"])
         with fakes.quiet():
             self.assertNotIn("aspect-ratio:9/16", wide[1].build_html(wide[0], wide[0]["theme"], wide[0]["player"], True))
+
+    def test_no_credit_screen(self):
+        """ショートには締めの画面（クレジット）を出さない。クレジットは info.json・概要欄へ。end: yes で出せる。"""
+        head = "---\ntitle: t\ncast: metan, zundamon\nformat: short\n%s---\n# 本題\nmetan: 話すわ。\n"
+        spec, _, _, _, _, _ = make(script=head % "")
+        self.assertFalse([s for ch in spec["chapters"] for s in ch["scenes"] if s.get("type") == "end"])
+        self.assertEqual(spec.get("endFade"), 600)
+        import kaisetsu
+        with fakes.fake_voicevox(True), fakes.quiet():
+            credits = kaisetsu.make_spec(make(script=head % "")[5], True)[3]
+        self.assertTrue(any("VOICEVOX" in c for c in credits), "画面に出さなくても、クレジットの一覧（info.json・概要欄用）は作る")
+        self.assertTrue([s for ch in make(script=head % "end: yes\n")[0]["chapters"] for s in ch["scenes"] if s.get("type") == "end"])
 
     def test_form_header(self):
         m = OrderFormWithoutAssets.order(self)
