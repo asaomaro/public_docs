@@ -1224,6 +1224,10 @@ def build_embed(spec, theme_key, player, export=True, engine_export=None):
                engine_js(export if engine_export is None else engine_export)))
 
 
+SHORT_CSS = (".mv-stage{aspect-ratio:9/16!important;width:min(100%,calc(86vh*9/16));margin:0 auto}"
+             ".mv-player:fullscreen .mv-stage{width:min(100vw,56.25vh)!important;max-height:100vh}")
+
+
 def build_html(spec, theme_key, player, export=True):
     """1 ページの HTML。export=False は配布用（設定の書き出しと、その実行部を除いて小さくする）。"""
     title = spec.get("title") or "動画"
@@ -1232,10 +1236,12 @@ def build_html(spec, theme_key, player, export=True):
     keys = ('<p class="mv-keys"><kbd>Space</kbd> 再生・一時停止　<kbd>S</kbd> 停止　<kbd>←</kbd><kbd>→</kbd> 5 秒　<kbd>J</kbd><kbd>L</kbd> 10 秒　'
             '<kbd>0</kbd>〜<kbd>9</kbd> 0〜90%　<kbd>[</kbd><kbd>]</kbd> チャプター　<kbd>&lt;</kbd><kbd>&gt;</kbd> 速度　<kbd>C</kbd> 字幕　'
             '<kbd>M</kbd> 音声　<kbd>↑</kbd><kbd>↓</kbd> 音量　<kbd>F</kbd> 全画面</p>')
+    short = (spec.get("talk") or {}).get("format") == "short"   # 縦の画面（ショート）: 舞台を 9:16 にする（描くのは engine.js の drawVert）
+    css = PAGE_CSS + (SHORT_CSS if short else "")
     return ("<!doctype html>\n<html lang=\"%s\"><head><meta charset=\"utf-8\">"
             "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>%s</title>"
             "<style>%s%s</style></head><body><main class=\"mv-page\">%s%s%s</main><script>%s</script></body></html>\n"
-            % (html.escape(spec.get("lang", "ja")), html.escape(title), PAGE_CSS, player_css(), head,
+            % (html.escape(spec.get("lang", "ja")), html.escape(title), css, player_css(), head,
                build_fragment(spec, theme_key, player, "mv", export), keys if player != "kiosk" else "", engine_js(export)))
 
 

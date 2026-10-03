@@ -1166,6 +1166,11 @@ def to_spec(meta, chapters, cast, base):
     if off("se"):
         talk["sfx"] = False
     talk.update(json.loads(json.dumps(STYLES[meta.get("style", "talk")]["talk"])))
+    if meta.get("format", "").strip().lower() in ("short", "shorts", "ショート", "縦"):
+        # 縦の画面（ショート・1080×1920）。engine.js の drawVert が、題・絵・字幕・立ち絵を縦に組み直す。絵は横の画面の中央 1080 だけが映るので、並べる幅をせばめ、写真は画面いっぱいに出す
+        talk["format"] = "short"
+        talk["stageWidth"] = 980
+        talk.setdefault("stage", {})["photo"] = "full"
     if meta.get("photo", "").strip() == "full":   # 写真 1 枚だけの画面を、画面いっぱいに出す（どの型でも。立ち絵と絵の配置に変化が付く）
         talk.setdefault("stage", {})["photo"] = "full"
     if talk["caption"] in ("bar", "band", "strip"):   # 置きっぱなしの字幕: 全身の立ち絵にかからない幅で折り返す
@@ -1349,7 +1354,7 @@ def facing_sheet(out):
     print("OK : %s（左の列は画面の左に、右の列は画面の右に置いたときの姿。両方とも内側＝画面の中央を向いていればよい）" % out)
 
 
-def take_shots(html, times, outdir):
+def take_shots(html, times, outdir, size=None):
     """作った HTML を Chrome（画面なし）で開き、その時刻へ動かして、映像だけを 1280×720 の PNG に撮る。"""
     import shutil, subprocess, tempfile
     chrome = next((c for c in ("google-chrome", "chromium", "chromium-browser", "chrome") if shutil.which(c)), None)
@@ -1358,6 +1363,7 @@ def take_shots(html, times, outdir):
         return
     os.makedirs(outdir, exist_ok=True)
     src = open(html, encoding="utf-8").read()
+    size = size or ("720,1280" if '"format": "short"' in src or '"format":"short"' in src else "1280,720")   # 縦の画面（ショート）は縦に撮る
     for t in times:
         sec = sum(float(x) * 60 ** i for i, x in enumerate(reversed(t.strip().split(":"))))
         hook = ('<style>.mv-stage{position:fixed!important;inset:0!important;z-index:99999!important;max-width:none!important;width:100vw!important;height:100vh!important}</style>'
@@ -1367,7 +1373,7 @@ def take_shots(html, times, outdir):
         png = os.path.join(outdir, "%07.2f.png" % sec)
         try:
             for budget in (6000, 9000, 12000):   # 画面なしの Chrome は、ときどき白い画面を撮る。白ければ（PNG が小さければ）撮り直す
-                subprocess.run([chrome, "--headless=new", "--no-sandbox", "--hide-scrollbars", "--window-size=1280,720", "--virtual-time-budget=%d" % budget,
+                subprocess.run([chrome, "--headless=new", "--no-sandbox", "--hide-scrollbars", "--window-size=" + size, "--virtual-time-budget=%d" % budget,
                                 "--screenshot=" + png, "file://" + f.name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
                 if os.path.isfile(png) and os.path.getsize(png) > 20000:
                     break

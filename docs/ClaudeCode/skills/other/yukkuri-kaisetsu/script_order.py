@@ -13,7 +13,8 @@
 前回の回答は次回の既定になる（テーマと自由記述は持ち越さない）。
 終了コード: 0 回答あり / 2 キャンセル / 3 ウィンドウを出せない（AskUserQuestion で聞き直す。--spec の質問を分けて使う） / 4 時間切れ
 """
-import argparse, json, os, subprocess, sys
+import argparse
+import re, json, os, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CHARS = os.path.join(HERE, "chars")   # 集めた立ち絵（リポジトリには入らない）
@@ -105,10 +106,13 @@ def build_spec(theme=""):
          "help": "1 本で答えられる問いか、題材の名前。広すぎるとき（「歴史について」）は、切り口を 3 つ出して選んでもらう"},
         {"id": "angle", "label": "切り口・入れてほしいこと（任意）", "type": "text", "multiline": True, "remember": False,
          "help": "見る人・言いたい結論・入れたい話・避けたい話など。空なら調べて決める"},
-        {"id": "length", "label": "長さ", "default": "5", "options": [
-            {"value": "1", "label": "ショート（1 分）", "desc": "縦の画面はまだ作れない（横で 1 分）"},
+        {"id": "length", "label": "長さ", "default": "auto",
+         "help": "〇選・ランキングは、項目 1 つに 40 秒〜2 分半かかる（5 選なら 5〜10 分、10 選なら 10〜15 分以上）。物語・事件は 1 章に 4〜5 分。合わないときは、作る前に確かめる",
+         "options": [
+            {"value": "auto", "label": "おまかせ", "desc": "題から決める。〇選・ランキングは項目 1 つ 1 分で（10 選なら 12 分）、物語・寸劇は 10 分、ほかは 5 分", "recommended": True},
+            {"value": "1", "label": "ショート（縦の画面・1 分）", "desc": "縦 9:16 で作る（YouTube ショート・TikTok 向け）。問い 1 つに答えるだけ。茶番は入れない"},
             {"value": "3", "label": "3 分", "desc": "1 つの問いに答える"},
-            {"value": "5", "label": "5 分", "desc": "既定。答え＋理由＋広がり", "recommended": True},
+            {"value": "5", "label": "5 分", "desc": "答え＋理由＋広がり"},
             {"value": "10", "label": "10 分", "desc": "手本の動画の多くはこのくらいから（途中の広告は 8 分から）"},
             {"value": "15", "label": "15 分以上", "desc": "列挙 5〜7 個・物語 4〜6 章"}]},
         {"id": "style", "label": "動画の型（画面の作り）", "default": "auto", "options": style_opts},
@@ -184,10 +188,12 @@ def header(a):
         cast.append(a["narrator"]); h["narrator"] = a["narrator"]
     h["cast"] = ", ".join(dict.fromkeys(c for c in cast if c))
     h["roles"] = "%s=解説, %s=聞き手" % (a["explainer"], a["listener"])
-    h["length"] = {"15": "15"}.get(a["length"], a["length"])
+    h["length"] = str(resolve_length(a))
+    if h["length"] == "1":
+        h["format"] = "short"                # 縦の画面（1080×1920）
     if a.get("style") and a["style"] != "auto":
         h["style"] = a["style"]
-    if a.get("intro") == "chaban":
+    if a.get("intro") == "chaban" and h["length"] != "1":
         h["intro"] = "chaban"
     h["speed"] = a.get("speed", "1.15")
     if a.get("music") == "pick" and a.get("track"):
@@ -203,9 +209,72 @@ def header(a):
     return h
 
 
+KANSUJI = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+COUNT_RE = re.compile(r"(?:ベスト|トップ|TOP|Top|top|ワースト)\s*(\d{1,3})|(\d{1,3}|[一二三四五六七八九十]{1,3})\s*(?:選|大|位|傑|か所|ヶ所|カ所|箇所|つの|個の|本の|人の|種の|か条|ヶ条)")
+LENGTHS = (1, 3, 5, 10, 15)                 # フォームで選べる長さ（分）
+ITEM_SEC = (40, 150)                        # 項目 1 つの長さ（秒）。下は 3 分の台本の「本題 1 つ 40 秒」（patterns.md の 1）、上は手本の中央値（yukkuri-qa の norms.json の list）
+FRAME_SEC = 60                              # 冒頭（茶番・オープニング）と締めの分
+
+
+def item_count(theme):
+    """題から、並べる項目の数を読む（「関西の秘境10選」→ 10、「三大がっかり名所」→ 3）。読めなければ 0。"""
+    m = COUNT_RE.search(theme or "")
+    if not m:
+        return 0
+    s = m.group(1) or m.group(2)
+    if s.isdigit():
+        return int(s)
+    n = 0
+    for ch in s:                            # 十二 → 12、二十 → 20
+        n = (n or 1) * 10 if ch == "十" else n + KANSUJI[ch]
+    return n
+
+
+AUTO_ITEM_SEC = 60                          # おまかせのときの、項目 1 つの長さ（秒）
+
+
+def auto_length(theme, style="", intro=""):
+    """長さ「おまかせ」→ 分。題に項目の数があれば 1 つ 1 分で（10 選 → 12 分）、物語・寸劇は 10 分、ほかは 5 分。"""
+    n = item_count(theme)
+    if n >= 2:
+        frame = FRAME_SEC + (30 if intro == "chaban" else 0)
+        return max(3, min(-(-(n * AUTO_ITEM_SEC + frame) // 60), 30))
+    return 10 if style in ("story", "geki") else 5
+
+
+def resolve_length(a):
+    """回答の長さ（分）。「おまかせ」は auto_length で決める。"""
+    v = a.get("length") or "auto"
+    return auto_length(a.get("theme"), a.get("style"), a.get("intro")) if v == "auto" else v
+
+
+def length_fit(theme, length, intro=""):
+    """題の項目の数と長さが合っているか。合わなければ、どう直すかまで言う 1 文を返す（合っていれば ""）。"""
+    n = item_count(theme)
+    try:
+        minutes = float(length)
+    except (TypeError, ValueError):
+        return ""
+    if n < 2 or not minutes:
+        return ""
+    frame = FRAME_SEC + (30 if intro == "chaban" else 0)
+    per = (minutes * 60 - frame) / n
+    if per >= ITEM_SEC[0]:
+        return ""
+    need = next((m for m in LENGTHS if (m * 60 - frame) / n >= ITEM_SEC[0]), 0)
+    fits = max(int((minutes * 60 - frame) // ITEM_SEC[0]), 1)
+    grow = "直すなら、%d 分にする" % need if need else "直すなら、15 分より長くする（%d 個なら約 %d 分）" % (n, -(-(n * ITEM_SEC[0] + frame) // 60))
+    return ("長さが足りない: %d 個を %s 分に収めると、1 つ約 %d 秒（写真 2〜3 枚と事実 2〜3 個で次へ進む。目安は 1 つ %d 秒〜%d 分半）。"
+            "%s。または、項目を %d 個に減らす。作り始める前に、どちらにするかを確かめる"
+            % (n, length, max(per, 0), ITEM_SEC[0], ITEM_SEC[1] // 60, grow, fits))
+
+
 def warnings(a):
     """答えどうしの食い違い（作る前に、使う人に伝える）。"""
     w = []
+    fit = length_fit(a.get("theme"), resolve_length(a), a.get("intro"))
+    if fit:
+        w.append(fit)
     J = load(os.path.join(HERE, "bgm.json"))
     t = J.get(a.get("track") or "", {})
     if a.get("music") == "pick" and t.get("embed") is False and a.get("use") == "artifact":
@@ -214,8 +283,8 @@ def warnings(a):
         w.append("収益化する動画: いらすとやは 1 本 20 点まで。ゆっくりボイス（AquesTalk）は使用ライセンスが要る。立ち絵・BGM・背景の規約を確かめる（assets.md の確認表）")
         if "reimu" in (a.get("explainer"), a.get("listener"), a.get("third"), a.get("cameo"), a.get("narrator")) or "marisa" in (a.get("explainer"), a.get("listener")):
             w.append("霊夢・魔理沙（きつねゆっくり）は、商用は事前の許諾と有償ライセンスが要る（個人の広告収益は無償の範囲）")
-    if a.get("length") == "1":
-        w.append("ショート（縦の画面）はまだ作れない。横の 1 分で作る")
+    if str(a.get("length")) == "1" and a.get("intro") == "chaban":
+        w.append("ショート（1 分）には茶番を入れない（patterns.md の 2.5）。すぐ本題に入る")
     if a.get("explainer") == a.get("listener"):
         w.append("解説役と聞き手が同じ人になっている")
     e = a.get("ensemble", "pair")
@@ -231,7 +300,12 @@ def main():
     ap.add_argument("--theme", default="")
     ap.add_argument("--out", default="order.json")
     ap.add_argument("--spec", action="store_true", help="質問の定義を出すだけ")
+    ap.add_argument("--fit", metavar="分", help="フォームを出さずに、--theme の項目の数と長さ（分）が合うかだけを確かめる（合わなければ終了コード 1）")
     a = ap.parse_args()
+    if a.fit:
+        msg = length_fit(a.theme, a.fit)
+        print(msg or "OK : 長さは足りる（題に項目の数が無いときも OK）")
+        sys.exit(1 if msg else 0)
     spec = build_spec(a.theme)
     if a.spec:
         print(json.dumps(spec, ensure_ascii=False, indent=1))
