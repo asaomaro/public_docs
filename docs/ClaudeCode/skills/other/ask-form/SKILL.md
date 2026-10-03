@@ -241,7 +241,7 @@ JSON
 
 `SODA_PANE_ID` があり `sodactl` が PATH にあるときは、ウィンドウを開く前に `sodactl ask` へ渡し、**その pane を見ているブラウザの画面**に
 フォームを出す（ブラウザが別のマシンでも届く。新しいウィンドウは開かない。`ASK_FORM=off` でも行う）。結果と終了コードは同じ。
-ページ分け（`page`・`paging`）はこの出し方には効かない（Sodashitsu 側の画面が、質問を上から順に並べる）。
+ページ分け（`page`・`paging`）は、Sodashitsu が部品（`ask-form.js`）を取り込んだ版から効く。それより前の版では、質問が上から順に 1 枚に並ぶ。
 
 - 次のときは `sodactl ask` を使わず、今までどおりこのマシンのウィンドウへ進む（出せなければ `unavailable`）:
   つながっているブラウザが無い／`edit`・`rank`・`table` の質問がある／選択肢に `image`・`audio`・`code` がある／`sodactl` が古い・サーバのエラー。
