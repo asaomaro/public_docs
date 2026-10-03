@@ -1249,6 +1249,17 @@ def make_spec(script, voicevox=False, voicevox_url="http://127.0.0.1:50021", voi
     途中の台本は <台本名>.json、章の時刻とクレジットは <台本名>.info.json に書く。"""
     meta, spec, cast, credits, base = load_spec(script)
     stem = os.path.splitext(os.path.abspath(script))[0]
+    # --voicevox を付け忘れると、声の無い HTML（ブラウザの読み上げ＝別人の声）で上書きしてしまう。VOICEVOX が動いていれば、付けなくても声を入れる（作り済みは使い回すので速い）
+    wants = [w for w, c in cast.items() if ((c.get("voice") or {}).get("engine") in ("voicevox", "aquestalk"))]
+    if not voicevox and wants and not voices_dir:
+        import urllib.request
+        try:
+            urllib.request.urlopen(voicevox_url.rstrip("/") + "/version", timeout=3).read()
+            voicevox = True
+            print("VOICEVOX が動いているので、声を入れます（--voicevox を付けたのと同じ）")
+        except OSError:
+            print("warn: VOICEVOX につながらないので、%s の声が入りません。この HTML はブラウザの読み上げ（別人の声）で話します。"
+                  "VOICEVOX を起動して作り直してください" % "・".join(cast[w].get("name", w) for w in wants), file=sys.stderr)
     if voicevox:
         n = voicevox_lines(spec, voicevox_url, stem + "_voices", spec["audio"]["pronounce"], meta.get("voice_style", "auto").lower() not in ("off", "no", "false"))
         print("VOICEVOX: %d 個のせりふの声を作りました（作り済みは使い回し）" % n)

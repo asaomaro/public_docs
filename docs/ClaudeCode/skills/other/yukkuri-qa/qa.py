@@ -170,6 +170,13 @@ def measure(spec, meta, info, R):
     R.stat("音", "声", "%d / %d せりふに声のファイル" % (voiced, len(lines)))
     if voiced < len(lines):
         R.add("warn", "音", "声のファイルが無いせりふが %d 個あります（ブラウザの読み上げになり、録画に入らない。--voicevox で作る）" % (len(lines) - voiced))
+    html = meta["_stem"] + ".html"   # ここで数えたのは組み直した台本。配る HTML に声が入っているかは、HTML そのものを数える（声なしで上書きしたことがある）
+    if voiced and os.path.isfile(html):
+        inside = open(html, encoding="utf-8", errors="ignore").read()
+        inside = len(re.findall(r"data:audio/(?:x-)?wav", inside))
+        R.stat("音", "HTML の中の声", "%d 個" % inside)
+        if inside < voiced * .9:
+            R.add("warn", "音", "%s に声が %d 個しか入っていません（せりふは %d）。ブラウザの読み上げ（別人の声）になります。VOICEVOX を起動して kaisetsu.py で作り直す" % (os.path.basename(html), inside, voiced))
 
     # ---- 仕上げ ----
     stem = meta["_stem"]
