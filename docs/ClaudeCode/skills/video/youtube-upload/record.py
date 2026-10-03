@@ -30,7 +30,8 @@ MV = find_motion_video()
 if MV and MV not in sys.path:
     sys.path.insert(0, MV)
 
-FLAGS = ["--autoplay-policy=no-user-gesture-required", "--allow-file-access-from-files"]
+FLAGS = ["--autoplay-policy=no-user-gesture-required", "--allow-file-access-from-files",
+         "--disable-component-update", "--disable-background-networking"]   # 録っている間に、Chrome が自分の部品を取りに行かないように
 PROBE = """<!doctype html><meta charset="utf-8"><style>html,body{margin:0;background:#000;height:100%%;overflow:hidden}video{width:100vw;height:100vh;object-fit:contain}</style>
 <video id="v" src="%s" preload="auto"></video>"""
 
@@ -70,7 +71,8 @@ def record(b, html, out, opt=None, log=say):
         t0, last, f0, info = time.time(), -1, None, {"dur": dur, "audio": False}
         while True:
             time.sleep(1)
-            done = [f for f in glob.glob(os.path.join(tmp, "*")) if not f.endswith(".crdownload")]
+            # 動画のファイルだけを見る（Chrome が自分の部品を同じ場所へ落とすことがあり、それを録画と取り違えた: CI で 33MB の CRX を拾った）
+            done = [f for f in glob.glob(os.path.join(tmp, "*")) if os.path.splitext(f)[1].lower() in (".webm", ".mp4")]
             if done:
                 break
             st = b.eval("({t:__MV__.t,f:window.__f,w:document.querySelector('.mv-player canvas').width,h:document.querySelector('.mv-player canvas').height,"

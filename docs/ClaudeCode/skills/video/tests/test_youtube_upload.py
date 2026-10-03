@@ -347,6 +347,13 @@ class Record(unittest.TestCase):
         with fakes.quiet():
             open(html, "w", encoding="utf-8").write(build.build_html(build.load(path), "midnight", "studio", True))
         b = shoot.Browser(chrome, (1280, 720), record.FLAGS)
+        real = b.call
+
+        def call(method, session=None, **params):   # Chrome が、保存先に自分のファイルを落としたことにする（CI で、部品の CRX を録画と取り違えた）
+            if method == "Browser.setDownloadBehavior":
+                open(os.path.join(params["downloadPath"], "downloads.html"), "wb").write(b"Cr24....")
+            return real(method, session, **params)
+        b.call = call
         try:
             sel = lambda: b.eval("[].map.call(document.querySelectorAll('select[data-mv^=rec]'),function(e){return e.getAttribute('data-mv')+'='+e.value}).join(' ')")
             b.open(html)
@@ -354,10 +361,8 @@ class Record(unittest.TestCase):
             info = record.record(b, html, out, None, log=lambda *a: None)   # 何も付けずに押す = プレイヤーの既定で録る
             got = record.probe(b, out, os.path.join(d, "r.png"), .5)
             small = os.path.join(d, "s.webm")
-            info2 = record.record(b, html, small, {"size": "720", "bps": 1, "fps": "30", "abps": 128, "fmt": "vp8"}, log=lambda *a: None)
+            record.record(b, html, small, {"size": "720", "bps": 1, "fps": "30", "abps": 128, "fmt": "vp8"}, log=lambda *a: None)
             got2 = record.probe(b, small, os.path.join(d, "s.png"), .5)
-            if got2 is None:
-                sys.stderr.write("DIAG small=%d bytes head=%r info=%r\n" % (os.path.getsize(small), open(small, "rb").read(64), info2))
         finally:
             b.close()
         self.assertEqual((got["w"], got["h"]), (1920, 1080))   # 既定は 1920×1080（前は 1280×720 に決め打ちだった）
