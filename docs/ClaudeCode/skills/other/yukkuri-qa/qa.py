@@ -147,12 +147,19 @@ def measure(spec, meta, info, R):
 
     # ---- 音 ----
     music = (spec.get("audio") or {}).get("music")
-    tracks = {json.dumps(sc.get("music"), sort_keys=True) for ch in spec["chapters"] for sc in ch["scenes"] if sc.get("music")}
-    R.stat("音", "BGM", ("あり" if music else "なし") + ("・場面ごとの曲 %d" % len(tracks) if tracks else ""))
+    tracks = {json.dumps(x.get("music"), sort_keys=True) for ch in spec["chapters"] for x in [ch] + ch["scenes"] if x.get("music") not in (None, "none")}
+    if music and music != "none":
+        tracks.add(json.dumps(music, sort_keys=True))
+    else:
+        music = None
+    music = music or tracks
+    R.stat("音", "BGM", "%d 曲" % len(tracks) if tracks else "なし", "茶番・本編・締めで替える（2〜4 曲）")
     if not music and not tracks:
         R.add("warn", "音", "BGM がありません（手本の動画は、全編に BGM がある）")
-    elif total > 360 and len(tracks) == 0:
-        R.add("info", "音", "6 分を超えて、BGM が 1 曲だけです（章の雰囲気が変わる所で @music: で替えると、単調さが減る）")
+    elif total > 360 and len(tracks) <= 1:
+        R.add("info", "音", "6 分を超えて、BGM が 1 曲だけです（music: auto か、章の雰囲気が変わる所の @music: で替えると、単調さが減る）")
+    if meta.get("intro") == "chaban" and len(spec["chapters"]) > 1 and json.dumps(spec["chapters"][0].get("music")) == json.dumps(spec["chapters"][1].get("music")) and len(tracks) <= 1:
+        R.add("info", "音", "冒頭の茶番と本編が同じ曲です（茶番はコミカルな曲にすると、本題に入った所が分かる）")
     sfx_off = spec["talk"].get("sfx") is False
     sfx = 0 if sfx_off else sum(1 for l in lines if l.get("se") or l.get("big") or l.get("shake") or l.get("emote") in SFX_EMOTES) + sum(1 for v in views if v["kind"] not in ("none",))
     per = sfx / max(1, total / 60.0)

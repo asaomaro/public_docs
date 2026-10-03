@@ -257,10 +257,15 @@ def parse(text):
                     pending[key] = rest if key != "fx" else [x.strip() for x in rest.split(",")]
                 else:
                     sc[key] = rest if key != "fx" else [x.strip() for x in rest.split(",")]
-            elif key == "music":
+            elif key == "music":   # 章の頭なら章の曲、せりふの後なら次の場面から曲を替える（その章の終わりまで）
                 if ch is None:
                     new_chapter("はじめに")
-                ch["music"] = rest
+                if sc is None and not ch["scenes"]:
+                    ch["music"] = rest
+                elif sc is not None and not sc["lines"]:
+                    sc["music"] = rest
+                else:
+                    pending["music"] = rest
             elif key == "scene":
                 new_scene(**pending); pending = {}
             else:
@@ -284,7 +289,7 @@ def parse(text):
         if not lm:
             errs.append("%d 行目: 「話し手: せりふ」の形になっていません: %s" % (no, raw)); continue
         who, opts, text_, emote = lm.group(1), lm.group(2), lm.group(3), lm.group(4)
-        if sc is None:
+        if sc is None or pending:   # @bg:・@music: などの後のせりふは、新しい場面から
             new_scene(**pending); pending = {}
         groups = (opts or "").split("|")   # 「(think, chin | smug, point)」: せりふの途中（文の中の | の位置）で演技を変える
         segs = text_.split("|") if len(groups) > 1 else [text_]
@@ -873,9 +878,21 @@ def compact(spec, base, stem, rate=16000, width=1280):
                 done[path] = os.path.relpath(dst, base) if os.path.getsize(dst) < os.path.getsize(os.path.join(base, path)) else path
         return done[path]
 
+    def stage(path, side=720):   # 絵で見せる場面の絵: 長い辺を 720 に（画面では高さ 600 ほどで映る）（写真は JPEG、透明のある絵は PNG のまま）
+        from PIL import Image
+        im = Image.open(path)
+        if max(im.size) <= side:
+            return path
+        im.thumbnail((side, side), Image.LANCZOS)
+        os.makedirs(out, exist_ok=True)
+        alpha = im.mode in ("RGBA", "LA", "P")
+        dst = os.path.join(out, "st_" + re.sub(r"[^\w.-]", "_", os.path.splitext(os.path.basename(path))[0]) + (".png" if alpha else ".jpg"))
+        (im.save(dst, optimize=True) if alpha else im.convert("RGB").save(dst, quality=80, optimize=True))
+        return dst if os.path.getsize(dst) < os.path.getsize(path) else path
+
     for k, pth in list(spec.get("_image_paths", {}).items()):
-        if pth.lower().endswith((".jpg", ".jpeg")):
-            spec["_image_paths"][k] = os.path.join(base, image(os.path.relpath(pth, base)))
+        if pth.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+            spec["_image_paths"][k] = stage(pth)
     for ch in spec["chapters"]:
         for sc in ch["scenes"]:
             if isinstance(sc.get("bg"), str):
@@ -1049,18 +1066,79 @@ def all_text(spec):
     return "".join(out)
 
 
+MOOD_WORDS = [("suspense", r"謎|怖|恐|闇|事件|危険|真相|呪|禁|殺|事故|裏|末路|ヤバ"), ("sad", r"悲|死|別れ|最期|涙|失|孤独"),
+              ("ending", r"まとめ|エンディング|おわり|締め|最後|結論"), ("comical", r"茶番|ネタ|あるある|おまけ")]
+STYLE_MOOD = {"talk": "explain", "zukai": "explain", "panel": "daily", "review": "daily", "list": "explain", "story": "suspense", "geki": "daily"}
+
+
+def auto_music(meta, chapters):
+    """music: auto — 章ごとに雰囲気を当てて、bgm/ にある曲から選ぶ（章の @music: があればそれを使う）。
+    茶番の章はコミカル、締めの章はエンディング、章の題に「謎・事件・怖」などがあれば緊張、ほかは型（style:）の既定の雰囲気。
+    同じ雰囲気が続く章は同じ曲のまま流す（区切らない）。本編が 6 分を超えて続くときは、次の章で同じ雰囲気の別の曲に替える。
+    music_pool: embed（または art: png）なら、HTML に入れて配れる曲だけから選ぶ。動画ごとに曲が変わるよう、題から選び方を決める。"""
+    import hashlib
+    embed_only = meta.get("music_pool") == "embed" or meta.get("art") == "png" and meta.get("music_pool") != "all"
+    pool = {}
+    for k, e in BGMS.items():
+        if k.startswith("_") or not isinstance(e, dict) or not os.path.isfile(os.path.join(HERE, "bgm", e.get("file", "-"))):
+            continue
+        if embed_only and e.get("embed") is False:
+            continue
+        pool.setdefault(e.get("mood", "daily"), []).append(k)
+    if not pool:
+        print("warn: music: auto ですが、bgm/ に曲がありません（fetch_assets.py で取る）。BGM なしで作ります", file=sys.stderr)
+        meta["music"] = "none"
+        return
+    seed = int(hashlib.sha1(meta.get("title", "").encode("utf-8")).hexdigest()[:8], 16)
+    pick = lambda mood, n=0: (lambda L: L[(seed + n) % len(L)] if L else None)(sorted(pool.get(mood) or pool.get("explain") or pool.get("daily") or next(iter(pool.values()))))
+    base_mood = STYLE_MOOD.get(meta.get("style", "talk"), "explain")
+    prev, run, turn, used = None, 0.0, 0, []
+    for i, ch in enumerate(chapters):
+        if ch.get("music"):
+            prev = None
+            continue
+        text = ch["title"]
+        mood = next((m for m, rx in MOOD_WORDS if re.search(rx, text)), None)
+        if i == 0 and meta.get("intro") == "chaban":
+            mood = "comical"
+        elif i == len(chapters) - 1 and len(chapters) > 2 and not mood:
+            mood = "ending"
+        mood = mood or base_mood
+        sec = sum(len(re.sub(r"\s", "", ln.get("text", ""))) for sc in ch["scenes"] for ln in sc.get("lines", []) if isinstance(ln, dict)) / 5.5
+        if mood == prev and run + sec > 360:   # 同じ雰囲気が長く続く: 別の曲へ
+            turn, run = turn + 1, 0.0
+        elif mood != prev:
+            run = 0.0
+        ch["music"] = pick(mood, turn if mood == base_mood else 0)
+        used.append("%s→%s" % (ch["title"][:10], ch["music"]))
+        prev, run = mood, run + sec
+    meta["music"] = "none"
+    print("BGM（おまかせ）: " + "／".join(used), file=sys.stderr)
+
+
 def to_spec(meta, chapters, cast, base):
     bg_credits, music_credits = meta.setdefault("_bg_credits", []), meta.setdefault("_music_credits", [])
     vol = float(meta.get("music_volume", .3))
 
     def music_of(name):
+        e = BGMS.get(name) if isinstance(name, str) and not name.startswith("_") else None
         name = asset(name, BGMS, "bgm", base, music_credits)
-        return {"file": name, "volume": vol} if re.search(r"\.(mp3|m4a|ogg|wav)$", name, re.I) else name
+        if not re.search(r"\.(mp3|m4a|ogg|wav)$", name, re.I):
+            return name
+        d = {"file": name, "volume": vol}
+        if e and e.get("loop") is True:   # ループ用に作られた曲はそのまま回す。ほかは、終わりのフェードの前で次の頭に重ねてつなぐ（motion-video）
+            d["loop"] = True
+        return d
 
+    if meta.get("music", "none").strip() == "auto":
+        auto_music(meta, chapters)
     music = music_of(meta.get("music", "none"))
     for ch in chapters:
         if ch.get("music"):
             ch["music"] = music_of(ch["music"])
+        for sc in ch["scenes"]:
+            if sc.get("music"):
+                sc["music"] = music_of(sc["music"])
     spec = {"title": meta.get("title", "解説"), "description": meta.get("description", ""), "lang": "ja",
             "player": meta.get("player", "studio"), "theme": meta.get("theme", "daylight"), "castAlways": True,
             "transition": meta.get("transition", "slide"),
@@ -1264,13 +1342,16 @@ def take_shots(html, times, outdir):
     for t in times:
         sec = sum(float(x) * 60 ** i for i, x in enumerate(reversed(t.strip().split(":"))))
         hook = ('<style>.mv-stage{position:fixed!important;inset:0!important;z-index:99999!important;max-width:none!important;width:100vw!important;height:100vh!important}</style>'
-                '<script>window.addEventListener("load",function(){setTimeout(function(){try{__MV__.seek(%d)}catch(e){}},700)})</script>' % round(sec * 1000))
+                '<script>window.addEventListener("load",function(){var t=%d;setTimeout(function(){try{__MV__.seek(t)}catch(e){}},700);setTimeout(function(){try{__MV__.seek(t)}catch(e){}},2600)})</script>' % round(sec * 1000))   # 2 回目: 大きい写真の読み込みを待ってから描き直す
         with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False, encoding="utf-8", dir=os.path.dirname(html)) as f:
             f.write(src + hook)
         png = os.path.join(outdir, "%07.2f.png" % sec)
         try:
-            subprocess.run([chrome, "--headless=new", "--no-sandbox", "--hide-scrollbars", "--window-size=1280,720", "--virtual-time-budget=4000",
-                            "--screenshot=" + png, "file://" + f.name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
+            for budget in (6000, 9000, 12000):   # 画面なしの Chrome は、ときどき白い画面を撮る。白ければ（PNG が小さければ）撮り直す
+                subprocess.run([chrome, "--headless=new", "--no-sandbox", "--hide-scrollbars", "--window-size=1280,720", "--virtual-time-budget=%d" % budget,
+                                "--screenshot=" + png, "file://" + f.name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
+                if os.path.isfile(png) and os.path.getsize(png) > 20000:
+                    break
             print("撮った絵: %s" % png)
         except Exception as e:
             print("warn: %s 秒の画面を撮れませんでした（%s）" % (t, e), file=sys.stderr)
@@ -1289,7 +1370,7 @@ def main():
     ap.add_argument("--shots", help="作った HTML の、その時刻（秒。6.5,12 のように並べる。0:42 の形でもよい）の画面を PNG に撮る（<台本名>_shots/。Chrome が要る）。絵・図・立ち絵の見え方を確かめるため")
     ap.add_argument("--readings", action="store_true", help="VOICEVOX がせりふをどう読むか（かな）を出す。読み間違いを pronounce: で直すため")
     ap.add_argument("--yukkuri-bat", action="store_true", help="ゆっくりボイスのせりふを、Windows の AquesTalkPlayer で WAV にするバッチファイル（<台本名>_yukkuri.bat）を書く")
-    ap.add_argument("--compact", action="store_true", help="HTML を小さくする（声を 16kHz に、背景と写真を幅 1280 の JPEG に。3 分で 5MB ほど減る）")
+    ap.add_argument("--compact", action="store_true", help="HTML を小さくする（声を 16kHz に、背景を幅 1280 の JPEG に、絵で見せる場面の絵を長い辺 720 に。3 分で 5MB ほど減る）")
     ap.add_argument("--voice-rate", type=int, default=16000, help="--compact のときの声のサンプリング周波数（既定 16000。12000 にすると、もう 2 割ほど小さくなるが、声が少しこもる）")
     ap.add_argument("--dist", action="store_true", help="配布用: 設定の書き出し（WebM で保存・編集用の映像・音のトラック）と、その実行部を除いて HTML を小さくする")
     ap.add_argument("--list-assets", action="store_true", help="背景と BGM のカタログ（名前と説明）を出す")

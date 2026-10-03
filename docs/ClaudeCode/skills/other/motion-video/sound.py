@@ -881,6 +881,9 @@ def _music(v, where, base, insts, errs, table, n):
         d = {k: x for k, x in MUSIC[v].items() if k not in ("cat", "name", "desc")}
         key = v
     elif isinstance(v, dict):
+        fk = "file:%s:%s:%s" % (v.get("file"), v.get("volume"), v.get("loop"))
+        if v.get("file") and fk in table.get("_files", {}):   # 同じファイルは 1 回だけ埋め込む（章・場面で同じ曲を何度使っても）
+            return table["_files"][fk]
         if v.get("file"):
             p = os.path.join(base, v["file"])
             if not re.match(r"^(data:|https?:)", v["file"]) and not os.path.isfile(p):
@@ -905,6 +908,8 @@ def _music(v, where, base, insts, errs, table, n):
                 if code:
                     d["code"] = code
         key = "custom%d" % n
+        if v.get("file"):
+            table.setdefault("_files", {})[fk] = key
     else:
         errs.append("%s: 曲は名前か {preset|file|code|src|layers …} で指定してください" % where)
         return None
@@ -935,8 +940,12 @@ def prepare(spec, base):
     for ci, ch in enumerate(spec.get("chapters") or []):
         if "music" in ch:
             ch["_music"] = mus(ch["music"], "第 %d 章の music" % (ci + 1))
+        for si, sc in enumerate(ch.get("scenes") or []):   # 場面の頭で曲を替える（その章の終わりまで続く）
+            if "music" in sc:
+                sc["_music"] = mus(sc["music"], "第 %d 章の場面 %d の music" % (ci + 1, si + 1))
         if "energy" in ch and ch["energy"] not in (1, 2, 3):
             errs.append("第 %d 章の energy は 1・2・3 のいずれか" % (ci + 1))
+    table.pop("_files", None)
     au["_music"] = table
     # 楽器の音: 録音の音（samples.py）に差し替えられる楽器は、使う音域だけ埋め込む（audio.samples: false で合成の音のまま）
     au.pop("_samples", None)

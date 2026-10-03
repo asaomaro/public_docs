@@ -14,6 +14,7 @@
 - [F10] ティンダルとレイリーは、はじめは原因を空気中のちりや水滴だと考えていた。1910 年にアインシュタインが、分子による散乱を式にまとめた。 — 原文: 「Tyndall and Rayleigh thought that the blue colour of the sky must be due to small particles of dust and droplets of water vapour in the atmosphere.」 — 出典: https://math.ucr.edu/home/baez/physics/General/BlueSky/blue_sky.html 、https://en.wikipedia.org/wiki/Critical_opalescence
 - [F11] 火星は、昼の空がオレンジから赤っぽく、夕日のまわりの空は青灰色になる。火星の空には細かい砂ぼこりが多く、それが光を地球とはちがうふうに散らす（色の原因は砂ぼこり。二酸化炭素ではない）。 — 原文: 「These fine particles scatter light differently than the gases and particles in Earth’s atmosphere.」 — 出典: https://spaceplace.nasa.gov/blue-sky/en/
 - [F12] 「海の色が映っているから青い」は、よくある勘違い。 — 原文: 「It’s a common misconception that the sky is blue because it reflects the blue of the seas and oceans.」 — 出典: https://www.rmg.co.uk/stories/topics/why-sky-blue （グリニッジ天文台）
+- [F13] 火星の夕日の写真は、2005 年 5 月 19 日に探査車スピリットが撮ったもの。 — 原文: 「On May 19th, 2005, NASA's Mars Exploration Rover Spirit captured this stunning view」 — 出典: https://commons.wikimedia.org/wiki/File:MarsSunset.jpg
 
 ## へぇとなる点
 - 夕焼けが赤いのも同じ仕組み [F6]

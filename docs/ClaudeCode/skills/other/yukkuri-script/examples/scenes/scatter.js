@@ -35,8 +35,8 @@ ctx.globalAlpha = 1;
 /* 名前は上と下の余白に置く（線と重ねない） */
 var ty = B.y + 74, by = B.y + B.h - 30;
 ctx.globalAlpha = k; H.txt("太陽の光", X0 + 120, ty, { size: 46, weight: 900, align: "center", color: "#ffffff" });
-ctx.globalAlpha = H.clamp((lt - 500) / 400); H.txt("空気の分子", CX, ty, { size: 46, weight: 900, align: "center", color: "#dfe9f5" });
-ctx.globalAlpha = split; H.txt("赤はほぼまっすぐ", X1 - 190, ty, { size: 46, weight: 900, align: "center", color: "#ff6a5c" });
+ctx.globalAlpha = H.clamp((lt - 500) / 400); H.txt("空気の分子", CX, Y - 120, { size: 46, weight: 900, align: "center", color: "#dfe9f5" });
+ctx.globalAlpha = split; H.txt("赤はほぼまっすぐ", X1 - 190, Y + 80, { size: 46, weight: 900, align: "center", color: "#ff6a5c" });
 H.txt("青は強く散らばる", CX, by, { size: 52, weight: 900, align: "center", color: "#4aa8ff" });
 ctx.globalAlpha = hit * (1 - split); H.txt("ぶつかって、あちこちへ", CX, by, { size: 50, weight: 900, align: "center", color: "#ffffff" });
 ctx.globalAlpha = 1;
