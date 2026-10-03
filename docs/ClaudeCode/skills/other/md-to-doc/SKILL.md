@@ -655,7 +655,7 @@ python3 <skill_dir>/figkit.py spec.json --insert out.html # 各図の slot / rep
 <!--MD2DOC-VIDEO src="intro.json" player="minimal" caption="概要（1 分）"-->
 ```
 
-- `src` は motion-video の台本（md からの相対パス）。書き方は motion-video スキルの SKILL.md と `build.py --list`。
+- `src` は motion-video の台本（md からの相対パス）。書き方は motion-video スキルの SKILL.md（手順）・`reference/`（部品・動き・音などの資料）と `build.py --list`。
 - `player` の既定は `minimal`（文書に馴染む）。`theme` を省くと文書のテーマに近い配色になる
   （corporate→daylight、darktech→midnight、editorial・paper→paper、contrast→mono、blueprint→navy-brass など）。
 - 決定論的な構築（md に書く）でも、AI 構築（本文に書いて `--finalize`）でも同じ書き方で効く。
