@@ -32,6 +32,14 @@ HEDGE = re.compile(r"と言われ|とされ|らしい|かもしれ|と考えら�
 LINE_RE = re.compile(r"^([\w\-]+)(?:[（(][^)）]*[)）])?\s*[:：]\s*(.*?)\s*(?:\[[^\]]+\])?\s*$")
 
 
+def clean_url(u):
+    """文の中から拾った URL の末尾の句読点・閉じかっこを落とす。ただし URL の中で開いたかっこ（React_(software) など）の閉じは残す。"""
+    u = u.rstrip("、。，．")
+    while u.endswith(")") and u.count(")") > u.count("("):
+        u = u[:-1]
+    return u.rstrip("、。）")
+
+
 def norm(s):
     return re.sub(r"[\s　]+", "", unicodedata.normalize("NFKC", s)).lower()
 
@@ -182,7 +190,7 @@ def verify(path):
         cid = re.sub(r"^-$", "", cid) or (re.search(r"\[(F\d+)\]", b) or [0, "?"])[1]
         m = re.search(r"\[(F\d+)\]", b[:20])
         cid = m.group(1) if m else cid
-        urls = [u.rstrip("、。）)") for u in re.findall(r"https?://[^\s　、）]+", b)]
+        urls = [clean_url(u) for u in re.findall(r"https?://[^\s　、）]+", b)]
         m2 = re.search(r"(?m)^- 根拠:(.*)$", b) or re.search(r"原文[:：](.*?)(?:— 出典|$)", b)   # 引用は、判定の表なら「根拠」、事実の一覧なら「原文:」の後だけを見る
         head = b.splitlines()[0] if b.strip() and "\n" in b.strip() else ""   # 判定の表では、見出し（確かめている文）と同じ引用は除く
         quotes = [q for q in re.findall(r"「([^」]{10,})」", m2.group(1) if m2 else "") if re.search(r"[A-Za-z]{4}|[ぁ-ん]{2}", q) and norm(q) not in norm(head)]
