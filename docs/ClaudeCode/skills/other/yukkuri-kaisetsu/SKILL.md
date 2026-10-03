@@ -256,6 +256,7 @@ python3 <skill_dir>/kaisetsu.py 台本.txt --voicevox --dist     # 配布用（�
   鍵つきのライブラリ → AquesTalkPlayer を Wine で動かす（無償の道）→ 評価版のライブラリ（「ヌ」になる）。どれも無ければブラウザの読み上げ。
   今どれが使われるかは `python3 <skill_dir>/aquestalk.py --check`。入手と準備は `assets.md` の「声」。Wine が使えない環境では `--yukkuri-bat`。
 - VOICEVOX は既定で `http://127.0.0.1:50021`。声は `<台本名>_voices/` に WAV で保存され、動画の長さは WAV の長さで決まる。
+  実行するたびに HTML を作り直すので、`--voicevox` を付けなくても、VOICEVOX が動いていれば声を入れる。つながらないときは warn が出て、その HTML はブラウザの読み上げ（別人の声）になる。`yukkuri-qa` の qa.py は、HTML に入っている声の数を数える。
 - 大きさの目安: 声は 1 分で約 4MB（`--compact` で約 2.5MB）、BGM のファイルは曲ごとに 3〜9MB。アーティファクトに載せる（16MB まで）なら、3 分までで `--compact`。
 - 字幕の書体を埋め込むには fontTools が要る（`pip install fonttools`。無ければ OS の書体で描く）。
 - 章の時刻・クレジット・画像の出どころは `<台本名>.info.json` に出る。途中の台本（motion-video の JSON）は `<台本名>.json`。
