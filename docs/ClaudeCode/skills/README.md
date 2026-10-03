@@ -10,7 +10,7 @@
 
 ```
 skills/
-  video/   motion-video  yukkuri-kaisetsu  yukkuri-publish  yukkuri-qa  video-export  tests
+  video/   motion-video  yukkuri-kaisetsu  yukkuri-publish  yukkuri-qa  video-export  youtube-upload  tests
   other/   ask-form  md-to-doc  irasutoya  fact-check  create-devcontainer  diff-review-html  grill-me  grilling
 ```
 
@@ -24,6 +24,7 @@ flowchart LR
     YP[yukkuri-publish]
     YQ[yukkuri-qa]
     VE[video-export]
+    YU[youtube-upload]
   end
   subgraph other
     AF[ask-form]
@@ -36,6 +37,9 @@ flowchart LR
   YQ ==> YK
   VE ==> MV
   VE ==> YK
+  YU -.-> MV
+  YU -.-> YP
+  YU -.-> VE
   MV -.-> AF
   YK -.-> AF
   MD -.-> AF
@@ -56,6 +60,7 @@ flowchart LR
 | yukkuri-publish | 題の案・概要欄・サムネイルを作る | yukkuri-kaisetsu |
 | yukkuri-qa | 出来上がった動画を測って確かめる | yukkuri-kaisetsu |
 | video-export | YouTube・YMM4・AviUtl 向けに書き出す | motion-video。yukkuri-kaisetsu の台本を渡すときは yukkuri-kaisetsu も |
+| youtube-upload | 動画の HTML を WebM に録り、YouTube に限定公開で上げる | 録るときは motion-video（`shoot.py`）。上げるだけなら独立。題・概要欄・サムネイル（yukkuri-publish）と字幕（video-export）は、あれば拾う |
 
 - yukkuri-kaisetsu の台本からは、motion-video の曲（`music:`・`@music:`）・効果音（`se:`・`kit:`）・背景（`bg:`・`@bg:`）を名前で使える。
 - `video/tests/` は、このまとまりの回帰テスト。motion-video の変更が yukkuri-kaisetsu を壊していないかを確かめる（`video/tests/README.md`）。

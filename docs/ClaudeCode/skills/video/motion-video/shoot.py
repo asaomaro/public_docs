@@ -95,7 +95,7 @@ def is_blank(png):
 class Browser:
     """画面なしの Chrome を DevTools Protocol（パイプ）で動かす。本当の時間で待つ（仮想時間は使わない）。"""
 
-    def __init__(self, chrome, size):
+    def __init__(self, chrome, size, extra=()):   # extra: Chrome に足す引数（録画は、操作なしで音を鳴らす引数が要る）
         r3, self.w3 = os.pipe()
         self.r4, w4 = os.pipe()
         self.dir = tempfile.mkdtemp(prefix="mv-shoot-")
@@ -106,7 +106,7 @@ class Browser:
                     os.dup2(src, dst)
                 os.set_inheritable(dst, True)
         self.p = subprocess.Popen([chrome, "--headless=new", "--no-sandbox", "--hide-scrollbars", "--remote-debugging-pipe", "--user-data-dir=" + self.dir,
-                                   "--window-size=%d,%d" % size, "about:blank"], preexec_fn=fds, close_fds=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                   "--window-size=%d,%d" % size] + list(extra) + ["about:blank"], preexec_fn=fds, close_fds=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         os.close(r3)
         os.close(w4)
         self.buf, self.n = b"", 0
