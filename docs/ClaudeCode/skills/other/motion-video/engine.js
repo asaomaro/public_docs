@@ -1867,7 +1867,12 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     return "rgb(" + [n >> 16, n >> 8 & 255, n & 255].map(function (v) { return Math.round(t < 0 ? v * (1 + t) : v + (255 - v) * t); }).join(",") + ")"; }   /* t > 0 で白へ、t < 0 で黒へ寄せる */
   function capBack() {   /* 置きっぱなしの帯・箱（せりふの無い間も出ている） */
     var y = capTop(), m = TALK.caption;
-    if (m === "bar") { rr(36, y, 1848, 1080 - y - 14, 18); ctx.fillStyle = "rgba(20,20,26,.88)"; ctx.fill(); ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 4; ctx.stroke(); }
+    if (m === "bar") {   /* すりガラス: 箱の後ろ（背景・写真）をぼかして透かし、暗い色を薄く重ねる（背景を箱の上で切らない。字は太い黒縁なので読める） */
+      var frost = "filter" in ctx && ctx.getTransform;
+      if (frost) { var tm = ctx.getTransform(), cvs = ctx.canvas, pad = 48 * tm.a, sx = Math.max(0, Math.floor(36 * tm.a + tm.e - pad)), sy = Math.max(0, Math.floor(y * tm.d + tm.f - pad)),
+          sw = Math.min(cvs.width - sx, Math.ceil(1848 * tm.a + 2 * pad)), sh = Math.min(cvs.height - sy, Math.ceil((1080 - y) * tm.d + 2 * pad));
+        if (sw > 0 && sh > 0) { ctx.save(); rr(36, y, 1848, 1080 - y - 14, 18); ctx.clip(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.filter = "blur(" + (16 * tm.a).toFixed(1) + "px)"; ctx.drawImage(cvs, sx, sy, sw, sh, sx, sy, sw, sh); ctx.restore(); } }
+      rr(36, y, 1848, 1080 - y - 14, 18); ctx.fillStyle = frost ? "rgba(16,16,22,.56)" : "rgba(20,20,26,.88)"; ctx.fill(); ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 4; ctx.stroke(); }
     else if (m === "band") { ctx.fillStyle = "rgba(255,255,255,.74)"; ctx.fillRect(0, y, 1920, 1080 - y); }
     else if (m === "strip") { ctx.fillStyle = "rgba(0,0,0,.9)"; ctx.fillRect(0, y, 1920, 1080 - y); }
   }
@@ -2061,17 +2066,19 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var solo = (sh.items || []).filter(function (it) { return !it.op && !it.draw; });
     if (ST.photo === "full" && solo.length === 1 && solo[0].img && solo[0].frame && (sh.items || []).length === 1) {
       var fim = IMGS["@" + solo[0].img];
-      if (fim && fim.complete && fim.naturalWidth) { var fk = P(slt, 0, 260), fs = Math.max(1920 / fim.naturalWidth, capY / fim.naturalHeight) * (1 + .04 * clamp(slt / 8000)), fw = fim.naturalWidth * fs, fh = fim.naturalHeight * fs;
-        ctx.save(); ctx.globalAlpha *= fk; ctx.fillStyle = "#000000"; if (capY < 1080) ctx.fillRect(0, capY, 1920, 1080 - capY);   /* 字幕の箱のまわりに、白い地を見せない */ ctx.beginPath(); ctx.rect(0, 0, 1920, capY); ctx.clip(); ctx.fillRect(0, 0, 1920, capY);
+      if (fim && fim.complete && fim.naturalWidth) { var fk = P(slt, 0, 260), fs = Math.max(1920 / fim.naturalWidth, 1080 / fim.naturalHeight) * (1 + .04 * clamp(slt / 8000)), fw = fim.naturalWidth * fs, fh = fim.naturalHeight * fs;
+        /* 写真は画面の下まで敷く（字幕の箱の上で切らない。箱は、後ろをぼかして透かす）。主題が箱に隠れないよう、箱より上のまん中に寄せる */
+        var fy = clamp(capY / 2 - fh / 2, 1080 - fh, 0);
+        ctx.save(); ctx.globalAlpha *= fk; ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, 1920, 1080);
         /* 縦長の写真は、画面いっぱいに広げると主題が切れる。ぼかして暗くした同じ写真を敷き、その上に全体が入る大きさで置く（白い縁つき） */
         var sideX = 0;   /* 縦長のとき: 写真の左右の空きの中央までの距離（名札は左、吹き出しは右に置いて、写真に重ねない） */
         if (fim.naturalHeight / fim.naturalWidth > capY / 1920 * 1.45) {
-          ctx.save(); ctx.filter = "blur(26px) brightness(.5)"; ctx.drawImage(fim, 960 - fw / 2, capY / 2 - fh / 2, fw, fh); ctx.restore();
+          ctx.save(); ctx.filter = "blur(26px) brightness(.5)"; ctx.drawImage(fim, 960 - fw / 2, 540 - fh / 2, fw, fh); ctx.restore();
           var ch2 = capY - 70, cw2 = fim.naturalWidth * ch2 / fim.naturalHeight, cz = 1 + .03 * clamp(slt / 8000);
           ctx.save(); ctx.translate(960, capY / 2); ctx.scale(cz, cz); ctx.shadowColor = "rgba(0,0,0,.5)"; ctx.shadowBlur = 30; ctx.fillStyle = "#ffffff"; ctx.fillRect(-cw2 / 2 - 8, -ch2 / 2 - 8, cw2 + 16, ch2 + 16);
           ctx.shadowColor = "transparent"; ctx.drawImage(fim, -cw2 / 2, -ch2 / 2, cw2, ch2); ctx.restore();
           sideX = cw2 / 2 + (960 - cw2 / 2) / 2;
-        } else ctx.drawImage(fim, 960 - fw / 2, capY / 2 - fh / 2, fw, fh);
+        } else ctx.drawImage(fim, 960 - fw / 2, fy, fw, fh);
         if (solo[0].say) {   /* 絵の吹き出し（全画面でも出す）: 上の中央に白い箱 */
           var so = capFont(40, 800), sw = tw(solo[0].say, so) + 56, sk = P(slt, 300, 620, back); var half = sideX ? 2 * (sideX - 480) : 0;
           ctx.save(); ctx.translate(sideX ? 960 + half - sw / 2 + 60 : 960, sideX ? 150 : 96); ctx.scale(sk, sk);
