@@ -66,6 +66,10 @@ def record(b, html, out, opt=None, log=say):
         dur = b.eval("__MV__.DUR") / 1000.0
         if not b.eval("!!document.getElementById('mv-rec') && !document.getElementById('mv-rec').hidden"):
             raise RuntimeError("この HTML には「WebM で保存」がありません（配布用の --dist で作った HTML は録れません。--dist を付けずに作り直します）")
+        # 録る前に、せりふごとの画面を 1 回ずつ描いておく（絵を先に開かせる。録っている間に初めて開くと、そこでコマが止まる）
+        b.eval("""new Promise(function(ok){var ts=(__MV__.CUES||[]).map(function(c){return c.a}).filter(function(x){return x>=0}),i=0;
+  (function w(){var t0=performance.now();while(i<ts.length&&performance.now()-t0<30){try{__MV__.drawAt(ts[i]+50)}catch(e){}i++}
+    if(i<ts.length)setTimeout(w,0);else{try{__MV__.seek(0)}catch(e){}ok(ts.length)}})()})""")
         log("録り始めます（%d:%02d。同じだけ時間がかかります）" % (dur // 60, dur % 60))
         b.eval("window.__f=0;(function c(){window.__f++;requestAnimationFrame(c)})();var r=document.getElementById('mv-rec');%sr.click();1" % "".join("r.setAttribute('data-%s',%s);" % (k, json.dumps(str(v))) for k, v in (opt or {}).items() if v is not None))
         t0, last, f0, info = time.time(), -1, None, {"dur": dur, "audio": False}
