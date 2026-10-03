@@ -487,18 +487,23 @@ class View(unittest.TestCase):
 
     def files(self):
         d = helpers.tmpdir()
-        html, md = os.path.join(d, "doc.html"), os.path.join(d, "notes.md")
+        html, md = os.path.join(d, "doc.html"), os.path.join(d, "notes.txt")
         open(html, "w", encoding="utf-8").write(self.EVIL)
         open(md, "w", encoding="utf-8").write("# 見出し\n\n<script>window.HACKED=1</script>\n<b>太字</b>\n")
         return html, md
 
     def test_definition(self):
         html, md = self.files()
-        spec = ask.normalize({"view": [html, {"file": md, "title": "メモ"}, {"text": "その場の文字"}], "questions": [{"id": "a", "label": "A", "options": ["x"]}]})
-        self.assertEqual([(v["kind"], v["title"]) for v in spec["view"]], [("html", "doc.html"), ("text", "メモ"), ("text", "テキスト")])
+        real_md = os.path.join(os.path.dirname(html), "design.md")
+        open(real_md, "w", encoding="utf-8").write("# 設計\n")
+        spec = ask.normalize({"view": [html, {"file": md, "title": "メモ"}, {"text": "その場の文字"}, real_md, {"file": real_md, "raw": True}],
+                              "questions": [{"id": "a", "label": "A", "options": ["x"]}]})
+        self.assertEqual([(v["kind"], v["title"]) for v in spec["view"]],
+                         [("html", "doc.html"), ("text", "メモ"), ("text", "テキスト"), ("markdown", "design.md"), ("text", "design.md")])
+        self.assertEqual((spec["view"][3]["src"], spec["view"][4]["text"]), ("view/1", "# 設計\n"))   # Markdown は整形して見せる。raw なら文字のまま
         self.assertEqual(spec["view"][0]["src"], "view/0")
         self.assertIn("<script>", spec["view"][1]["text"])            # 文字のファイルは、中身を文字として持つ
-        self.assertEqual(spec["_views"], [(html, "text/html; charset=utf-8")])
+        self.assertEqual(spec["_views"], [(html, "text/html; charset=utf-8"), (real_md, "markdown")])
         self.assertIs(spec["paging"], False)                          # 質問の欄は狭いので、目次は出さない
         for bad, reason in (({"file": "nai.html"}, "view_missing"), ({"file": html, "text": "x"}, "view_invalid"), ({}, "view_invalid"), ([], "view_invalid"), (3, "view_invalid")):
             with self.subTest(bad=bad):
@@ -519,7 +524,7 @@ class View(unittest.TestCase):
         self.assertNotIn("allow-same-origin", got["sandbox"])         # 同じ origin として扱わない（回答の受け口・親の画面に触れない）
         self.assertIn("allow-scripts", got["sandbox"])
         self.assertEqual((got["src"], got["ref"]), ("/tok-view/view/0", "no-referrer"))   # 回答の受け口とは別の合言葉。親のアドレスも渡さない
-        self.assertEqual((got["title"], got["hasView"], got["tabs"], got["inForm"], got["index"]), ("成果物の確認", True, ["doc.html", "notes.md"], 0, False))
+        self.assertEqual((got["title"], got["hasView"], got["tabs"], got["inForm"], got["index"]), ("成果物の確認", True, ["doc.html", "notes.txt"], 0, False))
         self.assertEqual(got["questions"], ["decision", "remark"])
         self.assertGreater(got["viewW"], 800)
         self.assertLess(got["formW"], 500)
@@ -555,6 +560,68 @@ class View(unittest.TestCase):
         self.assertEqual(got["text"], "# 見出し\n\n<script>window.HACKED=1</script>\n<b>太字</b>\n")
         self.assertEqual((got["kids"], got["hacked"]), (0, None))     # HTML として解釈しない
         self.assertEqual((got["preShown"], got["frameShown"], got["selected"]), (True, False, ["false", "true"]))
+
+    MD = ("# 設計\n\n本文 **太字**\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```mermaid\ngraph LR\n  A --> B\n```\n\n```mermaid\nこれは図ではない\n```\n\n"
+          "<script>window.HACKED=1</script>\n")
+
+    def test_markdown_is_rendered_with_the_bundled_libraries(self):
+        """Markdown は、同梱の marked・mermaid で整形して見せる。描けない図はコードのまま残す。ライブラリが読めなければ、文字のまま出す。"""
+        c = self.chrome
+        ready = "new Promise(function(ok){var n=0;function w(){(document.documentElement.dataset.ready||!document.getElementById('source').hidden||++n>150)?setTimeout(ok,100):setTimeout(w,100)};w()})"
+        path = os.path.join(c.dir, "md%d.html" % c.n)
+        open(path, "w", encoding="utf-8").write(ask.markdown_page(self.MD, "design.md", "file://" + os.path.join(AF, "vendor") + "/"))
+        c.call("Page.enable", c.sid)
+        c.call("Page.navigate", c.sid, url="file://" + path)
+        c.eval(ready)
+        got = c.eval("""(function(){var d=document.getElementById('doc');return {h1:d.querySelector('h1').textContent,strong:d.querySelector('strong').textContent,
+          cells:d.querySelectorAll('td').length,figs:d.querySelectorAll('.mermaid svg').length,left:d.querySelectorAll('pre code.language-mermaid').length,
+          errors:d.querySelectorAll('.mermaid-error').length,hacked:window.HACKED||null,toggle:!document.getElementById('toggle').hidden,
+          source:document.getElementById('source').textContent}})()""")
+        self.assertEqual((got["h1"], got["strong"], got["cells"]), ("設計", "太字", 2))
+        self.assertEqual((got["figs"], got["left"], got["errors"]), (1, 1, 1))     # 1 つは図に、描けない 1 つはコードのまま＋理由
+        self.assertEqual((got["hacked"], got["toggle"], got["source"]), (None, True, self.MD))
+        c.eval("document.getElementById('toggle').click()")                        # ソースを見る
+        self.assertEqual(c.eval("[document.getElementById('doc').hidden, document.getElementById('source').hidden]"), [True, False])
+        # ライブラリが読めないとき
+        open(path, "w", encoding="utf-8").write(ask.markdown_page(self.MD, "design.md", "file:///nai/"))
+        c.call("Page.navigate", c.sid, url="file://" + path)
+        c.eval(ready)
+        self.assertEqual(c.eval("[document.getElementById('doc').hidden, document.getElementById('source').hidden, document.getElementById('source').textContent]"),
+                         [True, False, self.MD])
+
+    def test_server_serves_markdown_page_and_only_listed_libraries(self):
+        import urllib.error
+        import urllib.request
+        d = helpers.tmpdir()
+        md = os.path.join(d, "design.md")
+        open(md, "w", encoding="utf-8").write(self.MD)
+        state, base, page = self.serve(ask.review_spec([md]))
+        r = urllib.request.urlopen(base + "/tok-view/view/0")
+        body = r.read().decode("utf-8")
+        self.assertEqual(r.headers["Content-Type"], "text/html; charset=utf-8")
+        self.assertIn("sandbox", r.headers["Content-Security-Policy"])
+        self.assertIn('const LIB = "../lib/"', body)
+        self.assertNotIn("</script>\n<script>window.HACKED", body)                 # 元の文字は、スクリプトの中の文字列として入る
+        self.assertIn("<\\/script>", body)
+        for name in ("marked.umd.js", "mermaid.min.js"):
+            r = urllib.request.urlopen(base + "/tok-view/lib/" + name)
+            self.assertTrue(r.headers["Content-Type"].startswith("text/javascript"))
+            self.assertGreater(len(r.read()), 10000)
+        for path in ("/tok-view/lib/SOURCE.json", "/tok-view/lib/..%2Fask.py", "/tok-view/lib/../ask.py", "/tok-answer/lib/marked.umd.js", "/tok-view/lib/"):
+            with self.subTest(path=path):
+                with self.assertRaises(urllib.error.HTTPError) as e:
+                    urllib.request.urlopen(base + path)
+                self.assertEqual(e.exception.code, 404)
+
+    def test_bundled_libraries_are_unmodified(self):
+        """同梱のライブラリは、配布元のファイルそのまま（vendor/SOURCE.json の sha256 と一致）。ライセンスの文も置いてある。"""
+        import hashlib
+        src = json.load(open(os.path.join(AF, "vendor", "SOURCE.json"), encoding="utf-8"))
+        self.assertEqual(sorted(src["files"]), sorted(ask.VIEW_LIBS))
+        for name, info in src["files"].items():
+            with self.subTest(name):
+                self.assertEqual(hashlib.sha256(open(os.path.join(AF, "vendor", name), "rb").read()).hexdigest(), info["sha256"])
+                self.assertTrue(os.path.getsize(os.path.join(AF, "vendor", info["license_file"])) > 500)
 
     def test_review_answer(self):
         html, md = self.files()

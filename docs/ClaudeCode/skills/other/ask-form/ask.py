@@ -56,6 +56,8 @@ AUDIO_TYPES = {".wav": "audio/wav", ".mp3": "audio/mpeg", ".ogg": "audio/ogg", "
                ".opus": "audio/ogg", ".m4a": "audio/mp4", ".aac": "audio/aac", ".flac": "audio/flac"}
 # 見せる成果物（定義の view）。HTML は隔離した枠に、画像はそのまま、ほかは文字として出す
 VIEW_HTML = {".html": "text/html; charset=utf-8", ".htm": "text/html; charset=utf-8"}
+VIEW_MARKDOWN = (".md", ".markdown")   # 整形して見せる（viewer.html が、同梱の marked・mermaid で描く）
+VIEW_LIBS = {"marked.umd.js": "text/javascript; charset=utf-8", "mermaid.min.js": "text/javascript; charset=utf-8"}   # 配ってよい同梱のライブラリ（vendor/）
 VIEW_TEXT_MAX = 2 * 1024 * 1024   # 文字として出すファイルの大きさの上限
 VIEW_SANDBOX = "allow-scripts allow-popups allow-downloads"   # 枠の中に許すこと（同じ origin としては扱わない）
 TIMEOUT = 540                     # 回答を待つ秒数の既定
@@ -210,8 +212,9 @@ def normalize(spec, base_dir="."):
 
 def normalize_view(spec, base_dir):
     """定義の view（質問の横に見せる成果物）を検査する。1 つ（辞書かパス）か、いくつか（配列。タブで切り替える）。
-    項目は file（ファイル）か text（その場の文字）と、任意の title。HTML と画像は受け口から配る番号付きのアドレス（view/N）に書き換え、
-    (パス, 種類) の一覧を返す。ほかのファイル（Markdown・テキスト・コード）は、中身を文字として定義に入れる。"""
+    項目は file（ファイル）か text（その場の文字）と、任意の title。HTML・画像・Markdown は受け口から配る番号付きのアドレス（view/N）に書き換え、
+    (パス, 種類) の一覧を返す（Markdown の種類は "markdown"。配るときに、整形して見せるページにする）。
+    ほかのファイル（テキスト・コード）と、"raw": true を付けた Markdown は、中身を文字として定義に入れる。"""
     raw = spec.get("view")
     if raw is None:
         spec.pop("view", None)
@@ -241,6 +244,11 @@ def normalize_view(spec, base_dir):
         if ext in VIEW_HTML or ext in IMAGE_TYPES:
             served.append((path, VIEW_HTML.get(ext) or IMAGE_TYPES[ext]))
             item.update(kind="html" if ext in VIEW_HTML else "image", src="view/%d" % (len(served) - 1))
+        elif ext in VIEW_MARKDOWN and v.get("raw") is not True:
+            if os.path.getsize(path) > VIEW_TEXT_MAX:
+                raise SpecError("view_invalid", "%s: Markdown が大きすぎます（%d MB まで）" % (where, VIEW_TEXT_MAX // 1024 // 1024))
+            served.append((path, "markdown"))
+            item.update(kind="markdown", src="view/%d" % (len(served) - 1))
         else:
             if os.path.getsize(path) > VIEW_TEXT_MAX:
                 raise SpecError("view_invalid", "%s: 文字として出すには大きすぎます（%d MB まで。HTML にして渡してください）" % (where, VIEW_TEXT_MAX // 1024 // 1024))
@@ -252,6 +260,14 @@ def normalize_view(spec, base_dir):
     spec["view"] = out
     spec.setdefault("paging", False)   # 質問の欄は幅が狭いので、目次は出さない（書いてあればそれに従う）
     return served
+
+
+def markdown_page(text, title, lib="../lib/"):
+    """Markdown を整形して見せるページ（viewer.html）。lib は、同梱のライブラリを読むアドレス。"""
+    js = lambda v: json.dumps(v, ensure_ascii=False).replace("</", "<\\/")
+    template = open(os.path.join(HERE, "viewer.html"), encoding="utf-8").read()
+    return (template.replace("__TITLE__", title.replace("&", "&amp;").replace("<", "&lt;"))
+            .replace("__LIB__", js(lib)).replace("__SOURCE__", js(text)))
 
 
 def review_spec(files, title=None):
@@ -452,12 +468,20 @@ def make_handler(state, token, page, files=(), views=(), vtoken=None):
         def _view(self):
             """見せる成果物。回答の受け口とは別の合言葉の下で配る（枠の中のスクリプトが、自分のアドレスから回答の受け口を作れないように）。
             枠の外で開かれても隔離されるよう、応答にも sandbox を付ける。"""
-            m = re.match(r"^/%s/view/(\d+)$" % re.escape(vtoken), self.path.split("?")[0]) if vtoken else None
-            if not m or int(m.group(1)) >= len(views):
-                return False
-            path, ctype = views[int(m.group(1))]
+            rel = self.path.split("?")[0]
+            lib = re.match(r"^/%s/lib/([\w.\-]+)$" % re.escape(vtoken), rel) if vtoken else None
+            if lib and lib.group(1) in VIEW_LIBS:   # 同梱のライブラリ（Markdown を見せるページが読む）。名前の一覧にあるものだけ
+                path, ctype = os.path.join(HERE, "vendor", lib.group(1)), VIEW_LIBS[lib.group(1)]
+            else:
+                m = re.match(r"^/%s/view/(\d+)$" % re.escape(vtoken), rel) if vtoken else None
+                if not m or int(m.group(1)) >= len(views):
+                    return False
+                path, ctype = views[int(m.group(1))]
             try:
                 body = open(path, "rb").read()
+                if ctype == "markdown":
+                    body = markdown_page(body.decode("utf-8", "replace"), os.path.basename(path)).encode("utf-8")
+                    ctype = "text/html; charset=utf-8"
             except OSError:
                 self._send(404)
                 return True
