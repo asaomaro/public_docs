@@ -96,5 +96,27 @@ class Html(unittest.TestCase):
         self.assertFalse(warns(full))
 
 
+class AutomationTells(unittest.TestCase):
+    """2026-10-03: 手本と伏せて比べ、自動で作った動画の手がかり（字だけの画面・写真が無い・その場面の作りが無い）を qa.py で数える。"""
+
+    def warns(self, body):
+        import kaisetsu
+        import qa
+        spec, _, _, _, _, path = make(script="---\ntitle: t\ncast: metan, zundamon\n---\n" + body)
+        meta = kaisetsu.parse(open(path, encoding="utf-8").read())[0]
+        meta["_stem"] = os.path.splitext(path)[0]
+        R = qa.Report()
+        with fakes.quiet():
+            qa.measure(spec, meta, {}, R)
+        return [r[2] for r in R.rows if r[0] == "warn"]
+
+    def test_words_only_screens(self):
+        body = "# 本題\n" + "".join('@show: "語%d" | → | "語%d"\nmetan: 説明%dよ。\nzundamon: そうなのだ。\n' % (i, i + 1, i) for i in range(4))
+        w = self.warns(body)
+        self.assertTrue(any("字だけの画面" in x for x in w), w)
+        self.assertTrue(any("写真・資料が 1 枚も" in x for x in w), w)
+        self.assertTrue(any("その場面のためだけの作り" in x for x in w), w)
+
+
 if __name__ == "__main__":
     unittest.main()

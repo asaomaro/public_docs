@@ -107,6 +107,19 @@ def measure(spec, meta, info, R):
     R.stat("画面", "内わけ", "　".join("%s %d" % ({"photo": "写真", "picture": "挿絵", "draw": "描き下ろし", "part": "部品", "board": "黒板", "words": "言葉だけ", "none": "絵なし"}[k], n) for k, n in kinds.items()))
     if pic < N["picture_ratio"]:
         R.add("warn", "画面", "絵のある時間が %d%% です（手本は、ほぼ全部の画面に絵がある）" % round(pic * 100))
+    # 手本と並べて採点して分かった、自動で作った動画の手がかり（rubric.md の「自動らしさの照合表」）を、台本から数えられる分だけ数える
+    words = [v for v in views if v["kind"] == "words" and not (v["scene"].get("board") or {}).get("shots", [{}])[0].get("title")]
+    if views and len(words) / len(views) > N["words_ratio_max"]:
+        R.add("warn", "画面", "字だけの画面が %d 枚（%d%%）あります（手本にはほとんど無い。大きな語だけ・「語 → 語」は、写真・資料・描き下ろしの図に）"
+              % (len(words), round(len(words) * 100 / len(views))))
+    nphoto = kinds.get("photo", 0)
+    R.stat("画面", "写真・資料", "%d 枚" % nphoto, "1 枚以上（手本はどの型にもある）")
+    if views and nphoto == 0:
+        R.add("warn", "画面", "実物の写真・資料が 1 枚もありません（手本はどの型でも、話している人・物・場所を写真や当時の資料で見せる。fetch_images.py で取る）")
+    own = sum(1 for v in views if v["kind"] == "draw" or v["say"])
+    R.stat("画面", "その場面のための作り", "%d 枚（描き下ろし・絵の吹き出し）" % own, "写っている画面の 1 割以上")
+    if views and own == 0:
+        R.add("warn", "画面", "その場面のためだけの作り（描き下ろしの図・絵の吹き出し）がありません（手本は、見立て・描き足し・小さな寸劇で場面を作る）")
     for v in views:
         lim = N["view_sec_max_intro"] if v["t"] < 60 else N["view_sec_max"]
         if v["sec"] > lim + 3:
