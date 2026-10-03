@@ -18,7 +18,7 @@
  *   定義の文字は textContent で出す（innerHTML を使わない）。色・数は確かめてから個別のプロパティに入れる。
  *   通信しない。window・document に触らない（リスナーは Shadow DOM の中・部品の要素・自分に付けた ResizeObserver だけで、外すときに外す）。
  */
-const VERSION = '1.2.1';
+const VERSION = '1.2.2';
 const TYPES = ['single', 'multi', 'text', 'edit', 'rank', 'table'];
 const FIELDS = ['title', 'intro', 'submit', 'note', 'notePlaceholder', 'paging',
   'id', 'label', 'type', 'help', 'page', 'options', 'default', 'allowOther', 'otherLabel', 'otherPlaceholder', 'showIf', 'required',
@@ -572,9 +572,14 @@ function mount(host, root, SPEC) {
   // ── 目次 ──
   // 質問の題を横に並べる。スクロールに合わせて、今見ている質問に印が付く。押すとその質問へ移る。
   // 出すかどうかは定義の paging に従う: 無指定（"auto"）なら与えられた高さに収まらないときだけ、true・数なら必ず、false なら出さない。
-  // 質問の page（まとまりの題。同じ題が続くあいだが 1 つのまとまり）は、目次の見出しになる（page を書いたら必ず出す）
+  // 質問の page（まとまりの題。同じ題が続くあいだが 1 つのまとまり）は、目次の見出しになる（page を書いたら、収まっていても出す。
+  // ただし paging が false なら、page があっても出さない）。
+  // 幅の狭い画面（viewport の幅が 767px 以下）では出さない。見るのは画面の幅で、部品を置いた場所の幅ではない——
+  // 置いた側は、目次が出ているときは indexWidth の分だけ場所を広げる（広げないと、質問の並びがその分せまくなる）
   const ENTRIES = [];        // 目次の項目 { fs, btn, n, sec }（ITEMS と同じ並び）
-  let cur = 0, want = null;  // 今見ている項目・目次で選んだ項目（その質問が見えている間は、そちらを今の項目にする）
+  let cur = 0, want = null;  // 今見ている項目・選んだ項目（目次で押した・フォーカスが入った・未回答で移された。その質問が見えている間は、そちらを今の項目にする）
+  let hold = 0;              // 選んだ項目へ移っている途中（なめらかなスクロールの間）は、まだ見えていなくても選んだ項目のままにする。その期限
+  const choose = (i) => { want = i; hold = performance.now() + 900; mark(i); };
   {
     let name = null, sec = null;
     ITEMS.forEach((fs, i) => {
@@ -604,21 +609,21 @@ function mount(host, root, SPEC) {
   // 目次で選んだ質問が見えている間は、その質問を今の項目にする
   function spy() {
     const y = body.scrollTop, h = body.clientHeight, max = Math.max(0, body.scrollHeight - h);
-    const tail = Math.min(h, max), k0 = tail > 0 ? Math.min(1, Math.max(0, (y - (max - tail)) / tail)) : 1;
+    // スクロールできない（全部が収まっている）ときは線を下げない——最初の質問に印を付ける。印はフォーカスで移る（下の focusin）
+    const tail = Math.min(h, max), k0 = tail > 0 ? Math.min(1, Math.max(0, (y - (max - tail)) / tail)) : 0;
     const line = y + 40 + k0 * (h - 40);
     let at = -1;
     ENTRIES.forEach((e, k) => { if (!e.fs.hidden && (at < 0 || topOf(e.fs) <= line)) at = k; });
     if (want != null) {
       const t = ENTRIES[want].fs.hidden ? -1 : topOf(ENTRIES[want].fs);
-      if (t >= y - 2 && t < y + h) at = want; else want = null;
+      if ((t >= y - 2 && t < y + h) || (t >= 0 && performance.now() < hold)) at = want; else want = null;
     }
     if (at >= 0) mark(at);
   }
   function go(i, quiet) {
     if (i < 0 || i >= ENTRIES.length || ENTRIES[i].fs.hidden) return;
-    want = i;
+    choose(i);
     body.scrollTop = Math.max(0, topOf(ENTRIES[i].fs) - 10);
-    mark(i);
     if (quiet) return;
     const t = [...ENTRIES[i].fs.querySelectorAll('input:not([type=search]),textarea,select,li[tabindex]')].find(x => !x.closest('[hidden]'));
     const pick = t && t.type === 'radio' ? (ENTRIES[i].fs.querySelector('input[type=radio]:checked') || t) : t;   // ラジオは、選ばれているものへ
@@ -655,7 +660,13 @@ function mount(host, root, SPEC) {
     return true;
   }
   body.addEventListener('scroll', spy, { passive: true });
-  for (const t of ['wheel', 'touchmove']) body.addEventListener(t, () => { want = null; }, { passive: true });
+  // フォーカスが質問に入ったら、その質問を今の項目にする（Tab で移ったとき・未回答の質問へ移されたとき。
+  // スクロールだけでは印が届かない所——全部が収まっているフォーム・画面の途中にある質問——にも印が付く）
+  inner.addEventListener('focusin', (e) => {
+    const fs = e.target.closest && e.target.closest('fieldset'), i = ENTRIES.findIndex(x => x.fs === fs);
+    if (i >= 0) choose(i);
+  });
+  for (const t of ['wheel', 'touchmove']) body.addEventListener(t, () => { want = null; hold = 0; }, { passive: true });
 
   // ── 回答を読む ──
   function visible(q, answers) {
@@ -713,6 +724,8 @@ function mount(host, root, SPEC) {
       const firstFs = FS.get(lacking[0].id);
       const target = [...firstFs.querySelectorAll('input:not([type=search]),textarea,select')].find(x => !x.closest('[hidden]'));   // 絞り込みで隠れていないもの
       if (target) target.focus({ preventScroll: true });   // その質問へフォーカスを移す
+      const at = ENTRIES.findIndex(x => x.fs === firstFs);
+      if (at >= 0) choose(at);                             // 目次の印も、その質問へ
       firstFs.scrollIntoView({ behavior: 'smooth', block: 'center' });
       status.textContent = `未回答 ${lacking.length} 件 — 答えてから決定してください`;
       status.classList.add('warn');
