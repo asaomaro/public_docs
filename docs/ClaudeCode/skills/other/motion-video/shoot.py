@@ -153,10 +153,11 @@ class Browser:
         self.eval("new Promise(function(ok){setTimeout(ok,__MV__.loading===undefined?3000:300)})")
 
     def shot(self, ms):
-        """その時刻へ動かし、絵が読み終わり、2 回描かれるのを待ってから撮る。PNG のバイト列。"""
+        """その時刻へ動かし、絵が読み終わり、2 回描かれるのを待ってから撮る。PNG のバイト列。
+        コマを待つ上限は 5 秒（前は 400ms で、遅い機械では描かれる前に撮ることがあった）。"""
         self.eval("""new Promise(function(ok){
   try{__MV__.seek(%d)}catch(e){}
-  var n=0,frame=function(f){var done=false,g=function(){if(!done){done=true;f()}};requestAnimationFrame(g);setTimeout(g,400)};
+  var n=0,frame=function(f){var done=false,g=function(){if(!done){done=true;f()}};requestAnimationFrame(g);setTimeout(g,5000)};
   (function w(){if(__MV__.loading&&n++<150){setTimeout(w,100);return}
     try{__MV__.seek(%d)}catch(e){}
     frame(function(){frame(function(){setTimeout(ok,60)})})})()})""" % (ms, ms))

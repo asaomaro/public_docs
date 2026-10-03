@@ -32,6 +32,8 @@ python3 -W ignore::ResourceWarning -m unittest discover -s tests -t tests -k Eng
 
 - 不具合を直したら、**直す前のコードで落ちる**ことを確かめてから足す（直した所を一時的に戻して走らせ、落ちるのを見る）。
   通ってしまうテストは、その不具合を見ていない。
+- 画面に描かれたものを確かめるテストは、**待つ時間を決め打ちしない**（`test_engine.py` の `drawn()`: 絵が読み終わってから描き直させ、描かれるまで待つ）。
+  CI の機械は遅く、「600ms 待ってから 400ms の間に集める」は、その間に 1 コマも描かれずに落ちた。
 - 素材・VOICEVOX・ネットに頼らない（`fakes.fake_voicevox()`・`fakes.write_wav()` を使う）。一時ファイルは `fakes.tmpdir()`（終わると消える）。
 
 ## 確かめていないこと

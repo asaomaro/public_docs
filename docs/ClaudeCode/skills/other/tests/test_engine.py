@@ -106,6 +106,35 @@ class Engine(unittest.TestCase):
     def run_js(self, html, js):
         self.chrome.open(html)
         return self.chrome.eval(js)
+
+    def drawn(self, html, at, cond, reset="", before=""):
+        """その時刻へ動かし、絵が読み終わってから描き直させ、cond（JS の式）が値を返すまで待って、その値を返す。
+        待つ時間を決め打ちしない（2026-10-03: CI の遅い機械で、600ms ＋ 400ms の間に 1 コマも描かれず、集めた字が 0 個で落ちた）。
+        描画は 1 コマの中で終わるので、cond が値を返した時には、そのコマは描き終わっている。30 秒待っても返らなければ、何が起きていたかを添えて落とす。"""
+        js = """new Promise(function(ok){
+  var t0 = performance.now(), errs = [], frames = 0;
+  window.addEventListener("error", function (e) { errs.push(String(e.message)); });
+  (function tick() { frames++; requestAnimationFrame(tick); })();
+  %s
+  __MV__.seek(%d);
+  (function load() {
+    if (__MV__.loading && performance.now() - t0 < 30000) { setTimeout(load, 50); return; }
+    (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve()).then(function () {
+      %s
+      __MV__.seek(%d);
+      var t1 = performance.now();
+      (function poll() {
+        var v = (function () { return %s; })();
+        if (v !== undefined && v !== null && v !== false && !(Array.isArray(v) && !v.length)) { ok({ value: v }); return; }
+        if (performance.now() - t1 > 30000) { ok({ timeout: true, errors: errs, loading: __MV__.loading, frames: frames, t: __MV__.t }); return; }
+        setTimeout(poll, 50);
+      })();
+    });
+  })();
+})""" % (before, at, reset, at, cond)
+        got = self.run_js(html, js)
+        self.assertNotIn("timeout", got, "30 秒待っても描かれなかった: %r" % got)
+        return got["value"]
     def test_sentence_voice_spans_cues(self):
         sp = {"title": "t", "lang": "ja", "audio": {"narration": True, "music": None, "sfx": False, "voice": {"engine": "voicevox", "speaker": "四国めたん"}},
               "chapters": [{"title": "a", "scenes": [{"type": "title", "title": "t",
@@ -192,15 +221,18 @@ class Engine(unittest.TestCase):
             end = dict({"type": "end", "title": "ご視聴ありがとうございました", "lines": ["行 %d" % i for i in range(n)]}, **kw)
             return {"title": "t", "lang": "ja", "audio": {"narration": False, "music": None, "sfx": False},
                     "chapters": [{"title": "a", "scenes": [{"type": "title", "title": "t"}]}, {"title": "z", "scenes": [end]}]}
-        js = """new Promise(function(ok){var seen=[], o=CanvasRenderingContext2D.prototype.fillText; CanvasRenderingContext2D.prototype.fillText=function(s,x,y){seen.push([String(s),x,y]);return o.apply(this,arguments)};
-          __MV__.seek(__MV__.DUR-2500); setTimeout(function(){ CanvasRenderingContext2D.prototype.fillText=o;
-          ok({texts: seen.map(function(a){return a[0]}), maxY: Math.max.apply(null, [0].concat(seen.map(function(a){return a[2]}))), dur: __MV__.DUR, fade: __MV__.endFade}) }, 500)})"""
+        before = "var seen = window.__SEEN = [], o = CanvasRenderingContext2D.prototype.fillText; CanvasRenderingContext2D.prototype.fillText = function (s, x, y) { window.__SEEN.push([String(s), x, y]); return o.apply(this, arguments); };"
+        cond = "window.__SEEN.length ? {texts: window.__SEEN.map(function(a){return a[0]}), maxY: Math.max.apply(null, [0].concat(window.__SEEN.map(function(a){return a[2]}))), dur: __MV__.DUR, fade: __MV__.endFade} : null"
+
+        def shown(sp):   # 締めの画面（終わりの 2.5 秒前）で描かれた字
+            html = build_html(sp, voicevox=False)
+            return self.drawn(html, self.run_js(html, "__MV__.DUR") - 2500, cond, reset="window.__SEEN = [];", before=before)
         for n in (3, 12):
-            got = self.run_js(build_html(spec(n), voicevox=False), js)
+            got = shown(spec(n))
             self.assertNotIn("ご", got["texts"], "題の頭の 1 字の紋章が出ている")
             self.assertLessEqual(got["maxY"], 1000, "行が画面の下にはみ出す（%d 行）" % n)
             self.assertTrue(any("行 %d" % (n - 1) in x for x in got["texts"]), "最後の行が出ていない")
-        got = self.run_js(build_html(spec(3, markText="舵"), voicevox=False), js)
+        got = shown(spec(3, markText="舵"))
         self.assertIn("舵", got["texts"], "markText を書いたときは紋章を出す")
         self.assertEqual(got["fade"], 2000)
 
@@ -229,11 +261,11 @@ class Engine(unittest.TestCase):
                     "cast": {"a": {"name": "A", "color": "#e0457b", "side": "left"}, "b": {"name": "B", "color": "#3aa657", "side": "right"}},
                     "chapters": [{"title": "c", "scenes": [{"type": "talk", "cast": ["a", "b"], "lines": [{"who": "a", "text": "図を見て。"}],
                                                             "board": {"type": "stage", "shots": [{"line": 0, "items": [{"draw": code, "plate": "board"}]}]}}]}]}
-        js = "new Promise(function(ok){__MV__.seek(900); setTimeout(function(){ok(window.__BOX)}, 500)})"
-        tall = self.run_js(build_html(spec({"format": "short"}), voicevox=False), js)
+        box = lambda html: self.drawn(html, 900, "window.__BOX", reset="window.__BOX = null;")
+        tall = box(build_html(spec({"format": "short"}), voicevox=False))
         self.assertGreaterEqual(tall["x"], 420)
         self.assertLessEqual(tall["x"] + tall["w"], 1500)
-        wide = self.run_js(build_html(spec({}), voicevox=False), js)
+        wide = box(build_html(spec({}), voicevox=False))
         self.assertEqual(wide["w"], 1200)
 
     # ---- 2026-10-03: 作業役 3 人の報告（3 人の台本・画面いっぱいの写真） ----
@@ -254,13 +286,14 @@ class Engine(unittest.TestCase):
         return "data:image/png;base64," + base64.b64encode(open(path, "rb").read()).decode()
 
     def texts(self, spec, at=2500):
-        return self.run_js(build_html(spec, voicevox=False), self.TEXTS + "new Promise(function(ok){__MV__.seek(%d); setTimeout(function(){window.__T=[];__MV__.seek(%d);setTimeout(function(){ok(window.__T)},400)}, 600)})" % (at, at))
+        """その時刻の 1 コマで描かれた字（絵が読み終わり、描かれるのを待ってから集める）。"""
+        return self.drawn(build_html(spec, voicevox=False), at, "window.__T", reset="window.__T = [];", before=self.TEXTS)
 
     def test_draw_box_clear_of_two_on_one_side(self):
         """3 人の台本（左に 2 人）では、描き下ろしの図解の箱（s.box）の左下が立ち絵に隠れた。同じ側に 2 人立つときは、箱を立ち絵にかからない幅に寄せる。"""
         code = "window.__BOX = {x: s.box.x, w: s.box.w};"
         spec = self.stage_spec([{"draw": code, "plate": "board"}], talk={"stage": {}})
-        box = self.run_js(build_html(spec, voicevox=False), "new Promise(function(ok){__MV__.seek(900); setTimeout(function(){ok(window.__BOX)}, 500)})")
+        box = self.drawn(build_html(spec, voicevox=False), 900, "window.__BOX", reset="window.__BOX = null;")
         self.assertGreater(box["x"], 500, box)             # 左の 2 人目（幅 322 の立ち絵は 282〜604 に立つ）の右へ
         self.assertLessEqual(box["x"] + box["w"], 1560)
         self.assertGreater(box["w"], 900, "寄せすぎ")
@@ -323,8 +356,7 @@ class Engine(unittest.TestCase):
             data = open(p, "rb").read()
             self.assertEqual(struct.unpack(">II", data[16:24]), (1280, 720))
             self.assertFalse(shoot.is_blank(data), p)
-        self.chrome.open(open(html, encoding="utf-8").read())
-        self.assertEqual(self.chrome.eval("new Promise(function(ok){setTimeout(function(){ok(__MV__.loading)},500)})"), 0)
+        self.assertEqual(self.drawn(open(html, encoding="utf-8").read(), 500, "__MV__.loading === 0 ? {loading: __MV__.loading} : null"), {"loading": 0})
 
     def test_export_has_file_music(self):
         sp = {"title": "t", "lang": "ja", "audio": {"narration": False, "music": {"file": "bgm.wav", "loop": True}, "sfx": False},
