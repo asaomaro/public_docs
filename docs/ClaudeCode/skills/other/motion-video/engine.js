@@ -2931,6 +2931,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       for (var i = 0; i + n <= d.length; i += n) { var s2 = 0; for (var j = i; j < i + n; j += 8) s2 += d[j] * d[j]; out.push(Math.round(Math.sqrt(s2 / (n / 8)) * 1000) / 1000); } return out; }); },
     segments: function () { return msegs().map(function (m) { return { t: m.t, end: m.end, key: m.key, cont: m.cont }; }); }, seek: seek, play: play, pause: pause, get t() { return t; }, get speaking() { return !!speaking; }, get DUR() { return DUR; }, CHAPTERS: CHAPTERS,
               get voiceRate() { return VK; }, retime: retime, CUES: CUES, SFX: SFXQ,
+              capWrap: function (text, maxW, size, lim) { return capWrap(text, maxW, { size: size || 56, weight: 800, font: F.sans }, lim); },   /* 字幕の折り返し（確かめる用） */
               get audio() { return { ctx: ac, mt: mclock.mt, section: mclock.sec, notes: mclock.count || 0, sfx: sfxCount, vol: VOL, gain: master ? master.gain.value : null }; } };
   root.__mv = api; window.__MV__ = api;
   return api;

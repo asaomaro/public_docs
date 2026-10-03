@@ -1,0 +1,39 @@
+# 動画のスキルの回帰テスト
+
+motion-video・yukkuri-kaisetsu（yukkuri-script・yukkuri-qa を含む）・video-export・fact-check の、**実際に起きた不具合が戻っていないか**を確かめる。
+
+```bash
+cd docs/ClaudeCode/skills/other
+python3 -W ignore::ResourceWarning -m unittest discover -s tests -t tests      # 全部（3 秒ほど）
+python3 -W ignore::ResourceWarning -m unittest discover -s tests -t tests -k Engine   # 名前で絞る
+```
+
+- 標準ライブラリだけで動く（pytest は要らない）。**素材（立ち絵・BGM・書体）・VOICEVOX・ネットが無くても回る**。
+  声は偽の VOICEVOX（`fakes.py`。字 1 つを 1 拍 0.1 秒、読点を間 0.2 秒として WAV を書く）で作るので、字幕の切り替えの時刻をぴったり確かめられる。
+  楽器の録音の音は取りに行かない（合成の音で鳴らす）。
+- `test_engine.py` は、画面なしの Chrome を DevTools Protocol（パイプ）で動かす。Chrome が無ければ飛ばす。
+  仮想時間（`--virtual-time-budget`）は使わない（長い音の書き出しが終わる前に打ち切られる）。
+- `engine.js`・`build.py`・`kaisetsu.py` などを変えたら、PR の前に回す。GitHub Actions（`.github/workflows/video-skills.yml`）でも PR ごとに回る。
+
+## 何を確かめているか
+
+| ファイル | 中身（括弧は、もとになった不具合） |
+|---|---|
+| `test_speech.py` | 声に渡す文の空白（英字・数字の前後で一呼吸おいた）・読みの置き換えの順・読み違えやすい書き方・1 文の声の中の字幕の切り替え時刻 |
+| `test_motion_voices.py` | 1 文ずつの声（文の途中で語尾が下がって切れた）・文の中の字幕の時刻・声の付け忘れ（声の無い HTML で上書きした）・HTML の中の声の数・書き出しの声 |
+| `test_motion_build.py` | 同梱の見本がすべて HTML になる・同じ曲のファイルは 1 回だけ入る・場面の曲・指示のフォームの定義と骨組み |
+| `test_checks.py` | motion-video の check.py（項目と字幕の数のずれ・読み・声の無い HTML・同じ部品の連続）・台本の検査（絵の使い回し・同じ構図の連続）・出典の URL のかっこ |
+| `test_yukkuri.py` | 声の付け忘れ・声に渡す文の空白・話す速さ・場面の `@music`（効かなかった）・yukkuri-qa が HTML そのものの声を数える |
+| `test_engine.py` | 文の中の字幕が前の声の続きになる・字幕がカタカナ語・英単語の途中で折れない（「フレームワー／ク」）・書き出しにファイルの BGM が入る（fetch を使っていて無音だった）・場面ごとの曲の区切り |
+
+## テストを足すとき
+
+- 不具合を直したら、**直す前のコードで落ちる**ことを確かめてから足す（直した所を一時的に戻して走らせ、落ちるのを見る）。
+  通ってしまうテストは、その不具合を見ていない。
+- 素材・VOICEVOX・ネットに頼らない（`fakes.fake_voicevox()`・`fakes.write_wav()` を使う）。一時ファイルは `fakes.tmpdir()`（終わると消える）。
+
+## 確かめていないこと
+
+- 字幕を描く所（`drawCaption`）が、2 行をそろえるときに上限の幅を `capWrap` へ渡しているか（`capWrap` そのものは確かめている）。
+- 見た目（画面の崩れ・絵の重なり）。これは `check.py --shots`・yukkuri-qa の画面の採点で人とエージェントが見る。
+- 本物の VOICEVOX の読み（`--readings` で目で見る）。

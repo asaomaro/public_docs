@@ -320,3 +320,4 @@ python3 <skill_dir>/sprite.py chars/<名前> --compare     # svg/compare.png（�
 - VOICEVOX の話者（43 人）とスタイルの一覧は `speakers.md`。手本の動画から拾った画面の作りと、基準の出どころは `research.md`。
 - 仕組みは motion-video の `cast`・`talk`・`lines`。台本の JSON では、せりふに `acts`（途中の演技）・`react`（相手の反応）・`big`・`se`、
   場面に `board: {type: "stage", shots: […]}`・`tag`・`corner`、全体に `talk`（字幕の形など）・`images`・`fonts` を書ける。
+- **`engine.js`・`build.py`・`sound.py`・`voice.py`・`kaisetsu.py` を変えたら、回帰テストを回す**: `python3 -W ignore::ResourceWarning -m unittest discover -s ../tests -t ../tests`（この SKILL.md の場所から。3 秒ほど。素材と VOICEVOX は要らない）。motion-video と yukkuri-kaisetsu は `engine.js` を共有するので、片方の変更がもう片方を壊す。中身と足し方は `../tests/README.md`。
