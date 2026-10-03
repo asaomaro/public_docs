@@ -219,6 +219,21 @@ class Engine(unittest.TestCase):
                 self.assertEqual("".join(lines).replace(" ", ""), text.replace(" ", ""))
         self.assertEqual(self.run_js(build_html(sp, voicevox=False), '__MV__.capFit("短いわ。", 1100, 50)'), {"lines": ["短いわ。"], "size": 50})
 
+    def test_vertical_draw_box_fits(self):
+        """ショート（縦の画面）では、描き下ろしの図解の箱が、映る幅（まん中の 1080）に収まる。前は横の画面の幅 1200 のままで、右端の字が切れた。"""
+        code = "window.__BOX = {x: s.box.x, w: s.box.w};"
+        def spec(talk):
+            return {"title": "t", "lang": "ja", "audio": {"narration": False, "music": None, "sfx": False}, "talk": talk,
+                    "cast": {"a": {"name": "A", "color": "#e0457b", "side": "left"}, "b": {"name": "B", "color": "#3aa657", "side": "right"}},
+                    "chapters": [{"title": "c", "scenes": [{"type": "talk", "cast": ["a", "b"], "lines": [{"who": "a", "text": "図を見て。"}],
+                                                            "board": {"type": "stage", "shots": [{"line": 0, "items": [{"draw": code, "plate": "board"}]}]}}]}]}
+        js = "new Promise(function(ok){__MV__.seek(900); setTimeout(function(){ok(window.__BOX)}, 500)})"
+        tall = self.run_js(build_html(spec({"format": "short"}), voicevox=False), js)
+        self.assertGreaterEqual(tall["x"], 420)
+        self.assertLessEqual(tall["x"] + tall["w"], 1500)
+        wide = self.run_js(build_html(spec({}), voicevox=False), js)
+        self.assertEqual(wide["w"], 1200)
+
     def test_export_has_file_music(self):
         sp = {"title": "t", "lang": "ja", "audio": {"narration": False, "music": {"file": "bgm.wav", "loop": True}, "sfx": False},
               "chapters": [{"title": "a", "scenes": [{"type": "title", "title": "t", "duration": 4}]}]}
