@@ -1218,6 +1218,23 @@ def asset(name, catalog, sub, base, credits):
     return os.path.relpath(path, base)
 
 
+def stage_bg(text, base, credits):
+    """@bg:・bg: の値を、motion-video の背景の形にする。「名前 dim=0.4 speed=0.5 color=accent」のように、後ろに抑え方を書ける。
+    名前は、集めた背景（backgrounds.json）→ motion-video の背景（動く背景・SVG の背景。build.py --list-bg）→ 画像のファイル の順に当てる。
+    両方にある名前（stars・room など）は集めた背景になるので、motion-video のものは mv:名前 と書く。"""
+    if not isinstance(text, str):
+        return text
+    m = re.match(r"^(\S+)((?:\s+(?:dim|speed|color)=\S+)*)\s*$", text.strip())
+    name, opts = (m.group(1), dict(o.split("=", 1) for o in m.group(2).split())) if m else (text.strip(), {})
+    src = name[3:] if name.startswith("mv:") else asset(name, BGS, "bg", base, credits)
+    if not opts:
+        return src
+    try:
+        return dict({"src": src}, **{k: v if k == "color" else float(v) for k, v in opts.items()})
+    except ValueError:
+        sys.exit("error: 背景「%s」の dim・speed は数で書く（dim=0.4 speed=0.5）" % text)
+
+
 IMG_MIME = {".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif"}
 
 
@@ -1498,7 +1515,7 @@ def to_spec(meta, chapters, cast, base):
     for ch in chapters:
         for sc in ch["scenes"]:
             if sc.get("bg"):
-                sc["bg"] = asset(sc["bg"], BGS, "bg", base, bg_credits)
+                sc["bg"] = stage_bg(sc["bg"], base, bg_credits)
             b = sc.get("board")
             if isinstance(b, dict) and b.get("type") == "image" and b.get("src"):   # 取ってきた画像なら、クレジットを覚える
                 cj = os.path.join(os.path.dirname(os.path.join(base, b["src"])), "credits.json")
@@ -1707,6 +1724,15 @@ def main():
         for k, e in BGS.items():
             if not k.startswith("_"):
                 print("  %-22s %-14s %s%s" % (k, e["name"], e["desc"], "" if os.path.isfile(os.path.join(HERE, "bg", e["file"])) else "  ※ファイルなし（fetch_assets.py）"))
+        mv = motion_video()   # motion-video の背景（動く背景・SVG の背景）も、同じ書き方で使える
+        both = sorted(k for k in BGS if not k.startswith("_") and (k in mv.BACKDROPS or k in mv.bg_svgs()))
+        print("# motion-video の背景（同じく bg: か @bg: に。後ろに dim=0.4 で抑える・speed=0.5 で遅く。説明は python3 ../motion-video/build.py --list-bg）")
+        print("  動く背景（%d）: %s" % (len(mv.BACKDROPS), " ".join(mv.BACKDROPS)))
+        for kind, label in (("themed", "配色に合わせる"), ("scenery", "景色と場所")):
+            names = [k for k, e in mv.bg_svgs().items() if e.get("kind") == kind]
+            print("  SVG・%s（%d）: %s" % (label, len(names), " ".join(names)))
+        if both:
+            print("  ※ %s は上の集めた背景と同じ名前。motion-video のものは mv:%s のように書く" % ("・".join(both), both[0]))
         print("# BGM（台本の music: か @music: に名前を書く。ほかに motion-video の曲の名前も使える）")
         for mood, label in BGMS["_moods"].items():
             print("## %s" % label)

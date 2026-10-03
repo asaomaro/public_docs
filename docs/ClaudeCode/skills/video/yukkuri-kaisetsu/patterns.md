@@ -200,7 +200,7 @@ metan(smile, point): というわけで今回は、紙がお金になる仕組�
 - **絵を先に集める**（台本を書く前に、構成の表の「絵」の列を埋める）:
   - 挿絵: `python3 <skill_dir>/illust.py search 太陽 科学者` で候補を見て、`get 太陽 科学者`（約 1,500 点。もの・食べ物・動物・乗り物・建物・天気・記号・職業の人）。
   - 写真・図: `python3 <skill_dir>/fetch_images.py search "検索語"` → `get 3 --as 名前`（Wikimedia Commons。パブリックドメイン・CC0・CC BY だけ）。取ったら 1 回開いて見る。
-  - 人物・しぐさ・場面: irasutoya スキルがあれば `python3 ../irasutoya/irasutoya.py search "困っている|悩んでいる" 会社員 --sheet` → 見本を Read で見て選び、`get 3 --dir images --as 困る人`。
+  - 人物・しぐさ・場面: irasutoya スキルがあれば `python3 ../../other/irasutoya/irasutoya.py search "困っている|悩んでいる" 会社員 --sheet` → 見本を Read で見て選び、`get 3 --dir images --as 困る人`。
     絵文字に無い「誰が・何をしている」（驚く人・実験する人・並ぶ客・昔の暮らし）を見せられる。言い換えは 1 回目から 2〜3 個（探し方は irasutoya の SKILL.md）。
     収益化する動画は 1 本 20 点まで（サムネイルを含む。同じ絵は 1 点）。山場と、絵文字では伝わらない場面に絞る。個人や団体をけなす場面・攻撃的な場面には使わない。
   - 使い分け: もの・記号は絵文字、実物・歴史の図は写真、人と場面はいらすとや。1 つの画面の中では絵柄をそろえる（絵文字と写真を並べない）。

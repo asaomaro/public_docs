@@ -14,9 +14,9 @@ import sys
 import time
 import unittest
 
-import fakes
+import chrome as helpers
 
-AF = os.path.join(fakes.OTHER, "ask-form")
+AF = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, AF)
 import ask  # noqa: E402
 
@@ -143,7 +143,7 @@ class Collect(unittest.TestCase):
         for c in cls.cases:
             spec = public(ask.normalize(copy.deepcopy(c["spec"])))
             runs.append({"spec": spec, "state": c["state"]})
-        d = fakes.tmpdir()
+        d = helpers.tmpdir()
         page = os.path.join(d, "collect.html")
         html = PAGE % {"component": open(os.path.join(AF, "ask-form.js"), encoding="utf-8").read(), "cases": json.dumps(runs, ensure_ascii=False).replace("</", "<\\/")}
         open(page, "w", encoding="utf-8").write(html)
@@ -178,7 +178,7 @@ class Index(unittest.TestCase):
     def setUpClass(cls):
         if not CHROME:
             raise AssertionError("Chrome が無いので ask-form.js を確かめられません")
-        from test_engine import Chrome
+        from chrome import Chrome
         cls.chrome = Chrome()
         cls.component = open(os.path.join(AF, "ask-form.js"), encoding="utf-8").read()
 
@@ -346,7 +346,7 @@ class InstantConfirm(unittest.TestCase):
     def setUpClass(cls):
         if not CHROME:
             raise AssertionError("Chrome が無いので ask-form.js を確かめられません")
-        from test_engine import Chrome
+        from chrome import Chrome
         cls.chrome = Chrome()
         cls.component = open(os.path.join(AF, "ask-form.js"), encoding="utf-8").read()
 

@@ -1,4 +1,4 @@
-# 動画のスキル（motion-video・yukkuri-kaisetsu・video-export・fact-check）の回帰テスト
+# 動画のスキル（video/ の motion-video・yukkuri-kaisetsu・video-export）と、そこから使う other/ の ask-form・fact-check の回帰テスト
 #
 # なぜ CI が要るか:
 #   motion-video の engine.js・build.py は、yukkuri-kaisetsu の動画も描く。片方のための変更が、もう片方を
@@ -10,21 +10,23 @@ name: video skills
 on:
   push:
     paths:
-      - 'docs/ClaudeCode/skills/other/motion-video/**'
-      - 'docs/ClaudeCode/skills/other/yukkuri-*/**'
-      - 'docs/ClaudeCode/skills/other/video-export/**'
+      - 'docs/ClaudeCode/skills/video/motion-video/**'
+      - 'docs/ClaudeCode/skills/video/yukkuri-*/**'
+      - 'docs/ClaudeCode/skills/video/video-export/**'
       - 'docs/ClaudeCode/skills/other/fact-check/**'
       - 'docs/ClaudeCode/skills/other/ask-form/**'
-      - 'docs/ClaudeCode/skills/other/tests/**'
+      - 'docs/ClaudeCode/skills/other/md-to-doc/icons.py'
+      - 'docs/ClaudeCode/skills/video/tests/**'
       - '.github/workflows/video-skills.yml'
   pull_request:
     paths:
-      - 'docs/ClaudeCode/skills/other/motion-video/**'
-      - 'docs/ClaudeCode/skills/other/yukkuri-*/**'
-      - 'docs/ClaudeCode/skills/other/video-export/**'
+      - 'docs/ClaudeCode/skills/video/motion-video/**'
+      - 'docs/ClaudeCode/skills/video/yukkuri-*/**'
+      - 'docs/ClaudeCode/skills/video/video-export/**'
       - 'docs/ClaudeCode/skills/other/fact-check/**'
       - 'docs/ClaudeCode/skills/other/ask-form/**'
-      - 'docs/ClaudeCode/skills/other/tests/**'
+      - 'docs/ClaudeCode/skills/other/md-to-doc/icons.py'
+      - 'docs/ClaudeCode/skills/video/tests/**'
       - '.github/workflows/video-skills.yml'
   workflow_dispatch:
 
@@ -33,7 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: docs/ClaudeCode/skills/other
+        working-directory: docs/ClaudeCode/skills/video
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -44,5 +46,10 @@ jobs:
       - name: 回帰テスト
         env:
           # Chrome が無くて engine.js のテストが飛んだら落とす（飛んだ所は未検証の穴になる）
+          REQUIRE_CHROME: '1'
+        run: python3 -W ignore::ResourceWarning -m unittest discover -s tests -t tests -v
+      - name: ask-form のテスト（other/ask-form/tests）
+        working-directory: docs/ClaudeCode/skills/other/ask-form
+        env:
           REQUIRE_CHROME: '1'
         run: python3 -W ignore::ResourceWarning -m unittest discover -s tests -t tests -v

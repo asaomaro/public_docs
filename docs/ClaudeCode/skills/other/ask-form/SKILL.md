@@ -251,7 +251,8 @@ JSON
 
 ## ほかのスキルから使う
 
-スキルは同じ階層に並ぶので、`<呼び出し側の skill_dir>/../ask-form/ask.py` で届く。呼び出し側は
+同じまとまり（`other/`）のスキルからは `<呼び出し側の skill_dir>/../ask-form/ask.py` で届く。別のまとまり（`video/` の motion-video・yukkuri-kaisetsu）は、
+隣 → 1 つ上の階層の別のまとまり → `~/.claude/skills` の順に探す（各スキルの `find_skill`）。見つからなければ、ウィンドウを出せないときと同じ `unavailable`・終了コード 3 を返す。呼び出し側は
 （1）質問の定義を作る（2）`ask.py` に渡す（3）終了コード 3 のときは `AskUserQuestion` に切り替える、の 3 つを書く。
 md-to-doc は `generate.py --ask` がこの 3 つをまとめて行う（定義は `--ask-spec` で見られる）。
 
@@ -265,14 +266,14 @@ md-to-doc は `generate.py --ask` がこの 3 つをまとめて行う（定義�
 | `ask-form.js` | 部品。定義を描く・回答を集める・質問の目次を出す。通信しない・`window` や `document` に触らない |
 | `form.html` | 単独ウィンドウの殻。配色を CSS 変数で渡す・受け口との通信・ウィンドウの大きさ合わせ・閉じる |
 | `ask.py` | 定義の検査（`normalize()`）と受け口。検査を通った定義は、部品が受ける形（`fixtures/normalize.json` の「正規化後」）になっている |
-| `fixtures/normalize.json`・`fixtures/collect.json` | 共通の試験データ。ここ（`../tests/test_ask_form.py`）と Sodashitsu の両方のテストが読む |
+| `fixtures/normalize.json`・`fixtures/collect.json` | 共通の試験データ。ここ（`tests/test_ask_form.py`）と Sodashitsu の両方のテストが読む |
 
 - 部品との受け渡し: プロパティ `spec`・`busy`・`resolveMedia`、イベント `ask-submit`・`ask-cancel`・`ask-unsupported`、読み取りの `value`・`pageCount`・`contentHeight`、
   配色の CSS 変数 `--ask-bg` `--ask-fg` `--ask-border` `--ask-accent` `--ask-accent-fg` `--ask-error` `--ask-warn`（詳しくは `ask-form.js` の先頭）。
 - **同期の単位は 3 つ**: 部品のファイル・通す項目の一覧（`AskFormElement.supports`）・共通の試験データ。Sodashitsu のサーバは知っている項目だけを通すので、
   **定義に新しい項目や型を足したら、試験データに例を足し、Sodashitsu 側にも知らせる**（部品を写すだけでは届かない）。
 - 検査の誤りには分類の名前がある（`SpecError.reason`。一覧は `fixtures/normalize.json` の `reasons`）。文言は実装ごとに違ってよく、分類で比べる。
-- 部品の決まり（定義の文字は文字として出す・通信しない・ページ全体に触らない など）は `../tests/test_ask_form.py` が確かめる。
+- 部品の決まり（定義の文字は文字として出す・通信しない・ページ全体に触らない など）は `tests/test_ask_form.py` が確かめる（`python3 -m unittest discover -s tests -t tests`。このスキルの場所から）。
   変えたら `cd .. && python3 -W ignore::ResourceWarning -m unittest discover -s tests -t tests -k ask_form`。
 
 ## 対応する環境と確認

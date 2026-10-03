@@ -75,7 +75,7 @@ class OrderForm(unittest.TestCase):
             cls.spec = order.build_spec("テスト", previews=False)
 
     def test_form_definition(self):
-        ask = os.path.join(fakes.OTHER, "ask-form", "ask.py")
+        ask = os.path.join(fakes.skill("ask-form") or "-", "ask.py")
         if not os.path.isfile(ask):
             self.skipTest("ask-form が無い")
         r = subprocess.run([sys.executable, ask, "-", "--check"], input=json.dumps(self.spec, ensure_ascii=False), capture_output=True, text=True)
@@ -135,3 +135,16 @@ class OrderForm(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IconsCopy(unittest.TestCase):
+    """2026-10-03: md-to-doc は、アイコン集（icons.py）の写しを持つ（motion-video が無くてもアイコンが出るように）。
+    元は motion-video。足した・直したのに写し忘れると、文書と動画でアイコンが食い違う。"""
+
+    def test_same_as_md_to_doc(self):
+        md = fakes.skill("md-to-doc")
+        if not md:
+            self.skipTest("md-to-doc が無い")
+        a = open(os.path.join(fakes.MV, "icons.py"), encoding="utf-8").read()
+        b = open(os.path.join(md, "icons.py"), encoding="utf-8").read()
+        self.assertEqual(a, b, "写す: cp motion-video/icons.py %s/icons.py" % md)

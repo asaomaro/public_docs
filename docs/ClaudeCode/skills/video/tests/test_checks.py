@@ -138,6 +138,7 @@ class Calls(unittest.TestCase):
         self.assertTrue(calls("それはめたんが言ったっス。"))
 
 
+@unittest.skipUnless(fakes.skill("fact-check"), "fact-check スキルが無い（別のまとまり other/ にある）")
 class FactCheck(unittest.TestCase):
     def test_url_with_parentheses(self):
         """2026-10: かっこを含む URL（Wikipedia の React_(software)）の閉じかっこを切り、照合できなかった。"""

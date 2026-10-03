@@ -1,4 +1,8 @@
-"""線で描くアイコン集（motion-video と md-to-doc で共有）。
+"""線で描くアイコン集（motion-video と md-to-doc が、同じ中身を 1 つずつ持つ）。
+
+元は motion-video の icons.py。md-to-doc は写し（md-to-doc/icons.py）を持つので、どちらも相手が無くても動く。
+アイコンを足す・直すのは motion-video の側で行い、md-to-doc へ写す（cp <motion-video>/icons.py <md-to-doc>/icons.py）。
+写し忘れは、動画のスキルのテスト（tests/test_motion_build.py）が見つける。
 
 - 24×24 の座標の SVG の path（d）の並び。線の太さ 2・端は丸で描く前提（塗りは使わない）。
 - 既存のアイコン集の図形は写さず、この場で描いたもの。

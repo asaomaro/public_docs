@@ -286,7 +286,7 @@ class OrderFormWithoutAssets(unittest.TestCase):
         import json
         import subprocess
         import sys
-        ask = os.path.join(fakes.OTHER, "ask-form", "ask.py")
+        ask = os.path.join(fakes.skill("ask-form") or "-", "ask.py")
         if not os.path.isfile(ask):
             self.skipTest("ask-form が無い")
         r = subprocess.run([sys.executable, ask, "-", "--check"], input=json.dumps(spec, ensure_ascii=False), capture_output=True, text=True)
@@ -594,3 +594,49 @@ class Inserts(unittest.TestCase):
         spec, _, lines, _, err, _ = make(script=self.HEAD.replace("bg: a.png\n", "") % "opening: opening\n" + self.BODY.replace("@bg: b.png\n", "").replace("@insert: cm", "@insert: subscribe"))
         self.assertIn("差し込んだ部品: opening", err)
         self.assertEqual([sc.get("_part") for ch in spec["chapters"][:2] for sc in ch["scenes"]], ["opening", None, None, "subscribe", None])
+
+
+class WithoutAskForm(unittest.TestCase):
+    """2026-10-03: ask-form スキルが無いとき、指示のフォームの道具がエラー（終了コード 1）で止まっていた。
+    ウィンドウを出せないときと同じ形（unavailable・終了コード 3）で返し、呼び出し側が端末の質問に切り替えられるようにする。"""
+
+    def run_order(self, path, argv):
+        import importlib.util
+        import json
+        import sys
+        from unittest import mock
+        sp = importlib.util.spec_from_file_location("order_noask", path)
+        m = importlib.util.module_from_spec(sp)
+        sp.loader.exec_module(m)
+        m.ASK = os.path.join(fakes.tmpdir(), "ask-form", "ask.py")   # 無い場所
+        with mock.patch.object(sys, "argv", [path] + argv), fakes.quiet() as (err, out), self.assertRaises(SystemExit) as e:
+            m.main()
+        self.assertEqual(e.exception.code, 3)
+        res = json.loads(out.getvalue().strip().splitlines()[-1])
+        self.assertEqual(res["status"], "unavailable")
+        self.assertIn("ask-form", res["reason"])
+
+    def test_yukkuri_order(self):
+        self.run_order(os.path.join(fakes.YK, "script_order.py"), ["--theme", "空はなぜ青いのか", "--out", os.path.join(fakes.tmpdir(), "order.json")])
+
+    def test_motion_order(self):
+        self.run_order(os.path.join(fakes.MV, "order.py"), ["--out", os.path.join(fakes.tmpdir(), "order.json")])
+
+
+class MotionVideoBackgrounds(unittest.TestCase):
+    """2026-10-03: motion-video の背景（動く背景・SVG の背景）を、台本の bg:・@bg: に名前で書ける。"""
+    HEAD = "---\ntitle: t\ncast: metan, zundamon\nbg: aurora\n---\n# 一\n"
+
+    def test_names_and_options(self):
+        spec = make(script=self.HEAD + "metan: 動く背景よ。\n@bg: sky-night dim=0.3\nzundamon: 夜空なのだ。\n@bg: mv:stars speed=0.5\nmetan: 星よ。\n")[0]
+        bgs = [sc.get("bg") for sc in spec["chapters"][0]["scenes"]]
+        self.assertEqual(bgs, ["aurora", {"src": "sky-night", "dim": 0.3}, {"src": "stars", "speed": 0.5}])
+        self.assertIn("sky-night", spec.get("bgs", {}), "SVG の背景の本文が HTML に入る")
+        self.assertEqual(spec["chapters"][-1]["scenes"][-1].get("bg"), bgs[-1], "締めの画面も同じ背景")
+
+    def test_own_catalog_wins(self):
+        import kaisetsu
+        both = [k for k in kaisetsu.BGS if not k.startswith("_") and (k in build.BACKDROPS or k in build.bg_svgs())]
+        self.assertTrue(both, "名前の重なりが無くなったら、SKILL.md の mv: の説明を直す")
+        self.assertEqual(kaisetsu.stage_bg("mv:" + both[0], ".", []), both[0])
+        self.assertEqual(kaisetsu.stage_bg("images/a.png dim=0.5", ".", []), {"src": "images/a.png", "dim": 0.5})
