@@ -2130,7 +2130,10 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
             sby = up ? capY - (solo[0].label && !solo[0].big ? 92 : 30) - shh + 40 : (at === "left" && S0.tag) || (at === "right" && S0.corner) ? 190 : 96; }
           ctx.save(); ctx.translate(sbx, sby); ctx.scale(sk, sk);
           rr(-sw / 2, -40, sw, shh, 24); ctx.fillStyle = "#ffffff"; ctx.fill(); ctx.lineWidth = 5; ctx.strokeStyle = "#20242c"; ctx.stroke();
-          ctx.beginPath(); if (up) { ctx.moveTo(tx0 - 16, -34); ctx.lineTo(tx0, -66); ctx.lineTo(tx0 + 16, -34); } else { ctx.moveTo(tx0 - 16, shh - 42); ctx.lineTo(tx0 + tdx, shh - 10); ctx.lineTo(tx0 + 16, shh - 42); } ctx.closePath(); ctx.fillStyle = "#ffffff"; ctx.fill();
+          /* しっぽ: 箱の縁の線をまたいで白で塗り（縁の線が横に残らない）、斜めの 2 辺にだけ箱と同じ縁を引く */
+          var ey = up ? -40 : shh - 40, tipX = tx0 + (up ? 0 : tdx), tipY = up ? -68 : shh - 10, inY = ey + (up ? 4 : -4);
+          ctx.beginPath(); ctx.moveTo(tx0 - 16, inY); ctx.lineTo(tx0 - 16, ey); ctx.lineTo(tipX, tipY); ctx.lineTo(tx0 + 16, ey); ctx.lineTo(tx0 + 16, inY); ctx.closePath(); ctx.fillStyle = "#ffffff"; ctx.fill();
+          ctx.beginPath(); ctx.moveTo(tx0 - 16, ey); ctx.lineTo(tipX, tipY); ctx.lineTo(tx0 + 16, ey); ctx.lineJoin = "round"; ctx.stroke();
           sl.forEach(function (l, i) { txt(l, 0, 14 + i * 52, { size: 40, weight: 800, align: "center", color: "#20242c", font: so.font }); }); ctx.restore(); }
         if (solo[0].label && solo[0].big) {   /* 題のように大きく出す名札（動画の題の画面など）。暗い帯の上に、白い太い字 */
           var bo = capFont(132, 900), bl = capWrap(solo[0].label, 1500, bo).slice(0, 2), by0 = Math.min(capY, 1080) * .5 - (bl.length - 1) * 82, bk = P(slt, 120, 520, back);
