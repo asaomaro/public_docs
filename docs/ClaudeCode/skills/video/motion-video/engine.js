@@ -2957,9 +2957,33 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   /* @export-begin — 書き出し（WebM で保存・編集用の映像・音のトラック）。配布用（build.py --dist）では、ここから @export-end までを
    * build.py の EXPORT_STUB（finishRec・cancelRec の空の関数）に置き換えて HTML を小さくする */
   /* 動画ファイル（WebM）で保存: 最初から 1 倍速で再生しながら Canvas を録画する（字幕は焼き込み。読み上げの声は録れない）
-   * clean（編集用の映像）: 1920×1080・字幕なし・音なし。声を待たず、台本どおりの時間割（build.py --export の字幕・音・プロジェクトと揃う）で録る */
+   * clean（編集用の映像）: 1920×1080・字幕なし・音なし。声を待たず、台本どおりの時間割（build.py --export の字幕・音・プロジェクトと揃う）で録る
+   * 解像度・画質（映像のビットレート）・コマ数・音質・形式は ⚙ で選ぶ（recOpt。既定は 1920×1080・自動〔8Mbps〕・30 コマ・192kbps・WebM〔VP9〕。選んだものは覚える）。
+   * 保存のボタンの data-size・data-bps・data-fps・data-abps・data-fmt は、その回だけ設定に勝つ（youtube-upload の record.py が付ける） */
   var recBtn = $("mv-rec"), recBadge = $("mv-recbadge"), recCleanBtn = $("mv-recclean");
   if (!(window.MediaRecorder && cv.captureStream)) { if (recBtn) recBtn.hidden = true; if (recCleanBtn) recCleanBtn.hidden = true; }
+  var REC_SIZE = { 720: [1280, 720], 1080: [1920, 1080], 1440: [2560, 1440], 2160: [3840, 2160] }, REC_AUTO = { 720: 5, 1080: 8, 1440: 16, 2160: 35 };   /* 自動の画質（Mbps。60 コマは 1.5 倍） */
+  /* 形式: [名前, 表示, 拡張子, 試す MIME（先に通ったものを使う）]。ブラウザが録れるものだけを選択肢に出す */
+  var REC_FMT = [["webm", "WebM（VP9）", "webm", ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp9"]], ["vp8", "WebM（VP8）", "webm", ["video/webm;codecs=vp8,opus", "video/webm;codecs=vp8", "video/webm"]],
+                 ["av1", "WebM（AV1）", "webm", ["video/webm;codecs=av1,opus"]], ["mp4", "MP4（H.264）", "mp4", ["video/mp4;codecs=avc1.640033,mp4a.40.2", "video/mp4;codecs=avc1.640033,opus"]]];
+  function recMime(f) { if (!(window.MediaRecorder && MediaRecorder.isTypeSupported)) return f[0] === "vp8" ? "video/webm" : "";
+    for (var i = 0; i < f[3].length; i++) if (MediaRecorder.isTypeSupported(f[3][i])) return f[3][i]; return ""; }
+  var recSel = { size: $("mv-recsize"), bps: $("mv-recbps"), fps: $("mv-recfps"), abps: $("mv-recabps"), fmt: $("mv-recfmt") }, REC_DEF = { size: "1080", bps: "0", fps: "30", abps: "192", fmt: "webm" };
+  if (recSel.fmt) REC_FMT.forEach(function (f) { if (!recMime(f)) return; var op = document.createElement("option"); op.value = f[0]; op.textContent = f[1]; recSel.fmt.appendChild(op); });
+  if (recSel.size && vertOn()) [].forEach.call(recSel.size.options, function (op) { var z = REC_SIZE[op.value]; if (z) op.textContent = z[1] + "×" + z[0]; });   /* ショート（縦）は縦横を入れ替えて出す */
+  function recLabel() { if (!recBtn) return; var f = REC_FMT.filter(function (x) { return x[0] === store.get("rec.fmt", REC_DEF.fmt) && recMime(x); })[0];
+    recBtn.textContent = "動画ファイル（" + (f && f[2] === "mp4" ? "MP4" : "WebM") + "）で保存"; }
+  Object.keys(recSel).forEach(function (k) { var el = recSel[k]; if (!el) return; el.value = store.get("rec." + k, REC_DEF[k]); if (el.selectedIndex < 0) el.value = REC_DEF[k];
+    el.addEventListener("change", function () { store.set("rec." + k, el.value); recLabel(); }); });
+  recLabel();
+  /* 今回の録画の設定。clean（編集用の映像）は、解像度とコマ数だけ従う（形式は WebM、画質は 12Mbps 以上。video-export のプロジェクトが <題>_video.webm を指すため） */
+  function recOpt(clean) {
+    var get = function (k) { return (recBtn && !clean && recBtn.getAttribute("data-" + k)) || store.get("rec." + k, REC_DEF[k]); };
+    var size = REC_SIZE[get("size")] ? get("size") : REC_DEF.size, z = REC_SIZE[size], fps = +get("fps") === 60 ? 60 : 30, mb = parseFloat(get("bps")), ab = parseFloat(get("abps"));
+    if (!(mb > 0)) mb = REC_AUTO[size] * (fps === 60 ? 1.5 : 1);
+    var f = REC_FMT.filter(function (x) { return x[0] === (clean ? "webm" : get("fmt")) && recMime(x); })[0] || REC_FMT.filter(recMime)[0] || REC_FMT[1];
+    return { w: vertOn() ? z[1] : z[0], h: vertOn() ? z[0] : z[1], fps: fps, bps: Math.round((clean ? Math.max(mb, 12) : mb) * 1e6), abps: Math.round((ab > 0 ? ab : 192) * 1000), mime: recMime(f) || "video/webm", ext: f[2] };
+  }
   function exportName() { return SPEC._exportName || (SPEC.title || "video").replace(/[\\/:*?"<>|]/g, "_"); }
   function download(blob, name) {
     var a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
@@ -2971,19 +2995,18 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   function startRec(clean) {
     closeSet(false);
     try {
-      var rec = { cancel: false, speed: speed, clean: !!clean, audio: audioOn };
+      var o = recOpt(clean), rec = { cancel: false, speed: speed, clean: !!clean, audio: audioOn, opt: o };
       if (clean) { hush(); musicStop(); audioOn = false; nominalTiming(); }
-      var vr = vertOn(); cv.width = vr ? (clean ? 1080 : 720) : clean ? 1920 : 1280; cv.height = vr ? (clean ? 1920 : 1280) : clean ? 1080 : 720;
-      var stream = cv.captureStream(30);
+      cv.width = o.w; cv.height = o.h;
+      var stream = cv.captureStream(o.fps);
       if (!clean) { ensureAudio();
         if (ac && master && ac.createMediaStreamDestination) { var dest = ac.createMediaStreamDestination(); master.connect(dest); dest.stream.getAudioTracks().forEach(function (tr) { stream.addTrack(tr); }); } }
-      var mime = window.MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported("video/webm;codecs=vp9") ? "video/webm;codecs=vp9" : "video/webm";
-      var mr = new MediaRecorder(stream, clean ? { mimeType: mime, videoBitsPerSecond: 12000000 } : { mimeType: mime }), chunks = [];
+      var mr = new MediaRecorder(stream, { mimeType: o.mime, videoBitsPerSecond: o.bps, audioBitsPerSecond: o.abps }), chunks = [];
       rec.mr = mr;
       mr.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
       mr.onstop = function () {
         if (recBadge) recBadge.hidden = true;
-        if (!rec.cancel) download(new Blob(chunks, { type: "video/webm" }), exportName() + (clean ? "_video" : "") + ".webm");
+        if (!rec.cancel) download(new Blob(chunks, { type: o.mime.split(";")[0] }), exportName() + (clean ? "_video" : "") + "." + o.ext);
       };
       setSpeed(1); t = 0; started = true; hush();
       recording = rec; if (recBadge) { recBadge.textContent = clean ? "● 録画中（編集用）" : "● 録画中"; recBadge.hidden = false; }

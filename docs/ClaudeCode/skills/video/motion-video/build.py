@@ -1251,8 +1251,18 @@ def build_fragment(spec, theme_key, player, uid=None, export=True):
         '<button type="button" data-mus="1">入</button><button type="button" data-mus="0">切</button></span></div>'
         '<div class="mv-setrow"><span>効果音</span><span class="mv-seg3" role="group" aria-label="効果音">'
         '<button type="button" data-sfx="1">入</button><button type="button" data-sfx="0">切</button></span></div>'
-        + (('<button type="button" class="mv-setitem" id="mv-rec">動画ファイル（WebM）で保存</button>'
-        '<p class="mv-setnote">保存は最初から 1 倍速で再生して録画します（字幕は映像に焼き込み。%s）。</p>' % (
+        + ((
+        '<div class="mv-setrow"><span>保存の解像度</span><select class="mv-fontsel" id="mv-recsize" aria-label="保存する動画の解像度">'
+        '<option value="720">1280×720</option><option value="1080">1920×1080</option><option value="1440">2560×1440</option><option value="2160">3840×2160</option></select></div>'
+        '<div class="mv-setrow"><span>画質</span><select class="mv-fontsel" id="mv-recbps" aria-label="映像のビットレート">'
+        '<option value="0">自動</option><option value="4">4 Mbps</option><option value="6">6 Mbps</option><option value="8">8 Mbps</option><option value="12">12 Mbps</option><option value="16">16 Mbps</option><option value="24">24 Mbps</option><option value="40">40 Mbps</option></select></div>'
+        '<div class="mv-setrow"><span>コマ数</span><select class="mv-fontsel" id="mv-recfps" aria-label="1 秒あたりのコマ数">'
+        '<option value="30">30 コマ/秒</option><option value="60">60 コマ/秒</option></select></div>'
+        '<div class="mv-setrow"><span>音質</span><select class="mv-fontsel" id="mv-recabps" aria-label="音のビットレート">'
+        '<option value="128">128 kbps</option><option value="192">192 kbps</option><option value="256">256 kbps</option><option value="320">320 kbps</option></select></div>'
+        '<div class="mv-setrow"><span>形式</span><select class="mv-fontsel" id="mv-recfmt" aria-label="保存する動画の形式"></select></div>'
+        '<button type="button" class="mv-setitem" id="mv-rec">動画ファイル（WebM）で保存</button>'
+        '<p class="mv-setnote">保存は最初から 1 倍速で再生して録画します（字幕は映像に焼き込み。%s）。画質の「自動」は解像度に合わせます（1920×1080 で 8 Mbps）。</p>' % (
             "前もって作った声も入ります" if any(s_.get("_voices") for c_ in spec["chapters"] for s_ in c_["scenes"]) else "読み上げの声は入りません")
         + '<button type="button" class="mv-setitem" id="mv-recclean">編集用の映像（字幕・音なし WebM）</button>'
         '<button type="button" class="mv-setitem" id="mv-expaudio">音のトラックを書き出す（WAV）</button>'
