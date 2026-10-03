@@ -17,7 +17,7 @@
  *   定義の文字は textContent で出す（innerHTML を使わない）。色・数は確かめてから個別のプロパティに入れる。
  *   通信しない。window・document に触らない（リスナーは Shadow DOM の中・部品の要素・自分に付けた ResizeObserver だけで、外すときに外す）。
  */
-const VERSION = '1.0.0';
+const VERSION = '1.0.1';
 const TYPES = ['single', 'multi', 'text', 'edit', 'rank', 'table'];
 const FIELDS = ['title', 'intro', 'submit', 'note', 'notePlaceholder', 'paging',
   'id', 'label', 'type', 'help', 'page', 'options', 'default', 'allowOther', 'otherLabel', 'otherPlaceholder', 'showIf', 'required',
@@ -880,7 +880,7 @@ function unsupported(spec) {
     if (!q || typeof q !== 'object' || typeof q.id !== 'string' || !q.id) return 'a question has no id';
     if (!TYPES.includes(q.type)) return `question "${q.id}" has an unsupported type "${q.type}"`;
     const needs = q.type !== 'text' && q.type !== 'edit';
-    if (!Array.isArray(q.options)) { if (needs) return `question "${q.id}" has no options`; q.options = []; }
+    if (needs && !Array.isArray(q.options)) return `question "${q.id}" has no options`;   // 渡された定義は書き換えない
     if (needs && (!q.options.length || q.options.some(o => !o || typeof o.value !== 'string'))) return `question "${q.id}" has broken options`;
     if (q.type === 'table' && (!Array.isArray(q.rows) || !q.rows.length || q.rows.some(r => !r || typeof r.value !== 'string'))) return `question "${q.id}" has broken rows`;
   }
