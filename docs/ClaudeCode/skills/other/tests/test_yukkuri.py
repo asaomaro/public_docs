@@ -538,3 +538,59 @@ class FetchImages(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Inserts(unittest.TestCase):
+    """2026-10-03: オープニング・チャンネル登録のお願いなど、用意した部品（別の台本）を差し込む（opening:・@insert:）。"""
+    HEAD = "---\ntitle: 空の話\ncast: zundamon, metan\nroles: metan=解説, zundamon=聞き手\nbg: a.png\nmusic: calm\n%s---\n"
+    BODY = "# つかみ\nzundamon: つかみなのだ。\n# 本題\n@bg: b.png\nmetan: 前よ。\n@insert: cm\nmetan: 後ろよ。\n# まとめ\nmetan: まとめよ。\n"
+
+    def load(self, head="", body=BODY, parts=None):
+        import kaisetsu
+        d = fakes.tmpdir()
+        os.mkdir(os.path.join(d, "parts"))
+        for name, text in (parts or {"op": "@show: \"{title}\" | \"{channel|ここ}\"\n聞き手: はじまるのだ。\n> 解説(smile)\n",
+                                     "cm": "---\nbg: c.png\nmusic: hope\nseconds: 3\n---\n# 見出しは章にしない\n@show: \"登録\"\n2: 登録してね。\n"}).items():
+            with open(os.path.join(d, "parts", name + ".txt"), "w", encoding="utf-8") as f:
+                f.write(text)
+        meta, chapters, errs = kaisetsu.parse(self.HEAD % head + body)
+        self.assertFalse(errs)
+        with fakes.quiet():
+            kaisetsu.insert_parts(meta, chapters, d, kaisetsu.build_cast(meta, d))
+        return meta, chapters
+
+    def test_opening_joins_the_first_chapter(self):
+        meta, chapters = self.load("opening: op\n")
+        self.assertEqual([c["title"] for c in chapters], ["つかみ", "本題", "まとめ"], "数秒の部品で章（YouTube のチャプター）を増やさない")
+        first = chapters[0]["scenes"][0]
+        self.assertEqual((first["_part"], first["lines"][0]["who"], first["lines"][0]["react_raw"][0]["who"]), ("op", "zundamon", "metan"))
+        self.assertEqual([it.get("text") for it in first["board"]["shots"][0]["items"]], ["空の話", "ここ"], "{title} と、設定に無いときの既定")
+        self.assertEqual(first.get("bg"), "a.png")
+
+    def test_insert_in_the_middle_and_back(self):
+        meta, chapters = self.load()
+        sc = chapters[1]["scenes"]
+        self.assertEqual([s.get("_part") for s in sc], [None, "cm", None])
+        self.assertEqual((sc[1]["bg"], sc[1]["music"], sc[1]["duration"], sc[1]["lines"][0]["who"]), ("c.png", "hope", 3.0, "metan"))
+        self.assertEqual((sc[2]["bg"], chapters[2]["scenes"][0]["bg"]), ("b.png", "b.png"), "部品が背景を替えても、続きは元の背景")
+        self.assertEqual(sc[2]["lines"][0]["text"], "後ろよ。")
+
+    def test_music_comes_back(self):
+        import kaisetsu
+        meta, chapters = self.load()
+        for ch in chapters:
+            for sc in ch["scenes"]:
+                sc.pop("bg", None)
+        with fakes.quiet():
+            got = kaisetsu.to_spec(meta, chapters, kaisetsu.build_cast(meta, "."), ".")[0]
+        self.assertEqual([sc.get("music") for sc in got["chapters"][1]["scenes"]], [None, "hope", "calm"], "部品の後は、その章で流れていた曲に戻る")
+
+    def test_missing_part_stops(self):
+        with self.assertRaises(SystemExit) as e:
+            self.load(body="# 一\n@insert: nai\nmetan: あ。\n")
+        self.assertIn("nai", str(e.exception))
+
+    def test_bundled_parts_build(self):
+        spec, _, lines, _, err, _ = make(script=self.HEAD.replace("bg: a.png\n", "") % "opening: opening\n" + self.BODY.replace("@bg: b.png\n", "").replace("@insert: cm", "@insert: subscribe"))
+        self.assertIn("差し込んだ部品: opening", err)
+        self.assertEqual([sc.get("_part") for ch in spec["chapters"][:2] for sc in ch["scenes"]], ["opening", None, None, "subscribe", None])

@@ -781,6 +781,117 @@
      "c"
     ]
    }
+  },
+  {
+   "name": "値が \"__other__\" の選択肢は、ふつうの選択肢（自由入力ではない）",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "options": [
+       "x",
+       "__other__"
+      ]
+     }
+    ]
+   },
+   "state": {
+    "picked": {
+     "a": [
+      "__other__"
+     ]
+    },
+    "otherPicked": {},
+    "otherText": {},
+    "text": {},
+    "note": ""
+   },
+   "expect": {
+    "answers": {
+     "a": "__other__"
+    },
+    "lacking": []
+   }
+  },
+  {
+   "name": "値が \"__other__\" の選択肢と「その他」の自由入力は別もの",
+   "spec": {
+    "questions": [
+     {
+      "id": "m",
+      "label": "M",
+      "type": "multi",
+      "allowOther": true,
+      "options": [
+       "x",
+       "__other__"
+      ]
+     }
+    ]
+   },
+   "state": {
+    "picked": {
+     "m": [
+      "__other__"
+     ]
+    },
+    "otherPicked": {
+     "m": true
+    },
+    "otherText": {
+     "m": "q"
+    },
+    "text": {},
+    "note": ""
+   },
+   "expect": {
+    "answers": {
+     "m": [
+      "__other__",
+      "q"
+     ]
+    },
+    "custom": [
+     "m"
+    ],
+    "lacking": []
+   }
+  },
+  {
+   "name": "値が空文字の選択肢も選べる",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "options": [
+       {
+        "value": "",
+        "label": "なし"
+       },
+       "x"
+      ]
+     }
+    ]
+   },
+   "state": {
+    "picked": {
+     "a": [
+      ""
+     ]
+    },
+    "otherPicked": {},
+    "otherText": {},
+    "text": {},
+    "note": ""
+   },
+   "expect": {
+    "answers": {
+     "a": ""
+    },
+    "lacking": []
+   }
   }
  ]
 }

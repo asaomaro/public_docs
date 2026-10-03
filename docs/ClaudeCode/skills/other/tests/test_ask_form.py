@@ -109,7 +109,7 @@ for (const c of CASES) {
     const esc = CSS.escape(q.id);
     for (const i of R.querySelectorAll(`input[name="${esc}"]`)) {
       if (i.type === 'text') i.value = (st.text || {})[q.id] || '';
-      else if (i.value === '__other__') {
+      else if (i.dataset.other != null) {
         i.checked = !!(st.otherPicked || {})[q.id];
         i.closest('label').querySelector('input[type=text]').value = (st.otherText || {})[q.id] || '';
       } else i.checked = ((st.picked || {})[q.id] || []).includes(i.value);
