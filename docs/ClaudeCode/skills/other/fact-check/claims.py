@@ -11,7 +11,7 @@
 
 手順は SKILL.md。標準ライブラリだけで動く。
 """
-import argparse, hashlib, html, os, re, sys, time, unicodedata, urllib.parse, urllib.request
+import argparse, hashlib, html, os, re, sys, time, unicodedata, urllib.error, urllib.parse, urllib.request
 
 UA = "fact-check-skill/1.0 (https://github.com/asaomaro/public_docs; Python urllib)"
 VERDICTS = ["確認できた", "食い違う", "言いすぎ", "確かめられない", "対象外"]
@@ -156,9 +156,21 @@ def page_text(url):
     return text
 
 
+class PageError(Exception):
+    """ページを読めなかった（理由と、次にすることを文で持つ）。"""
+
+
 def fetch_text(url):
     req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept-Language": "ja,en"})
-    data = urllib.request.urlopen(req, timeout=60)
+    try:
+        data = urllib.request.urlopen(req, timeout=60)
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403, 406, 429, 451):   # 機械からの取得を断っているサイト。名乗りを偽って取りに行かない
+            raise PageError("このページは、機械からの取得を断っています（HTTP %d）: %s\n"
+                            "       別の出どころ（公的機関・Wikipedia など）で確かめるか、使う人がブラウザで開いて原文を確かめます。確かめられなければ、その事実は使いません" % (e.code, url))
+        raise PageError("ページを取れません（HTTP %d）: %s" % (e.code, url))
+    except urllib.error.URLError as e:
+        raise PageError("つながりません（%s）: %s" % (e.reason, url))
     ctype = data.headers.get("Content-Type", "")
     raw = data.read()
     if "pdf" in ctype or raw[:4] == b"%PDF":
@@ -241,7 +253,7 @@ def verify(path):
                         hit = True
                         break
                 except Exception as e:
-                    print("  %s: ページを読めません（%s）: %s" % (cid, type(e).__name__, u), file=sys.stderr)
+                    print("  %s: ページを読めません（%s）: %s" % (cid, str(e).split("\n")[0] if isinstance(e, PageError) else type(e).__name__, u), file=sys.stderr)
             ok, ng = ok + hit, ng + (not hit)
             if not hit:
                 print("NG : %s の引用が、出典のどのページにも見つかりません: 「%s」" % (cid, q[:70] + ("…" if len(q) > 70 else "")))
@@ -358,9 +370,15 @@ def main():
     if a.cmd == "extract":
         extract(a.file, a.out or re.sub(r"\.\w+$", "", a.file) + ".factcheck.md", a.all)
     elif a.cmd == "quote":
-        sys.exit(quote(a.url, a.text))
+        try:
+            sys.exit(quote(a.url, a.text))
+        except PageError as e:
+            sys.exit("error: %s" % e)
     elif a.cmd == "page":
-        print(re.sub(r"[ \t]*\n\s*", "\n", re.sub(r"[ \t]+", " ", page_text(a.url))).strip())
+        try:
+            print(re.sub(r"[ \t]*\n\s*", "\n", re.sub(r"[ \t]+", " ", page_text(a.url))).strip())
+        except PageError as e:
+            sys.exit("error: %s" % e)
     elif a.cmd == "verify":
         sys.exit(verify(a.file))
     else:

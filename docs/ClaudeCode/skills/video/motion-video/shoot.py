@@ -165,10 +165,19 @@ class Browser:
 
     def close(self):
         try:
+            try:
+                self.call("Browser.close")   # Chrome に自分で終わらせる（子のプロセスも終わる）。kill だけだと子が残って、プロファイルのフォルダを書き戻すことがあった
+                self.p.wait(timeout=5)
+            except Exception:
+                pass
             self.p.kill()
             self.p.wait()
         finally:
-            shutil.rmtree(self.dir, ignore_errors=True)
+            for _ in range(3):   # 子のプロセスが書いている間は消し切れないことがある
+                shutil.rmtree(self.dir, ignore_errors=True)
+                if not os.path.exists(self.dir):
+                    break
+                time.sleep(.3)
 
 
 def take(browser, ms, tries=3, wait=0.6):

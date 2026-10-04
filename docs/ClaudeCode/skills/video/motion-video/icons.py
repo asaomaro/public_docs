@@ -9,6 +9,7 @@
 - anim は、現れた後の繰り返しの動き（spin 回る・swing 揺れる・beat 鼓動・float 漂う・blink 瞬く・glow 光る・
   pulse 脈打つ・shake 震える・bounce 跳ねる・flip 裏返る・twinkle 瞬く星・none）。現れるときはどれも「線が描かれる」。
 """
+import re
 
 # name: (日本語の名前, [d, …], 繰り返しの動き)
 ICONS = {
@@ -136,6 +137,8 @@ def pick(names):
 
 def used_in(text):
     """台本・文書の文字列の中で、アイコンの名前として出てくるもの（"name" の形）。"""
+    if len(text) > 1 << 20:   # 埋め込みの声・画像（data:…）を先に除く。100MB の台本で、名前ごとに全文を探すと 5 秒かかった
+        text = re.sub(r'"data:[^"]*"', '""', text)
     return [n for n in ICONS if ('"%s"' % n) in text or ("'%s'" % n) in text]
 
 

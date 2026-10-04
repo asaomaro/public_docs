@@ -208,27 +208,41 @@ def measure(spec, meta, info, R):
             R.add("info", "仕上げ", "台本の先頭に %s: がありません（yukkuri-publish）" % k)
     if info.get("irasutoya", 0) > 20:
         R.add("warn", "仕上げ", "いらすとやの絵が %d 点です（収益化する動画は 20 点まで）" % info["irasutoya"])
-    return views, total
+    # 演技の大きい瞬間（大きい字幕・強い動き）: 画面の採点で、演技（D）を見る材料にする。動きのまん中あたりを撮る
+    acts = [round(min(total - .5, l["t"] + .45), 1) for l in lines if l.get("big") or l.get("lv") == 3 or l.get("motion") in STRONG]
+    return views, total, acts
 
 
-def shots(script, views, total, n, outdir):
-    """画面が替わる時刻（の少し後）から、まんべんなく n 枚を撮り、番号と時刻つきの一覧画像にする。"""
+STRONG = {"jump", "zukkoke", "back", "tremble", "stomp", "squash", "spin", "zoom", "shakehead", "away"}
+
+
+def pick_times(views, total, n, acts=()):
+    """撮る時刻。画面が替わる時刻（の少し後）からまんべんなく選び、演技の大きい瞬間（acts）を n の 1/4 まで足す
+    （前は画面の替わり目だけを撮っていて、跳ねる・ずっこけるなどの演技が 1 枚も写らず、演技を採点できなかった）。"""
+    cand = []
+    for i, v in enumerate(v2 for v2 in views if v2["sec"] > 0.8):
+        late = v["sec"] * (.5 if i % 2 == 0 else .82)
+        cand.append((round(min(total - 1, v["t"] + min(v["sec"] - .3, max(1.2, late))), 1), v["kind"] in ("photo", "draw", "part") or v.get("key")))
+    acts = sorted(set(acts))
+    k = min(len(acts), n // 4)
+    acts = [acts[round(i * (len(acts) - 1) / max(1, k - 1))] for i in range(k)] if k else []
+    n -= len(acts)
+    must = [t for t, k2 in cand if k2][:max(0, n * 2 // 3)]
+    rest = [t for t, k2 in cand if t not in must]
+    room = max(0, n - len(must))
+    if len(rest) > room:
+        rest = [rest[round(i * (len(rest) - 1) / max(1, room - 1))] for i in range(room)] if room else []
+    return sorted(set(must + rest + acts))
+
+
+def shots(script, views, total, n, outdir, acts=()):
+    """画面が替わる時刻（の少し後）と、演技の大きい瞬間から n 枚を撮り、番号と時刻つきの一覧画像にする。"""
     try:
         from PIL import Image, ImageDraw
     except ImportError:
         print("warn: Pillow が無いので、見本の一覧を作れません（pip install pillow）", file=sys.stderr)
         return None
-    # 画面ごとに 1 枚。大事な画面（数字・大きい字幕・描き下ろし・写真）は必ず入れ、残りをまんべんなく選ぶ。撮る時刻は 1 枚おきに遅らせて、聞き手のせりふの間も写す
-    cand = []
-    for i, v in enumerate(v2 for v2 in views if v2["sec"] > 0.8):
-        late = v["sec"] * (.5 if i % 2 == 0 else .82)
-        cand.append((round(min(total - 1, v["t"] + min(v["sec"] - .3, max(1.2, late))), 1), v["kind"] in ("photo", "draw", "part") or v.get("key")))
-    must = [t for t, k in cand if k][:max(0, n * 2 // 3)]
-    rest = [t for t, k in cand if t not in must]
-    room = max(0, n - len(must))
-    if len(rest) > room:
-        rest = [rest[round(i * (len(rest) - 1) / max(1, room - 1))] for i in range(room)] if room else []
-    times = sorted(set(must + rest))
+    times = pick_times(views, total, n, acts)
     html = os.path.splitext(script)[0] + ".html"
     if not os.path.isfile(html):
         print("warn: %s がありません（先に kaisetsu.py で作る）。画面は撮りません" % html, file=sys.stderr)
@@ -285,8 +299,8 @@ def main():
     meta["_stem"] = stem
     info = json.load(open(stem + ".info.json", encoding="utf-8")) if os.path.isfile(stem + ".info.json") else {}
     R = Report()
-    views, total = measure(spec, meta, info, R)
-    sheet = None if a.no_shots else shots(a.script, views, total, a.max_shots, stem + "_qa")
+    views, total, acts = measure(spec, meta, info, R)
+    sheet = None if a.no_shots else shots(a.script, views, total, a.max_shots, stem + "_qa", acts)
     warns = [r for r in R.rows if r[0] == "warn"]
     out = ["# 動画の検査: %s" % os.path.basename(a.script), "", "## 測った値", "", "| 何を | 値 | 目安 |", "|---|---|---|"]
     out += ["| %s: %s | %s | %s |" % s for s in R.stats]

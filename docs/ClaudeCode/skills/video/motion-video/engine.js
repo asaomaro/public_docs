@@ -2073,6 +2073,9 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var path = function () { ctx.beginPath(); ctx.moveTo(a, y); ctx.lineTo(e - dir * 20, y); ctx.moveTo(e - dir * 34, y - 26); ctx.lineTo(e, y); ctx.lineTo(e - dir * 34, y + 26); };
     ctx.save(); ctx.lineCap = "round"; ctx.lineJoin = "round"; path(); ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 26; ctx.stroke(); path(); ctx.strokeStyle = "#20242c"; ctx.lineWidth = 14; ctx.stroke(); ctx.restore();
   }
+  /* 吹き出しの時刻: sayLine（この画面の N 個目のせりふ）が書いてあれば、そのせりふが始まってからの時間にする（まだなら負 = 出ない） */
+  function sayT(it, slt) { var n = (it.sayLine || 1) - 1, cs = CURSHOT; if (n <= 0 || !cs) return slt;
+    var c = (cs.s._cues || []).filter(function (c2) { return c2[4] === cs.line + n; })[0]; return c ? slt - (c[0] - cs.t0) : slt; }
   function stageBubble(text, cx, y, maxW, k, tailX) {   /* 吹き出し（白い箱・濃い縁・下向きのしっぽ）。y は箱の下端 */
     var o = capFont(34), lines = String(text).split("/").reduce(function (a, l) { return a.concat(wrap(l.trim(), maxW - 48, o)); }, []).slice(0, 3), w = Math.max.apply(null, lines.map(function (l) { return tw(l, o); })) + 52, h = lines.length * 46 + 26;
     ctx.save(); ctx.translate(cx, y); ctx.scale(k, k); ctx.translate(-cx, -y);
@@ -2123,7 +2126,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
         } else ctx.drawImage(fim, 960 - fw / 2, fy, fw, fh);
         var S0 = (CURSHOT && CURSHOT.s) || {}, span = castSpan(S0);
         if (solo[0].say) {   /* 絵の吹き出し（全画面でも出す）: 白い箱。/ で改行。位置は sayAt（top 既定＝上の中央・left・right・bottom）。縦長の写真は、写真の横の空き（既定は右、left で左） */
-          var so = capFont(40, 800), sl = String(solo[0].say).split("/").map(function (l) { return l.trim(); }), sw = Math.max.apply(null, sl.map(function (l) { return tw(l, so); })) + 56, shh = 76 + (sl.length - 1) * 52, sk = P(slt, 300, 620, back);
+          var so = capFont(40, 800), sl = String(solo[0].say).split("/").map(function (l) { return l.trim(); }), sw = Math.max.apply(null, sl.map(function (l) { return tw(l, so); })) + 56, shh = 76 + (sl.length - 1) * 52, sk = P(sayT(solo[0], slt), 300, 620, back);
           var at = solo[0].sayAt || "top", half = sideX ? 2 * (sideX - 480) : 0, sbx, sby, tx0 = 0, tdx = 0, up = false;
           if (sideX) { var lf = at === "left"; sbx = lf ? 960 - half + sw / 2 - 60 : 960 + half - sw / 2 + 60; sby = at === "bottom" ? Math.max(150, span.top - shh - 40) : 150; tx0 = lf ? sw / 2 - 40 : -sw / 2 + 40; tdx = lf ? 26 : -26; }
           else { sbx = at === "left" ? Math.max(sw / 2 + 50, 480) : at === "right" ? Math.min(1870 - sw / 2, 1440) : 960; up = at === "bottom";
@@ -2136,7 +2139,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
           ctx.beginPath(); ctx.moveTo(tx0 - 16, ey); ctx.lineTo(tipX, tipY); ctx.lineTo(tx0 + 16, ey); ctx.lineJoin = "round"; ctx.stroke();
           sl.forEach(function (l, i) { txt(l, 0, 14 + i * 52, { size: 40, weight: 800, align: "center", color: "#20242c", font: so.font }); }); ctx.restore(); }
         if (solo[0].label && solo[0].big) {   /* 題のように大きく出す名札（動画の題の画面など）。暗い帯の上に、白い太い字 */
-          var bo = capFont(132, 900), bl = capWrap(solo[0].label, 1500, bo).slice(0, 2), by0 = Math.min(capY, 1080) * .5 - (bl.length - 1) * 82, bk = P(slt, 120, 520, back);
+          var bo = capFont(132, 900), bl = (solo[0].label.indexOf("/") >= 0 ? solo[0].label.split("/").map(function (x) { return x.trim(); }).filter(Boolean) : capWrap(solo[0].label, 1500, bo)).slice(0, 2),   /* 「/」で改行（ほかの画面の言葉と同じ。前は、題の「/」がそのまま出た） */ by0 = Math.min(capY, 1080) * .5 - (bl.length - 1) * 82, bk = P(slt, 120, 520, back);
           ctx.save(); ctx.globalAlpha *= clamp(bk); ctx.fillStyle = "rgba(0,0,0,.42)"; ctx.fillRect(0, by0 - 150, 1920, 210 + (bl.length - 1) * 164);
           bl.forEach(function (l2, i) { capLine(l2, 960, by0 + i * 164, bo, [[34, "#16161d"]], "#ffffff", "#ffe45c"); }); ctx.restore(); }
         else if (solo[0].label) { var fo = capFont(34), flw = tw("【" + solo[0].label + "】", fo) + 28; var fly = vertOn() ? 826 : capY < 1080 ? capY - 76 : 150, flx = sideX ? Math.max(flw / 2 + 20, 960 - sideX) : 960;
@@ -2212,7 +2215,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       if (edge !== null) {
         if (it.label) { var ls2 = Math.max(22, Math.min(38, 38 * (cw + 40 - 44) / Math.max(1, tw(it.label, capFont(38))))), lo = capFont(ls2), lw = tw(it.label, lo) + 44, lh2 = ls2 * 1.58; ctx.save(); ctx.translate(cx, edge - 38); ctx.scale(k, k);   /* 長い名札は字を小さく */
           rr(-lw / 2, -lh2 / 2, lw, lh2, 14); ctx.fillStyle = col; ctx.fill(); ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 5; ctx.stroke(); txt(it.label, 0, ls2 * .37, { size: ls2, weight: 800, align: "center", color: "#ffffff", font: lo.font }); ctx.restore(); }
-        if (it.say) stageBubble(it.say, cx, edge - (it.label ? 94 : 26), Math.max(cw, 420), P(slt, dl + 380, dl + 700, back), cx);
+        if (it.say) stageBubble(it.say, cx, edge - (it.label ? 94 : 26), Math.max(cw, 420), P(sayT(it, slt), it.sayLine > 1 ? 0 : dl + 380, it.sayLine > 1 ? 320 : dl + 700, back), cx);
       }
       ctx.restore();
     });
@@ -3088,7 +3091,9 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   }
   /* 全部: 再生と同じく、声の間は音楽を下げ（audio.duck）、出口に抑えを掛ける */
   function fillMix(st) { return function (oc, out) {
-    var lim = oc.createDynamicsCompressor(); lim.threshold.value = -6; lim.knee.value = 6; lim.ratio.value = 12; lim.attack.value = .003; lim.release.value = .2; lim.connect(out);
+    var endG = oc.createGain(); endG.connect(out);   /* 終わりの暗転に合わせて、音も消す（再生のときと同じ。前は、書き出した音だけ最後まで鳴っていた） */
+    if (ENDFADE) { endG.gain.setValueAtTime(1, Math.max(0, (DUR - ENDFADE) / 1000)); endG.gain.linearRampToValueAtTime(0, DUR / 1000); }
+    var lim = oc.createDynamicsCompressor(); lim.threshold.value = -6; lim.knee.value = 6; lim.ratio.value = 12; lim.attack.value = .003; lim.release.value = .2; lim.connect(endG);
     var duck = oc.createGain(); duck.gain.value = 1; duck.connect(lim);
     var dv = AUD.duck === undefined ? .5 : AUD.duck;
     voiceCues().forEach(function (c) { duck.gain.setTargetAtTime(dv, c.a / 1000, .08); duck.gain.setTargetAtTime(1, c.a / 1000 + VBUF[c.key].duration, .4); });
@@ -3102,16 +3107,31 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     for (i = 0; i < n; i++) for (c = 0; c < ch; c++) { var v = Math.max(-1, Math.min(1, data[c][i])); dv.setInt16(p, v < 0 ? v * 32768 : v * 32767, true); p += 2; }
     return new Blob([dv], { type: "audio/wav" });
   }
+  /* 声・音楽・効果音と、それを混ぜたものを描き出す（{voice, music, sfx, mix}。無いものは null） */
+  function renderStems() { var st = {};
+    return waitDecoded(10000)
+      .then(function () { return voiceCues().length ? renderStem(fillVoice) : null; }).then(function (b) { st.voice = b; return hasMusic() ? renderStem(fillMusic) : null; })
+      .then(function (b) { st.music = b; return SFXCFG && SFXQ.length ? renderStem(fillSfx) : null; }).then(function (b) { st.sfx = b; return renderStem(fillMix(st)); })
+      .then(function (b) { st.mix = b; return st; }); }
+  /* 1 コマずつの書き出し（youtube-upload の record.py）: 実際の速さで再生して録る代わりに、外から時刻を渡して 1 コマずつ描かせる。
+     機械が遅くてもコマが抜けない。begin で録画と同じ画面の大きさ・字幕の焼き込みにし、frame(ms) でその時刻を描き、mix() で音を作り、end で元に戻す */
+  var offline = {
+    begin: function () { closeSet(false); if (playing) pause(); ensureAudio(); nominalTiming();
+      var o = recOpt(false); recording = { cancel: false, speed: speed, clean: false, audio: audioOn, opt: o, offline: true, mr: { stop: function () {} } };
+      cv.width = o.w; cv.height = o.h; started = true; if (recBadge) { recBadge.textContent = "● 書き出し中"; recBadge.hidden = false; }
+      return { w: o.w, h: o.h, fps: o.fps, bps: o.bps, abps: o.abps, dur: DUR, canvas: cv }; },
+    frame: function (ms) { draw(ms); return cv; },
+    mix: function () { return renderStems().then(function (st) { return st.mix; }); },
+    end: function () { var r = recording; recording = null; if (recBadge) recBadge.hidden = true; if (r) setSpeed(r.speed); restoreTiming(); resize(); }
+  };
   function exportAudio() {
     if (exporting || recording) return;
     closeSet(false); ensureAudio(); if (!ac) return;
     exporting = true; if (playing) pause(); nominalTiming();
     if (recBadge) { recBadge.textContent = "● 音を書き出し中…"; recBadge.hidden = false; }
-    var st = {}, done = function () { exporting = false; if (recBadge) recBadge.hidden = true; restoreTiming(); };
-    waitDecoded(10000)
-      .then(function () { return voiceCues().length ? renderStem(fillVoice) : null; }).then(function (b) { st.voice = b; return hasMusic() ? renderStem(fillMusic) : null; })
-      .then(function (b) { st.music = b; return SFXCFG && SFXQ.length ? renderStem(fillSfx) : null; }).then(function (b) { st.sfx = b; return renderStem(fillMix(st)); })
-      .then(function (b) { st.mix = b;
+    var done = function () { exporting = false; if (recBadge) recBadge.hidden = true; restoreTiming(); };
+    renderStems()
+      .then(function (st) {
         var name = exportName();
         [["voice", st.voice], ["music", st.music], ["sfx", st.sfx], ["mix", st.mix]].filter(function (x) { return x[1]; })
           .forEach(function (x, i) { setTimeout(function () { download(wavBlob(x[1]), name + "_" + x[0] + ".wav"); }, i * 700); });
@@ -3170,6 +3190,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
               get loading() { var n = 0; for (var k in IMGS) if (IMGS[k] && IMGS[k].complete === false) n++; return n; },   /* まだ読み終わっていない絵の数（画面を撮る道具 shoot.py が、0 になるのを待つ） */
               drawAt: function (ms) { draw(ms); return cv; },   /* その時刻の 1 コマを今すぐ描く（確かめる用） */
               capWrap: function (text, maxW, size, lim) { return capWrap(text, maxW, { size: size || 56, weight: 800, font: F.sans }, lim); },   /* 字幕の折り返し（確かめる用） */
+              offline: typeof offline === "undefined" ? null : offline,   /* 1 コマずつの書き出し（配布用の HTML には無い） */
               get audio() { return { ctx: ac, mt: mclock.mt, section: mclock.sec, notes: mclock.count || 0, sfx: sfxCount, vol: VOL, gain: master ? master.gain.value : null }; } };
   root.__mv = api; window.__MV__ = api;
   return api;
