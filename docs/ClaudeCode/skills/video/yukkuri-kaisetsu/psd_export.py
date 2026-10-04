@@ -161,6 +161,129 @@ def export(p, rc, out, height, png=False):
     else:     # 体の絵と、重ねるパーツ（sprite.json）
         sp, size, n, drawn = sprite.build_sprite(out, render, faces, poses, rc.get("_comment", ""), info)
         print("OK : %s をパーツ %d 個（%.1fMB。描いた絵 %d 枚）にして %s に書き出しました" % (what, n, size / 1e6, drawn, os.path.abspath(out)))
+        if rc.get("rig"):
+            rig(p, rc, out, sp, scale[0], alias)
+
+
+def rig(p, rc, out, sp, k, alias):
+    """動くパーツ（腕・髪・黒目）を書き出して、sprite.json に足す（仕組みは sprite.py の rig）。レシピの rig: {"parts": […], "iris": {…}}。"""
+    spec, wr = rc["rig"], sprite.Writer(out, keep=True)
+    # 大きな PSD（長い辺が 4000 を超える）は、レイヤーを縮めてから重ねる（1 枚ずつ元の大きさで持つと、メモリが足りない）。r は縮める倍率（書き出す大きさの 3 倍より小さくしない）。
+    # 縮めるのは整数分の 1（n 画素を 1 画素に）。レイヤーごとに端数のある倍率で縮めると、置く位置が 1 画素未満ずれて、線の縁が今までの絵と合わなくなる。
+    # ここから先の座標は、縮めた絵の座標（レシピの pivot は PSD の座標なので、r を掛ける）
+    n = max(1, int(1 / (k * 3))) if max(p.psd.size) > 4000 else 1
+    r = 1.0 / n
+    size = (-(-p.psd.width // n), -(-p.psd.height // n))
+    parts = [dict(q, pivot=[q["pivot"][0] * r, q["pivot"][1] * r]) if q.get("pivot") else dict(q) for q in spec.get("parts", [])]
+    if spec.get("iris"):
+        spec = dict(spec, iris=dict(spec["iris"], max=spec["iris"].get("max", 6) * r))
+    W, H = round(size[0] * n * k), round(size[1] * n * k)
+    ox, oy = sp["origin"]
+    fit = lambda im: im.resize((W, H), Image.LANCZOS).crop((ox, oy, ox + sp["w"], oy + sp["h"]))
+    pt = lambda x, y: (x * k / r - ox, y * k / r - oy)
+    raster = {}
+
+    def leaves(sels):
+        p.reset()
+        for path in rc.get("hide", []):
+            p.layers[path].visible = False
+        for s in rc.get("show", []) + rc.get("base", []) + sels:
+            for path, only in expand(s, alias):
+                p.select(path, only)
+        out_ = []
+        for path, l in p.layers.items():
+            if l.is_group() or not l.visible or l.bbox[2] <= l.bbox[0]:
+                continue
+            q, ok = l.parent, True
+            while q is not None and q is not p.psd:
+                ok, q = ok and q.visible, q.parent
+            if not ok:
+                continue
+            if path not in raster:
+                im, c = l.topil().convert("RGBA"), Image.new("RGBA", size, (0, 0, 0, 0))
+                if l.opacity < 255:
+                    im.putalpha(im.getchannel("A").point(lambda a: a * l.opacity // 255))
+                b = l.bbox
+                if n > 1:   # n の倍数の升目に合わせて余白を足してから、n 画素を 1 画素に縮める（位置がずれない）
+                    x0, y0 = b[0] // n * n, b[1] // n * n
+                    pad = Image.new("RGBA", (-(-(b[2] - x0) // n) * n, -(-(b[3] - y0) // n) * n), (0, 0, 0, 0))
+                    pad.paste(im, (b[0] - x0, b[1] - y0))
+                    im = pad.convert("RGBa").reduce(n).convert("RGBA")
+                    b = (x0 // n, y0 // n, x0 // n + im.width, y0 // n + im.height)
+                c.alpha_composite(im, (max(0, b[0]), max(0, b[1])), (max(0, -b[0]), max(0, -b[1])))
+                raster[path] = c
+            out_.append((path, raster[path]))
+        return out_
+
+    part = lambda f, key: f[key] if key in f else rc.get(key)
+
+    def sel(pose, face, state):
+        f = rc["faces"][face]
+        if part(f, state) is None:
+            return None
+        st = (rc.get("poses", {}).get(pose, []) if pose else []) + f.get("set", [])
+        return st + (part(f, "closed") or []) + part(f, "blink") if state == "blink" else st + part(f, state)
+
+    L0 = leaves(sel("", "normal", "closed"))
+    if r < 1:   # 縮めたレイヤーを重ねた絵は、輪郭の画素が「重ねてから縮めた絵」と少しずつ違うので、絵では比べない。レイヤーの作りで確かめる（ポーズごとの確かめは下にある）
+        odd = [path for path, l in p.layers.items() if str(l.blend_mode).split(".")[-1] not in ("NORMAL", "PASS_THROUGH") or l.mask is not None
+               or getattr(l, "clipping", False) or (not l.is_group() and l.kind != "pixel")]
+        if odd:
+            print("warn: 描画モード・マスク・クリッピングを使うレイヤーがあるので（%s など %d 枚）、rig は作りません" % (odd[0], len(odd)), file=sys.stderr)
+            return
+    else:
+        bad = sprite._bad_pixels(sprite._over([im for _, im in L0], size), p.render(), 10)
+        if bad > 2000:   # レイヤーを 1 枚ずつ重ねた絵が、PSD を描いた絵と違う（描画モード・マスクなどを使っている）。動くパーツにすると見た目が変わるので、やめる
+            print("warn: レイヤーを重ねた絵が元の絵と違うので（%d 画素）、rig は作りません" % bad, file=sys.stderr)
+            return
+    seen, n_move, dropped = {}, 0, []
+    for pose in sp["poses"]:
+        runs = sprite.rig_runs(leaves(sel(pose, "normal", "closed")), parts)
+        if all(o is None for o, _ in runs):
+            continue
+        closed = {q for q, _ in leaves(sel(pose, "normal", "closed"))} - {q for q, _ in leaves(sel(pose, "normal", "open"))}   # 口を開くと消えるレイヤー = 閉じた口。これがある run が顔の層
+        fr = [n for n, (o, ls) in enumerate(runs) if o is None and any(q in closed for q, _ in ls)]
+        if not fr:
+            dropped.append(pose)
+            continue
+        fr = fr[0]
+        P = sp["poses"][pose]
+        mouth = [im.getbbox() for q, im in runs[fr][1] if q in closed][0]   # 閉じた口の位置から、首と頭の中心の見当を付ける（pivot を書いていないパーツの軸に使う）
+        fig = sprite._over([im for _, im in L0], size).getbbox()
+        fh, mx, my = fig[3] - fig[1], (mouth[0] + mouth[2]) / 2, (mouth[1] + mouth[3]) / 2
+        P["rig"] = sprite.rig_layers(wr, runs, parts, fit, pt, fr, {"neck": [mx, my + fh * .06], "head": [mx, my - fh * .06], "h": fh})
+        sig = tuple(q for q, _ in runs[fr][1])
+        if sig not in seen:   # 顔の層が同じポーズは、表情のパーツと黒目を使い回す
+            def seg(face, state):
+                s = sel(pose, face, state)
+                if s is None:
+                    return None, None
+                ls = sprite.rig_runs(leaves(s), parts)[fr][1]
+                return fit(sprite._over([im for _, im in ls], size)), ls
+            base, rf, iris = seg("normal", "closed")[0], {}, {}
+            for f in P["faces"]:
+                st = {kk: im for kk in ("closed", "open", "half", "blink") for im in [seg(f, kk)[0]] if im is not None}
+                rf[f] = sprite._face_entry(wr, base, st)
+                if spec.get("iris"):
+                    v = sprite.build_iris(wr, seg(f, "closed")[1], spec["iris"], fit, k)
+                    if v:
+                        iris[f] = v
+            seen[sig] = (rf, iris)
+        P["rf"], iris = seen[sig]
+        if iris:
+            P["iris"] = iris
+        # 確かめる: rig を重ねた絵が、今までの絵（base ＋ 表情のパーツ）と同じか。違うポーズは rig にしない
+        worst = max(sprite._bad_pixels(sprite.compose_rig(sp, out, pose, f, m), sprite.compose(sp, out, pose, f, m), 24) for f in list(P["faces"])[:4] for m in (None, "open"))
+        if worst > 400:
+            dropped.append("%s（%d 画素）" % (pose or "いつもの姿", worst))
+            for key in ("rig", "rf", "iris"):
+                P.pop(key, None)
+            continue
+        n_move += sum(1 for x in P["rig"] if x.get("k"))
+    json.dump(sp, open(os.path.join(out, "sprite.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    print("OK : rig を足しました（ポーズ %d のうち %d。動くパーツ のべ %d 個・黒目 %d 表情。パーツは全部で %.1fMB）%s" % (
+        len(sp["poses"]), sum(1 for P in sp["poses"].values() if P.get("rig")), n_move, max([len(P.get("iris", {})) for P in sp["poses"].values()] + [0]),
+        sum(os.path.getsize(os.path.join(wr.dir, f)) for f in os.listdir(wr.dir)) / 1e6, "。rig にしなかったポーズ: " + "、".join(dropped) if dropped else ""))
 
 
 def sheet(p, group, out, hide):

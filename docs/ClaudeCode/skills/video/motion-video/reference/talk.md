@@ -26,7 +26,10 @@
 - **動き**: いつもの呼吸と小さな揺れ、表情・体が変わったときの弾み、身ぶり。身ぶりは `motion` で選ぶ（26 種。`bounce` `jump` `hop` `dance` `spin` `nod` `tilt` `shakehead` `bow`
   `lean` `peek` `back` `away` `turn` `sink` `shrink` `squash` `tremble` `stomp` `zukkoke` `zoom` `stretch` `pulse` `sway` `float` `still`）。無ければ表情から決まる。
   大きさは `mlv`（無ければ表情の度合い `lv`。1 控えめ・2 ふつう・3 強め）。`face`・`pose` の `smile#2`・`point+mic` などは、`#`・`+` の前のラベルで動きを決める。
-  `cast.<名前>.motion: "yukkuri"` は話す間に縦に伸び縮みする（頭だけの立ち絵向け）。`cast.<名前>.motion: false` か `castMotion: false` で止まる。OS の「動きを減らす」でも止まる。
+  `cast.<名前>.motion: "yukkuri"` は話す間に縦に伸び縮みする（頭だけの立ち絵向け）。`cast.<名前>.motion: false` か `castMotion: false` で止まる。OS の「動きを減らす」で止めるのは、`talk.reducedMotion: true` と書いたときだけ（いつも止めると、その設定の機械では HTML で見る動きと書き出した動画の動きが違ってしまう）。
+  パーツの立ち絵（`sprite`）は、口と目のパーツの位置から首の高さを決め、頭だけを首から傾ける（`nod`・`tilt`・`shakehead`・`bow` と、話している間の小さな揺れ）。首の高さを決められない立ち絵は、今までどおり全身で動く。
+  絵で見せる画面（`stage`）の並びは、立ち絵が左右に 1 人ずつでないとき（1 人・3 人・4 人）、立ち絵の間の空いている所のまん中に寄せて、その幅に収める。
+  `sprite.poses.<ポーズ>.rig`（層の一覧。yukkuri-kaisetsu の `sprite.py` が作る）があれば、腕・髪を軸のまわりに回し、黒目（`iris`）を白目の中でずらして、毎コマ重ね直す（表情のパーツは顔の層だけに当てる）。`talk.rig: false` で動かさない。髪（`k: "hair"`）は細い帯に切って、先ほど大きくずらしてしならせる（`talk.hairBend: false` で丸ごと回す）。腕（`k: "arm"`）は、肩から 3 割は動かさず、ひじのあたりから先だけを同じやり方で動かす（`talk.armBend: false` で肩から丸ごと回す。丸ごと回すと、袖が服の輪郭とつながっている腕が体から離れて見える）。動かし方は `talk.rigMotion`（全員）・`cast.<名前>.rigMotion`（その人）で変える: `{arm: {rest, breath, voice, jump, speed, limit}, hair: {sway, voice, jump, follow, bend, lag, speed, limit}, iris: {listen, wander, wanderListen, every, up}}`（角度はラジアン、時間は ms。書いた項目だけ上書き。yukkuri-kaisetsu は `rig.json` の名前の付いた設定から入れる）。
 - **気持ちの印**（`emote`）は線と形で描く（絵文字の書体が無い環境でも出る）: `!` `?` `!?` `♪` `…` `💦` `💢` `💡` `✨` `♥` `gloom`（ガーン）`shock` `zzz`。
 - **絵で見せる場面**: `board: {"type": "stage", "shots": [{"line": 0, "items": […], "title": …, "note": …}]}`。白い黒板を置かず、背景の上に絵・写真・矢印・短い言葉を並べる。
   `line` 番目のせりふからその並びに替わる。`items` は `{"img": 名前, "label": 名札, "say": 吹き出し（`/` で改行）, "sayAt": "left"・"right"・"bottom"（画面いっぱいの写真の吹き出しの位置。既定は上の中央）, "frame": 白い縁, "credit": 出どころ}`・`{"text": "1 行目/2 行目", "color"}`・`{"op": "→"}`。

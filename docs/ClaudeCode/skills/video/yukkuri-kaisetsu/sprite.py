@@ -48,11 +48,12 @@ def _bad_pixels(a, b, tol=10):
 
 
 class Writer:
-    def __init__(self, out):
+    def __init__(self, out, keep=False):
         self.dir = os.path.join(out, "sprite")
         os.makedirs(self.dir, exist_ok=True)
         for f in glob.glob(os.path.join(self.dir, "*.png")):
-            os.remove(f)
+            if not keep:   # keep: 書き出し済みのパーツに足す（rig）
+                os.remove(f)
         self.saved = {}
 
     def save(self, im):
@@ -142,18 +143,7 @@ def build_sprite(out, render, faces, poses, source="", info=None):
     wr = Writer(out)
     sp = {"w": box[2] - box[0], "h": box[3] - box[1], "source": source, "info": info or {}, "poses": {}}   # info: 表情・体ごとの説明（desc）と度合い（lv）
 
-    def face_entry(base, st):
-        f = {}
-        e = wr.part(base, st["closed"])
-        if e:
-            f["e"] = e
-        shown = wr.apply(base, e)
-        for k in STATES:
-            if k in st:
-                p = wr.part(shown, st[k])
-                if p:
-                    f[k] = p
-        return f
+    face_entry = lambda base, st: _face_entry(wr, base, st)
 
     base0 = crop(bases[""])
     first = {"base": wr.save(base0), "faces": {f: face_entry(base0, {k: crop(im) for k, im in full[f].items()}) for f in faces}}
@@ -179,9 +169,195 @@ def build_sprite(out, render, faces, poses, source="", info=None):
                 n += len(st)
                 entry["faces"][f] = face_entry(base, st)
         sp["poses"][p] = entry
+    sp["origin"] = [box[0], box[1]]   # 描いた絵のどこを切り出したか（rig のパーツを同じ位置に切り出すのに使う）
     json.dump(sp, open(os.path.join(out, "sprite.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     base0.save(os.path.join(out, "normal.png"), optimize=True)   # 見本
     return sp, sum(wr.saved.values()), len(wr.saved), n
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# rig: 腕・髪・黒目を、体の絵とは別のパーツで持ち、再生のときに動かす（腕と髪は軸のまわりに回し、黒目は白目の中でずらす）。
+# sprite.json の poses.<ポーズ> に足す（base と faces はそのまま残るので、rig を知らない道具は今までどおり使える）:
+#   "rig":  [{"i": 画像, "x", "y"}, {…, "k": "arm"・"hair", "p": [軸 x, y], "m": 回す角度の上限（度）, "s": 外向きが時計回りなら 1・逆なら -1}, {…, "f": 1}, …]   下から重ねる順
+#           "f": 1 は顔の層（目・口・眉・前髪など）。表情のパーツ "rf" と黒目 "iris" は、この層の中を置き換える（下の体・腕・後ろ髪には触らないので、それらが動いても崩れない）
+#   "rf":   {"表情": {"e": […], "open": […], "half": […], "blink": […]}}   faces と同じ形。顔の層に当てるパーツ
+#   "iris": {"表情": {"x", "y", "w", "h", "u": 黒目より下の絵, "i": 黒目, "m": 白目（この形の中にだけ黒目を描く）, "o": 黒目より上の絵, "d": ずらす量の上限（px）}}
+# ──────────────────────────────────────────────────────────────────────────
+def _over(images, size):
+    out = Image.new("RGBA", size, (0, 0, 0, 0))
+    for im in images:
+        out.alpha_composite(im)
+    return out
+
+
+def _piece(wr, im):
+    """絵を、中身のある範囲で切り出して保存する → (画像, x, y)。空なら None。"""
+    box = im.getbbox()
+    if not box:
+        return None
+    return wr.save(im.crop(box)), box[0], box[1]
+
+
+def _face_entry(wr, base, st):
+    """表情のパーツ: base の一部を置き換えると st["closed"] になるパーツ e と、そこからのまばたき・口のパーツ。"""
+    f = {}
+    e = wr.part(base, st["closed"])
+    if e:
+        f["e"] = e
+    shown = wr.apply(base, e)
+    for k in STATES:
+        if k in st:
+            p = wr.part(shown, st[k])
+            if p:
+                f[k] = p
+    return f
+
+
+def rig_runs(leaves, parts):
+    """leaves: [(パス, 絵)] 下から順。parts: [{"layer": パス（組なら中の全部）, "kind", "pivot": [x, y], "max": 度, "side", "still": [この言葉を含むレイヤーは動かさない], "limit": {言葉: 度}}]。
+    → [[パーツの番号か None, [(パス, 絵)]]]（同じパーツのレイヤーが続く間と、動かないレイヤーが続く間を、それぞれ 1 つに）。"""
+    def owner(path):
+        for i, q in enumerate(parts):
+            if path == q["layer"] or path.startswith(q["layer"].rstrip("/") + "/"):
+                return None if any(w in path for w in q.get("still", [])) else i
+        return None
+
+    runs = []
+    for path, im in leaves:
+        o = owner(path)
+        if runs and runs[-1][0] == o:
+            runs[-1][1].append((path, im))
+        else:
+            runs.append([o, [(path, im)]])
+    return runs
+
+
+# 回す角度の上限の既定（レシピの limit が無いとき。レイヤーの名前で決める）: 手が体・顔・物に触れている腕は小さく、上げた腕・指さす腕は中くらい
+LIMITS = [(r"腰|組|口|顔|頬|ほっぺ|胸|頭|合わせ|あご|ひそ|抱|ポケ|持|スマホ|マイク|剣|弓|パッド|構|かまえ|こつん|チョップ|電話|説明|本|杖|傘", 1.5),
+          (r"指差|指さ|ゆびさ|ピース|挙|上げ|あげ|万歳|かざ|差し出|横|一番|ひろげ|開", 4)]
+
+
+def auto_pivot(im, anchor, radius):
+    """軸の位置を絵から決める: anchor（首のあたり）にいちばん近い画素のまわり（radius の中）の、画素の重心。腕なら肩、垂れた髪なら根元になる。"""
+    box = im.getbbox()
+    if not box:
+        return list(anchor)
+    k = 4
+    a = im.getchannel("A").crop(box).resize((max(1, (box[2] - box[0]) // k), max(1, (box[3] - box[1]) // k)), Image.BOX)
+    w, px = a.width, a.tobytes()
+    pts = [(box[0] + (i % w + .5) * k, box[1] + (i // w + .5) * k) for i, v in enumerate(px) if v > 128]
+    if not pts:
+        return list(anchor)
+    near = min(pts, key=lambda q: (q[0] - anchor[0]) ** 2 + (q[1] - anchor[1]) ** 2)
+    close = [q for q in pts if (q[0] - near[0]) ** 2 + (q[1] - near[1]) ** 2 <= radius ** 2]
+    return [sum(q[0] for q in close) / len(close), sum(q[1] for q in close) / len(close)]
+
+
+def rig_layers(wr, runs, parts, fit, pt, face_run, auto=None):
+    """runs を rig の層の一覧にする。face_run は顔の層にする run の番号。
+    auto: {"neck": [x, y], "head": [x, y], "h": 立ち絵の高さ}（元の絵の座標）を渡すと、pivot の無いパーツの軸を絵から決め（腕は首に近い端 = 肩、髪は頭の中心）、side も決める。"""
+    out = []
+    for n, (o, ls) in enumerate(runs):
+        flat = _over([im for _, im in ls], ls[0][1].size)
+        pc = _piece(wr, fit(flat))
+        if not pc:
+            continue
+        L = {"i": pc[0], "x": pc[1], "y": pc[2]}
+        if o is not None:
+            q = parts[o]
+            kind, pivot, side = q.get("kind", "hair"), q.get("pivot"), q.get("side")
+            if auto and not pivot:
+                pivot = auto_pivot(flat, auto["neck"], auto["h"] * .03) if kind == "arm" else list(auto["head"])
+            if auto and not side and kind == "arm":
+                side = "left" if pivot[0] < auto["neck"][0] else "right"
+            x, y = pt(*pivot)
+            names = " ".join(path for path, _ in ls)
+            lim = [v for w, v in q.get("limit", {}).items() if w in names]   # limit: {"マイク": 2} その形のときだけ、回す上限を小さく
+            if not lim and "limit" not in q and kind == "arm":
+                lim = [v for rx, v in LIMITS if re.search(rx, names.split("/")[-1])][:1]
+            L.update(k=kind, p=[round(x, 1), round(y, 1)], m=min(lim + [q.get("max", 7 if kind == "arm" else 2)]), s=-1 if side == "right" else 1)
+        elif n == face_run:
+            L["f"] = 1
+        out.append(L)
+    return out
+
+
+def match_layers(target, leaves, tol=14, need=.9):
+    """1 枚に重ねた絵 target が、どのレイヤーを重ねたものかを割り出す。leaves: [(パス, 絵)] 下から順（target と同じ大きさ）。上のレイヤーから見て、
+    まだ隠れていない不透明な画素が target と同じ色なら、そのレイヤーが使われている。→ 使われているレイヤー [(パス, 絵)]（下から順）。"""
+    covered = Image.new("L", target.size, 0)
+    t_rgb, t_a = target.convert("RGB"), target.getchannel("A").point(lambda v: 255 if v > 250 else 0)
+    used = []
+    for path, im in reversed(leaves):
+        im = im() if callable(im) else im   # 絵を返す関数でもよい（レイヤーが多い PSD で、全部を一度に持たない）
+        if im is None:
+            continue
+        box = im.getbbox()
+        if not box:
+            continue
+        opaque = im.getchannel("A").crop(box).point(lambda v: 255 if v > 250 else 0)
+        free = ImageChops.subtract(opaque, covered.crop(box))
+        n = free.histogram()[255]
+        if n < 40:
+            continue
+        d = ImageChops.difference(im.convert("RGB").crop(box), t_rgb.crop(box))
+        worst = None
+        for band in d.split():
+            worst = band if worst is None else ImageChops.lighter(worst, band)
+        good = ImageChops.multiply(ImageChops.multiply(worst.point(lambda v: 255 if v <= tol else 0), t_a.crop(box)), free)
+        if good.histogram()[255] >= need * n:
+            used.append((path, im))
+            covered.paste(ImageChops.lighter(covered.crop(box), opaque), box[:2])
+    return used[::-1]
+
+
+def build_iris(wr, leaves, spec, fit, k):
+    """黒目のパーツ。leaves は顔の層のレイヤー。spec: {"layer": 黒目のレイヤー（組なら中の全部）, "white": [白目のレイヤー, …], "max": ずらす量の上限（元の絵の px）}。k は縮める倍率。
+    黒目か白目が出ていない表情（閉じた目・＞＜ など）は None。"""
+    lay = spec["layer"].rstrip("/")
+    idx = [n for n, (path, _) in enumerate(leaves) if path == lay or path.startswith(lay + "/")]
+    white = [im for path, im in leaves if any(path == w or path.startswith(w.rstrip("/") + "/") for w in spec.get("white", []))]
+    if not idx or not white:
+        return None
+    size = leaves[0][1].size
+    iris = fit(_over([leaves[n][1] for n in idx], size))
+    box, d = iris.getbbox(), max(1, int(round(spec.get("max", 6) * k)))
+    if not box:
+        return None
+    box = (max(0, box[0] - d - 2), max(0, box[1] - d - 2), min(iris.width, box[2] + d + 2), min(iris.height, box[3] + d + 2))
+    cut = lambda ims: wr.save(fit(_over(ims, size)).crop(box))
+    return {"x": box[0], "y": box[1], "w": box[2] - box[0], "h": box[3] - box[1], "d": d,
+            "u": cut([im for _, im in leaves[:idx[0]]]), "i": wr.save(iris.crop(box)), "m": cut(white), "o": cut([im for _, im in leaves[idx[-1] + 1:]])}
+
+
+def compose_rig(sp, d, pose="", face="normal", mouth=None, blink=False, angles=None, shift=(0, 0)):
+    """rig のパーツを重ねた絵（エンジンと同じ順。確かめる用）。angles: {層の番号: 度}（時計回りが正）。shift: 黒目をずらす量。"""
+    P = sp["poses"][pose]
+    load = lambda k: Image.open(os.path.join(d, "sprite", k + ".png")).convert("RGBA")
+    out = Image.new("RGBA", (sp["w"], sp["h"]), (0, 0, 0, 0))
+    for n, L in enumerate(P["rig"]):
+        c = Image.new("RGBA", out.size, (0, 0, 0, 0))
+        c.paste(load(L["i"]), (L["x"], L["y"]))
+        if L.get("f"):
+            F = P["rf"].get(face) or P["rf"].get("normal") or {}
+            if F.get("e"):
+                c.paste(load(F["e"][0]), (F["e"][1], F["e"][2]))
+            v = P.get("iris", {}).get(face)
+            if v and not (blink and F.get("blink")):
+                ir = Image.new("RGBA", (v["w"], v["h"]), (0, 0, 0, 0))
+                ir.paste(load(v["i"]), (int(shift[0]), int(shift[1])))
+                ir.putalpha(ImageChops.multiply(ir.getchannel("A"), load(v["m"]).getchannel("A")))
+                cell = load(v["u"])
+                cell.alpha_composite(ir)
+                cell.alpha_composite(load(v["o"]))
+                c.paste(cell, (v["x"], v["y"]))
+            for q in (F.get("blink") if blink else None, F.get(mouth) if mouth else None):
+                if q:
+                    c.paste(load(q[0]), (q[1], q[2]))
+        elif L.get("k") and (angles or {}).get(n):
+            c = c.rotate(-angles[n], resample=Image.BICUBIC, center=tuple(L["p"]))
+        out.alpha_composite(c)
+    return out
 
 
 def compose(sp, d, pose="", face="normal", mouth=None, blink=False):
