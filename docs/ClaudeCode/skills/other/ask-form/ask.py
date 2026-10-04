@@ -23,7 +23,7 @@ Python3 の標準ライブラリだけで動く。ウィンドウは Chromium �
   ASK_FORM_SODA=off         Sodashitsu の pane の中でも、sodactl ask を使わずにウィンドウを開く
 
 窓では、定義の image の外部 URL（https://…）を、ブラウザではなくこの ask.py が取って（remote_image.py。SSRF 対策つき）受け口から配る（利用者の IP が取得先に見えない）。
-取れなかった画像は画像なしで出し、窓の固定の行と標準エラーに知らせる。成果物（HTML）の枠は sandbox="allow-scripts" のみ（popup・download なし）。
+取れなかった画像は画像なしで出し、窓の固定の行と標準エラーに知らせる。成果物（HTML）の枠は sandbox="allow-scripts" のみ（popup・download なし）。Markdown の枠だけ、リンクを新しいタブで開ける（http(s) のみ）。
 
 Sodashitsu（soda）の pane の中で動いているとき（SODA_PANE_ID があり sodactl が PATH にある）は、
 ウィンドウを開く前に sodactl ask へ渡し、その pane を見ているブラウザの画面にフォームを出す
@@ -69,9 +69,13 @@ VIEW_HTML = {".html": "text/html; charset=utf-8", ".htm": "text/html; charset=ut
 VIEW_MARKDOWN = (".md", ".markdown")   # 整形して見せる（viewer.html が、同梱の marked・mermaid で描く）
 VIEW_LIBS = {"marked.umd.js": "text/javascript; charset=utf-8", "mermaid.min.js": "text/javascript; charset=utf-8"}   # 配ってよい同梱のライブラリ（vendor/）
 VIEW_TEXT_MAX = 2 * 1024 * 1024   # 文字として出すファイルの大きさの上限
-# 枠の中に許すこと（同じ origin としては扱わない）。Sodashitsu の画面内の枠と同じく、スクリプトだけ。
-# allow-popups は付けない（popup の URL に本文を載せて外へ出せる）・allow-downloads も付けない。form.html の iframe の属性と同じ値にする
+# 枠の中に許すこと（同じ origin としては扱わない）。HTML・text・image の成果物は、スクリプトだけ。
+# allow-popups は付けない（スクリプトが動く枠で popup を許すと、URL に本文を載せて外へ出せる）・allow-downloads も付けない。form.html の iframe の属性と同じ値にする
 VIEW_SANDBOX = "allow-scripts"
+# Markdown の整形ページの枠だけ、リンクを新しいタブで開けるよう popup を許す（Markdown の枠はスクリプトが動かない〔marked の出力から script を除く〕ので、
+# popup の URL に本文を載せて外へ出す害が成り立たない。リンクは viewer.html が http(s) のものだけ残し、noopener noreferrer を付ける）。
+# 開いた先は隔離を引き継がない（allow-popups-to-escape-sandbox）。allow-same-origin・allow-top-navigation 系は付けない。form.html の Markdown の iframe の属性と同じ値にする
+VIEW_SANDBOX_MD = "allow-scripts allow-popups allow-popups-to-escape-sandbox"
 MEDIA_FILE_MAX = remote_image.MAX_BYTES   # 画像・音 1 ファイルの上限（8 MiB。data: も外部 URL の取得も同じ）
 MEDIA_TOTAL_MAX = 24 * 1024 * 1024        # 外部 URL から取る画像の合計の上限（Sodashitsu の 1 つの質問の合計と同じ）
 MEDIA_REMOTE_MAX = 32                     # 取りに行く外部 URL の数の上限（超えた分は取らず、画像なしで出す）
@@ -572,9 +576,11 @@ def make_handler(state, token, page, files=(), views=(), vtoken=None):
                 if not m or int(m.group(1)) >= len(views):
                     return False
                 path, ctype = views[int(m.group(1))]
+            sandbox = VIEW_SANDBOX
             try:
                 body = open(path, "rb").read()
                 if ctype == "markdown":
+                    sandbox = VIEW_SANDBOX_MD
                     body = markdown_page(body.decode("utf-8", "replace"), os.path.basename(path)).encode("utf-8")
                     ctype = "text/html; charset=utf-8"
             except OSError:
@@ -585,7 +591,7 @@ def make_handler(state, token, page, files=(), views=(), vtoken=None):
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("Content-Security-Policy", "sandbox " + VIEW_SANDBOX)
+            self.send_header("Content-Security-Policy", "sandbox " + sandbox)
             self.send_header("Referrer-Policy", "no-referrer")
             self.end_headers()
             self.wfile.write(body)

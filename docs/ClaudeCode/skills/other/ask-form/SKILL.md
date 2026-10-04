@@ -201,7 +201,7 @@ python3 <skill_dir>/ask.py --review out/requirements.html notes.md --title "requ
 |---|---|
 | HTML（`.html`） | 隔離した枠（`sandbox="allow-scripts"` のみ）に、そのまま表示する。中のスクリプトも動く（md-to-doc の文書・diff-review-html の画面など、1 つのファイルで完結した HTML） |
 | 画像（png・jpg・gif・webp・avif・svg） | そのまま表示する |
-| Markdown（`.md`・`.markdown`。2 MB まで） | **整形して**表示する（見出し・表・コード・チェックリスト）。` ```mermaid ` のコードは図になる（描けない図は、コードのまま理由を添える）。右上の「ソースを見る」で元の文字に切り替えられる。`{"file": …, "raw": true}` なら文字のまま |
+| Markdown（`.md`・`.markdown`。2 MB まで） | **整形して**表示する（見出し・表・コード・チェックリスト）。` ```mermaid ` のコードは図になる（描けない図は、コードのまま理由を添える）。本文の http(s) のリンクは新しいタブで開ける（図の中のリンクは開けない）。右上の「ソースを見る」で元の文字に切り替えられる。`{"file": …, "raw": true}` なら文字のまま |
 | そのほか（テキスト・コード。UTF-8・2 MB まで） | **文字のまま**表示する |
 
 - **待ち方**: 読んでもらう時間が要るので、**Bash を `run_in_background: true` で実行する**（前面の実行は 10 分で打ち切られる）。答えが返ると通知が来るので、そこで結果を読む。
@@ -214,13 +214,18 @@ python3 <skill_dir>/ask.py --review out/requirements.html notes.md --title "requ
   凝った体裁（テーマ・目次・図の動き）で見せたいときは、md-to-doc で HTML にしてから渡す。
 - 成果物は、回答の受け口とは別の合言葉のアドレスから配り、枠は同じ origin として扱わない（枠の中のスクリプトから、回答・取り消しは送れない）。
   ただし、見せるのは自分のスキルが作ったものにする（外から取ってきた HTML をそのまま見せない）。
-- **窓の枠は Sodashitsu の画面内の枠と同じく `sandbox="allow-scripts"` だけ**（iframe の属性・成果物の応答の `Content-Security-Policy: sandbox allow-scripts`）。`allow-popups`（popup の URL に本文を載せて外へ出せる）と
+- **窓の枠の sandbox は、HTML・text・image の成果物では `sandbox="allow-scripts"` だけ**（iframe の属性・成果物の応答の `Content-Security-Policy: sandbox allow-scripts`）。`allow-popups`（スクリプトが動く枠で許すと、popup の URL に本文を載せて外へ出せる）と
   `allow-downloads` は付けない。このため、成果物の HTML の中のリンクを押して新しいウィンドウで開く・ファイルをダウンロードする、はできない。
-  **Markdown の整形ページも、画面内と同じ扱いにした**: リンクは開けない（文字のまま残り、行き先は `title` に出る。`#` で始まる同じ文書の中だけ残す）。整形した結果と mermaid の図の中から、
-  meta・link・base・form・iframe・object・embed・svg・math・map・area・script・SMIL（`set`・`animate*`）を、文書に入れる前に（動かない入れ物の中で）取り除く。mermaid は `htmlLabels: false`・`securityLevel: 'strict'`。
+  **Markdown の整形ページの枠だけ、リンクを新しいタブで開ける**: sandbox は `allow-scripts allow-popups allow-popups-to-escape-sandbox`（iframe の属性と、整形ページの応答の `Content-Security-Policy: sandbox …` の両方。`allow-same-origin`・`allow-top-navigation` 系は付けない）。
+  考え方: Markdown の枠は、整形の結果から script・iframe・svg などを取り除くのでスクリプトが動かず、popup の URL に本文を載せて外へ出す害が成り立たない。ただし、これは取り除きの網羅に頼っており、過大には保証しない。
+  開けるリンクは、**本文の `a` で `href` が小文字の `http://`・`https://` で始まり、空白・制御文字を含まないものだけ**。`target="_blank"`・`rel="noopener noreferrer"` を付ける。
+  `javascript:`・`data:`・`vbscript:`・`file:`・相対・`//host`・大文字の `HTTP://`・前後の空白・制御文字・改行を含むもの・`xlink:href` が混ざるものは、リンクを外して文字のまま残す（行き先は `title`）。`#` で始まる同じ文書の中は今まで通り。
+  **mermaid の図の中のリンク（`click … href`・ラベルの HTML）は開けない**（外したまま）。整形した結果と図の中から、meta・link・base・form・iframe・object・embed・svg・math・map・area・script・SMIL（`set`・`animate*`）を、
+  文書に入れる前に（動かない入れ物の中で）取り除く（`<meta http-equiv=refresh>` 対策）。mermaid は `htmlLabels: false`・`securityLevel: 'strict'`。
   それでも、**枠自身が外のページへ移ること（HTML の成果物のスクリプトによる遷移）は止められない**。成果物は信頼できるもの（自分のスキルが作ったもの）だけにする。
-- 確かめたこと・手動で確かめること: sandbox の文字列・ヘッダ・Markdown の危険な入力（meta refresh・`<a href>`・SMIL・mermaid の `click`・ラベルの HTML）が除かれることは、画面なしの Chrome のテストで確かめる（`tests/`）。
-  実際の窓（Edge）で、外部の `https://` の画像が出ること・取れない URL で固定の行が出ること・HTML の成果物のリンクが開かないことは、手元の Edge で目で確かめる。
+  Sodashitsu の画面内のダイアログの Markdown の枠も、同じ仕様に揃えている（別の変更）。
+- 確かめたこと・手動で確かめること: sandbox の文字列・ヘッダ（Markdown だけ popup 許可・HTML は `allow-scripts` のまま）・Markdown のリンクの扱い（https が開ける形で残る・`javascript:` 等が外れる）・危険な入力（meta refresh・SMIL・mermaid の `click`・ラベルの HTML）が除かれることは、画面なしの Chrome のテストで確かめる（`tests/`）。
+  実際の窓（Edge）で、外部の `https://` の画像が出ること・取れない URL で固定の行が出ること・HTML の成果物のリンクが開かないこと・Markdown のリンクをクリックして新しいタブで開くこと（ポップアップブロッカーに止められないか）は、手元の Edge で目で確かめる（画面なしの Chrome では、クリックと実際のポップアップは未確認）。
 - 質問の欄は幅が狭いので、目次は出さない（`paging` を書けば、それに従う）。質問は、判断に要るものだけにする（3〜4 問まで）。
 
 ### 選択肢が多いとき（絞り込み・分類・試聴）
@@ -316,7 +321,7 @@ python3 <skill_dir>/ask.py --review out/requirements.html notes.md --title "requ
 - **成果物の HTML は、スクリプトは動くが外へは通信しない**（CDN・Google Fonts を読む HTML は崩れる）。ただし隔離の枠にも限界がある。枠自身が外のページへ移ることは止められず、
   枠の中のスクリプトは、質問側の入力欄（自由記述・`text`・`edit`）からフォーカスを奪って、その後に打った文字を読めてしまう（Sodashitsu の docs/sodactl.md「安全の境界」「枠の中のキー」）。
   **出す成果物は、信頼できるもの（自分のスキルが作ったもの）だけにする。外から取ってきた HTML は、自由記述・`text`・`edit` を含む質問と一緒に出さない。**
-  Markdown の枠はスクリプトが動かず、リンクも開けない。枠の中で Ctrl/Cmd+Enter を押しても確定せず、質問側の固定の行へフォーカスが移るだけ（もう一度押すと確定）。
+  Markdown の枠はスクリプトが動かず、リンクは新しいタブで開ける（http(s) のみ）。枠の中で Ctrl/Cmd+Enter を押しても確定せず、質問側の固定の行へフォーカスが移るだけ（もう一度押すと確定）。
 - 外からつなぐ使い方では、ウィンドウがサーバー側に開かないよう `ASK_FORM=off` も設定しておく。
 - 使わないようにするには `ASK_FORM_SODA=off`。
 
