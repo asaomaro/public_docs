@@ -123,6 +123,10 @@ def run(path, facts_path=None):
         R.add("error", "書き方", "せりふがありません")
         return R, {}
     cast = K.build_cast(meta, base)
+    K.expand_chorus(chapters, cast, meta)   # 「全員: …」は、全員が声をそろえて読むせりふ（話し手は、声だけの「全員」）
+    for l in L:
+        if l["who"] in K.ALL_NAMES:
+            l["who"] = "_all"
     for who in sorted({l["who"] for l in L} - set(cast)):
         R.add("error", "書き方", "cast に無い話し手: %s" % who)
     mult = float(meta.get("speed", getattr(K, "DEFAULT_SPEED", 1.0)))

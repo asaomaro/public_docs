@@ -9,7 +9,7 @@
 
 台本の書き方は SKILL.md。組み立ては隣の motion-video スキルの build.py を使う。
 """
-import argparse, glob, importlib.util, json, os, re, sys
+import argparse, glob, hashlib, importlib.util, json, os, re, sys
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
@@ -20,6 +20,7 @@ FALLBACK = {"smile": ["normal"], "surprised": ["normal"], "angry": ["doubt", "tr
             "troubled": ["sad", "normal"], "think": ["doubt", "troubled", "normal"], "shy": ["smile", "normal"], "smug": ["smile", "normal"],
             "doubt": ["think", "troubled", "normal"], "dizzy": ["troubled", "surprised", "normal"], "love": ["shy", "smile", "normal"]}   # 無い表情の代わり（近い順）
 STYLES = json.load(open(os.path.join(HERE, "styles.json"), encoding="utf-8"))   # 動画の型（style:）
+RIG = json.load(open(os.path.join(HERE, "rig.json"), encoding="utf-8"))   # 動くパーツ（腕・髪・黒目）の動かし方（rig:）
 BGS = json.load(open(os.path.join(HERE, "backgrounds.json"), encoding="utf-8"))   # 背景のカタログ（bg/）
 BGMS = json.load(open(os.path.join(HERE, "bgm.json"), encoding="utf-8"))          # BGM のカタログ（bgm/）
 WEBM_ONLY = []   # 台本で使った、HTML に埋め込んで配れない曲（embed: false）
@@ -142,9 +143,9 @@ def parse_show(rest):
     for cell in split_cells(rest):
         if not cell:
             continue
-        m = re.match(r"^draw:(\S+)(?:\s+(dark|light|board|none))?$", cell)
-        if m:   # 描き下ろし（中身は、台本を組むときにファイルから読む。stage_images）。後ろは下に敷く板（dark 既定・light・none）
-            shot["items"].append(dict({"draw_ref": m.group(1)}, **({"plate": m.group(2)} if m.group(2) else {})))
+        m = re.match(r'^draw:(\S+)(?:\s+"([^"]*)")?(?:\s+(dark|light|board|none))?$', cell)
+        if m:   # 描き下ろし（中身は、台本を組むときにファイルから読む。stage_images）。"文字" は JS に s.label で渡る（ロゴの名前など）。後ろは下に敷く板（dark 既定・light・none）
+            shot["items"].append(dict({"draw_ref": m.group(1)}, **dict(({"label": m.group(2)} if m.group(2) else {}), **({"plate": m.group(3)} if m.group(3) else {}))))
             continue
         if cell.startswith("part:"):   # 部品（motion-video の部品の台本）を、絵と同じ場所に置く
             try:
@@ -280,6 +281,15 @@ def parse(text):
                     pending[key] = rest if key != "fx" else [x.strip() for x in rest.split(",")]
                 else:
                     sc[key] = rest if key != "fx" else [x.strip() for x in rest.split(",")]
+            elif key == "se":   # 場面の頭で鳴らす効果音（ジングル・ファンファーレ）: @se: fanfare ／ @se: tada 0.4（秒だけ遅らせる）。せりふの無い場面（ロゴだけ）でも鳴らせる
+                m3 = re.match(r"^([\w-]+)(?:\s+([\d.]+))?$", rest)
+                if not m3:
+                    errs.append("%d 行目: @se: 効果音の名前 [遅らせる秒]（一覧は motion-video の build.py --list-sounds）" % no); continue
+                ev = {"name": m3.group(1), "ms": int(float(m3.group(2) or 0) * 1000) + 60, "v": .6}
+                if sc is None or sc["lines"]:
+                    pending.setdefault("sfx", []).append(ev)
+                else:
+                    sc.setdefault("sfx", []).append(ev)
             elif key == "music":   # 章の頭なら章の曲、せりふの後なら次の場面から曲を替える（その章の終わりまで）
                 if ch is None:
                     new_chapter("はじめに")
@@ -369,11 +379,14 @@ def find_images(cid, base, chars_dir):
     return faces
 
 
-def find_sprite(cid, base, chars_dir, art="svg"):
+def find_sprite(cid, base, chars_dir, art=None):
     """chars/<id>/sprite.json（体の絵にパーツを重ねる形。sprite.py）があれば読む。画像は sprite/<名前>.png。
-    chars/<id>/svg/（SVG にしたパーツ。sprite.py --svg）があれば、そちらを使う（art が "png" のときは使わない）。"""
+    chars/<id>/svg/（SVG にしたパーツ。sprite.py --svg）があれば、そちらを使う（art が "png" のときは使わない）。
+    ただし、PNG のパーツに rig（動く腕・髪・黒目）があれば、PNG を使う（SVG のパーツに rig は無い。art が "svg" なら SVG）。"""
     d = os.path.join(base, chars_dir, cid)
-    if art != "png" and os.path.isfile(os.path.join(d, "svg", "sprite.json")):
+    sp = json.load(open(os.path.join(d, "sprite.json"), encoding="utf-8")) if os.path.isfile(os.path.join(d, "sprite.json")) else None
+    rigged = bool(sp) and any(P.get("rig") for P in sp["poses"].values())
+    if art != "png" and not (rigged and art != "svg") and os.path.isfile(os.path.join(d, "svg", "sprite.json")):
         d = os.path.join(d, "svg")
     if not os.path.isfile(os.path.join(d, "sprite.json")):
         return None
@@ -395,7 +408,7 @@ def build_cast(meta, base):
             if meta.get("%s.%s" % (cid, k)):
                 c[k] = meta["%s.%s" % (cid, k)]
         for d in (chars_dir, os.path.join(HERE, "chars")):   # 台本の隣に無ければ、スキルに集めた立ち絵。パーツの形（sprite.json）があればそちら
-            sp, imgs = find_sprite(cid, base, d, meta.get("%s.art" % cid, meta.get("art", "svg"))), find_images(cid, base, d)
+            sp, imgs = find_sprite(cid, base, d, meta.get("%s.art" % cid, meta.get("art"))), find_images(cid, base, d)
             if sp:
                 c["sprite"] = sp
             elif imgs:
@@ -412,6 +425,20 @@ def build_cast(meta, base):
         if meta.get("style", "talk") == "talk" and "height" in c:
             hh, oy = c["height"], c.get("offsetY", 0)
         c["height"], c["offsetY"] = int(meta.get("cast_height", hh)), int(meta.get("cast_offset", oy))
+        rig = (meta.get("%s.rig" % cid) or meta.get("rig", "")).strip()
+        if rig.lower() in ("off", "false", "no", "0"):
+            c["rig"] = False   # 腕・髪・黒目を動かさない（体の絵 1 枚で描く）
+        else:   # 動かし方: rig.json の名前の付いた設定を呼び出す（台本の「rig: 名前」・「<登場人物>.rig: 名前」。書かなければ、その人のいつもの設定 → standard）
+            saved = RIG.get("cast", {}).get(cid, {})
+            name = rig if rig and rig.lower() not in ("on", "true", "yes") else saved.get("preset", "standard")
+            if name not in RIG.get("presets", {}):
+                raise ValueError("rig: 「%s」という動かし方はありません（rig.json にあるのは %s。動かさないなら off）" % (name, "・".join(RIG.get("presets", {}))))
+            mo = {}
+            for src in (RIG["presets"][name], saved):
+                for part in ("arm", "hair", "iris"):
+                    mo.setdefault(part, {}).update(src.get(part, {}))
+            if name != "standard" or any(saved.get(part) for part in ("arm", "hair", "iris")):
+                c["rigMotion"] = mo
         if cid in [x.strip() for x in re.split(r"[,、\s]+", meta.get("narrator", "")) if x.strip()]:
             c["hidden"] = True   # 語り手: 声だけで、立ち絵を出さない
         v = c.get("voice") or {}
@@ -432,6 +459,11 @@ def build_cast(meta, base):
         if not c.get("side"):
             sides = [x.get("side") for x in cast.values()]
             c["side"] = "left" if sides.count("left") <= sides.count("right") else "right"
+    # 4 人以上が立つ台本: 全身の立ち絵を小さくする（同じ側に 2 人ずつ立つので、いつもの大きさでは、まん中の絵を置く幅が画面の 3 分の 1 になる）。cast_height: を書けばその大きさ
+    stand = [c for c in cast.values() if not c.get("hidden") and c.get("sprite") and c["sprite"]["h"] / c["sprite"]["w"] >= 1.3]
+    if len([c for c in cast.values() if not c.get("hidden")]) >= 4 and not meta.get("cast_height"):
+        for c in stand:
+            c["height"], c["offsetY"] = int(c["height"] * .84), int(c["offsetY"] * .84)
     if len(cast) > 1 and len({c["side"] for c in cast.values()}) == 1:   # 全員が同じ側なら、台本で位置を決めていない最後の人を反対へ
         for cid in reversed(list(cast)):
             if not meta.get("%s.side" % cid):
@@ -537,7 +569,12 @@ def auto_react(chapters, cast, explainer):
                 if ln.get("react_raw") or len(ln["text"]) < 12:
                     continue
                 who = ln["who"]
-                other = next((x["who"] for x in reversed(L[:i]) if x["who"] != who), None) or next(c for c in ids if c != who)
+                if ln.get("chorus") or cast.get(who, {}).get("hidden"):
+                    continue
+                other = (next((x["who"] for x in reversed(L[:i]) if x["who"] != who and not cast.get(x["who"], {}).get("hidden")), None)
+                         or next((c for c in ids if c != who and not cast[c].get("hidden")), None))
+                if not other:
+                    continue
                 key, opts = ln["text"] + (ln.get("emote") or ""), []
                 smug = any(OPT_RE.match(o).group(1) == "smug" for o in ln.get("opts", []))
                 if who == explainer:
@@ -675,11 +712,22 @@ def resolve_faces(chapters, cast):
         use = used.get(cid, {("", "normal")})
         if c.get("sprite"):
             sp, poses = c["sprite"], {}
+            rig_on = c.pop("rig", None) is not False
             for pose, face in sorted(use):
-                P = poses.setdefault(pose, {"base": sp["poses"][pose]["base"], "faces": {}})
-                P["faces"][face] = sp["poses"][pose]["faces"][face]
-                P["faces"].setdefault("normal", sp["poses"][pose]["faces"].get("normal", {}))
-            keys = {P["base"] for P in poses.values()} | {p[0] for P in poses.values() for f in P["faces"].values() for p in f.values()}
+                S = sp["poses"][pose]
+                if S.get("rig") and rig_on and all(f in S["rf"] for q, f in use if q == pose):   # 動くパーツ（腕・髪・黒目）のあるポーズ: 体の絵の代わりに rig の層を、表情のパーツは顔の層に当てるもの（rf）を埋め込む
+                    P = poses.setdefault(pose, {"rig": S["rig"], "faces": {}, "iris": {}})
+                    P["faces"][face] = S["rf"][face]
+                    P["faces"].setdefault("normal", S["rf"].get("normal", {}))
+                    for f in (face, "normal"):
+                        if f in S.get("iris", {}):
+                            P["iris"][f] = S["iris"][f]
+                    continue
+                P = poses.setdefault(pose, {"base": S["base"], "faces": {}})
+                P["faces"][face] = S["faces"][face]
+                P["faces"].setdefault("normal", S["faces"].get("normal", {}))
+            keys = ({P["base"] for P in poses.values() if "base" in P} | {p[0] for P in poses.values() for f in P["faces"].values() for p in f.values()}
+                    | {L["i"] for P in poses.values() for L in P.get("rig", [])} | {v[k] for P in poses.values() for v in P.get("iris", {}).values() for k in "uimo"})
             c["sprite"] = {"w": sp["w"], "h": sp["h"], "poses": poses, "images": {k: os.path.join(sp["_dir"], k + (".svg" if sp.get("svg") else ".png")) for k in sorted(keys)}}
         elif c.get("images"):
             names = {f + ("@" + p if p else "") for p, f in use}
@@ -801,6 +849,11 @@ def insert_parts(meta, chapters, base, cast):
         for k in ("bg", "music"):
             if pmeta.get(k):
                 scenes[0].setdefault(k, pmeta[k])
+        if pmeta.get("cast", "").strip().lower() in ("hide", "none", "off"):   # 部品の間だけ、立ち絵を出さない（画面いっぱいのロゴ・アイキャッチ）
+            for sc in scenes:   # 左上・右上の札と、置きっぱなしの字幕の箱も出さない（ロゴの上に、章の札と空の箱が残っていた）
+                sc["_nocast"], sc["plain"], sc["tag"], sc["corner"] = True, True, "", ""
+        if pmeta.get("out"):   # 部品の次の場面への切り替え（out: cut。部品が自分の動きで抜けるとき、次の場面の頭のフェードに埋もれないように）
+            ins["_out"] = pmeta["out"].strip()
         if pmeta.get("seconds"):   # 部品の長さ（秒）。せりふがそれより長ければ、せりふの長さ
             scenes[0]["duration"] = float(pmeta["seconds"])
         if pmeta.get("pronounce", "").startswith("{"):
@@ -835,6 +888,8 @@ def insert_parts(meta, chapters, base, cast):
                 sc["bg"] = bg
         if any(sc.get("music") for sc in scenes) and ins["at"] < len(host) and not host[ins["at"]].get("music"):
             host[ins["at"]]["music"] = KEEP_MUSIC
+        if ins.get("_out") and after:
+            after[0].setdefault("transition", ins["_out"])
         host[ins["at"]:ins["at"]] = scenes
         used.append("%s（%s・%d 場面）" % (ins["name"], "頭" if (ins["ch"], ins["at"]) == (0, 0) else "「%s」の中" % chapters[ins["ch"]]["title"][:10], len(scenes)))
     if pron:
@@ -974,6 +1029,17 @@ def voicevox_lines(spec, url, outdir, pronounce, styles=True):
         for sc in ch["scenes"]:
             for ln in talk_lines(sc):
                 v = (spec["cast"].get(ln["who"], {}).get("voice") or {})
+                if ln.get("chorus") and not ln.get("voice"):   # 全員で読むせりふ: 1 人ずつ作って重ねる（VOICEVOX の声の人だけ）
+                    vs = [dict(spec["cast"][m]["voice"], intonation=round(float(spec["cast"][m]["voice"].get("intonation", 1.0)) * 1.15, 2))
+                          for m in ln["chorus"] if (spec["cast"].get(m, {}).get("voice") or {}).get("engine") == "voicevox"]
+                    made0 = vv.made
+                    path = chorus_voice(vv, speakable(ln["text"], pronounce), vs, outdir) if vs else None
+                    if path:
+                        ln["voice"] = path
+                    else:
+                        vv.made = made0
+                        print("warn: 全員で読むせりふの声を作れません（VOICEVOX の声の登場人物が居ない）: %s" % ln["text"][:20], file=sys.stderr)
+                    continue
                 if v.get("engine") == "aquestalk" and not ln.get("voice"):   # ゆっくりボイス（読みは VOICEVOX に聞く）
                     ln["voice"] = aq.synth(speakable(ln["text"], pronounce), v, outdir)
                     vv.made += aq.made
@@ -1509,8 +1575,12 @@ def to_spec(meta, chapters, cast, base):
                     continue
                 inn = {ln.get("who") for ln in sc.get("lines", []) if isinstance(ln, dict)} | {r.get("who") for ln in sc.get("lines", []) if isinstance(ln, dict) for r in ln.get("react") or []}
                 sc["cast"] = regular + [k for k in cameos if k in inn]
-    if "name" not in talk and len([c for c in cast.values() if not c.get("hidden")]) >= 3:   # 3 人以上: 字幕に名前を出す（誰のせりふか分かるように）
-        talk["name"] = True
+    for ch in chapters:   # 部品が「立ち絵を出さない」と言った場面（cast: hide）
+        for sc in ch["scenes"]:
+            if sc.pop("_nocast", None):
+                sc["cast"] = []
+    # 字幕に話し手の名前は出さない（手本の動画は、字の色と、話している立ち絵の動きで見分けさせる。出すなら subtitle_name: on）。
+    talk.setdefault("name", False)
     if meta.get("chapter_tag") == "corner":   # 列挙・物語の型: 章の題を、右上の札に出す（1 章目は導入なので出さない）
         frame, no = frame_chapters(chapters), 0
         for ci, ch in enumerate(chapters):
@@ -1563,6 +1633,70 @@ def to_spec(meta, chapters, cast, base):
     return spec, credits
 
 
+ALL_NAMES = ("全員", "みんな", "all")   # 話し手にこう書くと、登場人物の全員が声をそろえて読む
+
+
+def expand_chorus(chapters, cast, meta):
+    """「全員: せりふ」を、登場人物の全員（立ち絵の出る人）が声をそろえて読むせりふにする（締めの挨拶・掛け声）。
+    話し手は、声だけの「全員」（_all）。( ) に書いた表情・体・動きは、全員に同じものを付ける（書かなければ、にっこり）。声は voicevox_lines が重ねる。"""
+    lines = [ln for ch in chapters for sc in ch["scenes"] for ln in sc.get("lines", []) if ln.get("who") in ALL_NAMES]
+    if not lines:
+        return
+    members = [k for k, c in cast.items() if not c.get("hidden")]
+    cast["_all"] = {"name": meta.get("all.name", "全員"), "color": meta.get("all.color", "#f2a900"), "hidden": True, "voice": {"engine": "chorus"}}
+    for ln in lines:
+        opts = ln.pop("opts", None) or ["smile"]
+        ln["who"], ln["chorus"] = "_all", members
+        ln["react_raw"] = [{"who": m, "opts": list(opts), "at": 0.0} for m in members] + ln.get("react_raw", [])
+
+
+def chorus_voice(vv, text, voices, outdir):
+    """同じ文を、何人かの声で作って 1 つの WAV に重ねる。話す速さが人によって違うので、長さがまん中の人に合うように速さを直して作り直す。
+    1 人ずつの大きさをそろえてから足し、山がはみ出さないように全体を下げる。作れなければ None。"""
+    import array, math, wave
+
+    def read(path):
+        with wave.open(path, "rb") as w:
+            if w.getsampwidth() != 2:
+                return None
+            a = array.array("h"); a.frombytes(w.readframes(w.getnframes()))
+            if w.getnchannels() == 2:
+                a = array.array("h", [(a[i] + a[i + 1]) // 2 for i in range(0, len(a) - 1, 2)])
+            return w.getframerate(), a
+    made = [(v, vv.synth(text, v, outdir)) for v in voices]
+    got = [(v, p, read(p)) for v, p in made]
+    got = [(v, p, r) for v, p, r in got if r]
+    if not got:
+        return None
+    durs = sorted(len(r[1]) / r[0] for _, _, r in got)
+    target = durs[len(durs) // 2]
+    fixed = []
+    for v, p, r in got:   # 長さが 3% より違う人は、速さを直して作り直す
+        d = len(r[1]) / r[0]
+        if abs(d - target) / target > .03:
+            p = vv.synth(text, dict(v, speed=round(float(v.get("speed", 1.0)) * d / target, 3)), outdir)
+            r = read(p) or r
+        fixed.append((p, r))
+    rate = fixed[0][1][0]
+    fixed = [(p, r) for p, r in fixed if r[0] == rate]
+    n = max(len(r[1]) for _, r in fixed)
+    mix = [0.0] * n
+    for _, (_, a) in fixed:
+        rms = math.sqrt(sum(x * x for x in a) / max(1, len(a))) or 1.0
+        g = 3000.0 / rms   # 1 人ずつの大きさをそろえる
+        for i, x in enumerate(a):
+            mix[i] += x * g
+    k = 1 / math.sqrt(len(fixed))
+    peak = max(1.0, max(abs(x) for x in mix) * k)
+    k *= min(1.0, 30000.0 / peak)
+    key = hashlib.sha1("|".join(sorted(p for p, _ in fixed)).encode("utf-8")).hexdigest()[:16]
+    out = os.path.join(outdir, "chorus-%s.wav" % key)
+    with wave.open(out, "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate)
+        w.writeframes(array.array("h", [int(max(-32767, min(32767, x * k))) for x in mix]).tobytes())
+    return out
+
+
 def load_spec(script):
     """台本（テキスト）を読み、登場人物と演技を決めて、motion-video の台本にする（声はまだ当てない）。誤りがあれば止める。
     返り値は (設定, 台本, 登場人物, クレジット, 台本のあるフォルダ)。"""
@@ -1578,6 +1712,13 @@ def load_spec(script):
         meta.setdefault(k, v)
     cast = build_cast(meta, base)
     insert_parts(meta, chapters, base, cast)
+    # 部品の中だけで話す、cast に無い人（アイキャッチの読み上げ など）は、声だけの出演として足す（立ち絵は出さない。本編の cast は変えない）
+    guests = sorted({ln["who"] for ch in chapters for sc in ch["scenes"] if sc.get("_part") for ln in sc.get("lines", [])} - set(cast))
+    guests = [g for g in guests if g in PRESETS]
+    if guests:
+        cast.update(build_cast(dict(meta, cast=", ".join(guests), narrator=", ".join(guests)), base))
+        print("声だけの出演（部品の中）: " + "、".join(cast[g].get("name", g) for g in guests), file=sys.stderr)
+    expand_chorus(chapters, cast, meta)
     unknown = sorted({ln["who"] for ch in chapters for sc in ch["scenes"] for ln in sc.get("lines", [])} - set(cast))
     if unknown:
         sys.exit("error: cast に無い話し手: %s（台本の先頭の cast: に足してください）" % "、".join(unknown))

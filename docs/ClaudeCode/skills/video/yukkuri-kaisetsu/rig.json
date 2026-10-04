@@ -1,0 +1,169 @@
+{
+ "_comment": "動くパーツ（腕・髪・黒目）の動かし方。presets は名前の付いた設定、cast は登場人物ごとにいつも使う設定。台本の先頭に「rig: 名前」（全員）・「<登場人物>.rig: 名前」（その人）で呼び出す。うまくいった設定は、ここに名前を付けて足す。項目の意味は motion-video の reference/talk.md（rigMotion）。書いていない項目は standard の値。度合いは calm（小）・standard（中）・lively（大）の 3 つ。どれも全員に使える（その人ごとの回す上限は立ち絵のパーツ側にあり、ここの limit はそれに掛ける倍率）",
+ "presets": {
+  "standard": {
+   "desc": "中（ふつう。既定）",
+   "arm": {
+    "rest": 0.01,
+    "breath": 0.008,
+    "voice": 0.035,
+    "jump": 0.07,
+    "speed": 1700,
+    "limit": 0.7
+   },
+   "hair": {
+    "sway": 0.012,
+    "voice": 0.02,
+    "jump": 0.05,
+    "follow": 0.7,
+    "bend": 1.7,
+    "lag": 1.6,
+    "speed": 1150,
+    "limit": 1,
+    "rest": 0
+   },
+   "iris": {
+    "listen": 0.55,
+    "wander": 0.35,
+    "wanderListen": 0.25,
+    "every": 2600,
+    "up": 0.3
+   }
+  },
+  "calm": {
+   "desc": "小（おだやか。動きを小さく、ゆっくり。落ち着いた解説・物語）",
+   "arm": {
+    "rest": 0.01,
+    "breath": 0.005,
+    "voice": 0.02,
+    "jump": 0.045,
+    "speed": 2300,
+    "limit": 0.5
+   },
+   "hair": {
+    "sway": 0.008,
+    "voice": 0.01,
+    "jump": 0.03,
+    "follow": 0.7,
+    "bend": 1.7,
+    "lag": 1.6,
+    "speed": 1600,
+    "limit": 0.7,
+    "rest": 0
+   },
+   "iris": {
+    "listen": 0.4,
+    "wander": 0.2,
+    "wanderListen": 0.15,
+    "every": 3400,
+    "up": 0.3
+   }
+  },
+  "lively": {
+   "desc": "大（元気。動きを大きく、速く。茶番・ショート）。全員をこの上限（probe）で撮って、腕・髪・首が体から離れて見えないことを確かめてある",
+   "arm": {
+    "rest": 0.01,
+    "breath": 0.011,
+    "voice": 0.055,
+    "jump": 0.11,
+    "speed": 1300,
+    "limit": 1
+   },
+   "hair": {
+    "sway": 0.018,
+    "voice": 0.035,
+    "jump": 0.08,
+    "follow": 0.7,
+    "bend": 2.0,
+    "lag": 1.6,
+    "speed": 900,
+    "limit": 1,
+    "rest": 0
+   },
+   "iris": {
+    "listen": 0.7,
+    "wander": 0.5,
+    "wanderListen": 0.35,
+    "every": 1900,
+    "up": 0.3
+   }
+  },
+  "big": {
+   "desc": "試し用: 動きをわざと大きく（どこがどう動くかを確かめる。上限も 2.5〜3 倍に広げる。本番では使わない）",
+   "arm": {
+    "rest": 0.02,
+    "breath": 0.02,
+    "voice": 0.1,
+    "jump": 0.16,
+    "speed": 1300,
+    "limit": 1.2
+   },
+   "hair": {
+    "sway": 0.05,
+    "voice": 0.07,
+    "jump": 0.14,
+    "follow": 1.3,
+    "bend": 2.6,
+    "lag": 2.2,
+    "speed": 900,
+    "limit": 3
+   },
+   "iris": {
+    "listen": 1,
+    "wander": 0.9,
+    "wanderListen": 0.6,
+    "every": 1500,
+    "up": 0.8
+   }
+  },
+  "probe": {
+   "desc": "確かめ用: 腕を上限いっぱいまで外へ開き、髪を上限いっぱいまで片側へしならせたままにする（体から離れて見える腕・頭からずれて見える髪を探す。上限は lively と同じ）",
+   "arm": {
+    "rest": 1,
+    "breath": 0,
+    "voice": 0,
+    "jump": 0,
+    "limit": 1
+   },
+   "hair": {
+    "rest": 1,
+    "sway": 0,
+    "voice": 0,
+    "jump": 0,
+    "follow": 0,
+    "limit": 1,
+    "bend": 2.0
+   },
+   "iris": {
+    "listen": 0,
+    "wander": 0,
+    "wanderListen": 0
+   }
+  },
+  "probe2": {
+   "desc": "確かめ用: probe の逆向き（髪を反対側へ。腕は内側へ）",
+   "arm": {
+    "rest": -1,
+    "breath": 0,
+    "voice": 0,
+    "jump": 0,
+    "limit": 1
+   },
+   "hair": {
+    "rest": -1,
+    "sway": 0,
+    "voice": 0,
+    "jump": 0,
+    "follow": 0,
+    "limit": 1,
+    "bend": 2.0
+   },
+   "iris": {
+    "listen": 0,
+    "wander": 0,
+    "wanderListen": 0
+   }
+  }
+ },
+ "cast": {}
+}

@@ -1707,10 +1707,101 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var key = blink && f.blink ? "blink" : open >= 1 && f.open ? "open" : open > 0 && f.half ? "half" : open > 0 && f.open ? "open" : "closed";
     return IMGS[f[key] || f.closed || f.open];
   }
+  /* 首の位置（立ち絵の中の割合 {x, y}）。顔のパーツ（口と目）の位置から決める: 口の下の端から、目〜口の長さの 0.45 倍だけ下。
+     cast.<名前>.neck: [x, y]（0〜1）で名指し、headMotion: false（か talk.headMotion: false）で首を動かさない。頭だけの立ち絵（ゆっくり）は対象外。絵がまだ読めていなければ null */
+  function neckOf(ch, pose) {
+    var sp = ch.sprite; if (!sp || sp.h / sp.w < 1.3 || ch.headMotion === false || TALK.headMotion === false || SPEC.castMotion === false || ch.motion === false) return null;
+    if (ch.neck) return { x: ch.neck[0], y: ch.neck[1] };
+    var cache = ch._neck || (ch._neck = {}), key = pose || ""; if (cache[key] !== undefined) return cache[key];
+    var F = (sp.poses[key] || sp.poses[""] || {}).faces || {}, f = F.normal || F[Object.keys(F)[0]] || {}, mo = f.open || f.half, ey = f.blink || f.e;
+    if (!mo || !ey) return (cache[key] = null);
+    var im = IMGS[sp.images[mo[0]]]; if (!im || !im.complete || !im.naturalWidth) return null;
+    var mb = mo[2] + im.naturalHeight;
+    return (cache[key] = { x: (mo[1] + im.naturalWidth / 2) / sp.w, y: Math.min(.7, (mb + .45 * (mb - ey[2])) / sp.h) });
+  }
+  /* 立ち絵を、首で曲げて描く: 首から下はそのまま、首の少し上までを細い帯に分けて少しずつ回し、その上の頭を ang だけ回す。
+     いったん別のキャンバスに組み立ててから 1 回で描く。帯は下から順に、その帯の範囲を置き換えて描くので、帯が重なる所で絵が二重にならず（透ける髪・リボンに横筋が出た）、
+     帯を下へ広げておけるので、首から離れた所にすき間が開かない（横に広い持ち物に、背景の色の筋が出た）。
+     座標は足元の中央が原点（絵は -w/2, -h から）。首より下へ垂れた髪は体と一緒に残るので、大きな角度では髪が折れて見える（±0.12 ラジアンまでを目安に） */
+  var BENT = null;
+  function drawBent(im, w, h, nk, ang) {
+    var ip = im.pad || 0, fw = im.naturalWidth || im.width, fh = im.naturalHeight || im.height, iw = fw - ip * 2, ih = fh - ip; if (!iw || !ih) { ctx.drawImage(im, -w / 2, -h, w, h); return; }   /* ip: 絵に付いている余白（rig） */
+    var pad = Math.ceil(ih * .12) + ip, W = iw + pad * 2, H = ih + pad, B = BENT || (BENT = document.createElement("canvas"));
+    if (B.width !== W || B.height !== H) { B.width = W; B.height = H; }
+    var g = B.getContext("2d"), ny = pad + nk.y * ih, px = pad + nk.x * iw, T = ih * .07, N = 7, i;
+    g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, W, H);
+    g.save(); g.beginPath(); g.rect(0, ny - 1, W, H); g.clip(); g.drawImage(im, pad - ip, pad - ip, fw, fh); g.restore();
+    for (i = 0; i <= N; i++) { var top = i === N ? -H : ny - (i + 1) * T / N, bot = ny - i * T / N, a = ang * Math.min(1, (i + 1) / N), m = 1.5 + W * Math.abs(ang) / N;
+      g.save(); g.translate(px, ny); g.rotate(a); g.translate(-px, -ny); g.beginPath(); g.rect(-W, top, W * 3, bot - top + m); g.clip();
+      g.globalCompositeOperation = "destination-out"; g.fillStyle = "#000"; g.fillRect(-W, top - 2, W * 3, bot - top + m + 4);
+      g.globalCompositeOperation = "lighter"; g.drawImage(im, pad - ip, pad - ip, fw, fh); g.restore(); }   /* 消す（destination-out）→ 足す（lighter）: 帯の縁の半端な画素でも、前の絵 ×(1−c) ＋ 新しい絵 ×c になり、濃さが変わらない（clearRect や copy で描くと、縁に薄い筋が残った） */
+    var k = w / iw; ctx.drawImage(B, -w / 2 - pad * k, -h - pad * k, W * k, H * k);
+  }
   /* 立ち絵のパーツ（sprite）: 体の絵の上に、表情 → まばたき → 口のパーツを置いて 1 枚にする（パーツは四角の中を置き換える。組み合わせごとに覚えておく） */
   var SPR = {};
-  function spriteFrame(id, ch, pose, face, open, blink) {
+  /* rig: 腕・髪・黒目を別のパーツで持つ立ち絵（poses.<ポーズ>.rig）。下から順に層を重ねる。{k: "arm"・"hair", p: 軸, m: 上限の度, s: 外向きの符号} は軸のまわりに回し、
+     {f: 1} は顔の層で、表情・まばたき・口のパーツ（四角の中を置き換える）と黒目（iris。白目の形の中でずらす）を、この層の中だけに当ててから重ねる。
+     rg: {arm: 腕を外へ開く角度, breath, hair, sway（ラジアン）, ix, iy（黒目。-1〜1）, t} 。毎コマ描き直す（1 人に 2 枚。表情の切り替えで前の絵と重ねるため） */
+  var RIGC = {};
+  /* 動かし方の設定（talk.rigMotion が全員、cast.<名前>.rigMotion がその人。書いた項目だけ上書き）。角度はラジアン、時間は ms。
+     arm: rest いつもの開き・breath 息づかいの揺れ・voice 声の大きさで開く量・jump 跳ねる動きで開く量・speed 揺れの周期
+     hair: sway いつもの揺れ・voice・jump・follow 頭の傾きと逆へ残る割合・bend しなりの強さ（先の帯の倍率）・lag 先が遅れる量・speed 揺れの周期
+     arm.limit・hair.limit: パーツごとの回す上限（度）に掛ける倍率（1 が既定。試しに大きく動かすときに上げる）
+     iris: listen 聞いている間に内側を見る量（0〜1）・wander 話している間の動き・wanderListen 聞いている間の動き・every 向きを変える間隔・up 上下の動き */
+  var RIG_MOTION = { arm: { rest: .01, breath: .008, voice: .035, jump: .07, speed: 1700, limit: .7 }, hair: { sway: .012, voice: .02, jump: .05, follow: .7, bend: 1.7, lag: 1.6, speed: 1150, limit: 1, rest: 0 },
+                     iris: { listen: .55, wander: .35, wanderListen: .25, every: 2600, up: .3 } };
+  function rigMotionOf(ch) { if (ch._rm) return ch._rm; var out = {}, src = [RIG_MOTION, TALK.rigMotion || {}, ch.rigMotion || {}];
+    ["arm", "hair", "iris"].forEach(function (k) { out[k] = {}; src.forEach(function (o) { Object.keys(o[k] || {}).forEach(function (p2) { if (typeof o[k][p2] === "number") out[k][p2] = o[k][p2]; }); }); });
+    return (ch._rm = out); }
+  function rigFrame(id, ch, P, face, open, blink, rg) {
+    var sp = ch.sprite, F = P.faces[face] || P.faces.normal || {}, iv = P.iris && P.iris[face];
+    var mk = open >= 1 && F.open ? "open" : open > 0 && F.half ? "half" : open > 0 && F.open ? "open" : "", bl = blink && F.blink ? F.blink : null;
+    var img = function (k) { var im = IMGS[sp.images[k]]; return im && im.complete && im.naturalWidth ? im : null; }, i;
+    var patches = [F.e, bl, mk ? F[mk] : null], need = P.rig.map(function (L) { return L.i; }).concat(patches.filter(Boolean).map(function (q) { return q[0]; }), iv && !bl ? [iv.u, iv.i, iv.m, iv.o] : []);
+    for (i = 0; i < need.length; i++) if (!img(need[i])) return null;
+    var st = RIGC[id] || (RIGC[id] = { c: [document.createElement("canvas"), document.createElement("canvas")], f: document.createElement("canvas"), e: document.createElement("canvas"), n: 0 });
+    /* まわりに余白を取る（回した腕・しなった髪が、絵の端で切れない）。c.pad が余白の幅。座標は、余白のぶんずらして今までどおり（絵の左上が 0, 0） */
+    var PAD = Math.ceil(sp.w * .3), CW = sp.w + PAD * 2, CH = sp.h + PAD;
+    var c = st.c[st.n ^= 1]; if (c.width !== CW || c.height !== CH) { c.width = CW; c.height = CH; } c.pad = PAD;
+    var g = c.getContext("2d"); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, CW, CH); g.setTransform(1, 0, 0, 1, PAD, PAD);
+    rg = rg || { arm: 0, breath: 0, hair: 0, sway: 0, ix: 0, iy: 0, t: 0 }; var RM = rg.M || rigMotionOf(ch);
+    P.rig.forEach(function (L, n) {
+      if (L.f) {   /* 顔の層 */
+        var fc = st.f; if (fc.width !== sp.w || fc.height !== sp.h) { fc.width = sp.w; fc.height = sp.h; }
+        var h = fc.getContext("2d"); h.clearRect(0, 0, sp.w, sp.h); h.drawImage(img(L.i), L.x, L.y);
+        var patch = function (q) { if (!q) return; var im = img(q[0]); h.clearRect(q[1], q[2], im.naturalWidth, im.naturalHeight); h.drawImage(im, q[1], q[2]); };
+        patch(F.e);
+        if (iv && !bl) { var ec = st.e; if (ec.width !== iv.w || ec.height !== iv.h) { ec.width = iv.w; ec.height = iv.h; }
+          var e = ec.getContext("2d"); e.globalCompositeOperation = "source-over"; e.clearRect(0, 0, iv.w, iv.h); e.drawImage(img(iv.i), rg.ix * iv.d, rg.iy * iv.d * .5);
+          e.globalCompositeOperation = "destination-in"; e.drawImage(img(iv.m), 0, 0);
+          h.clearRect(iv.x, iv.y, iv.w, iv.h); h.drawImage(img(iv.u), iv.x, iv.y); h.drawImage(ec, iv.x, iv.y); h.drawImage(img(iv.o), iv.x, iv.y); }
+        patch(bl); patch(mk ? F[mk] : null);
+        g.drawImage(fc, 0, 0); return; }
+      if (!L.k) { g.drawImage(img(L.i), L.x, L.y); return; }
+      if (L.k !== "arm" && TALK.hairBend !== false) {   /* 髪・しっぽ・耳: 丸ごと回さず、しならせる。絵を 2px ずつの横の帯に切り、軸から遠い帯ほど大きく、少し遅れて横へずらす（根元は動かず、先が大きく揺れる）。
+           帯は回さずに横へずらすだけなので、帯どうしが重なったり離れたりしない（前は帯ごとに回していて、角度の差が輪郭の段と、すき間になって見えた） */
+        var him = img(L.i), iw2 = him.naturalWidth, ih2 = him.naturalHeight, py = Math.max(L.y, Math.min(L.y + ih2, L.p[1])), below = L.y + ih2 - py, upOnly = below < ih2 * .15, len = Math.max(upOnly ? py - L.y : below, 1), lm = (L.m || 2) * Math.PI / 180 * RM.hair.limit * 1.8, sy, HS = 2;
+        /* 軸（頭の中心・髪の根元）より上の帯は動かさない: 頭にかぶさっている髪が、頭からずれて見えるのを防ぐ。絵がほとんど軸より上にあるとき（頭の上の耳・房）だけ、上へ向かってしならせる */
+        for (sy = 0; sy < ih2; sy += HS) { var yy = L.y + sy + HS / 2 - py, t = (upOnly ? yy < 0 : yy > 0) ? Math.min(1, Math.abs(yy) / len) : 0, w = RM.hair.bend * Math.pow(t, 1.3);
+          var ang = Math.max(-lm, Math.min(lm, (rg.hair + RM.hair.rest + rg.sway * Math.sin(rg.t / RM.hair.speed + n * 2.1 - t * RM.hair.lag)) * w)), hh = Math.min(HS, ih2 - sy);
+          g.drawImage(him, 0, sy, iw2, hh, L.x - yy * ang, L.y + sy, iw2, hh); }
+        return; }
+      var lim = (L.m || 4) * Math.PI / 180 * (L.k === "arm" ? RM.arm.limit : RM.hair.limit), a = L.k === "arm" ? L.s * (rg.arm + rg.breath * Math.sin(rg.t / RM.arm.speed + (L.s > 0 ? 0 : 2.3))) : rg.hair + rg.sway * Math.sin(rg.t / RM.hair.speed + n * 2.1);
+      a = Math.max(-lim, Math.min(lim, a));
+      if (L.k === "arm" && TALK.armBend !== false) {   /* 腕: 肩から丸ごと回さず、ひじのあたりから先を動かす（肩と二の腕は体に付いたまま。丸ごと回すと、袖が服の輪郭とつながっている腕は、体から離れて見えた）。
+           髪と同じく、絵を細い帯に切ってずらす。軸（肩）からの距離の 3 割までは動かさず、そこから先へ向かって、丸ごと回したときと同じ向きに少しずつずらす。
+           帯の向きは腕の向きで決める: 上下に伸びる腕は横の帯を横へ、横に伸びる腕は縦の帯を上下へ */
+        var am = img(L.i), aw = am.naturalWidth, ah = am.naturalHeight, ax = Math.max(L.x, Math.min(L.x + aw, L.p[0])), ay = Math.max(L.y, Math.min(L.y + ah, L.p[1]));
+        var vlen = Math.max(ay - L.y, L.y + ah - ay, 1), hlen = Math.max(ax - L.x, L.x + aw - ax, 1), wt = function (t) { var u = Math.max(0, (t - .3) / .7); return u * u * (3 - 2 * u); }, q0, AS = 2;
+        if (hlen > vlen * 1.3) for (q0 = 0; q0 < aw; q0 += AS) { var dx2 = L.x + q0 + AS / 2 - ax, ww = Math.min(AS, aw - q0); g.drawImage(am, q0, 0, ww, ah, L.x + q0, L.y + dx2 * a * wt(Math.abs(dx2) / hlen), ww, ah); }
+        else for (q0 = 0; q0 < ah; q0 += AS) { var dy2 = L.y + q0 + AS / 2 - ay, hh2 = Math.min(AS, ah - q0); g.drawImage(am, 0, q0, aw, hh2, L.x - dy2 * a * wt(Math.abs(dy2) / vlen), L.y + q0, aw, hh2); }
+        return; }
+      g.save(); g.translate(L.p[0], L.p[1]); g.rotate(a); g.translate(-L.p[0], -L.p[1]); g.drawImage(img(L.i), L.x, L.y); g.restore(); });
+    return c;
+  }
+  function spriteFrame(id, ch, pose, face, open, blink, rg) {
     var sp = ch.sprite, P = sp.poses[pose || ""] || sp.poses[""], F = P.faces[face] || P.faces.normal || {};
+    if (P.rig) return rigFrame(id, ch, P, face, open, blink, rg);
     var mk = open >= 1 && F.open ? "open" : open > 0 && F.half ? "half" : open > 0 && F.open ? "open" : "";
     var parts = [[P.base, 0, 0], F.e, blink && F.blink ? F.blink : null, mk ? F[mk] : null].filter(Boolean), ims = [];
     for (var i = 0; i < parts.length; i++) { var im = IMGS[sp.images[parts[i][0]]]; if (!im || !im.complete || !im.naturalWidth) return null; ims.push(im); }
@@ -1764,13 +1855,17 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
      身ぶりは演技の motion で選ぶ。無ければ表情から決める。大きさは motion の度合い mlv（無ければ表情の度合い lv。1 控えめ・2 ふつう・3 強め）。
      表情・体の名前の #2 などは同じラベルとして扱う。返すのは、足元を軸にした {x, y, rot, sx, sy, flip}（flip は左右の向き。1 から -1）。
      cast.<名前>.motion: false か SPEC.castMotion: false、OS の「動きを減らす」で止まる。"yukkuri" は、話している間に縦に伸び縮みする（頭だけの立ち絵向け） */
-  var CAST_STILL = !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
+  /* OS の「動きを減らす」（Windows の「アニメーション効果」を切る など）で立ち絵の動きを止めるのは、台本に talk.reducedMotion: true と書いたときだけ。
+     前はいつも止めていたので、その設定の機械では HTML で見る動きと、書き出した動画（WebM）の動きが違っていた */
+  var CAST_STILL = !!(SPEC.talk && SPEC.talk.reducedMotion === true && window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
   var FACE_MOTION = { surprised: "jump", smile: "hop", angry: "tremble", sad: "sink", troubled: "fidget", think: "tilt", shy: "sway", smug: "lean", doubt: "back", dizzy: "wobble", love: "bounce" };
   function castMotion(id, i, ch, tt, st, speakingNow, side) {
-    var m = { x: 0, y: 0, rot: 0, sx: 1, sy: 1, flip: 1 }, face = st.face, pose = st.pose, kind = st.motion || (st.idle ? "" : FACE_MOTION[String(face).split("#")[0]]);
+    var m = { x: 0, y: 0, rot: 0, sx: 1, sy: 1, flip: 1, head: 0 }, face = st.face, pose = st.pose, kind = st.motion || (st.idle ? "" : FACE_MOTION[String(face).split("#")[0]]);
     if (CAST_STILL || SPEC.castMotion === false || ch.motion === false || ch.motion === "none" || kind === "still") return m;
     var ph = i * 1.7 + 0.6, br = Math.sin(tt / 1150 + ph), dir = side === "right" ? -1 : 1, sin = Math.sin, PI = Math.PI;
     m.sy += .006 * br; m.sx -= .003 * br; m.rot += .004 * sin(tt / 1900 + ph * 2);
+    /* head: 首から上だけの傾き（ラジアン。首の位置が分かる立ち絵だけに効く。neckOf）。いつもは、ゆっくり小さく揺れる */
+    m.head += .014 * sin(tt / 1700 + ph * 1.3) + .006 * sin(tt / 690 + ph);
     if (st.t0 === undefined) return m;
     var lt = tt - st.t0;
     if (st.changed && lt < 320) { var e = lt / 320, pop = sin(e * PI) * (1 - e) * (st.idle ? .5 : 1); m.sy += .06 * pop; m.sx -= .035 * pop; }
@@ -1779,22 +1874,22 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     if (kind === "jump") { if (lt < 340) m.y -= 28 * A * sin(lt / 340 * PI); if (!own) m.rot -= .012 * dir * ease; }
     else if (kind === "hop") { if (lt < 760) m.y -= 13 * A * Math.abs(sin(lt / 190 * PI / 2)) * (1 - lt / 760); }
     else if (kind === "bounce") { if (speakingNow || lt < 900) m.y -= 12 * A * Math.abs(sin(lt / 170)); }
-    else if (kind === "nod") { if (lt < 640) { var nd = Math.abs(sin(lt / 320 * PI)); m.y += 9 * A * nd; m.rot += .012 * A * dir * nd; } }
-    else if (kind === "sway") { m.rot += .012 * A * sin(lt / 300); m.y += 3 * ease; }
-    else if (kind === "lean") { m.rot += .018 * A * dir * ease; m.x += 7 * A * dir * ease; }
-    else if (kind === "back") { m.rot -= .018 * A * dir * ease; m.x -= 7 * A * dir * ease; }
-    else if (kind === "sink") { m.y += 10 * A * ease; m.rot += .012 * dir * ease; m.sy -= .012 * A * ease; }
+    else if (kind === "nod") { if (lt < 640) { var nd = Math.abs(sin(lt / 320 * PI)); m.y += 9 * A * nd; m.rot += .012 * A * dir * nd; m.head += .11 * A * dir * nd; } }   /* うなずく: 首から上が前へ倒れる */
+    else if (kind === "sway") { m.rot += .012 * A * sin(lt / 300); m.y += 3 * ease; m.head += .035 * A * sin(lt / 300 - .9); }   /* 頭は、体より少し遅れて揺れる */
+    else if (kind === "lean") { m.rot += .018 * A * dir * ease; m.x += 7 * A * dir * ease; m.head += .03 * A * dir * ease; }
+    else if (kind === "back") { m.rot -= .018 * A * dir * ease; m.x -= 7 * A * dir * ease; m.head -= .04 * A * dir * ease; }
+    else if (kind === "sink") { m.y += 10 * A * ease; m.rot += .012 * dir * ease; m.sy -= .012 * A * ease; m.head += .07 * A * dir * ease; }   /* 沈む: うなだれる */
     else if (kind === "tremble") { m.x += 5 * A * sin(lt / 24) * (own ? 1 : clamp(1 - lt / 380)); if (!own) m.rot += .014 * dir * ease; }
     else if (kind === "fidget") { m.x += 2.5 * A * sin(lt / 55) * clamp(1 - lt / 700); m.rot -= .008 * dir * ease; }
-    else if (kind === "tilt") { m.rot -= .022 * A * dir * ease; }
+    else if (kind === "tilt") { m.rot -= .012 * A * dir * ease; m.head -= .09 * A * dir * ease; }   /* かしげる: 首から上を外へ傾ける */
     else if (kind === "wobble") { m.rot += .03 * A * sin(lt / 210); m.x += 4 * A * sin(lt / 330); }
-    else if (kind === "shakehead") { k = clamp(1 - lt / 800); m.x += 10 * A * sin(lt / 52) * k; m.rot += .012 * A * sin(lt / 52) * k; }                       /* いやいや */
+    else if (kind === "shakehead") { k = clamp(1 - lt / 800); m.x += 6 * A * sin(lt / 52) * k; m.rot += .008 * A * sin(lt / 52) * k; m.head += .07 * A * sin(lt / 52) * k; }                       /* いやいや */
     else if (kind === "stomp") { if (lt < 1000) { k = clamp(1 - lt / 1000); m.y -= 11 * A * Math.abs(sin(lt / 68)) * k; m.x += 4 * A * sin(lt / 43) * k; m.rot += .012 * sin(lt / 60) * k; } }   /* じたばた */
     else if (kind === "spin") { if (lt < 520) { m.flip = Math.cos(lt / 520 * 2 * PI); m.y -= 16 * A * sin(lt / 520 * PI); } }                                 /* くるっと回る */
     else if (kind === "turn") { m.flip = 1 - 2 * eio(clamp(lt / 240)); m.rot -= .01 * dir * ease; }                                                           /* そっぽを向く */
     else if (kind === "zukkoke") { k = lt < 240 ? eo(lt / 240) : lt < 820 ? 1 : lt < 1120 ? 1 - eo((lt - 820) / 300) : 0;                                      /* ずっこける */
       m.rot -= dir * .5 * Math.min(A, 1.25) * k; m.y += 22 * k; if (lt > 240 && lt < 480) m.y -= 8 * sin((lt - 240) / 240 * PI); }
-    else if (kind === "bow") { k = sin(clamp(lt / 900) * PI); m.rot += dir * .15 * A * k; m.y += 6 * k; }                                                     /* おじぎ */
+    else if (kind === "bow") { k = sin(clamp(lt / 900) * PI); m.rot += dir * .12 * A * k; m.y += 6 * k; m.head += dir * .1 * A * k; }                                                     /* おじぎ */
     else if (kind === "squash") { k = lt < 150 ? lt / 150 : Math.exp(-(lt - 150) / 170) * Math.cos((lt - 150) / 62); m.sy -= .17 * A * k; m.sx += .12 * A * k; }  /* ぺしゃっ */
     else if (kind === "stretch") { k = sin(clamp(lt / 720) * PI); m.sy += .1 * A * k; m.sx -= .05 * A * k; }                                                  /* のびる */
     else if (kind === "pulse") { q = Math.pow(Math.abs(sin(lt / 240)), 3); m.sx += .035 * A * q; m.sy += .035 * A * q; }                                      /* どきどき */
@@ -1803,7 +1898,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     else if (kind === "float") { m.y -= 12 * A * (.5 + .5 * sin(lt / 520 - PI / 2)) * ease; m.rot += .008 * sin(lt / 800); }                                  /* ふわふわ */
     else if (kind === "zoom") { k = (lt < 200 ? back(lt / 200) : 1) * (lt < 1500 ? 1 : clamp(1 - (lt - 1500) / 320)); m.sx += .15 * A * k; m.sy += .15 * A * k; }  /* どーんと大きく */
     else if (kind === "shrink") { m.sx -= .09 * A * ease; m.sy -= .09 * A * ease; }                                                                          /* しゅんと小さく */
-    else if (kind === "dance") { m.rot += .03 * A * sin(lt / 190); m.y -= 9 * A * Math.abs(sin(lt / 190)); m.x += 6 * A * sin(lt / 380); }                    /* るんるん */
+    else if (kind === "dance") { m.rot += .03 * A * sin(lt / 190); m.y -= 9 * A * Math.abs(sin(lt / 190)); m.x += 6 * A * sin(lt / 380); m.head -= .05 * A * sin(lt / 190); }                    /* るんるん */
     var body = String(pose).split("#")[0].split("+");
     if (!own && body.indexOf("raise") >= 0 && lt < 520) m.y -= 10 * sin(lt / 520 * PI);
     if (!own && body.indexOf("point") >= 0 && lt < 300) m.x += 8 * dir * sin(lt / 300 * PI);
@@ -1934,7 +2029,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     /* 2 行目が数文字だけ残るときは、2 行の長さをそろえる */
     if (lines.length === 2 && lines[1].replace(/\*\*/g, "").length <= 5) { var even = capWrap(cur.text, Math.max(maxW * .5, tw(cur.text.replace(/\*\*/g, ""), o) * .58), o, maxW); if (even.length === 2) lines = even; }
     lines = lines.slice(0, vert ? 3 : 2);
-    var named = TALK.name === undefined ? !outline : TALK.name !== false, pk = big ? 1 + (vert ? .08 : .22) * (1 - P(lt, 0, 240, back)) : 1, jx = big && lt < 300 ? 5 * Math.sin(lt / 20) * (1 - lt / 300) : 0;
+    var named = !!sp.showName || (TALK.name === undefined ? !outline : TALK.name !== false),   /* showName: 立ち絵の無い話し手（全員・部品の中の声だけの出演）は、名前を出さないと誰の声か分からない */ pk = big ? 1 + (vert ? .08 : .22) * (1 - P(lt, 0, 240, back)) : 1, jx = big && lt < 300 ? 5 * Math.sin(lt / 20) * (1 - lt / 300) : 0;
     ctx.save(); ctx.globalAlpha *= ck;
     if (outline) {
       var base = (vert ? 760 + size + (named ? 60 : 0) : 1040 - (lines.length - 1) * lh); ctx.translate(960 + jx, base); ctx.scale(pk, pk); ctx.translate(-960, -base);
@@ -2002,7 +2097,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     ctx.translate(CXc, cy2); ctx.scale(pk, pk); ctx.translate(-CXc, -cy2);
     var fill = m === "strip" ? (TALK.capColor === "speaker" ? tintCol(col, .45) : "#ffe45c") : m === "bar" ? tintCol(col, .38) : tintCol(col, -.3), edge = m === "band" ? [[size2 * .2, "#ffffff"]] : [[size2 * .2, "#000000"]];
     lines.forEach(function (l2, i) { capLine(l2, CXc, base + i * lh2, o2, edge, fill, m === "band" ? "#d9343f" : "#ffffff"); });
-    if (TALK.name === true) {   /* 置きっぱなしの字幕でも、話し手の名前の札を帯の上の端に出す（3 人以上は、縁の色だけでは誰のせりふか分からない） */
+    if (TALK.name === true || sp.showName) {   /* 置きっぱなしの字幕でも、話し手の名前の札を帯の上の端に出す（3 人以上は、縁の色だけでは誰のせりふか分からない） */
       var nm3 = sp.name || cur.who, no3 = { size: 28, weight: 800, font: fam }, nw3 = tw(nm3, no3) + 40, ny3 = y0 - 24;
       rr(CXc - nw3 / 2, ny3, nw3, 44, 22); ctx.fillStyle = col; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = "#ffffff"; ctx.stroke();
       txt(nm3, CXc, ny3 + 32, { size: 28, weight: 800, align: "center", color: "#ffffff", font: fam }); }
@@ -2019,12 +2114,12 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       var nth = sideN[side]++, x = (side === "right" ? 1920 - 40 - w / 2 - nth * w * .75 : 40 + w / 2 + nth * w * .75) + (ch.offsetX || 0), by = (ch.baseY || 1080) + (ch.offsetY || 0) - nth * 30;
       if (side === "left") out.left = Math.max(out.left, x + w * .32); else out.right = Math.min(out.right, x - w * .32);
       out.top = Math.min(out.top, by - h - 40); });
-    return out;
+    out.n = sideN; return out;
   }
   function drawCast(tt) {
     var k = sceneAt(tt), S = SCENES[k].s, show = isTalk(S) || S.variant === "credits" || (SPEC.castAlways && S.type !== "end" && FIRST_TALK >= 0 && tt >= FIRST_TALK); if (!show || !CASTIDS.length) return;
     var cur = cueAt(tt), onIds = S.cast || CASTIDS, lt0 = FIRST_TALK >= 0 ? tt - FIRST_TALK : 0, sideN = { left: 0, right: 0 }, capOn = recording ? !recording.clean : captions;
-    if (CAPBAR[TALK.caption] && capOn && !vertOn() && S.type !== "end") capBack();
+    if (CAPBAR[TALK.caption] && capOn && !vertOn() && S.type !== "end" && !S.plain) capBack();   /* plain: 絵だけの場面（ロゴ・アイキャッチ）。置きっぱなしの箱を出さない */
     CPOS = {};
     /* 立つ位置は台本の順で決め、描くのは話している人を最後に（同じ側に 2 人立つとき、話し手が手前の人に隠れない） */
     var NTH = {}, spkId = cur && cur.who && speaking !== undefined ? cur.who : null;
@@ -2033,7 +2128,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       var id = pr[0], i = pr[1];
       var ch = CAST[id]; if (!ch || ch.hidden) return;   /* hidden: 声だけの語り手（立ち絵を出さない） */
       var side = ch.side || (i % 2 ? "right" : "left"), h = ch.height || 520, img0 = pickImg(ch, "normal", 0, false), w = ch.sprite ? h * ch.sprite.w / ch.sprite.h : img0 && img0.naturalWidth ? h * img0.naturalWidth / img0.naturalHeight : h * .62;
-      var nth = NTH[id], x = (side === "right" ? 1920 - 40 - w / 2 - nth * w * .75 : 40 + w / 2 + nth * w * .75) + (ch.offsetX || 0), by = (ch.baseY || 1080) + (ch.offsetY || 0) - nth * 30, speakingNow = cur && cur.who === id;
+      var nth = NTH[id], x = (side === "right" ? 1920 - 40 - w / 2 - nth * w * .75 : 40 + w / 2 + nth * w * .75) + (ch.offsetX || 0), by = (ch.baseY || 1080) + (ch.offsetY || 0) - nth * 30, speakingNow = cur && (cur.who === id || !!(cur.line && cur.line.chorus && cur.line.chorus.indexOf(id) >= 0));   /* chorus: 全員で読むせりふ（話し手は声だけの「全員」。口と弾みは、名前の挙がった全員に付ける） */
       CPOS[id] = { x: x, by: Math.min(by, 1080), w: w, h: Math.min(h, by), side: side === "right" ? "right" : "left" };
       var st = stateOf(id, tt), face = st.face, pose = st.pose, slt = st.t0 === undefined ? 1e9 : tt - st.t0, fbase = String(face).split("#")[0].split("@")[0];
       var ent = ch.cameo ? P(tt - SCENES[k].t0, 150, 750, back) : P(lt0, i * 200, i * 200 + 700, back), dx = (1 - Math.min(1, ent)) * (side === "right" ? 1 : -1) * (w + 80);
@@ -2046,9 +2141,24 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       if (ch.motion === "yukkuri") bob = 0;
       var spk = speakingNow ? 1 + .025 * clamp((tt - cur.a) / 180) : 1;   /* 話している人を、足元を軸に少し大きく */
       ctx.save(); ctx.translate(dx + shake + mo.x, bob + mo.y); if (TALK.dim && !speakingNow && cur && cur.who) ctx.globalAlpha *= .82;
-      var frame = function (f, p2, op, bl) { return ch.sprite ? spriteFrame(id, ch, p2, f, op, bl) : pickImg(ch, f, op, bl); };
+      var nk = neckOf(ch, pose), fx = mo.flip * (ch.flip ? -1 : 1);
+      var hang = !nk ? 0 : (mo.head + (speakingNow ? .03 * Math.sin((tt - cur.a) / 230 + i) * voiceLevel(cur, tt) : 0)) * (fx < 0 ? -1 : 1);   /* 話している間は、声の大きさに合わせて頭が小さく揺れる */
+      if (nk && speakingNow) bob *= .55;   /* 頭が動くぶん、体ごとの弾みは控えめに */
+      /* 動くパーツ（rig）: 腕は、息づかいで小さく揺れ、話す声の大きさと跳ねる動きで外へ開く。後ろ髪は、頭の傾きと逆へ遅れて揺れる。黒目は、聞いている間は画面の内側（相手と絵）を見て、ときどき小さく動く */
+      var rg = null;
+      if (ch.sprite && !(CAST_STILL || SPEC.castMotion === false || ch.motion === false || ch.motion === "none" || TALK.rig === false)) {
+        var RM = rigMotionOf(ch), lv = speakingNow ? voiceLevel(cur, tt) : 0, up = clamp(Math.abs(mo.y) / 40), gw = RM.iris.every, gn = Math.floor((tt + i * 700) / gw), gk = clamp(((tt + i * 700) - gn * gw) / 140);
+        var gr = function (n2, o) { var v = Math.sin(n2 * 12.9898 + i * 78.233 + o) * 43758.5453; return (v - Math.floor(v)) * 2 - 1; };
+        var sx0 = gr(gn - 1, 0) + (gr(gn, 0) - gr(gn - 1, 0)) * gk * gk * (3 - 2 * gk), sy0 = gr(gn - 1, 5) + (gr(gn, 5) - gr(gn - 1, 5)) * gk * gk * (3 - 2 * gk);
+        var listen = cur && cur.who && !speakingNow ? 1 : 0, gxs = (side === "right" ? -1 : 1) * RM.iris.listen * listen + sx0 * (listen ? RM.iris.wanderListen : RM.iris.wander);
+        rg = { t: tt, M: RM, arm: RM.arm.rest + RM.arm.voice * lv + RM.arm.jump * up, breath: RM.arm.breath, hair: -hang * RM.hair.follow, sway: RM.hair.sway + RM.hair.voice * lv + RM.hair.jump * up,
+               ix: clamp(gxs, -1, 1) * (fx < 0 ? -1 : 1), iy: sy0 * RM.iris.up }; }
+      var frame = function (f, p2, op, bl) { return ch.sprite ? spriteFrame(id, ch, p2, f, op, bl, rg) : pickImg(ch, f, op, bl); };
       var put = function (im, al) { if (!(im && (im.getContext || (im.complete && im.naturalWidth)))) return false;
-        ctx.save(); ctx.globalAlpha *= al; ctx.translate(x, by); ctx.rotate(mo.rot); ctx.scale(mo.sx * spk * mo.flip * (ch.flip ? -1 : 1), mo.sy * spk); ctx.drawImage(im, -w / 2, -h, w, h); ctx.restore(); return true; };
+        ctx.save(); ctx.globalAlpha *= al; ctx.translate(x, by); ctx.rotate(mo.rot); ctx.scale(mo.sx * spk * fx, mo.sy * spk);
+        var ip = im.pad || 0, pk = ip ? w / (im.width - ip * 2) : 0;   /* rig の絵は、まわりに余白（pad）が付いている */
+        if (nk && Math.abs(hang) > .0015) drawBent(im, w, h, nk, Math.max(-.16, Math.min(.16, hang))); else ctx.drawImage(im, -w / 2 - ip * pk, -h - ip * pk, w + ip * pk * 2, h + ip * pk);
+        ctx.restore(); return true; };
       if (!put(frame(face, pose, open, blink), 1)) drawDummy(ch, x, by, h, open, blink, fbase);
       else if (st.changed && slt < 110 && st.pface !== undefined) put(frame(st.pface, st.ppose, 0, false), 1 - slt / 110);   /* 前の絵を重ねて消していく（切り替わりをなめらかに） */
       /* 気持ちの印: 話し手のせりふの印と、聞き手の反応の印（1.4 秒） */
@@ -2159,6 +2269,9 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     (sh.items || []).forEach(function (it) { if (it.draw) stageDraw(it, slt, d, vertOn() ? { x: 960 - 500, y: top0, w: 1000, h: AH0 } : { x: dx0, y: top0, w: dx1 - dx0, h: AH0 }); });   /* 縦の画面は、まん中の 1080 だけが映る */
     var items = (sh.items || []).filter(function (it) { return !it.draw; }), cells = items.filter(function (it) { return !it.op; }), nOp = items.length - cells.length;
     var top = 64 + (sh.title ? 96 : 0), AH = 770 - (sh.title ? 96 : 0) - (sh.note ? 92 : 0), CX = 960, gap = 34, opW = 120, AW = TALK.stageWidth || (CASTIDS.length ? 1240 : 1400);   /* 立ち絵があるときは、絵が立ち絵の頭にかからない幅に */
+    /* 立ち絵が左右に 1 人ずつでないとき（1 人・3 人・4 人）: 絵を、立ち絵の間の空いている所のまん中に寄せ、その幅に収める（左右に 1 人ずつなら今までどおり。絵は立ち絵に 44 だけ重なってよい） */
+    if (!vertOn() && !TALK.stageWidth && dsp.n && !(dsp.n.left === 1 && dsp.n.right === 1) && dsp.n.left + dsp.n.right && ST.plate !== "white" && ST.plate !== "dark") { var fl = Math.max(dsp.left, 160), fr = Math.min(dsp.right, 1760);
+      if (fr - fl > 300) { CX = (fl + fr) / 2; AW = Math.min(AW, fr - fl + 88); } }
     if (ST.plate === "white" || ST.plate === "dark") { AW = 1160; top += sh.title ? 10 : 36; AH -= sh.title ? 30 : 56; }
     var CY = top + AH / 2;
     var cw = Math.min(cells.length === 1 ? 1120 : cells.length === 2 ? 600 : 460, (AW - nOp * opW - (items.length - 1) * gap) / Math.max(1, cells.length));

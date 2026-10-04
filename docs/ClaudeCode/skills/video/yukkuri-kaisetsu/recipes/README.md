@@ -118,7 +118,7 @@ python3 parts_export.py chars_src/kitsune/れいむ --recipe recipes/kitsune_yuk
 | `mochiko` | もち子さん | `mochiko.json` | https://vtubermochio.wixsite.com/mochizora/素材配布場所 （Google Drive） | 個人・同人は可、営利・企業は問い合わせ。二次配布は不可 |
 | `aieru` | あいえるたん | `aieru.json` | https://www.infiniteloop.co.jp/special/aieru-tan/ （illust.zip） | 動画・配信は収益化も可、改変可。公式素材の販売は不可 |
 
-`aieru` の PSD は 7500×10000 で、書き出しに 8GB ほどのメモリと 1 分ほどかかる。
+`aieru` の PSD は 7500×10000 で、書き出しに 10GB ほどのメモリと 40 分ほどかかる（2026-10-04 に psd-tools 1.23 で測った。ほとんどは体の絵とパーツの書き出しで、rig の分は十数秒）。
 
 ## moiky さん（パーツのフォルダ。パスワードなし）
 
@@ -190,3 +190,45 @@ python3 parts_export.py chars_src/kitsune/れいむ --recipe recipes/kitsune_yuk
 
 ぞん子（商用は問い合わせ）、ユーレイちゃん（非商用）、Voidoll（個人のみ）、中部つるぎ（原則非営利）、青山龍星（企業・個人事業主は事前申請）、
 小夜/SAYO（非営利か実費回収まで）、霊夢・魔理沙（商用禁止）。ここに無い話者も、公開の前に `policy.txt` の規約の URL を開いて確かめる。
+
+## 動くパーツ（rig）— 腕・後ろ髪・黒目を動かす
+
+レシピに `rig` を書くと、`psd_export.py` が、体の絵とは別に腕・髪・黒目のパーツを書き出して `sprite.json` に足す（仕組みは `sprite.py` の rig）。
+PSD のレイヤーを 1 枚ずつ重ねて作るので、描画モード・マスクを使っている PSD では作らない（warn が出る）。長い辺が 4000 を超える PSD（`aieru`）は、レイヤーを整数分の 1 に縮めてから重ねる（書き出す大きさの 3 倍より小さくはしない）。書き出しのたびに、動かさないときの絵が今までの絵と同じかを確かめ、違うポーズは rig にしない。
+
+```json
+"rig": {
+  "parts": [
+    {"layer": "ツインドリル右", "kind": "hair", "pivot": [400, 260], "max": 4},
+    {"layer": "*白ロリ服/!右腕", "kind": "arm", "side": "left", "pivot": [450, 520], "max": 7, "limit": {"マイク": 2, "口元に指": 1}, "still": ["腕組み"]}
+  ],
+  "iris": {"layer": "!目/*目セット/!黒目", "white": ["!目/*目セット/*普通白目", "!目/*目セット/*見開き白目"], "max": 6}
+}
+```
+
+- `layer`: 動かすレイヤー（組なら中の全部）。`pivot`: 回す軸（PSD の座標。腕は肩、髪は根元）。`max`: 回す角度の上限（度）。
+- `kind`: `arm`（`side` は画面の左右。外へ開く向きが決まる）か `hair`（後ろ髪・サイドの房・しっぽ・耳など、揺らすもの）。
+- `limit`: その言葉を含むレイヤーのときだけ、上限を小さくする（手が口元・腰にあるポーズ）。`still`: その言葉を含むレイヤーは動かさない。
+- `iris`: 黒目のレイヤーと、白目のレイヤー（黒目は白目の形の中だけに描く）。`max` はずらす量の上限（PSD の px）。黒目が別のレイヤーになっている素材だけ。
+- 軸の位置は、書き出したあとに、いちばん大きく回した絵を並べて確かめる（`sprite.compose_rig(sp, フォルダ, ポーズ, angles={層の番号: 度})`）。肩・髪の根元にすき間が出ないこと、腕の下の体が欠けていないことを見る。
+- `pivot`・`side`・`limit` を省くと、絵とレイヤーの名前から決める: 腕の軸は首にいちばん近い端（肩）、髪の軸は頭の中心、上限は「腰・口・胸・持つ…」が 1.5°、「指さす・挙げる…」が 4°、ほかは 7°（`sprite.py` の `LIMITS`）。
+
+### パーツのフォルダの素材（moiky さんの YMM4 用 など）
+
+この形では腕が体の絵に描き込まれているので、同じ素材の PSD を `--rig` に渡す。体の絵がどのレイヤーを重ねたものかを割り出し（`sprite.match_layers`）、「腕」と付く組と後ろ髪のレイヤーを動くパーツにする。
+顔（体より上のフォルダ）は今までどおりフォルダの絵を使う。割り出せないポーズ・重ね直すと絵が変わるポーズは、rig にしない（体の絵 1 枚のまま。理由は書き出しのときに出る）。
+
+```bash
+python3 parts_export.py chars_src/nana/…/YMM4用 --recipe recipes/nana.json --out chars/nana --rig chars_src/nana/…/春歌ナナ.psd
+```
+
+レシピの `rig: {"arm": 正規表現, "hair": 正規表現, "skip": [ポーズ]}` で、腕・後ろ髪にするレイヤーの名前と、rig にしないポーズを変えられる。
+
+### いまの状態（2026-10-04）
+
+- **全部のポーズ（24 人）**: `akashi` `ankomon` `bii` `hau` `himari` `itako` `kiritan` `metan` `miko` `mitama` `mochiko` `nana` `nurse` `rito` `saehaku` `sora` `tobari` `tsumugi` `usagi` `whitecul` `yuka` `zonko` `zundamon` `zunko`。
+- **一部のポーズ（16 人。かっこは 動くポーズ／全部）**: `aieru(8/9)` `chibijii(3/4)` `goki(5/7)` `hanamaru(2/4)` `kotaro(1/5)` `maron(4/5)` `mesuo(4/6)` `mesuo_human(4/6)` `nia(6/7)` `ritsu(6/7)` `ryusei(2/6)` `sayo(4/5)` `takehiro(1/5)` `tsurugi(1/2)` `voidoll(3/4)` `yurei(2/6)`。`aieru` の動かないポーズは、左右の腕が 1 つの組になっている腕組み（`fold`）。ほかの動かないポーズは、体の絵に割り出せないレイヤーがあり、それが腕にかかっている（持ち物・重ねた手など）か、腕が体と 1 枚で描かれている。
+- **黒目も動く（6 人）**: `metan` `tsumugi` `hau` `usagi` `whitecul` `ankomon`（黒目が別のレイヤーの素材だけ）。
+- **無い（13 人）**: `aru` `benizakura` `kotaro_sd` `marisa` `marisa_kai` `mesuo_sd` `no7` `reimu` `reimu_kai` `ritsu_sd` `ryusei_sd` `sourin` `takehiro_sd`。`aru` は体の絵の割り出せない所が腕にかかる。`benizakura`・`sourin` は顔と腕が体の絵と 1 枚。`no7` は腕が素体の差分に描き込まれている。公式 SD の 5 人は腕が体と一体。`reimu`・`marisa`（改も）は頭だけ。
+- 軸と上限を手で決めたのは `metan` `zunko` `tsumugi` `zundamon` `mochiko`。ほかは自動。全員を `rig: probe`・`probe2`（腕・髪を上限まで動かし、首をかしげる）で撮って、いつもの姿（無ければ最初のポーズ）に離れて見える所が無いことを見てある。
+- 体の絵と割り出したレイヤーが少し違うとき（半透明の影など）は、違う所を「補正」の層にして上に重ねる（動くパーツにかからないときだけ）。

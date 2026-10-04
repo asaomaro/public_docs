@@ -141,6 +141,129 @@ class Icons(unittest.TestCase):
         self.assertEqual(sorted(icons.used_in(big)), sorted([name, other]))
 
 
+class Openings(unittest.TestCase):
+    """見本の部品（parts/opening.txt・eyecatch.txt）と、絵だけの部品のための書き方（@se:・draw の "文字"）。"""
+    NAMES = ("opening", "eyecatch")
+
+    def spec(self, name, how="opening"):
+        d = fakes.tmpdir()
+        path = os.path.join(d, "s.txt")
+        body = "# 本題\nzundamon: はじめるのだ。\n" + ("@insert: %s\n" % name if how == "insert" else "") + "metan: つづきよ。\n"
+        open(path, "w", encoding="utf-8").write("---\ntitle: 題\nchannel: そら/チャンネル\ncast: metan, zundamon\nroles: metan=解説, zundamon=聞き手\n"
+                                                + ("opening: %s\n" % name if how == "opening" else "") + "---\n" + body)
+        with fakes.fake_voicevox(alive=True), fakes.quiet():
+            return kaisetsu.load_spec(path)[1]
+
+    def test_every_sample_builds_and_shows_the_channel(self):
+        for name in self.NAMES:
+            spec = self.spec(name, "insert" if name == "eyecatch" else "opening")
+            scenes = spec["chapters"][0]["scenes"]
+            part = scenes[0] if name != "eyecatch" else scenes[1]
+            text = json.dumps(part, ensure_ascii=False)
+            self.assertTrue("そら/チャンネル" in text or "そらチャンネル" in text or "題" in text, name)   # 名前か題が入る
+            self.assertNotIn("{channel", text, name)
+
+    def test_silent_logo_has_a_jingle_and_a_length(self):
+        logo = self.spec("eyecatch", "insert")["chapters"][0]["scenes"][1]
+        self.assertEqual([(e["name"], e["ms"]) for e in logo["sfx"]], [("bling", 60)])   # せりふが無くても音が鳴る（@se:）
+        self.assertEqual((logo["lines"], logo["duration"]), ([], 1.6))
+        item = logo["board"]["shots"][0]["items"][0]
+        self.assertEqual(item["label"], "そら/チャンネル")     # 名前が描き下ろしの JS に渡る（s.label）
+        self.assertIn("s.label", item["draw"])
+
+    def test_part_can_hide_the_cast_and_use_a_guest_voice(self):
+        """アイキャッチ: 部品の間だけ立ち絵を消す（cast: hide）・次の場面へ効果なしでつなぐ（out: cut）・cast に居ない人の声で読む。
+        前は、台本に cameo: 全員・narrator: 読む人・@transition: cut を書き足す必要があり、読む人が本編に出られなかった。"""
+        d = fakes.tmpdir()
+        os.makedirs(os.path.join(d, "parts"))
+        open(os.path.join(d, "parts", "ec.txt"), "w", encoding="utf-8").write('---\nseconds: 1\ncast: hide\nout: cut\n---\n@show: "ロゴ"\ntsumugi: チャンネルの名前\n')
+        path = os.path.join(d, "s.txt")
+
+        def scenes(cast):
+            open(path, "w", encoding="utf-8").write("---\ntitle: 題\ncast: %s\nroles: metan=解説, zundamon=聞き手\n---\n# 一\n@show: \"語\"\nzundamon: はじめるのだ。\n@insert: ec\n@show: \"語 2\"\nmetan: つづきよ。\n" % cast)
+            with fakes.fake_voicevox(alive=True), fakes.quiet():
+                _, spec, people, _, _ = kaisetsu.load_spec(path)
+            return spec["chapters"][0]["scenes"], people
+        sc, people = scenes("metan, zundamon")
+        self.assertEqual([s.get("cast") for s in sc], [None, [], None])          # 部品の場面だけ、だれも立たない
+        self.assertEqual(sc[2].get("transition"), "cut")                         # 次の場面へは、効果なしで
+        self.assertTrue(people["tsumugi"].get("hidden"))                         # cast に居ない人は、声だけの出演
+        self.assertEqual(sc[1]["lines"][0]["who"], "tsumugi")
+        sc, people = scenes("metan, zundamon, tsumugi")
+        self.assertFalse(people["tsumugi"].get("hidden"))                        # cast に居る人が読んでも、本編では立ち絵が出る
+        self.assertEqual([s.get("cast") for s in sc], [None, [], None])
+
+    def test_unknown_speaker_in_the_script_is_still_an_error(self):
+        d = fakes.tmpdir()
+        path = os.path.join(d, "s.txt")
+        open(path, "w", encoding="utf-8").write("---\ntitle: 題\ncast: metan, zundamon\n---\n# 一\ntsumugi: だれなのだ。\n")
+        with self.assertRaises(SystemExit), fakes.quiet():
+            kaisetsu.load_spec(path)   # 本編の打ち間違いは、今までどおり止める（声だけの出演になるのは、部品の中だけ）
+
+    def test_se_directive(self):
+        _, chapters, errs = kaisetsu.parse(HEAD + "# 本題\n@se: tada 0.4\n@show: \"語\"\nmetan: はい。\n@se: bling\n@show: \"語 2\"\nmetan: つぎ。\n")
+        self.assertEqual(errs, [])
+        sc = chapters[0]["scenes"]
+        self.assertEqual([(e["name"], e["ms"]) for e in sc[0]["sfx"]], [("tada", 460)])
+        self.assertEqual(kaisetsu.parse(HEAD + "# 本題\n@se: !!\nmetan: はい。\n")[2] != [], True)
+
+
+class Chorus(unittest.TestCase):
+    """「全員: せりふ」— 全員が声をそろえて読む。"""
+
+    def build(self, cast="metan, zundamon"):
+        d = fakes.tmpdir()
+        path = os.path.join(d, "s.txt")
+        open(path, "w", encoding="utf-8").write("---\ntitle: 題\ncast: %s\nroles: metan=解説, zundamon=聞き手\n---\n# まとめ\nmetan: おわりよ。\n全員(smile+, jump): ありがとうございました！ [♪]\n" % cast)
+        return path
+
+    def test_everyone_speaks_and_acts(self):
+        path = self.build()
+        with fakes.fake_voicevox(alive=True), fakes.quiet():
+            _, spec, people, _, _ = kaisetsu.load_spec(path)
+        ln = spec["chapters"][0]["scenes"][0]["lines"][1]
+        self.assertEqual((ln["who"], ln["chorus"]), ("_all", ["metan", "zundamon"]))
+        self.assertEqual(sorted((r["who"], r.get("motion"), r["at"]) for r in ln["react"]), [("metan", "jump", 0.0), ("zundamon", "jump", 0.0)])   # 全員に同じ演技
+        self.assertTrue(people["_all"]["hidden"] and people["_all"]["name"] == "全員")
+
+    def test_voices_are_mixed_into_one(self):
+        import wave
+        path = self.build()
+        import glob
+        with fakes.fake_voicevox(alive=True), fakes.quiet():
+            kaisetsu.make_spec(path, voicevox=True)
+        mixed = glob.glob(os.path.join(os.path.dirname(path), "s_voices", "chorus-*.wav"))
+        self.assertEqual(len(mixed), 1)   # 1 人ずつ作った声を、1 つに重ねる
+        with wave.open(mixed[0]) as w:
+            self.assertGreater(w.getnframes(), 0)
+
+    def test_one_and_four_members(self):
+        """1 人でも 4 人でも「全員」が使える（1 人ならその人だけ、4 人なら 4 人の声を重ねる）。"""
+        for cast, n in (("metan", 1), ("metan, zundamon, tsumugi, zunko", 4)):
+            with fakes.fake_voicevox(alive=True), fakes.quiet():
+                _, spec, people, _, _ = kaisetsu.load_spec(self.build(cast))
+            ln = spec["chapters"][0]["scenes"][0]["lines"][1]
+            self.assertEqual(len(ln["chorus"]), n)
+            self.assertEqual(len({c["side"] for k, c in people.items() if k != "_all"}), min(n, 2))   # 2 人以上なら左右に分かれる
+
+    def test_no_speaker_names_in_captions(self):
+        """字幕に話し手の名前を出さない（全員のせりふにも出さない）。subtitle_name: on を書いたときだけ出す。"""
+        with fakes.fake_voicevox(alive=True), fakes.quiet():
+            _, spec, people, _, _ = kaisetsu.load_spec(self.build("metan, zundamon, tsumugi"))
+        self.assertIs(spec["talk"]["name"], False)
+        self.assertFalse([k for k, c in people.items() if c.get("showName")])
+        path = self.build()
+        text = open(path, encoding="utf-8").read().replace("title: 題", "title: 題\nsubtitle_name: on")
+        open(path, "w", encoding="utf-8").write(text)
+        with fakes.fake_voicevox(alive=True), fakes.quiet():
+            _, spec, _, _, _ = kaisetsu.load_spec(path)
+        self.assertIs(spec["talk"]["name"], True)
+
+    def test_checker_accepts_it(self):
+        msgs, _ = check("# まとめ\nmetan: おわりよ。\n全員(smile): ありがとうございました！\n")
+        self.assertFalse([m for m in msgs if "cast に無い" in m or "当てられません" in m], msgs)
+
+
 class Images(unittest.TestCase):
     def test_author_is_a_name_not_boilerplate(self):
         for raw, want in (("No machine-readable author provided. N yotarou assumed (based on copyright claims).", "N yotarou"),

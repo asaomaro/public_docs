@@ -288,5 +288,17 @@
     "controller": [
       "!右腕/*コントローラー"
     ]
+  },
+  "rig": {
+    "parts": [
+      {
+        "layer": "!右腕",
+        "kind": "arm"
+      },
+      {
+        "layer": "!左腕",
+        "kind": "arm"
+      }
+    ]
   }
 }
