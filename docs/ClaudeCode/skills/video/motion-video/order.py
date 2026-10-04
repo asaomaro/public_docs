@@ -359,7 +359,7 @@ def main():
         sys.exit(r.returncode)
     ans = res["answers"]
     sk, bd = skeleton(ans)
-    out = {"answers": ans, "note": res.get("note", ""), "custom": res.get("custom", []), "spec": sk, "build": bd, "warnings": warnings(ans)}
+    out = {"answers": ans, "note": res.get("note", ""), "custom": res.get("custom", []), "comments": res.get("comments", {}), "spec": sk, "build": bd, "warnings": warnings(ans)}
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
     json.dump(out, open(a.out, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     print(json.dumps(out, ensure_ascii=False))

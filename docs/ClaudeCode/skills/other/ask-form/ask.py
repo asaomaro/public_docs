@@ -200,6 +200,11 @@ def normalize(spec, base_dir="."):
     if isinstance(spec.get("note"), str):       # 補足の欄の入力例
         spec["notePlaceholder"] = spec["note"]
     spec["note"] = spec.get("note") is not False
+    if spec.get("comments") is not False:       # 質問ごとの自由記述（既定で付く）。付けないときだけ false を残す
+        spec.pop("comments", None)
+    for q in spec["questions"]:
+        if q.get("comment") is not False:
+            q.pop("comment", None)
     views = normalize_view(spec, base_dir)
     for i, q in enumerate(spec["questions"]):
         for dep in (q.get("showIf") or {}):

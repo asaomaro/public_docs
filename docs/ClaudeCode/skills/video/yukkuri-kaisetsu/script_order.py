@@ -333,7 +333,7 @@ def main():
         print(json.dumps(res, ensure_ascii=False))
         sys.exit(r.returncode)
     ans = res["answers"]
-    out = {"answers": ans, "note": res.get("note", ""), "custom": res.get("custom", []), "header": header(ans), "warnings": warnings(ans)}
+    out = {"answers": ans, "note": res.get("note", ""), "custom": res.get("custom", []), "comments": res.get("comments", {}), "header": header(ans), "warnings": warnings(ans)}
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
     json.dump(out, open(a.out, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     print(json.dumps(out, ensure_ascii=False))

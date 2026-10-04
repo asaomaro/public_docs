@@ -1097,6 +1097,109 @@
     "ok": false,
     "reason": "page_invalid"
    }
+  },
+  {
+   "name": "自由記述: 付けないとき（comments・comment が false）だけ残す。既定（付ける）は書かない",
+   "spec": {
+    "comments": false,
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "comment": false,
+      "options": [
+       "x"
+      ]
+     },
+     {
+      "id": "b",
+      "label": "B",
+      "comment": true,
+      "options": [
+       "x"
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "ok": true,
+    "spec": {
+     "title": "質問",
+     "submit": "決定",
+     "note": true,
+     "comments": false,
+     "questions": [
+      {
+       "allowOther": false,
+       "required": false,
+       "multiline": false,
+       "id": "a",
+       "label": "A",
+       "type": "single",
+       "options": [
+        {
+         "value": "x",
+         "label": "x"
+        }
+       ],
+       "comment": false
+      },
+      {
+       "allowOther": false,
+       "required": false,
+       "multiline": false,
+       "id": "b",
+       "label": "B",
+       "type": "single",
+       "options": [
+        {
+         "value": "x",
+         "label": "x"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "自由記述: comments が true なら書かない（既定と同じ）",
+   "spec": {
+    "comments": true,
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "options": [
+       "x"
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "ok": true,
+    "spec": {
+     "title": "質問",
+     "submit": "決定",
+     "note": true,
+     "questions": [
+      {
+       "allowOther": false,
+       "required": false,
+       "multiline": false,
+       "id": "a",
+       "label": "A",
+       "type": "single",
+       "options": [
+        {
+         "value": "x",
+         "label": "x"
+        }
+       ]
+      }
+     ]
+    }
+   }
   }
  ]
 }

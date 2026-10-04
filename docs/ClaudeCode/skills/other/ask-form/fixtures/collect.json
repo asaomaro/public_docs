@@ -892,6 +892,82 @@
     },
     "lacking": []
    }
+  },
+  {
+   "name": "質問ごとの自由記述: 書いた質問だけ comments に入る（隠れている質問・空白だけは入らない）",
+   "spec": {
+    "questions": [
+     {
+      "id": "a",
+      "label": "A",
+      "options": [
+       "x",
+       "y"
+      ]
+     },
+     {
+      "id": "b",
+      "label": "B",
+      "type": "multi",
+      "options": [
+       "p",
+       "q"
+      ]
+     },
+     {
+      "id": "c",
+      "label": "C",
+      "showIf": {
+       "a": "y"
+      },
+      "options": [
+       "s"
+      ]
+     },
+     {
+      "id": "d",
+      "label": "D",
+      "options": [
+       "m"
+      ]
+     }
+    ]
+   },
+   "state": {
+    "picked": {
+     "a": [
+      "x"
+     ],
+     "b": [
+      "q"
+     ],
+     "d": [
+      "m"
+     ]
+    },
+    "otherPicked": {},
+    "otherText": {},
+    "text": {},
+    "note": "",
+    "comments": {
+     "a": " 金曜は避けたい ",
+     "c": "隠れた質問",
+     "d": "   "
+    }
+   },
+   "expect": {
+    "answers": {
+     "a": "x",
+     "b": [
+      "q"
+     ],
+     "d": "m"
+    },
+    "comments": {
+     "a": "金曜は避けたい"
+    },
+    "lacking": []
+   }
   }
  ]
 }
