@@ -1,6 +1,6 @@
 # 動画のスキルの回帰テスト
 
-motion-video・yukkuri-kaisetsu（台本の検査と yukkuri-qa を含む）・video-export と、別のまとまり（`../other/`）の fact-check の、**実際に起きた不具合が戻っていないか**を確かめる。
+motion-video・video-export と、別のまとまり（`../other/`）の fact-check の、**実際に起きた不具合が戻っていないか**を確かめる。
 
 ```bash
 cd docs/ClaudeCode/skills/video
@@ -13,7 +13,9 @@ python3 -W ignore::ResourceWarning -m unittest discover -s tests -t tests -k Eng
   楽器の録音の音は取りに行かない（合成の音で鳴らす）。
 - `test_engine.py` は、画面なしの Chrome を DevTools Protocol（パイプ）で動かす。Chrome が無ければ飛ばす。
   仮想時間（`--virtual-time-budget`）は使わない（長い音の書き出しが終わる前に打ち切られる）。
-- `engine.js`・`build.py`・`shoot.py`・`kaisetsu.py` などを変えたら、PR の前に回す。GitHub Actions（`.github/workflows/video-skills.yml`）でも PR ごとに回る。
+- `engine.js`・`build.py`・`shoot.py` などを変えたら、PR の前に回す。GitHub Actions（`.github/workflows/video-skills.yml`）でも PR ごとに回る。
+- **yukkuri-kaisetsu・yukkuri-qa・yukkuri-publish・youtube-upload のテストは、非公開のリポジトリ `yukkuri-work`（`skills/video/tests/`）へ移した**（2026-10-04）。
+  motion-video を変えたら、あちらのテストも回す（motion-video の変更で yukkuri の動画が壊れることが、実際に何度も起きた）。
 
 ## 何を確かめているか
 
@@ -22,12 +24,8 @@ python3 -W ignore::ResourceWarning -m unittest discover -s tests -t tests -k Eng
 | `test_speech.py` | 声に渡す文の空白（英字・数字の前後で一呼吸おいた）・読みの置き換えの順・読み違えやすい書き方・1 文の声の中の字幕の切り替え時刻 |
 | `test_motion_voices.py` | 1 文ずつの声（文の途中で語尾が下がって切れた）・文の中の字幕の時刻・声の付け忘れ（声の無い HTML で上書きした）・HTML の中の声の数・書き出しの声 |
 | `test_motion_build.py` | 同梱の見本がすべて HTML になる・アイコン集（`icons.py`）と md-to-doc の写しが同じ中身・同じ曲のファイルは 1 回だけ入る・場面の曲・指示のフォームの定義と骨組み |
-| `test_checks.py` | motion-video の check.py（項目と字幕の数のずれ・読み・声の無い HTML・同じ部品の連続）・台本の検査（絵の使い回し・同じ構図の連続・章 1 つが型の目安より短い・語の途中の「めたん」を呼び捨てと数えない）・出典の URL のかっこ・`claims.py verify` が全部の「原文:」を照らし、照らさなかった数と理由を出す（小見出しごとに 1 個しか見ずに OK と出た） |
-| `test_yukkuri.py` | 声の付け忘れ・声に渡す文の空白・話す速さ・場面の `@music`（効かなかった）・yukkuri-qa が HTML そのものの声を数える・指示のフォームが立ち絵と曲の無い環境でも出せる（選択肢が 0 件になって止まった）・題の項目の数と長さが合わなければ作る前に知らせる（10 選を 5 分で作り、1 か所 25 秒になった）・長さのおまかせ・ショート（`format: short`）が engine と HTML へ渡る・締めの画面（本編と同じ作り・6 秒・曲が続く・暗転）・声と BGM の大きさをそろえる・列挙の型の右上の札の番号（茶番・オープニングを数えない。`@corner:` が空なら出さない）・吹き出しの位置の書き方・PNG の写真を写真とみる・黒板の箇条書きの字の大きさ・`qa.py` を回し直しても採点が残る・`fetch_images.py`（削除済みの画像・題・記号だけの作者名）・ask-form が無いときの指示のフォーム（`unavailable`・終了コード 3 で返す。motion-video の `order.py` も）・motion-video の背景を `@bg:` に書ける（`dim=`・`speed=`・`mv:`）・部品の差し込み（`opening:`・`@insert:`。章を増やさない・話し手の当て方・背景と曲が元に戻る・見本の部品が動画になる） |
+| `test_checks.py` | motion-video の check.py（項目と字幕の数のずれ・読み・声の無い HTML・同じ部品の連続）・出典の URL のかっこ・`claims.py verify` が全部の「原文:」を照らし、照らさなかった数と理由を出す（小見出しごとに 1 個しか見ずに OK と出た） |
 | `test_backgrounds.py` | motion-video の背景: 一覧と実物（SVG のファイル・動く背景の描画部）がずれていない・`bg_make.py` を回し直しても同じファイルになる・台本／章／場面の `bg` が HTML に入る（同じ SVG は 1 回だけ）・無い名前は作る前に止まる・動く背景は周期の終わりと始まりがつながる・SVG の背景が配色の色に置き換わる |
-| `test_youtube_upload.py` | youtube-upload を偽の Google のサーバーで: `--yes` が無ければ何も送らない・公開（public）は受け付けない・限定公開で全部のバイトが届く・途中で切れたら届いた所から続ける・切れ続けたら止まる・同じファイルを 2 回上げない・YouTube が非公開に固定したら知らせる・サムネイルだけ失敗しても動画は残る・台本の隣の題／概要欄／サムネイル／字幕を拾う（字幕は権限があるときだけ）・認可（ループバックと PKCE・state の違う応答を捨てる・トークンのファイルは本人だけが読める）・**トークンとクライアントの秘密を画面に出さない**（全部のテストで見る）。録画（`Record`。Chrome が要る）: 1 コマずつの書き出しでコマが 1 つも抜けない・長さが台本どおり・音が入る／前の方式（再生しながら録る）で解像度・形式を選べる・保存先の別のファイルを取り違えない。`WebM`: 映像と音を 1 つにまとめたファイルの形（全体の大きさ・索引がかたまりの頭を指す・一時ファイルを残さない） |
-| `test_publish.py` | yukkuri-publish の概要欄が YouTube の上限（5000 バイト）に収まる（写真 47 枚の動画で 12,063 バイトになり、送れなかった）・少なければクレジットは全文のまま・まとめたときは全文を別に出す |
-| `test_worker_reports.py` | 作業役が 10 選の動画を作る中で見つけた不具合: せりふの行末の `// 注記` が字幕と声に入らない・事実の ID が `[F数字]` でなくても数える・ファクトチェックで直した主張（`- 反映:`）を「直す所」から外す・読み違えやすい書き方（カタカナ＋湖・柵）・fontTools が無ければ書体をまるごと埋め込む（OS の書体にしない）・出典の URL の中のかっこを切らない・Commons の作者欄から名前だけを取る・カテゴリからの写真探しと取る幅の既定・使っていない事実の出典を概要欄から外す（`## 出典` が何か所あっても読む）・吹き出しを後のせりふで出す書き方（`@2`）・採点用の画面に演技の大きい瞬間を入れる・機械からの取得を断るページの案内（確かめ全体を止めない）・アイコン探しが埋め込みのデータを読み飛ばす |
 | `test_docs.py` | motion-video の説明書: SKILL.md が手順だけに短く保たれている（150 行まで）・`reference/` の資料と SKILL.md が互いを指している・書いたファイル名が実在する |
 | `test_engine.py` | 文の中の字幕が前の声の続きになる・字幕がカタカナ語・英単語の途中で折れない（「フレームワー／ク」）・書き出しにファイルの BGM が入る（fetch を使っていて無音だった）・場面ごとの曲の区切り・ショート（縦の画面）で舞台が 9:16 になり下の帯まで描かれる・切り替えの音の音量とクレジットへの無音の切り替え・効果音の大きさがそろっている・3 人の台本で描き下ろしの箱と写真の名札が立ち絵に隠れない・写真の吹き出しの `/` の改行と位置・箇条書きの `zoom`・画面の撮影（`shoot.py`）が白い画面を中身で見分けて撮り直す（Chrome の要らない分は `Shoot`）・置きっぱなしの字幕の箱と帯が描かれる（後ろをぼかす関数の定義が別の関数の中に入り、箱・帯が出なかった） |
 

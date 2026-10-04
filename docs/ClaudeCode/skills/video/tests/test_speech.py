@@ -1,9 +1,8 @@
-"""声に渡す文・読みの指摘・文の中の字幕の切り替え時刻（motion-video の build.py と yukkuri-kaisetsu の kaisetsu.py）。"""
+"""声に渡す文・読みの指摘・文の中の字幕の切り替え時刻（motion-video の build.py。yukkuri-kaisetsu の分は、yukkuri-work のリポジトリの同じ名前のテスト）。"""
 import unittest
 
 import fakes  # noqa: F401  パスを通す
 import build
-import kaisetsu
 
 PRON = {"pane": "ペイン", "React": "リアクト", "sodactl": "ソーダコントロール", "soda": "ソーダ"}
 
@@ -24,14 +23,9 @@ class Spacing(unittest.TestCase):
         for src, want in self.CASES:
             self.assertEqual(build.spoken(src, PRON), want, src)
 
-    def test_yukkuri(self):
-        for src, want in self.CASES:
-            self.assertEqual(kaisetsu.speakable(src, PRON), want, src)
-
     def test_longest_word_first(self):
         # sodactl を soda より先に置き換える（「ソーダctl」にしない）
         self.assertEqual(build.spoken("sodactl と soda", PRON), "ソーダコントロールとソーダ")
-        self.assertEqual(kaisetsu.speakable("sodactl と soda", PRON), "ソーダコントロールとソーダ")
 
     def test_strip_emphasis(self):
         self.assertEqual(build.spoken("**大事** な所", {}), "大事な所")

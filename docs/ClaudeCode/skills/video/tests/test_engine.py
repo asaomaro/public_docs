@@ -314,6 +314,20 @@ class Engine(unittest.TestCase):
         self.assertLessEqual(box["x"] + box["w"], 1560)
         self.assertGreater(box["w"], 900, "寄せすぎ")
 
+    def stage_text_x(self, cast):
+        got = self.texts(self.stage_spec([{"text": "言葉"}], cast=cast, talk={"stage": {}}))
+        t = [x for x in got if x["s"] == "言葉"]
+        self.assertTrue(t, [x["s"] for x in got])
+        return t[-1]["x"]
+
+    def test_stage_centres_between_the_cast(self):
+        """1 人・4 人の台本: 絵で見せる画面の並びを、立ち絵の間の空いている所のまん中に寄せる（前はいつも画面のまん中で、4 人だと絵が内側の 2 人の後ろに隠れた）。左右に 1 人ずつなら、今までどおり画面のまん中。"""
+        A, B = {"name": "A", "color": "#e0457b", "side": "left"}, {"name": "B", "color": "#3a7be0", "side": "right"}
+        base = self.stage_text_x({"a": A, "b": B})   # 字の左端の位置。左右に 1 人ずつのときを基準にして比べる
+        self.assertGreater(self.stage_text_x({"a": A}), base + 50)                       # 左に 1 人: 空いている右へ寄る
+        self.assertAlmostEqual(self.stage_text_x({"a": A, "b": dict(A), "c": B, "d": dict(B)}), base, delta=3)   # 2 人ずつ: まん中のまま（幅だけせばまる）
+        self.assertGreater(self.stage_text_x(self.THREE), base + 40)                     # 左に 2 人・右に 1 人: 右へ寄る
+
     def test_full_photo_label_above_cast(self):
         """縦長・正方形の写真を画面いっぱいに出すと、名札が写真の左下に出て、左の立ち絵に隠れた。立ち絵の頭より上に出す。"""
         got = self.texts(self.stage_spec([{"img": "p", "frame": True, "label": "正方形の写真"}]))
