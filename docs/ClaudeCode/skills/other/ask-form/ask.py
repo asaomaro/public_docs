@@ -24,9 +24,10 @@ Python3 の標準ライブラリだけで動く。ウィンドウは Chromium �
 
 Sodashitsu（soda）の pane の中で動いているとき（SODA_PANE_ID があり sodactl が PATH にある）は、
 ウィンドウを開く前に sodactl ask へ渡し、その pane を見ているブラウザの画面にフォームを出す
-（ブラウザが別のマシンでも届く。ASK_FORM=off でも行う）。出せないとき——つながっているブラウザが無い・
-sodactl ask が対応していない型（edit・rank・table）や画像・音・コードのプレビューがある——は、
-今までどおりこのマシンのウィンドウへ進む。
+（ブラウザが別のマシンでも届く。ASK_FORM=off でも行う）。画像・音・コード・成果物（view）・edit・rank・table を
+使う定義は、sodactl ask --features で、sodactl とサーバがそれを出せると確かめてから渡す。出せないとき——
+つながっているブラウザが無い・古い sodactl／soda・機能が足りない——は、今までどおりこのマシンのウィンドウへ進む。
+上限（ファイルの大きさ・個数）の超過と、sodactl が定義の誤りとした（終了コード 2）ときは、窓へ落とさず終了コード 1 で理由を出す。
   ASK_FORM_AWAY_SECONDS=秒  --away-after の既定（300）
   ASK_FORM_REACT_SECONDS=秒 --react-within の既定（90）
 """
@@ -571,34 +572,146 @@ def make_handler(state, token, page, files=(), views=(), vtoken=None):
 
 
 # ── Sodashitsu の pane の中なら、その pane を見ているブラウザの画面に出す ─────
-SODA_TYPES = ("single", "multi", "text")   # sodactl ask が対応する型
+SODA_FEATURES_TIMEOUT = 5   # sodactl ask --features を待つ秒数（ここで待たせすぎない）
 
 
-def ask_via_soda(spec, timeout, raw=None):
+class SodaRefused(Exception):
+    """sodactl ask に渡せない定義（上限超過・sodactl が定義の誤りとした）。窓へ落とさず、終了コード 1 で理由を出す。"""
+
+
+def soda_features(sodactl):
+    """sodactl ask --features の結果（辞書）。古い sodactl（終了コード 2）・サーバが無い（server が null）・読めないときは None。"""
+    try:
+        p = subprocess.run([sodactl, "ask", "--features"], capture_output=True, text=True, encoding="utf-8",
+                           timeout=SODA_FEATURES_TIMEOUT, stdin=subprocess.DEVNULL)
+        info = json.loads(p.stdout.strip().splitlines()[-1]) if p.returncode == 0 else None
+    except (OSError, ValueError, IndexError, subprocess.TimeoutExpired):
+        return None
+    if not isinstance(info, dict) or not isinstance(info.get("server"), dict):
+        return None
+    return info
+
+
+def soda_required(raw):
+    """書かれたままの定義が使う、sodactl・サーバの機能（types:*・media・remote-image・view）。"""
+    need = set()
+    if raw.get("view") is not None:
+        need.add("view")
+    for q in raw.get("questions") or []:
+        if not isinstance(q, dict):
+            continue
+        if q.get("type") in ("edit", "rank", "table"):
+            need.add("types:%s" % q["type"])
+        if q.get("preview") is not None or q.get("thumb") is not None:
+            need.add("media")
+        for o in q.get("options") or []:
+            if not isinstance(o, dict):
+                continue
+            if any(o.get(k) is not None for k in ("image", "audio", "code", "lang", "group")):
+                need.add("media")
+            if isinstance(o.get("image"), str) and o["image"].lower().startswith("https://"):
+                need.add("remote-image")
+    return need
+
+
+def soda_absolutize(raw, base_dir):
+    """image・audio・view.file の相対パス・~/ を base_dir から解いた絶対パスにした写しと、ローカルのファイルの一覧
+    [(パス, 文字の成果物か)] を返す（sodactl は自分の cwd から解くので、定義の場所とずれないよう、ここで直す）。"""
+    spec = json.loads(json.dumps(raw))
+    paths = []
+
+    def absolute(ref):
+        return os.path.abspath(os.path.join(base_dir, os.path.expanduser(ref)))
+
+    for q in spec.get("questions") or []:
+        for o in (q.get("options") or []) if isinstance(q, dict) else []:
+            if not isinstance(o, dict):
+                continue
+            for key in ("image", "audio"):
+                ref = o.get(key)
+                if isinstance(ref, str) and ref and not re.match(r"^(https?://|data:)", ref, re.I):
+                    o[key] = absolute(ref)
+                    paths.append((o[key], False))
+    view = spec.get("view")
+    items = view if isinstance(view, list) else [view] if view is not None else []
+    for i, v in enumerate(items):
+        if isinstance(v, str):
+            v = {"file": v}
+            items[i] = v
+        if isinstance(v, dict) and isinstance(v.get("file"), str) and v["file"]:
+            v["file"] = absolute(v["file"])
+            ext = os.path.splitext(v["file"])[1].lower()
+            paths.append((v["file"], ext not in VIEW_HTML and ext not in IMAGE_TYPES))
+    if view is not None:
+        spec["view"] = items if isinstance(view, list) else items[0]
+    return spec, paths, len(items)
+
+
+def soda_check_limits(paths, views, limits):
+    """ローカルのファイルの大きさ・個数・合計を、sodactl の上限（--features の limits）で事前に確かめる。超えたら理由（文字列）。"""
+    def lim(k):
+        v = limits.get(k) if isinstance(limits, dict) else None
+        return v if isinstance(v, int) and v > 0 else None
+    seen, total = {}, 0
+    for path, as_text in paths:
+        if path in seen:
+            continue   # 同じファイルは 1 つに数える
+        try:
+            size = seen[path] = os.path.getsize(path)
+        except OSError:
+            continue
+        total += size
+        cap = lim("textBytes") if as_text else lim("fileBytes")
+        if cap and size > cap:
+            return "%s が大きすぎます（%d バイト。1 つ %d バイトまで）" % (path, size, cap)
+    if lim("files") and len(seen) > lim("files"):
+        return "ファイルが多すぎます（%d 個。%d 個まで）" % (len(seen), lim("files"))
+    if lim("totalBytes") and total > lim("totalBytes"):
+        return "ファイルの合計が大きすぎます（%d バイト。%d バイトまで）" % (total, lim("totalBytes"))
+    if lim("views") and views > lim("views"):
+        return "view が多すぎます（%d 件。%d 件まで）" % (views, lim("views"))
+    return None
+
+
+def ask_via_soda(spec, timeout, raw=None, base_dir="."):
     """sodactl ask で聞く。結果（answered / cancelled / timeout）を返す。出せない・使わないときは None
-    （呼び出し側はウィンドウへ進む）。"""
+    （呼び出し側はウィンドウへ進む）。上限超過・sodactl が定義の誤りとしたときは SodaRefused（窓へ落とさない）。
+
+    画像・音・成果物・edit/rank/table を使う定義は、sodactl ask --features で、sodactl とサーバがそれを出せると
+    確かめてから渡す（古い sodactl・サーバが無い・足りないときは None）。使わない定義（single・multi・text だけ）は、
+    今までどおり確かめずに渡す。"""
     if os.environ.get("ASK_FORM_SODA", "").lower() in ("off", "0", "no"):
         return None
     sodactl = shutil.which("sodactl")
     if not sodactl or not os.environ.get("SODA_PANE_ID"):
         return None
-    if spec.get("view"):   # 成果物を見せる枠は sodactl ask には無い。ウィンドウで聞く
-        return None
-    for q in spec["questions"]:
-        if q["type"] not in SODA_TYPES:
-            return None
-        # プレビューは sodactl ask では出ない。見比べて選ぶ質問なので、ウィンドウで聞く
-        if any(k in o for o in q.get("options", []) for k in ("image", "audio", "code")):
-            return None
+    raw = raw if raw is not None else spec
+    need = soda_required(raw)
+    send, paths, views = soda_absolutize(raw, base_dir)
+    if need:
+        info = soda_features(sodactl)
+        if not info:
+            return None   # 古い sodactl・サーバが無い（繋げない・古い・pane の外）
+        have = set(info.get("sodactl") or []) & set(info["server"].get("features") or [])
+        if not need <= have:
+            return None   # 足りない機能がある
+        why = soda_check_limits(paths, views, info.get("limits"))
+        if why:
+            raise SodaRefused(why)
     try:
         p = subprocess.run([sodactl, "ask", "--timeout", str(max(1, timeout) * 1000)],
-                           input=json.dumps(raw if raw is not None else spec, ensure_ascii=False), capture_output=True, text=True,
+                           input=json.dumps(send, ensure_ascii=False), capture_output=True, text=True,
                            encoding="utf-8", timeout=timeout + 30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if p.returncode == 2:   # invalid ask spec: …（定義の誤り・上限・種類の不一致）。窓でも同じなので、落とさずに知らせる
+        raise SodaRefused((p.stderr or "").strip() or "sodactl ask が定義を受け付けませんでした")
+    try:
         result = json.loads(p.stdout.strip().splitlines()[-1]) if p.returncode == 0 else None
-    except (OSError, ValueError, IndexError, subprocess.TimeoutExpired):
+    except (ValueError, IndexError):
         return None
     if not isinstance(result, dict) or result.get("status") not in ("answered", "cancelled", "timeout"):
-        return None   # unavailable（つながっているブラウザが無い等）・古い sodactl・サーバのエラー
+        return None   # unavailable（つながっているブラウザが無い等）・サーバのエラー（終了コード 1）
     return result
 
 
@@ -672,7 +785,11 @@ def main():
     if spec.get("remember") and not args.selftest:
         apply_remembered(spec)
     if not args.selftest:
-        result = ask_via_soda(spec, args.timeout, raw_spec)
+        try:
+            result = ask_via_soda(spec, args.timeout, raw_spec, base_dir)
+        except SodaRefused as e:
+            print("ask-form: Sodashitsu の画面には出せません: %s" % e, file=sys.stderr)
+            sys.exit(EXIT["error"])
         if result:
             if result["status"] == "answered" and spec.get("remember"):
                 save_remembered(spec, result.get("answers") or {})
