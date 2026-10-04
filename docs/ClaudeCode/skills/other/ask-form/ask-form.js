@@ -9,7 +9,7 @@
  *   el.resolveMedia = (ref, "image" | "audio") => 出してよい URL か null。無ければ画像・音のプレビューを出さない
  *   el.submit() / el.step(±1)（次・前の質問へ） / el.relayout() / el.notify(文, 警告か) / el.value / el.contentHeight / el.indexWidth（目次の幅。出ていなければ 0）
  *     el.pageCount は互換のために残す（いつも 1。ページには分けない）
- *   イベント（bubbles・composed）: ask-submit {answers, custom?, edited?, note?} / ask-cancel / ask-unsupported {reason}
+ *   イベント（bubbles・composed）: ask-submit {answers, custom?, edited?, comments?, note?} / ask-cancel / ask-unsupported {reason}
  *     未回答があるときは ask-submit を出さず、その質問を示す。Esc では ask-cancel を出さない（取り消しは置いた側）
  *   配色: --ask-bg --ask-fg --ask-border --ask-accent --ask-accent-fg --ask-error --ask-warn（任意で --ask-card --ask-muted --ask-accent-soft）
  *   印: data-ask-title -question -note -status -submit -cancel -index（目次の項目。値は質問の id、補足は空）
@@ -18,9 +18,9 @@
  *   定義の文字は textContent で出す（innerHTML を使わない）。色・数は確かめてから個別のプロパティに入れる。
  *   通信しない。window・document に触らない（リスナーは Shadow DOM の中・部品の要素・自分に付けた ResizeObserver だけで、外すときに外す）。
  */
-const VERSION = '1.2.2';
+const VERSION = '1.3.0';
 const TYPES = ['single', 'multi', 'text', 'edit', 'rank', 'table'];
-const FIELDS = ['title', 'intro', 'submit', 'note', 'notePlaceholder', 'paging',
+const FIELDS = ['title', 'intro', 'submit', 'note', 'notePlaceholder', 'paging', 'comments', 'comment',
   'id', 'label', 'type', 'help', 'page', 'options', 'default', 'allowOther', 'otherLabel', 'otherPlaceholder', 'showIf', 'required',
   'multiline', 'placeholder', 'minWidth', 'preview', 'thumb', 'filter', 'showValue', 'text', 'rows', 'mono', 'rowLabel', 'pickLabel',
   'value', 'desc', 'recommended', 'colors', 'group', 'image', 'audio', 'code', 'lang'];
@@ -151,6 +151,10 @@ input[type=text]:focus,input[type=search]:focus,textarea:focus,select:focus{outl
 textarea{resize:vertical;min-height:54px}
 textarea.mono{font:12.5px/1.55 ui-monospace,"Cascadia Mono",Consolas,Menlo,monospace;white-space:pre;tab-size:2}
 .editbar{display:flex;justify-content:flex-end;margin-top:6px;min-height:22px}
+/* 質問ごとの自由記述（ボタンで開く） */
+.cmt{clear:both;margin-top:8px}
+.cmt textarea{margin-top:6px}
+.cmt .mini.has{border-color:var(--_accent);color:var(--_accent);font-weight:700}
 footer{flex:none;display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:10px 22px;
   background:var(--_bg);border-top:1px solid var(--_line)}
 .status{flex:1 1 120px;color:var(--_muted);font-size:13px}
@@ -522,6 +526,30 @@ function mount(host, root, SPEC) {
     };
   }
 
+  // 質問ごとの自由記述: ボタンを押すと欄が開く（選択肢では言い切れない希望・条件を、その質問に添えて書く）。
+  // 書く質問（text）には付けない。定義の comments: false で全部、質問の comment: false でその質問だけ付けない。
+  // 選んだ時点で決定するフォーム（質問 1 つ・補足なし）にも付けない
+  const CMT = new Map();     // 質問の id → その自由記述の欄（textarea）
+  const commentable = (q) => SPEC.comments !== false && q.comment !== false && q.type !== 'text' && !(QS.length === 1 && QS[0].type === 'single' && SPEC.note === false);
+  function addComment(q, fs) {
+    const ta = el('textarea', { hidden: true, maxlength: TEXT_MAX, rows: '2', 'aria-label': q.label + ' の自由記述', 'data-ask-comment': q.id,
+      placeholder: 'この質問について伝えたいこと（選択肢に無い希望・条件など）' });
+    const btn = el('button', { type: 'button', class: 'mini', 'aria-expanded': 'false', 'data-ask-comment-toggle': q.id });
+    const label = () => {
+      btn.textContent = ta.hidden ? (ta.value.trim() ? '自由記述（入力あり）を開く' : '＋ 自由記述') : '自由記述を閉じる';
+      btn.classList.toggle('has', ta.hidden && !!ta.value.trim());
+    };
+    btn.addEventListener('click', () => {
+      ta.hidden = !ta.hidden;
+      btn.setAttribute('aria-expanded', String(!ta.hidden));
+      label();
+      if (!ta.hidden) ta.focus();
+    });
+    label();
+    fs.append(el('div', { class: 'cmt' }, btn, ta));
+    CMT.set(q.id, ta);
+  }
+
   const BUILD = { single: buildChoice, multi: buildChoice, text: buildText, edit: buildEdit, rank: buildRank, table: buildTable };
   const KIND = { multi: '複数選べます', rank: 'ドラッグか ↑↓ で並べ替え', edit: 'そのまま直せます' };
 
@@ -554,6 +582,7 @@ function mount(host, root, SPEC) {
     if (q.help) fs.append(el('p', { class: 'help', text: q.help }));
     FS.set(q.id, fs);
     BUILD[q.type](q, fs);
+    if (commentable(q)) addComment(q, fs);
     inner.append(fs);
     ITEMS.push(fs);
   }
@@ -625,7 +654,7 @@ function mount(host, root, SPEC) {
     choose(i);
     body.scrollTop = Math.max(0, topOf(ENTRIES[i].fs) - 10);
     if (quiet) return;
-    const t = [...ENTRIES[i].fs.querySelectorAll('input:not([type=search]),textarea,select,li[tabindex]')].find(x => !x.closest('[hidden]'));
+    const t = [...ENTRIES[i].fs.querySelectorAll('input:not([type=search]),textarea:not([data-ask-comment]),select,li[tabindex]')].find(x => !x.closest('[hidden]'));
     const pick = t && t.type === 'radio' ? (ENTRIES[i].fs.querySelector('input[type=radio]:checked') || t) : t;   // ラジオは、選ばれているものへ
     if (pick) pick.focus({ preventScroll: true });
   }
@@ -679,7 +708,7 @@ function mount(host, root, SPEC) {
   }
   // 上から順に見て、表示条件（showIf）を満たす質問だけを回答に入れる
   function collect() {
-    const answers = {}, custom = [], edited = [], lacking = [];
+    const answers = {}, custom = [], edited = [], lacking = [], comments = {};
     let n = 0;
     for (const q of QS) {
       const fs = FS.get(q.id), c = ctl[q.id];
@@ -693,8 +722,10 @@ function mount(host, root, SPEC) {
       if (!miss || q.type !== 'single') answers[q.id] = v;
       if (c.custom && c.custom()) custom.push(q.id);
       if (c.edited && c.edited()) edited.push(q.id);
+      const cm = CMT.has(q.id) ? CMT.get(q.id).value.trim() : '';   // 閉じていても、書いてあれば入れる
+      if (cm) comments[q.id] = cm;
     }
-    return { answers, custom, edited, lacking };
+    return { answers, custom, edited, lacking, comments };
   }
   function refresh() {
     const { lacking } = collect();
@@ -706,10 +737,11 @@ function mount(host, root, SPEC) {
 
   // 今の回答（決定のときに知らせる形）と、未回答の質問
   function value() {
-    const { answers, custom, edited, lacking } = collect();
+    const { answers, custom, edited, lacking, comments } = collect();
     const out = { answers };
     if (custom.length) out.custom = custom;
     if (edited.length) out.edited = edited;
+    if (Object.keys(comments).length) out.comments = comments;
     const note = noteInput ? noteInput.value.trim() : '';
     if (note) out.note = note;
     return { out, lacking };
@@ -722,7 +754,7 @@ function mount(host, root, SPEC) {
     if (lacking.length) {
       for (const q of lacking) { FS.get(q.id).classList.add('missing'); FS.get(q.id).setAttribute('aria-invalid', 'true'); }
       const firstFs = FS.get(lacking[0].id);
-      const target = [...firstFs.querySelectorAll('input:not([type=search]),textarea,select')].find(x => !x.closest('[hidden]'));   // 絞り込みで隠れていないもの
+      const target = [...firstFs.querySelectorAll('input:not([type=search]),textarea:not([data-ask-comment]),select')].find(x => !x.closest('[hidden]'));   // 絞り込みで隠れていないもの
       if (target) target.focus({ preventScroll: true });   // その質問へフォーカスを移す
       const at = ENTRIES.findIndex(x => x.fs === firstFs);
       if (at >= 0) choose(at);                             // 目次の印も、その質問へ

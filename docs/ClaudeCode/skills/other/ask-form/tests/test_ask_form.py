@@ -79,7 +79,7 @@ class Component(unittest.TestCase):
     def test_markers_for_hosts(self):
         """置いた側のテストが使う印と、受け渡しの名前。"""
         for word in ("data-ask-title", "data-ask-question", "data-ask-note", "data-ask-status", "data-ask-submit", "data-ask-cancel",
-                     "data-ask-index", "ask-submit", "ask-cancel", "ask-unsupported",
+                     "data-ask-index", "data-ask-comment", "ask-submit", "ask-cancel", "ask-unsupported",
                      "--ask-bg", "--ask-fg", "--ask-border", "--ask-accent", "--ask-accent-fg", "--ask-error", "--ask-warn",
                      "static version", "static supports", "customElements.define('ask-form'"):
             with self.subTest(word):
@@ -117,6 +117,10 @@ for (const c of CASES) {
     }
     const ta = R.querySelector(`textarea[name="${esc}"]`);
     if (ta) ta.value = (st.text || {})[q.id] || '';
+  }
+  for (const [id, text] of Object.entries(st.comments || {})) {   // 質問ごとの自由記述（閉じたままでも、書いてあれば入る）
+    const cm = R.querySelector(`textarea[data-ask-comment="${CSS.escape(id)}"]`);
+    if (cm) cm.value = text;
   }
   const note = R.querySelector('[data-ask-note] textarea');
   if (note) note.value = st.note || '';
@@ -301,6 +305,33 @@ class Index(unittest.TestCase):
                         "b.scrollTop=f.getBoundingClientRect().top-b.getBoundingClientRect().top+b.scrollTop")
         self.assertEqual(st["cur"], "q20")
         self.assertTrue(self.chrome.eval(js)["curIn"])
+
+    def test_question_comment_opens_on_click(self):
+        """質問ごとの自由記述: ボタンを押すと欄が開き、書いた内容が comments に入る。閉じても消えず、ボタンに「入力あり」と出る。
+        書く質問（text）と、付けない指定（comment: false）の質問には出ない。"""
+        self.open([{"id": "a", "label": "A", "default": "x", "options": ["x", "y"]}, {"id": "t", "label": "T", "type": "text"},
+                   {"id": "n", "label": "N", "default": "x", "comment": False, "options": ["x"]}], paging=False)
+        js = """(function(){var R=FORM.shadowRoot,b=R.querySelector('[data-ask-comment-toggle=a]'),ta=R.querySelector('textarea[data-ask-comment=a]');
+          return {toggles:[].slice.call(R.querySelectorAll('[data-ask-comment-toggle]')).map(function(x){return x.dataset.askCommentToggle}),
+                  open:!ta.hidden, label:b.textContent, expanded:b.getAttribute('aria-expanded'), focus:R.activeElement===ta, comments:FORM.value.comments||null}})()"""
+        st = self.chrome.eval(js)
+        self.assertEqual(st["toggles"], ["a"])
+        self.assertEqual((st["open"], st["expanded"], st["comments"]), (False, "false", None))
+        self.chrome.eval("FORM.shadowRoot.querySelector('[data-ask-comment-toggle=a]').click()")
+        st = self.chrome.eval(js)
+        self.assertEqual((st["open"], st["expanded"], st["focus"]), (True, "true", True))
+        self.chrome.eval("(function(){var R=FORM.shadowRoot,ta=R.querySelector('textarea[data-ask-comment=a]');ta.value='夜だけ';"
+                         "ta.dispatchEvent(new Event('input',{bubbles:true}));R.querySelector('[data-ask-comment-toggle=a]').click()})()")
+        st = self.chrome.eval(js)
+        self.assertFalse(st["open"])
+        self.assertIn("入力あり", st["label"])
+        self.assertEqual(st["comments"], {"a": "夜だけ"})
+
+    def test_no_comment_when_disabled_or_instant(self):
+        self.open(self.MANY[:2], comments=False)
+        self.assertEqual(self.chrome.eval("FORM.shadowRoot.querySelectorAll('[data-ask-comment-toggle]').length"), 0)
+        self.open(self.MANY[:1], note=False)   # 選んだ時点で決定するフォームには付けない
+        self.assertEqual(self.chrome.eval("FORM.shadowRoot.querySelectorAll('[data-ask-comment-toggle]').length"), 0)
 
     def test_sections_hidden_questions_and_unanswered(self):
         qs = [dict(q) for q in self.MANY]
