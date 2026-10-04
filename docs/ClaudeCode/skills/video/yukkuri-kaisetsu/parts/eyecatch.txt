@@ -1,7 +1,0 @@
----
-seconds: 1.6
----
-// アイキャッチ（せりふなし・約 1.5 秒）。帯のロゴが横切るだけ。つかみの直後や、章の区切りに @insert: eyecatch
-@transition: slide
-@se: bling
-@show: draw:op_stripe "{channel|ゆっくり解説}" none

@@ -1,4 +1,4 @@
-"""確かめる道具が、実際に起きた失敗を見つけるか（motion-video の check.py・yukkuri-qa の qa.py・yukkuri-kaisetsu の script_check.py・fact-check）。"""
+"""確かめる道具が、実際に起きた失敗を見つけるか（motion-video の check.py・fact-check。yukkuri の台本の検査は、yukkuri-work のリポジトリのテスト）。"""
 import os
 import unittest
 from unittest import mock
@@ -62,80 +62,8 @@ class MotionCheck(unittest.TestCase):
         self.assertTrue(any("3 場面続きます" in w for w in warns))
 
 
-class ScriptCheck(unittest.TestCase):
-    """yukkuri-kaisetsu の script_check.py（台本の検査）。"""
-
-    def run_check(self, body):
-        import importlib.util
-        p = os.path.join(fakes.YK, "script_check.py")
-        sp = importlib.util.spec_from_file_location("ycheck_t", p)
-        m = importlib.util.module_from_spec(sp)
-        sp.loader.exec_module(m)
-        d = fakes.tmpdir()
-        path = os.path.join(d, "s.txt")
-        with open(path, "w", encoding="utf-8") as f:
-            f.write("---\ntitle: テスト\ncast: metan, zundamon\nroles: metan=解説, zundamon=聞き手\n---\n" + body)
-        with fakes.quiet():
-            R, _ = m.run(path)
-        return [x[2] for x in R.items]
-
-    def test_picture_reuse_and_layout_run(self):
-        lines = ["# 本題"]
-        for i in range(4):
-            lines += ['@show: 積み木 "部品 %d" | → | 工具箱 "道具"' % i, "metan: 説明その%dよ。" % i, "zundamon: そうなのだ。"]
-        lines += ["# まとめ", "metan: おわりよ。"]
-        msgs = self.run_check("\n".join(lines) + "\n")
-        self.assertTrue(any("積み木」を本編で 4 回" in m for m in msgs), msgs)
-        self.assertTrue(any("2 つを並べた画面が 4 枚続きます" in m for m in msgs), msgs)
-
-    def test_odd_reading(self):
-        msgs = self.run_check("# 本題\nmetan: ブラウザを開けない所でも使えるわ。\nzundamon: すごいのだ。\n")
-        self.assertTrue(any("開け" in m for m in msgs), msgs)
-
-    def test_chapters_too_short_for_the_style(self):
-        """2026-10-03: 10 選を 5 分で作り、1 か所 25 秒になった。章 1 つが型の目安より短ければ、声を作る前に知らせる。"""
-        def script(per):
-            out = ["# オープニング", "metan: はじめるわ。"]
-            for i in range(6):
-                out += ["# 場所%d" % i] + ["metan: ここはとても遠くて行きにくい場所だと言われているのよ。", "zundamon: そんなに遠いのだ？ 行ってみたいのだ。"] * per
-            return "\n".join(out + ["# まとめ", "metan: おわりよ。"]) + "\n"
-        short = [m for m in self.run_check(script(1)) if "章 1 つが約" in m]
-        self.assertTrue(short and "章を" in short[0] and "使う人に確かめる" in short[0], short)
-        self.assertFalse([m for m in self.run_check(script(6)) if "章 1 つが約" in m])
-
-    def test_screens_without_background(self):
-        """2026-10-03: 列挙の型で、写真でない画面（地図・図解・挿絵）が白い地に浮いていた。背景の無い画面は「直す」。@bg は次に書くまで続く。"""
-        body = '# 本題\n@show: 太陽 "太陽"\nmetan: 絵だけの画面よ。\nzundamon: そうなのだ。\n'
-        bare = lambda msgs: [m for m in msgs if "背景の無い画面" in m]
-        self.assertTrue(bare(self.run_check(body)))
-        self.assertFalse(bare(self.run_check("@bg: sky\n" + body.replace("# 本題\n", "# 本題\n@bg: sky\n"))))
-        two = '# 一\n@bg: sky\n@show: 太陽 "太陽"\nmetan: 背景ありよ。\n# 二\n@show: 月 "月"\nmetan: ここも同じ背景が続くわ。\n'
-        self.assertFalse(bare(self.run_check(two)), "@bg が次の場面・次の章へ続いていない")
-        late = '# 一\n@show: 太陽 "太陽"\nmetan: まだ背景が無いわ。\n# 二\n@bg: sky\n@show: 月 "月"\nmetan: ここからあるわ。\n'
-        self.assertIn("1 枚", bare(self.run_check(late))[0])
 
 
-class Calls(unittest.TestCase):
-    def test_metan_inside_a_word(self):
-        """2026-10-03: 呼び方の検査が、「決めたんですか」「確かめたんですか」の中の「めたん」を、めたんの呼び捨てと数えた。語の途中は数えない。"""
-        import importlib.util
-        sp = importlib.util.spec_from_file_location("ycheck_c", os.path.join(fakes.YK, "script_check.py"))
-        m = importlib.util.module_from_spec(sp)
-        sp.loader.exec_module(m)
-
-        def calls(line):
-            path = os.path.join(fakes.tmpdir(), "s.txt")
-            with open(path, "w", encoding="utf-8") as f:
-                f.write("---\ntitle: テスト\ncast: metan, tsumugi\nroles: metan=解説, tsumugi=聞き手\n---\n# 本題\nmetan: 説明するわ。\ntsumugi: %s\nmetan: そうよ。\n" % line)
-            with fakes.quiet():
-                R, _ = m.run(path)
-            return [x[2] for x in R.items if "と呼びます" in x[2]]
-
-        self.assertFalse(calls("それ、誰が決めたんですか。"))
-        self.assertFalse(calls("ちゃんと確かめたんスか。"))
-        self.assertFalse(calls("めたん先輩、すごいっス。"))
-        self.assertTrue(calls("めたん、すごいっス。"), "呼び捨ては見つける")
-        self.assertTrue(calls("それはめたんが言ったっス。"))
 
 
 @unittest.skipUnless(fakes.skill("fact-check"), "fact-check スキルが無い（別のまとまり other/ にある）")

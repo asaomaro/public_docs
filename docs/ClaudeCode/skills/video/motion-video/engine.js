@@ -1992,13 +1992,13 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var y = capTop(), m = TALK.caption;
     if (m === "bar") {   /* 後ろをぼかして透かし、暗い色を薄く重ねる（背景を箱の上で切らない。字は太い黒縁なので読める） */
       var box = function () { rr(36, y, 1848, 1080 - y - 14, 18); }, frost = capFrost(box, 36, 1848, y);
-      box(); ctx.fillStyle = frost ? "rgba(16,16,22,.56)" : "rgba(20,20,26,.88)"; ctx.fill(); ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 4; ctx.stroke(); }
+      box(); ctx.fillStyle = TALK.capFill || (frost ? "rgba(16,16,22,.56)" : "rgba(20,20,26,.88)"); ctx.fill(); ctx.strokeStyle = TALK.capEdge || "#ffffff"; ctx.lineWidth = 4; ctx.stroke(); }   /* capFill・capEdge: 箱の色と縁の色（チャンネルの色に合わせる） */
     else if (m === "band") {   /* 白い帯も同じく透かす（濃い色の字に白い縁） */
       var fr1 = capFrost(function () { ctx.beginPath(); ctx.rect(0, y, 1920, 1080 - y); }, 0, 1920, y);
-      ctx.fillStyle = fr1 ? "rgba(255,255,255,.58)" : "rgba(255,255,255,.74)"; ctx.fillRect(0, y, 1920, 1080 - y); }
+      ctx.fillStyle = TALK.capFill || (fr1 ? "rgba(255,255,255,.58)" : "rgba(255,255,255,.74)"); ctx.fillRect(0, y, 1920, 1080 - y); }
     else if (m === "strip") {   /* 黒い帯も同じく透かす（箱より少し濃く。黄色い字に黒い縁） */
       var fr2 = capFrost(function () { ctx.beginPath(); ctx.rect(0, y, 1920, 1080 - y); }, 0, 1920, y);
-      ctx.fillStyle = fr2 ? "rgba(0,0,0,.6)" : "rgba(0,0,0,.9)"; ctx.fillRect(0, y, 1920, 1080 - y); }
+      ctx.fillStyle = TALK.capFill || (fr2 ? "rgba(0,0,0,.6)" : "rgba(0,0,0,.9)"); ctx.fillRect(0, y, 1920, 1080 - y); }
   }
   /* 字幕の折り返し: 2 行になるときは、読点・句点・空白の後ろで折る（語の途中で折らない）。切れ目が無ければ、助詞の後ろ、それも無ければ幅で折る */
   function capWrap(text, maxW, o, lim) {   /* lim: 語を 2 行目へ送るときの幅の上限（2 行をそろえるために狭く折るときは、本来の幅） */
@@ -2039,7 +2039,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     } else {
       var bh = 60 + lines.length * lh * (46 / size) * (size / 46), by0 = 1060 - bh, bx = 400, bw = 1120;
       ctx.translate(960 + jx, by0 + bh / 2); ctx.scale(pk, pk); ctx.translate(-960, -(by0 + bh / 2));
-      rr(bx, by0, bw, bh, 18); ctx.fillStyle = "rgba(255,255,255,.92)"; ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = 6; ctx.stroke();
+      rr(bx, by0, bw, bh, 18); ctx.fillStyle = TALK.capFill || "rgba(255,255,255,.92)"; ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = 6; ctx.stroke();
       if (named) { var nw = tw(sp.name || cur.who, { size: 26, weight: 800, font: fam }) + 40; rr(bx + 24, by0 - 22, nw, 44, 22); ctx.fillStyle = col; ctx.fill();
         txt(sp.name || cur.who, bx + 24 + nw / 2, by0 + 9, { size: 26, weight: 800, align: "center", color: "#ffffff", font: fam }); }
       lines.forEach(function (l2, i) { capLine(l2, 960, by0 + 24 + size + i * lh, o, [[size * .2, col]], "#ffffff", "#fff3a0"); });
@@ -2081,7 +2081,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       var ls = wrap(cur.text, 600, o).slice(0, 3), bw = Math.max(150, Math.max.apply(null, ls.map(function (l) { return tw(l.replace(/\*\*/g, ""), o); })) + 56), bh = ls.length * lh + 30;
       var cx = clamp(pos.side === "right" ? pos.x - pos.w * .12 - bw / 2 : pos.x + pos.w * .12 + bw / 2, bw / 2 + 24, 1896 - bw / 2), cy = clamp(pos.by - pos.h * .36, bh / 2 + 120, 1040 - bh / 2);
       ctx.translate(cx, cy); ctx.scale(pk * (.9 + .1 * P(lt, 0, 200, back)), pk * (.9 + .1 * P(lt, 0, 200, back))); ctx.translate(-cx, -cy);
-      ctx.shadowColor = "rgba(0,0,0,.25)"; ctx.shadowBlur = 12; ctx.shadowOffsetY = 4; rr(cx - bw / 2, cy - bh / 2, bw, bh, 16); ctx.fillStyle = "#ffffff"; ctx.fill(); ctx.shadowColor = "transparent";
+      ctx.shadowColor = "rgba(0,0,0,.25)"; ctx.shadowBlur = 12; ctx.shadowOffsetY = 4; rr(cx - bw / 2, cy - bh / 2, bw, bh, 16); ctx.fillStyle = TALK.capFill || "#ffffff"; ctx.fill(); ctx.shadowColor = "transparent";
       ctx.strokeStyle = col; ctx.lineWidth = 7; ctx.stroke();
       ls.forEach(function (l2, i) { capLine(l2, cx, cy - bh / 2 + 15 + size * .9 + i * lh, o, [], "#20242c", "#d9343f"); });
       ctx.restore(); return; }
@@ -2095,7 +2095,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var cy2 = y0 + hh / 2, base = cy2 - (lines.length - 1) * lh2 / 2 + size2 * .36;
     var CXc = TALK.capX || 960;   /* 字幕のまん中（左右の立ち絵の数が違うとき、空いている側へ寄せる。yukkuri-kaisetsu が決める） */
     ctx.translate(CXc, cy2); ctx.scale(pk, pk); ctx.translate(-CXc, -cy2);
-    var fill = m === "strip" ? (TALK.capColor === "speaker" ? tintCol(col, .45) : "#ffe45c") : m === "bar" ? tintCol(col, .38) : tintCol(col, -.3), edge = m === "band" ? [[size2 * .2, "#ffffff"]] : [[size2 * .2, "#000000"]];
+    var cc = TALK.capColor, fill = cc && cc !== "speaker" ? cc : m === "strip" ? (cc === "speaker" ? tintCol(col, .45) : "#ffe45c") : m === "bar" ? tintCol(col, .38) : tintCol(col, -.3), edge = m === "band" ? [[size2 * .2, "#ffffff"]] : [[size2 * .2, "#000000"]];
     lines.forEach(function (l2, i) { capLine(l2, CXc, base + i * lh2, o2, edge, fill, m === "band" ? "#d9343f" : "#ffffff"); });
     if (TALK.name === true || sp.showName) {   /* 置きっぱなしの字幕でも、話し手の名前の札を帯の上の端に出す（3 人以上は、縁の色だけでは誰のせりふか分からない） */
       var nm3 = sp.name || cur.who, no3 = { size: 28, weight: 800, font: fam }, nw3 = tw(nm3, no3) + 40, ny3 = y0 - 24;
@@ -2345,11 +2345,11 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   }
   /* 左上の話題の札（tag）と、右上の項目の札（corner） */
   function stageTags(s, lt) {
-    var o = capFont(40), TG = TALK.tags || {};   /* tags: {tag: 左上の札の色, corner: 右上の札の色（書くと白い字になる）} */
+    var o = capFont(40), TG = TALK.tags || {};   /* tags: {tag: 左上の札の色, tagInk: その字と縁の色, corner: 右上の札の色（書くと白い字になる）, cornerInk: その字と縁の色} */
     if (s.tag) { var k = P(lt, 100, 480), w = tw(s.tag, o) + 56; ctx.save(); ctx.translate(-(1 - k) * (w + 60), 0); rr(34, 30, w, 70, 12); ctx.fillStyle = TG.tag || "#d9343f"; ctx.fill(); ctx.strokeStyle = TG.tagInk || "#ffffff"; ctx.lineWidth = 5; ctx.stroke();
       txt(s.tag, 34 + w / 2, 80, { size: 40, weight: 800, align: "center", color: TG.tagInk || "#ffffff", font: o.font }); ctx.restore(); }
-    if (s.corner) { var o2 = capFont(32), k2 = P(lt, 200, 580), w2 = tw(s.corner, o2) + 48; ctx.save(); ctx.translate((1 - k2) * (w2 + 60), 0); rr(1886 - w2, 34, w2, 58, 10); ctx.fillStyle = TG.corner || "rgba(255,255,255,.94)"; ctx.fill(); ctx.strokeStyle = TG.corner ? "#ffffff" : "#20242c"; ctx.lineWidth = 4; ctx.stroke();
-      txt(s.corner, 1886 - w2 / 2, 75, { size: 32, weight: 800, align: "center", color: TG.corner ? "#ffffff" : "#20242c", font: o2.font }); ctx.restore(); }
+    if (s.corner) { var o2 = capFont(32), k2 = P(lt, 200, 580), w2 = tw(s.corner, o2) + 48; ctx.save(); ctx.translate((1 - k2) * (w2 + 60), 0); rr(1886 - w2, 34, w2, 58, 10); ctx.fillStyle = TG.corner || "rgba(255,255,255,.94)"; ctx.fill(); ctx.strokeStyle = TG.cornerInk || (TG.corner ? "#ffffff" : "#20242c"); ctx.lineWidth = 4; ctx.stroke();
+      txt(s.corner, 1886 - w2 / 2, 75, { size: 32, weight: 800, align: "center", color: TG.cornerInk || (TG.corner ? "#ffffff" : "#20242c"), font: o2.font }); ctx.restore(); }
   }
   var TALK_SFX = { "!": "pop", "?": "question", "!?": "stab", "♪": "bling", "💦": "slip", "💢": "woodblock", "…": "downer", "💡": "correct", "✨": "sparkle", "♥": "heart-pop", gloom: "downer", shock: "stab", big: "hyoshigi", shake: "impact" };
   R.talk = function (s, lt, d, T) {

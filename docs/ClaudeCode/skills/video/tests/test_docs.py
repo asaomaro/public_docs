@@ -44,10 +44,11 @@ class SkillDoc(unittest.TestCase):
 
     def test_mentioned_files_exist(self):
         """説明書に書いたファイル名（`recipes.md`・`examples/…json`・`../tests/README.md` など）が実在する。"""
-        roots = [fakes.MV, REF, os.path.join(fakes.MV, "examples"), fakes.YK]   # yukkuri-kaisetsu の kaisetsu.py・sprite.py も指す
+        roots = [fakes.MV, REF, os.path.join(fakes.MV, "examples")]
+        elsewhere = ("kaisetsu.py", "sprite.py", "rig.json")   # yukkuri-kaisetsu のファイル（別のリポジトリ yukkuri-work にある）。ここでは確かめない
         for p in [SKILL] + glob.glob(os.path.join(REF, "*.md")):
             for name in set(FILE.findall(read(p))):
-                if "*" in name or name.startswith(("spec.", "out.", "intro.", "bgm.", "music.", "work/", "order.")) or name in ("SKILL.md",):
+                if "*" in name or name.startswith(("spec.", "out.", "intro.", "bgm.", "music.", "work/", "order.")) or name in ("SKILL.md",) + elsewhere:
                     continue
                 with self.subTest(file=os.path.basename(p), name=name):
                     base = [os.path.dirname(p)] + roots
