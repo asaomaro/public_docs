@@ -9,7 +9,7 @@
 台本の先頭に書ける項目: summary（概要欄の最初の 1〜2 文）・tags（, 区切り）・thumb（サムネイルの文字。| で改行、最大 3 行）・
 thumb_faces（zundamon=surprised+, metan=smug）・thumb_bg（背景の名前か画像）・thumb_font（fonts.json の名前。既定 dela）
 """
-import argparse, importlib.util, json, os, re, sys
+import argparse, importlib.util, json, os, re, sys, urllib.parse
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 KDIR = os.path.join(HERE, "..", "yukkuri-kaisetsu")
@@ -27,16 +27,63 @@ def load(name, file):
     return mod
 
 
-def sources(base, meta, stem):
-    """事実の一覧（facts.md）の「## 出典」の行。無ければ、事実の行にある URL。"""
+URL_RE = re.compile(r"https?://[^\s）、]+")
+GENERIC = re.compile(r"使う|追加|共通|全体|その他|補足|メモ|まとめ|概要|出典|確かめ|説が|入れない|使わない")
+
+
+def _urls(text):
+    out = []
+    for m in URL_RE.finditer(text):   # URL の中のかっこ（Wikipedia の …_(Rotterdam)）は残し、外の閉じかっこと句読点だけ落とす
+        u = m.group(0).rstrip(".,;:。")
+        while u.endswith(")") and u.count(")") > u.count("("):
+            u = u[:-1]
+        out.append(u)
+    return out
+
+
+def _fact_used(line, body):
+    """事実の 1 行が、台本で使われていそうか: 数と単位（486 段）か、3 字以上の名前（土合駅・ダイオウイカ）のどれかが台本にある。
+    使っている出典を外すほうが害が大きいので、迷ったら「使っている」に倒す。"""
+    stmt = re.split(r"\s[—–]\s*原文|原文[:：]|出典[:：]|https?://", re.sub(r"^\s*[-*]\s*(?:\[[^\]]*\])?\s*(?:[（(][^)）]*[)）])?", "", line))[0]
+    squash = lambda t: re.sub(r"[\s,，]+", "", t)
+    if any(len(squash(n)) >= 3 and squash(n) in body for n in re.findall(r"\d[\d,.]*\s*[^\s\d、。（）()「」・]{1,3}", stmt)):
+        return True
+    runs = re.findall(r"[一-龥々ヶ]{3,}|[ァ-ヴー]{4,}|[A-Za-z]{5,}", stmt)
+    return not runs or any(r in body for r in runs)
+
+
+def sources(base, meta, stem, script=None):
+    """事実の一覧（facts.md）の「## 出典…」の行（何か所に分かれていても全部）。無ければ、事実の行にある URL。
+    script（台本の本文）を渡すと、台本で使っていない事実だけが引いている出典を外す（調べたが使わなかった項目の出典まで、
+    概要欄に並んでいた）。外したものは (残す出典, 外した出典) の 2 つめで返す。先頭の設定に sources: all と書けば、外さない。
+    sources: 土合駅, 土合 のように言葉を書けば、その言葉を含む出典だけにする（長い動画の事実の一覧から、ショートを作るとき）。"""
     fp = os.path.join(base, meta["facts"]) if meta.get("facts") else stem + ".facts.md"
     if not os.path.isfile(fp):
-        return []
+        return [], []
     text = open(fp, encoding="utf-8").read()
-    m = re.search(r"^##\s*出典\s*\n(.*?)(?=^##\s|\Z)", text, re.S | re.M)
-    if m:
-        return [re.sub(r"^\s*[-*]\s*", "", x).strip() for x in m.group(1).splitlines() if x.strip()]
-    return list(dict.fromkeys(re.findall(r"https?://[^\s）)、]+", text)))
+    secs = [(m.group(1).strip(), m.group(2)) for m in re.finditer(r"(?ms)^#{1,6}[ \t]*([^\n]*)\n(.*?)(?=^#{1,6}[ \t]|\Z)", text)] or [("", text)]
+    is_src = lambda h: bool(re.match(r"出典", h))
+    drop = set()
+    if script and meta.get("sources", "").strip() != "all":
+        body, used, unused = re.sub(r"[\s,，]+", "", script), set(), set()
+        for h, b in secs:
+            if is_src(h):
+                continue
+            out_of_script = bool(re.search(r"入れない|使わない|確かめられなかった", h))
+            for line in b.splitlines():
+                us = _urls(line)
+                if us:
+                    (unused if out_of_script or not _fact_used(line, body) else used).update(us)
+        drop = unused - used
+    words = [w.strip() for w in re.split(r"[,、]", meta.get("sources", "")) if w.strip() and w.strip() != "all"]
+    src = [b for h, b in secs if is_src(h)]
+    lines = (list(dict.fromkeys(re.sub(r"^\s*[-*]\s*", "", x).strip() for b in src for x in b.splitlines() if x.strip())) if src
+             else list(dict.fromkeys(u for h, b in secs for u in _urls(b))))
+    if words:
+        keep = [x for x in lines if any(w in urllib.parse.unquote(x) for w in words)]
+    else:
+        keep = [x for x in lines if not _urls(x) or any(u not in drop for u in _urls(x))]
+    return keep, [x for x in lines if x not in keep]
 
 
 DESC_LIMIT = 5000   # YouTube の概要欄は 5000 バイトまで（かなで約 1,600 字）
@@ -140,7 +187,9 @@ def thumbnail(meta, base, K, out):
     want = dict(p.split("=", 1) for p in re.split(r"[,、]\s*", meta.get("thumb_faces", "")) if "=" in p)
     ids = list(cast)
     explainer = next((p.split("=")[0].strip() for p in re.split(r"[,、]", meta.get("roles", "")) if "解説" in p.split("=")[-1]), ids[0])
-    order = [i for i in ids if i != explainer][:1] + [i for i in ids if i == explainer]   # 聞き手を右端に大きく、解説役をその左に
+    others = [i for i in ids if i != explainer]
+    others.sort(key=lambda i: i not in want)   # thumb_faces に書いた人を先に（3 人の台本で、3 人目を名指ししても 2 人目が描かれた）
+    order = others[:1] + [i for i in ids if i == explainer]   # 聞き手を右端に大きく、解説役をその左に
     x_right, min_x, figs = W + 30, W, []
     for n, cid in enumerate(order[:2]):
         sp = cast[cid].get("sprite")
@@ -181,7 +230,7 @@ def thumbnail(meta, base, K, out):
                 break
             size -= 6
         y = top + i * line_h + (line_h - size) / 2 - size * .12
-        for sw, col in ((max(14, size // 6), (255, 255, 255)), (max(8, size // 10), (20, 20, 24))):
+        for sw, col in ((max(12, size // 7), (255, 255, 255)), (max(6, size // 16), (20, 20, 24))):   # 黒い縁を太くしすぎると、画数の多い字（選・乗）の中が黒くつぶれる
             d.text((36, y), t, font=f, fill=col, stroke_width=sw, stroke_fill=col)
         d.text((36, y), t, font=f, fill=COLORS[i % 3])
     im.alpha_composite(layer)
@@ -201,7 +250,10 @@ def main():
     if not os.path.isfile(stem + ".info.json"):
         sys.exit("error: %s がありません。先に yukkuri-kaisetsu で動画を作ってください（kaisetsu.py 台本.txt --voicevox）" % os.path.basename(stem + ".info.json"))
     info = json.load(open(stem + ".info.json", encoding="utf-8"))
-    src = sources(base, meta, stem)
+    src, dropped = sources(base, meta, stem, open(a.script, encoding="utf-8").read())
+    if dropped:
+        print("note: 台本で使っていない事実だけが引いている出典を %d 件、概要欄から外しました（全部載せるなら、先頭の設定に sources: all）:\n      %s"
+              % (len(dropped), "\n      ".join(x[:90] for x in dropped)))
     for w in checks(meta, info, src, K):
         print("warn:", w, file=sys.stderr)
     if a.check:

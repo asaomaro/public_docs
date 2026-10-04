@@ -72,6 +72,11 @@ def motion_video():
 # ──────────────────────────────────────────────────────────────────────────
 # 台本の読み取り
 # ──────────────────────────────────────────────────────────────────────────
+def strip_note(line):
+    """行末の注記（空白 + // …）を外す。URL の // は空白が前に無いので残る。前は、せりふの行末の「// 事3」が、字幕と声に入った。"""
+    return re.sub(r"\s+//(?:\s.*)?$", "", line) if not line.startswith("//") else line
+
+
 LINE_RE = re.compile(r"^([\w\-]+)(?:[（(]([^)）]*)[)）])?\s*[:：]\s*(.*?)\s*(?:\[([^\]]+)\])?\s*$")
 PAUSE_RE = re.compile(r"^[（(]\s*(?:間|pause)\s*([\d.]+)?\s*[)）]$")
 
@@ -169,9 +174,9 @@ def parse_show(rest):
                 it["color"] = TEXT_COLORS.get(m.group(2), m.group(2))
             shot["items"].append(it)
             continue
-        m = re.match(r'^(\S+)(?:\s+"([^"]*)")?(?:\s*>\s*"([^"]*)"(?:\s+(top|left|right|bottom))?)?(?:\s+(frame|noframe))?(?:\s+(big))?$', cell)
+        m = re.match(r'^(\S+)(?:\s+"([^"]*)")?(?:\s*>\s*"([^"]*)"(?:\s+(top|left|right|bottom))?(?:\s+@(?P<sayline>[1-9]))?)?(?:\s+(frame|noframe))?(?:\s+(big))?$', cell)
         if not m:
-            raise ValueError('「%s」（絵の名前 "名札" > "吹き出し"、"短い言葉"、→ などの記号 のどれかを | で区切る。吹き出しの後ろに left・right・bottom、その後ろに frame・big を書ける）' % cell)
+            raise ValueError('「%s」（絵の名前 "名札" > "吹き出し"、"短い言葉"、→ などの記号 のどれかを | で区切る。吹き出しの後ろに left・right・bottom と @2（2 個目のせりふで出す）、その後ろに frame・big を書ける）' % cell)
         it = {"ref": m.group(1)}
         if it["ref"].startswith("icon:"):
             it = {"icon": it["ref"][5:]}
@@ -180,9 +185,11 @@ def parse_show(rest):
                 it[k] = v
         if m.group(4) and m.group(4) != "top":
             it["sayAt"] = m.group(4)   # 画面いっぱいの写真の吹き出しの位置（既定は上の中央。写真の顔や像に重なるときに left・right・bottom）
-        if m.group(5):
-            it["frame"] = m.group(5) == "frame"
-        if m.group(6):
+        if m.group("sayline") and m.group("sayline") != "1":
+            it["sayLine"] = int(m.group("sayline"))   # 吹き出しを、この画面の N 個目のせりふが始まる時に出す（前は、いつも画面の頭で出た）
+        if m.group(6):   # 名前つきの sayline も番号を取る（5 番）ので、frame は 6 番・big は 7 番
+            it["frame"] = m.group(6) == "frame"
+        if m.group(7):
             it["big"] = True     # 画面いっぱいの写真の名札を、題のように大きく出す
         shot["items"].append(it)
     if not shot["items"]:
@@ -228,6 +235,7 @@ def parse(text):
         line = raw.strip()
         if not line or line.startswith("//"):
             continue
+        line = strip_note(line)
         if line.startswith("# "):
             new_chapter(line[2:].strip())
             continue
@@ -573,9 +581,14 @@ def resolve_faces(chapters, cast):
         face_labels = {f.split("#")[0] for f in faces}
         want_face, want_tags = None, []
         for o in list(opts) + ([legacy_pose] if legacy_pose else []):
-            m = OPT_RE.match(o)
+            forced = re.match(r"^(?:body|体)[:：]\s*(.+)$", o)   # body:bow — 動きと同じ名前の体・持ち物（弓の bow と、おじぎの bow）を名指しする
+            m = OPT_RE.match(forced.group(1) if forced else o)
             lab, num, lv = m.group(1), m.group(2), m.group(3)
-            if lab in MOTIONS:
+            if forced:
+                want_tags.append(lab + (num or ""))
+            elif lab in MOTIONS:
+                if lab in body_tags:
+                    warn("%s の（%s）は、動き（%s）として扱います。同じ名前の体・持ち物にするなら body:%s と書く" % (name, o, LABELS["motions"].get(lab, lab) if isinstance(LABELS["motions"], dict) else lab, lab))
                 out["motion"] = lab
                 if lv:
                     out["mlv"] = 3 if lv == "+" else 1
@@ -1306,7 +1319,8 @@ def stage_images(meta, chapters, base):
 
 
 def embed_font(name, text):
-    """字幕の書体（fonts.json の名前）を、使う字だけにして埋め込む形にする。fontTools が無ければ None（OS の書体で描く）。"""
+    """字幕の書体（fonts.json の名前）を、使う字だけにして埋め込む形にする。fontTools が無ければ、書体をまるごと埋め込む
+    （HTML が 3〜5MB 大きくなる。前は OS の書体で描いていて、作る環境によって字幕の書体が変わった）。"""
     cat = json.load(open(os.path.join(HERE, "fonts.json"), encoding="utf-8"))
     path = os.path.join(HERE, "fonts", cat.get(name, {}).get("file", "-"))
     if not os.path.isfile(path):
@@ -1316,8 +1330,11 @@ def embed_font(name, text):
         from fontTools import subset
         from fontTools.ttLib import TTFont
     except ImportError:
-        print("warn: fontTools がありません（pip install fonttools）。字幕は OS の書体で描きます", file=sys.stderr)
-        return None
+        import base64
+        data = open(path, "rb").read()
+        print("warn: fontTools がありません（pip install fonttools）。書体 %s をまるごと埋め込みます（HTML が %.1fMB 大きくなる）" % (name, len(data) * 4 / 3 / 1048576), file=sys.stderr)
+        kind = "otf" if path.lower().endswith(".otf") else "ttf"
+        return {"family": "MVCast", "src": "data:font/%s;base64,%s" % (kind, base64.b64encode(data).decode("ascii")), "weight": 800}
     import base64, io
     font = TTFont(path)
     opt = subset.Options()

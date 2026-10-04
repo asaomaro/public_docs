@@ -35,6 +35,22 @@ def text(s):
     return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", "", s or ""))).strip()
 
 
+def author(raw):
+    """Commons の作者欄から、名前だけを取り出す。作者欄には定型文や連絡先がそのまま入っていることがあり、
+    クレジットに「No machine-readable author provided. …」「You must credit this…」「…[user: …, mail: …」と出ていた。"""
+    s = text(raw)
+    m = re.search(r"No machine-readable author provided\.\s*(.+?)\s+assumed", s)
+    if m:
+        s = m.group(1)
+    s = re.split(r"\s*(?:\[|\(talk\b|\(User talk|\bYou (?:must|may|can)\b|\bPlease\b|\bThis (?:file|image|photo)\b|\bI, the\b|https?://|\bmail\b|\bE-?mail\b)", s)[0]
+    s = re.sub(r"^(?:Photo(?:graph)?(?: taken)? by|Photographer|Author|Creator|Original uploader was|撮影者?|作者)\s*[:：]?\s*", "", s, flags=re.I)
+    s = re.sub(r"\s+(?:at|from)\s+(?:English|German|French|Japanese|Dutch|\w+)\s+Wikipedia$", "", s)
+    s = s.strip(" ,.;:-—–()（）「」\"'")
+    if len(s) > 60:   # 長い名前は、語の切れ目で切る
+        s = re.sub(r"\s+\S*$", "", s[:61]).rstrip(" ,") + "…"
+    return s
+
+
 def kind(short):
     """ライセンスの短い名前 → pd・cc0・by・by-sa・その他"""
     s = (short or "").lower()
@@ -49,16 +65,18 @@ def kind(short):
     return "other"
 
 
-def commons(q, n, width):
-    p = {"action": "query", "format": "json", "generator": "search", "gsrsearch": q + " filetype:bitmap|drawing", "gsrnamespace": 6, "gsrlimit": min(50, n * 4),
-         "prop": "imageinfo", "iiprop": "url|size|mime|extmetadata", "iiurlwidth": width, "maxlag": 5}
+def commons(q, n, width, category=False):
+    """Commons を探す。category=True は、その名前のカテゴリに入っているファイルの一覧（固有名詞は、全文検索より当たる）。"""
+    gen = ({"generator": "categorymembers", "gcmtitle": q if q.startswith("Category:") else "Category:" + q, "gcmtype": "file", "gcmlimit": min(50, n * 4)} if category else
+           {"generator": "search", "gsrsearch": q + " filetype:bitmap|drawing", "gsrnamespace": 6, "gsrlimit": min(50, n * 4)})
+    p = dict({"action": "query", "format": "json", "prop": "imageinfo", "iiprop": "url|size|mime|extmetadata", "iiurlwidth": width, "maxlag": 5}, **gen)
     pages = (get(COMMONS + "?" + urllib.parse.urlencode(p)).get("query") or {}).get("pages", {})
     out = []
-    for pg in sorted(pages.values(), key=lambda x: x.get("index", 0)):
+    for pg in sorted(pages.values(), key=lambda x: (x.get("index", 0), x.get("title", ""))):
         ii = (pg.get("imageinfo") or [{}])[0]
         md = {k: v.get("value", "") for k, v in (ii.get("extmetadata") or {}).items()}
         out.append({"id": pg["title"], "title": text(md.get("ObjectName")) or re.sub(r"^File:|\.\w+$", "", pg["title"]), "w": ii.get("width"), "h": ii.get("height"),
-                    "license": text(md.get("LicenseShortName")), "license_url": md.get("LicenseUrl", ""), "author": text(md.get("Artist")) or text(md.get("Credit")),
+                    "license": text(md.get("LicenseShortName")), "license_url": md.get("LicenseUrl", ""), "author": author(md.get("Artist")) or author(md.get("Credit")),
                     "desc": text(md.get("ImageDescription"))[:120], "url": ii.get("thumburl") or ii.get("url"), "page": ii.get("descriptionurl", ""),
                     "note": text(md.get("Restrictions")), "from": "Wikimedia Commons"})
     return out
@@ -81,7 +99,7 @@ def usable(e, sa):
 def credit(e):
     """クレジット。short は締めの画面に出す短い形、full は概要欄に書く形。"""
     k = kind(e["license"])
-    who = e["author"][:40] if e["author"] else "作者不明"
+    who = e["author"] or "作者不明"
     if e["author"] and not re.search(r"[^\W_]", e["author"]):   # 記号だけの作者名（Flickr の「*_*」など）は、名前に見えない。どこの利用者かを添える
         who = "%s の %s" % (e["from"], who)
     short = "%s（%s）" % (who, e["license"]) if k in ("by", "by-sa") else "%s（%s）" % (e["from"], "パブリックドメイン" if k == "pd" else "CC0")
@@ -106,21 +124,24 @@ def main():
     s.add_argument("--source", choices=["commons", "openverse"], default="commons")
     s.add_argument("-n", type=int, default=8)
     s.add_argument("--sa", action="store_true", help="CC BY-SA も出す")
+    s.add_argument("--category", action="store_true", help="query を Commons のカテゴリ名とみて、その中のファイルを出す（固有名詞の写真は、検索よりこちらが当たる）")
     g = sub.add_parser("get", help="取る")
     g.add_argument("id", help="search の番号か、File:… の名前")
     g.add_argument("--as", dest="name", required=True, help="保存する名前（拡張子なし）")
     g.add_argument("--out", default="images", help="保存するフォルダ（既定: images）")
     g.add_argument("--sa", action="store_true")
-    ap.add_argument("--width", type=int, default=1280)
+    ap.add_argument("--width", type=int, default=1920, help="取る幅（既定 1920。元がこれより小さければ元のまま。前は 1280 で、1920×1080 の動画では写真がぼやけた）")
     a = ap.parse_args()
     if a.cmd == "search":
-        found = (commons if a.source == "commons" else openverse)(a.query, a.n, a.width)
+        found = commons(a.query, a.n, a.width, a.category) if a.source == "commons" else openverse(a.query, a.n, a.width)
         ok = [e for e in found if usable(e, a.sa) and (e["w"] or 0) >= 400][:a.n]
         os.makedirs(os.path.dirname(LAST), exist_ok=True)
         json.dump(ok, open(LAST, "w", encoding="utf-8"), ensure_ascii=False)
         for i, e in enumerate(ok, 1):
             print(listing(i, e))
         print("%d 件（見つかった %d 件のうち、使えるライセンスのもの）" % (len(ok), len(found)))
+        if a.category and not found:
+            print("note: カテゴリ「%s」が Commons にありません。英語の名前で（例: \"Lake Hillier\"）。Commons のそのページの下にある「Category:…」の名前を使います" % a.query)
         return
     if a.id.isdigit():
         last = json.load(open(LAST, encoding="utf-8")) if os.path.isfile(LAST) else []
@@ -136,7 +157,7 @@ def main():
         ii = pg[0]["imageinfo"][0]
         md = {k: v.get("value", "") for k, v in (ii.get("extmetadata") or {}).items()}
         e = {"id": title, "title": text(md.get("ObjectName")) or re.sub(r"^File:|\.\w+$", "", title), "w": ii.get("width"), "h": ii.get("height"),
-             "license": text(md.get("LicenseShortName")), "license_url": md.get("LicenseUrl", ""), "author": text(md.get("Artist")) or text(md.get("Credit")),
+             "license": text(md.get("LicenseShortName")), "license_url": md.get("LicenseUrl", ""), "author": author(md.get("Artist")) or author(md.get("Credit")),
              "url": ii.get("thumburl") or ii.get("url"), "page": ii.get("descriptionurl", ""), "note": text(md.get("Restrictions")), "from": "Wikimedia Commons"}
     if not usable(e, a.sa):
         sys.exit("error: この画像のライセンス（%s）は使えません（パブリックドメイン・CC0・CC BY だけ。CC BY-SA は --sa）" % (e["license"] or "不明"))

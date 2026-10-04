@@ -108,7 +108,7 @@ def run(path, facts_path=None):
     head = re.match(r"^---\s*\n(.*?)\n---\s*\n", text, re.S)
     off = text[:head.end()].count("\n") if head else 0
     nos = [off + i for i, raw in enumerate(text[head.end() if head else 0:].splitlines(), 1)
-           if raw.strip() and not raw.strip().startswith(("//", "# ", "@", ">", "＞")) and not K.PAUSE_RE.match(raw.strip()) and K.LINE_RE.match(raw.strip())]
+           if raw.strip() and not raw.strip().startswith(("//", "# ", "@", ">", "＞")) and not K.PAUSE_RE.match(K.strip_note(raw.strip())) and K.LINE_RE.match(K.strip_note(raw.strip()))]
     L, scenes = [], []
     for ci, ch in enumerate(chapters):
         for sc in ch["scenes"]:
@@ -480,7 +480,7 @@ def run(path, facts_path=None):
     else:
         ftext = open(fp, encoding="utf-8").read()
         fnorm = norm(ftext)
-        facts = [x for x in ftext.splitlines() if re.match(r"^\s*-\s*\[F\d+\]", x)]
+        facts = [x for x in ftext.splitlines() if re.match(r"^\s*-\s*\[[^\]\s]{1,12}\]", x)]   # [F1]・[A1]・[事3] など（前は [F数字] だけを数え、ほかの付け方では「事実 0 件」と出た）
         for x in facts:
             if "http" not in x:
                 R.add("warn", "出典", "出典の URL が無い事実: %s" % x.strip()[:40])
@@ -507,12 +507,14 @@ def run(path, facts_path=None):
     else:
         t = open(fc, encoding="utf-8").read()
         vs = re.findall(r"(?m)^- 判定:[ \t]*(\S*)", t)
-        left = [v for v in vs if v.startswith(("食い違う", "言いすぎ", "確かめられない"))]
+        # 直した主張には、その主張の所に「- 反映: 直した中身」を書き足す（書いたものは、直す所から外す。前は、直しても件数が減らなかった）
+        blocks = re.split(r"(?m)^(?=- 判定:)", t)[1:]
+        left = [b for b in blocks if re.match(r"- 判定:[ \t]*(?:食い違う|言いすぎ|確かめられない)", b) and not re.search(r"(?m)^\s*- 反映:[ \t]*\S", re.split(r"(?m)^#{1,6} ", b)[0])]
         stats["ファクトチェック"] = "%d 件（直す所 %d・判定なし %d）" % (len(vs), len(left), sum(1 for v in vs if not v))
         if any(not v for v in vs):
             R.add("warn", "仕上げ", "ファクトチェックに、判定の無い主張が %d 件あります" % sum(1 for v in vs if not v))
         if left:   # 直したかどうかは、ここからは分からない（結果のファイルは直す前の台本を見たもの）
-            R.add("info", "仕上げ", "ファクトチェックで直す所が %d 件出ています（食い違う・言いすぎ・確かめられない）。台本に反映したかを確かめる" % len(left))
+            R.add("info", "仕上げ", "ファクトチェックで直す所が %d 件残っています（食い違う・言いすぎ・確かめられない）。台本を直したら、その主張の所に「- 反映: 直した中身」を書き足す" % len(left))
     rv = stem + ".review.md"
     if not os.path.isfile(rv):
         R.add("info", "仕上げ", "見直しがまだです（review.md の観点。別のエージェントに渡す）")

@@ -358,13 +358,24 @@ class Record(unittest.TestCase):
             sel = lambda: b.eval("[].map.call(document.querySelectorAll('select[data-mv^=rec]'),function(e){return e.getAttribute('data-mv')+'='+e.value}).join(' ')")
             b.open(html)
             self.assertEqual(sel(), "recsize=1080 recbps=0 recfps=30 recabps=192 recfmt=webm")   # ⚙ の既定: 1920×1080・自動・30 コマ・192kbps・WebM
-            info = record.record(b, html, out, None, log=lambda *a: None)   # 何も付けずに押す = プレイヤーの既定で録る
+            off = os.path.join(d, "o.webm")
+            oi = record.record_offline(b, html, off, {"size": "1080", "fps": "30"}, log=lambda *a: None)   # 1 コマずつの書き出し（既定の方式）
+            og = record.probe(b, off, os.path.join(d, "o.png"), .5)
+            o60 = record.record_offline(b, html, os.path.join(d, "o60.webm"), {"size": "720", "fps": "60"}, log=lambda *a: None)
+            info = record.record(b, html, out, None, log=lambda *a: None)   # 前の方式: 何も付けずにボタンを押す = プレイヤーの既定で録る
             got = record.probe(b, out, os.path.join(d, "r.png"), .5)
             small = os.path.join(d, "s.webm")
             record.record(b, html, small, {"size": "720", "bps": 1, "fps": "30", "abps": 128, "fmt": "vp8"}, log=lambda *a: None)
             got2 = record.probe(b, small, os.path.join(d, "s.png"), .5)
         finally:
             b.close()
+        # 1 コマずつの書き出し: コマが 1 つも抜けない（前は再生しながら録っていて、機械が遅いとコマが抜けた）・長さが台本どおり・音が入る・好きな所へ飛べる
+        self.assertEqual((oi["frames"], oi["want"]), (90, 90))
+        self.assertEqual((og["w"], og["h"]), (1920, 1080))
+        self.assertEqual((o60["frames"], o60["size"]), (180, (1280, 720)))   # コマ数も選べる（60 コマ/秒）
+        self.assertLess(abs(og["dur"] - 3.0), .1)
+        self.assertEqual(sorted(record.tracks(off)), ["A_OPUS", "V_VP9"])
+        self.assertFalse(shoot.is_blank(open(os.path.join(d, "o.png"), "rb").read()))
         self.assertEqual((got["w"], got["h"]), (1920, 1080))   # 既定は 1920×1080（前は 1280×720 に決め打ちだった）
         self.assertEqual((got2["w"], got2["h"]), (1280, 720))   # 解像度・画質・形式を選べる
         self.assertIn("V_VP8", record.tracks(small))
@@ -374,3 +385,79 @@ class Record(unittest.TestCase):
         tr = record.tracks(out)
         self.assertTrue(any(t.startswith("V_") for t in tr) and any(t.startswith("A_") for t in tr), tr)
         self.assertFalse(shoot.is_blank(open(os.path.join(d, "r.png"), "rb").read()))
+
+    def test_parallel_export_joins_every_frame(self):
+        """動画を区間に分け、Chrome を 2 つ動かして同時に書き出す。つないだ後も、コマが 1 つも抜けず、時刻が順に並ぶ。"""
+        import shutil
+        import build
+        import record
+        import shoot
+        import webm
+        chrome = next((c for c in ("google-chrome", "chromium", "chromium-browser", "chrome") if shutil.which(c)), None)
+        if not chrome:
+            self.skipTest("Chrome が無い")
+        d = fakes.tmpdir()
+        path = fakes.write_json(os.path.join(d, "p.json"), {"title": "並べて書き出す", "lang": "ja", "audio": {"narration": False, "music": "calm", "sfx": True},
+                                                          "chapters": [{"title": "a", "scenes": [{"type": "title", "title": "並べて書き出す", "duration": 9}, {"type": "statement", "lines": ["後半"], "duration": 9}]}]})
+        html, out = os.path.join(d, "p.html"), os.path.join(d, "p.webm")
+        with fakes.quiet():
+            open(html, "w", encoding="utf-8").write(build.build_html(build.load(path), "midnight", "studio", True))
+        seen = []
+        real = webm.Writer.add_video
+
+        def add_video(self2, ms, data, key=False):
+            seen.append((ms, key))
+            return real(self2, ms, data, key)
+        b = shoot.Browser(chrome, (1280, 720), record.FLAGS)
+        try:
+            with mock.patch.object(webm.Writer, "add_video", add_video):
+                info = record.record_offline(b, html, out, {"size": "720", "fps": "30"}, log=lambda *a: None, jobs=2, browser=lambda: shoot.Browser(chrome, (1280, 720), record.FLAGS))
+            got = record.probe(b, out, os.path.join(d, "p.png"), .75)   # 2 つめの区間の中
+        finally:
+            b.close()
+        self.assertEqual(info["jobs"], 2)
+        self.assertEqual((info["frames"], len(seen)), (info["want"], info["want"]))
+        self.assertEqual([m for m, _ in seen], sorted(set(m for m, _ in seen)))   # 時刻が順で、重なりも抜けも無い
+        self.assertTrue(all(k for m, k in seen if m % 2000 == 0))   # 2 秒ごとのキーフレーム（区間の頭もここにそろう）
+        self.assertLess(abs(got["dur"] - info["dur"]), .1)
+        self.assertFalse(shoot.is_blank(open(os.path.join(d, "p.png"), "rb").read()))
+        self.assertEqual([f for f in os.listdir(d) if f.startswith("mv-parts-")], [])   # 区間の一時ファイルを残さない
+
+
+class WebM(unittest.TestCase):
+    """webm.py: 映像と音のかたまりを 1 つの WebM にまとめる。"""
+
+    def test_layout(self):
+        import struct
+        import webm
+        d = fakes.tmpdir()
+        path = os.path.join(d, "t.webm")
+        w = webm.Writer(path, 1920, 1080, 30, "V_VP9", {"rate": 48000, "channels": 2})
+        for i in range(50):
+            w.add_audio(i * 20, b"A" * 10)
+        for i in range(30):
+            w.add_video(round(i * 1000 / 30), b"V" * 100, key=i % 10 == 0)
+        res = w.close(1000)
+        data = open(path, "rb").read()
+        self.assertEqual((res["frames"], res["audio"]), (30, 50))
+        self.assertEqual(data[:4], bytes.fromhex("1a45dfa3"))
+        seg = data.index(bytes.fromhex("18538067"))
+        size = int.from_bytes(data[seg + 5:seg + 12], "big")
+        self.assertEqual(seg + 12 + size, len(data))   # 全体の大きさが書いてある（途中で切れたファイルと見分けられる）
+        body = seg + 12
+        cues = data.index(bytes.fromhex("1c53bb6b"))
+        pos = [int.from_bytes(data[m + 2:m + 10], "big") for m in range(cues, len(data)) if data[m:m + 2] == b"\xf1\x88"][:3]
+        self.assertEqual(len(pos), 3)   # キーフレームごとに 1 つ（0・10・20 コマめ）
+        for p in pos:   # 索引は、かたまりの頭を指す
+            self.assertEqual(data[body + p:body + p + 4], bytes.fromhex("1f43b675"))
+        self.assertEqual(struct.unpack(">d", data[data.index(bytes.fromhex("4489")) + 3:][:8])[0], 1000.0)
+        self.assertEqual(data.count(b"V" * 100), 30)
+        self.assertEqual(data.count(b"A" * 10 ) >= 50, True)
+        self.assertEqual([f for f in os.listdir(d) if f != "t.webm"], [])   # 一時ファイルを残さない
+
+    def test_first_frame_must_be_key(self):
+        import webm
+        w = webm.Writer(os.path.join(fakes.tmpdir(), "t.webm"), 16, 16, 30)
+        with self.assertRaises(ValueError):
+            w.add_video(0, b"x", key=False)
+        w.abort()
