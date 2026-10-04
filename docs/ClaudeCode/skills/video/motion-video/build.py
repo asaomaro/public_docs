@@ -1067,7 +1067,10 @@ PLAYER_CSS = r"""
 .mv-sec{display:flex;align-items:center;gap:4px}
 .mv-morewrap{position:relative;display:flex;align-items:center;gap:4px}
 #mv-more{display:none}
-.mv-volwrap{display:inline-flex;align-items:center}
+.mv-volwrap{position:relative;display:inline-flex;align-items:center}
+/* 音量の数字: つまみ・↑↓ で動かした間だけ、つまみの上に出す */
+.mv-volpct{position:absolute;bottom:calc(100% + 8px);transform:translateX(-50%);background:var(--c-bg);color:var(--c-accent);font-family:ui-monospace,Menlo,monospace;
+  font-size:12px;line-height:1.4;font-variant-numeric:tabular-nums;padding:4px 8px;border-radius:6px;white-space:nowrap;pointer-events:none;border:1px solid var(--c-line);z-index:2}
 .mv-vol{width:76px;margin:0 6px 0 0;accent-color:var(--c-accent);cursor:pointer;height:20px}
 .mv-vol:focus-visible{outline:2px solid var(--c-accent);outline-offset:2px;border-radius:4px}
 @media(max-width:640px){.mv-vol{width:56px}}
@@ -1230,7 +1233,7 @@ def build_fragment(spec, theme_key, player, uid=None, export=True):
         + btn("mv-more", "そのほかの操作（音声・字幕・速度・チャプター・設定）", ICON["more"], ' aria-haspopup="true" aria-expanded="false" aria-controls="mv-morepanel"')
         + '<div class="mv-sec" id="mv-morepanel"%s>' % (" hidden" if minimal else "")
         + '<span class="mv-volwrap">' + btn("mv-audio", "音声", ICON["audio"], ' aria-pressed="true"')
-        + '<input type="range" class="mv-vol" id="mv-vol" min="0" max="100" step="5" value="100" aria-label="音量" title="音量（↑ ↓）"></span>'
+        + '<input type="range" class="mv-vol" id="mv-vol" min="0" max="100" step="5" value="100" aria-label="音量" title="音量（↑ ↓）"><span class="mv-volpct" id="mv-volpct" aria-hidden="true" hidden></span></span>'
         + btn("mv-cc", "字幕", ICON["cc"], ' aria-pressed="true"')
         + '<label class="mv-speed" title="再生速度"><select id="mv-speed" aria-label="再生速度">'
         + "".join('<option value="%s"%s>%s×</option>' % (v, " selected" if v == "1" else "", v) for v in ["0.5", "0.75", "1", "1.25", "1.5", "2"])

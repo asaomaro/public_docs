@@ -2759,7 +2759,14 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   function setVol(v, user) { VOL = Math.round(clamp(v) * 100) / 100; store.set("vol", String(VOL)); var el = $("mv-vol");
     if (el) { el.value = String(Math.round(VOL * 100)); el.setAttribute("aria-valuetext", Math.round(VOL * 100) + "%"); }
     if (user && VOL > 0 && !audioOn) setAudio(true);   /* 切のときに音量を上げたら入にする（読み上げは次の字幕から） */
-    if (ac && master) master.gain.setTargetAtTime(audioOn ? VOL : 0, ac.currentTime, .03); }
+    if (ac && master) master.gain.setTargetAtTime(audioOn ? VOL : 0, ac.currentTime, .03);
+    if (user) showVol(el); }
+  /* 動かした間だけ、つまみの上に % を出す（つまみが隠れている幅では、スピーカーの上） */
+  var volTimer = 0;
+  function showVol(el) { var tip = $("mv-volpct"); if (!tip) return; var w = el ? el.offsetWidth : 0, wrap = tip.parentNode;
+    tip.textContent = Math.round(VOL * 100) + "%"; tip.hidden = false;
+    tip.style.left = (w ? el.offsetLeft + 8 + (w - 16) * VOL : wrap.offsetWidth / 2) + "px";
+    clearTimeout(volTimer); volTimer = setTimeout(function () { tip.hidden = true; }, 1200); }
   on("mv-vol", "input", function (e) { setVol(+e.target.value / 100, true); });
   on("mv-fs", "click", function () { try { if (document.fullscreenElement) document.exitFullscreen().catch(function () {}); else if (root.requestFullscreen) root.requestFullscreen().catch(function () {}); } catch (e) {} });
   document.addEventListener("fullscreenchange", function () { setTimeout(resize, 50); });
