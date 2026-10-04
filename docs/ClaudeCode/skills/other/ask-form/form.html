@@ -90,7 +90,9 @@ if (VIEWS.length) {
     let node;
     if (v.kind === 'html' || v.kind === 'markdown') {   // Markdown は、整形して見せるページ（viewer.html）を同じ枠で読む
       node = document.createElement('iframe');
-      node.setAttribute('sandbox', 'allow-scripts');   // スクリプトだけ。allow-popups（URL に本文を載せて外へ出せる）・allow-downloads は付けない（Sodashitsu の画面内の枠と同じ）
+      // HTML はスクリプトだけ（allow-popups は付けない: URL に本文を載せて外へ出せる）。Markdown の枠だけ、スクリプトが動かないので、リンクを新しいタブで開けるよう popup を許す。allow-downloads・allow-same-origin は付けない
+      if (v.kind === 'markdown') node.setAttribute('sandbox', 'allow-scripts allow-popups allow-popups-to-escape-sandbox');
+      else node.setAttribute('sandbox', 'allow-scripts');
       node.referrerPolicy = 'no-referrer';
       node.title = v.title;
       node.src = SPEC._viewBase + v.src;
