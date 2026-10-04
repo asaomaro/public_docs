@@ -11,7 +11,7 @@
 html,body{margin:0;height:100%}
 body{background:#f6f7f9;color:#1c2330;
   font:14px/1.6 "Segoe UI","Hiragino Kaku Gothic ProN","Yu Gothic UI","Noto Sans JP",system-ui,sans-serif}
-ask-form{height:100vh;
+ask-form{height:calc(100vh - var(--warn-h,0px));
   --ask-bg:#f6f7f9;--ask-card:#fff;--ask-fg:#1c2330;--ask-muted:#667085;--ask-border:#dfe3ea;
   --ask-accent:#2f5fe0;--ask-accent-soft:#edf2ff;--ask-accent-fg:#fff;--ask-error:#b4540a;--ask-warn:#b4540a}
 @media (prefers-color-scheme:dark){
@@ -21,9 +21,13 @@ ask-form{height:100vh;
 }
 .end{padding:60px 22px;text-align:center;opacity:.7}
 /* 成果物を見せる枠（定義に view があるとき）。左に成果物、右に質問。成果物の中身は部品に入れない（HTML は隔離した枠で出す） */
-#app{height:100vh}
+#app{height:calc(100vh - var(--warn-h,0px))}
 body.has-view #app{display:flex}
-body.has-view ask-form{flex:none;width:var(--form-w,430px);height:100vh;border-left:1px solid var(--line)}
+body.has-view ask-form{flex:none;width:var(--form-w,430px);height:calc(100vh - var(--warn-h,0px));border-left:1px solid var(--line)}
+/* 画像・音を出せなかった件数の固定の行（ask.py が決めた件数だけを数字で入れる。定義の文字は使わない） */
+#warn{margin:0;padding:5px 14px;font-size:12.5px;background:#fff4e5;color:#b4540a;border-bottom:1px solid #f0d2a8}
+@media (prefers-color-scheme:dark){#warn{background:#2a2216;color:#f0a35a;border-color:#4a3a22}}
+#warn[hidden]{display:none}
 #viewer{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;--line:#dfe3ea;--muted:#667085;--accent:#2f5fe0;--card:#fff}
 #viewer[hidden],#tabs[hidden]{display:none}
 #tabs{flex:none;display:flex;gap:4px;align-items:center;padding:8px 10px 0;border-bottom:1px solid var(--line);overflow-x:auto}
@@ -43,6 +47,7 @@ body.has-view ask-form{flex:none;width:var(--form-w,430px);height:100vh;border-l
 </style>
 </head>
 <body>
+<p id="warn" data-ask-warnings hidden></p>
 <div id="app">
 <section id="viewer" hidden aria-label="成果物"><div id="tabs" role="tablist"></div><div id="stage"></div></section>
 <ask-form id="form" tabindex="-1"></ask-form>
@@ -85,7 +90,7 @@ if (VIEWS.length) {
     let node;
     if (v.kind === 'html' || v.kind === 'markdown') {   // Markdown は、整形して見せるページ（viewer.html）を同じ枠で読む
       node = document.createElement('iframe');
-      node.setAttribute('sandbox', 'allow-scripts allow-popups allow-downloads');
+      node.setAttribute('sandbox', 'allow-scripts');   // スクリプトだけ。allow-popups（URL に本文を載せて外へ出せる）・allow-downloads は付けない（Sodashitsu の画面内の枠と同じ）
       node.referrerPolicy = 'no-referrer';
       node.title = v.title;
       node.src = SPEC._viewBase + v.src;
@@ -121,6 +126,19 @@ if (VIEWS.length) {
     tabs.children[to].focus();
   });
   show(0);
+}
+
+// ── 画像・音を出せなかった件数（固定の文。件数は数字だけ入れる）──
+const warn = document.getElementById('warn');
+{
+  const img = Number(SPEC._mediaFailed) | 0, aud = Number(SPEC._audioSkipped) | 0, parts = [];
+  if (img > 0) parts.push('画像 ' + img + ' 件を取得できませんでした（プレビューなしで出しています）');
+  if (aud > 0) parts.push('外部 URL の音 ' + aud + ' 件は出せません');
+  if (parts.length) {
+    warn.textContent = parts.join('。');
+    warn.hidden = false;
+    document.documentElement.style.setProperty('--warn-h', Math.ceil(warn.getBoundingClientRect().height) + 'px');
+  }
 }
 
 // ── 部品に定義を渡す ──
@@ -182,7 +200,7 @@ function fit(tries) {
     return;
   }
   try {
-    const frame = outerHeight - innerHeight;
+    const frame = outerHeight - innerHeight + (warn.hidden ? 0 : warn.offsetHeight);   // 固定の行の分も、枠と同じ扱い
     const cap = Math.min(SPEC._maxHeight || 820, screen.availHeight - 40);
     if (VIEWS.length) {   // 成果物を見せるときは、幅も高さも使えるだけ使う（中身に合わせて縮めない）
       const w = Math.min(SPEC._width || outerWidth, screen.availWidth - 20);

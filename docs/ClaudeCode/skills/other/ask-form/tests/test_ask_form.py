@@ -502,11 +502,11 @@ class View(unittest.TestCase):
         self.addCleanup(server.shutdown)
         return state, "http://127.0.0.1:%d" % server.server_address[1], page
 
-    def open(self, spec):
+    def open(self, spec, media_failed=0, audio_skipped=0):
         """殻のページを、画面なしの Chrome で開く（通信は偽物に差し替える。送ったものは window.SENT に残る）。"""
         spec = ask.normalize(spec)
         spec.pop("_files"), spec.pop("_views")
-        spec.update(_auto=False, _width=1400, _maxHeight=1000)
+        spec.update(_auto=False, _width=1400, _maxHeight=1000, _mediaFailed=media_failed, _audioSkipped=audio_skipped)
         page = ask.build_page(spec, "tok-view").replace('<div id="app">', self.STUB + '<div id="app">', 1)
         c = self.chrome
         path = os.path.join(c.dir, "view%d.html" % c.n)
@@ -553,7 +553,7 @@ class View(unittest.TestCase):
                   index:R.querySelector('.index')?!R.querySelector('.index').hidden:false,inForm:R.querySelectorAll('iframe').length,
                   questions:[].slice.call(R.querySelectorAll('[data-ask-question]')).filter(function(x){return !x.hidden}).map(function(x){return x.dataset.askQuestion})}})()""")
         self.assertNotIn("allow-same-origin", got["sandbox"])         # 同じ origin として扱わない（回答の受け口・親の画面に触れない）
-        self.assertIn("allow-scripts", got["sandbox"])
+        self.assertEqual(got["sandbox"], "allow-scripts")             # スクリプトだけ。popup（URL に本文を載せて外へ出せる）・download は付けない（Sodashitsu の画面内の枠と同じ）
         self.assertEqual((got["src"], got["ref"]), ("/tok-view/view/0", "no-referrer"))   # 回答の受け口とは別の合言葉。親のアドレスも渡さない
         self.assertEqual((got["title"], got["hasView"], got["tabs"], got["inForm"], got["index"]), ("成果物の確認", True, ["doc.html", "notes.txt"], 0, False))
         self.assertEqual(got["questions"], ["decision", "remark"])
@@ -568,8 +568,7 @@ class View(unittest.TestCase):
         state, base, page = self.serve(ask.review_spec([html, md]))
         self.assertNotIn("tok-answer", page)                          # ページの中に、回答の受け口の合言葉を書かない（アドレスからだけ分かる）
         r = urllib.request.urlopen(base + "/tok-view/view/0")
-        self.assertIn("sandbox", r.headers["Content-Security-Policy"])
-        self.assertNotIn("allow-same-origin", r.headers["Content-Security-Policy"])
+        self.assertEqual(r.headers["Content-Security-Policy"], "sandbox allow-scripts")   # 枠の外で開かれても、popup・download・同じ origin は無い
         self.assertEqual(r.headers["Referrer-Policy"], "no-referrer")
         self.assertIn("成果物の本文", r.read().decode("utf-8"))
         self.assertEqual(urllib.request.urlopen(base + "/tok-answer/").headers["Referrer-Policy"], "no-referrer")
@@ -643,6 +642,81 @@ class View(unittest.TestCase):
                 with self.assertRaises(urllib.error.HTTPError) as e:
                     urllib.request.urlopen(base + path)
                 self.assertEqual(e.exception.code, 404)
+
+    def test_sandbox_never_allows_popups_or_downloads(self):
+        """枠の sandbox は 3 か所（ask.py の VIEW_SANDBOX・form.html の iframe・応答のヘッダ）とも「allow-scripts」だけ。Markdown の整形ページの応答も同じ。"""
+        self.assertEqual(ask.VIEW_SANDBOX, "allow-scripts")
+        shell = open(os.path.join(AF, "form.html"), encoding="utf-8").read()
+        self.assertEqual(re.findall(r"setAttribute\('sandbox', '([^']*)'\)", shell), ["allow-scripts"])
+        for word in ("allow-popups", "allow-downloads", "allow-same-origin", "allow-top-navigation", "allow-forms", "allow-modals"):
+            with self.subTest(word):
+                self.assertNotIn(word, re.sub(r"//.*|/\*.*?\*/", "", shell))      # コメントの中の説明は数えない
+        import urllib.request
+        d = helpers.tmpdir()
+        md = os.path.join(d, "design.md")
+        open(md, "w", encoding="utf-8").write(self.MD)
+        state, base, page = self.serve(ask.review_spec([md]))
+        self.assertEqual(urllib.request.urlopen(base + "/tok-view/view/0").headers["Content-Security-Policy"], "sandbox allow-scripts")
+        self.assertEqual(urllib.request.urlopen(base + "/tok-view/lib/marked.umd.js").headers["Content-Security-Policy"], "sandbox allow-scripts")
+
+    HOSTILE = ("# 題\n\n[外へのリンク](https://evil.example/x?s=SECRET) と [中のリンク](#sec) と <a href='https://evil.example/raw' target='_blank'>生のリンク</a>\n\n"
+               "<meta http-equiv='refresh' content='0;url=https://evil.example/'>\n<base href='https://evil.example/'>\n<link rel='stylesheet' href='https://evil.example/a.css'>\n"
+               "<form action='https://evil.example/' method='post'><input name='x'></form>\n<iframe src='https://evil.example/'></iframe>\n<object data='https://evil.example/'></object>\n"
+               "<embed src='https://evil.example/'>\n<map name='m'><area href='https://evil.example/'></map>\n"
+               "<svg width='10' height='10'><a href='https://evil.example/svg'><rect width='5' height='5'/></a><set attributeName='href' to='https://evil.example/'/></svg>\n"
+               "<math><mi href='https://evil.example/'>x</mi></math>\n\n"
+               "## sec\n\n```mermaid\ngraph LR\n  A[\"<a href='https://evil.example/label'>ラベル</a>\"] --> B\n  click A href \"https://evil.example/click\"\n```\n\n"
+               "```mermaid\nflowchart LR\n  X[<b>太字</b>] --> Y\n  click X href \"https://evil.example/click2\" _blank\n```\n")
+
+    def test_markdown_page_drops_hostile_elements_and_links(self):
+        """Markdown の整形ページ: meta refresh・base・link・form・iframe・svg・math・area・SMIL と、リンクの href（mermaid の図の中も）が残らない。リンクは文字として残り、行き先は title に出る。"""
+        c = self.chrome
+        ready = "new Promise(function(ok){var n=0;function w(){(document.documentElement.dataset.ready||!document.getElementById('source').hidden||++n>150)?setTimeout(ok,100):setTimeout(w,100)};w()})"
+        path = os.path.join(c.dir, "hostile%d.html" % c.n)
+        open(path, "w", encoding="utf-8").write(ask.markdown_page(self.HOSTILE, "hostile.md", "file://" + os.path.join(AF, "vendor") + "/"))
+        c.call("Page.enable", c.sid)
+        c.call("Page.navigate", c.sid, url="file://" + path)
+        c.eval(ready)
+        got = c.eval("""(function(){var d=document.getElementById('doc'),q=function(s){return d.querySelectorAll(s).length};
+          var h=document.documentElement.outerHTML;
+          return {ready:document.documentElement.dataset.ready||null,h1:d.querySelector('h1')&&d.querySelector('h1').textContent,
+            bad:q('meta,base,link,form,iframe,frame,object,embed,map,area,script,set,animate,animateTransform,animateMotion,svg:not(.mermaid svg),math'),
+            figs:q('.mermaid svg'),hrefs:q('[*|href]:not([href^="#"])'),
+            anchors:[].slice.call(d.querySelectorAll('a')).map(function(a){return [a.textContent,a.getAttribute('href'),a.getAttribute('title'),a.getAttribute('target')]}),
+            headMeta:document.head.querySelectorAll('meta[http-equiv],base,link').length,
+            smilInFigs:q('.mermaid set,.mermaid animate,.mermaid animateTransform,.mermaid animateMotion'),loc:location.protocol,
+            mermaidA:q('.mermaid a[href],.mermaid a[*|href]'),foreign:q('.mermaid foreignObject')}})()""")
+        self.assertEqual(got["ready"], "1")
+        self.assertEqual((got["h1"], got["bad"], got["hrefs"], got["mermaidA"], got["smilInFigs"], got["headMeta"]), ("題", 0, 0, 0, 0, 0))
+        self.assertEqual(got["loc"], "file:")                                        # 枠自身は動かない
+        self.assertGreaterEqual(got["figs"], 1)                                      # 図そのものは残る
+        links = {a[0]: a[1:] for a in got["anchors"]}
+        self.assertEqual(links["外へのリンク"], [None, "https://evil.example/x?s=SECRET", None])   # 開けない。行き先は title に出す
+        self.assertEqual(links["生のリンク"], [None, "https://evil.example/raw", None])           # target も外す
+        self.assertEqual(links["中のリンク"][0], "#sec")                                        # 同じ文書の中は残す
+
+    def test_markdown_page_source_applies_the_sanitizer_at_both_points(self):
+        """ブラウザが無くても確かめる文字列の検査: 整形の直後と図の挿入後の両方に sanitize を掛け、htmlLabels を切り、リンクを開く設定（target=_blank）を持たない。"""
+        v = open(os.path.join(AF, "viewer.html"), encoding="utf-8").read()
+        self.assertEqual(v.count("inert(marked.parse(SOURCE, { gfm: true }), true)"), 1)
+        self.assertEqual(v.count("inert(svg, false)"), 1)
+        self.assertIn("htmlLabels: false", v)
+        self.assertIn("securityLevel: 'strict'", v)
+        for word in ("_blank", "noopener", "window.open", "location."):
+            with self.subTest(word):
+                self.assertNotIn(word, re.sub(r"//.*", "", v))
+        for tag in ("meta", "base", "form", "iframe", "object", "embed", "area", "map", "script", "svg", "math", "animateMotion", "animateTransform", "set"):
+            with self.subTest(tag):
+                self.assertRegex(v, r"sel = '[^']*\b%s\b|SMIL = '[^']*\b%s\b|sel \+= '[^']*\b%s\b" % (tag, tag, tag))
+
+    def test_failed_images_line(self):
+        """画像・音を出せなかった件数は、窓の固定の行に出る（件数は数字だけ。定義の文字は使わない）。0 件なら出さない。"""
+        spec = {"questions": [{"id": "a", "label": "A", "options": ["x"]}]}
+        self.open(dict(spec), media_failed=2, audio_skipped=1)
+        got = self.chrome.eval("(function(){var w=document.getElementById('warn');return {hidden:w.hidden,text:w.textContent}})()")
+        self.assertEqual(got, {"hidden": False, "text": "画像 2 件を取得できませんでした（プレビューなしで出しています）。外部 URL の音 1 件は出せません"})
+        self.open(dict(spec))
+        self.assertTrue(self.chrome.eval("document.getElementById('warn').hidden"))
 
     def test_bundled_libraries_are_unmodified(self):
         """同梱のライブラリは、配布元のファイルそのまま（vendor/SOURCE.json の sha256 と一致）。ライセンスの文も置いてある。"""

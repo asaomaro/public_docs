@@ -22,6 +22,9 @@ Python3 の標準ライブラリだけで動く。ウィンドウは Chromium �
   ASK_FORM_BROWSER=パス     使うブラウザを指定する
   ASK_FORM_SODA=off         Sodashitsu の pane の中でも、sodactl ask を使わずにウィンドウを開く
 
+窓では、定義の image の外部 URL（https://…）を、ブラウザではなくこの ask.py が取って（remote_image.py。SSRF 対策つき）受け口から配る（利用者の IP が取得先に見えない）。
+取れなかった画像は画像なしで出し、窓の固定の行と標準エラーに知らせる。成果物（HTML）の枠は sandbox="allow-scripts" のみ（popup・download なし）。
+
 Sodashitsu（soda）の pane の中で動いているとき（SODA_PANE_ID があり sodactl が PATH にある）は、
 ウィンドウを開く前に sodactl ask へ渡し、その pane を見ているブラウザの画面にフォームを出す
 （ブラウザが別のマシンでも届く。ASK_FORM=off でも行う）。画像・音・コード・成果物（view）・edit・rank・table を
@@ -32,6 +35,7 @@ Sodashitsu（soda）の pane の中で動いているとき（SODA_PANE_ID が�
   ASK_FORM_REACT_SECONDS=秒 --react-within の既定（90）
 """
 import argparse
+import atexit
 import base64
 import glob
 import json
@@ -41,11 +45,16 @@ import secrets
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
+import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import remote_image  # noqa: E402  外部 URL の画像を ask.py が取る（取得と SSRF 対策。標準ライブラリだけ）
 EXIT = {"answered": 0, "error": 1, "cancelled": 2, "unavailable": 3, "timeout": 4}
 TYPES = ("single", "multi", "text", "edit", "rank", "table")
 CHOICE_TYPES = ("single", "multi", "rank", "table")   # options を持つ型
@@ -60,7 +69,12 @@ VIEW_HTML = {".html": "text/html; charset=utf-8", ".htm": "text/html; charset=ut
 VIEW_MARKDOWN = (".md", ".markdown")   # 整形して見せる（viewer.html が、同梱の marked・mermaid で描く）
 VIEW_LIBS = {"marked.umd.js": "text/javascript; charset=utf-8", "mermaid.min.js": "text/javascript; charset=utf-8"}   # 配ってよい同梱のライブラリ（vendor/）
 VIEW_TEXT_MAX = 2 * 1024 * 1024   # 文字として出すファイルの大きさの上限
-VIEW_SANDBOX = "allow-scripts allow-popups allow-downloads"   # 枠の中に許すこと（同じ origin としては扱わない）
+# 枠の中に許すこと（同じ origin としては扱わない）。Sodashitsu の画面内の枠と同じく、スクリプトだけ。
+# allow-popups は付けない（popup の URL に本文を載せて外へ出せる）・allow-downloads も付けない。form.html の iframe の属性と同じ値にする
+VIEW_SANDBOX = "allow-scripts"
+MEDIA_FILE_MAX = remote_image.MAX_BYTES   # 画像・音 1 ファイルの上限（8 MiB。data: も外部 URL の取得も同じ）
+MEDIA_TOTAL_MAX = 24 * 1024 * 1024        # 外部 URL から取る画像の合計の上限（Sodashitsu の 1 つの質問の合計と同じ）
+MEDIA_REMOTE_MAX = 32                     # 取りに行く外部 URL の数の上限（超えた分は取らず、画像なしで出す）
 TIMEOUT = 540                     # 回答を待つ秒数の既定
 TIMEOUT_VIEW = 3540               # 成果物を見せるときの既定（読む時間が要る）
 OPEN_WAIT = 20      # ウィンドウがつながるまで待つ秒数（超えたら unavailable）
@@ -79,6 +93,15 @@ SELFTEST_SPEC = {
 
 
 # ── 質問の定義を検査して、既定を埋める ─────────────────────────────────────
+def data_uri_size(ref):
+    """data: URI の本文の大きさ（復号した後のバイト数）。"""
+    head, _, payload = ref.partition(",")
+    if head.rstrip().endswith(";base64"):
+        payload = payload.strip()
+        return len(payload) * 3 // 4 - payload.count("=", max(len(payload) - 2, 0))
+    return len(urllib.parse.unquote_to_bytes(payload))
+
+
 class SpecError(ValueError):
     """定義の誤り。reason は誤りの分類（fixtures/normalize.json と、同じ検査をする Sodashitsu とで共通の名前）。"""
 
@@ -98,6 +121,8 @@ def normalize(spec, base_dir="."):
     def local_file(o, key, types, where):
         ref = o.get(key)
         if not ref or re.match(r"^(https?://|data:)", ref):
+            if isinstance(ref, str) and ref.startswith("data:") and data_uri_size(ref) > MEDIA_FILE_MAX:
+                raise SpecError("too_large", "%s: data: が大きすぎます（%d MiB まで）" % (where, MEDIA_FILE_MAX // 1024 // 1024))
             return
         path = os.path.join(base_dir, os.path.expanduser(ref))
         ctype = types.get(os.path.splitext(path)[1].lower())
@@ -266,6 +291,70 @@ def normalize_view(spec, base_dir):
     spec["view"] = out
     spec.setdefault("paging", False)   # 質問の欄は幅が狭いので、目次は出さない（書いてあればそれに従う）
     return served
+
+
+def localize_remote_media(spec, files, tmpdir, fetch=None, workers=4):
+    """定義の image の外部 URL（https://…）を、ask.py が取って一時ファイルに保存し、ローカルのファイルと同じ配り方（file/N）に書き換える。
+    取れなかった画像は、画像なしにする（image を外す）。外部 URL の音（audio）は、Sodashitsu の画面内と同じく出さない（外す）。
+    同じ URL は 1 回だけ取る。取りに行く数・合計の大きさには上限がある（超えた分は取らず、画像なしにする）。
+    → (取れなかった画像の件数〔URL の重複をまとめた数〕, 外した外部 URL の音の件数)。理由は定義の中身を含めず標準エラーに出す。"""
+    fetch = fetch or remote_image.fetch_image
+    slots, audio_skipped = {}, 0
+    for q in spec.get("questions", []):
+        for o in q.get("options", []):
+            ref = o.get("audio")
+            if isinstance(ref, str) and re.match(r"^https?://", ref, re.I):
+                del o["audio"]
+                audio_skipped += 1
+            ref = o.get("image")
+            if isinstance(ref, str) and re.match(r"^https?://", ref, re.I):
+                slots.setdefault(ref, None)
+    if not slots:
+        return 0, audio_skipped
+    urls = list(slots)
+    total, lock = [0], threading.Lock()
+
+    def count(n):
+        with lock:
+            total[0] += n
+            if total[0] > MEDIA_TOTAL_MAX:     # 合計が上限を超えたら、そこで取るのを止める（全部取り終えてから判定しない）
+                raise remote_image.FetchError("total too large")
+
+    def one(i):
+        if i >= MEDIA_REMOTE_MAX:
+            return None, "too many images"
+        try:
+            body, ctype = fetch(urls[i], on_bytes=count)
+        except remote_image.FetchError as e:
+            return None, str(e)
+        except Exception:
+            return None, "error"
+        ext = {"image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/webp": ".webp", "image/avif": ".avif", "image/svg+xml": ".svg"}[ctype]
+        path = os.path.join(tmpdir, "remote%d%s" % (i, ext))
+        with open(path, "wb") as f:
+            f.write(body)
+        return (path, ctype), None
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        results = list(pool.map(one, range(len(urls))))
+    failed = 0
+    for url, (got, why) in zip(urls, results):
+        if got:
+            files.append(got)
+            slots[url] = "file/%d" % (len(files) - 1)
+        else:
+            failed += 1
+            print("ask-form: 外部の画像を取得できませんでした（%s）" % why, file=sys.stderr)   # 宛先は書かない（定義の中身）
+    for q in spec.get("questions", []):
+        for o in q.get("options", []):
+            ref = o.get("image")
+            if isinstance(ref, str) and ref in slots:
+                if slots[ref]:
+                    o["image"] = slots[ref]
+                else:
+                    del o["image"]
+    if audio_skipped:
+        print("ask-form: 外部 URL の音は出せません（%d 件。絶対パスか data: で渡してください）" % audio_skipped, file=sys.stderr)
+    return failed, audio_skipped
 
 
 def markdown_page(text, title, lib="../lib/"):
@@ -814,6 +903,11 @@ def main():
     spec["_auto"] = bool(args.selftest)
     spec["_width"] = args.width
     spec["_maxHeight"] = args.height
+    # 外部 URL の画像は、ブラウザではなくここ（ask.py）が取る。利用者の IP が取得先に見えない。取れなかった画像は、画像なしで出す
+    tmpdir = tempfile.mkdtemp(prefix="ask-form-")
+    atexit.register(shutil.rmtree, tmpdir, True)
+    failed, audio_skipped = localize_remote_media(spec, files, tmpdir)
+    spec["_mediaFailed"], spec["_audioSkipped"] = failed, audio_skipped
     state = State()
     token, vtoken = secrets.token_urlsafe(12), secrets.token_urlsafe(12)
     page = build_page(spec, vtoken)
