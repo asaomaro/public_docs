@@ -1988,6 +1988,15 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     if (sw > 0 && sh > 0) { ctx.save(); path(); ctx.clip(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.filter = "blur(" + (16 * tm.a).toFixed(1) + "px)"; ctx.drawImage(cvs, sx, sy, sw, sh, sx, sy, sw, sh); ctx.restore(); }
     return true;
   }
+  /* すりガラス（好きな形・範囲）: path() の形の中に、後ろの絵をぼかして写す。x・y・w・h は、形を囲む範囲。できない環境では false */
+  function frostIn(path, x, y, w, h, blur) {
+    if (!("filter" in ctx) || !ctx.getTransform) return false;
+    var tm = ctx.getTransform(), cvs = ctx.canvas, pad = blur * 3 * tm.a;
+    var sx = Math.max(0, Math.floor(x * tm.a + tm.e - pad)), sy = Math.max(0, Math.floor(y * tm.d + tm.f - pad)), sw = Math.min(cvs.width - sx, Math.ceil(w * tm.a + 2 * pad)), sh = Math.min(cvs.height - sy, Math.ceil(h * tm.d + 2 * pad));
+    if (sw <= 0 || sh <= 0) return false;
+    ctx.save(); path(); ctx.clip(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.filter = "blur(" + (blur * tm.a).toFixed(1) + "px)"; ctx.drawImage(cvs, sx, sy, sw, sh, sx, sy, sw, sh); ctx.restore();
+    return true;
+  }
   function capBack() {   /* 置きっぱなしの帯・箱（せりふの無い間も出ている） */
     var y = capTop(), m = TALK.caption;
     if (m === "bar") {   /* 後ろをぼかして透かし、暗い色を薄く重ねる（背景を箱の上で切らない。字は太い黒縁なので読める） */
@@ -2115,8 +2124,11 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       var shape = function () { ctx.beginPath(); ctx.moveTo(bx0 + br, by0);
         if (tail) { ctx.lineTo(tail[0], by0); ctx.lineTo(tail[1], tail[2]); ctx.lineTo(tail[3], by0); }
         ctx.arcTo(bx0 + bw, by0, bx0 + bw, by0 + bh, br); ctx.arcTo(bx0 + bw, by0 + bh, bx0, by0 + bh, br); ctx.arcTo(bx0, by0 + bh, bx0, by0, br); ctx.arcTo(bx0, by0, bx0 + bw, by0, br); ctx.closePath(); };
-      ctx.shadowColor = "rgba(0,0,0,.25)"; ctx.shadowBlur = 12; ctx.shadowOffsetY = 4; shape(); ctx.fillStyle = TALK.capFill || "#ffffff"; ctx.fill(); ctx.shadowColor = "transparent";
-      ctx.lineJoin = "round"; ctx.strokeStyle = col; ctx.lineWidth = 7; ctx.stroke();
+      /* 箱は、後ろの写真をわずかにぼかして透かす（すりガラス）。まっ白の箱より写真になじみ、字は読める。できない環境・capFill を書いたときは、今までどおり塗る */
+      var frosted = !TALK.capFill && TALK.bubbleFrost !== false && frostIn(shape, bx0 - 8, by0 - 44, bw + 16, bh + 52, 7);
+      if (frosted) { shape(); ctx.fillStyle = "rgba(255,255,255,.84)"; ctx.fill(); }
+      else { ctx.shadowColor = "rgba(0,0,0,.25)"; ctx.shadowBlur = 12; ctx.shadowOffsetY = 4; shape(); ctx.fillStyle = TALK.capFill || "#ffffff"; ctx.fill(); ctx.shadowColor = "transparent"; }
+      shape(); ctx.lineJoin = "round"; ctx.strokeStyle = col; ctx.lineWidth = 7; ctx.stroke();
       ls.forEach(function (l2, i) { capLine(l2, cx, cy - bh / 2 + 15 + size * .9 + i * lh, o, [], "#20242c", "#d9343f"); });
       ctx.restore(); return; }
     var size2 = (TALK.size || (m === "band" ? 44 : 50)) * (big ? 1.25 : 1), o2 = { size: size2, weight: 800, font: fam }, lh2 = size2 * 1.3, y0 = capTop(), hh = 1080 - y0 - (m === "bar" ? 14 : 0);
