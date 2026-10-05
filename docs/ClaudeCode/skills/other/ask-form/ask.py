@@ -288,7 +288,12 @@ def normalize_view(spec, base_dir, view_text_max=VIEW_TEXT_MAX):
             if os.path.getsize(path) > view_text_max:
                 raise SpecError("view_invalid", "%s: 文字として出すには大きすぎます（%d MB まで。HTML にして渡してください）" % (where, VIEW_TEXT_MAX // 1024 // 1024))
             try:
-                item.update(kind="text", text=open(path, encoding="utf-8").read())
+                if os.path.getsize(path) > VIEW_TEXT_MAX:
+                    # 窓の上限を超えるのは、Sodashitsu がローカル起動で上限を外しているときだけ（view_text_max が緩い）。本文は sodactl ask へ渡す定義（書かれたままのもの）に
+                    # 入るので、ここでは読まない（数百 MiB を読んでから捨てない）。窓へ落ちるときは、従来の上限で検査し直して誤りにする
+                    item.update(kind="text", text="")
+                else:
+                    item.update(kind="text", text=open(path, encoding="utf-8").read())
             except UnicodeDecodeError:
                 raise SpecError("view_invalid", "%s: 文字として読めません（HTML・画像・UTF-8 のテキストを渡してください）" % where)
         out.append(item)
@@ -769,11 +774,12 @@ def soda_effective_limits(info):
     return out
 
 
-def soda_text_unlimited(raw, base_dir, sodactl_path=None):
+def soda_text_limit(raw, base_dir, sodactl_path=None):
     """文字として出す成果物（Markdown・テキスト）が窓の上限（VIEW_TEXT_MAX）を超えるとき、Sodashitsu がローカル起動で上限を外しているか。
-    normalize はこの上限で定義の誤りにするので、外れているときだけ上限を緩めて通すために使う。超える成果物が無ければ、聞かずに偽（余分な呼び出しをしない）。"""
+    normalize はこの上限で定義の誤りにするので、外れているときだけ緩めて通す。返すのは緩めた上限（--features の limits.safety の大きさ。バイト数）で、緩めないときは 0。
+    超える成果物が無ければ、聞かずに 0（余分な呼び出しをしない）。"""
     if os.environ.get("ASK_FORM_SODA", "").lower() in ("off", "0", "no") or not os.environ.get("SODA_PANE_ID"):
-        return False
+        return 0
     view = raw.get("view") if isinstance(raw, dict) else None
     big = False
     for v in view if isinstance(view, list) else [view] if view is not None else []:
@@ -788,8 +794,12 @@ def soda_text_unlimited(raw, base_dir, sodactl_path=None):
                 pass
     sodactl = sodactl_path or shutil.which("sodactl")
     if not big or not sodactl:
-        return False
-    return soda_unlimited(soda_features(sodactl))
+        return 0
+    info = soda_features(sodactl)
+    if not soda_unlimited(info):
+        return 0
+    cap = soda_effective_limits(info).get("textBytes")
+    return cap if isinstance(cap, int) and cap > VIEW_TEXT_MAX else 0
 
 
 def soda_check_limits(paths, views, limits):
@@ -916,8 +926,8 @@ def main():
         base_dir = "." if args.spec in (None, "-") else os.path.dirname(os.path.abspath(args.spec))
         raw_spec = json.loads(json.dumps(spec))   # sodactl ask へは、書かれたままの定義を渡す
         # Sodashitsu がローカル起動で大きさの上限を外しているときだけ、文字の成果物（Markdown・テキスト）の窓の上限（2 MiB）を緩めて通す。窓へ落ちるときは下で厳密に直す
-        relaxed = not args.selftest and not args.review and soda_text_unlimited(raw_spec, base_dir)
-        spec = normalize(spec, base_dir, view_text_max=1 << 60 if relaxed else VIEW_TEXT_MAX)
+        relaxed = 0 if args.selftest or args.review else soda_text_limit(raw_spec, base_dir)
+        spec = normalize(spec, base_dir, view_text_max=relaxed or VIEW_TEXT_MAX)
     except (OSError, ValueError) as e:
         print("ask-form: 質問の定義を読めません: %s" % e, file=sys.stderr)
         sys.exit(EXIT["error"])
