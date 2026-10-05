@@ -2020,6 +2020,27 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       return lines; }
     return [plain.slice(0, best).trim(), plain.slice(best).trim()];
   }
+  /* 吹き出しの折り返し: 語の切れ目で折る（前は 1 字ずつ詰めていて、「わた／くし」「鳥／居」のように語の途中で折れた）。
+     語の切れ目は Intl.Segmenter（日本語の単語）で取る。行の頭に、句読点・閉じかっこ・助詞・小さい仮名を置かない。使えない環境では wrap() */
+  var SEG_JA = typeof Intl !== "undefined" && Intl.Segmenter ? new Intl.Segmenter("ja", { granularity: "word" }) : null;
+  function wrapWords(text, maxW, o) {
+    if (!SEG_JA) return wrap(text, maxW, o);
+    var toks = [], bold = false;
+    String(text).split("**").forEach(function (part, n) {   /* 強調（**…**）の中では折らない */
+      if (n % 2) { toks.push("**" + part + "**"); return; }
+      var it = SEG_JA.segment(part)[Symbol.iterator](), r; while (!(r = it.next()).done) toks.push(r.value.segment); });
+    var glue = /^(?:[、。，．！？!?」』）)…ー〜・：；ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮ々]|は$|が$|を$|に$|で$|と$|も$|の$|へ$|や$|ね$|よ$|な$|か$|わ$|っス$|です$|ます$|って$|から$|まで$|より$|けど$|だ$|た$|て$)/;
+    var units = [];   /* 前の語にくっつけるもの（句読点・助詞・語尾）は、前の語と 1 かたまりにする */
+    toks.forEach(function (t) { var pv = units.length ? units[units.length - 1] : "";
+      var okuri = /[一-龠々]$/.test(pv) && /^[ぁ-ん]{1,2}$/.test(t);   /* 送りがな（食｜べ）は、前の漢字と離さない */
+      if (pv && (glue.test(t) || okuri || /[「『（(]$/.test(pv))) units[units.length - 1] += t; else units.push(t); });
+    var out = [], line = "", W = function (x) { return tw(x.replace(/\*\*/g, ""), o); };
+    units.forEach(function (u) {
+      if (!line || W(line + u) <= maxW) { line += u; return; }
+      out.push(line.replace(/\s+$/, "")); line = u.replace(/^\s+/, ""); });
+    if (line) out.push(line);
+    return out.reduce(function (acc, l) { return acc.concat(W(l) > maxW * 1.12 ? wrap(l, maxW, o) : [l]); }, []);   /* 1 かたまりが幅を大きく超えるときだけ、字で折る */
+  }
   function drawCaption(cur, tt) {
     var vert = vertOn();
     if (!vert && (CAPBAR[TALK.caption] || TALK.caption === "bubble")) return drawCaption2(cur, tt);
@@ -2078,7 +2099,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
         rr(960 - nw / 2, ny, nw, nh, 16); ctx.fillStyle = "rgba(24,24,30,.74)"; ctx.fill();
         nl.forEach(function (l2, i) { capLine(l2, 960, ny + 22 + size * .86 + i * lh, o, [[size * .16, "#16161d"]], "#ffe45c", "#ffffff"); });
         ctx.restore(); return; }
-      var ls = wrap(cur.text, 600, o).slice(0, 3), bw = Math.max(150, Math.max.apply(null, ls.map(function (l) { return tw(l.replace(/\*\*/g, ""), o); })) + 56), bh = ls.length * lh + 30;
+      var ls = wrapWords(cur.text, 600, o).slice(0, 3), bw = Math.max(150, Math.max.apply(null, ls.map(function (l) { return tw(l.replace(/\*\*/g, ""), o); })) + 56), bh = ls.length * lh + 30;
       var cx = clamp(pos.side === "right" ? pos.x - pos.w * .12 - bw / 2 : pos.x + pos.w * .12 + bw / 2, bw / 2 + 24, 1896 - bw / 2), cy = clamp(pos.by - pos.h * .36, bh / 2 + 120, 1040 - bh / 2);
       ctx.translate(cx, cy); ctx.scale(pk * (.9 + .1 * P(lt, 0, 200, back)), pk * (.9 + .1 * P(lt, 0, 200, back))); ctx.translate(-cx, -cy);
       ctx.shadowColor = "rgba(0,0,0,.25)"; ctx.shadowBlur = 12; ctx.shadowOffsetY = 4; rr(cx - bw / 2, cy - bh / 2, bw, bh, 16); ctx.fillStyle = TALK.capFill || "#ffffff"; ctx.fill(); ctx.shadowColor = "transparent";
@@ -2105,13 +2126,25 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   }
   /* 立ち絵が立つ範囲（左に立つ人たちの右端・右に立つ人たちの左端・頭の高さ）。名札・吹き出し・描き下ろしの図を、立ち絵に隠れない所へ置くために使う。
      横は、立ち絵の画像のまわりの透明な余白を見こんで、幅の 18% を内側に取る。頭の高さは、話すときの弾みと気持ちの印の分、40 高く取る。立つ位置の式は drawCast と同じ */
+  /* 立ち絵 1 人の立つ位置と大きさ。いつもは、左右の端から台本の順に並ぶ（nth = 同じ側で何人目か）。
+     場面の castLayout（{id: {x, scale, dy, hide, front}}）があれば、その人はそれに従う: x = 足もとの中心（0〜1920）・scale = 大きさの倍率・dy = 下へずらす量・
+     hide = その場面では出さない・front = いちばん手前に描く。書かなかった人・項目は、いつもの並び（yukkuri-kaisetsu の @cast: が、並びの名前からこれを作る） */
+  function castLay(S, id) { return (S && S.castLayout && S.castLayout[id]) || null; }
+  function castPlace(S, id, i, nth) {
+    var ch = CAST[id], L = castLay(S, id) || {}, side = (ch.side || (i % 2 ? "right" : "left")) === "right" ? "right" : "left", h = (ch.height || 520) * (L.scale || 1), img0 = pickImg(ch, "normal", 0, false);
+    var w = ch.sprite ? h * ch.sprite.w / ch.sprite.h : img0 && img0.naturalWidth ? h * img0.naturalWidth / img0.naturalHeight : h * .62;
+    var x = (side === "right" ? 1920 - 40 - w / 2 - nth * w * .75 : 40 + w / 2 + nth * w * .75) + (ch.offsetX || 0), by = (ch.baseY || 1080) + (ch.offsetY || 0) * (L.scale || 1) - nth * 30;
+    if (typeof L.x === "number") { x = L.x; by = (ch.baseY || 1080) + (ch.offsetY || 0) * (L.scale || 1); side = x > 960 ? "right" : "left"; }
+    return { side: side, h: h, w: w, x: x, by: by + (L.dy || 0), fixed: typeof L.x === "number" };
+  }
   function castSpan(S) {
     var out = { left: 0, right: 1920, top: 1080 }, sideN = { left: 0, right: 0 };
     if (vertOn()) return out;
     ((S && S.cast) || CASTIDS).forEach(function (id, i) {
-      var ch = CAST[id]; if (!ch || ch.hidden) return;
-      var side = (ch.side || (i % 2 ? "right" : "left")) === "right" ? "right" : "left", h = ch.height || 520, img0 = pickImg(ch, "normal", 0, false), w = ch.sprite ? h * ch.sprite.w / ch.sprite.h : img0 && img0.naturalWidth ? h * img0.naturalWidth / img0.naturalHeight : h * .62;
-      var nth = sideN[side]++, x = (side === "right" ? 1920 - 40 - w / 2 - nth * w * .75 : 40 + w / 2 + nth * w * .75) + (ch.offsetX || 0), by = (ch.baseY || 1080) + (ch.offsetY || 0) - nth * 30;
+      var ch = CAST[id]; if (!ch || ch.hidden || (castLay(S, id) || {}).hide) return;
+      var s0 = (ch.side || (i % 2 ? "right" : "left")) === "right" ? "right" : "left", fx0 = typeof (castLay(S, id) || {}).x === "number";
+      var p = castPlace(S, id, i, fx0 ? 0 : sideN[s0]), side = p.side, h = p.h, w = p.w, x = p.x, by = p.by;
+      if (!fx0) sideN[s0]++; else sideN[side] = Math.max(sideN[side], 1);
       if (side === "left") out.left = Math.max(out.left, x + w * .32); else out.right = Math.min(out.right, x - w * .32);
       out.top = Math.min(out.top, by - h - 40); });
     out.n = sideN; return out;
@@ -2122,13 +2155,14 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     if (CAPBAR[TALK.caption] && capOn && !vertOn() && S.type !== "end" && !S.plain) capBack();   /* plain: 絵だけの場面（ロゴ・アイキャッチ）。置きっぱなしの箱を出さない */
     CPOS = {};
     /* 立つ位置は台本の順で決め、描くのは話している人を最後に（同じ側に 2 人立つとき、話し手が手前の人に隠れない） */
-    var NTH = {}, spkId = cur && cur.who && speaking !== undefined ? cur.who : null;
-    onIds.forEach(function (id, i) { var c0 = CAST[id]; if (!c0 || c0.hidden) return; NTH[id] = sideN[(c0.side || (i % 2 ? "right" : "left")) === "right" ? "right" : "left"]++; });
-    onIds.map(function (id, i) { return [id, i]; }).sort(function (a, b) { return (a[0] === spkId) - (b[0] === spkId) || a[1] - b[1]; }).forEach(function (pr) {
+    var NTH = {}, spkId = cur && cur.who && speaking !== undefined ? cur.who : null, EMOS = [];
+    onIds.forEach(function (id, i) { var c0 = CAST[id], L0 = castLay(S, id) || {}; if (!c0 || c0.hidden || L0.hide) return; NTH[id] = typeof L0.x === "number" ? 0 : sideN[(c0.side || (i % 2 ? "right" : "left")) === "right" ? "right" : "left"]++; });
+    var frontOf = function (id) { return (castLay(S, id) || {}).front ? 1 : 0; };
+    onIds.map(function (id, i) { return [id, i]; }).sort(function (a, b) { return frontOf(a[0]) - frontOf(b[0]) || (a[0] === spkId) - (b[0] === spkId) || a[1] - b[1]; }).forEach(function (pr) {
       var id = pr[0], i = pr[1];
-      var ch = CAST[id]; if (!ch || ch.hidden) return;   /* hidden: 声だけの語り手（立ち絵を出さない） */
-      var side = ch.side || (i % 2 ? "right" : "left"), h = ch.height || 520, img0 = pickImg(ch, "normal", 0, false), w = ch.sprite ? h * ch.sprite.w / ch.sprite.h : img0 && img0.naturalWidth ? h * img0.naturalWidth / img0.naturalHeight : h * .62;
-      var nth = NTH[id], x = (side === "right" ? 1920 - 40 - w / 2 - nth * w * .75 : 40 + w / 2 + nth * w * .75) + (ch.offsetX || 0), by = (ch.baseY || 1080) + (ch.offsetY || 0) - nth * 30, speakingNow = cur && (cur.who === id || !!(cur.line && cur.line.chorus && cur.line.chorus.indexOf(id) >= 0));   /* chorus: 全員で読むせりふ（話し手は声だけの「全員」。口と弾みは、名前の挙がった全員に付ける） */
+      var ch = CAST[id]; if (!ch || ch.hidden || (castLay(S, id) || {}).hide) return;   /* hidden: 声だけの語り手（立ち絵を出さない）。castLayout の hide: その場面では出さない */
+      var pl = castPlace(S, id, i, NTH[id]), side = pl.side, h = pl.h, w = pl.w, img0 = pickImg(ch, "normal", 0, false);
+      var nth = NTH[id], x = pl.x, by = pl.by, speakingNow = cur && (cur.who === id || !!(cur.line && cur.line.chorus && cur.line.chorus.indexOf(id) >= 0));   /* chorus: 全員で読むせりふ（話し手は声だけの「全員」。口と弾みは、名前の挙がった全員に付ける） */
       CPOS[id] = { x: x, by: Math.min(by, 1080), w: w, h: Math.min(h, by), side: side === "right" ? "right" : "left" };
       var st = stateOf(id, tt), face = st.face, pose = st.pose, slt = st.t0 === undefined ? 1e9 : tt - st.t0, fbase = String(face).split("#")[0].split("@")[0];
       var ent = ch.cameo ? P(tt - SCENES[k].t0, 150, 750, back) : P(lt0, i * 200, i * 200 + 700, back), dx = (1 - Math.min(1, ent)) * (side === "right" ? 1 : -1) * (w + 80);
@@ -2164,11 +2198,12 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       /* 気持ちの印: 話し手のせりふの印と、聞き手の反応の印（1.4 秒） */
       var em = speakingNow && cur.line && cur.line.emote, elt = em ? tt - cur.a : 0;
       if (!em && st.emote && !st.own && slt < 1400) { em = st.emote; elt = slt; }
-      if (em) drawEmote(em, clamp(x + (side === "right" ? w * .22 : -w * .22), 70, 1850), Math.max(96, by - h - 10), elt, ch.color || C.accent, side === "right" ? 1 : -1);   /* 印は頭の外側に（中央の絵と字に重ねない） */
+      if (em) EMOS.push([em, clamp(x + (side === "right" ? w * .22 : -w * .22), 70, 1850), Math.max(96, by - h - 10 - (TALK.nameTag ? 52 : 0)), elt, ch.color || C.accent, side === "right" ? 1 : -1, dx + shake + mo.x, bob + mo.y]);   /* 印は頭の外側に（中央の絵と字に重ねない）。名札があるときは、名札の上に。描くのは全員の後（前は、後から描いた名札に半分隠れた） */
       if (TALK.nameTag && ent >= 1) { var nt = ch.name || id, no = capFont(30), nw2 = tw(nt, no) + 32, ny2 = Math.max(70, by - h - 14);   /* 頭の上の名札（寸劇の型） */
         rr(x - nw2 / 2, ny2 - 44, nw2, 44, 8); ctx.fillStyle = TALK.nameTag === true ? "#f08a24" : TALK.nameTag; ctx.fill(); txt(nt, x, ny2 - 12, { size: 30, weight: 800, align: "center", color: "#ffffff", font: no.font }); }
       ctx.restore();
     });
+    EMOS.forEach(function (e) { ctx.save(); ctx.translate(e[6], e[7]); drawEmote(e[0], e[1], e[2], e[3], e[4], e[5]); ctx.restore(); });
     if (cur && cur.who && capOn && VPASS !== "cast") drawCaption(cur, tt);
   }
   /* 掛け合いの場面: 背景（bg）と中央の黒板（board: 部品の台本・画像・文字列） */
