@@ -1988,6 +1988,15 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     if (sw > 0 && sh > 0) { ctx.save(); path(); ctx.clip(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.filter = "blur(" + (16 * tm.a).toFixed(1) + "px)"; ctx.drawImage(cvs, sx, sy, sw, sh, sx, sy, sw, sh); ctx.restore(); }
     return true;
   }
+  /* すりガラス（好きな形・範囲）: path() の形の中に、後ろの絵をぼかして写す。x・y・w・h は、形を囲む範囲。できない環境では false */
+  function frostIn(path, x, y, w, h, blur) {
+    if (!("filter" in ctx) || !ctx.getTransform) return false;
+    var tm = ctx.getTransform(), cvs = ctx.canvas, pad = blur * 3 * tm.a;
+    var sx = Math.max(0, Math.floor(x * tm.a + tm.e - pad)), sy = Math.max(0, Math.floor(y * tm.d + tm.f - pad)), sw = Math.min(cvs.width - sx, Math.ceil(w * tm.a + 2 * pad)), sh = Math.min(cvs.height - sy, Math.ceil(h * tm.d + 2 * pad));
+    if (sw <= 0 || sh <= 0) return false;
+    ctx.save(); path(); ctx.clip(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.filter = "blur(" + (blur * tm.a).toFixed(1) + "px)"; ctx.drawImage(cvs, sx, sy, sw, sh, sx, sy, sw, sh); ctx.restore();
+    return true;
+  }
   function capBack() {   /* 置きっぱなしの帯・箱（せりふの無い間も出ている） */
     var y = capTop(), m = TALK.caption;
     if (m === "bar") {   /* 後ろをぼかして透かし、暗い色を薄く重ねる（背景を箱の上で切らない。字は太い黒縁なので読める） */
@@ -2032,7 +2041,9 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var glue = /^(?:[、。，．！？!?」』）)…ー〜・：；ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮ々]|は$|が$|を$|に$|で$|と$|も$|の$|へ$|や$|ね$|よ$|な$|か$|わ$|っス$|です$|ます$|って$|から$|まで$|より$|けど$|だ$|た$|て$)/;
     var units = [];   /* 前の語にくっつけるもの（句読点・助詞・語尾）は、前の語と 1 かたまりにする */
     toks.forEach(function (t) { var pv = units.length ? units[units.length - 1] : "";
-      var okuri = /[一-龠々]$/.test(pv) && /^[ぁ-ん]{1,2}$/.test(t);   /* 送りがな（食｜べ）は、前の漢字と離さない */
+      var okuri = /^[ぁ-ん]{1,2}$/.test(t) && !/[、。！？!?…\s]$/.test(pv);   /* 送りがな・語尾（食｜べ、選ば｜れ｜て、なけれ｜ば）は、前の語と離さない */
+      okuri = okuri || /[っッ]$/.test(pv);   /* 促音で行を終えない（上っ｜たかい） */
+      okuri = okuri || (/^[一-龠々]{1,3}$/.test(pv) && /^[一-龠々]/.test(t) && (pv + t).length <= 6);   /* 続く漢字の語（小町｜通り）も離さない */
       if (pv && (glue.test(t) || okuri || /[「『（(]$/.test(pv))) units[units.length - 1] += t; else units.push(t); });
     var out = [], line = "", W = function (x) { return tw(x.replace(/\*\*/g, ""), o); };
     units.forEach(function (u) {
@@ -2102,8 +2113,20 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       var ls = wrapWords(cur.text, 600, o).slice(0, 3), bw = Math.max(150, Math.max.apply(null, ls.map(function (l) { return tw(l.replace(/\*\*/g, ""), o); })) + 56), bh = ls.length * lh + 30;
       var cx = clamp(pos.side === "right" ? pos.x - pos.w * .12 - bw / 2 : pos.x + pos.w * .12 + bw / 2, bw / 2 + 24, 1896 - bw / 2), cy = clamp(pos.by - pos.h * .36, bh / 2 + 120, 1040 - bh / 2);
       ctx.translate(cx, cy); ctx.scale(pk * (.9 + .1 * P(lt, 0, 200, back)), pk * (.9 + .1 * P(lt, 0, 200, back))); ctx.translate(-cx, -cy);
-      ctx.shadowColor = "rgba(0,0,0,.25)"; ctx.shadowBlur = 12; ctx.shadowOffsetY = 4; rr(cx - bw / 2, cy - bh / 2, bw, bh, 16); ctx.fillStyle = TALK.capFill || "#ffffff"; ctx.fill(); ctx.shadowColor = "transparent";
-      ctx.strokeStyle = col; ctx.lineWidth = 7; ctx.stroke();
+      /* 箱としっぽを 1 つの形で描く（別々に描くと、つなぎ目に箱の縁の線が残り、しっぽが箱から浮いて見えた）。
+         しっぽ: 箱の上の辺から、話し手の口のあたりへ向ける（名札を出さない画面で、だれのせりふかを形で示す。寄って立つと、箱の位置と縁の色だけでは分かりにくい）。
+         短く（36 まで）・立ちぎみに（上の辺から 40 度より寝かせない）。口が箱の上の辺より下にあるとき（箱が顔にかかる）は出さない */
+      var bx0 = cx - bw / 2, by0 = cy - bh / 2, br = 16, tail = null;
+      var tgx = pos.mx === undefined ? pos.x : pos.mx, tgy = pos.my === undefined ? pos.by - pos.h * .76 : pos.my;
+      if (TALK.bubbleTail !== false && tgy < by0 - 16) {
+        var hw = 13, tbx = clamp(tgx, bx0 + br + hw + 6, bx0 + bw - br - hw - 6), ddx = tgx - tbx, ddy = tgy - by0, dl = Math.sqrt(ddx * ddx + ddy * ddy), tl = Math.min(dl - 12, 36);
+        if (tl > 10) { var ux = clamp(ddx / dl, -.76, .76), uy = -Math.sqrt(1 - ux * ux); tail = [tbx - hw, tbx + ux * tl, by0 + uy * tl, tbx + hw]; } }
+      var shape = function () { tailBox(bx0, by0, bw, bh, br, tail ? { up: true, x: (tail[0] + tail[3]) / 2, hw: (tail[3] - tail[0]) / 2, tx: tail[1], ty: tail[2] } : null); };
+      /* 箱は、後ろの写真をわずかにぼかして透かす（すりガラス）。まっ白の箱より写真になじみ、字は読める。できない環境・capFill を書いたときは、今までどおり塗る */
+      var frosted = !TALK.capFill && TALK.bubbleFrost !== false && frostIn(shape, bx0 - 8, by0 - 44, bw + 16, bh + 52, 7);
+      if (frosted) { shape(); ctx.fillStyle = "rgba(255,255,255,.84)"; ctx.fill(); }
+      else { ctx.shadowColor = "rgba(0,0,0,.25)"; ctx.shadowBlur = 12; ctx.shadowOffsetY = 4; shape(); ctx.fillStyle = TALK.capFill || "#ffffff"; ctx.fill(); ctx.shadowColor = "transparent"; }
+      shape(); ctx.lineJoin = "round"; ctx.strokeStyle = col; ctx.lineWidth = 7; ctx.stroke();
       ls.forEach(function (l2, i) { capLine(l2, cx, cy - bh / 2 + 15 + size * .9 + i * lh, o, [], "#20242c", "#d9343f"); });
       ctx.restore(); return; }
     var size2 = (TALK.size || (m === "band" ? 44 : 50)) * (big ? 1.25 : 1), o2 = { size: size2, weight: 800, font: fam }, lh2 = size2 * 1.3, y0 = capTop(), hh = 1080 - y0 - (m === "bar" ? 14 : 0);
@@ -2155,7 +2178,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     if (CAPBAR[TALK.caption] && capOn && !vertOn() && S.type !== "end" && !S.plain) capBack();   /* plain: 絵だけの場面（ロゴ・アイキャッチ）。置きっぱなしの箱を出さない */
     CPOS = {};
     /* 立つ位置は台本の順で決め、描くのは話している人を最後に（同じ側に 2 人立つとき、話し手が手前の人に隠れない） */
-    var NTH = {}, spkId = cur && cur.who && speaking !== undefined ? cur.who : null, EMOS = [];
+    var NTH = {}, spkId = cur && cur.who && speaking !== undefined ? cur.who : null, EMOS = [], NAMES = [], TAGON = S.nameTag !== undefined ? S.nameTag : TALK.nameTag;   /* 場面の nameTag: false で、その場面は名札を出さない（最初の章だけ名札で紹介する、など） */
     onIds.forEach(function (id, i) { var c0 = CAST[id], L0 = castLay(S, id) || {}; if (!c0 || c0.hidden || L0.hide) return; NTH[id] = typeof L0.x === "number" ? 0 : sideN[(c0.side || (i % 2 ? "right" : "left")) === "right" ? "right" : "left"]++; });
     var frontOf = function (id) { return (castLay(S, id) || {}).front ? 1 : 0; };
     onIds.map(function (id, i) { return [id, i]; }).sort(function (a, b) { return frontOf(a[0]) - frontOf(b[0]) || (a[0] === spkId) - (b[0] === spkId) || a[1] - b[1]; }).forEach(function (pr) {
@@ -2163,7 +2186,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       var ch = CAST[id]; if (!ch || ch.hidden || (castLay(S, id) || {}).hide) return;   /* hidden: 声だけの語り手（立ち絵を出さない）。castLayout の hide: その場面では出さない */
       var pl = castPlace(S, id, i, NTH[id]), side = pl.side, h = pl.h, w = pl.w, img0 = pickImg(ch, "normal", 0, false);
       var nth = NTH[id], x = pl.x, by = pl.by, speakingNow = cur && (cur.who === id || !!(cur.line && cur.line.chorus && cur.line.chorus.indexOf(id) >= 0));   /* chorus: 全員で読むせりふ（話し手は声だけの「全員」。口と弾みは、名前の挙がった全員に付ける） */
-      CPOS[id] = { x: x, by: Math.min(by, 1080), w: w, h: Math.min(h, by), side: side === "right" ? "right" : "left" };
+      CPOS[id] = { x: x, by: Math.min(by, 1080), w: w, h: Math.min(h, by), side: side === "right" ? "right" : "left", mx: x, my: by - h * (h / w < 1.3 ? .3 : .76) };   /* mx・my: 口のあたり（吹き出しのしっぽが指す所。全身の絵は上から 1/4、頭だけの絵は下から 3 割） */
       var st = stateOf(id, tt), face = st.face, pose = st.pose, slt = st.t0 === undefined ? 1e9 : tt - st.t0, fbase = String(face).split("#")[0].split("@")[0];
       var ent = ch.cameo ? P(tt - SCENES[k].t0, 150, 750, back) : P(lt0, i * 200, i * 200 + 700, back), dx = (1 - Math.min(1, ent)) * (side === "right" ? 1 : -1) * (w + 80);
       var bob = speakingNow ? -10 * voiceLevel(cur, tt) : 0, shake = speakingNow && cur.line && cur.line.shake ? Math.sin((tt - cur.a) / 25) * 10 * clamp(1 - (tt - cur.a) / 500) : 0;
@@ -2198,11 +2221,19 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       /* 気持ちの印: 話し手のせりふの印と、聞き手の反応の印（1.4 秒） */
       var em = speakingNow && cur.line && cur.line.emote, elt = em ? tt - cur.a : 0;
       if (!em && st.emote && !st.own && slt < 1400) { em = st.emote; elt = slt; }
-      if (em) EMOS.push([em, clamp(x + (side === "right" ? w * .22 : -w * .22), 70, 1850), Math.max(96, by - h - 10 - (TALK.nameTag ? 52 : 0)), elt, ch.color || C.accent, side === "right" ? 1 : -1, dx + shake + mo.x, bob + mo.y]);   /* 印は頭の外側に（中央の絵と字に重ねない）。名札があるときは、名札の上に。描くのは全員の後（前は、後から描いた名札に半分隠れた） */
-      if (TALK.nameTag && ent >= 1) { var nt = ch.name || id, no = capFont(30), nw2 = tw(nt, no) + 32, ny2 = Math.max(70, by - h - 14);   /* 頭の上の名札（寸劇の型） */
-        rr(x - nw2 / 2, ny2 - 44, nw2, 44, 8); ctx.fillStyle = TALK.nameTag === true ? "#f08a24" : TALK.nameTag; ctx.fill(); txt(nt, x, ny2 - 12, { size: 30, weight: 800, align: "center", color: "#ffffff", font: no.font }); }
+      if (em) EMOS.push([em, clamp(x + (side === "right" ? w * .22 : -w * .22), 70, 1850), Math.max(96, by - h - 10 - (TAGON && !(TALK.nameTagFor && lt0 > TALK.nameTagFor) ? 52 : 0)), elt, ch.color || C.accent, side === "right" ? 1 : -1, dx + shake + mo.x, bob + mo.y]);   /* 印は頭の外側に（中央の絵と字に重ねない）。名札があるときは、名札の上に。描くのは全員の後（前は、後から描いた名札に半分隠れた） */
+      if (TAGON && ent >= 1) NAMES.push({ t: ch.name || id, x: x, y: Math.max(70, by - h - 14), ox: dx + shake + mo.x, oy: bob + mo.y });   /* 頭の上の名札（寸劇の型）。描くのは全員の後（となりの人の名札と重ならない高さに直してから） */
       ctx.restore();
     });
+    /* 名札: 左から順に見て、前の名札と横に重なるなら、1 段上へずらす（片側に寄せた並びで、内側の 2 人の名札が重なって字が欠けた） */
+    var no = capFont(30); NAMES.forEach(function (n) { n.w = tw(n.t, no) + 32; });
+    /* 重なりは、立つ位置（動きを足す前）で決める。動き（弾み・身ぶり）を足した位置で決めると、重なる・重ならないが一瞬ごとに入れ替わり、名札が上下に跳ねた */
+    var tagA = TALK.nameTagFor ? clamp((TALK.nameTagFor - lt0) / 400) : 1;   /* nameTagFor: 最初のせりふから何 ms だけ名札を出すか（最初の数秒で紹介して、消す） */
+    NAMES.sort(function (a, b) { return a.x - b.x; }).forEach(function (n, k2) {
+      for (var q = 0; q < 3; q++) { var hit = NAMES.slice(0, k2).some(function (m) { return Math.abs(m.x - n.x) < (m.w + n.w) / 2 + 6 && Math.abs(m.y - n.y) < 46; }); if (!hit) break; n.y -= 50; }
+      n.y = Math.max(70, n.y); if (tagA <= 0) return;
+      var nx = n.x + n.ox, ny = n.y + n.oy; ctx.save(); ctx.globalAlpha *= tagA;
+      rr(nx - n.w / 2, ny - 44, n.w, 44, 8); ctx.fillStyle = typeof TALK.nameTag === "string" ? TALK.nameTag : "#f08a24"; ctx.fill(); txt(n.t, nx, ny - 12, { size: 30, weight: 800, align: "center", color: "#ffffff", font: no.font }); ctx.restore(); });
     EMOS.forEach(function (e) { ctx.save(); ctx.translate(e[6], e[7]); drawEmote(e[0], e[1], e[2], e[3], e[4], e[5]); ctx.restore(); });
     if (cur && cur.who && capOn && VPASS !== "cast") drawCaption(cur, tt);
   }
@@ -2221,12 +2252,20 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   /* 吹き出しの時刻: sayLine（この画面の N 個目のせりふ）が書いてあれば、そのせりふが始まってからの時間にする（まだなら負 = 出ない） */
   function sayT(it, slt) { var n = (it.sayLine || 1) - 1, cs = CURSHOT; if (n <= 0 || !cs) return slt;
     var c = (cs.s._cues || []).filter(function (c2) { return c2[4] === cs.line + n; })[0]; return c ? slt - (c[0] - cs.t0) : slt; }
+  /* 吹き出しの形: 角の丸い箱と、上か下の辺から出るしっぽを、1 つの輪郭にする（箱としっぽを別々に描くと、つなぎ目に箱の縁の線が残って、しっぽが箱から離れて見える）。
+     t = {up: 上の辺から出すか, x: しっぽの根もとの中心, hw: 根もとの半分の幅, tx・ty: 先} か null */
+  function tailBox(x, y, w, h, r, t) {
+    ctx.beginPath(); ctx.moveTo(x + r, y);
+    if (t && t.up) { ctx.lineTo(t.x - t.hw, y); ctx.lineTo(t.tx, t.ty); ctx.lineTo(t.x + t.hw, y); }
+    ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    if (t && !t.up) { ctx.lineTo(t.x + t.hw, y + h); ctx.lineTo(t.tx, t.ty); ctx.lineTo(t.x - t.hw, y + h); }
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
   function stageBubble(text, cx, y, maxW, k, tailX) {   /* 吹き出し（白い箱・濃い縁・下向きのしっぽ）。y は箱の下端 */
     var o = capFont(34), lines = String(text).split("/").reduce(function (a, l) { return a.concat(wrap(l.trim(), maxW - 48, o)); }, []).slice(0, 3), w = Math.max.apply(null, lines.map(function (l) { return tw(l, o); })) + 52, h = lines.length * 46 + 26;
     ctx.save(); ctx.translate(cx, y); ctx.scale(k, k); ctx.translate(-cx, -y);
-    rr(cx - w / 2, y - h, w, h, 20); ctx.fillStyle = "#ffffff"; ctx.fill(); ctx.strokeStyle = "#20242c"; ctx.lineWidth = 5; ctx.stroke();
-    var tx = clamp(tailX, cx - w / 2 + 30, cx + w / 2 - 30); ctx.beginPath(); ctx.moveTo(tx - 14, y - 3); ctx.lineTo(tx, y + 22); ctx.lineTo(tx + 14, y - 3); ctx.fillStyle = "#ffffff"; ctx.fill();
-    ctx.beginPath(); ctx.moveTo(tx - 14, y); ctx.lineTo(tx, y + 22); ctx.lineTo(tx + 14, y); ctx.strokeStyle = "#20242c"; ctx.lineWidth = 5; ctx.lineJoin = "round"; ctx.stroke();
+    var tx = clamp(tailX, cx - w / 2 + 36, cx + w / 2 - 36);
+    tailBox(cx - w / 2, y - h, w, h, 20, { up: false, x: tx, hw: 14, tx: tx, ty: y + 22 }); ctx.fillStyle = "#ffffff"; ctx.fill(); ctx.strokeStyle = "#20242c"; ctx.lineWidth = 5; ctx.lineJoin = "round"; ctx.stroke();
     lines.forEach(function (l, i) { txt(l, cx, y - h + 50 + i * 46, { size: 34, weight: 800, align: "center", color: "#20242c", font: o.font }); });
     ctx.restore();
   }
@@ -2277,11 +2316,9 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
           else { sbx = at === "left" ? Math.max(sw / 2 + 50, 480) : at === "right" ? Math.min(1870 - sw / 2, 1440) : 960; up = at === "bottom";
             sby = up ? capY - (solo[0].label && !solo[0].big ? 92 : 30) - shh + 40 : (at === "left" && S0.tag) || (at === "right" && S0.corner) ? 190 : 96; }
           ctx.save(); ctx.translate(sbx, sby); ctx.scale(sk, sk);
-          rr(-sw / 2, -40, sw, shh, 24); ctx.fillStyle = "#ffffff"; ctx.fill(); ctx.lineWidth = 5; ctx.strokeStyle = "#20242c"; ctx.stroke();
-          /* しっぽ: 箱の縁の線をまたいで白で塗り（縁の線が横に残らない）、斜めの 2 辺にだけ箱と同じ縁を引く */
-          var ey = up ? -40 : shh - 40, tipX = tx0 + (up ? 0 : tdx), tipY = up ? -68 : shh - 10, inY = ey + (up ? 4 : -4);
-          ctx.beginPath(); ctx.moveTo(tx0 - 16, inY); ctx.lineTo(tx0 - 16, ey); ctx.lineTo(tipX, tipY); ctx.lineTo(tx0 + 16, ey); ctx.lineTo(tx0 + 16, inY); ctx.closePath(); ctx.fillStyle = "#ffffff"; ctx.fill();
-          ctx.beginPath(); ctx.moveTo(tx0 - 16, ey); ctx.lineTo(tipX, tipY); ctx.lineTo(tx0 + 16, ey); ctx.lineJoin = "round"; ctx.stroke();
+          /* 箱としっぽを 1 つの形で描く（つなぎ目に縁の線が残って、しっぽが箱から離れて見えた） */
+          var tipX = tx0 + (up ? 0 : tdx), tipY = up ? -68 : shh - 10, tbx2 = clamp(tx0, -sw / 2 + 42, sw / 2 - 42);
+          tailBox(-sw / 2, -40, sw, shh, 24, { up: up, x: tbx2, hw: 16, tx: tipX + (tbx2 - tx0), ty: tipY }); ctx.fillStyle = "#ffffff"; ctx.fill(); ctx.lineWidth = 5; ctx.strokeStyle = "#20242c"; ctx.lineJoin = "round"; ctx.stroke();
           sl.forEach(function (l, i) { txt(l, 0, 14 + i * 52, { size: 40, weight: 800, align: "center", color: "#20242c", font: so.font }); }); ctx.restore(); }
         if (solo[0].label && solo[0].big) {   /* 題のように大きく出す名札（動画の題の画面など）。暗い帯の上に、白い太い字 */
           var bo = capFont(132, 900), bl = (solo[0].label.indexOf("/") >= 0 ? solo[0].label.split("/").map(function (x) { return x.trim(); }).filter(Boolean) : capWrap(solo[0].label, 1500, bo)).slice(0, 2),   /* 「/」で改行（ほかの画面の言葉と同じ。前は、題の「/」がそのまま出た） */ by0 = Math.min(capY, 1080) * .5 - (bl.length - 1) * 82, bk = P(slt, 120, 520, back);
