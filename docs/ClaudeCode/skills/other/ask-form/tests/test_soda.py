@@ -49,7 +49,7 @@ def spec(**extra):
     return s
 
 
-class SodaFeatures(unittest.TestCase):
+class SodaBase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -84,6 +84,9 @@ class SodaFeatures(unittest.TestCase):
         normalized.pop("_files"), normalized.pop("_views")
         return ask.ask_via_soda(normalized, timeout, raw, self.work)
 
+
+
+class SodaFeatures(SodaBase):
     def test_plain_definition_skips_features(self):
         """single・multi・text だけの定義は、確かめずに今までどおり渡す。"""
         self.assertEqual(self.run_soda(spec())["status"], "answered")
@@ -196,6 +199,91 @@ class SodaFeatures(unittest.TestCase):
 
     def test_features_call_has_short_timeout(self):
         self.assertLessEqual(ask.SODA_FEATURES_TIMEOUT, 5)
+
+
+SAFETY = {"fileBytes": 1000, "totalBytes": 1500}
+BIG_SAFETY = {"fileBytes": ask.VIEW_TEXT_MAX + 1000, "totalBytes": 3 * ask.VIEW_TEXT_MAX}
+
+
+def local_features(top=True, server=True, safety=SAFETY, **kw):
+    """Sodashitsu がローカル起動で大きさの上限を外しているときの --features（従来の数は残り、unlimited と safety が足される）。"""
+    unlimited = dict(LIMITS, unlimited=True, safety=safety)
+    return json.dumps({"sodactl": ALL, "limits": unlimited if top else LIMITS,
+                       "server": {"features": ALL, "limits": unlimited if server else {}}, **kw})
+
+
+class SodaLocalUnlimited(SodaBase):
+    """ローカル起動（limits.unlimited）: 従来の大きさの上限で窓へ落とさず、安全弁まで sodactl ask に渡す。"""
+
+    def setUp(self):
+        super().setUp()
+        os.environ["FAKE_FEATURES"] = local_features()
+
+    def test_beyond_old_limits_is_passed_to_sodactl_not_refused(self):
+        """従来の上限（1 つ 100・文字 50・合計 150）を超えるファイルも、窓へ落とさず sodactl ask へ渡す。"""
+        raw = spec(view=[{"file": self.write("big.html", 400)}, {"file": self.write("big.md", 300)}])
+        self.assertEqual(self.run_soda(raw)["status"], "answered")
+        self.assertEqual([c["args"][:2] for c in self.calls()], [["ask", "--features"], ["ask", "--timeout"]])
+
+    def test_safety_valve_and_counts_still_apply(self):
+        for name, raw_fn in (
+            ("file", lambda: spec(view={"file": self.write("huge.html", 1001)})),
+            ("total", lambda: spec(view=[{"file": self.write("a.html", 800)}, {"file": self.write("b.html", 800)}])),
+            ("views", lambda: spec(view=[{"text": "1"}, {"text": "2"}, {"text": "3"}])),
+        ):
+            with self.assertRaises(ask.SodaRefused, msg=name):
+                self.run_soda(raw_fn())
+        raw = spec()
+        raw["questions"][0]["options"] = [{"value": str(i), "image": self.write("%d.png" % i)} for i in range(4)]
+        with self.assertRaises(ask.SodaRefused):   # 個数（files）は変わらない
+            self.run_soda(raw)
+
+    def test_server_only_unlimited_is_enough(self):
+        """sodactl の limits が従来の数だけでも、サーバの limits が unlimited なら無制限として扱う。"""
+        os.environ["FAKE_FEATURES"] = local_features(top=False)
+        self.assertEqual(self.run_soda(spec(view={"file": self.write("big.html", 400)}))["status"], "answered")
+
+    def test_old_server_without_unlimited_keeps_numeric_limits(self):
+        """古い組み合わせ（unlimited を持たない）は、従来どおり数の上限で断る。"""
+        os.environ["FAKE_FEATURES"] = features()
+        with self.assertRaises(ask.SodaRefused):
+            self.run_soda(spec(view={"file": self.write("big.html", 400)}))
+        self.assertFalse(ask.soda_unlimited(json.loads(features())))
+        self.assertTrue(ask.soda_unlimited(json.loads(local_features())))
+
+    def test_text_limit_probe(self):
+        """窓の上限（2 MiB）を超える Markdown があるときだけ features を聞き、unlimited なら安全弁の大きさを返す。無ければ聞かない。"""
+        small = spec(view={"file": self.write("s.md", 10)})
+        self.assertEqual(ask.soda_text_limit(small, self.work), 0)
+        self.assertEqual(self.calls(), [])
+        big = spec(view={"file": self.write("b.md", ask.VIEW_TEXT_MAX + 1)})
+        self.assertEqual(ask.soda_text_limit(big, self.work), 0)   # 安全弁が窓の上限以下なら緩めない
+        os.environ["FAKE_FEATURES"] = local_features(safety=BIG_SAFETY)
+        self.assertEqual(ask.soda_text_limit(big, self.work), BIG_SAFETY["fileBytes"])
+        os.environ["FAKE_FEATURES"] = features()
+        self.assertEqual(ask.soda_text_limit(big, self.work), 0)
+        html = spec(view={"file": self.write("b.html", ask.VIEW_TEXT_MAX + 1)})   # html は窓でもこの上限の対象外
+        n = len(self.calls())
+        self.assertEqual(ask.soda_text_limit(html, self.work), 0)
+        self.assertEqual(len(self.calls()), n)
+
+    def test_relaxed_text_is_bounded_by_safety_and_not_read(self):
+        """緩めた上限は安全弁まで。安全弁を超える文字の成果物は、読まずに誤り。窓の上限を超えるものは本文を読まない（sodactl へは書かれたままの定義を渡すため）。"""
+        cap = ask.VIEW_TEXT_MAX + 100
+        over = self.write("over.txt", cap + 1)
+        with self.assertRaises(ask.SpecError):
+            with mock.patch("builtins.open", side_effect=AssertionError("読んではいけない")):
+                ask.normalize(spec(view={"file": over}), self.work, view_text_max=cap)
+        mid = self.write("mid.txt", ask.VIEW_TEXT_MAX + 10)
+        with mock.patch("builtins.open", side_effect=AssertionError("読んではいけない")):
+            out = ask.normalize(spec(view={"file": mid}), self.work, view_text_max=cap)
+        self.assertEqual(out["view"][0]["text"], "")
+
+    def test_normalize_relaxes_text_limit_only_when_asked(self):
+        big = spec(view={"file": self.write("c.md", ask.VIEW_TEXT_MAX + 1)})
+        with self.assertRaises(ask.SpecError):
+            ask.normalize(json.loads(json.dumps(big)), self.work)
+        ask.normalize(json.loads(json.dumps(big)), self.work, view_text_max=1 << 60)
 
 
 if __name__ == "__main__":
