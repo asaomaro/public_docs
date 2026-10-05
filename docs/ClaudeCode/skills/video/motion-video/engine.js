@@ -2200,16 +2200,19 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       /* 気持ちの印: 話し手のせりふの印と、聞き手の反応の印（1.4 秒） */
       var em = speakingNow && cur.line && cur.line.emote, elt = em ? tt - cur.a : 0;
       if (!em && st.emote && !st.own && slt < 1400) { em = st.emote; elt = slt; }
-      if (em) EMOS.push([em, clamp(x + (side === "right" ? w * .22 : -w * .22), 70, 1850), Math.max(96, by - h - 10 - (TAGON ? 52 : 0)), elt, ch.color || C.accent, side === "right" ? 1 : -1, dx + shake + mo.x, bob + mo.y]);   /* 印は頭の外側に（中央の絵と字に重ねない）。名札があるときは、名札の上に。描くのは全員の後（前は、後から描いた名札に半分隠れた） */
-      if (TAGON && ent >= 1) NAMES.push({ t: ch.name || id, x: x + dx + shake + mo.x, y: Math.max(70, by - h - 14) + bob + mo.y });   /* 頭の上の名札（寸劇の型）。描くのは全員の後（となりの人の名札と重ならない高さに直してから） */
+      if (em) EMOS.push([em, clamp(x + (side === "right" ? w * .22 : -w * .22), 70, 1850), Math.max(96, by - h - 10 - (TAGON && !(TALK.nameTagFor && lt0 > TALK.nameTagFor) ? 52 : 0)), elt, ch.color || C.accent, side === "right" ? 1 : -1, dx + shake + mo.x, bob + mo.y]);   /* 印は頭の外側に（中央の絵と字に重ねない）。名札があるときは、名札の上に。描くのは全員の後（前は、後から描いた名札に半分隠れた） */
+      if (TAGON && ent >= 1) NAMES.push({ t: ch.name || id, x: x, y: Math.max(70, by - h - 14), ox: dx + shake + mo.x, oy: bob + mo.y });   /* 頭の上の名札（寸劇の型）。描くのは全員の後（となりの人の名札と重ならない高さに直してから） */
       ctx.restore();
     });
     /* 名札: 左から順に見て、前の名札と横に重なるなら、1 段上へずらす（片側に寄せた並びで、内側の 2 人の名札が重なって字が欠けた） */
     var no = capFont(30); NAMES.forEach(function (n) { n.w = tw(n.t, no) + 32; });
+    /* 重なりは、立つ位置（動きを足す前）で決める。動き（弾み・身ぶり）を足した位置で決めると、重なる・重ならないが一瞬ごとに入れ替わり、名札が上下に跳ねた */
+    var tagA = TALK.nameTagFor ? clamp((TALK.nameTagFor - lt0) / 400) : 1;   /* nameTagFor: 最初のせりふから何 ms だけ名札を出すか（最初の数秒で紹介して、消す） */
     NAMES.sort(function (a, b) { return a.x - b.x; }).forEach(function (n, k2) {
       for (var q = 0; q < 3; q++) { var hit = NAMES.slice(0, k2).some(function (m) { return Math.abs(m.x - n.x) < (m.w + n.w) / 2 + 6 && Math.abs(m.y - n.y) < 46; }); if (!hit) break; n.y -= 50; }
-      n.y = Math.max(70, n.y);
-      rr(n.x - n.w / 2, n.y - 44, n.w, 44, 8); ctx.fillStyle = typeof TALK.nameTag === "string" ? TALK.nameTag : "#f08a24"; ctx.fill(); txt(n.t, n.x, n.y - 12, { size: 30, weight: 800, align: "center", color: "#ffffff", font: no.font }); });
+      n.y = Math.max(70, n.y); if (tagA <= 0) return;
+      var nx = n.x + n.ox, ny = n.y + n.oy; ctx.save(); ctx.globalAlpha *= tagA;
+      rr(nx - n.w / 2, ny - 44, n.w, 44, 8); ctx.fillStyle = typeof TALK.nameTag === "string" ? TALK.nameTag : "#f08a24"; ctx.fill(); txt(n.t, nx, ny - 12, { size: 30, weight: 800, align: "center", color: "#ffffff", font: no.font }); ctx.restore(); });
     EMOS.forEach(function (e) { ctx.save(); ctx.translate(e[6], e[7]); drawEmote(e[0], e[1], e[2], e[3], e[4], e[5]); ctx.restore(); });
     if (cur && cur.who && capOn && VPASS !== "cast") drawCaption(cur, tt);
   }

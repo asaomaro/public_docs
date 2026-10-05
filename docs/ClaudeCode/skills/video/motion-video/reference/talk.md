@@ -40,7 +40,7 @@
 - **掛け合いの設定**（台本の `talk`）: `caption`（`"box"` 白い箱とキャラ色の縁・`"outline"` 箱なしの太い縁・`"bar"` 下に暗い箱を置きっぱなし・`"band"` 白く透ける帯・`"strip"` 黒い帯に黄色い字・
   `"bubble"` 話し手のそばの白い箱。立ち絵の無い語り手は下の中央）・`capWidth`（置きっぱなしの字幕の折り返し幅）・`nameTag`（立ち絵の頭の上に名札）・
   `stage: {plate: "white"・"paper"・"dark", photo: "full", align: "ground"}`（絵で見せる場面の板・写真 1 枚の並びを画面いっぱいに・絵を地面に立たせる）・`tags: {tag, tagInk, corner, cornerInk}`（札の地の色と、字・縁の色）・
-  場面の `nameTag: false`（その場面だけ、頭の上の名札を出さない）・場面の `castLayout: {id: {x, scale, dy, hide, front}}`（その場面だけ、立ち絵の位置・大きさを変える。x = 足もとの中心 0〜1920・scale = 倍率・dy = 下へずらす量・hide = 出さない・front = いちばん手前。
+  `nameTagFor`（名札を、最初のせりふから何 ms だけ出すか。最初の数秒で紹介して消す）・場面の `nameTag: false`（その場面だけ、頭の上の名札を出さない）・場面の `castLayout: {id: {x, scale, dy, hide, front}}`（その場面だけ、立ち絵の位置・大きさを変える。x = 足もとの中心 0〜1920・scale = 倍率・dy = 下へずらす量・hide = 出さない・front = いちばん手前。
   書かなかった人は、いつもの並び。yukkuri-kaisetsu の `@cast:` が並びの名前から作る）・
   `capFill`（字幕の箱・帯の色。`rgba(…)` で濃さも）・`capEdge`（`bar` の箱の縁の色）・`capColor`（置きっぱなしの字幕の字の色。色か `"speaker"`）。
   登場人物の `hidden: true` は、声だけの語り手・`name`（名札）・`size`・`font`（`fonts: [{family, src, weight}]` で埋め込んだ書体）・
