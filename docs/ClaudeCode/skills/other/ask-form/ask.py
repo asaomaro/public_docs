@@ -117,7 +117,7 @@ class SpecError(ValueError):
 COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
 
 
-def normalize(spec, base_dir="."):
+def normalize(spec, base_dir=".", view_text_max=VIEW_TEXT_MAX):
     """定義を検査して既定を埋める。選択肢の image・audio がローカルのファイルなら、受け口から配る番号付きの
     アドレス（file/N）に書き換え、(パス, 種類) の一覧を spec["_files"] に入れる。"""
     files = []
@@ -235,7 +235,7 @@ def normalize(spec, base_dir="."):
     for q in spec["questions"]:
         if q.get("comment") is not False:
             q.pop("comment", None)
-    views = normalize_view(spec, base_dir)
+    views = normalize_view(spec, base_dir, view_text_max)
     for i, q in enumerate(spec["questions"]):
         for dep in (q.get("showIf") or {}):
             if dep not in seen:
@@ -245,7 +245,7 @@ def normalize(spec, base_dir="."):
     return spec
 
 
-def normalize_view(spec, base_dir):
+def normalize_view(spec, base_dir, view_text_max=VIEW_TEXT_MAX):
     """定義の view（質問の横に見せる成果物）を検査する。1 つ（辞書かパス）か、いくつか（配列。タブで切り替える）。
     項目は file（ファイル）か text（その場の文字）と、任意の title。HTML・画像・Markdown は受け口から配る番号付きのアドレス（view/N）に書き換え、
     (パス, 種類) の一覧を返す（Markdown の種類は "markdown"。配るときに、整形して見せるページにする）。
@@ -280,12 +280,12 @@ def normalize_view(spec, base_dir):
             served.append((path, VIEW_HTML.get(ext) or IMAGE_TYPES[ext]))
             item.update(kind="html" if ext in VIEW_HTML else "image", src="view/%d" % (len(served) - 1))
         elif ext in VIEW_MARKDOWN and v.get("raw") is not True:
-            if os.path.getsize(path) > VIEW_TEXT_MAX:
+            if os.path.getsize(path) > view_text_max:
                 raise SpecError("view_invalid", "%s: Markdown が大きすぎます（%d MB まで）" % (where, VIEW_TEXT_MAX // 1024 // 1024))
             served.append((path, "markdown"))
             item.update(kind="markdown", src="view/%d" % (len(served) - 1))
         else:
-            if os.path.getsize(path) > VIEW_TEXT_MAX:
+            if os.path.getsize(path) > view_text_max:
                 raise SpecError("view_invalid", "%s: 文字として出すには大きすぎます（%d MB まで。HTML にして渡してください）" % (where, VIEW_TEXT_MAX // 1024 // 1024))
             try:
                 item.update(kind="text", text=open(path, encoding="utf-8").read())
@@ -742,8 +742,59 @@ def soda_absolutize(raw, base_dir):
     return spec, paths, len(items)
 
 
+def soda_unlimited(info):
+    """--features の結果が「ローカル起動で大きさの上限が無い」（limits.unlimited）か。sodactl の limits か、サーバの limits のどちらかが真なら真。
+    古い sodactl・サーバは unlimited を持たない（偽）で、数の上限がそのまま効く。"""
+    if not isinstance(info, dict):
+        return False
+    server = info.get("server")
+    for limits in (info.get("limits"), server.get("limits") if isinstance(server, dict) else None):
+        if isinstance(limits, dict) and limits.get("unlimited") is True:
+            return True
+    return False
+
+
+def soda_effective_limits(info):
+    """事前確認に使う上限。unlimited なら、大きさの上限は安全弁（limits.safety。無ければ確認しない）に替える。個数（files・views）は変わらない。"""
+    info = info if isinstance(info, dict) else {}
+    limits = info.get("limits") if isinstance(info.get("limits"), dict) else {}
+    if not soda_unlimited(info):
+        return limits
+    server = info.get("server") if isinstance(info.get("server"), dict) else {}
+    safety = limits.get("safety") or (server.get("limits") or {}).get("safety")
+    safety = safety if isinstance(safety, dict) else {}
+    out = {"files": limits.get("files"), "views": limits.get("views")}
+    out["fileBytes"] = out["textBytes"] = safety.get("fileBytes")
+    out["totalBytes"] = safety.get("totalBytes")
+    return out
+
+
+def soda_text_unlimited(raw, base_dir, sodactl_path=None):
+    """文字として出す成果物（Markdown・テキスト）が窓の上限（VIEW_TEXT_MAX）を超えるとき、Sodashitsu がローカル起動で上限を外しているか。
+    normalize はこの上限で定義の誤りにするので、外れているときだけ上限を緩めて通すために使う。超える成果物が無ければ、聞かずに偽（余分な呼び出しをしない）。"""
+    if os.environ.get("ASK_FORM_SODA", "").lower() in ("off", "0", "no") or not os.environ.get("SODA_PANE_ID"):
+        return False
+    view = raw.get("view") if isinstance(raw, dict) else None
+    big = False
+    for v in view if isinstance(view, list) else [view] if view is not None else []:
+        f = v if isinstance(v, str) else v.get("file") if isinstance(v, dict) else None
+        if isinstance(f, str) and f:
+            path = os.path.abspath(os.path.join(base_dir, os.path.expanduser(f)))
+            ext = os.path.splitext(path)[1].lower()
+            try:
+                if ext not in VIEW_HTML and ext not in IMAGE_TYPES and os.path.getsize(path) > VIEW_TEXT_MAX:
+                    big = True
+            except OSError:
+                pass
+    sodactl = sodactl_path or shutil.which("sodactl")
+    if not big or not sodactl:
+        return False
+    return soda_unlimited(soda_features(sodactl))
+
+
 def soda_check_limits(paths, views, limits):
-    """ローカルのファイルの大きさ・個数・合計を、sodactl の上限（--features の limits）で事前に確かめる。超えたら理由（文字列）。"""
+    """ローカルのファイルの大きさ・個数・合計を、sodactl の上限（--features の limits。soda_effective_limits の結果）で事前に確かめる。超えたら理由（文字列）。
+    ローカル起動（unlimited）のときは、大きさは安全弁だけを見る。"""
     def lim(k):
         v = limits.get(k) if isinstance(limits, dict) else None
         return v if isinstance(v, int) and v > 0 else None
@@ -790,7 +841,7 @@ def ask_via_soda(spec, timeout, raw=None, base_dir="."):
         have = set(info.get("sodactl") or []) & set(info["server"].get("features") or [])
         if not need <= have:
             return None   # 足りない機能がある
-        why = soda_check_limits(paths, views, info.get("limits"))
+        why = soda_check_limits(paths, views, soda_effective_limits(info))
         if why:
             raise SodaRefused(why)
     try:
@@ -864,7 +915,9 @@ def main():
         # image・audio の相対パスは、定義のファイルの場所（標準入力なら今の場所）から解く
         base_dir = "." if args.spec in (None, "-") else os.path.dirname(os.path.abspath(args.spec))
         raw_spec = json.loads(json.dumps(spec))   # sodactl ask へは、書かれたままの定義を渡す
-        spec = normalize(spec, base_dir)
+        # Sodashitsu がローカル起動で大きさの上限を外しているときだけ、文字の成果物（Markdown・テキスト）の窓の上限（2 MiB）を緩めて通す。窓へ落ちるときは下で厳密に直す
+        relaxed = not args.selftest and not args.review and soda_text_unlimited(raw_spec, base_dir)
+        spec = normalize(spec, base_dir, view_text_max=1 << 60 if relaxed else VIEW_TEXT_MAX)
     except (OSError, ValueError) as e:
         print("ask-form: 質問の定義を読めません: %s" % e, file=sys.stderr)
         sys.exit(EXIT["error"])
@@ -889,6 +942,12 @@ def main():
             if result["status"] == "answered" and spec.get("remember"):
                 save_remembered(spec, result.get("answers") or {})
             done(result)
+        if relaxed:   # Sodashitsu の画面へ出せなかった: 窓では従来の上限（窓は Markdown・テキストを 2 MiB まで）
+            try:
+                normalize(json.loads(json.dumps(raw_spec)), base_dir)
+            except (OSError, ValueError) as e:
+                print("ask-form: 質問の定義を読めません: %s" % e, file=sys.stderr)
+                sys.exit(EXIT["error"])
 
     browser, why = find_browser()
     if not browser:

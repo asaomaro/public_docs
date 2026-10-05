@@ -313,7 +313,11 @@ python3 <skill_dir>/ask.py --review out/requirements.html notes.md --title "requ
   `sodactl` とサーバがその機能（`types:*`・`media`・`remote-image`・`view`）を持つと確かめてから渡す。`single`・`multi`・`text` だけの定義は、確かめずに今までどおり渡す。
 - **使えないときだけ**、今までどおりこのマシンのウィンドウへ進む（出せなければ `unavailable`）: 古い `sodactl`（`--features` を知らない）・`soda` が古い・サーバにつながらない・機能が足りない・
   つながっているブラウザが無い。画面内に出せるのに窓へ落ちることは無い。
-- **窓へ落とさず、終了コード 1 で理由を出す**もの: ファイルの大きさ・個数・合計が上限（1 ファイル 8 MiB・Markdown とテキストは 2 MiB・1 つの質問の合計 24 MiB・32 ファイル・`view` は 8 件）を超えるとき
+- **ローカル起動では、大きさの上限は無い**: Sodashitsu の `soda serve` が loopback だけで待ち受け（`--origin`・TLS なし）、別のマシンの中継越しの画面が無いとき、`sodactl ask --features` の `limits.unlimited` が真になる。
+  このとき `ask.py` は、ファイルの大きさ・合計の事前確認を `limits.safety`（安全弁。1 ファイル 256 MiB・合計 512 MiB）まで緩め、**8 MiB を超える HTML・2 MiB を超える Markdown も、窓へ落とさず画面内のダイアログに出す**
+  （個数 32・`view` 8 件は変わらない。実測: 200 MiB の HTML も出る〔重いのでメモリの少ない端末では遅い〕）。外向きに公開した `soda`（`--origin`・TLS・LAN）・別のマシンの pane・古い `soda`／`sodactl`（`unlimited` を知らない）は従来の上限
+  （1 ファイル 8 MiB・Markdown とテキストは 2 MiB・1 つの質問の合計 24 MiB）で、超えると下のとおり終了コード 1。窓（Edge）へ出す経路の上限は、どの場合も従来のまま（窓へ落ちるときは Markdown・テキストを 2 MiB まで）。
+- **窓へ落とさず、終了コード 1 で理由を出す**もの: ファイルの大きさ・個数・合計が上限（1 ファイル 8 MiB・Markdown とテキストは 2 MiB・1 つの質問の合計 24 MiB・32 ファイル・`view` は 8 件。ローカル起動では大きさは安全弁）を超えるとき
   （`--features` の `limits` で事前に確かめる）と、`sodactl ask` が定義の誤り（`invalid ask spec: …`）としたとき。窓に落としても同じ定義なので、定義を直す。
 - 画像・音・`view.file` の相対パス・`~/` は、`ask.py` が定義ファイルの場所（標準入力で渡したときは今の場所）から絶対パスにして渡す（`sodactl` は自分の cwd から解くため）。
 - 画像の参照: pane が動くマシンのファイル（絶対パス・相対パス）・`data:`・外部の `https://`。**外部の `https://` の画像は、ブラウザではなく `soda` のサーバが取りに行く**
