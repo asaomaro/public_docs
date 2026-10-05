@@ -2033,6 +2033,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var units = [];   /* 前の語にくっつけるもの（句読点・助詞・語尾）は、前の語と 1 かたまりにする */
     toks.forEach(function (t) { var pv = units.length ? units[units.length - 1] : "";
       var okuri = /^[ぁ-ん]{1,2}$/.test(t) && !/[、。！？!?…\s]$/.test(pv);   /* 送りがな・語尾（食｜べ、選ば｜れ｜て、なけれ｜ば）は、前の語と離さない */
+      okuri = okuri || /[っッ]$/.test(pv);   /* 促音で行を終えない（上っ｜たかい） */
       okuri = okuri || (/^[一-龠々]{1,3}$/.test(pv) && /^[一-龠々]/.test(t) && (pv + t).length <= 6);   /* 続く漢字の語（小町｜通り）も離さない */
       if (pv && (glue.test(t) || okuri || /[「『（(]$/.test(pv))) units[units.length - 1] += t; else units.push(t); });
     var out = [], line = "", W = function (x) { return tw(x.replace(/\*\*/g, ""), o); };
