@@ -2106,6 +2106,14 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       ctx.translate(cx, cy); ctx.scale(pk * (.9 + .1 * P(lt, 0, 200, back)), pk * (.9 + .1 * P(lt, 0, 200, back))); ctx.translate(-cx, -cy);
       ctx.shadowColor = "rgba(0,0,0,.25)"; ctx.shadowBlur = 12; ctx.shadowOffsetY = 4; rr(cx - bw / 2, cy - bh / 2, bw, bh, 16); ctx.fillStyle = TALK.capFill || "#ffffff"; ctx.fill(); ctx.shadowColor = "transparent";
       ctx.strokeStyle = col; ctx.lineWidth = 7; ctx.stroke();
+      /* しっぽ: 箱の上の辺から、話し手の口のあたりへ向ける（名札を出さない画面で、だれのせりふかを形で示す。寄って立つと、箱の位置と縁の色だけでは分かりにくい）。
+         口が箱の上の辺より下にあるとき（箱が顔にかかる）・遠すぎるときは、出さない・短くする */
+      var ty0 = cy - bh / 2, tgx = pos.mx === undefined ? pos.x : pos.mx, tgy = pos.my === undefined ? pos.by - pos.h * .76 : pos.my;
+      if (TALK.bubbleTail !== false && tgy < ty0 - 18) {
+        var tbx = clamp(tgx, cx - bw / 2 + 40, cx + bw / 2 - 40), ddx = tgx - tbx, ddy = tgy - ty0, dl = Math.sqrt(ddx * ddx + ddy * ddy), tl = Math.min(dl - 14, 64), ux = ddx / dl, uy = ddy / dl;
+        if (tl > 12) { var tipx = tbx + ux * tl, tipy = ty0 + uy * tl, hw = 17;
+          ctx.beginPath(); ctx.moveTo(tbx - hw, ty0 + 5); ctx.lineTo(tipx, tipy); ctx.lineTo(tbx + hw, ty0 + 5); ctx.closePath(); ctx.fillStyle = TALK.capFill || "#ffffff"; ctx.fill();
+          ctx.beginPath(); ctx.moveTo(tbx - hw, ty0 - 1); ctx.lineTo(tipx, tipy); ctx.lineTo(tbx + hw, ty0 - 1); ctx.lineJoin = "round"; ctx.strokeStyle = col; ctx.lineWidth = 7; ctx.stroke(); } }
       ls.forEach(function (l2, i) { capLine(l2, cx, cy - bh / 2 + 15 + size * .9 + i * lh, o, [], "#20242c", "#d9343f"); });
       ctx.restore(); return; }
     var size2 = (TALK.size || (m === "band" ? 44 : 50)) * (big ? 1.25 : 1), o2 = { size: size2, weight: 800, font: fam }, lh2 = size2 * 1.3, y0 = capTop(), hh = 1080 - y0 - (m === "bar" ? 14 : 0);
@@ -2165,7 +2173,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       var ch = CAST[id]; if (!ch || ch.hidden || (castLay(S, id) || {}).hide) return;   /* hidden: 声だけの語り手（立ち絵を出さない）。castLayout の hide: その場面では出さない */
       var pl = castPlace(S, id, i, NTH[id]), side = pl.side, h = pl.h, w = pl.w, img0 = pickImg(ch, "normal", 0, false);
       var nth = NTH[id], x = pl.x, by = pl.by, speakingNow = cur && (cur.who === id || !!(cur.line && cur.line.chorus && cur.line.chorus.indexOf(id) >= 0));   /* chorus: 全員で読むせりふ（話し手は声だけの「全員」。口と弾みは、名前の挙がった全員に付ける） */
-      CPOS[id] = { x: x, by: Math.min(by, 1080), w: w, h: Math.min(h, by), side: side === "right" ? "right" : "left" };
+      CPOS[id] = { x: x, by: Math.min(by, 1080), w: w, h: Math.min(h, by), side: side === "right" ? "right" : "left", mx: x, my: by - h * (h / w < 1.3 ? .3 : .76) };   /* mx・my: 口のあたり（吹き出しのしっぽが指す所。全身の絵は上から 1/4、頭だけの絵は下から 3 割） */
       var st = stateOf(id, tt), face = st.face, pose = st.pose, slt = st.t0 === undefined ? 1e9 : tt - st.t0, fbase = String(face).split("#")[0].split("@")[0];
       var ent = ch.cameo ? P(tt - SCENES[k].t0, 150, 750, back) : P(lt0, i * 200, i * 200 + 700, back), dx = (1 - Math.min(1, ent)) * (side === "right" ? 1 : -1) * (w + 80);
       var bob = speakingNow ? -10 * voiceLevel(cur, tt) : 0, shake = speakingNow && cur.line && cur.line.shake ? Math.sin((tt - cur.a) / 25) * 10 * clamp(1 - (tt - cur.a) / 500) : 0;
