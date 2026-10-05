@@ -814,5 +814,51 @@ class View(unittest.TestCase):
         self.assertEqual([a["answers"] for a in sent()], [{"decision": "revise", "comment": "2 章の表を直す"}])
 
 
+@unittest.skipUnless(CHROME or os.environ.get("REQUIRE_CHROME"), "Chrome が無い")
+class Footer(unittest.TestCase):
+    """下の行（フッター）: 部品が狭くても、［キャンセル］と［決定］は同じ行に並び、フッターは幅からはみ出さない。
+    （成果物を横に出すと部品が 430px になり、［決定］だけが 2 行目へ落ちていた）"""
+
+    @classmethod
+    def setUpClass(cls):
+        if not CHROME:
+            raise AssertionError("Chrome が無いので ask-form.js を確かめられません")
+        from chrome import Chrome
+        cls.chrome = Chrome()
+        cls.component = open(os.path.join(AF, "ask-form.js"), encoding="utf-8").read()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.chrome.close()
+
+    def measure(self, width, submit):
+        top = {"title": "t", "note": False, "questions": [{"id": "q", "label": "Q", "default": "a", "options": ["a", "b"]}]}
+        if submit:
+            top["submit"] = submit
+        spec = public(ask.normalize(top))
+        c = self.chrome
+        c.call("Emulation.setDeviceMetricsOverride", c.sid, width=1000, height=500, deviceScaleFactor=1, mobile=False)
+        path = os.path.join(c.dir, "footer%d.html" % c.n)
+        open(path, "w", encoding="utf-8").write(INSTANT_PAGE.replace("f.style.height = '400px';", "f.style.height = '400px'; f.style.width = '%dpx'; f.style.display = 'flex';" % width)
+                                                % {"component": self.component, "spec": json.dumps(spec, ensure_ascii=False)})
+        c.call("Page.enable", c.sid)
+        c.call("Page.navigate", c.sid, url="file://" + path)
+        c.eval("new Promise(function(ok){function w(){window.READY&&FORM.shadowRoot.querySelector('input')?setTimeout(ok,250):setTimeout(w,50)};w()})")
+        return c.eval("""(function(){var R=FORM.shadowRoot,f=R.querySelector('footer'),a=R.querySelector('[data-ask-cancel]').getBoundingClientRect(),
+          b=R.querySelector('[data-ask-submit]').getBoundingClientRect(),fr=f.getBoundingClientRect();
+          return {cancelTop:a.top,submitTop:b.top,cancelRight:a.right,submitLeft:b.left,submitRight:b.right,footerRight:fr.right,footerLeft:fr.left,scrollW:f.scrollWidth,clientW:f.clientWidth,hostW:FORM.offsetWidth}})()""")
+
+    def test_buttons_stay_on_one_row(self):
+        for width in (430, 360, 300, 240):
+            for submit in (None, "この内容で進める", "この内容で確定して次へ進む"):
+                with self.subTest(width=width, submit=submit):
+                    m = self.measure(width, submit)
+                    self.assertEqual(m["hostW"], width)
+                    self.assertEqual(m["cancelTop"], m["submitTop"], m)           # 同じ行
+                    self.assertLess(m["cancelRight"], m["submitLeft"], m)         # キャンセルが左、決定が右（順を変えない）
+                    self.assertLessEqual(m["scrollW"], m["clientW"], m)           # はみ出さない
+                    self.assertLessEqual(m["submitRight"], m["footerRight"] + 0.5, m)
+
+
 if __name__ == "__main__":
     unittest.main()

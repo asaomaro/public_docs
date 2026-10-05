@@ -18,7 +18,7 @@
  *   定義の文字は textContent で出す（innerHTML を使わない）。色・数は確かめてから個別のプロパティに入れる。
  *   通信しない。window・document に触らない（リスナーは Shadow DOM の中・部品の要素・自分に付けた ResizeObserver だけで、外すときに外す）。
  */
-const VERSION = '1.3.0';
+const VERSION = '1.3.1';
 const TYPES = ['single', 'multi', 'text', 'edit', 'rank', 'table'];
 const FIELDS = ['title', 'intro', 'submit', 'note', 'notePlaceholder', 'paging', 'comments', 'comment',
   'id', 'label', 'type', 'help', 'page', 'options', 'default', 'allowOther', 'otherLabel', 'otherPlaceholder', 'showIf', 'required',
@@ -155,9 +155,11 @@ textarea.mono{font:12.5px/1.55 ui-monospace,"Cascadia Mono",Consolas,Menlo,monos
 .cmt{clear:both;margin-top:8px}
 .cmt textarea{margin-top:6px}
 .cmt .mini.has{border-color:var(--_accent);color:var(--_accent);font-weight:700}
-footer{flex:none;display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:10px 22px;
+footer{flex:none;display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:10px 22px;container-type:inline-size;
   background:var(--_bg);border-top:1px solid var(--_line)}
-.status{flex:1 1 120px;color:var(--_muted);font-size:13px}
+.btns{display:flex;flex-wrap:nowrap;align-items:stretch;gap:10px;flex:0 1 auto;min-width:0;max-width:100%;margin-left:auto}
+.btns button{min-width:0}
+.status{flex:1 1 120px;min-width:0;color:var(--_muted);font-size:13px}
 .status.warn{color:var(--_warn);font-weight:600}
 button{font:inherit;border-radius:9px;padding:7px 16px;cursor:pointer;border:1.5px solid var(--_line);
   background:var(--_card);color:var(--_fg)}
@@ -165,6 +167,7 @@ button:disabled{opacity:.45;cursor:default}
 button.primary{background:var(--_accent);border-color:var(--_accent);color:var(--_on);font-weight:700}
 button kbd{font:11px ui-monospace,Consolas,monospace;opacity:.75;margin-left:6px}
 .unsupported{padding:40px 22px;text-align:center;color:var(--_muted)}
+@container (max-width:340px){.btns button{padding:7px 10px}button kbd{display:none}}
 @media (max-width:767px){.index{display:none}.opts{grid-template-columns:1fr}.sidewrap{grid-template-columns:1fr}.pv{position:static;max-height:50vh}
   .inner{padding:14px 14px 8px}footer{padding:8px 14px}button kbd{display:none}}
 @media (pointer:coarse){input[type=text],input[type=search],textarea,select{font-size:max(16px,1em)}}
@@ -201,7 +204,7 @@ function mount(host, root, SPEC) {
   const status = el('span', { class: 'status', role: 'status', 'data-ask-status': true });
   const cancelBtn = el('button', { type: 'button', 'data-ask-cancel': true }, 'キャンセル', el('kbd', { text: 'Esc' }));
   const submitBtn = el('button', { type: 'button', class: 'primary', 'data-ask-submit': true }, SPEC.submit || '決定', el('kbd', { text: 'Ctrl+Enter' }));
-  const footer = el('footer', null, status, cancelBtn, submitBtn);
+  const footer = el('footer', null, status, el('div', { class: 'btns' }, cancelBtn, submitBtn));
   const index = el('nav', { class: 'index', hidden: true, 'aria-label': '質問の一覧' });
   body.append(inner);
   const main = el('div', { class: 'main' }, index, body);   // 目次は、質問の並び（body）の外。自分の高さの中でスクロールする
