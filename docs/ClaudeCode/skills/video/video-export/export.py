@@ -440,7 +440,7 @@ def run(spec, spec_path, kinds, outdir=None, fps=30, win_dir=None):
 # 台本を読む（隣のスキル）
 # ──────────────────────────────────────────────────────────────────────────
 def sibling(skill, name):
-    path = os.path.join(HERE, "..", skill, name)
+    path = os.path.join(os.path.dirname(HERE), skill, name)   # 「..」は使わない（リンク越しに置かれたとき、リンク先の親をたどってしまう）
     if not os.path.isfile(path):
         sys.exit("error: %s スキルが見つかりません（%s）。同じ場所に置いてください" % (skill, path))
     sp = importlib.util.spec_from_file_location("%s_%s" % (skill.replace("-", "_"), name[:-3]), path)
