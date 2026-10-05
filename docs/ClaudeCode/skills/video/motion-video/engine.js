@@ -2121,9 +2121,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       if (TALK.bubbleTail !== false && tgy < by0 - 16) {
         var hw = 13, tbx = clamp(tgx, bx0 + br + hw + 6, bx0 + bw - br - hw - 6), ddx = tgx - tbx, ddy = tgy - by0, dl = Math.sqrt(ddx * ddx + ddy * ddy), tl = Math.min(dl - 12, 36);
         if (tl > 10) { var ux = clamp(ddx / dl, -.76, .76), uy = -Math.sqrt(1 - ux * ux); tail = [tbx - hw, tbx + ux * tl, by0 + uy * tl, tbx + hw]; } }
-      var shape = function () { ctx.beginPath(); ctx.moveTo(bx0 + br, by0);
-        if (tail) { ctx.lineTo(tail[0], by0); ctx.lineTo(tail[1], tail[2]); ctx.lineTo(tail[3], by0); }
-        ctx.arcTo(bx0 + bw, by0, bx0 + bw, by0 + bh, br); ctx.arcTo(bx0 + bw, by0 + bh, bx0, by0 + bh, br); ctx.arcTo(bx0, by0 + bh, bx0, by0, br); ctx.arcTo(bx0, by0, bx0 + bw, by0, br); ctx.closePath(); };
+      var shape = function () { tailBox(bx0, by0, bw, bh, br, tail ? { up: true, x: (tail[0] + tail[3]) / 2, hw: (tail[3] - tail[0]) / 2, tx: tail[1], ty: tail[2] } : null); };
       /* 箱は、後ろの写真をわずかにぼかして透かす（すりガラス）。まっ白の箱より写真になじみ、字は読める。できない環境・capFill を書いたときは、今までどおり塗る */
       var frosted = !TALK.capFill && TALK.bubbleFrost !== false && frostIn(shape, bx0 - 8, by0 - 44, bw + 16, bh + 52, 7);
       if (frosted) { shape(); ctx.fillStyle = "rgba(255,255,255,.84)"; ctx.fill(); }
@@ -2254,12 +2252,20 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   /* 吹き出しの時刻: sayLine（この画面の N 個目のせりふ）が書いてあれば、そのせりふが始まってからの時間にする（まだなら負 = 出ない） */
   function sayT(it, slt) { var n = (it.sayLine || 1) - 1, cs = CURSHOT; if (n <= 0 || !cs) return slt;
     var c = (cs.s._cues || []).filter(function (c2) { return c2[4] === cs.line + n; })[0]; return c ? slt - (c[0] - cs.t0) : slt; }
+  /* 吹き出しの形: 角の丸い箱と、上か下の辺から出るしっぽを、1 つの輪郭にする（箱としっぽを別々に描くと、つなぎ目に箱の縁の線が残って、しっぽが箱から離れて見える）。
+     t = {up: 上の辺から出すか, x: しっぽの根もとの中心, hw: 根もとの半分の幅, tx・ty: 先} か null */
+  function tailBox(x, y, w, h, r, t) {
+    ctx.beginPath(); ctx.moveTo(x + r, y);
+    if (t && t.up) { ctx.lineTo(t.x - t.hw, y); ctx.lineTo(t.tx, t.ty); ctx.lineTo(t.x + t.hw, y); }
+    ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    if (t && !t.up) { ctx.lineTo(t.x + t.hw, y + h); ctx.lineTo(t.tx, t.ty); ctx.lineTo(t.x - t.hw, y + h); }
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
   function stageBubble(text, cx, y, maxW, k, tailX) {   /* 吹き出し（白い箱・濃い縁・下向きのしっぽ）。y は箱の下端 */
     var o = capFont(34), lines = String(text).split("/").reduce(function (a, l) { return a.concat(wrap(l.trim(), maxW - 48, o)); }, []).slice(0, 3), w = Math.max.apply(null, lines.map(function (l) { return tw(l, o); })) + 52, h = lines.length * 46 + 26;
     ctx.save(); ctx.translate(cx, y); ctx.scale(k, k); ctx.translate(-cx, -y);
-    rr(cx - w / 2, y - h, w, h, 20); ctx.fillStyle = "#ffffff"; ctx.fill(); ctx.strokeStyle = "#20242c"; ctx.lineWidth = 5; ctx.stroke();
-    var tx = clamp(tailX, cx - w / 2 + 30, cx + w / 2 - 30); ctx.beginPath(); ctx.moveTo(tx - 14, y - 3); ctx.lineTo(tx, y + 22); ctx.lineTo(tx + 14, y - 3); ctx.fillStyle = "#ffffff"; ctx.fill();
-    ctx.beginPath(); ctx.moveTo(tx - 14, y); ctx.lineTo(tx, y + 22); ctx.lineTo(tx + 14, y); ctx.strokeStyle = "#20242c"; ctx.lineWidth = 5; ctx.lineJoin = "round"; ctx.stroke();
+    var tx = clamp(tailX, cx - w / 2 + 36, cx + w / 2 - 36);
+    tailBox(cx - w / 2, y - h, w, h, 20, { up: false, x: tx, hw: 14, tx: tx, ty: y + 22 }); ctx.fillStyle = "#ffffff"; ctx.fill(); ctx.strokeStyle = "#20242c"; ctx.lineWidth = 5; ctx.lineJoin = "round"; ctx.stroke();
     lines.forEach(function (l, i) { txt(l, cx, y - h + 50 + i * 46, { size: 34, weight: 800, align: "center", color: "#20242c", font: o.font }); });
     ctx.restore();
   }
@@ -2310,11 +2316,9 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
           else { sbx = at === "left" ? Math.max(sw / 2 + 50, 480) : at === "right" ? Math.min(1870 - sw / 2, 1440) : 960; up = at === "bottom";
             sby = up ? capY - (solo[0].label && !solo[0].big ? 92 : 30) - shh + 40 : (at === "left" && S0.tag) || (at === "right" && S0.corner) ? 190 : 96; }
           ctx.save(); ctx.translate(sbx, sby); ctx.scale(sk, sk);
-          rr(-sw / 2, -40, sw, shh, 24); ctx.fillStyle = "#ffffff"; ctx.fill(); ctx.lineWidth = 5; ctx.strokeStyle = "#20242c"; ctx.stroke();
-          /* しっぽ: 箱の縁の線をまたいで白で塗り（縁の線が横に残らない）、斜めの 2 辺にだけ箱と同じ縁を引く */
-          var ey = up ? -40 : shh - 40, tipX = tx0 + (up ? 0 : tdx), tipY = up ? -68 : shh - 10, inY = ey + (up ? 4 : -4);
-          ctx.beginPath(); ctx.moveTo(tx0 - 16, inY); ctx.lineTo(tx0 - 16, ey); ctx.lineTo(tipX, tipY); ctx.lineTo(tx0 + 16, ey); ctx.lineTo(tx0 + 16, inY); ctx.closePath(); ctx.fillStyle = "#ffffff"; ctx.fill();
-          ctx.beginPath(); ctx.moveTo(tx0 - 16, ey); ctx.lineTo(tipX, tipY); ctx.lineTo(tx0 + 16, ey); ctx.lineJoin = "round"; ctx.stroke();
+          /* 箱としっぽを 1 つの形で描く（つなぎ目に縁の線が残って、しっぽが箱から離れて見えた） */
+          var tipX = tx0 + (up ? 0 : tdx), tipY = up ? -68 : shh - 10, tbx2 = clamp(tx0, -sw / 2 + 42, sw / 2 - 42);
+          tailBox(-sw / 2, -40, sw, shh, 24, { up: up, x: tbx2, hw: 16, tx: tipX + (tbx2 - tx0), ty: tipY }); ctx.fillStyle = "#ffffff"; ctx.fill(); ctx.lineWidth = 5; ctx.strokeStyle = "#20242c"; ctx.lineJoin = "round"; ctx.stroke();
           sl.forEach(function (l, i) { txt(l, 0, 14 + i * 52, { size: 40, weight: 800, align: "center", color: "#20242c", font: so.font }); }); ctx.restore(); }
         if (solo[0].label && solo[0].big) {   /* 題のように大きく出す名札（動画の題の画面など）。暗い帯の上に、白い太い字 */
           var bo = capFont(132, 900), bl = (solo[0].label.indexOf("/") >= 0 ? solo[0].label.split("/").map(function (x) { return x.trim(); }).filter(Boolean) : capWrap(solo[0].label, 1500, bo)).slice(0, 2),   /* 「/」で改行（ほかの画面の言葉と同じ。前は、題の「/」がそのまま出た） */ by0 = Math.min(capY, 1080) * .5 - (bl.length - 1) * 82, bk = P(slt, 120, 520, back);
