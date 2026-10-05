@@ -314,8 +314,8 @@ python3 <skill_dir>/ask.py --review out/requirements.html notes.md --title "requ
 - **使えないときだけ**、今までどおりこのマシンのウィンドウへ進む（出せなければ `unavailable`）: 古い `sodactl`（`--features` を知らない）・`soda` が古い・サーバにつながらない・機能が足りない・
   つながっているブラウザが無い。画面内に出せるのに窓へ落ちることは無い。
 - **ローカル起動では、大きさの上限は無い**: Sodashitsu の `soda serve` が loopback だけで待ち受け（`--origin`・TLS なし）、別のマシンの中継越しの画面が無いとき、`sodactl ask --features` の `limits.unlimited` が真になる。
-  このとき `ask.py` は、ファイルの大きさ・合計の事前確認を `limits.safety`（安全弁。1 ファイル 256 MiB・合計 512 MiB）まで緩め、**8 MiB を超える HTML・2 MiB を超える Markdown も、窓へ落とさず画面内のダイアログに出す**
-  （個数 32・`view` 8 件は変わらない。実測: 200 MiB の HTML も出る〔重いのでメモリの少ない端末では遅い〕）。外向きに公開した `soda`（`--origin`・TLS・LAN）・別のマシンの pane・古い `soda`／`sodactl`（`unlimited` を知らない）は従来の上限
+  このとき `ask.py` は、ファイルの大きさ・合計の事前確認を `limits.safety`（安全弁。Sodashitsu が決める値で、いまは 1 ファイル 100 MiB・合計 200 MiB）まで緩め、**8 MiB を超える HTML・2 MiB を超える Markdown も、窓へ落とさず画面内のダイアログに出す**
+  （個数 32・`view` 8 件は変わらない。実測: 200 MiB の HTML も出たが、ブラウザのメモリは元の 7〜13 倍で、使い切るとタブが落ちうる〔質問は時間切れまで待つ〕ので、安全弁を 100 MiB に下げてある）。外向きに公開した `soda`（`--origin`・TLS・LAN）・別のマシンの pane・古い `soda`／`sodactl`（`unlimited` を知らない）は従来の上限
   （1 ファイル 8 MiB・Markdown とテキストは 2 MiB・1 つの質問の合計 24 MiB）で、超えると下のとおり終了コード 1。窓（Edge）へ出す経路の上限は、どの場合も従来のまま（窓へ落ちるときは Markdown・テキストを 2 MiB まで）。
 - **窓へ落とさず、終了コード 1 で理由を出す**もの: ファイルの大きさ・個数・合計が上限（1 ファイル 8 MiB・Markdown とテキストは 2 MiB・1 つの質問の合計 24 MiB・32 ファイル・`view` は 8 件。ローカル起動では大きさは安全弁）を超えるとき
   （`--features` の `limits` で事前に確かめる）と、`sodactl ask` が定義の誤り（`invalid ask spec: …`）としたとき。窓に落としても同じ定義なので、定義を直す。
