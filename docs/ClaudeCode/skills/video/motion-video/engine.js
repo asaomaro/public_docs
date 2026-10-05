@@ -2104,16 +2104,19 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       var ls = wrapWords(cur.text, 600, o).slice(0, 3), bw = Math.max(150, Math.max.apply(null, ls.map(function (l) { return tw(l.replace(/\*\*/g, ""), o); })) + 56), bh = ls.length * lh + 30;
       var cx = clamp(pos.side === "right" ? pos.x - pos.w * .12 - bw / 2 : pos.x + pos.w * .12 + bw / 2, bw / 2 + 24, 1896 - bw / 2), cy = clamp(pos.by - pos.h * .36, bh / 2 + 120, 1040 - bh / 2);
       ctx.translate(cx, cy); ctx.scale(pk * (.9 + .1 * P(lt, 0, 200, back)), pk * (.9 + .1 * P(lt, 0, 200, back))); ctx.translate(-cx, -cy);
-      ctx.shadowColor = "rgba(0,0,0,.25)"; ctx.shadowBlur = 12; ctx.shadowOffsetY = 4; rr(cx - bw / 2, cy - bh / 2, bw, bh, 16); ctx.fillStyle = TALK.capFill || "#ffffff"; ctx.fill(); ctx.shadowColor = "transparent";
-      ctx.strokeStyle = col; ctx.lineWidth = 7; ctx.stroke();
-      /* しっぽ: 箱の上の辺から、話し手の口のあたりへ向ける（名札を出さない画面で、だれのせりふかを形で示す。寄って立つと、箱の位置と縁の色だけでは分かりにくい）。
-         口が箱の上の辺より下にあるとき（箱が顔にかかる）・遠すぎるときは、出さない・短くする */
-      var ty0 = cy - bh / 2, tgx = pos.mx === undefined ? pos.x : pos.mx, tgy = pos.my === undefined ? pos.by - pos.h * .76 : pos.my;
-      if (TALK.bubbleTail !== false && tgy < ty0 - 18) {
-        var tbx = clamp(tgx, cx - bw / 2 + 40, cx + bw / 2 - 40), ddx = tgx - tbx, ddy = tgy - ty0, dl = Math.sqrt(ddx * ddx + ddy * ddy), tl = Math.min(dl - 14, 64), ux = ddx / dl, uy = ddy / dl;
-        if (tl > 12) { var tipx = tbx + ux * tl, tipy = ty0 + uy * tl, hw = 17;
-          ctx.beginPath(); ctx.moveTo(tbx - hw, ty0 + 5); ctx.lineTo(tipx, tipy); ctx.lineTo(tbx + hw, ty0 + 5); ctx.closePath(); ctx.fillStyle = TALK.capFill || "#ffffff"; ctx.fill();
-          ctx.beginPath(); ctx.moveTo(tbx - hw, ty0 - 1); ctx.lineTo(tipx, tipy); ctx.lineTo(tbx + hw, ty0 - 1); ctx.lineJoin = "round"; ctx.strokeStyle = col; ctx.lineWidth = 7; ctx.stroke(); } }
+      /* 箱としっぽを 1 つの形で描く（別々に描くと、つなぎ目に箱の縁の線が残り、しっぽが箱から浮いて見えた）。
+         しっぽ: 箱の上の辺から、話し手の口のあたりへ向ける（名札を出さない画面で、だれのせりふかを形で示す。寄って立つと、箱の位置と縁の色だけでは分かりにくい）。
+         短く（36 まで）・立ちぎみに（上の辺から 40 度より寝かせない）。口が箱の上の辺より下にあるとき（箱が顔にかかる）は出さない */
+      var bx0 = cx - bw / 2, by0 = cy - bh / 2, br = 16, tail = null;
+      var tgx = pos.mx === undefined ? pos.x : pos.mx, tgy = pos.my === undefined ? pos.by - pos.h * .76 : pos.my;
+      if (TALK.bubbleTail !== false && tgy < by0 - 16) {
+        var hw = 13, tbx = clamp(tgx, bx0 + br + hw + 6, bx0 + bw - br - hw - 6), ddx = tgx - tbx, ddy = tgy - by0, dl = Math.sqrt(ddx * ddx + ddy * ddy), tl = Math.min(dl - 12, 36);
+        if (tl > 10) { var ux = clamp(ddx / dl, -.76, .76), uy = -Math.sqrt(1 - ux * ux); tail = [tbx - hw, tbx + ux * tl, by0 + uy * tl, tbx + hw]; } }
+      var shape = function () { ctx.beginPath(); ctx.moveTo(bx0 + br, by0);
+        if (tail) { ctx.lineTo(tail[0], by0); ctx.lineTo(tail[1], tail[2]); ctx.lineTo(tail[3], by0); }
+        ctx.arcTo(bx0 + bw, by0, bx0 + bw, by0 + bh, br); ctx.arcTo(bx0 + bw, by0 + bh, bx0, by0 + bh, br); ctx.arcTo(bx0, by0 + bh, bx0, by0, br); ctx.arcTo(bx0, by0, bx0 + bw, by0, br); ctx.closePath(); };
+      ctx.shadowColor = "rgba(0,0,0,.25)"; ctx.shadowBlur = 12; ctx.shadowOffsetY = 4; shape(); ctx.fillStyle = TALK.capFill || "#ffffff"; ctx.fill(); ctx.shadowColor = "transparent";
+      ctx.lineJoin = "round"; ctx.strokeStyle = col; ctx.lineWidth = 7; ctx.stroke();
       ls.forEach(function (l2, i) { capLine(l2, cx, cy - bh / 2 + 15 + size * .9 + i * lh, o, [], "#20242c", "#d9343f"); });
       ctx.restore(); return; }
     var size2 = (TALK.size || (m === "band" ? 44 : 50)) * (big ? 1.25 : 1), o2 = { size: size2, weight: 800, font: fam }, lh2 = size2 * 1.3, y0 = capTop(), hh = 1080 - y0 - (m === "bar" ? 14 : 0);
