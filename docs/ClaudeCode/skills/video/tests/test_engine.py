@@ -161,6 +161,19 @@ class Engine(unittest.TestCase):
                     self.assertFalse(re.search(r"[A-Za-z]$", a) and re.match(r"[A-Za-z]", b), lines)   # 英単語の途中
                     self.assertFalse(re.match(r"[、。」）]", b), lines)                                  # 行頭の句読点・閉じかっこ
 
+    def test_bubble_wrap_keeps_number_and_unit(self):
+        """吹き出し・字幕は、数字と単位の間（8か／所・1／枚）や、1 字だけ残る漢字（柿の／葉）で折らない（2026-10-06 に旅の動画で起きた）。"""
+        sp = {"title": "t", "lang": "ja", "audio": {"narration": False}, "chapters": [{"title": "a", "scenes": [{"type": "title", "title": "t"}]}]}
+        cases = ["このあたりにお寺が全部で8か所もあるんスよ", "先輩がちっちゃいから…もう1枚いくっス！", "お昼は名物の柿の葉ずしを食べるのだ", "高さはおよそ24メートルもあるのよ"]
+        arr = ",".join(json.dumps(c, ensure_ascii=False) for c in cases)
+        got = self.run_js(build_html(sp, voicevox=False), "(function(){var out=[];[%s].forEach(function(t){for(var w=360;w<=640;w+=40){out.push(__MV__.wrapWords(t,w,40));}});return out})()" % arr)
+        for lines in got:
+            for a, b in zip(lines, lines[1:]):
+                with self.subTest(lines=lines):
+                    self.assertFalse(re.search(r"[0-9]$", a) and re.match(r"[か枚メ]", b), lines)
+                    self.assertFalse(re.search(r"[0-9]か$", a) and b.startswith("所"), lines)
+                    self.assertFalse(a.endswith("柿の") and b.startswith("葉"), lines)
+
     def test_vertical_frame(self):
         """ショート（talk.format: "short"）: 舞台が縦になり、題の下に絵・字幕・立ち絵が描かれる（下の端まで何かが描かれている）。"""
         sp = {"title": "縦の題", "lang": "ja", "audio": {"narration": False, "music": None, "sfx": False}, "talk": {"format": "short"},
