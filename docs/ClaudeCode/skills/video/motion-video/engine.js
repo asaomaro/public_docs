@@ -2032,7 +2032,8 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var glue = /^(?:[、。，．！？!?」』）)…ー〜・：；ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮ々]|は$|が$|を$|に$|で$|と$|も$|の$|へ$|や$|ね$|よ$|な$|か$|わ$|っス$|です$|ます$|って$|から$|まで$|より$|けど$|だ$|た$|て$)/;
     var units = [];   /* 前の語にくっつけるもの（句読点・助詞・語尾）は、前の語と 1 かたまりにする */
     toks.forEach(function (t) { var pv = units.length ? units[units.length - 1] : "";
-      var okuri = /[一-龠々]$/.test(pv) && /^[ぁ-ん]{1,2}$/.test(t);   /* 送りがな（食｜べ）は、前の漢字と離さない */
+      var okuri = /^[ぁ-ん]{1,2}$/.test(t) && !/[、。！？!?…\s]$/.test(pv);   /* 送りがな・語尾（食｜べ、選ば｜れ｜て、なけれ｜ば）は、前の語と離さない */
+      okuri = okuri || (/^[一-龠々]{1,3}$/.test(pv) && /^[一-龠々]/.test(t) && (pv + t).length <= 6);   /* 続く漢字の語（小町｜通り）も離さない */
       if (pv && (glue.test(t) || okuri || /[「『（(]$/.test(pv))) units[units.length - 1] += t; else units.push(t); });
     var out = [], line = "", W = function (x) { return tw(x.replace(/\*\*/g, ""), o); };
     units.forEach(function (u) {
@@ -2155,7 +2156,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     if (CAPBAR[TALK.caption] && capOn && !vertOn() && S.type !== "end" && !S.plain) capBack();   /* plain: 絵だけの場面（ロゴ・アイキャッチ）。置きっぱなしの箱を出さない */
     CPOS = {};
     /* 立つ位置は台本の順で決め、描くのは話している人を最後に（同じ側に 2 人立つとき、話し手が手前の人に隠れない） */
-    var NTH = {}, spkId = cur && cur.who && speaking !== undefined ? cur.who : null, EMOS = [];
+    var NTH = {}, spkId = cur && cur.who && speaking !== undefined ? cur.who : null, EMOS = [], NAMES = [];
     onIds.forEach(function (id, i) { var c0 = CAST[id], L0 = castLay(S, id) || {}; if (!c0 || c0.hidden || L0.hide) return; NTH[id] = typeof L0.x === "number" ? 0 : sideN[(c0.side || (i % 2 ? "right" : "left")) === "right" ? "right" : "left"]++; });
     var frontOf = function (id) { return (castLay(S, id) || {}).front ? 1 : 0; };
     onIds.map(function (id, i) { return [id, i]; }).sort(function (a, b) { return frontOf(a[0]) - frontOf(b[0]) || (a[0] === spkId) - (b[0] === spkId) || a[1] - b[1]; }).forEach(function (pr) {
@@ -2199,10 +2200,15 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       var em = speakingNow && cur.line && cur.line.emote, elt = em ? tt - cur.a : 0;
       if (!em && st.emote && !st.own && slt < 1400) { em = st.emote; elt = slt; }
       if (em) EMOS.push([em, clamp(x + (side === "right" ? w * .22 : -w * .22), 70, 1850), Math.max(96, by - h - 10 - (TALK.nameTag ? 52 : 0)), elt, ch.color || C.accent, side === "right" ? 1 : -1, dx + shake + mo.x, bob + mo.y]);   /* 印は頭の外側に（中央の絵と字に重ねない）。名札があるときは、名札の上に。描くのは全員の後（前は、後から描いた名札に半分隠れた） */
-      if (TALK.nameTag && ent >= 1) { var nt = ch.name || id, no = capFont(30), nw2 = tw(nt, no) + 32, ny2 = Math.max(70, by - h - 14);   /* 頭の上の名札（寸劇の型） */
-        rr(x - nw2 / 2, ny2 - 44, nw2, 44, 8); ctx.fillStyle = TALK.nameTag === true ? "#f08a24" : TALK.nameTag; ctx.fill(); txt(nt, x, ny2 - 12, { size: 30, weight: 800, align: "center", color: "#ffffff", font: no.font }); }
+      if (TALK.nameTag && ent >= 1) NAMES.push({ t: ch.name || id, x: x + dx + shake + mo.x, y: Math.max(70, by - h - 14) + bob + mo.y });   /* 頭の上の名札（寸劇の型）。描くのは全員の後（となりの人の名札と重ならない高さに直してから） */
       ctx.restore();
     });
+    /* 名札: 左から順に見て、前の名札と横に重なるなら、1 段上へずらす（片側に寄せた並びで、内側の 2 人の名札が重なって字が欠けた） */
+    var no = capFont(30); NAMES.forEach(function (n) { n.w = tw(n.t, no) + 32; });
+    NAMES.sort(function (a, b) { return a.x - b.x; }).forEach(function (n, k2) {
+      for (var q = 0; q < 3; q++) { var hit = NAMES.slice(0, k2).some(function (m) { return Math.abs(m.x - n.x) < (m.w + n.w) / 2 + 6 && Math.abs(m.y - n.y) < 46; }); if (!hit) break; n.y -= 50; }
+      n.y = Math.max(70, n.y);
+      rr(n.x - n.w / 2, n.y - 44, n.w, 44, 8); ctx.fillStyle = TALK.nameTag === true ? "#f08a24" : TALK.nameTag; ctx.fill(); txt(n.t, n.x, n.y - 12, { size: 30, weight: 800, align: "center", color: "#ffffff", font: no.font }); });
     EMOS.forEach(function (e) { ctx.save(); ctx.translate(e[6], e[7]); drawEmote(e[0], e[1], e[2], e[3], e[4], e[5]); ctx.restore(); });
     if (cur && cur.who && capOn && VPASS !== "cast") drawCaption(cur, tt);
   }
