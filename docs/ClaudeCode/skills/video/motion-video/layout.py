@@ -55,11 +55,18 @@ HOOK = r"""(function(){
   wrapP("arc", function (c, a) { pt(c, a[0] - a[2], a[1] - a[2]); pt(c, a[0] + a[2], a[1] + a[2]); });
   var alphaOf = function (st) { if (typeof st !== "string") return 1; var m = /rgba?\(([^)]+)\)/.exec(st); if (m) { var q = m[1].split(","); return q.length > 3 ? parseFloat(q[3]) : 1; }
     return /^#[0-9a-f]{8}$/i.test(st) ? parseInt(st.slice(7), 16) / 255 : 1; };
-  var cover = function (c, x, y, X, Y) { var L = window.__LAY; if (!L.on || c.canvas !== L.cv) return; var a = c.globalAlpha * alphaOf(c.fillStyle);
-    if (a >= .5 && (X - x) * (Y - y) > 9000 && c.globalCompositeOperation === "source-over") log.push({ cover: 1, x: x, y: y, X: X, Y: Y, a: a }); };
-  wrapP("fill", function (c) { var b = c.__pb; if (b) cover(c, b[0], b[1], b[2], b[3]); });
+  /* 塗りが、前に描いた字を隠すか: 字の左・まん中・右の 3 点のうち 2 点以上が、塗りの形の中にあるか（道の形そのもので見る。四角い範囲で見ると、吹き出しのしっぽの分だけ広く取って、となりの字を「隠れた」と数えた） */
+  var cover = function (c, inside, x, y, X, Y) { var L = window.__LAY; if (!L.on || c.canvas !== L.cv) return; var a = c.globalAlpha * alphaOf(c.fillStyle);
+    if (a < .5 || (X - x) * (Y - y) < 9000 || c.globalCompositeOperation !== "source-over") return;
+    var big = (X - x) * (Y - y) > c.canvas.width * c.canvas.height * .6;
+    for (var i = 0; i < log.length; i++) { var t = log[i]; if (t.cover || t.k || t.mark || t.a < .5) continue;
+      if (t.X < x || t.x > X || t.Y < y || t.y > Y) continue;
+      var cy = (t.y + t.Y) / 2, w = t.X - t.x, n = [[t.x + w * .15, cy], [t.x + w * .5, cy], [t.X - w * .15, cy]].filter(function (q) { return inside(q[0], q[1]); }).length;
+      if (n >= 2) log.push({ cover: 1, of: i, big: big, x: x, y: y, X: X, Y: Y, a: a }); } };
+  wrapP("fill", function (c) { var b = c.__pb; if (b) cover(c, function (px, py) { return c.isPointInPath(px, py); }, b[0], b[1], b[2], b[3]); });
   wrapP("fillRect", function (c, a) { var T = c.getTransform(), p = [[a[0], a[1]], [a[0] + a[2], a[1] + a[3]]].map(function (q) { return [T.a * q[0] + T.c * q[1] + T.e, T.b * q[0] + T.d * q[1] + T.f]; });
-    cover(c, Math.min(p[0][0], p[1][0]), Math.min(p[0][1], p[1][1]), Math.max(p[0][0], p[1][0]), Math.max(p[0][1], p[1][1])); });
+    var x = Math.min(p[0][0], p[1][0]), y = Math.min(p[0][1], p[1][1]), X = Math.max(p[0][0], p[1][0]), Y = Math.max(p[0][1], p[1][1]);
+    cover(c, function (px, py) { return px >= x && px <= X && py >= y && py <= Y; }, x, y, X, Y); });
   return 1; })()"""
 
 DRAW = r"""(function(ms){ var L = window.__LAY; L.log.length = 0; L.cv = __MV__.drawAt(ms); L.on = true; __MV__.drawAt(ms); L.on = false;
@@ -161,6 +168,10 @@ def wrap_faults(lines):
             out.append("「〜て＋動詞」が、行の頭に割れている（%s／%s）" % (a[-4:], b[:5]))
         elif re.match(r"[（(]", b):
             out.append("行の頭が、読みがなのかっこ（%s／%s）" % (a[-4:], b[:6]))
+        elif re.search(r"(^|[、。！？!?…\s「『（(])[おご]$", a) and re.match(r"[一-龠々]", b):
+            out.append("「お」「ご」と、続く語の間で折れている（%s／%s）" % (a[-4:], b[:4]))
+        elif re.search(r"(で|なん)$", a) and re.match(r"(で)?しょ", b):
+            out.append("「〜でしょう」の途中で折れている（%s／%s）" % (a[-4:], b[:4]))
         elif re.search(r"[てで]$", a) and re.match(AUX, b):
             out.append("「〜て」と、続く動詞の間で折れている（%s／%s）" % (a[-4:], b[:4]))
         elif re.search(r"(^|[、。！？!?…\s])(もう|あと|まだ|その|この|あの|どの|ある)$", a):
@@ -171,31 +182,26 @@ def wrap_faults(lines):
             out.append("行の頭に、句読点・小さいかな・のばす音がある（%s／%s）" % (a[-4:], b[:4]))
         elif re.search(r"[「『（(]$", a):
             out.append("行の終わりが、開くかっこ（%s／%s）" % (a[-4:], b[:4]))
+    if len(lines) >= 2 and len(re.sub(r"[、。！？!?…「『（(]", "", lines[0])) <= 1:
+        out.append("最初の行が 1 字だけ（%s／%s）" % (lines[0], lines[1][:4]))
     if len(lines) >= 2 and len(re.sub(r"[、。！？!?…」』）)]", "", lines[-1])) <= 2:
         out.append("最後の行が 1〜2 字だけ（／%s）" % lines[-1])
     return out
 
 
 def hidden(items, W, H):
-    """後から描かれた大きな塗り（せりふの箱・板）の下になった字。items: 描いた順（字と、塗りの範囲 cover）。→ [(字, 塗りの範囲)]"""
-    out = []
-    for i, b in enumerate(items):
-        if b.get("cover") or b.get("k") or b.get("a", 1) < .5 or len(plain(b["s"])) < 2:
+    """後から描かれた大きな塗り（せりふの箱・板）の下になった字。items: 描いた順（字と、「どの字を隠したか」の印 cover・of）。→ [(字, 塗りの範囲)]"""
+    out, seen = [], set()
+    for j, c in enumerate(items):
+        if not c.get("cover") or c.get("big") or c.get("of") in seen:   # big: 画面いっぱいの塗り（場面の切り替え・暗転）は、隠すためのもの
             continue
-        area = max(1.0, (b["X"] - b["x"]) * (b["Y"] - b["y"]))
-        for j in range(i + 1, len(items)):
-            c = items[j]
-            if not c.get("cover"):
-                continue
-            w, h = min(b["X"], c["X"]) - max(b["x"], c["x"]), min(b["Y"], c["Y"]) - max(b["y"], c["y"])
-            if w <= 0 or h <= 0 or w * h < area * .4:
-                continue
-            if (c["X"] - c["x"]) * (c["Y"] - c["y"]) > W * H * .6:   # 画面いっぱいの塗り（場面の切り替え・暗転）は、隠すためのもの
-                continue
-            again = any(not d.get("cover") and d["s"] == b["s"] and abs(d["x"] - b["x"]) < 4 and abs(d["y"] - b["y"]) < 4 for d in items[j + 1:])   # 塗りの後に、同じ字をもう一度描いている（ふちどり・重ね描き）
-            if not again:
-                out.append((b["s"], c))
-                break
+        b = items[c["of"]]
+        if len(plain(b["s"])) < 2:
+            continue
+        again = any(not d.get("cover") and d["s"] == b["s"] and abs(d["x"] - b["x"]) < 4 and abs(d["y"] - b["y"]) < 4 for d in items[j + 1:])   # 塗りの後に、同じ字をもう一度描いている（ふちどり・重ね描き）
+        if not again:
+            seen.add(c["of"])
+            out.append((b["s"], c))
     return out
 
 
@@ -206,6 +212,10 @@ def overlaps(bs, own):
     for i, p in enumerate(bs):
         for q in bs[i + 1:]:
             if p["s"] == q["s"] or (id(p) in ids and id(q) in ids):
+                continue
+            if (p.get("mark") or q.get("mark")) and re.fullmatch(r"[!?！？♪…・\s]+", (q if p.get("mark") else p)["s"]):   # 印が自分で描く字（！？）
+                continue
+            if min(p.get("a", 1), q.get("a", 1)) < .9:   # 写真が入れ替わる途中（前の名札が消えかけ・次の名札が出かけ）は、重なりに数えない
                 continue
             if min(len(plain(p["s"])), len(plain(q["s"]))) < 2:   # 1 字ずつ描く字（動く題・強調）は、となりと触れる
                 continue

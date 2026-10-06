@@ -36,16 +36,15 @@ class Layout(unittest.TestCase):
                 self.assertEqual(L.wrap_faults(lines), [])
 
     def test_hidden_under_a_later_box(self):
-        """字（吹き出し）が、後から描かれた大きな塗り（せりふの箱）の下になっていたら出す。塗りの後に同じ字を描き直しているもの・画面いっぱいの塗りは出さない。"""
+        """字（吹き出し）が、後から描かれた大きな塗り（せりふの箱）の下になっていたら出す（どの字を隠したかは、画面の中で形を見て決めてある = cover の of）。塗りの後に同じ字を描き直しているもの・画面いっぱいの塗りは出さない。"""
         t = lambda s, x, y: {"s": s, "x": x, "y": y, "X": x + 200, "Y": y + 50, "a": 1, "k": 0}
-        box = {"cover": 1, "x": 0, "y": 900, "X": 1200, "Y": 1060, "a": .9}
-        self.assertEqual([h[0] for h in L.hidden([t("石炭の道", 300, 890), box], 1920, 1080)], ["石炭の道"])
-        self.assertEqual(L.hidden([box, t("石炭の道", 300, 890)], 1920, 1080), [])                       # 箱の後に描いた字は、上にある
-        self.assertEqual(L.hidden([t("石炭の道", 300, 700), box], 1920, 1080), [])                       # 重なっていない
-        self.assertEqual(L.hidden([t("字", 300, 910), box, t("字幕の字", 300, 910)], 1920, 1080), [])     # 1 字だけの字は見ない
-        self.assertEqual(L.hidden([t("ふちどり", 300, 910), box, t("ふちどり", 300, 910)], 1920, 1080), [])   # 塗りの後に描き直している
-        full = {"cover": 1, "x": 0, "y": 0, "X": 1920, "Y": 1080, "a": 1}
-        self.assertEqual(L.hidden([t("前の場面", 300, 500), full], 1920, 1080), [])                      # 場面の切り替えの塗り
+        box = lambda of, **kw: dict({"cover": 1, "of": of, "x": 0, "y": 900, "X": 1200, "Y": 1060, "a": .9}, **kw)
+        self.assertEqual([h[0] for h in L.hidden([t("石炭の道", 300, 910), box(0)], 1920, 1080)], ["石炭の道"])
+        self.assertEqual(L.hidden([t("石炭の道", 300, 910)], 1920, 1080), [])                                   # 隠す塗りが無い
+        self.assertEqual(L.hidden([t("字", 300, 910), box(0)], 1920, 1080), [])                                 # 1 字だけの字は見ない
+        self.assertEqual(L.hidden([t("ふちどり", 300, 910), box(0), t("ふちどり", 300, 910)], 1920, 1080), [])   # 塗りの後に描き直している
+        self.assertEqual(L.hidden([t("前の場面", 300, 500), box(0, big=True)], 1920, 1080), [])                 # 場面の切り替えの塗り
+        self.assertEqual(len(L.hidden([t("石炭の道", 300, 910), box(0), box(0)], 1920, 1080)), 1)              # 同じ字を 2 回数えない
 
     def test_caption_rows_skip_same_words_elsewhere(self):
         """字幕の 2 行目と同じ言葉の吹き出しが、同じ高さの横にあっても、字幕の行に混ぜない（「支柱は0本なの。」と吹き出し「支柱は」）。"""

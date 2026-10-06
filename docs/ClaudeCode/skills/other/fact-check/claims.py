@@ -192,7 +192,7 @@ def found(url, text):
     return bool(Q) and Q in norm(page_text(url))
 
 
-URL_RE = re.compile(r"https?://[^\s　、）]+")
+URL_RE = re.compile(r"https?://[^\s　、。（）「」『』【】]+")   # 全角のかっこ・句点は URL に入れない（「https://…（公式）」の「（公式」まで URL にして、404 にしていた）
 QUOTE_RE = re.compile(r"「([^」]+)」")
 SHORT = 10   # 判定の表の根拠では、これより短い「」は語（引用でない）とみて照らさない。照らさなかった数は必ず出す
 

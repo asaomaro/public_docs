@@ -1933,6 +1933,9 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   /* 気持ちの印。絵文字の書体に頼らず、線と形で描く（どの環境でも同じに出る）。lt は出てからの ms、sd は顔の外側の向き（左の人 1・右の人 -1） */
   var EMO_ALIAS = { "！": "!", "？": "?", "！？": "!?", "?!": "!?", "汗": "💦", "怒": "💢", "ひらめき": "💡", "キラ": "✨", "きら": "✨", "ハート": "♥", "❤": "♥", "ガーン": "gloom", "がーん": "gloom", "ZZZ": "zzz", "音符": "♪", "無言": "…", "集中": "shock", "ショック": "shock" };
   function drawEmote(em, ex, ey, lt, col, sd) {
+    if (typeof window !== "undefined" && window.__LAY && window.__LAY.on && ctx.canvas === window.__LAY.cv) {   /* layout.py の確かめ用: 気持ちの印の場所を知らせる（印は字ではないので、名札に重なっても機械に出なかった） */
+      try { var TL = ctx.getTransform(), LX = TL.a * ex + TL.c * ey + TL.e, LY = TL.b * ex + TL.d * ey + TL.f, LR = 34 * Math.abs(TL.a || 1);
+        window.__LAY.log.push({ s: "（印 " + em + "）", x: LX - LR, y: LY - LR, X: LX + LR, Y: LY + LR, a: ctx.globalAlpha, c: "", k: 0, mark: 1 }); } catch (e0) {} }
     em = EMO_ALIAS[em] || em; var k = P(lt, 0, 350, back), sin = Math.sin, PI = Math.PI, i;
     ctx.save(); ctx.translate(ex, ey); ctx.lineJoin = "round"; ctx.lineCap = "round";
     var edge = function (w) { ctx.strokeStyle = "#ffffff"; ctx.lineWidth = w; ctx.stroke(); };
@@ -2071,6 +2074,8 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       hard = hard || (/[一-龠々]$/.test(pv) && /^[ぁ-ん]{1,3}$/.test(t) && !/^(は|が|を|に|で|と|も|の|へ|や|から|まで|より)$/.test(t));   /* 漢字の直後の送りがな（守｜ろう、食｜べ） */
       hard = hard || (/[ぁ-ん]$/.test(pv) && /^(られ|れ[るたて]|させ|せ[るたて])/.test(t));   /* 受け身・使役の語尾（引っぱ｜られる） */
       hard = hard || /[「『（(]$/.test(pv) || /^[、。，．！？!?」』）)…ー〜・：；ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮ々]/.test(t);   /* 開くかっこの直後・句読点と小さいかなの直前 */
+      hard = hard || (/(^|[、。！？!?…\s「『（(])[おご]$/.test(pv) && /^[一-龠々]/.test(t));   /* 「お」「ご」＋漢字（お｜腹、ご｜飯）。1 字だけを行に残さない */
+      hard = hard || (/で$/.test(pv) && /^しょ/.test(t)) || (/なん$/.test(pv) && /^で(しょ|す)/.test(t));   /* 〜で｜しょう・〜なん｜でしょう */
       hard = hard || (/^[（(]/.test(t) && /[一-龠々ァ-ヶーぁ-ん]$/.test(pv));   /* 読みがなのかっこは、前の語から離さない（八幡宮｜（はちまんぐう）） */
       var soft = glue.test(t) || (/^[ぁ-ん]{1,2}$/.test(t) && !/[、。！？!?…\s]$/.test(pv)) || (/^[一-龠々][ぁ-ん]{0,2}$/.test(t) && /[ぁ-ん]$/.test(pv) && pv.length <= 6);   /* 助詞・語尾・1 字だけの漢字の語（柿の｜葉） */
       if (pv && hard) { var ps = parts[parts.length - 1];
@@ -2262,8 +2267,8 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       if (!em && st.emote && !st.own && slt < 1400) { em = st.emote; elt = slt; }
       var emx = vertOn() ? x + (side === "right" ? -w * .52 : w * .52) : x + (side === "right" ? w * .22 : -w * .22),   /* 縦の画面: 頭の上は字幕なので、気持ちの印は顔の内側の横に出す（前は、字幕の右端に重なった） */
           emy = vertOn() ? by - h * .74 : by - h - 10 - (TAGON && !(TALK.nameTagFor && lt0 > TALK.nameTagFor) ? 52 : 0);
-      if (em) EMOS.push([em, clamp(emx, 70, 1850), Math.max(96, emy), elt, ch.color || C.accent, side === "right" ? 1 : -1, dx + shake + mo.x, bob + mo.y]);   /* 印は頭の外側に（中央の絵と字に重ねない）。名札があるときは、名札の上に。描くのは全員の後（前は、後から描いた名札に半分隠れた） */
-      if (TAGON && ent >= 1) NAMES.push({ t: ch.name || id, x: x, y: Math.max(70, by - h - 14), ox: dx + shake + mo.x, oy: bob + mo.y });   /* 頭の上の名札（寸劇の型）。描くのは全員の後（となりの人の名札と重ならない高さに直してから） */
+      if (em) EMOS.push([em, clamp(emx, 70, 1850), Math.max(96, emy), elt, ch.color || C.accent, side === "right" ? 1 : -1, dx + shake + mo.x, bob + mo.y, id]);   /* 印は頭の外側に（中央の絵と字に重ねない）。名札があるときは、名札の上に。描くのは全員の後（前は、後から描いた名札に半分隠れた） */
+      if (TAGON && ent >= 1) NAMES.push({ id: id, t: ch.name || id, x: x, y: Math.max(70, by - h - 14), ox: dx + shake + mo.x, oy: bob + mo.y });   /* 頭の上の名札（寸劇の型）。描くのは全員の後（となりの人の名札と重ならない高さに直してから） */
       ctx.restore();
     });
     /* 名札: 左から順に見て、前の名札と横に重なるなら、1 段上へずらす（片側に寄せた並びで、内側の 2 人の名札が重なって字が欠けた） */
@@ -2273,6 +2278,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     NAMES.sort(function (a, b) { return a.x - b.x; }).forEach(function (n, k2) {
       for (var q = 0; q < 3; q++) { var hit = NAMES.slice(0, k2).some(function (m) { return Math.abs(m.x - n.x) < (m.w + n.w) / 2 + 6 && Math.abs(m.y - n.y) < 46; }); if (!hit) break; n.y -= 50; }
       n.y = Math.max(70, n.y); if (tagA <= 0) return;
+      EMOS.forEach(function (em2) { if (em2[8] === n.id) em2[2] = Math.max(52, Math.min(em2[2], n.y - 44 - 40)); });   /* 名札を 1 段上げた人の印は、その名札の上へ（上げる前の高さに置くと、印が名札に重なった） */
       var nx = n.x + n.ox, ny = n.y + n.oy; ctx.save(); ctx.globalAlpha *= tagA;
       rr(nx - n.w / 2, ny - 44, n.w, 44, 8); ctx.fillStyle = typeof TALK.nameTag === "string" ? TALK.nameTag : "#f08a24"; ctx.fill(); txt(n.t, nx, ny - 12, { size: 30, weight: 800, align: "center", color: "#ffffff", font: no.font }); ctx.restore(); });
     EMOS.forEach(function (e) { ctx.save(); ctx.translate(e[6], e[7]); drawEmote(e[0], e[1], e[2], e[3], e[4], e[5]); ctx.restore(); });
