@@ -103,10 +103,15 @@ def rows_of(bs, text):
     return None
 
 
+AUX = r"(み(る|た|て|よ|ま|れ)|しま|い(る|た|て|ま|く|っ|き)|お(く|い|き|こ)|く(る|れ)|き(た|て|ま)|ほし|あげ|もら)"   # 「〜て」に続く動詞（見て｜みたい、割れて｜しまう）
+
+
 def wrap_faults(lines):
     out = []
     for a, b in zip(lines, lines[1:]):
-        if re.search(r"[0-9０-９]$", a) and not re.match(r"[、。！？!?「『（(…\s]", b):
+        if re.search(r"[0-9０-９][〜～~－-]$", a) and re.match(r"[0-9０-９]", b):
+            out.append("数の範囲の途中で折れている（%s／%s）" % (a[-4:], b[:4]))
+        elif re.search(r"[0-9０-９]$", a) and not re.match(r"[、。！？!?「『（(…\s]", b):
             out.append("数字の後ろで折れている（%s／%s）" % (a[-4:], b[:4]))
         elif re.search(r"[0-9０-９][かヶケカ]$", a) and re.match(r"[一-龠々]", b):
             out.append("数字と単位の間で折れている（%s／%s）" % (a[-4:], b[:4]))
@@ -120,6 +125,16 @@ def wrap_faults(lines):
             out.append("カタカナ＋漢字の語の途中で折れている（%s／%s）" % (a[-5:], b[:4]))
         elif re.search(r"[一-龠々]$", a) and re.match(r"[ぁ-ん]", b) and not re.match(r"(は|が|を|に|で|と|も|の|へ|や|か|な|だ|じゃ|って|から|まで|より|みたい|ほど|くらい|ぐらい|など|しか|さえ|こそ|です|でしょ|らしい|っス|ね|よ)", b):   # 助詞・だ／です・みたい などで始まる行は、語の切れ目
             out.append("送りがなの前で折れている（%s／%s）" % (a[-4:], b[:4]))
+        elif re.search(r"[一-龠々]{2}$", a) and re.match(r"[ァ-ヶー]{2,6}(?![ァ-ヶー])", b):
+            out.append("漢字＋カタカナの語の途中で折れている（%s／%s）" % (a[-4:], b[:6]))
+        elif re.match(r"[てで]" + AUX, b) and re.search(r"[ぁ-ん一-龠]$", a):
+            out.append("「〜て＋動詞」が、行の頭に割れている（%s／%s）" % (a[-4:], b[:5]))
+        elif re.match(r"[（(]", b):
+            out.append("行の頭が、読みがなのかっこ（%s／%s）" % (a[-4:], b[:6]))
+        elif re.search(r"[てで]$", a) and re.match(AUX, b):
+            out.append("「〜て」と、続く動詞の間で折れている（%s／%s）" % (a[-4:], b[:4]))
+        elif re.search(r"(^|[、。！？!?…\s])(もう|あと|まだ|その|この|あの|どの|ある)$", a):
+            out.append("短い語が、行の終わりに残っている（%s／%s）" % (a[-4:], b[:4]))
         elif re.search(r"[ぁ-ん]$", a) and re.match(r"(られ|れ[るたて]|させ|せ[るたて])", b):
             out.append("語尾の前で折れている（%s／%s）" % (a[-4:], b[:4]))
         elif PUNCT_HEAD.match(b):

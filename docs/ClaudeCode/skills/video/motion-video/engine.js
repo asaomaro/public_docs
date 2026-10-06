@@ -2026,7 +2026,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       if ((plain.slice(0, i).match(/\*\*/g) || []).length % 2) continue;   /* 強調（**…**）の中では折らない */
       var a = tw(plain.slice(0, i).replace(/\*\*/g, ""), o), b = total - a; if (a > maxW || b > maxW) continue; var d = Math.abs(a - b) + pen; if (d < bestD) { bestD = d; best = i; } } };
     tryAt(/[、。！？!?…　]+/g, 0);
-    if (best < 0 || bestD > total * .5) tryAt(/[^「『（(]+?(?=[「『（(])/g, total * .05);   /* かぎかっこ・かっこの前でも折れる */   /* 半角の空白（英字と仮名の間）では折らない。「React／を」のように助詞が行頭に来るため */
+    if (best < 0 || bestD > total * .5) tryAt(/[^「『]+?(?=[「『])/g, total * .05);   /* かぎかっこの前でも折れる（丸かっこの前では折らない。読みがなのかっこ「汽車道／（きしゃみち）」が行の頭に来る） */   /* 半角の空白（英字と仮名の間）では折らない。「React／を」のように助詞が行頭に来るため */
     if (best < 0 || bestD > total * .5) tryAt(/[ぁ-ん](?:は|が|を|に|で|と|も|の|へ|から|まで|より|って|ので|けど|ても|たら|なら)(?=[^ぁ-ん])/g, total * .12);
     if (best < 0 && SEG_JA) { var ww = wrapWords(text, lim || maxW, o); if (ww.length === 2 && !(/[ァ-ヶーA-Za-z0-9]$/.test(ww[0]) && /^[ァ-ヶーA-Za-z0-9]/.test(ww[1]))) return ww; }   /* 区切りが無いとき: 語の切れ目で折る（「柿の／葉」「8か／所」のように語の途中で折れていた） */
     if (best < 0) {   /* 幅で折ったとき: 2 行目の頭の句読点・閉じかっこは 1 行目の終わりへ（行頭に「、」を置かない） */
@@ -2057,12 +2057,18 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       hard = hard || (/[ァ-ヶー]$/.test(pv) && /^[一-龠々]{1,2}$/.test(t));   /* カタカナ＋漢字 1〜2 字の語（イクラ｜丼、カレー｜味） */
       hard = hard || (/[0-9０-９]$/.test(pv) && !/^[\s、。！？!?「『（(…]/.test(t) && t.length <= 5);   /* 数字と、その後ろの単位（8｜か所、1｜枚、24｜メートル） */
       hard = hard || (/[0-9０-９][かヶケカ]$/.test(pv) && /^[一-龠々]/.test(t));   /* 「8か｜所」「3ヶ｜月」 */
+      hard = hard || (/[0-9０-９][〜～~－-]$/.test(pv) && /^[0-9０-９]/.test(t));   /* 数の範囲（4〜｜5分） */
+      hard = hard || (/[一-龠々]{2}$/.test(pv) && /^[ァ-ヶー]{2,6}$/.test(t));   /* 漢字＋カタカナの語（石油｜ランプ） */
+      hard = hard || (/[てで]$/.test(pv) && /^(み(る|た|て|よ|ま|れ)|しま|い(る|た|て|ま|く|っ|き)|お(く|い|き|こ)|く(る|れ)|き(た|て|ま)|ほし|あげ|もら)/.test(t));   /* 「〜て」に続く動詞（見て｜みたい、割れて｜しまう） */
+      hard = hard || /(^|[、。！？!?…\s])(もう|あと|まだ|その|この|あの|どの|ある)$/.test(pv);   /* 短い語を、行の終わりに残さない（もう｜一枚） */
       hard = hard || (/[ァ-ヶー]$/.test(pv) && /^[ァ-ヶー]/.test(t) && (pv + t).length <= 12);   /* カタカナの語の途中（フレーム｜ワーク、デ｜リンクユ） */
       hard = hard || (/[一-龠々]$/.test(pv) && /^[ぁ-ん]{1,3}$/.test(t) && !/^(は|が|を|に|で|と|も|の|へ|や|から|まで|より)$/.test(t));   /* 漢字の直後の送りがな（守｜ろう、食｜べ） */
       hard = hard || (/[ぁ-ん]$/.test(pv) && /^(られ|れ[るたて]|させ|せ[るたて])/.test(t));   /* 受け身・使役の語尾（引っぱ｜られる） */
       hard = hard || /[「『（(]$/.test(pv) || /^[、。，．！？!?」』）)…ー〜・：；ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮ々]/.test(t);   /* 開くかっこの直後・句読点と小さいかなの直前 */
       var soft = glue.test(t) || (/^[ぁ-ん]{1,2}$/.test(t) && !/[、。！？!?…\s]$/.test(pv)) || (/^[一-龠々][ぁ-ん]{0,2}$/.test(t) && /[ぁ-ん]$/.test(pv) && pv.length <= 6);   /* 助詞・語尾・1 字だけの漢字の語（柿の｜葉） */
-      if (pv && hard) { units[units.length - 1] += t; parts[parts.length - 1][parts[parts.length - 1].length - 1] += t; }
+      if (pv && hard) { var ps = parts[parts.length - 1];
+        if (ps.length >= 2 && /^[ぁ-ん]{1,2}$/.test(ps[ps.length - 1])) { var tail = ps.pop(); ps[ps.length - 1] += tail; }   /* 固くつなぐ相手が助詞・語尾だけのとき（し＋て＋ほしい）は、その前の語ごとつなぐ（「し／てほしい」と折らない） */
+        units[units.length - 1] += t; ps[ps.length - 1] += t; }
       else if (pv && soft) { units[units.length - 1] += t; parts[parts.length - 1].push(t); }
       else { units.push(t); parts.push([t]); } });
     var out = [], line = "", W = function (x) { return tw(x.replace(/\*\*/g, ""), o); };
