@@ -602,14 +602,18 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       var fam = TALK.font ? '"' + TALK.font + '",' + F.sans : F.sans, to = { size: 96, weight: 900, font: fam }, tk = P(lt, 150, 750, back);
       ctx.save(); ctx.globalAlpha *= clamp(tk); ctx.translate(960, 120); ctx.scale(.9 + .1 * tk, .9 + .1 * tk); ctx.translate(-960, -120);
       capLine(s.title || "", 960, 152, to, [[30, "#16161d"]], "#ffffff", "#ffe45c"); ctx.restore();
-      var rows2 = (s.lines || []).map(function (r) { return typeof r === "string" ? r : r.text; }), PW = 1280, PH = 430, CWd = PW / 2 - 50, sz = 28, out = [], per = 1;
-      for (; sz >= 16; sz -= 2) {   /* 2 段に組み、立ち絵の頭の上（y 660 まで）に収まる字の大きさを選ぶ */
-        out = []; rows2.forEach(function (r) { wrap(r, CWd, { size: sz, weight: 600, font: fam }).forEach(function (l, i) { out.push((i ? "　" : "") + l); }); });
-        per = Math.ceil(out.length / 2); if (per * sz * 1.5 <= PH - 50) break; }
+      var rows2 = (s.lines || []).map(function (r) { return typeof r === "string" ? r : r.text; }), PW = 1280, PH = 410, NC = 2, CWd = PW / 2 - 50, sz = 28, out = [], per = 1, fit = false;
+      [[2, 1280, 28, 18], [3, 1720, 22, 14]].some(function (tr) {   /* 2 段で、立ち絵の頭の上（y 640 まで）に収まる字の大きさを選ぶ。18 でも収まらなければ 3 段（前は、はみ出した下の行が立ち絵に隠れた） */
+        NC = tr[0]; PW = tr[1]; CWd = PW / NC - 50;
+        for (sz = tr[2]; sz >= tr[3]; sz -= 2) {
+          out = []; rows2.forEach(function (r) { wrap(r, CWd, { size: sz, weight: 600, font: fam }).forEach(function (l, i) { out.push((i ? "　" : "") + l); }); });
+          per = Math.ceil(out.length / NC); if (per * sz * 1.5 <= PH - 50) { fit = true; break; } }
+        return fit; });
+      if (!fit) sz = 14;
       var lh = sz * 1.5, ph = per * lh + 50, py = 230, ck = P(lt, 500, 1100);
       ctx.save(); ctx.globalAlpha *= ck; rr(960 - PW / 2, py, PW, ph, 22); ctx.fillStyle = "rgba(0,0,0,.52)"; ctx.fill();
-      out.forEach(function (l, i) { var col = i < per ? 0 : 1, row = col ? i - per : i;
-        txt(l, 960 - PW / 2 + 34 + col * (PW / 2), py + 25 + sz + row * lh - sz * .15, { size: sz, weight: 600, color: "#f1f3f6", font: fam }); });
+      out.forEach(function (l, i) { var col = Math.floor(i / per), row = i - col * per;
+        txt(l, 960 - PW / 2 + 34 + col * (PW / NC), py + 25 + sz + row * lh - sz * .15, { size: sz, weight: 600, color: "#f1f3f6", font: fam }); });
       ctx.restore();
       return;
     }
@@ -1659,19 +1663,22 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var sc = vPaint("scene", q, function () { drawBody(t); });
     var ca = vPaint("cast", q, function () { drawCast(t); });
     var cp = vPaint("cap", q, function () { var cur = cueAt(t), capOn = recording ? !recording.clean : captions; if (cur && cur.who && capOn) drawCaption(cur, t); });
-    var PX = (W - VW) / 2, PY = 300, PH = 900, CW = 720, CH = 600, CK = .75;   /* 絵: 横の画面の中央を切り出す位置・縦の枠での上の端・高さ。立ち絵: 左右の端から切り出す幅・高さと、縮める割合 */
+    /* 絵: 横の画面の中央を切り出す位置・縦の枠での上の端・高さ。立ち絵: 左右の端から切り出す幅・高さと、縮める割合。
+       立ち絵は、横の画面の**上から下まで全部**を切り出す（前は下の 600 だけで、跳ねる・手を上げる動きのとき、頭や手が見えない線で切れた）。字幕より後ろに描くので、字幕には重ならない */
+    var PX = (W - VW) / 2, PY = 215, PH = 900, CK = 1.25, CW = Math.round(VW / 2 / CK), CH = H;   /* 立ち絵は 1.25 倍（前は .75 倍で、縦の画面の下 3 割が空いて、立ち絵が豆粒だった） */
     ctx.setTransform(q, 0, 0, q, 0, 0);
     ctx.fillStyle = "#14141a"; ctx.fillRect(0, 0, VW, VH);
     if ("filter" in ctx) { ctx.save(); ctx.filter = "blur(" + (26 * q).toFixed(1) + "px) brightness(.45)"; ctx.drawImage(sc, (PX + 240) * q, 0, 600 * q, 1066 * q, -60, -60, VW + 120, VH + 120); ctx.restore(); }
     if (isTalk(SCENES[sceneAt(t)].s)) ctx.drawImage(sc, PX * q, 0, VW * q, PH * q, 0, PY, VW, PH);
     else { var fh = VW * H / W; ctx.drawImage(sc, 0, 0, W * q, H * q, 0, PY + (PH - fh) / 2, VW, fh); }   /* 掛け合いでない場面（題・クレジット）は、切らずに全体を幅に合わせる */
     /* 題（上） */
-    var ttl = String(SPEC.title || ""), to = { size: 62, weight: 900, font: TALK.font ? '"' + TALK.font + '",' + F.sans : F.sans }, tl = capWrap(ttl, 980, to).slice(0, 2);
-    tl.forEach(function (l2, i) { capLine(l2, VW / 2, 150 + (i - (tl.length - 1) / 2) * 80 + 22, to, [[20, "#16161d"]], "#ffffff", "#ffe45c"); });
+    var ttl = String(SPEC.title || ""), to = { size: 72, weight: 900, font: TALK.font ? '"' + TALK.font + '",' + F.sans : F.sans }, tl = capWrap(ttl, 1000, to).slice(0, 2);
+    if (tl.length === 1 && tw(ttl.replace(/\*\*/g, ""), to) < 640) to.size = 88;   /* 短い題は、大きく */
+    tl.forEach(function (l2, i) { capLine(l2, VW / 2, 108 + (i - (tl.length - 1) / 2) * 92 + 26, to, [[24, "#16161d"]], "#ffffff", "#ffe45c"); });
     /* 立ち絵（下の左右）→ 字幕（その上） */
     ctx.drawImage(ca, 0, (H - CH) * q, CW * q, CH * q, 0, VH - CH * CK, CW * CK, CH * CK);
     ctx.drawImage(ca, (W - CW) * q, (H - CH) * q, CW * q, CH * q, VW - CW * CK, VH - CH * CK, CW * CK, CH * CK);
-    ctx.drawImage(cp, PX * q, (H - 400) * q, VW * q, 400 * q, 0, PY + PH - 60, VW, 400);
+    ctx.drawImage(cp, PX * q, (H - 400) * q, VW * q, 400 * q, 0, PY + PH - 50, VW, 400);
   }
   /* 終わりの暗転（台本の endFade: ms）: 最後の endFade の間に、映像を黒へ、音（master）を 0 へ */
   var ENDFADE = +SPEC.endFade || 0, endK = 1;
@@ -2011,7 +2018,9 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   }
   /* 字幕の折り返し: 2 行になるときは、読点・句点・空白の後ろで折る（語の途中で折らない）。切れ目が無ければ、助詞の後ろ、それも無ければ幅で折る */
   function capWrap(text, maxW, o, lim) {   /* lim: 語を 2 行目へ送るときの幅の上限（2 行をそろえるために狭く折るときは、本来の幅） */
-    var lines = wrap(text, maxW, o); if (lines.length !== 2) return lines;
+    var lines = wrap(text, maxW, o);
+    if (lines.length > 2 && SEG_JA) { var w3 = wrapWords(text, maxW, o); return w3.length <= lines.length ? w3 : lines; }   /* 3 行になる長いせりふも、語の切れ目で折る */
+    if (lines.length !== 2) return lines;
     var plain = String(text), best = -1, bestD = 1e9, total = tw(plain.replace(/\*\*/g, ""), o);
     var tryAt = function (re, pen) { var m; re.lastIndex = 0; while ((m = re.exec(plain))) { var i = m.index + m[0].length; if (i < 3 || i > plain.length - 3) continue;
       if ((plain.slice(0, i).match(/\*\*/g) || []).length % 2) continue;   /* 強調（**…**）の中では折らない */
@@ -2019,6 +2028,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     tryAt(/[、。！？!?…　]+/g, 0);
     if (best < 0 || bestD > total * .5) tryAt(/[^「『（(]+?(?=[「『（(])/g, total * .05);   /* かぎかっこ・かっこの前でも折れる */   /* 半角の空白（英字と仮名の間）では折らない。「React／を」のように助詞が行頭に来るため */
     if (best < 0 || bestD > total * .5) tryAt(/[ぁ-ん](?:は|が|を|に|で|と|も|の|へ|から|まで|より|って|ので|けど|ても|たら|なら)(?=[^ぁ-ん])/g, total * .12);
+    if (best < 0 && SEG_JA) { var ww = wrapWords(text, lim || maxW, o); if (ww.length === 2 && !(/[ァ-ヶーA-Za-z0-9]$/.test(ww[0]) && /^[ァ-ヶーA-Za-z0-9]/.test(ww[1]))) return ww; }   /* 区切りが無いとき: 語の切れ目で折る（「柿の／葉」「8か／所」のように語の途中で折れていた） */
     if (best < 0) {   /* 幅で折ったとき: 2 行目の頭の句読点・閉じかっこは 1 行目の終わりへ（行頭に「、」を置かない） */
       var m2 = /^[、。，．！？!?」』）)…ー]+/.exec(lines[1]); if (m2) { lines = [lines[0] + m2[0], lines[1].slice(m2[0].length)]; }
       var m3 = /[A-Za-z0-9.\-]+$/.exec(lines[0]);   /* 英字の語の直後で折れて、2 行目が助詞から始まるときは、英字の語ごと 2 行目へ */
@@ -2044,6 +2054,10 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       var okuri = /^[ぁ-ん]{1,2}$/.test(t) && !/[、。！？!?…\s]$/.test(pv);   /* 送りがな・語尾（食｜べ、選ば｜れ｜て、なけれ｜ば）は、前の語と離さない */
       okuri = okuri || /[っッ]$/.test(pv);   /* 促音で行を終えない（上っ｜たかい） */
       okuri = okuri || (/^[一-龠々]{1,3}$/.test(pv) && /^[一-龠々]/.test(t) && (pv + t).length <= 6);   /* 続く漢字の語（小町｜通り）も離さない */
+      okuri = okuri || (/[0-9０-９]$/.test(pv) && !/^[\s、。！？!?「『（(…]/.test(t) && t.length <= 5);   /* 数字と、その後ろの単位（8｜か所、1｜枚、24｜メートル）を離さない */
+      okuri = okuri || (/[0-9０-９][かヶケカ]$/.test(pv) && /^[一-龠々]/.test(t));   /* 「8か｜所」「3ヶ｜月」 */
+      okuri = okuri || (/[ァ-ヶー]$/.test(pv) && /^[ァ-ヶー]/.test(t) && (pv + t).length <= 12);   /* カタカナの語の途中（フレーム｜ワーク、デ｜リンクユ）で折らない */
+      okuri = okuri || (/^[一-龠々][ぁ-ん]{0,2}$/.test(t) && /[ぁ-ん]$/.test(pv) && pv.length <= 6);   /* 1 字だけの漢字の語（柿の｜葉）を、行の頭に 1 字で残さない */
       if (pv && (glue.test(t) || okuri || /[「『（(]$/.test(pv))) units[units.length - 1] += t; else units.push(t); });
     var out = [], line = "", W = function (x) { return tw(x.replace(/\*\*/g, ""), o); };
     units.forEach(function (u) {
@@ -3382,6 +3396,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
               get loading() { var n = 0; for (var k in IMGS) if (IMGS[k] && IMGS[k].complete === false) n++; return n; },   /* まだ読み終わっていない絵の数（画面を撮る道具 shoot.py が、0 になるのを待つ） */
               drawAt: function (ms) { draw(ms); return cv; },   /* その時刻の 1 コマを今すぐ描く（確かめる用） */
               capWrap: function (text, maxW, size, lim) { return capWrap(text, maxW, { size: size || 56, weight: 800, font: F.sans }, lim); },   /* 字幕の折り返し（確かめる用） */
+              wrapWords: function (text, maxW, size) { return wrapWords(text, maxW, { size: size || 40, weight: 800, font: F.sans }); },   /* 吹き出しの折り返し（確かめる用） */
               offline: typeof offline === "undefined" ? null : offline,   /* 1 コマずつの書き出し（配布用の HTML には無い） */
               get audio() { return { ctx: ac, mt: mclock.mt, section: mclock.sec, notes: mclock.count || 0, sfx: sfxCount, vol: VOL, gain: master ? master.gain.value : null }; } };
   root.__mv = api; window.__MV__ = api;
