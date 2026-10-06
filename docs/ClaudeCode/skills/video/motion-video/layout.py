@@ -8,6 +8,7 @@
   見切れ   : 字が画面の外にはみ出している
   切れ     : せりふが途中までしか描かれていない（行が足りずに切れた）・画面に見つからない
   行数     : 字幕・吹き出しのせりふが 3 行以上になっている（2 行まで）
+  隠れ     : 字（吹き出し・札）が、後から描かれた大きな塗り（せりふの箱・板）の下になっている
   折り返し : せりふが、数字と単位の間・カタカナや英字の語の途中で折れている／行の頭に句読点・助詞・小さいかながある／最後の行が 1〜2 字だけ
 
 分からないこと: 絵と字の重なり（写真の上の字が読めるか）・吹き出しのしっぽが指す先・色の見やすさ・動いている途中の見え方。これらは目で見る。
@@ -39,6 +40,26 @@ HOOK = r"""(function(){
       } } catch (e) {}
     return f0.apply(this, arguments);
   };
+  /* 字の上に、後から描かれる大きな塗り（せりふの箱・板）を集める: 道（path）の点を覚えておき、fill のときに、その範囲を記録する。字が「後から描かれた箱の下」になっていないかを見るため */
+  var pt = function (c, x, y) { var T = c.getTransform(), X = T.a * x + T.c * y + T.e, Y = T.b * x + T.d * y + T.f, b = c.__pb;
+    if (!b) c.__pb = [X, Y, X, Y]; else { if (X < b[0]) b[0] = X; if (Y < b[1]) b[1] = Y; if (X > b[2]) b[2] = X; if (Y > b[3]) b[3] = Y; } };
+  var wrapP = function (name, fn) { var g0 = P[name]; if (!g0) return; P[name] = function () { try { fn(this, arguments); } catch (e) {} return g0.apply(this, arguments); }; };
+  wrapP("beginPath", function (c) { c.__pb = null; });
+  wrapP("moveTo", function (c, a) { pt(c, a[0], a[1]); });
+  wrapP("lineTo", function (c, a) { pt(c, a[0], a[1]); });
+  wrapP("arcTo", function (c, a) { pt(c, a[0], a[1]); pt(c, a[2], a[3]); });
+  wrapP("quadraticCurveTo", function (c, a) { pt(c, a[2], a[3]); });
+  wrapP("bezierCurveTo", function (c, a) { pt(c, a[4], a[5]); });
+  wrapP("rect", function (c, a) { pt(c, a[0], a[1]); pt(c, a[0] + a[2], a[1] + a[3]); });
+  wrapP("roundRect", function (c, a) { pt(c, a[0], a[1]); pt(c, a[0] + a[2], a[1] + a[3]); });
+  wrapP("arc", function (c, a) { pt(c, a[0] - a[2], a[1] - a[2]); pt(c, a[0] + a[2], a[1] + a[2]); });
+  var alphaOf = function (st) { if (typeof st !== "string") return 1; var m = /rgba?\(([^)]+)\)/.exec(st); if (m) { var q = m[1].split(","); return q.length > 3 ? parseFloat(q[3]) : 1; }
+    return /^#[0-9a-f]{8}$/i.test(st) ? parseInt(st.slice(7), 16) / 255 : 1; };
+  var cover = function (c, x, y, X, Y) { var L = window.__LAY; if (!L.on || c.canvas !== L.cv) return; var a = c.globalAlpha * alphaOf(c.fillStyle);
+    if (a >= .5 && (X - x) * (Y - y) > 9000 && c.globalCompositeOperation === "source-over") log.push({ cover: 1, x: x, y: y, X: X, Y: Y, a: a }); };
+  wrapP("fill", function (c) { var b = c.__pb; if (b) cover(c, b[0], b[1], b[2], b[3]); });
+  wrapP("fillRect", function (c, a) { var T = c.getTransform(), p = [[a[0], a[1]], [a[0] + a[2], a[1] + a[3]]].map(function (q) { return [T.a * q[0] + T.c * q[1] + T.e, T.b * q[0] + T.d * q[1] + T.f]; });
+    cover(c, Math.min(p[0][0], p[1][0]), Math.min(p[0][1], p[1][1]), Math.max(p[0][0], p[1][0]), Math.max(p[0][1], p[1][1])); });
   return 1; })()"""
 
 DRAW = r"""(function(ms){ var L = window.__LAY; L.log.length = 0; L.cv = __MV__.drawAt(ms); L.on = true; __MV__.drawAt(ms); L.on = false;
@@ -48,7 +69,7 @@ CUES = r"""__MV__.CUES.map(function(c){ return { a: c.a, b: c.b, text: c.text ||
 
 CUT = "\x00切れ:"   # rows_of が、描かれなかった残りを最後の行として返すときの印
 PUNCT_HEAD = re.compile(r"^[、。，．！？!?」』）)…ー〜・ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮ]")
-plain = lambda s: re.sub(r"[\s　]|\*\*", "", s or "")
+plain = lambda s: re.sub(r"[\s　\u200b]|\*\*", "", s or "")   # U+200B: 台本で決めた折る所（<br>）
 
 
 def fmt(ms):
@@ -81,23 +102,32 @@ def rows_of(bs, text):
     cand.sort(key=lambda b: (round(b["y"] / 12), b["x"]))
     rows = []
     for b in cand:
-        if rows and abs(rows[-1][0]["y"] - b["y"]) < (b["Y"] - b["y"]) * .6:
+        h = b["Y"] - b["y"]
+        if rows and abs(rows[-1][0]["y"] - b["y"]) < h * .6 and -h < b["x"] - rows[-1][-1]["X"] < h * 2:   # 同じ高さでも、横に離れた字は別の行（字幕の 2 行目と、同じ言葉の吹き出しが横に並ぶ）
             rows[-1].append(b)
         else:
             rows.append([b])
     lines = ["".join(plain(b["s"]) for b in sorted(r, key=lambda b: b["x"])) for r in rows]
-    # せりふの全文になる、続いた行の組を探す（同じ言葉が名札などにもあるとき、余分な行が混ざる）
+    span = lambda r: (min(b["x"] for b in r), max(b["X"] for b in r), sum(b["Y"] - b["y"] for b in r) / len(r))
+    # せりふの全文になる行の組を探す。同じ言葉が名札・吹き出しにもあるので、頭の行と字の大きさが同じで、横の位置が重なる行だけをつなぐ（ほかの行は飛ばす）
     best = None
     for i in range(len(lines)):
-        acc = ""
+        x0, x1, h0 = span(rows[i])
+        acc, used = "", []
         for j in range(i, len(lines)):
+            xa, xb, hj = span(rows[j])
+            if j > i and (abs(hj - h0) > h0 * .15 or xb < x0 - h0 * 3 or xa > x1 + h0 * 3):
+                continue
+            if not target.startswith(acc + lines[j]):
+                if j == i:
+                    break
+                continue
             acc += lines[j]
+            used.append(j)
             if acc == target:
-                return lines[i:j + 1], [b for r in rows[i:j + 1] for b in r]
-            if not target.startswith(acc):
-                break
+                return [lines[n] for n in used], [b for n in used for b in rows[n]]
             if len(acc) >= max(6, len(target) * .5) and (best is None or len(acc) > len(best[2])):
-                best = (lines[i:j + 1], [b for r in rows[i:j + 1] for b in r], acc)
+                best = ([lines[n] for n in used], [b for n in used for b in rows[n]], acc)
     if best:   # せりふの頭から途中までしか描かれていない（行が足りずに切れた）
         return best[0] + [CUT + target[len(best[2]):]], best[1]
     return None
@@ -143,6 +173,29 @@ def wrap_faults(lines):
             out.append("行の終わりが、開くかっこ（%s／%s）" % (a[-4:], b[:4]))
     if len(lines) >= 2 and len(re.sub(r"[、。！？!?…」』）)]", "", lines[-1])) <= 2:
         out.append("最後の行が 1〜2 字だけ（／%s）" % lines[-1])
+    return out
+
+
+def hidden(items, W, H):
+    """後から描かれた大きな塗り（せりふの箱・板）の下になった字。items: 描いた順（字と、塗りの範囲 cover）。→ [(字, 塗りの範囲)]"""
+    out = []
+    for i, b in enumerate(items):
+        if b.get("cover") or b.get("k") or b.get("a", 1) < .5 or len(plain(b["s"])) < 2:
+            continue
+        area = max(1.0, (b["X"] - b["x"]) * (b["Y"] - b["y"]))
+        for j in range(i + 1, len(items)):
+            c = items[j]
+            if not c.get("cover"):
+                continue
+            w, h = min(b["X"], c["X"]) - max(b["x"], c["x"]), min(b["Y"], c["Y"]) - max(b["y"], c["y"])
+            if w <= 0 or h <= 0 or w * h < area * .4:
+                continue
+            if (c["X"] - c["x"]) * (c["Y"] - c["y"]) > W * H * .6:   # 画面いっぱいの塗り（場面の切り替え・暗転）は、隠すためのもの
+                continue
+            again = any(not d.get("cover") and d["s"] == b["s"] and abs(d["x"] - b["x"]) < 4 and abs(d["y"] - b["y"]) < 4 for d in items[j + 1:])   # 塗りの後に、同じ字をもう一度描いている（ふちどり・重ね描き）
+            if not again:
+                out.append((b["s"], c))
+                break
     return out
 
 
@@ -194,10 +247,16 @@ def check(html, every=0, browser=None):
         found, last, seen_cue, n_cue = [], {}, 0, 0
         prev_out, prev_ms = {}, -1e9
         unread = []
+        prev_hid, told_hid = set(), set()
         for ms, cue in times:
             r = br.eval(DRAW % ms)
             W, H = r["w"], r["h"]
-            bs = boxes(r["items"], W, H)
+            now_hid = {t for t, _ in hidden(r["items"], W, H)}
+            for t in sorted(now_hid & prev_hid - told_hid):   # 続けて 2 回見えたものだけ（動いている途中の一瞬は数えない）
+                told_hid.add(t)
+                found.append({"at": ms, "kind": "隠れ", "what": "「%s」が、後から描かれた箱（せりふの箱・板）の下になっている" % t[:20]})
+            prev_hid = now_hid
+            bs = boxes([x for x in r["items"] if not x.get("cover")], W, H)
             mine = []
             if cue and cue["text"]:
                 n_cue += 1
@@ -256,7 +315,7 @@ def main():
     else:
         st = getattr(check, "stats", {})
         print("見た画面: %d／せりふ %d のうち、描かれた行を読み取れたもの %d" % (st.get("frames", 0), st.get("cues", 0), st.get("read", 0)))
-        for k in ("重なり", "見切れ", "切れ", "行数", "折り返し"):
+        for k in ("重なり", "見切れ", "隠れ", "切れ", "行数", "折り返し"):
             rows = [f for f in found if f["kind"] == k]
             print("%s: %d 件" % (k, len(rows)))
             for f in rows:

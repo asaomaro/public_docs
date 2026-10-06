@@ -65,7 +65,11 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   function tw(s, o) { ctx.save(); ctx.font = font(o || {}); var w = ctx.measureText(s).width; ctx.restore(); return w; }
   /* 日本語を含む折り返し（行頭禁則の簡易版） */
   var NOSTART = "、。，．・：；？！）」』】〉》ー々ぁぃぅぇぉっゃゅょァィゥェォッャュョ";
+  /* 台本で決めた折る所（kaisetsu の「<br>」→ 幅の無い字 U+200B）: そこで必ず折り、それぞれの中は、いつもの決まりで折る */
+  function forcedWrap(s, fn) { s = String(s == null ? "" : s); if (s.indexOf("\u200b") < 0) return null;
+    return s.split("\u200b").reduce(function (acc, part) { return part ? acc.concat(fn(part)) : acc; }, []); }
   function wrap(s, maxW, o) {
+    var fz0 = forcedWrap(s, function (p) { return wrap(p, maxW, o); }); if (fz0) return fz0;
     var out = [], cur = "";
     var tokens = String(s).match(/[A-Za-z0-9_\-./:@#%&+=~`'"(){}\[\]<>$*]+|\s+|./g) || [];
     tokens.forEach(function (tok) {
@@ -2018,6 +2022,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   }
   /* 字幕の折り返し: 2 行になるときは、読点・句点・空白の後ろで折る（語の途中で折らない）。切れ目が無ければ、助詞の後ろ、それも無ければ幅で折る */
   function capWrap(text, maxW, o, lim) {   /* lim: 語を 2 行目へ送るときの幅の上限（2 行をそろえるために狭く折るときは、本来の幅） */
+    var fz1 = forcedWrap(text, function (p) { return capWrap(p, lim || maxW, o, lim); }); if (fz1) return fz1;   /* 折る所を決めたせりふは、2 行をそろえるための狭い幅では折らない */
     var lines = wrap(text, maxW, o);
     if (lines.length > 2 && SEG_JA) { var w3 = wrapWords(text, maxW, o); return w3.length <= lines.length ? w3 : lines; }   /* 3 行になる長いせりふも、語の切れ目で折る */
     if (lines.length !== 2) return lines;
@@ -2043,6 +2048,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
      語の切れ目は Intl.Segmenter（日本語の単語）で取る。行の頭に、句読点・閉じかっこ・助詞・小さい仮名を置かない。使えない環境では wrap() */
   var SEG_JA = typeof Intl !== "undefined" && Intl.Segmenter ? new Intl.Segmenter("ja", { granularity: "word" }) : null;
   function wrapWords(text, maxW, o) {
+    var fz2 = forcedWrap(text, function (p) { return wrapWords(p, maxW, o); }); if (fz2) return fz2;
     if (!SEG_JA) return wrap(text, maxW, o);
     var toks = [], bold = false;
     String(text).split("**").forEach(function (part, n) {   /* 強調（**…**）の中では折らない */
@@ -2065,6 +2071,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       hard = hard || (/[一-龠々]$/.test(pv) && /^[ぁ-ん]{1,3}$/.test(t) && !/^(は|が|を|に|で|と|も|の|へ|や|から|まで|より)$/.test(t));   /* 漢字の直後の送りがな（守｜ろう、食｜べ） */
       hard = hard || (/[ぁ-ん]$/.test(pv) && /^(られ|れ[るたて]|させ|せ[るたて])/.test(t));   /* 受け身・使役の語尾（引っぱ｜られる） */
       hard = hard || /[「『（(]$/.test(pv) || /^[、。，．！？!?」』）)…ー〜・：；ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮ々]/.test(t);   /* 開くかっこの直後・句読点と小さいかなの直前 */
+      hard = hard || (/^[（(]/.test(t) && /[一-龠々ァ-ヶーぁ-ん]$/.test(pv));   /* 読みがなのかっこは、前の語から離さない（八幡宮｜（はちまんぐう）） */
       var soft = glue.test(t) || (/^[ぁ-ん]{1,2}$/.test(t) && !/[、。！？!?…\s]$/.test(pv)) || (/^[一-龠々][ぁ-ん]{0,2}$/.test(t) && /[ぁ-ん]$/.test(pv) && pv.length <= 6);   /* 助詞・語尾・1 字だけの漢字の語（柿の｜葉） */
       if (pv && hard) { var ps = parts[parts.length - 1];
         if (ps.length >= 2 && /^[ぁ-ん]{1,2}$/.test(ps[ps.length - 1])) { var tail = ps.pop(); ps[ps.length - 1] += tail; }   /* 固くつなぐ相手が助詞・語尾だけのとき（し＋て＋ほしい）は、その前の語ごとつなぐ（「し／てほしい」と折らない） */
@@ -2113,7 +2120,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
      無ければ capWrap のまま（語の途中で折れることがある: 「すれ違うた／めの場所」）。 */
   function capSplit(text, maxW, o) {
     var L = capWrap(text, maxW, o);
-    if (L.length <= 1 || text.indexOf("**") >= 0) return L;
+    if (L.length <= 1 || text.indexOf("**") >= 0 || text.indexOf("\u200b") >= 0) return L;   /* 折る所を決めたせりふ（<br>）は、そのまま */
     var best = -1, mid = text.length / 2, w = function (s2) { return tw(s2, o); };
     for (var i = 1; i < text.length - 2; i++) {
       if (!/[、。！？!?…]/.test(text[i]) || /[、。！？!?…」）』]/.test(text[i + 1])) continue;
@@ -2426,7 +2433,12 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
         if (it.frame) { ctx.shadowColor = "rgba(0,0,0,.35)"; ctx.shadowBlur = 30; ctx.shadowOffsetY = 10; ctx.fillStyle = "#ffffff"; ctx.fillRect(-dw / 2 - 12, -dh / 2 - 12, dw + 24, dh + 24); ctx.shadowColor = "transparent"; }
         else { ctx.shadowColor = "rgba(0,0,0,.28)"; ctx.shadowBlur = 18; ctx.shadowOffsetY = 8; }
         ctx.drawImage(im, -dw / 2, -dh / 2, dw, dh); ctx.shadowColor = "transparent";
-        if (it.credit) { ctx.font = font(capFont(20, 700)); ctx.textAlign = "right"; ctx.lineJoin = "round"; ctx.lineWidth = 5; ctx.strokeStyle = "rgba(0,0,0,.8)"; ctx.strokeText(it.credit, dw / 2 - 10, dh / 2 - 12); ctx.fillStyle = "#ffffff"; ctx.fillText(it.credit, dw / 2 - 10, dh / 2 - 12); }
+        if (it.credit) {   /* 出どころの字は、写真の枠の幅に収める: 幅を超えるときは字を小さくし（13 まで）、それでも超えるときは名前の途中を「…」で省く（枠で頭が切れて「画像: 」が読めなくなっていた） */
+          (function (crText, crMax) { var crSize = 20, crW = function (x, z) { return tw(x, capFont(z, 700)); };
+            while (crSize > 13 && crW(crText, crSize) > crMax) crSize--;
+            if (crW(crText, crSize) > crMax) { var crTail = (/（[^（）]*）$/.exec(crText) || [""])[0], crHead = crText.slice(0, crText.length - crTail.length); while (crHead.length > 4 && crW(crHead + "…" + crTail, crSize) > crMax) crHead = crHead.slice(0, -1); crText = crHead + "…" + crTail; }
+            ctx.font = font(capFont(crSize, 700)); ctx.textAlign = "right"; ctx.lineJoin = "round"; ctx.lineWidth = 5; ctx.strokeStyle = "rgba(0,0,0,.8)"; ctx.strokeText(crText, dw / 2 - 10, dh / 2 - 12); ctx.fillStyle = "#ffffff"; ctx.fillText(crText, dw / 2 - 10, dh / 2 - 12);
+          })(String(it.credit), dw - 20); }
         ctx.restore();
         edge = iy - dh / 2 * (it.frame ? 1 : .9) - (it.frame ? 12 : 0);
       }
