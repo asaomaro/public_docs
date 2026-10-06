@@ -2187,7 +2187,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   function castPlace(S, id, i, nth) {
     var ch = CAST[id], L = castLay(S, id) || {}, side = (ch.side || (i % 2 ? "right" : "left")) === "right" ? "right" : "left", h = (ch.height || 520) * (L.scale || 1), img0 = pickImg(ch, "normal", 0, false);
     var w = ch.sprite ? h * ch.sprite.w / ch.sprite.h : img0 && img0.naturalWidth ? h * img0.naturalWidth / img0.naturalHeight : h * .62;
-    var x = (side === "right" ? 1920 - 40 - w / 2 - nth * w * .75 : 40 + w / 2 + nth * w * .75) + (ch.offsetX || 0), by = (ch.baseY || 1080) + (ch.offsetY || 0) * (L.scale || 1) - nth * 30;
+    var x = (side === "right" ? 1920 - 40 - w / 2 - nth * w * .75 : 40 + w / 2 + nth * w * .75) + (ch.offsetX || 0), by = (ch.baseY || 1080) + (ch.offsetY || 0) * (L.scale || 1) - (ch.cut ? 0 : nth * 30);   /* cut: 下で切れている絵（腰までの立ち絵）は、持ち上げると切れ目が見える */
     if (typeof L.x === "number") { x = L.x; by = (ch.baseY || 1080) + (ch.offsetY || 0) * (L.scale || 1); side = x > 960 ? "right" : "left"; }
     return { side: side, h: h, w: w, x: x, by: by + (L.dy || 0), fixed: typeof L.x === "number" };
   }
