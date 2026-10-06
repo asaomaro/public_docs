@@ -65,7 +65,11 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   function tw(s, o) { ctx.save(); ctx.font = font(o || {}); var w = ctx.measureText(s).width; ctx.restore(); return w; }
   /* 日本語を含む折り返し（行頭禁則の簡易版） */
   var NOSTART = "、。，．・：；？！）」』】〉》ー々ぁぃぅぇぉっゃゅょァィゥェォッャュョ";
+  /* 台本で決めた折る所（kaisetsu の「<br>」→ 幅の無い字 U+200B）: そこで必ず折り、それぞれの中は、いつもの決まりで折る */
+  function forcedWrap(s, fn) { s = String(s == null ? "" : s); if (s.indexOf("\u200b") < 0) return null;
+    return s.split("\u200b").reduce(function (acc, part) { return part ? acc.concat(fn(part)) : acc; }, []); }
   function wrap(s, maxW, o) {
+    var fz0 = forcedWrap(s, function (p) { return wrap(p, maxW, o); }); if (fz0) return fz0;
     var out = [], cur = "";
     var tokens = String(s).match(/[A-Za-z0-9_\-./:@#%&+=~`'"(){}\[\]<>$*]+|\s+|./g) || [];
     tokens.forEach(function (tok) {
@@ -1929,6 +1933,9 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   /* 気持ちの印。絵文字の書体に頼らず、線と形で描く（どの環境でも同じに出る）。lt は出てからの ms、sd は顔の外側の向き（左の人 1・右の人 -1） */
   var EMO_ALIAS = { "！": "!", "？": "?", "！？": "!?", "?!": "!?", "汗": "💦", "怒": "💢", "ひらめき": "💡", "キラ": "✨", "きら": "✨", "ハート": "♥", "❤": "♥", "ガーン": "gloom", "がーん": "gloom", "ZZZ": "zzz", "音符": "♪", "無言": "…", "集中": "shock", "ショック": "shock" };
   function drawEmote(em, ex, ey, lt, col, sd) {
+    if (typeof window !== "undefined" && window.__LAY && window.__LAY.on && ctx.canvas === window.__LAY.cv) {   /* layout.py の確かめ用: 気持ちの印の場所を知らせる（印は字ではないので、名札に重なっても機械に出なかった） */
+      try { var TL = ctx.getTransform(), LX = TL.a * ex + TL.c * ey + TL.e, LY = TL.b * ex + TL.d * ey + TL.f, LR = 34 * Math.abs(TL.a || 1);
+        window.__LAY.log.push({ s: "（印 " + em + "）", x: LX - LR, y: LY - LR, X: LX + LR, Y: LY + LR, a: ctx.globalAlpha, c: "", k: 0, mark: 1 }); } catch (e0) {} }
     em = EMO_ALIAS[em] || em; var k = P(lt, 0, 350, back), sin = Math.sin, PI = Math.PI, i;
     ctx.save(); ctx.translate(ex, ey); ctx.lineJoin = "round"; ctx.lineCap = "round";
     var edge = function (w) { ctx.strokeStyle = "#ffffff"; ctx.lineWidth = w; ctx.stroke(); };
@@ -2018,6 +2025,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   }
   /* 字幕の折り返し: 2 行になるときは、読点・句点・空白の後ろで折る（語の途中で折らない）。切れ目が無ければ、助詞の後ろ、それも無ければ幅で折る */
   function capWrap(text, maxW, o, lim) {   /* lim: 語を 2 行目へ送るときの幅の上限（2 行をそろえるために狭く折るときは、本来の幅） */
+    var fz1 = forcedWrap(text, function (p) { return capWrap(p, lim || maxW, o, lim); }); if (fz1) return fz1;   /* 折る所を決めたせりふは、2 行をそろえるための狭い幅では折らない */
     var lines = wrap(text, maxW, o);
     if (lines.length > 2 && SEG_JA) { var w3 = wrapWords(text, maxW, o); return w3.length <= lines.length ? w3 : lines; }   /* 3 行になる長いせりふも、語の切れ目で折る */
     if (lines.length !== 2) return lines;
@@ -2043,6 +2051,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
      語の切れ目は Intl.Segmenter（日本語の単語）で取る。行の頭に、句読点・閉じかっこ・助詞・小さい仮名を置かない。使えない環境では wrap() */
   var SEG_JA = typeof Intl !== "undefined" && Intl.Segmenter ? new Intl.Segmenter("ja", { granularity: "word" }) : null;
   function wrapWords(text, maxW, o) {
+    var fz2 = forcedWrap(text, function (p) { return wrapWords(p, maxW, o); }); if (fz2) return fz2;
     if (!SEG_JA) return wrap(text, maxW, o);
     var toks = [], bold = false;
     String(text).split("**").forEach(function (part, n) {   /* 強調（**…**）の中では折らない */
@@ -2065,6 +2074,9 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       hard = hard || (/[一-龠々]$/.test(pv) && /^[ぁ-ん]{1,3}$/.test(t) && !/^(は|が|を|に|で|と|も|の|へ|や|から|まで|より)$/.test(t));   /* 漢字の直後の送りがな（守｜ろう、食｜べ） */
       hard = hard || (/[ぁ-ん]$/.test(pv) && /^(られ|れ[るたて]|させ|せ[るたて])/.test(t));   /* 受け身・使役の語尾（引っぱ｜られる） */
       hard = hard || /[「『（(]$/.test(pv) || /^[、。，．！？!?」』）)…ー〜・：；ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮ々]/.test(t);   /* 開くかっこの直後・句読点と小さいかなの直前 */
+      hard = hard || (/(^|[、。！？!?…\s「『（(])[おご]$/.test(pv) && /^[一-龠々]/.test(t));   /* 「お」「ご」＋漢字（お｜腹、ご｜飯）。1 字だけを行に残さない */
+      hard = hard || (/で$/.test(pv) && /^しょ/.test(t)) || (/なん$/.test(pv) && /^で(しょ|す)/.test(t));   /* 〜で｜しょう・〜なん｜でしょう */
+      hard = hard || (/^[（(]/.test(t) && /[一-龠々ァ-ヶーぁ-ん]$/.test(pv));   /* 読みがなのかっこは、前の語から離さない（八幡宮｜（はちまんぐう）） */
       var soft = glue.test(t) || (/^[ぁ-ん]{1,2}$/.test(t) && !/[、。！？!?…\s]$/.test(pv)) || (/^[一-龠々][ぁ-ん]{0,2}$/.test(t) && /[ぁ-ん]$/.test(pv) && pv.length <= 6);   /* 助詞・語尾・1 字だけの漢字の語（柿の｜葉） */
       if (pv && hard) { var ps = parts[parts.length - 1];
         if (ps.length >= 2 && /^[ぁ-ん]{1,2}$/.test(ps[ps.length - 1])) { var tail = ps.pop(); ps[ps.length - 1] += tail; }   /* 固くつなぐ相手が助詞・語尾だけのとき（し＋て＋ほしい）は、その前の語ごとつなぐ（「し／てほしい」と折らない） */
@@ -2079,6 +2091,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       if (W(u) <= maxW * 1.12) { put(u); return; }
       parts[ui].forEach(function (t) {   /* 1 かたまりが幅を超えるとき: 中の語の切れ目で折る（句読点・閉じかっこだけは、前の行に付ける） */
         if (line && /^[、。，．！？!?」』）)…ー〜]/.test(t)) { line += t; return; }
+        if (line && /^(は|が|を|に|で|と|も|の|へ|や)$/.test(t) && W(line + t) <= maxW * 1.12) { line += t; return; }   /* 助詞 1 字を、行の頭に送らない（「硫酸マグネシウム／が、」）。幅を少し超えてもよい */
         put(t); }); });
     if (line) out.push(line);
     return out.reduce(function (acc, l) { return acc.concat(W(l) > maxW * 1.25 ? wrap(l, maxW, o) : [l]); }, []);   /* 1 語が幅を大きく超えるときだけ、字で折る */
@@ -2113,7 +2126,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
      無ければ capWrap のまま（語の途中で折れることがある: 「すれ違うた／めの場所」）。 */
   function capSplit(text, maxW, o) {
     var L = capWrap(text, maxW, o);
-    if (L.length <= 1 || text.indexOf("**") >= 0) return L;
+    if (L.length <= 1 || text.indexOf("**") >= 0 || text.indexOf("\u200b") >= 0) return L;   /* 折る所を決めたせりふ（<br>）は、そのまま */
     var best = -1, mid = text.length / 2, w = function (s2) { return tw(s2, o); };
     for (var i = 1; i < text.length - 2; i++) {
       if (!/[、。！？!?…]/.test(text[i]) || /[、。！？!?…」）』]/.test(text[i + 1])) continue;
@@ -2254,8 +2267,8 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       if (!em && st.emote && !st.own && slt < 1400) { em = st.emote; elt = slt; }
       var emx = vertOn() ? x + (side === "right" ? -w * .52 : w * .52) : x + (side === "right" ? w * .22 : -w * .22),   /* 縦の画面: 頭の上は字幕なので、気持ちの印は顔の内側の横に出す（前は、字幕の右端に重なった） */
           emy = vertOn() ? by - h * .74 : by - h - 10 - (TAGON && !(TALK.nameTagFor && lt0 > TALK.nameTagFor) ? 52 : 0);
-      if (em) EMOS.push([em, clamp(emx, 70, 1850), Math.max(96, emy), elt, ch.color || C.accent, side === "right" ? 1 : -1, dx + shake + mo.x, bob + mo.y]);   /* 印は頭の外側に（中央の絵と字に重ねない）。名札があるときは、名札の上に。描くのは全員の後（前は、後から描いた名札に半分隠れた） */
-      if (TAGON && ent >= 1) NAMES.push({ t: ch.name || id, x: x, y: Math.max(70, by - h - 14), ox: dx + shake + mo.x, oy: bob + mo.y });   /* 頭の上の名札（寸劇の型）。描くのは全員の後（となりの人の名札と重ならない高さに直してから） */
+      if (em) EMOS.push([em, clamp(emx, 70, 1850), Math.max(96, emy), elt, ch.color || C.accent, side === "right" ? 1 : -1, dx + shake + mo.x, bob + mo.y, id]);   /* 印は頭の外側に（中央の絵と字に重ねない）。名札があるときは、名札の上に。描くのは全員の後（前は、後から描いた名札に半分隠れた） */
+      if (TAGON && ent >= 1) NAMES.push({ id: id, t: ch.name || id, x: x, y: Math.max(70, by - h - 14), ox: dx + shake + mo.x, oy: bob + mo.y });   /* 頭の上の名札（寸劇の型）。描くのは全員の後（となりの人の名札と重ならない高さに直してから） */
       ctx.restore();
     });
     /* 名札: 左から順に見て、前の名札と横に重なるなら、1 段上へずらす（片側に寄せた並びで、内側の 2 人の名札が重なって字が欠けた） */
@@ -2265,6 +2278,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     NAMES.sort(function (a, b) { return a.x - b.x; }).forEach(function (n, k2) {
       for (var q = 0; q < 3; q++) { var hit = NAMES.slice(0, k2).some(function (m) { return Math.abs(m.x - n.x) < (m.w + n.w) / 2 + 6 && Math.abs(m.y - n.y) < 46; }); if (!hit) break; n.y -= 50; }
       n.y = Math.max(70, n.y); if (tagA <= 0) return;
+      EMOS.forEach(function (em2) { if (em2[8] === n.id) em2[2] = Math.max(52, Math.min(em2[2], n.y - 44 - 40)); });   /* 名札を 1 段上げた人の印は、その名札の上へ（上げる前の高さに置くと、印が名札に重なった） */
       var nx = n.x + n.ox, ny = n.y + n.oy; ctx.save(); ctx.globalAlpha *= tagA;
       rr(nx - n.w / 2, ny - 44, n.w, 44, 8); ctx.fillStyle = typeof TALK.nameTag === "string" ? TALK.nameTag : "#f08a24"; ctx.fill(); txt(n.t, nx, ny - 12, { size: 30, weight: 800, align: "center", color: "#ffffff", font: no.font }); ctx.restore(); });
     EMOS.forEach(function (e) { ctx.save(); ctx.translate(e[6], e[7]); drawEmote(e[0], e[1], e[2], e[3], e[4], e[5]); ctx.restore(); });
@@ -2426,7 +2440,12 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
         if (it.frame) { ctx.shadowColor = "rgba(0,0,0,.35)"; ctx.shadowBlur = 30; ctx.shadowOffsetY = 10; ctx.fillStyle = "#ffffff"; ctx.fillRect(-dw / 2 - 12, -dh / 2 - 12, dw + 24, dh + 24); ctx.shadowColor = "transparent"; }
         else { ctx.shadowColor = "rgba(0,0,0,.28)"; ctx.shadowBlur = 18; ctx.shadowOffsetY = 8; }
         ctx.drawImage(im, -dw / 2, -dh / 2, dw, dh); ctx.shadowColor = "transparent";
-        if (it.credit) { ctx.font = font(capFont(20, 700)); ctx.textAlign = "right"; ctx.lineJoin = "round"; ctx.lineWidth = 5; ctx.strokeStyle = "rgba(0,0,0,.8)"; ctx.strokeText(it.credit, dw / 2 - 10, dh / 2 - 12); ctx.fillStyle = "#ffffff"; ctx.fillText(it.credit, dw / 2 - 10, dh / 2 - 12); }
+        if (it.credit) {   /* 出どころの字は、写真の枠の幅に収める: 幅を超えるときは字を小さくし（13 まで）、それでも超えるときは名前の途中を「…」で省く（枠で頭が切れて「画像: 」が読めなくなっていた） */
+          (function (crText, crMax) { var crSize = 20, crW = function (x, z) { return tw(x, capFont(z, 700)); };
+            while (crSize > 13 && crW(crText, crSize) > crMax) crSize--;
+            if (crW(crText, crSize) > crMax) { var crTail = (/（[^（）]*）$/.exec(crText) || [""])[0], crHead = crText.slice(0, crText.length - crTail.length); while (crHead.length > 4 && crW(crHead + "…" + crTail, crSize) > crMax) crHead = crHead.slice(0, -1); crText = crHead + "…" + crTail; }
+            ctx.font = font(capFont(crSize, 700)); ctx.textAlign = "right"; ctx.lineJoin = "round"; ctx.lineWidth = 5; ctx.strokeStyle = "rgba(0,0,0,.8)"; ctx.strokeText(crText, dw / 2 - 10, dh / 2 - 12); ctx.fillStyle = "#ffffff"; ctx.fillText(crText, dw / 2 - 10, dh / 2 - 12);
+          })(String(it.credit), dw - 20); }
         ctx.restore();
         edge = iy - dh / 2 * (it.frame ? 1 : .9) - (it.frame ? 12 : 0);
       }
