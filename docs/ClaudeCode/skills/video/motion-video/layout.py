@@ -21,10 +21,12 @@ import shoot as S
 HOOK = r"""(function(){
   if (window.__LAY) return 1;
   var P = CanvasRenderingContext2D.prototype, f0 = P.fillText, log = [];
-  window.__LAY = { log: log, on: false, cv: null };
+  window.__LAY = { log: log, on: false, cv: null, cvs: [], vert: /"format"\s*:\s*"short"/.test((document.querySelector("script[data-mv-spec]") || {}).textContent || "") };
   P.fillText = function (s, x, y) {
     try { var L = window.__LAY;
-      if (L.on && this.canvas === L.cv && String(s).replace(/[\s　]/g, "").length) {
+      var tall = L.vert, k = 0;   /* 縦の画面（ショート）は、字幕・絵を別の canvas に描いてから貼る。行数と折り返しを見るために、そちらの字も集める */
+      if (L.on && tall && this.canvas !== L.cv) { k = L.cvs.indexOf(this.canvas); if (k < 0) { L.cvs.push(this.canvas); k = L.cvs.length - 1; } k += 1; }
+      if (L.on && (this.canvas === L.cv || tall) && String(s).replace(/[\s　]/g, "").length) {
         var m = this.measureText(s), T = this.getTransform(), al = this.textAlign, w = m.width,
             x0 = x - (m.actualBoundingBoxLeft !== undefined ? m.actualBoundingBoxLeft : (al === "center" ? w / 2 : al === "right" || al === "end" ? w : 0)),
             x1 = x + (m.actualBoundingBoxRight !== undefined ? m.actualBoundingBoxRight : w),
@@ -32,7 +34,7 @@ HOOK = r"""(function(){
             pts = [[x0, y0], [x1, y0], [x0, y1], [x1, y1]].map(function (p) { return [T.a * p[0] + T.c * p[1] + T.e, T.b * p[0] + T.d * p[1] + T.f]; }),
             xs = pts.map(function (p) { return p[0]; }), ys = pts.map(function (p) { return p[1]; });
         log.push({ s: String(s), x: Math.min.apply(null, xs), y: Math.min.apply(null, ys), X: Math.max.apply(null, xs), Y: Math.max.apply(null, ys),
-                   a: this.globalAlpha, c: String(this.fillStyle) });
+                   a: this.globalAlpha, c: String(this.fillStyle), k: k });
       } } catch (e) {}
     return f0.apply(this, arguments);
   };
@@ -57,6 +59,8 @@ def boxes(items, W, H):
     for it in items:
         if it["a"] < .5 or it["X"] - it["x"] < 2:
             continue
+        if it.get("k"):   # 別の canvas の字（縦の画面）: 場所は貼る前のものなので、ほかの canvas の字と混ざらないよう、上下に大きく離す
+            it = dict(it, y=it["y"] + it["k"] * 100000, Y=it["Y"] + it["k"] * 100000)
         for o in out:
             if o["s"] == it["s"] and abs(o["x"] - it["x"]) < 14 and abs(o["y"] - it["y"]) < 14:
                 o["x"], o["y"], o["X"], o["Y"] = min(o["x"], it["x"]), min(o["y"], it["y"]), max(o["X"], it["X"]), max(o["Y"], it["Y"])
@@ -176,7 +180,7 @@ def check(html, every=0, browser=None):
                         found.append({"at": ms, "kind": "折り返し", "what": w})
             now_out = {}
             for b in bs:
-                if b["x"] < -4 or b["y"] < -4 or b["X"] > W + 4 or b["Y"] > H + 4:
+                if not b.get("k") and (b["x"] < -4 or b["y"] < -4 or b["X"] > W + 4 or b["Y"] > H + 4):
                     now_out[b["s"]] = b
             for txt_, b in now_out.items():   # 続けて 2 回、外にあるものだけ（札が横から入ってくる途中の 1 コマは、見切れではない）
                 k = ("見切れ", txt_)

@@ -1663,19 +1663,22 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var sc = vPaint("scene", q, function () { drawBody(t); });
     var ca = vPaint("cast", q, function () { drawCast(t); });
     var cp = vPaint("cap", q, function () { var cur = cueAt(t), capOn = recording ? !recording.clean : captions; if (cur && cur.who && capOn) drawCaption(cur, t); });
-    var PX = (W - VW) / 2, PY = 300, PH = 900, CW = 720, CH = 600, CK = .75;   /* 絵: 横の画面の中央を切り出す位置・縦の枠での上の端・高さ。立ち絵: 左右の端から切り出す幅・高さと、縮める割合 */
+    /* 絵: 横の画面の中央を切り出す位置・縦の枠での上の端・高さ。立ち絵: 左右の端から切り出す幅・高さと、縮める割合。
+       立ち絵は、横の画面の**上から下まで全部**を切り出す（前は下の 600 だけで、跳ねる・手を上げる動きのとき、頭や手が見えない線で切れた）。字幕より後ろに描くので、字幕には重ならない */
+    var PX = (W - VW) / 2, PY = 215, PH = 900, CK = 1.25, CW = Math.round(VW / 2 / CK), CH = H;   /* 立ち絵は 1.25 倍（前は .75 倍で、縦の画面の下 3 割が空いて、立ち絵が豆粒だった） */
     ctx.setTransform(q, 0, 0, q, 0, 0);
     ctx.fillStyle = "#14141a"; ctx.fillRect(0, 0, VW, VH);
     if ("filter" in ctx) { ctx.save(); ctx.filter = "blur(" + (26 * q).toFixed(1) + "px) brightness(.45)"; ctx.drawImage(sc, (PX + 240) * q, 0, 600 * q, 1066 * q, -60, -60, VW + 120, VH + 120); ctx.restore(); }
     if (isTalk(SCENES[sceneAt(t)].s)) ctx.drawImage(sc, PX * q, 0, VW * q, PH * q, 0, PY, VW, PH);
     else { var fh = VW * H / W; ctx.drawImage(sc, 0, 0, W * q, H * q, 0, PY + (PH - fh) / 2, VW, fh); }   /* 掛け合いでない場面（題・クレジット）は、切らずに全体を幅に合わせる */
     /* 題（上） */
-    var ttl = String(SPEC.title || ""), to = { size: 62, weight: 900, font: TALK.font ? '"' + TALK.font + '",' + F.sans : F.sans }, tl = capWrap(ttl, 980, to).slice(0, 2);
-    tl.forEach(function (l2, i) { capLine(l2, VW / 2, 150 + (i - (tl.length - 1) / 2) * 80 + 22, to, [[20, "#16161d"]], "#ffffff", "#ffe45c"); });
+    var ttl = String(SPEC.title || ""), to = { size: 72, weight: 900, font: TALK.font ? '"' + TALK.font + '",' + F.sans : F.sans }, tl = capWrap(ttl, 1000, to).slice(0, 2);
+    if (tl.length === 1 && tw(ttl.replace(/\*\*/g, ""), to) < 640) to.size = 88;   /* 短い題は、大きく */
+    tl.forEach(function (l2, i) { capLine(l2, VW / 2, 108 + (i - (tl.length - 1) / 2) * 92 + 26, to, [[24, "#16161d"]], "#ffffff", "#ffe45c"); });
     /* 立ち絵（下の左右）→ 字幕（その上） */
     ctx.drawImage(ca, 0, (H - CH) * q, CW * q, CH * q, 0, VH - CH * CK, CW * CK, CH * CK);
     ctx.drawImage(ca, (W - CW) * q, (H - CH) * q, CW * q, CH * q, VW - CW * CK, VH - CH * CK, CW * CK, CH * CK);
-    ctx.drawImage(cp, PX * q, (H - 400) * q, VW * q, 400 * q, 0, PY + PH - 60, VW, 400);
+    ctx.drawImage(cp, PX * q, (H - 400) * q, VW * q, 400 * q, 0, PY + PH - 50, VW, 400);
   }
   /* 終わりの暗転（台本の endFade: ms）: 最後の endFade の間に、映像を黒へ、音（master）を 0 へ */
   var ENDFADE = +SPEC.endFade || 0, endK = 1;
