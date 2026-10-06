@@ -6,6 +6,7 @@
 せりふ 1 つごとに、その時刻の 1 コマを描かせ、画面に描かれた字（canvas の fillText）の場所を集めて、次を見る。
   重なり   : 別々の字どうしが重なっている（名札と札・吹き出しと字幕・出どころの字どうし）
   見切れ   : 字が画面の外にはみ出している
+  切れ     : せりふが途中までしか描かれていない（行が足りずに切れた）・画面に見つからない
   行数     : 字幕・吹き出しのせりふが 3 行以上になっている（2 行まで）
   折り返し : せりふが、数字と単位の間・カタカナや英字の語の途中で折れている／行の頭に句読点・助詞・小さいかながある／最後の行が 1〜2 字だけ
 
@@ -45,6 +46,7 @@ DRAW = r"""(function(ms){ var L = window.__LAY; L.log.length = 0; L.cv = __MV__.
 
 CUES = r"""__MV__.CUES.map(function(c){ return { a: c.a, b: c.b, text: c.text || "", who: c.who || "" }; })"""
 
+CUT = "\x00切れ:"   # rows_of が、描かれなかった残りを最後の行として返すときの印
 PUNCT_HEAD = re.compile(r"^[、。，．！？!?」』）)…ー〜・ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮ]")
 plain = lambda s: re.sub(r"[\s　]|\*\*", "", s or "")
 
@@ -85,6 +87,7 @@ def rows_of(bs, text):
             rows.append([b])
     lines = ["".join(plain(b["s"]) for b in sorted(r, key=lambda b: b["x"])) for r in rows]
     # せりふの全文になる、続いた行の組を探す（同じ言葉が名札などにもあるとき、余分な行が混ざる）
+    best = None
     for i in range(len(lines)):
         acc = ""
         for j in range(i, len(lines)):
@@ -93,6 +96,10 @@ def rows_of(bs, text):
                 return lines[i:j + 1], [b for r in rows[i:j + 1] for b in r]
             if not target.startswith(acc):
                 break
+            if len(acc) >= max(6, len(target) * .5) and (best is None or len(acc) > len(best[2])):
+                best = (lines[i:j + 1], [b for r in rows[i:j + 1] for b in r], acc)
+    if best:   # せりふの頭から途中までしか描かれていない（行が足りずに切れた）
+        return best[0] + [CUT + target[len(best[2]):]], best[1]
     return None
 
 
@@ -107,6 +114,14 @@ def wrap_faults(lines):
             out.append("カタカナの語の途中で折れている（%s／%s）" % (a[-5:], b[:5]))
         elif re.search(r"[A-Za-z]$", a) and re.match(r"[A-Za-z]", b):
             out.append("英字の語の途中で折れている（%s／%s）" % (a[-5:], b[:5]))
+        elif re.search(r"[一-龠々]$", a) and re.match(r"[一-龠々]", b):
+            out.append("漢字の語の途中で折れている（%s／%s）" % (a[-4:], b[:4]))
+        elif re.search(r"[ァ-ヶー]$", a) and re.match(r"[一-龠々]{1,2}(?![一-龠々])", b):
+            out.append("カタカナ＋漢字の語の途中で折れている（%s／%s）" % (a[-5:], b[:4]))
+        elif re.search(r"[一-龠々]$", a) and re.match(r"[ぁ-ん]", b) and not re.match(r"(は|が|を|に|で|と|も|の|へ|や|か|な|だ|じゃ|って|から|まで|より|みたい|ほど|くらい|ぐらい|など|しか|さえ|こそ|です|でしょ|らしい|っス|ね|よ)", b):   # 助詞・だ／です・みたい などで始まる行は、語の切れ目
+            out.append("送りがなの前で折れている（%s／%s）" % (a[-4:], b[:4]))
+        elif re.search(r"[ぁ-ん]$", a) and re.match(r"(られ|れ[るたて]|させ|せ[るたて])", b):
+            out.append("語尾の前で折れている（%s／%s）" % (a[-4:], b[:4]))
         elif PUNCT_HEAD.match(b):
             out.append("行の頭に、句読点・小さいかな・のばす音がある（%s／%s）" % (a[-4:], b[:4]))
         elif re.search(r"[「『（(]$", a):
@@ -163,6 +178,7 @@ def check(html, every=0, browser=None):
         times.sort(key=lambda x: x[0])
         found, last, seen_cue, n_cue = [], {}, 0, 0
         prev_out, prev_ms = {}, -1e9
+        unread = []
         for ms, cue in times:
             r = br.eval(DRAW % ms)
             W, H = r["w"], r["h"]
@@ -171,9 +187,14 @@ def check(html, every=0, browser=None):
             if cue and cue["text"]:
                 n_cue += 1
                 got = rows_of(bs, cue["text"])
+                if not got:
+                    unread.append((ms, cue["text"]))
                 if got:
                     seen_cue += 1
                     lines, mine = got
+                    if lines and lines[-1].startswith(CUT):
+                        found.append({"at": ms, "kind": "切れ", "what": "せりふが途中で切れている（「%s」まで。「%s」が出ない）" % ("".join(lines[:-1])[-12:], lines[-1][len(CUT):][:16])})
+                        lines = lines[:-1]
                     if len(lines) >= 3:
                         found.append({"at": ms, "kind": "行数", "what": "%d 行: %s" % (len(lines), "／".join(lines))})
                     for w in wrap_faults(lines):
@@ -194,6 +215,9 @@ def check(html, every=0, browser=None):
                 if ms - last.get(k, -1e9) > 4000:
                     found.append({"at": ms, "kind": "重なり", "what": o})
                 last[k] = ms
+        if n_cue and seen_cue >= n_cue * .8:   # ほとんど読めているのに読めなかったせりふ: 描かれていないか、形が崩れている。問題なしと数えない（2026-10-06: 切れたせりふを見逃した）
+            for ms, tx in unread:
+                found.append({"at": ms, "kind": "切れ", "what": "せりふが画面に見つからない（描かれていない・切れている・字が欠けている）: %s" % tx[:24]})
         check.stats = {"cues": n_cue, "read": seen_cue, "frames": len(times)}   # せりふのうち、描かれた行を読み取れた数（少なければ、行数・折り返しは見られていない）
         return found
     finally:
@@ -217,7 +241,7 @@ def main():
     else:
         st = getattr(check, "stats", {})
         print("見た画面: %d／せりふ %d のうち、描かれた行を読み取れたもの %d" % (st.get("frames", 0), st.get("cues", 0), st.get("read", 0)))
-        for k in ("重なり", "見切れ", "行数", "折り返し"):
+        for k in ("重なり", "見切れ", "切れ", "行数", "折り返し"):
             rows = [f for f in found if f["kind"] == k]
             print("%s: %d 件" % (k, len(rows)))
             for f in rows:

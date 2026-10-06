@@ -2049,22 +2049,33 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       if (n % 2) { toks.push("**" + part + "**"); return; }
       var it = SEG_JA.segment(part)[Symbol.iterator](), r; while (!(r = it.next()).done) toks.push(r.value.segment); });
     var glue = /^(?:[、。，．！？!?」』）)…ー〜・：；ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮ々]|は$|が$|を$|に$|で$|と$|も$|の$|へ$|や$|ね$|よ$|な$|か$|わ$|っス$|です$|ます$|って$|から$|まで$|より$|けど$|だ$|た$|て$)/;
-    var units = [];   /* 前の語にくっつけるもの（句読点・助詞・語尾）は、前の語と 1 かたまりにする */
+    var units = [], parts = [];   /* 前の語にくっつけるもの（句読点・助詞・語尾）は、前の語と 1 かたまりにする。parts は、かたまりの中の語（幅を超えたときに、語の切れ目で折るため） */
     toks.forEach(function (t) { var pv = units.length ? units[units.length - 1] : "";
-      var okuri = /^[ぁ-ん]{1,2}$/.test(t) && !/[、。！？!?…\s]$/.test(pv);   /* 送りがな・語尾（食｜べ、選ば｜れ｜て、なけれ｜ば）は、前の語と離さない */
-      okuri = okuri || /[っッ]$/.test(pv);   /* 促音で行を終えない（上っ｜たかい） */
-      okuri = okuri || (/^[一-龠々]{1,3}$/.test(pv) && /^[一-龠々]/.test(t) && (pv + t).length <= 6);   /* 続く漢字の語（小町｜通り）も離さない */
-      okuri = okuri || (/[0-9０-９]$/.test(pv) && !/^[\s、。！？!?「『（(…]/.test(t) && t.length <= 5);   /* 数字と、その後ろの単位（8｜か所、1｜枚、24｜メートル）を離さない */
-      okuri = okuri || (/[0-9０-９][かヶケカ]$/.test(pv) && /^[一-龠々]/.test(t));   /* 「8か｜所」「3ヶ｜月」 */
-      okuri = okuri || (/[ァ-ヶー]$/.test(pv) && /^[ァ-ヶー]/.test(t) && (pv + t).length <= 12);   /* カタカナの語の途中（フレーム｜ワーク、デ｜リンクユ）で折らない */
-      okuri = okuri || (/^[一-龠々][ぁ-ん]{0,2}$/.test(t) && /[ぁ-ん]$/.test(pv) && pv.length <= 6);   /* 1 字だけの漢字の語（柿の｜葉）を、行の頭に 1 字で残さない */
-      if (pv && (glue.test(t) || okuri || /[「『（(]$/.test(pv))) units[units.length - 1] += t; else units.push(t); });
+      /* 固いつなぎ（どんなに長くても離さない）と、やわらかいつなぎ（幅を超えたら、そこで折ってよい）に分ける */
+      var hard = /[っッ]$/.test(pv);   /* 促音で行を終えない（上っ｜たかい） */
+      hard = hard || (/[一-龠々]$/.test(pv) && /^[一-龠々]/.test(t) && ((/[一-龠々]+$/.exec(pv) || [""])[0] + (/^[一-龠々]+/.exec(t) || [""])[0]).length <= 9);   /* 続く漢字の語（小町｜通り、総合｜博物館） */
+      hard = hard || (/[ァ-ヶー]$/.test(pv) && /^[一-龠々]{1,2}$/.test(t));   /* カタカナ＋漢字 1〜2 字の語（イクラ｜丼、カレー｜味） */
+      hard = hard || (/[0-9０-９]$/.test(pv) && !/^[\s、。！？!?「『（(…]/.test(t) && t.length <= 5);   /* 数字と、その後ろの単位（8｜か所、1｜枚、24｜メートル） */
+      hard = hard || (/[0-9０-９][かヶケカ]$/.test(pv) && /^[一-龠々]/.test(t));   /* 「8か｜所」「3ヶ｜月」 */
+      hard = hard || (/[ァ-ヶー]$/.test(pv) && /^[ァ-ヶー]/.test(t) && (pv + t).length <= 12);   /* カタカナの語の途中（フレーム｜ワーク、デ｜リンクユ） */
+      hard = hard || (/[一-龠々]$/.test(pv) && /^[ぁ-ん]{1,3}$/.test(t) && !/^(は|が|を|に|で|と|も|の|へ|や|から|まで|より)$/.test(t));   /* 漢字の直後の送りがな（守｜ろう、食｜べ） */
+      hard = hard || (/[ぁ-ん]$/.test(pv) && /^(られ|れ[るたて]|させ|せ[るたて])/.test(t));   /* 受け身・使役の語尾（引っぱ｜られる） */
+      hard = hard || /[「『（(]$/.test(pv) || /^[、。，．！？!?」』）)…ー〜・：；ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮ々]/.test(t);   /* 開くかっこの直後・句読点と小さいかなの直前 */
+      var soft = glue.test(t) || (/^[ぁ-ん]{1,2}$/.test(t) && !/[、。！？!?…\s]$/.test(pv)) || (/^[一-龠々][ぁ-ん]{0,2}$/.test(t) && /[ぁ-ん]$/.test(pv) && pv.length <= 6);   /* 助詞・語尾・1 字だけの漢字の語（柿の｜葉） */
+      if (pv && hard) { units[units.length - 1] += t; parts[parts.length - 1][parts[parts.length - 1].length - 1] += t; }
+      else if (pv && soft) { units[units.length - 1] += t; parts[parts.length - 1].push(t); }
+      else { units.push(t); parts.push([t]); } });
     var out = [], line = "", W = function (x) { return tw(x.replace(/\*\*/g, ""), o); };
-    units.forEach(function (u) {
+    var put = function (u) {
       if (!line || W(line + u) <= maxW) { line += u; return; }
-      out.push(line.replace(/\s+$/, "")); line = u.replace(/^\s+/, ""); });
+      out.push(line.replace(/\s+$/, "")); line = u.replace(/^\s+/, ""); };
+    units.forEach(function (u, ui) {
+      if (W(u) <= maxW * 1.12) { put(u); return; }
+      parts[ui].forEach(function (t) {   /* 1 かたまりが幅を超えるとき: 中の語の切れ目で折る（句読点・閉じかっこだけは、前の行に付ける） */
+        if (line && /^[、。，．！？!?」』）)…ー〜]/.test(t)) { line += t; return; }
+        put(t); }); });
     if (line) out.push(line);
-    return out.reduce(function (acc, l) { return acc.concat(W(l) > maxW * 1.12 ? wrap(l, maxW, o) : [l]); }, []);   /* 1 かたまりが幅を大きく超えるときだけ、字で折る */
+    return out.reduce(function (acc, l) { return acc.concat(W(l) > maxW * 1.25 ? wrap(l, maxW, o) : [l]); }, []);   /* 1 語が幅を大きく超えるときだけ、字で折る */
   }
   function drawCaption(cur, tt) {
     var vert = vertOn();

@@ -14,6 +14,11 @@ class Layout(unittest.TestCase):
         self.assertEqual(len(lines), 3)
         self.assertEqual(len(mine), 3)
         self.assertIsNone(L.rows_of(bs, "画面に無いせりふ"))
+        # 途中までしか描かれていないせりふは、残りに印を付けて返す（切れ）
+        cut = L.boxes([box("つまり運河は、陸を掘った", 300, 600, 400), box("川じゃなくて、海のほうに", 300, 650, 420), box("作った荷物用の", 300, 700, 300)], 1280, 720)
+        lines, _ = L.rows_of(cut, "つまり運河は、陸を掘った川じゃなくて、海のほうに作った荷物用の水路なの。")
+        self.assertTrue(lines[-1].startswith(L.CUT))
+        self.assertIn("水路なの", lines[-1])
 
     def test_same_text_drawn_twice_is_one(self):
         """縁取り・影で、同じ字が少しずれて描かれても 1 つ。うすい字（消えかけ）は数えない。"""
@@ -21,11 +26,12 @@ class Layout(unittest.TestCase):
         self.assertEqual([b["s"] for b in bs], ["長谷寺"])
 
     def test_wrap_faults(self):
-        bad = [["全部で7か", "所よ。"], ["駅を出て10", "歩…。"], ["これはフレームワー", "クではない"], ["いただくのは", "、あとで"], ["そうなん", "スか！？"]]
+        bad = [["全部で7か", "所よ。"], ["駅を出て10", "歩…。"], ["これはフレームワー", "クではない"], ["いただくのは", "、あとで"], ["そうなん", "スか！？"],
+               ["朝はウニとイクラ", "丼にするっス"], ["強い風に引っぱ", "られることも"], ["運河を守", "ろうとしたのよ"], ["小樽市総合", "博物館へ行くわ"]]
         for lines in bad:
             with self.subTest(lines):
                 self.assertTrue(L.wrap_faults(lines), lines)
-        for lines in [["柿の葉で包んだ", "押し寿司よ。"], ["高さは24メートルも", "あるのよ。"]]:
+        for lines in [["柿の葉で包んだ", "押し寿司よ。"], ["高さは24メートルも", "あるのよ。"], ["小樽の運河", "は、海に作った"], ["大きな山", "が見えるわ"], ["この橋", "なのよ"]]:
             with self.subTest(lines):
                 self.assertEqual(L.wrap_faults(lines), [])
 
