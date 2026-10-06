@@ -2217,7 +2217,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       var ch = CAST[id]; if (!ch || ch.hidden || (castLay(S, id) || {}).hide) return;   /* hidden: 声だけの語り手（立ち絵を出さない）。castLayout の hide: その場面では出さない */
       var pl = castPlace(S, id, i, NTH[id]), side = pl.side, h = pl.h, w = pl.w, img0 = pickImg(ch, "normal", 0, false);
       var nth = NTH[id], x = pl.x, by = pl.by, speakingNow = cur && (cur.who === id || !!(cur.line && cur.line.chorus && cur.line.chorus.indexOf(id) >= 0));   /* chorus: 全員で読むせりふ（話し手は声だけの「全員」。口と弾みは、名前の挙がった全員に付ける） */
-      CPOS[id] = { x: x, by: Math.min(by, 1080), w: w, h: Math.min(h, by), side: side === "right" ? "right" : "left", mx: x, my: by - h * (h / w < 1.3 ? .3 : .76) };   /* mx・my: 口のあたり（吹き出しのしっぽが指す所。全身の絵は上から 1/4、頭だけの絵は下から 3 割） */
+      CPOS[id] = { x: x, by: Math.min(by, 1080), w: w, h: Math.min(h, by), side: side === "right" ? "right" : "left", mx: x, my: by - h * (h / w < 1.3 && !ch.stand ? .3 : .76) };   /* mx・my: 口のあたり（吹き出しのしっぽが指す所。全身の絵は上から 1/4、頭だけの絵は下から 3 割） */
       var st = stateOf(id, tt), face = st.face, pose = st.pose, slt = st.t0 === undefined ? 1e9 : tt - st.t0, fbase = String(face).split("#")[0].split("@")[0];
       var ent = ch.cameo ? P(tt - SCENES[k].t0, 150, 750, back) : P(lt0, i * 200, i * 200 + 700, back), dx = (1 - Math.min(1, ent)) * (side === "right" ? 1 : -1) * (w + 80);
       var bob = speakingNow ? -10 * voiceLevel(cur, tt) : 0, shake = speakingNow && cur.line && cur.line.shake ? Math.sin((tt - cur.a) / 25) * 10 * clamp(1 - (tt - cur.a) / 500) : 0;
