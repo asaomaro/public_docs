@@ -2235,7 +2235,9 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       /* 気持ちの印: 話し手のせりふの印と、聞き手の反応の印（1.4 秒） */
       var em = speakingNow && cur.line && cur.line.emote, elt = em ? tt - cur.a : 0;
       if (!em && st.emote && !st.own && slt < 1400) { em = st.emote; elt = slt; }
-      if (em) EMOS.push([em, clamp(x + (side === "right" ? w * .22 : -w * .22), 70, 1850), Math.max(96, by - h - 10 - (TAGON && !(TALK.nameTagFor && lt0 > TALK.nameTagFor) ? 52 : 0)), elt, ch.color || C.accent, side === "right" ? 1 : -1, dx + shake + mo.x, bob + mo.y]);   /* 印は頭の外側に（中央の絵と字に重ねない）。名札があるときは、名札の上に。描くのは全員の後（前は、後から描いた名札に半分隠れた） */
+      var emx = vertOn() ? x + (side === "right" ? -w * .52 : w * .52) : x + (side === "right" ? w * .22 : -w * .22),   /* 縦の画面: 頭の上は字幕なので、気持ちの印は顔の内側の横に出す（前は、字幕の右端に重なった） */
+          emy = vertOn() ? by - h * .74 : by - h - 10 - (TAGON && !(TALK.nameTagFor && lt0 > TALK.nameTagFor) ? 52 : 0);
+      if (em) EMOS.push([em, clamp(emx, 70, 1850), Math.max(96, emy), elt, ch.color || C.accent, side === "right" ? 1 : -1, dx + shake + mo.x, bob + mo.y]);   /* 印は頭の外側に（中央の絵と字に重ねない）。名札があるときは、名札の上に。描くのは全員の後（前は、後から描いた名札に半分隠れた） */
       if (TAGON && ent >= 1) NAMES.push({ t: ch.name || id, x: x, y: Math.max(70, by - h - 14), ox: dx + shake + mo.x, oy: bob + mo.y });   /* 頭の上の名札（寸劇の型）。描くのは全員の後（となりの人の名札と重ならない高さに直してから） */
       ctx.restore();
     });
