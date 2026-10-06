@@ -2086,6 +2086,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       if (W(u) <= maxW * 1.12) { put(u); return; }
       parts[ui].forEach(function (t) {   /* 1 かたまりが幅を超えるとき: 中の語の切れ目で折る（句読点・閉じかっこだけは、前の行に付ける） */
         if (line && /^[、。，．！？!?」』）)…ー〜]/.test(t)) { line += t; return; }
+        if (line && /^(は|が|を|に|で|と|も|の|へ|や)$/.test(t) && W(line + t) <= maxW * 1.12) { line += t; return; }   /* 助詞 1 字を、行の頭に送らない（「硫酸マグネシウム／が、」）。幅を少し超えてもよい */
         put(t); }); });
     if (line) out.push(line);
     return out.reduce(function (acc, l) { return acc.concat(W(l) > maxW * 1.25 ? wrap(l, maxW, o) : [l]); }, []);   /* 1 語が幅を大きく超えるときだけ、字で折る */
