@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """md-to-doc: Markdown を視覚的に分かりやすい単一HTMLドキュメントに変換する。
 
-- 5テーマ（CSS変数で切替）/ 出力モード single|print|site
+- 21 テーマ（CSS変数で切替）/ 出力モード single|print|site
 - 各テーマにライト/ダーク両パレット。ヘッダーの切替ボタンで ライト/ダーク/システム設定 を選択
   （選択は localStorage に保存。既定はシステム設定に追従）
 - 見出しからメニュー・目次を自動生成、固定ヘッダー＋スクロール連動ハイライト
@@ -489,6 +489,250 @@ body{line-height:1.95}
 """),
 })
 
+# 用途から足したテーマ（論文・和文・発表・用紙・等幅・ノート・白書・製品の手引き）
+#   色ちがいではなく、組み（書体・見出しの形・表の罫・地・印刷の形）が既存のどれとも違うもの。
+_MARU = '"Hiragino Maru Gothic ProN","Yu Gothic",system-ui,sans-serif'
+_MONO_JP = '"SFMono-Regular",Menlo,Consolas,"BIZ UDGothic","Osaka-Mono","MS Gothic",monospace'
+# コードの地が明るいテーマの「コピー」ボタン（既定は暗い地に白い字）
+_LIGHT_CODE = """
+.copy-btn{background:var(--card);color:var(--muted);border-color:var(--line)}
+.copy-btn:hover{background:var(--accent-soft)}
+.codeblock pre{border:1px solid var(--line)}
+"""
+
+THEMES.update({
+    "academic": _theme(
+        "アカデミック", "system",
+        ["#3d3a8c", "#8c3a3a", "#2f6b4f", "#8a6a1f"], ["#a9a6f0", "#e79b9b", "#8fcdb0", "#dcc078"],
+        {"--bg": "#ffffff", "--card": "#ffffff", "--ink": "#1a1a1a", "--muted": "#5a5a5a", "--line": "#d6d6d6",
+         "--accent": "#3d3a8c", "--accent-2": "#2c2a6b", "--accent-soft": "#f0f0f8", "--on-accent": "#ffffff",
+         "--code-bg": "#f5f5f2", "--code-fg": "#26262b", "--radius": "0px", "--shadow": "none",
+         "--font": _MINCHO, "--font-head": _MINCHO, "--mono": _MONO,
+         "--header-bg": "#ffffff", "--header-fg": "#1a1a1a"},
+        {"--bg": "#131316", "--card": "#1a1a1f", "--ink": "#e8e6e1", "--muted": "#a5a29b", "--line": "#36363d",
+         "--accent": "#a9a6f0", "--accent-2": "#c5c3f7", "--accent-soft": "#22213a", "--on-accent": "#111027",
+         "--code-bg": "#1d1d22", "--code-fg": "#e8e6e1", "--header-bg": "#131316", "--header-fg": "#e8e6e1"},
+        _NUMBERED + _LIGHT_CODE + """
+:root{--maxw:940px}
+body{line-height:1.95}
+.content>p{text-align:justify;text-indent:1em}
+.hero{text-align:center;border-bottom:1px solid var(--ink);padding-bottom:40px}
+.hero h1{font-size:30px;font-weight:700;letter-spacing:.04em}
+.hero .tags{justify-content:center}
+.hero .eyebrow{background:none;border:1px solid currentColor;border-radius:0;font-weight:400}
+.content h2.hl{border-left:0;padding-left:0;color:var(--ink);font-size:20px;font-weight:700;margin-top:44px}
+.content h2.hl::before{content:counter(h2) ".";margin-right:.7em}
+.content h3.hl{font-size:17px}
+.content h3.hl::before{content:counter(h2) "." counter(h3);margin-right:.7em}
+table{box-shadow:none;border-radius:0;background:none;border-top:2px solid var(--ink);border-bottom:2px solid var(--ink)}
+th{background:none;color:var(--ink);border-bottom:1px solid var(--ink)}
+td{border-bottom:0}
+.mermaid-fig{border:0;box-shadow:none;background:none;padding:10px 0}
+.mermaid-fig figcaption{font-size:13.5px!important}
+blockquote{border-left:0;padding:4px 2em;color:var(--ink);font-size:.95em}
+.doc-card{border-top-width:1px}
+.callout{border-left-width:2px}
+"""),
+    "washi": _theme(
+        "和（藍と朱）", "system",
+        ["#234a72", "#b5402a", "#5f7a3a", "#6b5a8e"], ["#8fb4dc", "#e8907a", "#a9c47f", "#b8a8dc"],
+        {"--bg": "#f8f5ee", "--card": "#fdfbf6", "--ink": "#2a2a2e", "--muted": "#6f6a62", "--line": "#ddd5c4",
+         "--accent": "#234a72", "--accent-2": "#17324d", "--accent-soft": "#e6ecf2", "--on-accent": "#fdfbf6",
+         "--code-bg": "#2a2a2e", "--code-fg": "#f1ece0", "--radius": "2px", "--shadow": "none",
+         "--font": _MINCHO, "--font-head": _MINCHO, "--mono": _MONO,
+         "--header-bg": "linear-gradient(180deg,#234a72,#1b3b5c)", "--header-fg": "#fbf7ee"},
+        {"--bg": "#16181d", "--card": "#1d2026", "--ink": "#ece6d8", "--muted": "#a8a295", "--line": "#343842",
+         "--accent": "#8fb4dc", "--accent-2": "#b3cdea", "--accent-soft": "#1f2a38", "--on-accent": "#0f1a26",
+         "--code-bg": "#0f1114", "--code-fg": "#ece6d8",
+         "--header-bg": "linear-gradient(180deg,#1c3350,#16283e)", "--header-fg": "#ece6d8"},
+        """
+:root{--maxw:980px}
+body{line-height:2.05;letter-spacing:.03em}
+.content p{margin:16px 0}
+.hero{border-bottom:5px solid var(--a1)}
+.hero h1{font-weight:700;letter-spacing:.14em}
+.content h2.hl{border-left:0;padding-left:0;padding-bottom:10px;border-bottom:1px solid var(--line);color:var(--ink);
+  font-size:23px;font-weight:700;letter-spacing:.12em}
+.content h2.hl::before{content:"";display:inline-block;width:.5em;height:.5em;margin-right:.7em;background:var(--a1);
+  transform:rotate(45deg);vertical-align:.12em}
+.content h3.hl{letter-spacing:.08em}
+.content h3.hl::before{content:"";display:inline-block;width:3px;height:1em;margin-right:.6em;background:var(--accent);vertical-align:-.12em}
+.doc-card{border-top-width:2px}
+th{letter-spacing:.06em}
+"""),
+    "deck": _theme(
+        "デック（発表）", "system",
+        ["#c8281c", "#1f2937", "#0f766e", "#b45309"], ["#ff6b5e", "#cbd2dc", "#2dd4bf", "#f5b454"],
+        {"--bg": "#f4f5f7", "--card": "#ffffff", "--ink": "#14171c", "--muted": "#555c66", "--line": "#dfe2e7",
+         "--accent": "#c8281c", "--accent-2": "#9f1f15", "--accent-soft": "#fdecea", "--on-accent": "#ffffff",
+         "--code-bg": "#14171c", "--code-fg": "#eef0f3", "--radius": "10px", "--shadow": "0 2px 8px rgba(20,23,28,.07)",
+         "--font": _GOTHIC, "--font-head": _GOTHIC, "--mono": _MONO,
+         "--header-bg": "#14171c", "--header-fg": "#ffffff"},
+        {"--bg": "#0f1114", "--card": "#181b20", "--ink": "#f1f3f5", "--muted": "#a3aab4", "--line": "#2b3038",
+         "--accent": "#ff6b5e", "--accent-2": "#ff9c92", "--accent-soft": "#2a1715", "--on-accent": "#1a0806",
+         "--code-bg": "#07080a", "--code-fg": "#eef0f3", "--shadow": "0 2px 8px rgba(0,0,0,.5)",
+         "--header-bg": "#000000", "--header-fg": "#ffffff"},
+        """
+:root{--maxw:1180px}
+body{font-size:19px;line-height:1.75}
+.hero{padding-top:calc(var(--nav-h) + 96px);padding-bottom:96px;border-bottom:10px solid var(--accent)}
+.hero h1{font-size:clamp(36px,5.4vw,62px);font-weight:900;line-height:1.2}
+.hero .date{font-size:17px}
+.content h2.hl{border-left:0;padding:20px 28px;margin:76px 0 28px;background:var(--header-bg);color:var(--header-fg);
+  font-size:clamp(25px,3.2vw,36px);font-weight:900;line-height:1.3;border-radius:var(--radius);border-bottom:6px solid var(--accent)}
+.content h2.hl .anchor{color:var(--header-fg)}
+.content h3.hl{font-size:24px;font-weight:800;color:var(--accent-2)}
+.content li{margin:10px 0}
+table{font-size:17px}
+.codeblock pre code{font-size:15px}
+.callout-head{font-size:17px}
+@media print{
+  @page{size:A4 landscape;margin:12mm}
+  .hero{break-after:page;padding:60mm 0 0!important;border-bottom:0!important}
+  .hero h1{font-size:44px}
+  .content h2.hl{break-before:page;margin-top:0;padding:0 0 8px;background:none!important;color:#000!important;border-radius:0;border-bottom:4px solid #000}
+}
+"""),
+    "sheet": _theme(
+        "用紙（ビジネス文書）", "system",
+        ["#1f5d6b", "#7a5a2b", "#5b4a7a", "#7a2f3b"], ["#7fc4d1", "#d9b885", "#b5a6d6", "#e39aa6"],
+        {"--bg": "#e9ebee", "--card": "#ffffff", "--ink": "#1b1b1b", "--muted": "#5c5c5c", "--line": "#d0d0d0",
+         "--accent": "#1f5d6b", "--accent-2": "#17434d", "--accent-soft": "#e8f1f3", "--on-accent": "#ffffff",
+         "--code-bg": "#f3f4f5", "--code-fg": "#23272b", "--radius": "2px", "--shadow": "none",
+         "--font": _MINCHO, "--font-head": _MINCHO, "--mono": _MONO,
+         "--header-bg": "#e9ebee", "--header-fg": "#1b1b1b"},
+        {"--bg": "#0e1012", "--card": "#1a1c1f", "--ink": "#e6e6e3", "--muted": "#a3a3a0", "--line": "#35383c",
+         "--accent": "#7fc4d1", "--accent-2": "#a8dbe4", "--accent-soft": "#1c2c30", "--on-accent": "#08191c",
+         "--code-bg": "#121416", "--code-fg": "#e6e6e3", "--header-bg": "#0e1012", "--header-fg": "#e6e6e3"},
+        _NUMBERED + _LIGHT_CODE + """
+:root{--maxw:1060px}
+body{line-height:1.95}
+.hero{text-align:center;padding-bottom:24px;margin-bottom:0}
+.hero h1{font-size:28px;font-weight:700;letter-spacing:.08em}
+.hero .tags{justify-content:center}
+.content{background:var(--card);border:1px solid var(--line);box-shadow:0 2px 16px rgba(0,0,0,.12);
+  padding:56px 64px 64px;margin-top:24px;min-height:70vh}
+.toc-head{background:var(--bg)}
+.content h2.hl{border-left:0;padding-left:0;padding-bottom:4px;border-bottom:1px solid var(--ink);color:var(--ink);font-size:19px;font-weight:700}
+.content h2.hl::before{content:counter(h2);margin-right:1em}
+.content h3.hl{font-size:16.5px}
+.content h3.hl::before{content:"（" counter(h3) "）";margin-right:.4em}
+table{box-shadow:none;border-radius:0}
+th,td{border:1px solid var(--line)}
+th{color:var(--ink)}
+.doc-card{border-top-width:2px}
+@media(max-width:700px){.content{padding:28px 20px 36px}}
+@media print{
+  @page{size:A4;margin:20mm 18mm}
+  .content{padding:0;margin:0;border:0;box-shadow:none;min-height:0}
+}
+"""),
+    "mono": _theme(
+        "モノ（等幅）", "system",
+        ["#0a7d33", "#8250df", "#bc4c00", "#0969da"], ["#3fd46b", "#b392f0", "#ffa657", "#6cb6ff"],
+        {"--bg": "#fafafa", "--card": "#ffffff", "--ink": "#24292f", "--muted": "#656d76", "--line": "#d0d7de",
+         "--accent": "#0a7d33", "--accent-2": "#075c26", "--accent-soft": "#e9f6ec", "--on-accent": "#ffffff",
+         "--code-bg": "#f0f2f4", "--code-fg": "#24292f", "--radius": "0px", "--shadow": "none",
+         "--font": _MONO_JP, "--font-head": _MONO_JP, "--mono": _MONO_JP,
+         "--header-bg": "#fafafa", "--header-fg": "#24292f"},
+        {"--bg": "#0d1117", "--card": "#12171e", "--ink": "#d6dde5", "--muted": "#8b949e", "--line": "#2a313a",
+         "--accent": "#3fd46b", "--accent-2": "#7ee79a", "--accent-soft": "#10241a", "--on-accent": "#04130a",
+         "--code-bg": "#090c10", "--code-fg": "#d6dde5", "--header-bg": "#0d1117", "--header-fg": "#d6dde5"},
+        _LIGHT_CODE + """
+body{font-size:14.5px;line-height:1.85}
+.hero{border-bottom:1px dashed var(--muted);padding-bottom:36px}
+.hero h1{font-size:28px;font-weight:700}
+.hero h1::before{content:"# ";color:var(--accent)}
+.hero .eyebrow,.hero .tags span{border-radius:0}
+.content h2.hl{border-left:0;padding-left:0;padding-bottom:6px;border-bottom:1px dashed var(--line);color:var(--ink);font-size:19px;font-weight:700}
+.content h2.hl::before{content:"## ";color:var(--accent)}
+.content h3.hl{font-size:16px}
+.content h3.hl::before{content:"### ";color:var(--accent)}
+.content ul>li::before{border-radius:0}
+table{box-shadow:none;border-radius:0}
+th,td{border:1px solid var(--line)}
+th{color:var(--ink)}
+code{border-radius:0}
+.callout{border-style:dashed;border-left-style:solid}
+.doc-card{border-top-width:2px}
+.mermaid-fig{border-style:dashed}
+"""),
+    "notebook": _theme(
+        "ノート", "system",
+        ["#2f5fd0", "#d6336c", "#18794e", "#b45f06"], ["#86a8ff", "#ff8fb4", "#5fd49a", "#ffc15e"],
+        {"--bg": "#fbfaf5", "--card": "#ffffff", "--ink": "#2b2f3a", "--muted": "#687082", "--line": "#d9dce6",
+         "--accent": "#2f5fd0", "--accent-2": "#1f3f96", "--accent-soft": "#e9effc", "--on-accent": "#ffffff",
+         "--code-bg": "#2b2f3a", "--code-fg": "#f0f2f7", "--radius": "12px", "--shadow": "0 2px 0 rgba(43,47,58,.08)",
+         "--font": _MARU, "--font-head": _MARU, "--mono": _MONO,
+         "--header-bg": "linear-gradient(135deg,#2f5fd0,#274fb0)", "--header-fg": "#ffffff", "--marker": "#ffe066"},
+        {"--bg": "#171a21", "--card": "#1f232c", "--ink": "#e8eaf0", "--muted": "#9ba3b4", "--line": "#2f3542",
+         "--accent": "#86a8ff", "--accent-2": "#adc4ff", "--accent-soft": "#1e2740", "--on-accent": "#0c1530",
+         "--code-bg": "#10131a", "--code-fg": "#f0f2f7", "--shadow": "0 2px 0 rgba(0,0,0,.35)",
+         "--header-bg": "linear-gradient(135deg,#27418a,#1c2f66)", "--header-fg": "#eef2ff", "--marker": "#6a5a14"},
+        """
+body{line-height:2;background-image:linear-gradient(color-mix(in srgb,var(--accent) 10%,transparent) 1px,transparent 1px);background-size:100% 32px}
+.content h2.hl{display:table;border-left:0;padding:0 8px;color:var(--ink);font-size:24px;line-height:1.4;
+  background:linear-gradient(transparent 55%,var(--marker) 55%)}
+@media print{.content h2.hl{background:none;padding:0;border-bottom:3px solid #000}}
+.content h3.hl::before{content:"";display:inline-block;width:.6em;height:.6em;margin-right:.5em;border-radius:50%;background:var(--a1)}
+.content strong{background:linear-gradient(transparent 64%,color-mix(in srgb,var(--a1) 28%,transparent) 64%)}
+.doc-card,.callout,.mermaid-fig,.stat{border-width:2px}
+.callout{border-left-width:6px}
+@media print{body{background-image:none}}
+"""),
+    "report": _theme(
+        "レポート（白書）", "system",
+        ["#14614a", "#a8741a", "#2a6f97", "#9a4b3c"], ["#5fc9a2", "#e0b866", "#7fb8dc", "#e39a8a"],
+        {"--bg": "#f7f8f6", "--card": "#ffffff", "--ink": "#18241f", "--muted": "#5a665f", "--line": "#d9dfda",
+         "--accent": "#14614a", "--accent-2": "#0d4534", "--accent-soft": "#e6f2ec", "--on-accent": "#ffffff",
+         "--code-bg": "#17231e", "--code-fg": "#e4ede8", "--radius": "4px", "--shadow": "0 1px 2px rgba(20,40,30,.06)",
+         "--font": _GOTHIC, "--font-head": _GOTHIC, "--mono": _MONO,
+         "--header-bg": "linear-gradient(120deg,#0d4534 0%,#14614a 60%,#1d7a5e 100%)", "--header-fg": "#ffffff"},
+        {"--bg": "#0f1512", "--card": "#161e1a", "--ink": "#e3ebe6", "--muted": "#9aa8a0", "--line": "#29352f",
+         "--accent": "#5fc9a2", "--accent-2": "#8fdcc0", "--accent-soft": "#152a22", "--on-accent": "#06170f",
+         "--code-bg": "#0a0f0d", "--code-fg": "#e4ede8", "--shadow": "0 1px 2px rgba(0,0,0,.45)",
+         "--header-bg": "linear-gradient(120deg,#0a2a20,#0f3b2d)", "--header-fg": "#e3ebe6"},
+        _NUMBERED + """
+.hero{padding-bottom:72px;border-bottom:6px solid var(--a1)}
+.hero h1{font-size:40px;letter-spacing:.02em}
+.content h2.hl{display:flex;align-items:baseline;gap:.5em;border-left:0;padding:0 0 12px;margin-top:64px;
+  border-bottom:2px solid var(--accent);color:var(--ink);font-size:26px;font-weight:800}
+.content h2.hl::before{content:counter(h2,decimal-leading-zero);flex:0 0 auto;font-size:1.7em;line-height:1;font-weight:900;
+  color:var(--accent);font-feature-settings:"tnum"}
+.content h3.hl{color:var(--accent-2)}
+.content h3.hl::before{content:counter(h2) "." counter(h3);margin-right:.6em;color:var(--a1)}
+th{background:var(--accent);color:var(--on-accent)}
+tbody tr:nth-child(even){background:color-mix(in srgb,var(--accent-soft) 45%,transparent)}
+.doc-card{border-top-width:3px}
+"""),
+    "guide": _theme(
+        "ガイド（製品の手引き）", "system",
+        ["#0b7f85", "#c2410c", "#5b5bd6", "#c2255c"], ["#4fd1c9", "#ff9a6b", "#a5a5ff", "#ff8fb3"],
+        {"--bg": "#ffffff", "--card": "#ffffff", "--ink": "#1f2a37", "--muted": "#5f6b7a", "--line": "#e3e8ee",
+         "--accent": "#0b7f85", "--accent-2": "#075e63", "--accent-soft": "#e4f5f5", "--on-accent": "#ffffff",
+         "--code-bg": "#1f2a37", "--code-fg": "#e8edf3", "--radius": "12px", "--shadow": "0 1px 3px rgba(31,42,55,.08)",
+         "--font": _GOTHIC, "--font-head": _GOTHIC, "--mono": _MONO,
+         "--header-bg": "linear-gradient(180deg,#d8f0f0,#f1fafa)", "--header-fg": "#12303a"},
+        {"--bg": "#111519", "--card": "#181e24", "--ink": "#e4eaf0", "--muted": "#98a4b1", "--line": "#2a333d",
+         "--accent": "#4fd1c9", "--accent-2": "#86e3dd", "--accent-soft": "#132c2e", "--on-accent": "#04201f",
+         "--code-bg": "#0c1014", "--code-fg": "#e8edf3", "--shadow": "0 1px 3px rgba(0,0,0,.5)",
+         "--header-bg": "linear-gradient(180deg,#143236,#111a1e)", "--header-fg": "#e4eaf0"},
+        _NUMBERED + """
+body{font-size:16.5px}
+.content h2.hl{display:flex;align-items:center;gap:.55em;border-left:0;padding-left:0;margin-top:60px;color:var(--ink);font-size:25px}
+.content h2.hl::before{content:counter(h2);flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;
+  width:1.75em;height:1.75em;border-radius:50%;background:var(--accent);color:var(--on-accent);font-size:.78em}
+.content h3.hl{padding:6px 14px;border-radius:8px;background:var(--accent-soft);color:var(--accent-2)}
+code{background:var(--card);color:var(--ink);border:1px solid var(--line);border-bottom-width:2px;border-radius:6px}
+.codeblock pre code{border:0}
+.callout{border-left-width:0}
+.callout-head{font-size:15px;padding:12px 18px}
+.callout-body{padding:6px 18px 16px}
+.md-img{border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,.10)}
+@media print{.content h3.hl{background:none;padding:0}}
+"""),
+})
+
 # テーマの一覧（選ばせるときの材料。label は THEMES 側）
 THEME_INFO = {
     "corporate": ("青基調・カード・万人向け", "資料・報告・社内共有の既定"),
@@ -504,6 +748,14 @@ THEME_INFO = {
     "paper": ("生成りの紙色・焦げ茶・広い行間", "長文の読み物・解説・研修資料"),
     "aurora": ("深い紫の地にオーロラの光・すりガラスのカード・グラデーションの見出し", "発表・製品紹介・イベント（画面で見せる）"),
     "nordic": ("灰みの地に青と木の色・静かな見出し・広い行間", "落ち着いた社内資料・方針・ナレッジ"),
+    "academic": ("白地に明朝・中央寄せの題・字下げと両端揃え・上下だけ罫の表・見出しに 1. / 1.1", "論文・研究報告・技術レポート・調査のまとめ"),
+    "washi": ("生成りの地に藍と朱・明朝・広い字間と行間・朱の菱の見出し", "和文の案内・挨拶・社内報・式典・読ませる和文"),
+    "deck": ("大きな文字・黒い帯の見出し・赤の差し色（印刷は横向きで 1 節 1 ページ）", "発表・説明会の投影・画面共有で話す資料"),
+    "sheet": ("机の上の白い用紙・明朝・見出しに 1 /（1）・罫線の表（印刷は A4 の余白）", "通知・案内状・議事録・社外に出す文書・PDF にして配る文書"),
+    "mono": ("全体が等幅・## の付いた見出し・破線の罫・角なし", "README・リリースノート・変更履歴・開発ログ"),
+    "notebook": ("罫線ノートの地・丸ゴシック・蛍光ペンの見出しと強調", "研修・勉強会・学習メモ・ワークブック"),
+    "report": ("深緑と金茶・大きな章番号（01）の見出し・濃い見出し行と縞の表", "調査報告・白書・年次報告・読ませる提案書"),
+    "guide": ("白地に青緑・丸い番号の見出し・キーの形のコード・影付きの画面写真", "製品のマニュアル・利用ガイド・ヘルプ・導入の手引き"),
 }
 
 
@@ -556,6 +808,11 @@ CALLOUT_LABELS = {
     "NOTE": ("ノート", "ℹ️"), "TIP": ("ヒント", "💡"),
     "IMPORTANT": ("重要", "❗"), "WARNING": ("注意", "⚠️"),
     "CAUTION": ("警告", "🚫"),
+    # 文書の役目から足した種類（色は STATIC_CSS の .callout-*）
+    "SUMMARY": ("要約", "📝"), "ABSTRACT": ("要旨", "📝"),
+    "DEFINITION": ("定義", "📖"), "EXAMPLE": ("例", "✏️"),
+    "QUESTION": ("問い", "❓"), "SUCCESS": ("完了", "✅"),
+    "DECISION": ("決定", "⚖️"), "TODO": ("宿題", "📌"),
 }
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -760,6 +1017,27 @@ def render_scrolly(lines, opts, headings, used_slugs, mermaid_store, layout):
             % (side, fig, "".join(parts)))
 
 
+# コードのフェンス。言語の後ろに :ファイル名（題）と {numbers 2,4-6}（行番号・強調する行）を書ける
+FENCE_RE = re.compile(r"^(\s{0,3})(`{3,}|~{3,})\s*([\w-]*)(?::(\S+))?(?:\s+\{([^{}]*)\})?\s*$")
+
+
+def render_code(lang, code, title=None, opts=""):
+    """題・行番号・行の強調の付いたコード。figure の class は素のコードと同じ（"codeblock"）にし、違いは data-* で持つ。"""
+    numbers = bool(re.search(r"(?:numbers?|linenos|行番号)", opts, re.I))
+    marks = set()
+    for a, b in re.findall(r"(\d+)(?:\s*-\s*(\d+))?", opts):
+        marks.update(range(int(a), int(b or a) + 1))
+    body = html.escape(code)
+    if numbers or marks:
+        body = "".join('<span class="cl%s">%s\n</span>' % (" cl-hl" if n in marks else "", html.escape(ln))
+                       for n, ln in enumerate(code.split("\n"), 1))
+    attrs = ((' data-title="%s"' % html.escape(title, quote=True) if title else "") + (" data-numbers" if numbers else "")
+             + (" data-lines" if (numbers or marks) else ""))
+    head = '<div class="code-title">%s</div>' % html.escape(title) if title else ""
+    return ('<figure class="codeblock"%s>%s<button class="copy-btn" type="button">コピー</button>'
+            '<pre><code class="lang-%s">%s</code></pre></figure>' % (attrs, head, html.escape(lang), body))
+
+
 def parse_blocks(lines, headings, used_slugs, mermaid_store, top_level=True, layout="plain"):
     out = []
     i = 0
@@ -839,9 +1117,10 @@ def parse_blocks(lines, headings, used_slugs, mermaid_store, top_level=True, lay
             continue
 
         # コードフェンス / mermaid（先頭 0〜3 スペースを許容：リスト内のフェンス対応）
-        m = re.match(r"^(\s{0,3})(`{3,}|~{3,})\s*([\w-]*)\s*$", line)
+        m = FENCE_RE.match(line)
         if m:
             lead = len(m.group(1)); fence = m.group(2)[0]; lang = m.group(3).lower()
+            code_title, code_opts = m.group(4), m.group(5)
             j = i + 1; buf = []
             while j < n and not re.match(r"^\s{0,3}%s{3,}\s*$" % re.escape(fence), lines[j]):
                 ln = lines[j]
@@ -864,6 +1143,8 @@ def parse_blocks(lines, headings, used_slugs, mermaid_store, top_level=True, lay
                     return '<span class="dl %s">%s\n</span>' % (cls, html.escape(ln))
                 out.append('<figure class="codeblock diff"><button class="copy-btn" type="button">コピー</button>'
                            '<pre><code class="lang-diff">%s</code></pre></figure>' % "".join(dline(ln) for ln in code.split("\n")))
+            elif code_title or code_opts is not None:
+                out.append(render_code(lang, code, code_title, code_opts or ""))
             else:
                 out.append(
                     '<figure class="codeblock"><button class="copy-btn" type="button">コピー</button>'
@@ -1765,11 +2046,31 @@ def render_raci(header, rows):
     return '<div class="table-wrap"><table class="raci-t"><thead><tr>%s</tr></thead><tbody>%s</tbody></table></div>%s' % (th, "".join(trs), legend)
 
 
+# 状態の語 → 札の色（<!-- table: status -->）
+_ST_WORDS = (
+    ("ok", re.compile(r"^(?:完了|済み?|対応済み?|解決|達成|合格|公開済み?|done|closed|ok|pass(?:ed)?|resolved)$", re.I)),
+    ("doing", re.compile(r"^(?:進行中|対応中|作業中|実施中|着手|着手済み?|開発中|doing|in ?progress|wip|open)$", re.I)),
+    ("warn", re.compile(r"^(?:確認中|レビュー中|調整中|検討中|要確認|注意|保留|待ち|review|pending|hold)$", re.I)),
+    ("ng", re.compile(r"^(?:遅延|遅れ|停止|中止|失敗|不合格|要対応|未解決|blocked|late|delayed|ng|fail(?:ed)?)$", re.I)),
+    ("todo", re.compile(r"^(?:未着手|未対応|未定|予定|todo|not ?started|backlog)$", re.I)),
+)
+
+
+def _status_cell(v):
+    t = v.strip().replace("**", "")
+    for key, rx in _ST_WORDS:
+        if rx.match(t):
+            return '<span class="st st-%s">%s</span>' % (key, html.escape(t))
+    return None
+
+
 def render_table(header, rows, mode="auto"):
     if mode == "matrix":
         return render_matrix(header, rows)
     if mode == "raci":
         return render_raci(header, rows)
+    if mode in ("status", "heat", "total"):
+        return render_table_more(header, rows, mode)
     ncol = len(header)
     tools = mode == "tools" or (mode == "auto" and len(rows) >= TABLE_TOOLS_ROWS)
     numeric = []
@@ -1800,6 +2101,46 @@ def render_table(header, rows, mode="auto"):
         trs.append("<tr>%s</tr>" % "".join(tds))
     return ('<div class="tablewrap%s" data-md2doc-table%s><table><thead><tr>%s</tr></thead><tbody>%s</tbody></table></div>'
             % (" tools" if tools else "", " data-table-tools" if tools else "", th, "".join(trs)))
+
+
+def render_table_more(header, rows, mode):
+    """表の見せ方の追加: status（状態の語を色の札に）・heat（数値の列を濃淡に）・total（最後の行を合計の行に）。"""
+    ncol = len(header)
+    foot = []
+    if mode == "total" and len(rows) >= 2:
+        rows, foot = rows[:-1], [rows[-1]]
+    numeric, rng = [], {}
+    for c in range(ncol):
+        vals = [r[c].strip() for r in rows if c < len(r) and r[c].strip()]
+        numeric.append(c > 0 and len(vals) >= 2 and all(_NUM_CELL.match(v.replace("**", "")) for v in vals))
+        if numeric[c]:
+            vs = [v for v in (_num_value(x) for x in vals) if v is not None]
+            rng[c] = (min(vs), max(vs)) if vs else None
+    th = "".join('<th%s>%s</th>' % (' class="num"' if numeric[c] else "", inline(h)) for c, h in enumerate(header))
+
+    def tr(r, is_foot=False):
+        tds = []
+        for c in range(ncol):
+            cell = r[c] if c < len(r) else ""
+            st = _status_cell(cell) if mode == "status" and c > 0 else None
+            if st:
+                tds.append('<td class="st-cell">%s</td>' % st)
+            elif numeric[c] and cell.strip():
+                v = _num_value(cell)
+                heat = ""
+                if mode == "heat" and not is_foot and v is not None and rng.get(c):
+                    lo, hi = rng[c]
+                    heat = ' style="--h:%.3f"' % ((v - lo) / (hi - lo) if hi > lo else 1.0)
+                tds.append('<td class="num%s" data-v="%s"%s><span class="nv">%s</span></td>'
+                           % (" heat" if heat else "", v, heat, inline(cell)))
+            else:
+                tds.append("<td>%s</td>" % inline(cell))
+        return "<tr>%s</tr>" % "".join(tds)
+
+    body = "".join(tr(r) for r in rows)
+    tfoot = "<tfoot>%s</tfoot>" % "".join(tr(r, True) for r in foot) if foot else ""
+    return ('<div class="tablewrap" data-md2doc-table><table class="tbl-%s"><thead><tr>%s</tr></thead><tbody>%s</tbody>%s</table></div>'
+            % (mode, th, body, tfoot))
 
 
 def regroup_sections(out, lays, head_lay):
@@ -2058,7 +2399,7 @@ SECTION_LAYOUTS = ("walkthrough", "summary")
 DET_LAYOUTS = LIST_LAYOUTS + SECTION_LAYOUTS
 FLAT_LAYOUTS = ("cards", "timeline", "accordion", "chips", "tree")     # 箇条書きの行だけで組む
 RICH_LAYOUTS = ("tabs", "checklist", "defs", "stats", "proscons") + MORE_LAYOUTS     # 項目の中のコード・段落も使う
-TABLE_DIRECTIVE_RE = re.compile(r"^\s*<!--\s*table\s*[:=]\s*(plain|tools|auto|matrix|raci)\s*-->\s*$", re.I)
+TABLE_DIRECTIVE_RE = re.compile(r"^\s*<!--\s*table\s*[:=]\s*(plain|tools|auto|matrix|raci|status|heat|total)\s*-->\s*$", re.I)
 TABLE_TOOLS_ROWS = 8
 LAYOUT_DIRECTIVE_RE = re.compile(r"^\s*<!--\s*layout\s*[:=]\s*([\w-]+)\s*-->\s*$", re.I)
 _LAYOUT_MAP = {}         # 正規化した節名/slug -> レイアウト
@@ -2417,6 +2758,23 @@ body{font-family:var(--font);color:var(--ink);background:var(--bg);line-height:1
 .hero .tags{margin-top:16px;display:flex;gap:8px;flex-wrap:wrap}
 .hero .tags span{font-size:12px;font-weight:700;background:color-mix(in srgb,var(--header-fg) 16%,transparent);
   padding:4px 12px;border-radius:999px}
+.hero .hero-sub2{margin-top:12px;font-size:18px;line-height:1.6;opacity:.9}
+.hero .hero-meta{margin-top:16px;display:flex;flex-wrap:wrap;gap:6px 22px;font-size:13.5px}
+.hero .hero-meta div{display:flex;gap:8px;align-items:baseline}
+.hero .hero-meta dt{font-size:11.5px;font-weight:700;letter-spacing:.06em;opacity:.7}
+.hero .hero-meta dd{font-weight:700}
+.cover-page .hero{min-height:100vh;display:flex;align-items:center;margin-bottom:0}
+.cover-page .hero-inner{width:100%}
+.cover-page .hero h1{font-size:clamp(34px,5vw,54px)}
+.cover-page .hero .hero-sub2{font-size:21px}
+.cover-page .hero .hero-meta{margin-top:40px;padding-top:18px;border-top:1px solid color-mix(in srgb,var(--header-fg) 35%,transparent);
+  flex-direction:column;gap:6px}
+.cover-page .hero .hero-meta dt{min-width:5.5em}
+.cover-compact .hero{padding:calc(var(--nav-h) + 20px) 24px 18px}
+.cover-compact .hero h1{font-size:24px}
+.cover-compact .hero .eyebrow{margin-bottom:8px;padding:3px 10px;font-size:11.5px}
+.cover-compact .hero .date,.cover-compact .hero .tags,.cover-compact .hero .hero-meta,.cover-compact .hero .hero-sub2{margin-top:6px}
+.cover-compact .hero .hero-sub2{font-size:15px}
 .layout{max-width:var(--maxw);margin:0 auto;padding:0 24px 90px;display:grid;
   grid-template-columns:220px 1fr;gap:40px;align-items:start}
 .toc{position:sticky;top:calc(var(--nav-h) + 24px);max-height:calc(100vh - var(--nav-h) - 48px);overflow-y:auto;overscroll-behavior:contain;font-size:13.5px;padding-right:8px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
@@ -2491,6 +2849,28 @@ code{font-family:var(--mono);font-size:.88em;background:var(--accent-soft);
   border-radius:6px;padding:4px 10px;cursor:pointer;transition:.15s}
 .copy-btn:hover{background:rgba(255,255,255,.25)}
 .copy-btn.done{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.code-title{font-family:var(--mono);font-size:12px;font-weight:700;padding:8px 16px;color:var(--code-fg);
+  background:color-mix(in srgb,var(--code-bg) 86%,var(--code-fg));border-radius:var(--radius) var(--radius) 0 0;
+  border-bottom:1px solid color-mix(in srgb,var(--code-fg) 18%,transparent)}
+.codeblock[data-title] pre{border-top-left-radius:0;border-top-right-radius:0}
+.codeblock[data-title] .copy-btn{top:5px;padding:2px 10px}
+.codeblock[data-lines] pre{padding-left:0;padding-right:0}
+.codeblock .cl{display:block;padding:0 20px}
+.codeblock .cl-hl{background:color-mix(in srgb,var(--accent) 22%,transparent);box-shadow:inset 3px 0 0 var(--accent)}
+.codeblock[data-numbers] pre code{counter-reset:cl}
+.codeblock[data-numbers] .cl{padding-left:0}
+.codeblock[data-numbers] .cl::before{counter-increment:cl;content:counter(cl);display:inline-block;width:3em;margin-right:1.1em;
+  text-align:right;opacity:.5;user-select:none;-webkit-user-select:none}
+.st{display:inline-block;padding:2px 11px;border-radius:999px;font-size:12.5px;font-weight:700;line-height:1.6;white-space:nowrap;
+  color:var(--sc);background:color-mix(in srgb,var(--sc) 14%,var(--card));border:1px solid color-mix(in srgb,var(--sc) 45%,transparent)}
+.st-ok{--sc:#15803d}.st-doing{--sc:#1d4ed8}.st-warn{--sc:#b45309}.st-ng{--sc:#b91c1c}.st-todo{--sc:#57606a}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .st-ok{--sc:#4ade80}:root:not([data-theme="light"]) .st-doing{--sc:#7fb0ff}
+  :root:not([data-theme="light"]) .st-warn{--sc:#fbbf24}:root:not([data-theme="light"]) .st-ng{--sc:#f87171}:root:not([data-theme="light"]) .st-todo{--sc:#a8b1bb}}
+:root[data-theme="dark"] .st-ok{--sc:#4ade80}:root[data-theme="dark"] .st-doing{--sc:#7fb0ff}:root[data-theme="dark"] .st-warn{--sc:#fbbf24}
+:root[data-theme="dark"] .st-ng{--sc:#f87171}:root[data-theme="dark"] .st-todo{--sc:#a8b1bb}
+td.heat{background:color-mix(in srgb,var(--accent) calc(6% + var(--h) * 34%),transparent)}
+table.tbl-total tfoot td{font-weight:800;border-top:3px double var(--ink);border-bottom:0;background:color-mix(in srgb,var(--accent-soft) 70%,transparent)}
+@media print{.st{color:#000!important;background:none!important;border-color:#666!important}}
 .tablewrap{overflow-x:auto;margin:18px 0}
 table{border-collapse:collapse;width:100%;font-size:14px;background:var(--card);
   border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow)}
@@ -2506,6 +2886,24 @@ blockquote{margin:16px 0;padding:8px 18px;border-left:3px solid var(--line);colo
 .callout-body p:first-child{margin-top:4px}
 .callout-note{--c:#3b82f6}.callout-tip{--c:#10b981}.callout-important{--c:#8b5cf6}
 .callout-warning{--c:#f59e0b}.callout-caution{--c:#ef4444}
+.callout-summary,.callout-abstract{--c:#0891b2}.callout-definition{--c:#64748b}.callout-example{--c:#6366f1}
+.callout-question{--c:#db2777}.callout-success{--c:#16a34a}.callout-decision{--c:#b45309}.callout-todo{--c:#ea580c}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .callout-definition{--c:#94a3b8}
+  :root:not([data-theme="light"]) .callout-decision{--c:#d99a3c}:root:not([data-theme="light"]) .callout-example{--c:#9ea2ff}
+  :root:not([data-theme="light"]) .callout-question{--c:#f472b6}:root:not([data-theme="light"]) .callout-summary,
+  :root:not([data-theme="light"]) .callout-abstract{--c:#22b8d6}:root:not([data-theme="light"]) .callout-success{--c:#34c46a}}
+:root[data-theme="dark"] .callout-definition{--c:#94a3b8}
+:root[data-theme="dark"] .callout-decision{--c:#d99a3c}
+:root[data-theme="dark"] .callout-example{--c:#9ea2ff}
+:root[data-theme="dark"] .callout-question{--c:#f472b6}
+:root[data-theme="dark"] .callout-summary,:root[data-theme="dark"] .callout-abstract{--c:#22b8d6}
+:root[data-theme="dark"] .callout-success{--c:#34c46a}
+:root[data-theme="light"] .callout-definition{--c:#64748b}:root[data-theme="light"] .callout-decision{--c:#b45309}
+:root[data-theme="light"] .callout-example{--c:#6366f1}:root[data-theme="light"] .callout-question{--c:#db2777}
+:root[data-theme="light"] .callout-summary,:root[data-theme="light"] .callout-abstract{--c:#0891b2}
+:root[data-theme="light"] .callout-success{--c:#16a34a}
+@media print{.callout-definition{--c:#64748b!important}.callout-decision{--c:#b45309!important}.callout-example{--c:#6366f1!important}
+  .callout-question{--c:#db2777!important}.callout-summary,.callout-abstract{--c:#0891b2!important}.callout-success{--c:#16a34a!important}}
 .callout{border-left:4px solid var(--c,var(--accent))}
 .callout-head{background:color-mix(in srgb,var(--c,var(--accent)) 12%,var(--card));color:var(--c,var(--accent))}
 .mermaid-fig{margin:22px 0;text-align:center;background:var(--card);border:1px solid var(--line);
@@ -2716,7 +3114,24 @@ footer{max-width:var(--maxw);margin:40px auto 0;padding:24px;text-align:center;
   .callout,.mermaid-fig,.codeblock,table,figure,h2,h3,li{break-inside:avoid}
   a{color:#000;border:none}.codeblock pre{background:#f4f4f4;color:#111;border:1px solid #ccc}
   .copy-btn{display:none}
+  .code-title{background:#e6e6e6!important;color:#111!important;border:1px solid #ccc;border-bottom:0}
+  .codeblock .cl-hl{background:#e2e2e2!important;box-shadow:inset 3px 0 0 #000}
+  .hero .hero-meta dt,.hero .hero-sub2{opacity:1}
+  .cover-compact .hero{padding:0 0 10px}
+  .cover-page .hero{display:block;min-height:0;padding:62mm 0 0!important;border-bottom:0!important;text-align:center;break-after:page}
+  .cover-page .hero .tags{justify-content:center}
+  .cover-page .hero .hero-meta{display:inline-flex;text-align:left;border-top:1px solid #000;margin-top:28mm}
+  .print-chapters .content h2.hl{break-before:page;margin-top:0}
+  .print-chapters .content h2.hl:first-child{break-before:auto}
+  .print-toc .toc{display:block;position:static;max-height:none;overflow:visible;padding:0;margin:0 0 8mm;font-size:13px;break-after:page}
+  .print-toc .toc-head{position:static;padding:0 0 6px;background:none}
+  .print-toc .toc-search,.print-toc .toc-acc,.print-toc .toc-empty{display:none!important}
+  .print-toc .toc-ttl{font-size:16px;letter-spacing:.2em;color:#000;border-bottom:1px solid #000;padding-bottom:6px}
+  .print-toc .toc a{color:#000!important;border-left:0;font-weight:400!important;padding:3px 0;border-bottom:1px dotted #999}
+  .print-toc .toc a.lv3{padding-left:1.5em}
+  .print-toc .toc-sec.collapsed .toc-sub{display:block}
 }
+@media print{@page landscape{size:A4 landscape}.print-landscape{page:landscape}}
 /* ---------- 追加の見せ方 ---------- */
 .content .price-feats,.content .dd ul,.content .stepper ol,.content .chev-row,.content .dt,.content .dt ul{padding-left:0;margin-left:0}
 .content .price-feats>li,.content .dd ul>li,.content .stepper ol>li,.content .chev-row>li{padding-left:0}
@@ -3730,7 +4145,7 @@ __STATIC_CSS__
   </div>
 </div></nav>
 <header class="hero"><div class="hero-inner">
-  __EYEBROW____H1____DATE____TAGS__
+  __EYEBROW____H1____HEROSUB____DATE____DOCMETA____TAGS__
 </div></header>
 <div class="layout">
   <aside class="toc" id="doc-toc">
@@ -3857,6 +4272,16 @@ def build_toc_html(headings):
     return "".join(out)
 
 
+# frontmatter の追加の項目（書かなければ何も出ない）
+#   書誌: 表紙の日付の下に「作成者 山田」のように並ぶ
+DOC_META_KEYS = (("author", "作成者"), ("org", "所属"), ("to", "宛先"), ("version", "版"), ("docno", "文書番号"),
+                 ("status", "状態"), ("updated", "改訂日"))
+#   cover: 表紙の形（page=1 画面・印刷では 1 ページの表紙 / compact=低い帯）
+COVER_STYLES = ("page", "compact")
+#   print: 印刷の形（chapters=章ごとに改ページ / toc=目次のページを刷る / landscape=横向き）。空白かカンマで複数
+PRINT_OPTS = ("chapters", "toc", "landscape")
+
+
 def build_html(meta, content_html, headings, theme_key, title, brand, footer,
                toc_mode="sidebar", default_mode="system", motion="off",
                motion_tempo="normal"):
@@ -3870,7 +4295,17 @@ def build_html(meta, content_html, headings, theme_key, title, brand, footer,
     if meta.get("tags"):
         tg = [t.strip() for t in re.split(r"[,，、]", meta["tags"]) if t.strip()]
         tags = '<div class="tags">%s</div>' % "".join("<span>%s</span>" % html.escape(t) for t in tg)
+    subtitle = '<p class="hero-sub2">%s</p>' % html.escape(meta["subtitle"]) if meta.get("subtitle") else ""
+    rows = [(lab, meta[k]) for k, lab in DOC_META_KEYS if meta.get(k)]
+    docmeta = ('<dl class="hero-meta">%s</dl>' % "".join("<div><dt>%s</dt><dd>%s</dd></div>" % (lab, html.escape(v)) for lab, v in rows)) if rows else ""
+    body_cls = "toc-" + toc_mode
+    if meta.get("cover", "").lower() in COVER_STYLES:
+        body_cls += " cover-" + meta["cover"].lower()
+    for w in re.split(r"[\s,，、]+", meta.get("print", "").lower()):
+        if w in PRINT_OPTS:
+            body_cls += " print-" + w
     repl = {
+        "__HEROSUB__": subtitle, "__DOCMETA__": docmeta,
         "__TITLE__": html.escape(title), "__THEMECSS__": theme_css(theme_key),
         "__STATIC_CSS__": STATIC_CSS + theme_extra_css(theme_key), "__BRAND__": html.escape(brand),
         "__MODE_SWITCH__": MODE_SWITCH_HTML,
@@ -3878,7 +4313,7 @@ def build_html(meta, content_html, headings, theme_key, title, brand, footer,
         "__TOC_BOOT_JS__": TOC_BOOT_JS, "__TOC_SCRIPT_JS__": TOC_SCRIPT_JS, "__LAYOUT_JS__": LAYOUT_JS,
         "__NAV__": nav, "__TOC__": toc, "__EYEBROW__": eyebrow, "__H1__": h1,
         "__DATE__": date, "__TAGS__": tags, "__CONTENT__": content_html,
-        "__FOOTER__": html.escape(footer), "__BODYCLASS__": "toc-" + toc_mode,
+        "__FOOTER__": html.escape(footer), "__BODYCLASS__": body_cls,
         "__MOTION__": motion_html(motion, motion_tempo),
     }
     page = PAGE
@@ -5038,7 +5473,9 @@ def finalize_html(path, theme_key, src=None):
 VIDEO_RE = re.compile(r'<!--\s*MD2DOC-VIDEO\s+([^>]*?)\s*-->')
 VIDEO_THEME = {"corporate": "daylight", "darktech": "midnight", "infographic": "vivid", "editorial": "paper", "pastel": "daylight",
                "formal": "daylight", "manual": "daylight", "contrast": "mono", "blueprint": "navy-brass", "minimal": "daylight",
-               "paper": "paper", "aurora": "vivid", "nordic": "daylight"}
+               "paper": "paper", "aurora": "vivid", "nordic": "daylight",
+               "academic": "paper", "washi": "paper", "deck": "mono", "sheet": "daylight", "mono": "mono",
+               "notebook": "daylight", "report": "daylight", "guide": "daylight"}
 _MV = [None]
 
 
