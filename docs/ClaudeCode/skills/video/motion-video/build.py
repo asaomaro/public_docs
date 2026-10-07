@@ -159,6 +159,16 @@ SCENE_TYPES = {
     "tokensplit": (["tokens"], "札に分ける（1 枚の文に切れ目が入り、札に分かれ、1 枚に名前が付く。言葉・データを細かい単位に分ける）", '{"type":"tokensplit","heading":"文を、札に分ける","tokens":["ずんだ","餅","は","おいしい","です"],"mark":1,"label":"これが 1 つの札","note":"AI は、この札の並びを読む"}'),
     "attention": (["tokens"], "関わりの線（札の 1 枚から、ほかの札へ弧。関わりの強い 1 本だけ太くなる。どの言葉を見て決めたか・つながりの強さ）", '{"type":"attention","heading":"どの言葉を見ている？","tokens":["猫","が","魚","を","食べた"],"from":4,"links":[{"to":0,"weight":0.6},{"to":2,"weight":0.9,"label":"強く関わる"}],"note":"関わりの強い言葉を、重く見る"}'),
     "loopgrow": (["steps", "items"], "回って増える（段の輪を光が回り、1 周ごとに、上の列に札が 1 枚増える。くり返して少しずつ出来ていく物）", '{"type":"loopgrow","heading":"1 語ずつ、足していく","steps":["読む","当てる","選ぶ","足す"],"seed":"むかし","items":["むかし","ある","ところに"],"note":"これを、文が終わるまでくり返す"}'),
+    "flowfill": ([], "流れて満ちる（大きな箱から小さな箱へ、つぶが流れ続け、受ける側が少しずつ明るくなる。後から名札。教える・写す・移す）", '{"type":"flowfill","heading":"知識を、小さい方へ移す","from":{"label":"大きなモデル","name":"先生"},"to":{"label":"小さなモデル","name":"生徒"},"label":"知識を移す","note":"丸ごとは写らない"}'),
+    "softenbars": ([], "なだらかにする（つまみを上げると、1 本だけ高かった棒が下がり、ほかがのびる。順位はそのまま。かたよりをならす）", '{"type":"softenbars","heading":"温度を上げると","knob":"温度","items":[{"label":"犬","from":340,"to":200},{"label":"猫","from":7,"to":104},{"label":"車","from":4,"to":58},{"label":"鳥","from":5,"to":76}],"labels":["とがった答え","なだらかな答え"]}'),
+    "stepbars": (["items"], "段ごとの棒（横棒が、字幕の文か at の秒ごとに 1 本ずつのびて、数字が数え上がる。話す順に数字を見せる比べ方）", '{"type":"stepbars","heading":"教わると、まちがいが減る","lead":"まちがいの数","items":[{"label":"ふつうに訓練","value":146},{"label":"先生にも教わる","value":74}],"unit":"問","at":[2,6]}'),
+    "shrinkkeep": (["shrink", "meter"], "ちぢんでも保つ（同じ大きさの箱の片方がちぢんで「〇%減」。下に、ほぼ満ちたままのメーター。小さくしても力は残る）", '{"type":"shrinkkeep","heading":"小さくしても、力は残る","left":"元のモデル","right":"小さいモデル","shrink":40,"shrinkLabel":"大きさ","meter":{"label":"言葉を理解する力","value":97,"unit":"%"}}'),
+    "snapruler": ([], "粗い目盛りへ寄せる（細かい目盛りの上の点が、粗い目盛りの近い段へ落ちて寄る。丸める・量子化・段階に分ける）", '{"type":"snapruler","heading":"数字を、粗くしまう","fine":32,"coarse":4,"labels":["細かい目盛り","粗い目盛り"],"result":["32ビット","8ビット"]}'),
+    "prunenet": ([], "線を刈る（丸と線の網の線の何本かに×が付いて点線になり、消える。丸は残る。つながりを減らす・間引く）", '{"type":"prunenet","heading":"つながりを、減らす","layers":[3,4,3],"cut":9,"label":"つながりを刈る"}'),
+    "funnelflow": ([], "大ぜいから 1 つへ（左の大ぜい → 中央の 1 つ → 右の 1 つへ、つぶが流れる。後から中央の下に一言。集めて渡す・吸い上げる）", '{"type":"funnelflow","heading":"答えを集めて、育てる","many":6,"manyLabel":"たくさんの質問","mid":"よその\\nAI","label":"答え","to":"自分の\\nモデル","mark":"許しがない"}'),
+    "dottimeline": (["items"], "点の年表（横の線の上に、点と日付が順に 1 つずつ出る。2 点の間に「◯日後」の印。出来事の順と間の長さ）", '{"type":"dottimeline","heading":"7 月の出来事","items":[{"date":"7月8日","label":"書き込み"},{"date":"7月11日","label":"攻撃が始まる"},{"date":"7月16日","label":"A 社が発表"},{"date":"7月21日","label":"B 社が発表"}],"gap":{"from":2,"to":3,"label":"5日後"}}'),
+    "dotgrid": (["count"], "点の数（点 total 個（既定 100）のうち count 個が色づき、数字が上がる。「100 回のうち 79 回」のような割合）", '{"type":"dotgrid","heading":"何回、起きたか","total":100,"count":79,"label":"100回のうち","unit":"回","color":"warn"}'),
+    "revealtable": (["columns", "rows"], "1 行ずつの表（行の名前は先にうすく出し、字幕の文か at の秒ごとに 1 行ずつ中身が出て、いまの行だけ明るい。話しながら埋める比較表）", '{"type":"revealtable","heading":"3 つの例を比べる","columns":["例","どこで","実害"],"rows":[["A の件","本番","あり"],["B の試験","試験の中","なし"],["C の実験","実験の中","実験の\\n中の話"]],"hot":["あり"]}'),
     "funnel": (["items"], "漏斗（段が上から落ちて重なり、段の間に歩留まりの %）", '{"type":"funnel","heading":"申し込みまで","items":[{"label":"訪問","value":12000},{"label":"試用","value":3200},{"label":"申し込み","value":860}],"unit":"人"}'),
     "pyramid": (["items"], "ピラミッド（下の段から積み上がる。items は上から順。text で右に説明）", '{"type":"pyramid","heading":"支える仕組み","items":[{"label":"体験","text":"画面"},{"label":"機能","text":"API"},{"label":"基盤","text":"サーバ"}]}'),
     "venn": (["sets"], "ベン図（2〜3 の円が外から寄って重なり、center の言葉が弾む）", '{"type":"venn","sets":[{"label":"速さ","text":"すぐ返る"},{"label":"安さ"},{"label":"安全"}],"center":"ここ"}'),
@@ -445,7 +455,8 @@ SCENE_TYPES.update({
               '{"type":"swipe","before":"old.png","after":"new.png","labels":["今まで","これから"],"caption":"画面が 1 枚にまとまった"}'),
 })
 
-MIN_SEC = {"probbars": 6, "tokensplit": 6, "attention": 6, "loopgrow": 7, "funnel": 4, "pyramid": 4, "venn": 5.5, "cycle": 5, "matrix": 5, "calendar": 5, "checklist": 3, "versus": 6, "ranking": 4, "keys": 3, "talk": 2, "layout": 7, "wordcloud": 5, "bigtype": 4.5, "area": 6, "stack": 6, "scatter": 6, "heatmap": 6, "gauge": 5, "rings": 5, "treemap": 6, "radar": 6, "phone": 6, "dashboard": 7,
+MIN_SEC = {"flowfill": 7, "softenbars": 7, "stepbars": 4, "shrinkkeep": 8, "snapruler": 7, "prunenet": 6, "funnelflow": 7, "dottimeline": 3, "dotgrid": 6, "revealtable": 3,
+           "probbars": 6, "tokensplit": 6, "attention": 6, "loopgrow": 7, "funnel": 4, "pyramid": 4, "venn": 5.5, "cycle": 5, "matrix": 5, "calendar": 5, "checklist": 3, "versus": 6, "ranking": 4, "keys": 3, "talk": 2, "layout": 7, "wordcloud": 5, "bigtype": 4.5, "area": 6, "stack": 6, "scatter": 6, "heatmap": 6, "gauge": 5, "rings": 5, "treemap": 6, "radar": 6, "phone": 6, "dashboard": 7,
            "form": 6, "notifs": 4, "scroll": 6, "drag": 5, "network": 6, "tree": 5, "states": 6, "map": 6, "layers": 6, "pipeline": 7, "icons": 3, "impact": 3.5, "countdown": 4, "orbit": 7, "logo": 6.5, "marquee": 5, "title": 8, "statement": 4.5, "bullets": 2.5, "flow": 3, "steps": 2, "terminal": 2.5, "stats": 4.5, "bars": 3.5,
            "compare": 3, "code": 2.5, "window": 7, "image": 5, "end": 4, "custom": 5,
            "cards": 3, "timeline": 3, "chat": 2, "line": 6, "donut": 6, "table": 3, "quote": 6, "kinetic": 3, "split": 6,
@@ -580,6 +591,12 @@ def min_seconds(s):
         base += 0.7 * len(s.get("items", s.get("tokens", []))) + 0.8 * len(s.get("links", []))
     elif t == "loopgrow":
         base += 1.3 * len(s.get("items", []))
+    elif t == "stepbars":
+        base += 1.6 * len(s.get("items", []))
+    elif t == "dottimeline":
+        base += 1.5 * len(s.get("items", [])) + 1.5 * len(s.get("gaps", [s.get("gap")] if s.get("gap") else []))
+    elif t == "revealtable":
+        base += 1.8 * len(s.get("rows", []))
     elif t in ("funnel", "pyramid", "cycle", "matrix", "ranking", "checklist"):
         base += 0.8 * len(s.get("items", []))
     elif t == "calendar":

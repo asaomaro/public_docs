@@ -72,6 +72,16 @@
 | 文・データを、細かい単位に分ける | `tokensplit` |
 | どの言葉・要素どうしが関わるか（強い 1 本を見せる） | `attention` |
 | くり返して、1 つずつ出来ていく | `loopgrow` |
+| 大きい物から小さい物へ、少しずつ移す・教える・写す | `flowfill`（`from`・`to` に `label` と、後から出す名札 `name`） |
+| かたよった物を、ならす（つまみを上げると、高い 1 本が下がり、ほかがのびる） | `softenbars`（`items` に `from`・`to`。`knob` でつまみの名前） |
+| 話す順に、数字を 1 本ずつ見せて比べる | `stepbars`（字幕の文か、`at` の秒ごとに 1 本） |
+| 小さくしても、力は残る（「〇%減」と、ほぼ満ちたメーター） | `shrinkkeep`（`shrink` と `meter`） |
+| 細かい値を、粗い段へ丸める（量子化・段階に分ける） | `snapruler`（`fine`・`coarse`・`points`。`result` で「A → B」） |
+| つながりを減らす・間引く | `prunenet`（`layers` と、刈る本数 `cut`） |
+| 大ぜいから集めて、1 つを通り、1 つへ渡す | `funnelflow`（`many`・`mid`・`to`。後から出す一言 `mark`） |
+| 出来事の順と、間の長さ（「◯日後」） | `dottimeline`（`items` に `date`・`label`。`gap` で 2 点の間の印） |
+| 「100 回のうち 79 回」のような割合を、点の数で | `dotgrid`（`total`・`count`。`label`・`unit`） |
+| 話しながら 1 行ずつ埋める比較表 | `revealtable`（`columns`・`rows`。`hot` の字のます目に色） |
 | 土台から積み上がる構成・優先度 | `pyramid` |
 | 2〜3 の性質の重なり | `venn`（`center` で重なりの言葉） |
 | 繰り返す工程（PDCA など） | `cycle` |

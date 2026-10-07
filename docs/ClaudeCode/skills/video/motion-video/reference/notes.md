@@ -14,3 +14,6 @@
   SSH の線・OS 風の通知・カメラ・注記を `custom` と `overlays` で）。
 - テーマを足すときは `build.py` の `THEMES` に 1 つ足す（canvas の配色・書体・背景の模様・操作部の配色）。
 - 部品を足すときは `engine.js` の `R.<type>` と、`build.py` の `SCENE_TYPES`（必須の項目・説明・例）と `MIN_SEC` に足す。
+  `parts-*.js`（`parts-ai.js`・`parts-explain.js` など）に `R.<type>` を書いてもよい（`build.py` が名前の順に全部読み込む）。
+- `parts-explain.js` の図解（`flowfill`・`softenbars`・`stepbars`・`shrinkkeep`・`snapruler`・`prunenet`・`funnelflow`・`dottimeline`・`dotgrid`・`revealtable`）は、進む時を `at`（場面の頭からの秒の配列）で決められる。
+  書かなければ場面の長さの割合で進み、項目が並ぶ物（`stepbars`・`dottimeline`・`revealtable`）は、字幕の文の数が項目の数と同じなら、文が始まる時に 1 つずつ出る。
