@@ -29,7 +29,7 @@
   合わないときは作るときに warn が出るので、配色を替えるか `dim` で抑える。
 - 掛け合い（`talk`）の場面の `bg` にも、同じ名前を書ける。
 
-## 動く背景（43 種）
+## 動く背景（46 種）
 
 どれも継ぎ目なく繰り返す（周期は 2〜60 秒）。時刻だけで決まるので、シーク・書き出しでも同じ画になる。
 
@@ -39,6 +39,7 @@
 | 波と線 | `waves` `ribbons` `ridges` `ocean` `stripes` `sunburst` |
 | 空と粒 | `stars` `meteors` `warp` `galaxy` `rise` `snow` `rain` `bubbles` `fireflies` `petals` `confetti` `sparkles` `clouds` |
 | 格子と図形（技術・データ） | `grid-floor` `grid-scroll` `dots-wave` `halftone` `hex-pulse` `tiles` `pixels` `ripples` `radar` `tunnel` `prism` `orbits` `helix` `plexus` `circuit` `matrix` `equalizer` `scan` |
+| AI・判断・データの流れ | `neural` `tokens` `branch` |
 
 ## SVG の背景・配色に合わせる（43 枚）
 

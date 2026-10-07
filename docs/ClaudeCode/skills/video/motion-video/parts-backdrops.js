@@ -282,4 +282,44 @@ if (!window.__mvPartsBackdrops) { window.__mvPartsBackdrops = 1; (window.MotionV
     var gr = ctx.createLinearGradient(0, y - 160, 0, y + 20); gr.addColorStop(0, rgba(c1(o), 0)); gr.addColorStop(1, rgba(c1(o), 1)); ctx.fillStyle = gr; al(.2); ctx.fillRect(0, y - 160, W, 180);
     al(.55); ctx.lineWidth = 2; line(0, y + 20, W, y + 20);
   });
+
+  /* ---- AI・判断・データの流れ（2026-10-07。解説動画「Jev」のために足した） ---- */
+  /* neural: 層になった点の網。左の層から右の層へ、光の粒が線の上を渡っていく（入力 → 判断 → 出力） */
+  def("neural", 12000, function (u, o) {
+    var cols = [5, 7, 8, 7, 4], xs = [260, 610, 960, 1310, 1660], nodes = cols.map(function (n, ci) { var a = []; for (var k = 0; k < n; k++) a.push([xs[ci] + 26 * S(u, 1, ci * 1.7 + k), 540 + (k - (n - 1) / 2) * (860 / Math.max(n, 6)) + 14 * S(u, 2, k * 1.3 + ci)]); return a; });
+    var links = seeded("neural", 91, 64, function (r) { var ci = int(r, 0, 3); return { c: ci, a: int(r, 0, cols[ci] - 1), b: int(r, 0, cols[ci + 1] - 1), n: int(r, 1, 3), off: r(), hot: r() < .45 }; });
+    ctx.lineWidth = 1.5; ctx.strokeStyle = c1(o);
+    links.forEach(function (L) { var p = nodes[L.c][L.a], q = nodes[L.c + 1][L.b]; al(.13); line(p[0], p[1], q[0], q[1]); });
+    links.forEach(function (L) { if (!L.hot) return; var p = nodes[L.c][L.a], q = nodes[L.c + 1][L.b], t = fr(u * L.n + L.off), x = p[0] + (q[0] - p[0]) * t, y = p[1] + (q[1] - p[1]) * t;
+      glow(x, y, 26, c2(o), .5 * Math.sin(PI * t)); ctx.fillStyle = c2(o); al(.85 * Math.sin(PI * t)); dot(x, y, 3.5); });
+    nodes.forEach(function (col, ci) { col.forEach(function (p, k) { var beat = .5 + .5 * S(u, 2, ci * 1.1 + k * .9);
+      ctx.fillStyle = C.bg0; al(1); dot(p[0], p[1], 13); ctx.strokeStyle = ci === 4 ? c2(o) : c1(o); ctx.lineWidth = 2.5; al(.35 + .4 * beat); ctx.beginPath(); ctx.arc(p[0], p[1], 13, 0, PI2); ctx.stroke();
+      ctx.fillStyle = ci === 4 ? c2(o) : c1(o); al(.15 + .5 * beat); dot(p[0], p[1], 5); }); });
+  });
+  /* tokens: 小さな札（トークン）が、何本もの列になって左から右へ流れる。ところどころの札が光る（文を、札に分けて読む） */
+  def("tokens", 16000, function (u, o) {
+    var rows = seeded("tokens", 97, 9, function (r, i) { var a = [], x = 0; while (x < W + 400) { var w = 46 + int(r, 0, 5) * 26; a.push({ x: x, w: w, hot: r() < .16, ph: r() * PI2 }); x += w + 16; }
+      return { y: 70 + i * 118, n: int(r, 1, 2), dir: i % 2 ? -1 : 1, items: a, span: x }; });
+    rows.forEach(function (R) { R.items.forEach(function (t) { var x = mod(t.x + R.dir * u * R.n * R.span, R.span) - 200;
+      if (x > W || x + t.w < 0) return; var lit = t.hot ? .5 + .5 * Math.sin(PI2 * 3 * u + t.ph) : 0;
+      ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x, R.y, t.w, 34, 8); else ctx.rect(x, R.y, t.w, 34);
+      ctx.fillStyle = t.hot ? c2(o) : c1(o); al(t.hot ? .1 + .3 * lit : .07); ctx.fill(); ctx.strokeStyle = t.hot ? c2(o) : c1(o); ctx.lineWidth = 1.5; al(t.hot ? .3 + .5 * lit : .2); ctx.stroke();
+      ctx.fillStyle = t.hot ? c2(o) : c1(o); al(t.hot ? .35 + .4 * lit : .16); ctx.fillRect(x + 10, R.y + 15, t.w - 20, 4); }); });
+  });
+  /* branch: 左の 1 点から枝分かれする道。光が根元から走り、分かれ道のたびに 1 本を選んで、右の端の 1 点を灯す（選ぶ・決める） */
+  def("branch", 9000, function (u, o) {
+    var LV = 4, turns = 3, pick = Math.floor(u * turns) % turns, t = fr(u * turns), paths = [[0, 1, 0, 1], [1, 0, 1, 1], [1, 1, 0, 0]][pick];
+    function pos(l, i) { var n = 1 << l; return [220 + l * 370, 540 + (i - (n - 1) / 2) * (860 / n)]; }
+    ctx.lineWidth = 2; ctx.strokeStyle = c1(o); ctx.lineJoin = "round";
+    for (var l = 0; l < LV; l++) for (var i = 0; i < (1 << l); i++) { var p = pos(l, i); for (var k = 0; k < 2; k++) { var q = pos(l + 1, i * 2 + k), mx = (p[0] + q[0]) / 2;
+      al(.14); ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.bezierCurveTo(mx, p[1], mx, q[1], q[0], q[1]); ctx.stroke(); } }
+    for (l = 0; l <= LV; l++) for (i = 0; i < (1 << l); i++) { p = pos(l, i); ctx.fillStyle = c1(o); al(l === LV ? .22 : .3); dot(p[0], p[1], l === LV ? 6 : 8); }
+    var idx = 0, head = t * (LV + .8), fade = clamp((1 - t) * 6);
+    for (l = 0; l < LV; l++) { p = pos(l, idx); var ni = idx * 2 + paths[l], q2 = pos(l + 1, ni), seg = clamp(head - l); if (seg <= 0) break;
+      var m2 = (p[0] + q2[0]) / 2; ctx.strokeStyle = c2(o); ctx.lineWidth = 4; al(.75 * fade); ctx.beginPath(); ctx.moveTo(p[0], p[1]);
+      for (var s2 = 1; s2 <= 16; s2++) { var w = s2 / 16 * seg, a1 = 1 - w; ctx.lineTo(a1 * a1 * a1 * p[0] + 3 * a1 * a1 * w * m2 + 3 * a1 * w * w * m2 + w * w * w * q2[0], a1 * a1 * a1 * p[1] + 3 * a1 * a1 * w * p[1] + 3 * a1 * w * w * q2[1] + w * w * w * q2[1]); }
+      ctx.stroke(); ctx.fillStyle = c2(o); al(.9 * fade); dot(p[0], p[1], 9);
+      if (seg >= 1) { glow(q2[0], q2[1], l === LV - 1 ? 90 : 40, c2(o), (l === LV - 1 ? .55 : .3) * fade); al(.95 * fade); dot(q2[0], q2[1], l === LV - 1 ? 12 : 9); }
+      idx = ni; }
+  });
 }); }
