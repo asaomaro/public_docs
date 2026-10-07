@@ -233,7 +233,7 @@ def build_spec(subject="", previews=True):
             {"value": "1.3", "label": "かなり速め（1.3）"}]},
         {"id": "music", "label": "音楽", "showIf": {"audio": ["full", "music"]}, "default": "auto", "options": [
             {"value": "auto", "label": "おまかせ（内容と雰囲気から選ぶ。長い動画は章で替える）", "recommended": True},
-            {"value": "pick", "label": "曲を選ぶ（140 曲から）"},
+            {"value": "pick", "label": "曲を選ぶ（174 曲から）"},
             {"value": "file", "label": "音声ファイル（mp3・wav）を使う", "desc": "埋め込むので HTML が大きくなる。権利に注意"},
             {"value": "none", "label": "なし"}]},
         {"id": "track", "label": "曲", "showIf": {"music": "pick"}, "default": "calm", "options": tracks,
