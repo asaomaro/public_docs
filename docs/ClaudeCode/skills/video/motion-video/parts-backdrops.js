@@ -322,4 +322,322 @@ if (!window.__mvPartsBackdrops) { window.__mvPartsBackdrops = 1; (window.MotionV
       if (seg >= 1) { glow(q2[0], q2[1], l === LV - 1 ? 90 : 40, c2(o), (l === LV - 1 ? .55 : .3) * fade); al(.95 * fade); dot(q2[0], q2[1], l === LV - 1 ? 12 : 9); }
       idx = ni; }
   });
+  /* ==== 2026-10-07 に足した 32 種（題材ごと。話と関係のない静止画を敷くかわりに使う） ==== */
+  /* ---- 科学 ---- */
+  /* molecules: 原子の玉と結合の棒でできた分子が、回りながら漂う（まん中は空ける） */
+  def("molecules", 24000, function (u, o) {
+    var P = [[250, 220], [1660, 240], [300, 860], [1620, 850], [960, 120], [960, 975], [1820, 560], [100, 540]], cols = [c1(o), c2(o), LITE];
+    seeded("molecules", 101, 8, function (r, i) { var kind = i % 4, at = [], bd = [], k;
+      if (kind === 0) { for (k = 0; k < 6; k++) { at.push([Math.cos(k * PI / 3) * 70, Math.sin(k * PI / 3) * 70, 13, 0]); bd.push([k, (k + 1) % 6]); } at.push([140, 0, 17, 1]); bd.push([0, 6]); }
+      else if (kind === 1) { at = [[0, 0, 22, 1], [-62, 44, 13, 2], [62, 44, 13, 2]]; bd = [[0, 1], [0, 2]]; }
+      else if (kind === 2) { at = [[0, 0, 20, 0]]; for (k = 0; k < 4; k++) { at.push([Math.cos(k * PI / 2 + .4) * 78, Math.sin(k * PI / 2 + .4) * 78, 12, 2]); bd.push([0, k + 1]); } }
+      else { for (k = 0; k < 5; k++) { at.push([(k - 2) * 62, k % 2 ? -26 : 26, k === 4 ? 18 : 14, k === 4 ? 1 : 0]); if (k) bd.push([k - 1, k]); } }
+      return { at: at, bd: bd, d: i % 2 ? 1 : -1, p: r() * PI2, q: r() * PI2, n: int(r, 1, 2), sc: .9 + r() * .5 }; })
+      .forEach(function (m, i) { ctx.save(); ctx.translate(P[i][0] + 60 * S(u, m.n, m.p), P[i][1] + 40 * S(u, 1, m.q)); ctx.rotate(m.d * PI2 * u + m.p); ctx.scale(m.sc, m.sc);
+        ctx.strokeStyle = C.muted; ctx.lineWidth = 5; al(.24); ctx.beginPath(); m.bd.forEach(function (b) { ctx.moveTo(m.at[b[0]][0], m.at[b[0]][1]); ctx.lineTo(m.at[b[1]][0], m.at[b[1]][1]); }); ctx.stroke();
+        m.at.forEach(function (a) { ctx.fillStyle = C.bg0; al(1); dot(a[0], a[1], a[2]); ctx.fillStyle = cols[a[3]]; al(.28); dot(a[0], a[1], a[2]); ctx.strokeStyle = cols[a[3]]; ctx.lineWidth = 2; al(.5); ctx.beginPath(); ctx.arc(a[0], a[1], a[2], 0, PI2); ctx.stroke(); });
+        ctx.restore(); });
+  });
+  /* waveform: 2 つの波と、その足し合わせ。軸の上に、とびとびの値（標本）の棒が立つ */
+  def("waveform", 12000, function (u, o) {
+    var x, y0 = 560; ctx.strokeStyle = C.muted; ctx.lineWidth = 1.5; al(.18); line(0, y0, W, y0);
+    al(.12); ctx.beginPath(); for (x = 60; x < W; x += 120) { ctx.moveTo(x, y0 - 10); ctx.lineTo(x, y0 + 10); } ctx.stroke();
+    function f1(x) { return 150 * Math.sin(x / 190 - PI2 * u); } function f2(x) { return 70 * Math.sin(x / 61 + PI2 * 2 * u + 1); }
+    ctx.lineWidth = 2; [[f1, c1(o), .22], [f2, c2(o), .18]].forEach(function (q) { ctx.strokeStyle = q[1]; al(q[2]); ctx.beginPath(); for (x = 0; x <= W; x += 12) ctx.lineTo(x, y0 - q[0](x)); ctx.stroke(); });
+    ctx.strokeStyle = LITE; ctx.lineWidth = 3; al(.28); ctx.beginPath(); for (x = 0; x <= W; x += 12) ctx.lineTo(x, y0 - f1(x) - f2(x)); ctx.stroke();
+    ctx.strokeStyle = c1(o); ctx.lineWidth = 1.5; al(.14); ctx.beginPath(); for (x = 30; x < W; x += 60) { ctx.moveTo(x, y0); ctx.lineTo(x, y0 - f1(x) - f2(x)); } ctx.stroke();
+    ctx.fillStyle = c1(o); al(.4); for (x = 30; x < W; x += 60) dot(x, y0 - f1(x) - f2(x), 4);
+  });
+  /* microscope: 顕微鏡の丸い視野の中で、小さな生きものが泳ぐ */
+  def("microscope", 30000, function (u, o) {
+    var cx = 960, cy = 540, R = 500, i; glow(cx, cy, R * 1.1, c1(o), .1);
+    seeded("microscope", 111, 22, function (r, i) { var a = r() * PI2, d = Math.sqrt(r()) * (R - 70); return { x: cx + Math.cos(a) * d, y: cy + Math.sin(a) * d, kind: i % 3, s: .7 + r() * .8, n: int(r, 1, 2), m: int(r, 1, 2), p: r() * PI2, q: r() * PI2, d: r() < .5 ? 1 : -1, c: int(r, 0, 3) }; })
+      .forEach(function (p) { var k, j; ctx.save(); ctx.translate(p.x + 50 * S(u, p.n, p.p), p.y + 40 * S(u, p.m, p.q)); ctx.rotate(p.d * PI2 * u + p.p); ctx.scale(p.s, p.s); ctx.strokeStyle = ctx.fillStyle = AC(p.c); ctx.lineWidth = 2.5;
+        if (p.kind === 0) { X.rr(-34, -11, 68, 22, 11); al(.1); ctx.fill(); al(.32); ctx.stroke(); }
+        else if (p.kind === 1) { for (k = 0; k < 4; k++) { ctx.beginPath(); ctx.arc((k - 1.5) * 22, 6 * Math.sin(k * 1.7 + PI2 * u * 2), 10, 0, PI2); al(.1); ctx.fill(); al(.3); ctx.stroke(); } }
+        else { ctx.beginPath(); for (j = 0; j < 24; j++) { var th = j / 24 * PI2, rr = 34 * (1 + .14 * Math.sin(3 * th + PI2 * u * 2 + p.q) + .08 * Math.sin(5 * th - PI2 * u + p.p)); ctx.lineTo(Math.cos(th) * rr, Math.sin(th) * rr); } ctx.closePath(); al(.08); ctx.fill(); al(.3); ctx.stroke(); al(.3); dot(6, -4, 8); }
+        ctx.restore(); });
+    ctx.fillStyle = DARK ? "#000000" : C.muted; al(DARK ? .5 : .18); ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.arc(cx, cy, R, 0, PI2, true); ctx.fill();
+    ctx.strokeStyle = c1(o); ctx.lineWidth = 3; al(.3); ctx.beginPath(); ctx.arc(cx, cy, R, 0, PI2); ctx.stroke();
+    ctx.lineWidth = 1.5; al(.2); ctx.beginPath(); for (i = 0; i < 72; i++) { var a = i / 72 * PI2, l = i % 6 ? 12 : 26; ctx.moveTo(cx + Math.cos(a) * (R - l), cy + Math.sin(a) * (R - l)); ctx.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R); } ctx.stroke();
+  });
+  /* ---- 医療・体 ---- */
+  /* cells: 膜と核のある細胞が、ゆっくり形を変えながら漂う */
+  def("cells", 20000, function (u) {
+    seeded("cells", 113, 13, function (r, i) { return { x: 120 + (i % 5) * 420 + r() * 160, y: 150 + Math.floor(i / 5) * 380 + r() * 160, rad: 90 + r() * 80, n: int(r, 1, 2), m: int(r, 1, 2), p: r() * PI2, q: r() * PI2, c: int(r, 0, 3) }; })
+      .forEach(function (p) { var x = p.x + 70 * S(u, p.n, p.p), y = p.y + 50 * S(u, p.m, p.q), R = p.rad * (1 + .06 * S(u, 3, p.q)), k, th, rr;
+        ctx.beginPath(); for (k = 0; k < 36; k++) { th = k / 36 * PI2; rr = R * (1 + .08 * Math.sin(3 * th + PI2 * u + p.p) + .05 * Math.sin(5 * th - PI2 * 2 * u + p.q)); ctx.lineTo(x + Math.cos(th) * rr, y + Math.sin(th) * rr); } ctx.closePath();
+        ctx.fillStyle = AC(p.c); al(.07); ctx.fill(); ctx.strokeStyle = AC(p.c); ctx.lineWidth = 3; al(.24); ctx.stroke();
+        var nx = x + R * .2 * S(u, 1, p.q), ny = y + R * .15 * S(u, 2, p.p); glow(nx, ny, R * .5, AC(p.c), .22); ctx.fillStyle = AC(p.c); al(.22); dot(nx, ny, R * .2);
+        al(.2); for (k = 0; k < 5; k++) dot(x + R * .55 * Math.cos(k * 1.26 + p.p + PI2 * u), y + R * .55 * Math.sin(k * 1.26 + p.p + PI2 * u), 4); });
+  });
+  /* ecg: 心電図の線を、光る点が左から右へなぞっていく（color で色） */
+  def("ecg", 6000, function (u, o) {
+    var y0 = 660, col = o.color ? (C[o.color] || o.color) : C.ok, head = u * W, x, i, e = clamp(u * 20) * clamp((1 - u) * 20);
+    function gs(p, m, s) { return Math.exp(-Math.pow((p - m) / s, 2)); }
+    function f(x) { var p = fr(x / 640 + .1); return 14 * gs(p, .2, .035) - 22 * gs(p, .365, .012) + 210 * gs(p, .4, .014) - 46 * gs(p, .44, .014) + 34 * gs(p, .64, .05); }
+    ctx.strokeStyle = col; ctx.lineWidth = 1; al(.06); ctx.beginPath(); for (x = 0; x < W; x += 80) { ctx.moveTo(x, 0); ctx.lineTo(x, H); } for (i = 20; i < H; i += 80) { ctx.moveTo(0, i); ctx.lineTo(W, i); } ctx.stroke();
+    ctx.lineWidth = 3; ctx.lineJoin = "round"; ctx.lineCap = "round";
+    for (i = 0; i < 32; i++) { var x0 = i * 60, k = 1 - mod(head - x0 - 30, W) / W; al(.05 + .6 * Math.pow(k, 2.2)); ctx.beginPath(); for (x = x0; x <= x0 + 60; x += 4) ctx.lineTo(x, y0 - f(x)); ctx.stroke(); }
+    glow(head, y0 - f(head), 46, col, .6 * e); ctx.fillStyle = col; al(.9 * e); dot(head, y0 - f(head), 5);
+  });
+  /* ---- 数学 ---- */
+  /* plot: 方眼と軸の上に、関数のグラフが 1 本ずつ引かれていく（放物線 → 波 → S 字） */
+  def("plot", 15000, function (u, o) {
+    var ox = 240, oy = 860, i, x, k = Math.floor(u * 3) % 3, t = fr(u * 3);
+    ctx.strokeStyle = c1(o); ctx.lineWidth = 1; al(.08); ctx.beginPath(); for (x = ox % 120; x < W; x += 120) { ctx.moveTo(x, 0); ctx.lineTo(x, H); } for (i = oy % 120; i < H; i += 120) { ctx.moveTo(0, i); ctx.lineTo(W, i); } ctx.stroke();
+    ctx.lineWidth = 2.5; al(.3); line(ox, 80, ox, oy + 60); line(ox - 60, oy, W - 100, oy);
+    ctx.beginPath(); for (x = ox + 120; x < W - 120; x += 120) { ctx.moveTo(x, oy - 8); ctx.lineTo(x, oy + 8); } for (i = oy - 120; i > 100; i -= 120) { ctx.moveTo(ox - 8, i); ctx.lineTo(ox + 8, i); } ctx.stroke();
+    var FN = [function (s) { return 80 + 620 * s * s; }, function (s) { return 360 + 250 * Math.sin(s * PI * 3); }, function (s) { return 60 + 640 / (1 + Math.exp(-(s - .5) * 11)); }];
+    function curve(fn, upto) { ctx.beginPath(); for (var j = 0; j <= 80; j++) { var s = j / 80 * upto; ctx.lineTo(ox + s * 1500, oy - fn(s)); } ctx.stroke(); }
+    ctx.lineWidth = 2; ctx.strokeStyle = C.muted; al(.1); FN.forEach(function (fn) { curve(fn, 1); });
+    var prog = clamp(t / .6), fade = clamp(t * 12) * clamp((1 - t) * 5), col = [c2(o), c1(o), C.warn][k], hx = ox + prog * 1500, hy = oy - FN[k](prog);
+    ctx.strokeStyle = col; ctx.lineWidth = 4; ctx.lineCap = "round"; al(.45 * fade); curve(FN[k], prog);
+    glow(hx, hy, 40, col, .6 * fade); ctx.fillStyle = col; al(.9 * fade); dot(hx, hy, 6);
+    ctx.setLineDash([6, 8]); ctx.lineWidth = 1.5; al(.3 * fade); line(hx, hy, hx, oy); line(hx, hy, ox, hy); ctx.setLineDash([]);
+  });
+  /* geometry: コンパスで円を描き、中に多角形を引く。四隅で順に（作図） */
+  def("geometry", 20000, function (u, o) {
+    var FG = [[400, 320, 220, 3], [1500, 760, 250, 6], [1520, 250, 160, 4], [380, 830, 170, 5]], k = Math.floor(u * 4) % 4, t = fr(u * 4), j;
+    function vx(f, j) { return f[0] + Math.cos(-PI / 2 + j * PI2 / f[3]) * f[2]; } function vy(f, j) { return f[1] + Math.sin(-PI / 2 + j * PI2 / f[3]) * f[2]; }
+    function ngon(f, upto) { var tot = f[3] * upto, j0 = Math.min(f[3], Math.floor(tot)), rest = tot - j0; ctx.beginPath(); for (var j = 0; j <= j0; j++) ctx.lineTo(vx(f, j), vy(f, j));
+      if (rest > 0 && j0 < f[3]) ctx.lineTo(vx(f, j0) + (vx(f, j0 + 1) - vx(f, j0)) * rest, vy(f, j0) + (vy(f, j0 + 1) - vy(f, j0)) * rest); ctx.stroke(); }
+    ctx.lineWidth = 1.5; ctx.strokeStyle = c1(o); ctx.lineJoin = "round";
+    FG.forEach(function (f) { al(.12); ctx.beginPath(); ctx.arc(f[0], f[1], f[2], 0, PI2); ctx.stroke(); ngon(f, 1); al(.08); line(f[0] - f[2] - 60, f[1], f[0] + f[2] + 60, f[1]); line(f[0], f[1] - f[2] - 60, f[0], f[1] + f[2] + 60); });
+    var f = FG[k], fade = clamp(t * 12) * clamp((1 - t) * 5), sw = clamp(t / .4), a = -PI / 2 + PI2 * sw, px = f[0] + Math.cos(a) * f[2], py = f[1] + Math.sin(a) * f[2], arm = 1 - clamp((t - .4) / .1);
+    ctx.strokeStyle = c2(o); ctx.lineWidth = 3; ctx.lineCap = "round"; al(.55 * fade); ctx.beginPath(); ctx.arc(f[0], f[1], f[2], -PI / 2, a); ctx.stroke();
+    ctx.lineWidth = 2; al(.4 * fade * arm); line(f[0], f[1], px, py); ctx.fillStyle = c2(o); al(.8 * fade); dot(f[0], f[1], 5); al(.8 * fade * arm); dot(px, py, 6);
+    if (t > .4) { ctx.strokeStyle = C.warn; ctx.lineWidth = 3; al(.55 * fade); ngon(f, clamp((t - .4) / .4)); }
+    ctx.fillStyle = C.warn; al(.8 * fade * clamp((t - .8) * 20)); for (j = 0; j < f[3]; j++) dot(vx(f, j), vy(f, j), 5);
+  });
+  /* lissajous: 2 本の閉じた曲線（リサージュ）が、ゆっくり形を変える */
+  def("lissajous", 24000, function (u, o) {
+    ctx.translate(960, 540); ctx.lineWidth = 2; ctx.lineJoin = "round";
+    [[3, 2, 820, 430, c1(o), .24, 1], [5, 4, 890, 480, c2(o), .13, -1]].forEach(function (q) { ctx.strokeStyle = q[4]; al(q[5]); ctx.beginPath();
+      for (var j = 0; j <= 360; j++) { var th = j / 360 * PI2; ctx.lineTo(q[2] * Math.sin(q[0] * th + q[6] * PI2 * u), q[3] * Math.sin(q[1] * th)); } ctx.stroke(); });
+    var t2 = PI2 * 2 * u, x = 820 * Math.sin(3 * t2 + PI2 * u), y = 430 * Math.sin(2 * t2); glow(x, y, 30, c2(o), .5); ctx.fillStyle = c2(o); al(.8); dot(x, y, 4.5);
+  });
+  /* ---- 歴史・文化 ---- */
+  /* sumi: 墨のしみが、にじんで広がり、薄れて消える */
+  def("sumi", 24000, function (u) {
+    var ink = DARK ? C.muted : C.ink;
+    seeded("sumi", 121, 7, function (r, i) { var sat = [], sp = [], k, a, d; for (k = 0; k < 5; k++) { a = r() * PI2; d = .35 + r() * .5; sat.push([Math.cos(a) * d, Math.sin(a) * d, .35 + r() * .4]); }
+      for (k = 0; k < 7; k++) { a = r() * PI2; d = .9 + r() * .7; sp.push([Math.cos(a) * d, Math.sin(a) * d, 3 + r() * 9]); }
+      return { x: [300, 1600, 520, 1420, 180, 1760, 960][i] + (r() - .5) * 160, y: [260, 300, 860, 820, 620, 600, 140][i] + (r() - .5) * 120, R: 170 + r() * 150, off: i / 7 + r() * .06, sat: sat, sp: sp }; })
+      .forEach(function (p) { var k = fr(u + p.off), R = p.R * (1 - Math.pow(1 - k, 3)), a = clamp(k * 14) * Math.pow(1 - k, 1.3) * (DARK ? .3 : .26);
+        if (a < .003) return; glow(p.x, p.y, R, ink, a); p.sat.forEach(function (s) { glow(p.x + s[0] * R, p.y + s[1] * R, R * s[2], ink, a * .8); });
+        ctx.fillStyle = ink; al(a * 1.3); p.sp.forEach(function (s) { dot(p.x + s[0] * R, p.y + s[1] * R, s[2] * clamp(k * 6)); }); });
+  });
+  /* treerings: 年輪。ゆがんだ輪が、中心から外へゆっくり広がり続ける */
+  def("treerings", 30000, function (u, o) {
+    var cx = 1320, cy = 640, sp = 52; ctx.strokeStyle = c2(o); glow(cx, cy, 320, c2(o), .1);
+    for (var i = 0; i < 34; i++) { var r0 = (i + u) * sp; ctx.lineWidth = 1.5 + 2.5 * (.5 + .5 * Math.sin(r0 / 83)); al(clamp(r0 / 60) * (.1 + .12 * (.5 + .5 * Math.sin(r0 / 131 + 1))));
+      ctx.beginPath(); for (var k = 0; k < 60; k++) { var th = k / 60 * PI2, rr = r0 * (1 + .07 * Math.sin(2 * th + r0 / 400) + .035 * Math.sin(5 * th - r0 / 170) + .02 * Math.sin(9 * th + r0 / 60)); ctx.lineTo(cx + Math.cos(th) * rr * 1.08, cy + Math.sin(th) * rr * .94); } ctx.closePath(); ctx.stroke(); }
+  });
+  /* emaki: 絵巻の「すやり霞」。端の丸い霞の帯が、段になって横へ流れ、金の砂子がまたたく */
+  def("emaki", 60000, function (u, o) {
+    var col = c2(o), span = W + 1500;
+    seeded("emaki", 131, 10, function (r, i) { return { x: r() * span, y: 80 + i * 100 + (r() - .5) * 50, w: 420 + r() * 520, n: int(r, 1, 2), sh: .3 + r() * .4 }; })
+      .forEach(function (p, i) { var x = mod(p.x + u * p.n * span, span) - 1400, h = 34; ctx.fillStyle = col; al(i % 3 === 0 ? .17 : .11);
+        X.rr(x, p.y, p.w, h, h / 2); ctx.fill(); X.rr(x + p.w * p.sh, p.y + h + 8, p.w * .7, h, h / 2); ctx.fill(); X.rr(x - 60, p.y - 16, p.w * .5, 8, 4); ctx.fill(); });
+    ctx.fillStyle = C.warn; seeded("emaki-g", 132, 70, function (r) { return { x: r() * W, y: r() * H, s: 3 + r() * 5, n: int(r, 2, 6), p: r() * PI2 }; })
+      .forEach(function (p) { al(.1 + .3 * (.5 + .5 * S(u, p.n, p.p))); ctx.fillRect(p.x, p.y, p.s, p.s); });
+  });
+  /* ---- 地理・旅 ---- */
+  /* contours: 地図の等高線が、ゆっくり形を変える */
+  def("contours", 24000, function (u, o) {
+    ctx.strokeStyle = c1(o);
+    [[420, 300, 2.1, 1], [1500, 780, .4, -1], [1700, 150, 4, 1]].forEach(function (q) {
+      for (var k = 1; k <= 9; k++) { var R = k * 70 * (1 + .05 * S(u, 1, q[2] + k * .2)); ctx.beginPath();
+        for (var j = 0; j < 48; j++) { var th = j / 48 * PI2, w = 1 + .18 * Math.sin(2 * th + q[2] + q[3] * PI2 * u) + .1 * Math.sin(3 * th + 2 * q[2] - q[3] * PI2 * u) + .05 * Math.sin(5 * th + k * .3 + PI2 * 2 * u); ctx.lineTo(q[0] + Math.cos(th) * R * w, q[1] + Math.sin(th) * R * w); }
+        ctx.closePath(); ctx.lineWidth = k % 3 === 0 ? 2.5 : 1.5; al(k % 3 === 0 ? .26 : .15); ctx.stroke(); } });
+  });
+  /* route: 地図の上を、点線の道のりが延びていき、通った地点の印が灯る */
+  def("route", 16000, function (u, o) {
+    var WP = [[140, 930], [430, 820], [560, 560], [500, 300], [860, 170], [1260, 230], [1500, 420], [1440, 720], [1720, 900]], i, x;
+    var pts = seeded("route", 141, 1, function () { var a = [], i, j; function cr(p0, p1, p2, p3, s) { return .5 * (2 * p1 + (p2 - p0) * s + (2 * p0 - 5 * p1 + 4 * p2 - p3) * s * s + (3 * p1 - p0 - 3 * p2 + p3) * s * s * s); }
+      for (i = 0; i < WP.length - 1; i++) { var p0 = WP[Math.max(0, i - 1)], p1 = WP[i], p2 = WP[i + 1], p3 = WP[Math.min(WP.length - 1, i + 2)]; for (j = 0; j < 20; j++) a.push([cr(p0[0], p1[0], p2[0], p3[0], j / 20), cr(p0[1], p1[1], p2[1], p3[1], j / 20)]); }
+      a.push(WP[WP.length - 1]); return a; })[0];
+    ctx.strokeStyle = c1(o); ctx.lineWidth = 1; al(.07); ctx.beginPath(); for (x = 80; x < W; x += 160) { ctx.moveTo(x, 0); ctx.lineTo(x, H); } for (i = 60; i < H; i += 160) { ctx.moveTo(0, i); ctx.lineTo(W, i); } ctx.stroke();
+    ctx.lineWidth = 14; ctx.lineCap = "round"; al(.05); line(-20, 420, 700, 1100); line(900, -20, 1940, 640); line(1100, 1100, 1940, 300);
+    var N = pts.length - 1, prog = clamp(u / .8), fade = clamp(u * 12) * clamp((1 - u) * 6), hi = prog * N, h0 = Math.min(N - 1, Math.floor(hi)), hf = hi - h0, hx = pts[h0][0] + (pts[h0 + 1][0] - pts[h0][0]) * hf, hy = pts[h0][1] + (pts[h0 + 1][1] - pts[h0][1]) * hf;
+    ctx.lineWidth = 3; ctx.lineJoin = "round"; ctx.setLineDash([14, 12]); al(.16); ctx.beginPath(); pts.forEach(function (p) { ctx.lineTo(p[0], p[1]); }); ctx.stroke(); ctx.setLineDash([]);
+    ctx.strokeStyle = c2(o); ctx.lineWidth = 4; al(.6 * fade); ctx.beginPath(); for (i = 0; i <= h0; i++) ctx.lineTo(pts[i][0], pts[i][1]); ctx.lineTo(hx, hy); ctx.stroke();
+    WP.forEach(function (p, i) { var lit = clamp((prog * (WP.length - 1) - i) * 4 + .01) * fade; ctx.fillStyle = C.bg0; al(1); dot(p[0], p[1], 11); ctx.strokeStyle = c1(o); ctx.lineWidth = 2.5; al(.35); ctx.beginPath(); ctx.arc(p[0], p[1], 11, 0, PI2); ctx.stroke();
+      if (lit > .01) { glow(p[0], p[1], 46, c2(o), .4 * lit); ctx.fillStyle = c2(o); al(.9 * lit); dot(p[0], p[1], 7); } });
+    glow(hx, hy, 36, C.warn, .7 * fade); ctx.fillStyle = C.warn; al(fade); dot(hx, hy, 6);
+  });
+  /* ---- お金・経済 ---- */
+  /* candles: 値動きのローソク足と出来高の棒が、右から左へ流れる */
+  def("candles", 32000, function (u, o) {
+    var N = 40, sp = 60, base = 900, amp = 340, i;
+    function pr(i) { var a = PI2 * i / N; return .5 + .27 * Math.sin(a + 1) + .13 * Math.sin(3 * a + 2) + .07 * Math.sin(7 * a + .5) + .04 * Math.sin(11 * a); }
+    var wk = seeded("candles", 151, N, function (r) { return [r() * .05, r() * .05, .3 + r() * .7]; });
+    ctx.strokeStyle = C.muted; ctx.lineWidth = 1; al(.1); for (i = 0; i < 4; i++) line(0, base - i * 110, W, base - i * 110);
+    for (i = 0; i < N; i++) { var x = mod(i * sp - u * N * sp, N * sp) - sp; if (x > W + sp) continue;
+      var a = pr(i), b = pr(i + 1), up = b >= a, col = up ? c1(o) : c2(o), ya = base - a * amp, yb = base - b * amp;
+      ctx.strokeStyle = col; ctx.lineWidth = 2; al(.3); line(x, base - (Math.max(a, b) + wk[i][0]) * amp, x, base - (Math.min(a, b) - wk[i][1]) * amp);
+      ctx.fillStyle = col; al(up ? .28 : .2); ctx.fillRect(x - 15, Math.min(ya, yb), 30, Math.max(3, Math.abs(ya - yb)));
+      al(.1); ctx.fillRect(x - 15, H - 10 - 80 * wk[i][2], 30, 80 * wk[i][2]); }
+  });
+  /* coins: 硬貨が、くるくる回りながら昇っていく（color で色） */
+  def("coins", 16000, function (u, o) {
+    var col = o.color ? (C[o.color] || o.color) : C.warn;
+    fall("coins", 152, 30, u, { up: 1, sway: 30 }, function (p, x, y) { var R = 18 + p.s * 22, sx = Math.cos(PI2 * u * (p.k + 1) + p.q); ctx.save(); ctx.translate(x, y); ctx.rotate(.3 * Math.sin(p.p)); ctx.scale(Math.max(.08, Math.abs(sx)), 1);
+      ctx.fillStyle = col; ctx.strokeStyle = col; al(.14 + .1 * p.s); dot(0, 0, R); ctx.lineWidth = 2.5; al(.45); ctx.beginPath(); ctx.arc(0, 0, R, 0, PI2); ctx.stroke(); al(.3); ctx.beginPath(); ctx.arc(0, 0, R * .68, 0, PI2); ctx.stroke(); ctx.fillRect(-1.5, -R * .4, 3, R * .8); ctx.restore(); });
+  });
+  /* ---- 宇宙 ---- */
+  /* constellation: またたく星空に、星座の線が 1 つずつ結ばれては消える */
+  def("constellation", 24000, function (u, o) {
+    var CS = [[[150, 260], [300, 170], [450, 250], [570, 150], [720, 220]], [[1250, 150], [1400, 230], [1540, 170], [1680, 300], [1800, 210]], [[140, 700], [260, 840], [420, 790], [480, 930], [300, 980], [260, 840]],
+      [[1380, 860], [1500, 760], [1650, 820], [1780, 700], [1700, 950], [1650, 820]], [[760, 960], [900, 900], [1040, 970], [1160, 890]]];
+    glow(400, 900, 800, C.accent2, .08); ctx.fillStyle = LITE;
+    seeded("constellation", 161, 110, function (r) { return { x: r() * W, y: r() * H, s: .8 + r() * 1.6, p: r() * PI2, n: int(r, 2, 6) }; }).forEach(function (p) { al(.15 + .4 * (.5 + .5 * S(u, p.n, p.p))); dot(p.x, p.y, p.s); });
+    ctx.lineCap = "round"; ctx.lineJoin = "round";
+    CS.forEach(function (c, k) { var t = fr(u + k / 5), env = clamp(t * 20) * clamp((.85 - t) * 6), tot = (c.length - 1) * clamp(t / .35), j0 = Math.min(c.length - 1, Math.floor(tot)), rest = tot - j0, j;
+      if (env > 0) { ctx.strokeStyle = c1(o); ctx.lineWidth = 2; al(.5 * env); ctx.beginPath(); for (j = 0; j <= j0; j++) ctx.lineTo(c[j][0], c[j][1]); if (j0 < c.length - 1) ctx.lineTo(c[j0][0] + (c[j0 + 1][0] - c[j0][0]) * rest, c[j0][1] + (c[j0 + 1][1] - c[j0][1]) * rest); ctx.stroke(); }
+      c.forEach(function (p) { if (env > 0) glow(p[0], p[1], 26, c1(o), .5 * env); ctx.fillStyle = LITE; al(.45 + .45 * env); dot(p[0], p[1], 3.6); }); });
+  });
+  /* ---- 自然 ---- */
+  /* komorebi: 木もれ日。葉のかげの間で、光のまだらがゆれる */
+  def("komorebi", 20000, function (u) {
+    var lc = DARK ? C.warn : C.bg1; ctx.fillStyle = C.ok; al(DARK ? .06 : .12); ctx.fillRect(0, 0, W, H);
+    seeded("komorebi", 165, 30, function (r) { return { x: r() * W, y: r() * H, rad: 60 + r() * 130, n: int(r, 1, 2), p: r() * PI2, q: r() * PI2, m: int(r, 1, 3) }; })
+      .forEach(function (p) { var k = .55 + .45 * S(u, p.m, p.q); glow(p.x + 36 * Math.sin(PI2 * u + p.y / 300) + 20 * S(u, 2, p.p), p.y + 14 * S(u, p.n, p.q), p.rad * (.8 + .2 * k), lc, (DARK ? .2 : .8) * k); });
+    ctx.fillStyle = C.ok; seeded("komorebi-l", 166, 30, function (r, i) { var t = r(); return { x: i % 2 ? W - 40 - t * 620 : 40 + t * 560, y: 20 + r() * (260 - t * 150), a: r() * PI, s: 50 + r() * 50, p: r() * PI2 }; })
+      .forEach(function (p) { ctx.save(); ctx.translate(p.x + 14 * Math.sin(PI2 * u + p.p), p.y); ctx.rotate(p.a + .2 * Math.sin(PI2 * u + p.p)); al(DARK ? .16 : .2); ctx.beginPath(); ctx.moveTo(-p.s, 0); ctx.quadraticCurveTo(0, -p.s * .55, p.s, 0); ctx.quadraticCurveTo(0, p.s * .55, -p.s, 0); ctx.fill(); ctx.restore(); });
+  });
+  /* leaves: 色づいた落ち葉が、ひるがえりながら舞い落ちる */
+  def("leaves", 18000, function (u) {
+    var LC = ["#d9843b", "#c8553a", "#d9b13b", "#a8632e"];
+    fall("leaves", 171, 46, u, { sway: 110, slant: -.1 }, function (p, x, y) { var s = 14 + p.s * 16; ctx.save(); ctx.translate(x, y); ctx.rotate(PI2 * (u * p.k + p.s)); ctx.scale(1, .3 + .7 * Math.abs(Math.cos(PI2 * u * (p.k + 1) + p.q)));
+      ctx.fillStyle = LC[p.c]; al(.4 + .3 * p.s); ctx.beginPath(); ctx.moveTo(-s, 0); ctx.quadraticCurveTo(0, -s * .8, s, 0); ctx.quadraticCurveTo(0, s * .8, -s, 0); ctx.fill();
+      ctx.strokeStyle = LC[p.c]; ctx.lineWidth = 1.6; al(.5); line(-s * .8, 0, s * 1.3, 0); ctx.restore(); });
+  });
+  /* grass: 下に並ぶ草が、風の波でそよぐ。綿毛が横へ流れる */
+  def("grass", 8000, function (u, o) {
+    glow(960, H + 200, 900, C.ok, .14);
+    seeded("grass", 173, 110, function (r) { return { x: r() * (W + 80) - 40, h: 110 + r() * 230 * (.4 + .6 * r()), w: 5 + r() * 7, p: r() * PI2, c: r() < .3 }; })
+      .forEach(function (p) { var sw = p.h * (.22 * Math.sin(PI2 * u - p.x / 330) + .07 * Math.sin(PI2 * 2 * u + p.p));
+        ctx.beginPath(); ctx.moveTo(p.x - p.w, H + 4); ctx.quadraticCurveTo(p.x - p.w * .4 + sw * .25, H - p.h * .55, p.x + sw, H - p.h); ctx.quadraticCurveTo(p.x + p.w * .9 + sw * .25, H - p.h * .5, p.x + p.w, H + 4); ctx.closePath();
+        ctx.fillStyle = p.c ? c1(o) : C.ok; al(.16 + .14 * (p.h / 340)); ctx.fill(); });
+    ctx.fillStyle = LITE; seeded("grass-s", 174, 16, function (r) { return { x: r() * (W + 100), y: 300 + r() * 560, n: int(r, 1, 2), m: int(r, 1, 3), p: r() * PI2, s: 2 + r() * 2.5 }; })
+      .forEach(function (p) { al(.4); dot(mod(p.x + u * p.n * (W + 100), W + 100) - 50, p.y + 40 * S(u, p.m, p.p), p.s); });
+  });
+  /* ---- 技術 ---- */
+  /* servers: 機械の棚（ラック）が並び、小さな灯がまたたく */
+  def("servers", 10000, function (u, o) {
+    var RX = [40, 330, 620, 1090, 1380, 1670];
+    seeded("servers", 177, 6 * 12, function (r) { return { n: int(r, 1, 4), p: r() * PI2, m: int(r, 2, 6), q: r() * PI2, c: int(r, 0, 5), k: int(r, 1, 3), s: r() * PI2 }; })
+      .forEach(function (p, i) { var x = RX[i % 6], y = 80 + Math.floor(i / 6) * 78; ctx.strokeStyle = c1(o); ctx.lineWidth = 1.5; X.rr(x + 12, y, 186, 62, 5); al(.14); ctx.stroke();
+        ctx.fillStyle = C.ok; al(.25 + .5 * (.5 + .5 * S(u, p.n, p.p))); dot(x + 32, y + 31, 4.5);
+        ctx.fillStyle = p.c === 0 ? C.warn : c2(o); al(S(u, p.m, p.q) > .2 ? .75 : .12); dot(x + 52, y + 31, 4.5);
+        ctx.fillStyle = c1(o); al(.1); ctx.fillRect(x + 76, y + 22, 104, 4); ctx.fillRect(x + 76, y + 36, 104, 4); al(.34); ctx.fillRect(x + 76, y + 22, 104 * (.5 + .45 * S(u, p.k, p.s)), 4); });
+    ctx.strokeStyle = c1(o); ctx.lineWidth = 2.5; al(.2); RX.forEach(function (x) { X.rr(x, 60, 210, 964, 10); ctx.stroke(); });
+  });
+  /* packets: つながった機械の間を、データの包み（パケット）が行き来する */
+  def("packets", 12000, function (u, o) {
+    var ND = [[200, 190], [640, 130], [1300, 150], [1740, 250], [1770, 810], [1320, 950], [640, 940], [170, 790], [420, 500], [1520, 560]],
+      LK = [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 0], [8, 0], [8, 1], [8, 6], [8, 7], [9, 2], [9, 3], [9, 4], [9, 5], [8, 9]];
+    ctx.strokeStyle = c1(o); ctx.lineWidth = 2; al(.14); ctx.beginPath(); LK.forEach(function (l) { ctx.moveTo(ND[l[0]][0], ND[l[0]][1]); ctx.lineTo(ND[l[1]][0], ND[l[1]][1]); }); ctx.stroke();
+    seeded("packets", 181, 26, function (r, i) { return { l: i % LK.length, d: r() < .5, n: int(r, 1, 3), off: r(), c: r() < .35 }; })
+      .forEach(function (p) { var l = LK[p.l], a = ND[l[p.d ? 0 : 1]], b = ND[l[p.d ? 1 : 0]], t = fr(u * p.n + p.off), e = Math.sin(PI * t);
+        ctx.save(); ctx.translate(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t); ctx.rotate(Math.atan2(b[1] - a[1], b[0] - a[0])); ctx.fillStyle = p.c ? c2(o) : c1(o); al(.75 * e); ctx.fillRect(-9, -6, 18, 12); al(.35 * e); ctx.fillRect(-26, -4, 11, 8); al(.18 * e); ctx.fillRect(-40, -3, 9, 6); ctx.restore(); });
+    ND.forEach(function (p, i) { var hub = i >= 8, s = hub ? 34 : 24, beat = .5 + .5 * S(u, 2, i * 1.3), col = hub ? c2(o) : c1(o); ctx.fillStyle = C.bg0; al(1); X.rr(p[0] - s, p[1] - s, s * 2, s * 2, 8); ctx.fill();
+      ctx.strokeStyle = col; ctx.lineWidth = 2.5; al(.4 + .3 * beat); ctx.stroke(); ctx.fillStyle = col; al(.2 + .4 * beat); for (var k = 0; k < 3; k++) ctx.fillRect(p[0] - s * .55, p[1] - s * .5 + k * s * .4, s * 1.1, s * .16); });
+  });
+  /* stack: ブロックが上から落ちて、列ごとに積み上がっては消える（まん中は低く） */
+  def("stack", 14000, function (u) {
+    var bw = 120, bh = 72;
+    seeded("stack", 191, 16, function (r, i) { return { h: 1 + Math.round(Math.abs(i - 7.5) / 7.5 * 4 + r() * 2), off: r(), c: int(r, 0, 3) }; })
+      .forEach(function (p, i) { var t = fr(u + p.off), fade = clamp((1 - t) * 6);
+        for (var j = 0; j < p.h; j++) { var q = clamp((t - j / (p.h + 1) * .65) / .07); if (q <= 0) break;
+          X.rr(i * bw + 6, H - (j + 1) * bh - 6 - Math.pow(1 - q, 2) * 260, bw - 12, bh - 8, 8); ctx.fillStyle = AC(p.c + j); al(.14 * q * fade); ctx.fill(); ctx.strokeStyle = AC(p.c + j); ctx.lineWidth = 2; al(.36 * q * fade); ctx.stroke(); } });
+  });
+  /* ---- セキュリティ ---- */
+  /* vault: 金庫のダイヤル。目盛りの輪が、互い違いに回る。まん中に鍵穴 */
+  def("vault", 30000, function (u, o) {
+    ctx.translate(960, 540); glow(0, 0, 520, c1(o), .1); ctx.strokeStyle = c1(o); ctx.lineCap = "round";
+    [[170, 24, 2], [300, 36, -1], [440, 48, 1], [590, 60, -1], [760, 72, 1], [950, 96, -1]].forEach(function (q, i) { var R = q[0], rot = q[2] * PI2 * u, k;
+      ctx.lineWidth = 2; al(.16); ctx.beginPath(); ctx.arc(0, 0, R, 0, PI2); ctx.stroke();
+      ctx.lineWidth = 1.5; al(.24); ctx.beginPath(); for (k = 0; k < q[1]; k++) { var a = rot + k * PI2 / q[1], l = k % 6 ? 10 : 24; ctx.moveTo(Math.cos(a) * R, Math.sin(a) * R); ctx.lineTo(Math.cos(a) * (R - l), Math.sin(a) * (R - l)); } ctx.stroke();
+      ctx.lineWidth = 7; al(.12); for (k = 0; k < 3; k++) { ctx.beginPath(); ctx.arc(0, 0, R - 40, rot + k * PI2 / 3 + i, rot + k * PI2 / 3 + i + .7); ctx.stroke(); } });
+    ctx.strokeStyle = c2(o); ctx.lineWidth = 3; al(.4); ctx.beginPath(); ctx.arc(0, -14, 24, PI * .65, PI * .35); ctx.lineTo(22, 46); ctx.lineTo(-22, 46); ctx.closePath(); ctx.stroke();
+    al(.3); for (var s = 0; s < 3; s++) { var b = -PI2 * u + s * PI2 / 3; line(Math.cos(b) * 78, Math.sin(b) * 78, Math.cos(b) * 128, Math.sin(b) * 128); }
+  });
+  /* fingerprint: 指紋のうずを、読み取りの光が上下になぞる */
+  def("fingerprint", 9000, function (u, o) {
+    var cx = 1380, cy = 540, sy = cy + 400 * S(u, 1);
+    var arcs = seeded("fingerprint", 201, 15, function (r) { var g = [], a = r() * PI2; for (var k = 0; k < 3; k++) { var len = .6 + r() * 1.3; g.push([a, a + len]); a += len + .14 + r() * .25; } return g; });
+    ctx.lineCap = "round"; ctx.lineWidth = 5;
+    arcs.forEach(function (g, i) { var rx = 22 + i * 21, ry = rx * 1.28; g.forEach(function (s) { var k = Math.exp(-Math.pow((cy + Math.sin((s[0] + s[1]) / 2) * ry - sy) / 90, 2));
+      ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, s[0], s[1]); ctx.strokeStyle = c1(o); al(.18); ctx.stroke(); if (k > .02) { ctx.strokeStyle = c2(o); al(.6 * k); ctx.stroke(); } }); });
+    var gr = ctx.createLinearGradient(0, sy - 60, 0, sy + 60); gr.addColorStop(0, rgba(c2(o), 0)); gr.addColorStop(.5, rgba(c2(o), 1)); gr.addColorStop(1, rgba(c2(o), 0)); ctx.fillStyle = gr; al(.14); ctx.fillRect(cx - 380, sy - 60, 760, 120);
+    ctx.strokeStyle = c2(o); ctx.lineWidth = 2; al(.55); line(cx - 380, sy, cx + 380, sy);
+    ctx.strokeStyle = c1(o); ctx.lineWidth = 3; al(.3); [[-1, -1], [1, -1], [1, 1], [-1, 1]].forEach(function (q) { var x = cx + q[0] * 400, y = cy + q[1] * 450; ctx.beginPath(); ctx.moveTo(x - q[0] * 60, y); ctx.lineTo(x, y); ctx.lineTo(x, y - q[1] * 60); ctx.stroke(); });
+  });
+  /* ---- 落ち着いた地 ---- */
+  /* fibers: 紙の繊維。すき込まれた細い繊維の上を、淡い光がゆっくり移る */
+  def("fibers", 40000, function (u, o) {
+    glow(960 + 700 * S(u, 1), 400 + 200 * S(u, 2, 1), 900, c2(o), .1); glow(960 - 600 * S(u, 1, 2), 800, 700, c1(o), .07);
+    var fb = seeded("fibers", 211, 170, function (r) { var x = r() * W, y = r() * H, a = r() * PI2, l = 20 + r() * 60; return [x, y, x + Math.cos(a) * l / 2 + (r() - .5) * 24, y + Math.sin(a) * l / 2 + (r() - .5) * 24, x + Math.cos(a) * l, y + Math.sin(a) * l]; });
+    ctx.strokeStyle = C.muted; ctx.lineWidth = 1.4; ctx.lineCap = "round";
+    for (var b = 0; b < 5; b++) { al(.16 + .09 * S(u, 1, b * 1.26)); ctx.beginPath(); for (var i = b; i < fb.length; i += 5) { ctx.moveTo(fb[i][0], fb[i][1]); ctx.quadraticCurveTo(fb[i][2], fb[i][3], fb[i][4], fb[i][5]); } ctx.stroke(); }
+    ctx.fillStyle = C.faint; al(.3); ctx.beginPath(); seeded("fibers-d", 212, 70, function (r) { return [r() * W, r() * H, .8 + r() * 1.6]; }).forEach(function (p) { ctx.moveTo(p[0] + p[2], p[1]); ctx.arc(p[0], p[1], p[2], 0, PI2); }); ctx.fill();
+  });
+  /* sheen: ほぼ無地。斜めの淡い光の帯が、ゆっくり横切る */
+  def("sheen", 18000, function (u, o) {
+    glow(300, 200, 800, c1(o), .06); ctx.translate(960, 540); ctx.rotate(.42);
+    [[0, c1(o), 620, .16], [.5, c2(o), 380, .12]].forEach(function (q) { var x = -1750 + fr(u + q[0]) * 3500, gr = ctx.createLinearGradient(x, 0, x + q[2], 0);
+      gr.addColorStop(0, rgba(q[1], 0)); gr.addColorStop(.5, rgba(q[1], 1)); gr.addColorStop(1, rgba(q[1], 0)); ctx.fillStyle = gr; al(q[3]); ctx.fillRect(x, -1300, q[2], 2600); });
+  });
+  /* dust: 斜めに差す光の中を、ほこりの粒がゆっくり漂う */
+  def("dust", 30000, function (u) {
+    var gr = ctx.createLinearGradient(200, -100, 1300, 1000); gr.addColorStop(0, rgba(C.warn, 1)); gr.addColorStop(1, rgba(C.warn, 0)); ctx.fillStyle = gr; al(.13 + .03 * S(u, 2));
+    ctx.beginPath(); ctx.moveTo(60, -40); ctx.lineTo(620, -40); ctx.lineTo(1750, 1120); ctx.lineTo(700, 1120); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = DARK ? C.ink : C.warn;
+    seeded("dust", 221, 90, function (r) { return { x: r() * W, y: r() * H, ax: 60 + r() * 120, ay: 40 + r() * 90, n: int(r, 1, 2), m: int(r, 1, 2), p: r() * PI2, q: r() * PI2, s: 1.4 + r() * 2.8, t: int(r, 2, 5) }; })
+      .forEach(function (p) { var x = p.x + p.ax * S(u, p.n, p.p), y = p.y + p.ay * S(u, p.m, p.q), k = .3 + .7 * clamp(1.3 - Math.abs((x - 340) * .795 - (y + 40) * .607) / 380);
+        al((.12 + .45 * (.5 + .5 * S(u, p.t, p.q))) * k); dot(x, y, p.s); });
+  });
+  /* ---- 和風 ---- */
+  /* seigaiha-flow: 青海波のうろこが横へゆっくり流れ、光の波が上へ渡る */
+  def("seigaiha-flow", 24000, function (u, o) {
+    var R = 100, hh = 50, RS = [100, 72, 44];
+    var dl = seeded("seigaiha-flow", 231, 1, function () { return RS.map(function (r) { for (var th = 0; th < PI; th += .01) if (Math.pow(r * Math.sin(th) - R, 2) + Math.pow(-r * Math.cos(th) - hh, 2) < R * R) break; return th; }); })[0];   /* 下の段のうろこに隠れない角度 */
+    ctx.strokeStyle = c1(o); ctx.lineWidth = 2.5;
+    for (var j = 0; j * hh < H + R + hh; j++) { var y = j * hh; al(.1 + .16 * (.5 + .5 * Math.sin(PI2 * 2 * u + y / 170))); ctx.beginPath();
+      for (var x = (j % 2 ? R : 0) + u * 2 * R - 2 * R; x < W + R; x += 2 * R) for (var k = 0; k < 3; k++) { ctx.moveTo(x + RS[k] * Math.cos(-PI / 2 - dl[k]), y + RS[k] * Math.sin(-PI / 2 - dl[k])); ctx.arc(x, y, RS[k], -PI / 2 - dl[k], -PI / 2 + dl[k]); }
+      ctx.stroke(); }
+  });
+  /* asanoha-pulse: 麻の葉の模様に、まん中から光の波が広がる */
+  def("asanoha-pulse", 10000, function (u, o) {
+    var s = 160, h = s * Math.sqrt(3) / 2; ctx.strokeStyle = c2(o); ctx.lineWidth = 1.6; ctx.lineJoin = "round";
+    for (var j = -1; (j - 1) * h < H; j++) for (var i = -1; i * s < W + s; i++) { var x0 = i * s + (mod(j, 2) ? s / 2 : 0), y0 = j * h;
+      for (var up = 0; up < 2; up++) { var cx = x0 + s / 2, cy = y0 + (up ? -h : h), gx = x0 + s / 2, gy = (y0 * 2 + cy) / 3, k = Math.pow(Math.max(0, Math.sin(PI2 * u - Math.hypot(gx - 960, gy - 540) / 200)), 2);
+        ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x0 + s, y0); ctx.lineTo(cx, cy); ctx.closePath(); ctx.moveTo(gx, gy); ctx.lineTo(x0, y0); ctx.moveTo(gx, gy); ctx.lineTo(x0 + s, y0); ctx.moveTo(gx, gy); ctx.lineTo(cx, cy); al(.07 + .26 * k); ctx.stroke(); } }
+  });
+  /* ichimatsu: 市松の 2 色が、斜めの波でゆっくり入れ替わる */
+  def("ichimatsu", 16000, function (u, o) {
+    var s = 160; glow(960, 540, 900, c1(o), .06);
+    for (var j = 0; j * s < H; j++) for (var i = 0; i * s < W; i++) { var k = .5 + .5 * Math.sin(PI2 * u + ((i + j) % 2) * PI + (i - j) * .22); k = k * k * (3 - 2 * k);
+      if (k < .02) continue; ctx.fillStyle = (i + j) % 2 ? c1(o) : C.ink; al(((i + j) % 2 ? .11 : .055) * k); ctx.fillRect(i * s, j * s, s, s); }
+  });
+  /* ---- ポップ ---- */
+  /* polka: 水玉の列が、段ごとに左右へ流れながら、ふくらんだり縮んだりする */
+  def("polka", 12000, function (u) {
+    var sx = 170, sy = 150;
+    for (var j = -1; j * sy < H + sy; j++) { ctx.fillStyle = AC(j + 8); al(.14); ctx.beginPath();
+      for (var i = -2; i * sx < W + 2 * sx; i++) { var x = i * sx + (mod(j, 2) ? sx / 2 - u * sx : u * sx), y = j * sy + 40, r = 30 * (.72 + .28 * Math.sin(PI2 * 2 * u + x / 260 + j)); ctx.moveTo(x + r, y); ctx.arc(x, y, r, 0, PI2); }
+      ctx.fill(); }
+  });
+  /* balloons: 色とりどりの風船が、ゆれながら昇っていく */
+  def("balloons", 22000, function (u) {
+    seeded("balloons", 241, 15, function (r) { return { x: 80 + r() * (W - 160), y: r() * (H + 520), s: r(), p: r() * PI2, c: int(r, 0, 3), k: int(r, 1, 2) }; })
+      .forEach(function (p) { var rx = 40 + p.s * 26, ry = rx * 1.2; ctx.save(); ctx.translate(p.x + 46 * S(u, p.k, p.p), H + 130 - mod(p.y + u * (H + 520), H + 520)); ctx.rotate(.1 * Math.cos(PI2 * p.k * u + p.p)); ctx.fillStyle = ctx.strokeStyle = AC(p.c);
+        al(.2); ctx.beginPath(); ctx.ellipse(0, 0, rx, ry, 0, 0, PI2); ctx.fill(); ctx.lineWidth = 2; al(.42); ctx.stroke();
+        al(.42); ctx.beginPath(); ctx.moveTo(0, ry); ctx.lineTo(-7, ry + 12); ctx.lineTo(7, ry + 12); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = LITE; al(.22); ctx.beginPath(); ctx.ellipse(-rx * .35, -ry * .4, rx * .16, ry * .24, .5, 0, PI2); ctx.fill();
+        ctx.strokeStyle = C.muted; ctx.lineWidth = 1.5; al(.4); ctx.beginPath(); ctx.moveTo(0, ry + 12); ctx.bezierCurveTo(14, ry + 60, -14, ry + 110, 4, ry + 170); ctx.stroke(); ctx.restore(); });
+  });
 }); }

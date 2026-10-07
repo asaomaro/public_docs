@@ -304,7 +304,8 @@ def lint(path):
         if same:   # 別の場所にある同じ主張（判定は元の主張に従う。数には入れない）
             dup.append((cid, same.group(1), head[len(cid):].strip(), f["直し方"]))
             continue
-        v = next((x for x in VERDICTS if f["判定"].startswith(x)), None)
+        jv = re.sub(r"^(誤り|言い回し)\s*[・:：／/]\s*", "", f["判定"])   # 頭に重さ（誤り・言い回し）を書く形も読む（例「言い回し・言いすぎ」）
+        v = next((x for x in VERDICTS if jv.startswith(x)), None)
         if not v:
             bad.append("%s: 判定がありません（%s のどれか）" % (cid, "・".join(VERDICTS)))
             continue

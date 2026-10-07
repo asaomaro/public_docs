@@ -23,14 +23,21 @@
 - **演技**（時刻だけで決まり、録画にも入る）: せりふの `face`・`pose`・`motion`。せりふの途中で変えるなら `acts: [{"at": 0.5, "face": …, "pose": …, "motion": …}]`（`at` はせりふの中の位置 0〜1）、
   相手の反応は `react: [{"who": 名前, "at": 0.6, "face": …, "motion": …, "emote": "!?"}]`。反応した瞬間は口だけが開く。
   せりふの後 1.5 秒で、いつもの顔（`cast.<名前>.rest`、既定 normal）と姿に戻る。絵が替わるときは、前の絵を重ねて消していく。
-- **動き**: いつもの呼吸と小さな揺れ、表情・体が変わったときの弾み、身ぶり。身ぶりは `motion` で選ぶ（26 種。`bounce` `jump` `hop` `dance` `spin` `nod` `tilt` `shakehead` `bow`
-  `lean` `peek` `back` `away` `turn` `sink` `shrink` `squash` `tremble` `stomp` `zukkoke` `zoom` `stretch` `pulse` `sway` `float` `still`）。無ければ表情から決まる。
+- **動き**: いつもの呼吸と小さな揺れ、表情・体が変わったときの弾み、身ぶり。身ぶりは `motion` で選ぶ（54 種。`bounce` `jump` `hop` `dance` `spin` `nod` `tilt` `shakehead` `bow`
+  `lean` `peek` `back` `away` `turn` `sink` `shrink` `squash` `tremble` `stomp` `zukkoke` `zoom` `stretch` `pulse` `sway` `float` `still`、
+  `jolt`（びくっ）`nodnod`（こくこく）`slownod`（ゆっくり深くうなずく）`droop`（がくっ）`lookup`（見上げる）`wiggle`（もじもじ）`rock`（ゆっくり左右）`tap`（とんとん）`dash`（ずいっと出て戻る）`recoil`（がたっ）`puff`（ふんす）`melt`（へなへな）`flutter`（ぱたぱた）`doubletake`（二度見）、
+  `shiver`（ぞくっ）`sidestep`（すっと外へ）`bobble`（首だけゆらゆら）`nope`（ぷいっ）`pop`（ぴょこっ）`swoon`（ふらっ）`heave`（ため息）`skip`（スキップ）`cheer`（ばんざい跳び）`creep`（そろり）`stagger`（よろよろ）`snap`（ぴしっ）`laugh`（笑って肩がゆれる）`duck`（さっとかがむ））。
+  無ければ表情から決まる。**表情ごとに候補が 4 つあり、その演技が始まった時刻と人で 1 つが選ばれる**（同じ表情でも毎回同じ動きにならない。`talk.autoMotion: "fixed"` で、いつも先頭 = 前と同じ）。
+- **いつものくせ**: 演技をしていない間、数秒ごとに、小さなしぐさがたまに 1 つ出る（体重を移す・小さくかしげる・背すじを伸ばす・小さくうなずく〔聞いている間〕・小さく弾む・深く息をする・ちらっと相手を見る・肩をすくめる・小さくゆれる・つま先立ち・そわそわ・ゆっくり引いて戻る の 12 種。3 回に 1 回ほどは何もしない）。人ごとに間隔と順番が違う。`talk.habits: false`（全員）・`cast.<名前>.habits: false` で止める。数（0〜2）で大きさ。
+  まばたきは 3.6 秒ごと。回によって、2 回続ける・ゆっくり閉じる。
   大きさは `mlv`（無ければ表情の度合い `lv`。1 控えめ・2 ふつう・3 強め）。`face`・`pose` の `smile#2`・`point+mic` などは、`#`・`+` の前のラベルで動きを決める。
   `cast.<名前>.motion: "yukkuri"` は話す間に縦に伸び縮みする（頭だけの立ち絵向け）。`cast.<名前>.motion: false` か `castMotion: false` で止まる。OS の「動きを減らす」で止めるのは、`talk.reducedMotion: true` と書いたときだけ（いつも止めると、その設定の機械では HTML で見る動きと書き出した動画の動きが違ってしまう）。
   パーツの立ち絵（`sprite`）は、口と目のパーツの位置から首の高さを決め、頭だけを首から傾ける（`nod`・`tilt`・`shakehead`・`bow` と、話している間の小さな揺れ）。首の高さを決められない立ち絵は、今までどおり全身で動く。
   絵で見せる画面（`stage`）の並びは、立ち絵が左右に 1 人ずつでないとき（1 人・3 人・4 人）、立ち絵の間の空いている所のまん中に寄せて、その幅に収める。
   `sprite.poses.<ポーズ>.rig`（層の一覧。yukkuri-kaisetsu の `sprite.py` が作る）があれば、腕・髪を軸のまわりに回し、黒目（`iris`）を白目の中でずらして、毎コマ重ね直す（表情のパーツは顔の層だけに当てる）。`talk.rig: false` で動かさない。髪（`k: "hair"`）は細い帯に切って、先ほど大きくずらしてしならせる（`talk.hairBend: false` で丸ごと回す）。腕（`k: "arm"`）は、肩から 3 割は動かさず、ひじのあたりから先だけを同じやり方で動かす（`talk.armBend: false` で肩から丸ごと回す。丸ごと回すと、袖が服の輪郭とつながっている腕が体から離れて見える）。動かし方は `talk.rigMotion`（全員）・`cast.<名前>.rigMotion`（その人）で変える: `{arm: {rest, breath, voice, jump, speed, limit}, hair: {sway, voice, jump, follow, bend, lag, speed, limit}, iris: {listen, wander, wanderListen, every, up}}`（角度はラジアン、時間は ms。書いた項目だけ上書き。yukkuri-kaisetsu は `rig.json` の名前の付いた設定から入れる）。
-- **気持ちの印**（`emote`）は線と形で描く（絵文字の書体が無い環境でも出る）: `!` `?` `!?` `♪` `…` `💦` `💢` `💡` `✨` `♥` `gloom`（ガーン）`shock` `zzz`。
+- **気持ちの印**（`emote`）は線と形で描く（絵文字の書体が無い環境でも出る）: `!` `?` `!?` `♪` `…` `💦` `💢` `💡` `✨` `♥` `gloom`（ガーン）`shock` `zzz`、
+  `⚡`（`bolt` 稲妻）`🔥`（`fire`）`💧`（`tear` 涙ひとつぶ）`💭`（`cloud` もやもや）`○`（`maru`）`×`（`batsu`）`🌀`（`swirl` ぐるぐる）`🌸`（`flower`）`👻`（`soul` 魂が抜ける）`♫`（`notes`）`💨`（`huff` 鼻息）、
+  `★`（`star` キラーン）`👀`（`eyes` じーっ）`🎉`（`confetti` 紙ふぶき）`☔`（`rain` どんより）`☀`（`sun`）`❄`（`snow`）`!!` `??` `♨`（`steam` 湯気）`💔`（`heartbreak`）`✔`（`check`）`🔍`（`lens` 虫めがね）。全部で 37 種。絵文字でも、かっこの中の名前でも書ける。
 - **絵で見せる場面**: `board: {"type": "stage", "shots": [{"line": 0, "items": […], "title": …, "note": …}]}`。白い黒板を置かず、背景の上に絵・写真・矢印・短い言葉を並べる。
   `line` 番目のせりふからその並びに替わる。`items` は `{"img": 名前, "label": 名札, "say": 吹き出し（`/` で改行）, "sayAt": "left"・"right"・"bottom"（画面いっぱいの写真の吹き出しの位置。既定は上の中央）, "frame": 白い縁, "credit": 出どころ}`・`{"text": "1 行目/2 行目", "color"}`・`{"op": "→"}`。
   絵の代わりに `{"icon": アイコンの名前}`（白い丸の上に線で描かれて動く）・`{"part": 部品の台本}`（白い板の上に縮めて置く。ほかの絵より広く取る）も置ける（`label`・`say` は同じ）。

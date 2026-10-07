@@ -1074,7 +1074,12 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     elegant: { tr: ["focus", "fade", "cover"], ch: "cover", text: "tracking", title: "tracking", fx: ["leaks"], titleFx: ["sparkles"], endFx: ["sparkles"],
                cam: { "*": "breathe", title: "rack-focus", quote: "push-in" } },
     news: { tr: ["bars", "push", "stack", "doors"], ch: "bars", text: "box", title: "skew", fx: [], titleFx: ["pulse"], endFx: ["pulse"],
-            cam: { statement: "crash-zoom", impact: "crash-zoom", title: "push-in" } }
+            cam: { statement: "crash-zoom", impact: "crash-zoom", title: "push-in" } },
+    craft: { tr: ["peel", "fold", "uncover", "page"], ch: "tear", text: "marker", title: "fill", fx: [], titleFx: ["frame"], endFx: ["frame"], cam: { title: "sway" } },
+    fluid: { tr: ["soft-wipe", "liquid", "flood", "ink"], ch: "soft-wipe", text: "fade", title: "shine", fx: [], titleFx: ["fog"], endFx: ["fog"], cam: { title: "push-in", quote: "push-in" } },
+    crisp: { tr: ["wipe-up", "uncover", "wipe-left", "slices"], ch: "slices", text: "underline", title: "grow", fx: [], titleFx: [], endFx: [], cam: { statement: "step-in" } },
+    spatial: { tr: ["depth", "swing", "cube", "flip"], ch: "depth", text: "depth", title: "unfold", fx: [], titleFx: ["cubes"], endFx: ["cubes"], cam: { title: "dolly", statement: "dutch" } },
+    show: { tr: ["iris-close", "star", "drop", "tumble"], ch: "shutter", text: "zipper", title: "shuffle", fx: [], titleFx: ["spotlight"], endFx: ["fireworks"], cam: { title: "whip-in" } }
   };
   var MS = MSTYLES[SPEC.motion] || MSTYLES.gentle;
   function animOf(s, role) { return s.anim || (role === "title" ? MS.title : MS.text); }
@@ -1401,7 +1406,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
         emblem("ring", nx + 52, ny + 55, 24, 0, 1, o.app || SPEC.title);
         txt(o.app || (SPEC.brand && SPEC.brand.name) || "", nx + 96, ny + 44, { size: 22, weight: 700, color: "#0f2230" });
         txt(o.text || "", nx + 96, ny + 78, { size: 22, color: "#35505b" });
-      }
+      } else if (OVX[kind]) OVX[kind](o, lt, a, b, k, d);
       ctx.restore();
     });
   }
@@ -1416,6 +1421,232 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
                sfx: function (at, what, o) { sfxEv(at, what, o); }, shake: shakeEv, burst: burstAt, fx: drawFx, text: animText, cams: CAMS,
                icon: function (n, x, y, size, o) { return drawIcon(n, x, y, size, o); }, drawIcon: drawIcon, iconAny: icon, cursor: cursor, fmtNum: fmtNum, parseNum: parseNum,
                g: function () { return ctx; }, sfxEv: sfxEv, shakeEv: shakeEv, img: function (src) { return IMGS[src]; }, animText: animText };
+  /* ================= 選べるものの追加: 切り替え・文字の出方・カメラ・緩急・演出の層・重ねの層 =================
+     parts-*.js と同じ口（TRX・TEXTX・FXX）に登録する。どれも時刻（lt・u）だけで姿が決まる（Math.random・Date を使わない。ばらつきは rand(種)）。 */
+  var OVX = {};
+  (function () {
+    var PI = Math.PI;
+    var full = function () { ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip(); };
+    var edgeLine = function (x0, y0, x1, y1, col) { ctx.save(); ctx.strokeStyle = col || C.accent; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); ctx.restore(); };
+    /* #rrggbb を、同じ色の透明（グラデーションの端が黒ずまない）にする */
+    var clear = function (hex) { var m = /^#([0-9a-f]{6})$/i.exec(hex || ""); if (!m) return "rgba(0,0,0,0)"; var n = parseInt(m[1], 16); return "rgba(" + (n >> 16 & 255) + "," + (n >> 8 & 255) + "," + (n & 255) + ",0)"; };
+
+    /* ---------- 切り替え ---------- */
+    /* wipe-up / wipe-left: 境目が下から上へ・右から左へ（wipe は左から右） */
+    TRX["wipe-up"] = { ms: 700, draw: function (prev, next, u) { prev(); var y = H * (1 - u); next({ clip: function () { ctx.beginPath(); ctx.rect(0, y, W, H - y + 1); ctx.clip(); } }); edgeLine(0, y, W, y); } };
+    TRX["wipe-left"] = { ms: 700, draw: function (prev, next, u) { prev(); var x = W * (1 - u); next({ clip: function () { ctx.beginPath(); ctx.rect(x, 0, W - x + 1, H); ctx.clip(); } }); edgeLine(x, 0, x, H); } };
+    /* iris-close: 円が閉じて前の場面を消し、開いて次の場面を見せる */
+    TRX["iris-close"] = { ms: 950, draw: function (prev, next, u) {
+      var q = u < .5 ? 1 - u * 2 : u * 2 - 1, rad = (Math.hypot(960, 540) + 4) * q;
+      if (u < .5) prev(); else next();
+      ctx.save(); ctx.fillStyle = C.bg0; ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.arc(960, 540, Math.max(.1, rad), 0, PI * 2, true); ctx.fill("evenodd");
+      ctx.strokeStyle = u < .5 ? C.accent : C.accent2; ctx.lineWidth = 8; ctx.beginPath(); ctx.arc(960, 540, Math.max(5, rad), 0, PI * 2); ctx.stroke(); ctx.restore(); } };
+    /* shutter: カメラの絞りの羽根（六角形）が回りながら閉じて、開く */
+    TRX.shutter = { ms: 950, draw: function (prev, next, u) {
+      var q = u < .5 ? 1 - u * 2 : u * 2 - 1, rad = Math.max(.1, (Math.hypot(960, 540) + 60) * q / Math.cos(PI / 6)), rot = u * PI * .5, i;
+      var pt = function (j) { var a = rot + j * PI / 3; return [960 + Math.cos(a) * rad, 540 + Math.sin(a) * rad]; };
+      if (u < .5) prev(); else next();
+      ctx.save(); ctx.fillStyle = C.panel; ctx.beginPath(); ctx.rect(0, 0, W, H);
+      for (i = 0; i < 6; i++) { var p = pt(i); i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]); } ctx.closePath(); ctx.fill("evenodd");
+      ctx.strokeStyle = C.edge; ctx.lineWidth = 4; ctx.beginPath();
+      for (i = 0; i < 6; i++) { var a0 = pt(i), a1 = pt(i + 1), dx = a1[0] - a0[0], dy = a1[1] - a0[1], L = Math.hypot(dx, dy) || 1; ctx.moveTo(a0[0], a0[1]); ctx.lineTo(a1[0] + dx / L * 2600, a1[1] + dy / L * 2600); } ctx.stroke();
+      ctx.strokeStyle = C.accent; ctx.lineWidth = 5; ctx.lineJoin = "round"; ctx.beginPath(); for (i = 0; i <= 6; i++) { var p2 = pt(i); i ? ctx.lineTo(p2[0], p2[1]) : ctx.moveTo(p2[0], p2[1]); } ctx.stroke(); ctx.restore(); } };
+    /* star: 星形が回りながら広がる */
+    TRX.star = { ms: 900, draw: function (prev, next, u) { prev(); var Ro = u * 2500 + .1, rot = -PI / 2 + (1 - u) * .9;
+      var path = function () { ctx.beginPath(); for (var i = 0; i < 10; i++) { var a = rot + i * PI / 5, r0 = i % 2 ? Ro * .46 : Ro, x = 960 + Math.cos(a) * r0, y = 540 + Math.sin(a) * r0; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); } ctx.closePath(); };
+      next({ clip: function () { path(); ctx.clip(); } });
+      ctx.save(); ctx.globalAlpha = 1 - u; ctx.strokeStyle = C.accent; ctx.lineWidth = 8; ctx.lineJoin = "round"; path(); ctx.stroke(); ctx.restore(); } };
+    /* tear: 前の場面が紙のように縦に破れ、左右へ離れる（破れ目は上から下へ走る） */
+    TRX.tear = { ms: 1050, draw: function (prev, next, u, lt, SW) {
+      next(); var r = rand(53), pts = [], y, e = eio(clamp(lin(lt, SW * .14, SW))), rip = clamp(lin(lt, 0, SW * .3));
+      for (y = -40; y <= H + 40; y += 36) pts.push([960 + (r() - .5) * 90 + Math.sin(y / 170) * 26, y]);
+      [-1, 1].forEach(function (sg) {
+        var xf = function () { ctx.translate(sg * e * W * .62, e * 60); ctx.translate(960, H); ctx.rotate(sg * e * .07); ctx.translate(-960, -H); };
+        var shape = function () { ctx.beginPath(); ctx.moveTo(sg < 0 ? -200 : W + 200, -40); pts.forEach(function (p) { ctx.lineTo(p[0], p[1]); }); ctx.lineTo(sg < 0 ? -200 : W + 200, H + 40); ctx.closePath(); };
+        ctx.save(); xf(); ctx.translate(-sg * 12, 14); shape(); ctx.fillStyle = "rgba(0,0,0," + (.32 * clamp(e * 5)).toFixed(3) + ")"; ctx.fill(); ctx.restore();
+        prev({ xf: xf, clip: function () { shape(); ctx.clip(); } });
+        ctx.save(); xf(); ctx.beginPath(); var nn = Math.max(2, Math.round(pts.length * rip));
+        for (var i = 0; i < nn; i++) i ? ctx.lineTo(pts[i][0] + sg * 5, pts[i][1]) : ctx.moveTo(pts[i][0] + sg * 5, pts[i][1]);
+        ctx.strokeStyle = "#f6f1e7"; ctx.lineWidth = 11; ctx.lineJoin = "round"; ctx.globalAlpha = .92; ctx.stroke(); ctx.restore();
+      }); } };
+    /* fold: 前の場面がじゃばらに折り畳まれて、左へ寄る */
+    TRX.fold = { ms: 900, draw: function (prev, next, u) {
+      next(); var N = 6, w = W / N, a = u * PI / 2, c = Math.max(.001, Math.cos(a)), s = Math.sin(a) * 70;
+      ctx.save(); var g = ctx.createLinearGradient(W * c, 0, W * c + 80, 0); g.addColorStop(0, "rgba(0,0,0,.4)"); g.addColorStop(1, "rgba(0,0,0,0)"); ctx.fillStyle = g; ctx.fillRect(W * c, 0, 80, H); ctx.restore();
+      for (var i = 0; i < N; i++) { (function (i) { var odd = i % 2, sl = (odd ? -s : s) / w, xi = i * w, yo = (odd ? s : 0) - sl * xi;
+        var xf = function () { ctx.transform(c, sl, 0, 1, 0, yo); };
+        prev({ xf: xf, clip: function () { ctx.beginPath(); ctx.rect(xi, 0, w + .6, H); ctx.clip(); } });
+        ctx.save(); xf(); ctx.fillStyle = odd ? "#000" : "#fff"; ctx.globalAlpha = (odd ? .42 : .1) * Math.sin(a); ctx.fillRect(xi, 0, w + .6, H); ctx.restore(); })(i); } } };
+    /* peel: 前の場面が右下の角からめくれて、裏が見える（page はまっすぐな縁で横へ） */
+    TRX.peel = { ms: 1050, draw: function (prev, next, u) {
+      next(); var K = (W + H) * (1 - u), rect = [[0, 0], [W, 0], [W, H], [0, H]], poly = [], i;   /* 折り目は x + y = K の線 */
+      prev({ clip: function () { ctx.beginPath(); ctx.moveTo(-10, -10); ctx.lineTo(K + 10, -10); ctx.lineTo(-10, K + 10); ctx.closePath(); ctx.clip(); } });
+      for (i = 0; i < 4; i++) { var p = rect[i], q = rect[(i + 1) % 4], dp = p[0] + p[1] - K, dq = q[0] + q[1] - K;
+        if (dp >= 0) poly.push(p); if ((dp >= 0) !== (dq >= 0)) { var f = dp / (dp - dq); poly.push([p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f]); } }
+      if (poly.length < 3) return;
+      /* めくれた紙の裏: 折り目で鏡に映した形（(x, y) → (K − y, K − x)） */
+      ctx.save(); full(); ctx.shadowColor = "rgba(0,0,0,.5)"; ctx.shadowBlur = 44; ctx.shadowOffsetX = -10; ctx.shadowOffsetY = -10;
+      var g = ctx.createLinearGradient(K / 2, K / 2, K / 2 - 380, K / 2 - 380); g.addColorStop(0, C.faint); g.addColorStop(.22, C.panel); g.addColorStop(1, C.panel2);
+      ctx.fillStyle = g; ctx.beginPath(); poly.forEach(function (p, j) { var x = K - p[1], y = K - p[0]; j ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.closePath(); ctx.fill(); ctx.restore(); } };
+    /* uncover: 前の場面が左へ滑って抜け、下にある次の場面が現れる（次の場面は動かない。push は両方が動く） */
+    TRX.uncover = { ms: 750, draw: function (prev, next, u) { next(); var dx = -W * u;
+      ctx.save(); var g = ctx.createLinearGradient(W + dx, 0, W + dx + 70, 0); g.addColorStop(0, "rgba(0,0,0,.4)"); g.addColorStop(1, "rgba(0,0,0,0)"); ctx.fillStyle = g; ctx.fillRect(W + dx, 0, 70, H); ctx.restore();
+      prev({ dx: dx, clip: full }); } };
+    /* tumble: 前の場面が左下の角を軸に外れて、回りながら落ちる */
+    TRX.tumble = { ms: 1000, draw: function (prev, next, u, lt, SW) { next(); var q = lin(lt, 0, SW), ang = q < .18 ? -.03 * Math.sin(q / .18 * PI) : Math.pow((q - .18) / .82, 2) * 1.66;
+      var xf = function () { ctx.translate(0, H); ctx.rotate(ang); ctx.translate(0, -H); };
+      ctx.save(); xf(); ctx.shadowColor = "rgba(0,0,0,.5)"; ctx.shadowBlur = 50; ctx.fillStyle = C.bg0; ctx.fillRect(0, 0, W, H); ctx.restore();
+      prev({ xf: xf, clip: full }); } };
+    /* soft-wipe: ぼかした境目が左から右へ流れる（wipe は線の境目） */
+    TRX["soft-wipe"] = { ms: 1000, draw: function (prev, next, u, lt, SW, t) { prev(); var FE = 560, e = u * (W + FE) - FE, img = snapshot(t, function () { next(); }), m = img.getContext("2d"), q = img.width / W;
+      m.save(); m.setTransform(1, 0, 0, 1, 0, 0); m.globalCompositeOperation = "destination-in";
+      var g = m.createLinearGradient(e * q, 0, (e + FE) * q, 0); g.addColorStop(0, "rgba(0,0,0,1)"); g.addColorStop(1, "rgba(0,0,0,0)"); m.fillStyle = g; m.fillRect(0, 0, img.width, img.height); m.restore();
+      ctx.drawImage(img, 0, 0, W, H); } };
+    /* slices: 前の場面が横の帯に切れ、互い違いに左右へ抜ける */
+    TRX.slices = { ms: 900, draw: function (prev, next, u, lt, SW) { next(); var N = 8, h = H / N;
+      for (var j = 0; j < N; j++) { (function (j) { var e = eio(clamp(lin(lt, j * SW * .05, SW * .6 + j * SW * .05))); if (e >= 1) return;
+        prev({ dx: (j % 2 ? 1 : -1) * W * e, clip: function () { ctx.beginPath(); ctx.rect(0, j * h, W, h + .6); ctx.clip(); } }); })(j); } } };
+    /* tv-off: ブラウン管を消すように、前の場面が横の線に潰れ、線から次の場面が開く */
+    TRX["tv-off"] = { ms: 950, draw: function (prev, next, u, lt, SW) {
+      var q = lin(lt, 0, SW), h1 = q < .5 ? q * 2 : (1 - q) * 2, sy = Math.max(.006, 1 - eio(clamp(h1 / .78))), sx = 1 - .9 * eio(clamp((h1 - .78) / .22));
+      ctx.save(); ctx.fillStyle = "#06080b"; ctx.fillRect(0, 0, W, H); ctx.restore();
+      (q < .5 ? prev : next)({ xf: function () { ctx.translate(960, 540); ctx.scale(sx, sy); ctx.translate(-960, -540); }, clip: full });
+      var lh = Math.max(4, H * sy); ctx.save(); ctx.globalAlpha = clamp(1 - sy * 4.5); ctx.fillStyle = "#ffffff"; ctx.shadowColor = "#bfe9ff"; ctx.shadowBlur = 34; ctx.fillRect(960 - W * sx / 2, 540 - lh / 2, W * sx, lh); ctx.restore(); } };
+    /* drop: 次の場面が上から落ちてきて、弾んで止まる */
+    TRX.drop = { ms: 950, draw: function (prev, next, u, lt, SW) { var q = lin(lt, 0, SW), dy = -H * (1 - EASES.bouncy(q)), z = 1 - .05 * q;
+      prev({ xf: function () { ctx.translate(960, 540); ctx.scale(z, z); ctx.translate(-960, -540); } });
+      ctx.save(); ctx.fillStyle = "#000"; ctx.globalAlpha = .45 * clamp(q * 1.5); ctx.fillRect(0, 0, W, H); ctx.restore();
+      ctx.save(); ctx.translate(0, dy); ctx.shadowColor = "rgba(0,0,0,.55)"; ctx.shadowBlur = 50; ctx.shadowOffsetY = 16; ctx.fillStyle = C.bg0; ctx.fillRect(0, 0, W, H); ctx.restore();
+      next({ dy: dy, clip: full }); } };
+
+    /* ---------- 文字の出方 ---------- */
+    var TA = function (o, m) { return Object.assign({}, o, { alpha: (o.alpha === undefined ? 1 : o.alpha) * m }); };
+    var geo = function (line, x, o) { var size = o.size || 30, total = tw(String(line).replace(/\*\*/g, ""), o), mid = o.align === "center" ? x : o.align === "right" ? x - total / 2 : x + total / 2;
+      return { size: size, total: total, mid: mid, left: mid - total / 2, al: o.alpha === undefined ? 1 : o.alpha }; };
+    var chr = function (c, o, extra) { return Object.assign({ size: o.size || 30, weight: c.o.weight, font: c.o.font, color: c.em ? (o.emColor || C.accent) : (o.color || C.ink), align: "center" }, extra || {}); };
+    /* fade: その場で、動かずに浮かび上がる（控えめ） */
+    TEXTX.fade = function (line, x, y, o, k) { rich(line, x, y, TA(o, eio(k))); };
+    /* count: 行の中の数字が 0 から数え上がる（桁区切り・小数の桁は元のまま） */
+    TEXTX.count = function (line, x, y, o, k) { var e = eo(k);
+      var s = String(line).replace(/\d[\d,]*(?:\.\d+)?/g, function (m) { var dec = (m.split(".")[1] || "").length, out = (parseFloat(m.replace(/,/g, "")) * e).toFixed(dec);
+        if (m.indexOf(",") >= 0) { var pp = out.split("."); pp[0] = pp[0].replace(/\B(?=(\d{3})+(?!\d))/g, ","); out = pp.join("."); } return out; });
+      rich(s, x, y + (1 - e) * 14, TA(o, clamp(k * 4))); };
+    /* underline: 下線が左から引かれ、線の上へ字がせり上がる（線は最後に消える） */
+    TEXTX.underline = function (line, x, y, o, k) { var g = geo(line, x, o), l1 = eio(clamp(k / .45)), e = eo(clamp((k - .25) / .75)), uy = y + g.size * .2;
+      ctx.save(); ctx.fillStyle = o.emColor || C.accent; ctx.globalAlpha *= g.al * (1 - clamp((k - .8) / .2)); ctx.fillRect(g.left, uy, g.total * l1, Math.max(3, g.size * .07)); ctx.restore();
+      ctx.beginPath(); ctx.rect(g.left - 20, y - g.size * 1.3, g.total + 40, g.size * 1.5); ctx.clip(); rich(line, x, y + (1 - e) * g.size * 1.25, o); };
+    /* shine: 薄い字の上を光の帯が走り、通った所から濃くなる */
+    TEXTX.shine = function (line, x, y, o, k) { var g = geo(line, x, o), band = Math.max(60, g.size * 1.4), sx = mix(g.left - band, g.left + g.total + band, eio(k)), top = y - g.size * 1.3, bot = y + g.size * .5;
+      rich(line, x, y, Object.assign({}, o, { color: C.faint, emColor: C.faint, alpha: g.al * clamp(k * 5) }));
+      ctx.save(); ctx.beginPath(); ctx.rect(g.left - 30, top, Math.max(0, sx - band / 2 - g.left + 30), bot - top); ctx.clip(); rich(line, x, y, o); ctx.restore();
+      ctx.save(); ctx.beginPath(); ctx.moveTo(sx - band / 2, top); ctx.lineTo(sx + band / 2 + g.size * .3, top); ctx.lineTo(sx + band / 2, bot); ctx.lineTo(sx - band / 2 - g.size * .3, bot); ctx.closePath(); ctx.clip();
+      ctx.shadowColor = C.accent2; ctx.shadowBlur = 18; rich(line, x, y, Object.assign({}, o, { color: C.accent2, emColor: C.accent2 })); ctx.restore(); };
+    /* fill: 輪郭だけの字に、下から色が満ちる */
+    TEXTX.fill = function (line, x, y, o, k) { var g = geo(line, x, o), e = eio(clamp((k - .15) / .85)), top = y - g.size * 1.05, hh = g.size * 1.4;
+      ctx.save(); ctx.font = font(o); ctx.textAlign = o.align || "left"; ctx.lineWidth = Math.max(1.5, g.size * .028); ctx.strokeStyle = o.color || C.ink; ctx.globalAlpha *= g.al * clamp(k * 5) * (1 - clamp((k - .75) / .25));
+      ctx.strokeText(String(line).replace(/\*\*/g, ""), x, y); ctx.restore();
+      ctx.beginPath(); ctx.rect(g.left - 20, top + hh * (1 - e), g.total + 40, hh * e + 2); ctx.clip(); rich(line, x, y, o); };
+    /* echo: 色の残像を引きながら右から滑り込み、残像が重なって定まる */
+    TEXTX.echo = function (line, x, y, o, k) { var e = eo(k), al = o.alpha === undefined ? 1 : o.alpha;
+      for (var i = 4; i >= 1; i--) { var cc = i % 2 ? C.accent2 : C.accent; rich(line, x + (1 - e) * (90 + i * 110), y, Object.assign({}, o, { color: cc, emColor: cc, alpha: al * .3 * (1 - e) * clamp(k * 6) })); }
+      rich(line, x + (1 - e) * 90, y, TA(o, clamp(k * 3))); };
+    /* shuffle: 順番の入れ替わった字が、弧を描いて正しい位置へ滑って並ぶ */
+    TEXTX.shuffle = function (line, x, y, o, k) { var cs = charLayout(line, x, o), n = cs.length, g = geo(line, x, o), r = rand(n * 37 + 5), key = cs.map(function () { return r(); }), idx = cs.map(function (_, i) { return i; }), seat = [];
+      idx.sort(function (p, q) { return key[p] - key[q]; }); var cur = g.left; idx.forEach(function (ci) { seat[ci] = cur + cs[ci].w / 2; cur += cs[ci].w; });   /* 入れ替えた順に、字の幅のまま詰めて並べる（重ならない） */
+      var e = eio(clamp((k - .22) / .78));
+      cs.forEach(function (c, i) { var tx = c.x + c.w / 2, arc = Math.sin(e * PI) * g.size * .55 * (i % 2 ? 1 : -1) * Math.min(1, Math.abs(seat[i] - tx) / (g.size * 2));
+        txt(c.ch, mix(seat[i], tx, e), y + arc, chr(c, o, { alpha: g.al * clamp(k * 6) })); }); };
+    /* grow: 1 字ずつ、足元から芽が伸びるように立ち上がる */
+    TEXTX.grow = function (line, x, y, o, k) { var cs = charLayout(line, x, o), n = cs.length, g = geo(line, x, o), by = g.size * .12;
+      cs.forEach(function (c, i) { var kk = clamp(k * 1.6 - i / Math.max(1, n) * .6); if (kk <= 0) return;
+        ctx.save(); ctx.translate(c.x + c.w / 2, y + by); ctx.scale(1, Math.max(.02, back(kk))); txt(c.ch, 0, -by, chr(c, o, { alpha: g.al * clamp(kk * 3) })); ctx.restore(); }); };
+    /* zipper: 1 字おきに上と下から来て、ファスナーのように噛み合う */
+    TEXTX.zipper = function (line, x, y, o, k) { var cs = charLayout(line, x, o), n = cs.length, g = geo(line, x, o);
+      cs.forEach(function (c, i) { var kk = clamp(k * 1.5 - i / Math.max(1, n) * .5); if (kk <= 0) return;
+        txt(c.ch, c.x + c.w / 2, y + (i % 2 ? 1 : -1) * (1 - eo(kk)) * g.size * 1.5, chr(c, o, { alpha: g.al * clamp(kk * 2.5) })); }); };
+
+    /* ---------- カメラの型 ---------- */
+    CAMS["whip-in"] = [{ at: 0, x: 1500, zoom: 1.08, blur: 10 }, { at: .12, x: 960, zoom: 1.04, blur: 0 }, { at: 1, zoom: 1.06 }];
+    CAMS.dutch = [{ at: 0, zoom: 1.06, rot: -2.4 }, { at: 1, zoom: 1.09, rot: -3.2 }];
+    CAMS.survey = [{ at: 0, x: 700, y: 400, zoom: 1.3 }, { at: .28, x: 1220, y: 400, zoom: 1.3 }, { at: .56, x: 1220, y: 680, zoom: 1.3 }, { at: .84, x: 960, y: 540, zoom: 1 }, { at: 1, zoom: 1 }];
+    CAMS["step-in"] = [{ at: 0, zoom: 1 }, { at: .3, zoom: 1 }, { at: .34, zoom: 1.05 }, { at: .62, zoom: 1.05 }, { at: .66, zoom: 1.1 }, { at: 1, zoom: 1.1 }];
+    CAMS.sway = (function () { var k = []; for (var i = 0; i <= 12; i++) k.push({ at: i / 12, x: 960 + 16 * Math.sin(i / 12 * PI * 3), zoom: 1.05, rot: 1.3 * Math.sin(i / 12 * PI * 3) * (1 - i / 12 * .6) }); return k; })();
+
+    /* ---------- 緩急 ---------- */
+    EASES.linear = linear;
+    EASES.hold = function (x) { return .5 + 4 * Math.pow(clamp(x) - .5, 3); };   /* 0..1 の外へ出ない（半径・幅に掛けても負にならない） */
+    EASES.steps = function (x) { return x >= 1 ? 1 : Math.floor(x * 6) / 6; };
+
+    /* ---------- 演出の層 ---------- */
+    /* fog: 横に流れる霧（下） */
+    FX_UNDER.fog = 1;
+    FXX.fog = function (o, lt, d, r, col) { var n = o.n || 7, GA = ctx.globalAlpha, c = col || C.ink;
+      for (var i = 0; i < n; i++) { var bw = 700 + r() * 600, by = 200 + r() * 760, sp = .012 + r() * .02, span = W + bw * 2, x0 = r() * span, ph = r() * 6.28;
+        var px = ((x0 + lt * sp * (i % 2 ? 1 : -1)) % span + span) % span - bw, g = ctx.createRadialGradient(0, 0, 0, 0, 0, bw); g.addColorStop(0, c); g.addColorStop(1, clear(c));
+        ctx.save(); ctx.globalAlpha = GA * (.08 + .03 * Math.sin(lt / 2600 + ph)); ctx.translate(px, by); ctx.scale(1, .32); ctx.fillStyle = g; ctx.fillRect(-bw, -bw, bw * 2, bw * 2); ctx.restore(); } };
+    /* fireworks: 打ち上がって開く花火（上） */
+    FXX.fireworks = function (o, lt, d, r, col) { var n = o.n || 5, GA = ctx.globalAlpha, i, j;
+      for (i = 0; i < n; i++) { var per = 2200 + r() * 1400, tt = lt + r() * per, q = (tt % per) / per, rj = rand(i * 131 + Math.floor(tt / per) * 17 + 3);
+        var cx = W * (.12 + rj() * .76), cy = 130 + rj() * 380, R0 = 150 + rj() * 130, cc = col || C.accents[(i + Math.floor(tt / per)) % C.accents.length];
+        ctx.strokeStyle = cc; ctx.fillStyle = cc; ctx.lineCap = "round";
+        if (q < .16) { var qq = eo(q / .16), ry = H - (H - cy) * qq; ctx.globalAlpha = GA * .7; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(cx, ry + 70 * (1 - qq) + 10); ctx.lineTo(cx, ry); ctx.stroke(); continue; }
+        var f = (q - .16) / .84, e = eo(f), fade = Math.pow(1 - f, 1.6);
+        for (j = 0; j < 28; j++) { var a = j / 28 * PI * 2 + rj() * .2, rad = R0 * e * (.72 + rj() * .38), fall = 80 * f * f;
+          ctx.globalAlpha = GA * fade * .5; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * rad * .78, cy + Math.sin(a) * rad * .78 + fall); ctx.lineTo(cx + Math.cos(a) * rad, cy + Math.sin(a) * rad + fall); ctx.stroke();
+          ctx.globalAlpha = GA * fade; ctx.beginPath(); ctx.arc(cx + Math.cos(a) * rad, cy + Math.sin(a) * rad + fall, 2 + 2.2 * (1 - f), 0, PI * 2); ctx.fill(); } } };
+    /* hud: 四隅の括弧と目盛り（計器の画面。上） */
+    FXX.hud = function (o, lt, d, r, col) { var c = col || C.accent2, m = 44, L = 70, GA = ctx.globalAlpha, k = eo(clamp(lt / 700)), i;
+      ctx.strokeStyle = c; ctx.fillStyle = c; ctx.lineWidth = 3; ctx.globalAlpha = GA * .6;
+      [[m, m, 1, 1], [W - m, m, -1, 1], [m, H - m, 1, -1], [W - m, H - m, -1, -1]].forEach(function (q) { ctx.beginPath(); ctx.moveTo(q[0] + q[2] * L * k, q[1]); ctx.lineTo(q[0], q[1]); ctx.lineTo(q[0], q[1] + q[3] * L * k); ctx.stroke(); });
+      ctx.lineWidth = 2; ctx.globalAlpha = GA * .4; ctx.beginPath();
+      for (i = 0; i <= 30; i++) { var y = 240 + i * 20; ctx.moveTo(m, y); ctx.lineTo(m + (i % 5 ? 8 : 16) * k, y); ctx.moveTo(W - m, y); ctx.lineTo(W - m - (i % 5 ? 8 : 16) * k, y); } ctx.stroke();
+      var my = 240 + 600 * (.5 + .5 * Math.sin(lt / 1700)), my2 = 240 + 600 * (.5 + .5 * Math.sin(lt / 2300 + 2)); ctx.globalAlpha = GA * .8 * k;
+      ctx.beginPath(); ctx.moveTo(m + 22, my); ctx.lineTo(m + 36, my - 8); ctx.lineTo(m + 36, my + 8); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(W - m - 22, my2); ctx.lineTo(W - m - 36, my2 - 8); ctx.lineTo(W - m - 36, my2 + 8); ctx.closePath(); ctx.fill(); };
+    /* frame: 二重の線の額縁と、四隅の飾り（線は一筆で描かれる。上） */
+    FXX.frame = function (o, lt, d, r, col) { var c = col || C.accent, GA = ctx.globalAlpha, k = eio(clamp(lt / 900));
+      ctx.strokeStyle = c; ctx.fillStyle = c;
+      [[26, 3, .7], [37, 1.5, .55]].forEach(function (q) { var m = q[0], per = 2 * (W - 2 * m) + 2 * (H - 2 * m); ctx.globalAlpha = GA * q[2]; ctx.lineWidth = q[1]; ctx.setLineDash([per * k, per]); ctx.strokeRect(m, m, W - 2 * m, H - 2 * m); });
+      ctx.setLineDash([]); var s = 13 * back(clamp((lt - 500) / 500)); if (s <= 0) return; ctx.globalAlpha = GA * .9;
+      [[37, 37], [W - 37, 37], [37, H - 37], [W - 37, H - 37]].forEach(function (p) { ctx.beginPath(); ctx.moveTo(p[0], p[1] - s); ctx.lineTo(p[0] + s, p[1]); ctx.lineTo(p[0], p[1] + s); ctx.lineTo(p[0] - s, p[1]); ctx.closePath(); ctx.fill(); }); };
+    /* petals: 花びらが、ひるがえりながら舞い落ちる（上） */
+    FXX.petals = function (o, lt, d, r, col) { var n = o.n || 34, GA = ctx.globalAlpha, span = W + 400;
+      for (var i = 0; i < n; i++) { var x0 = r() * span, v = .05 + r() * .07, y0 = r() * (H + 160), sz = 9 + r() * 11, ph = r() * 6.28, sw = 60 + r() * 90, rs = .0012 + r() * .0016;
+        var yy = (y0 + lt * v) % (H + 160) - 80, xx = ((x0 + Math.sin(lt / 1300 + ph) * sw + lt * .02) % span + span) % span - 200;
+        ctx.save(); ctx.translate(xx, yy); ctx.rotate(lt * rs + ph); ctx.scale(1, .45 + .55 * Math.abs(Math.sin(lt / 520 + ph)));
+        ctx.fillStyle = col || (i % 3 ? C.accent2 : C.accent); ctx.globalAlpha = GA * .55; ctx.beginPath(); ctx.moveTo(0, -sz); ctx.bezierCurveTo(sz * .9, -sz * .6, sz * .7, sz * .7, 0, sz); ctx.bezierCurveTo(-sz * .7, sz * .7, -sz * .9, -sz * .6, 0, -sz); ctx.fill(); ctx.restore(); } };
+
+    /* ---------- 重ねの層 ---------- */
+    /* 手書きの線: 少し波打ちながら、p（0..1）の所まで描く */
+    var hand = function (x0, y0, x1, y1, p, seed, wob) { var n = Math.max(2, Math.round(Math.hypot(x1 - x0, y1 - y0) / 24)), m = Math.round(n * clamp(p)); if (m < 1) return;
+      ctx.beginPath(); for (var i = 0; i <= m; i++) { var f = i / n, px = mix(x0, x1, f), py = mix(y0, y1, f) + Math.sin(f * 9 + seed) * wob + Math.sin(f * 23 + seed * 2) * wob * .4; i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); } ctx.stroke(); };
+    var ocol = function (o, def) { return C[o.color] || o.color || def; };
+    /* underline: 手書きの下線（2 本目が戻りながら重なる） */
+    OVX.underline = function (o, lt, a) { var r = o.rect, y = r[1] + r[3] + 10, sd = o.seed || 3, col = ocol(o, C.accent);
+      ctx.strokeStyle = col; ctx.lineCap = "round"; ctx.lineWidth = 6; hand(r[0] - 8, y, r[0] + r[2] + 8, y - 3, P(lt, a, a + 600, eio), sd, 3);
+      ctx.lineWidth = 3.5; hand(r[0] + r[2] + 4, y + 12, r[0] + 6, y + 14, P(lt, a + 350, a + 850, eio), sd + 4, 2.5);
+      if (o.label) txt(o.label, r[0] + r[2] + 26, y + 8, { size: 28, weight: 800, color: col, alpha: P(lt, a + 500, a + 900) }); };
+    /* strike: 取り消し線（label に、書き直した言葉） */
+    OVX.strike = function (o, lt, a) { var r = o.rect, y = r[1] + r[3] / 2, col = ocol(o, C.warn);
+      ctx.strokeStyle = col; ctx.lineCap = "round"; ctx.lineWidth = 7; hand(r[0] - 12, y + 4, r[0] + r[2] + 12, y - 4, P(lt, a, a + 450, eio), o.seed || 5, 2.5);
+      if (o.label) txt(o.label, r[0] + r[2] + 30, y + 12, { size: 30, weight: 800, color: col, alpha: P(lt, a + 450, a + 850) }); };
+    /* cross: 手書きの × */
+    OVX.cross = function (o, lt, a) { var r = o.rect; ctx.strokeStyle = ocol(o, C.warn); ctx.lineCap = "round"; ctx.lineWidth = 9;
+      hand(r[0], r[1], r[0] + r[2], r[1] + r[3], P(lt, a, a + 300, eio), 2, 4); hand(r[0] + r[2], r[1], r[0], r[1] + r[3], P(lt, a + 260, a + 560, eio), 6, 4); };
+    /* bracket: 四隅の括弧が外から寄って、囲む（highlight は枠の線） */
+    OVX.bracket = function (o, lt, a) { var r = o.rect, g = 70 * (1 - P(lt, a, a + 500, back)), L = Math.min(54, r[2] / 3, r[3] / 3), x0 = r[0] - 14 - g, y0 = r[1] - 14 - g, x1 = r[0] + r[2] + 14 + g, y1 = r[1] + r[3] + 14 + g, col = ocol(o, C.accent);
+      ctx.strokeStyle = col; ctx.lineWidth = 6; ctx.lineCap = "square"; ctx.beginPath();
+      [[x0, y0, 1, 1], [x1, y0, -1, 1], [x0, y1, 1, -1], [x1, y1, -1, -1]].forEach(function (q) { ctx.moveTo(q[0] + q[2] * L, q[1]); ctx.lineTo(q[0], q[1]); ctx.lineTo(q[0], q[1] + q[3] * L); }); ctx.stroke();
+      if (o.label) txt(o.label, x0, y0 - 16, { size: 26, weight: 700, color: col, alpha: P(lt, a + 300, a + 700) }); };
+    /* counter: 数え上がる数字の札（value の書式は元のまま。label で下に一言） */
+    OVX.counter = function (o, lt, a) { var x = o.x === undefined ? 1500 : o.x, y = o.y === undefined ? 300 : o.y, e = P(lt, a, a + 450, back), size = o.size || 64;
+      var num = fmtNum(String(o.value === undefined ? "" : o.value), eo(lin(lt, a + 150, a + 150 + (o.dur || 1400)))), fin = String(o.value === undefined ? "" : o.value);
+      var w = Math.max(tw(fin, { size: size, weight: 800, font: F.display }), o.label ? tw(o.label, { size: 24, weight: 700 }) : 0) + 56, h = size * 1.2 + (o.label ? 58 : 26);
+      ctx.translate(x, y); ctx.scale(Math.max(.01, e), Math.max(.01, e)); panel(-w / 2, -h / 2, w, h, { stroke: ocol(o, C.accent), lw: 2.5 });
+      txt(num, 0, -h / 2 + size * 1.02, { size: size, weight: 800, font: F.display, align: "center", color: ocol(o, C.accent) });
+      if (o.label) txt(o.label, 0, h / 2 - 22, { size: 24, weight: 700, align: "center", color: C.muted }); };
+  })();
+
   /* 別ファイルの部品（parts-*.js）を登録する: push(function (R, X) { R.xxx = … }) */
   (window.MotionVideoParts || []).forEach(function (fn) { try { fn(R, HELP); } catch (e) { console.error("parts:", e); } });
 
@@ -1446,6 +1677,21 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       for (var x2 = (drift / 2) % 48; x2 < W; x2 += 48) for (var y2 = 24; y2 < H; y2 += 48) ctx.fillRect(x2, y2, 3, 3); }
     else if (pat === "glow") { var rg = ctx.createRadialGradient(W * .75, H * .2, 50, W * .75, H * .2, 900);
       rg.addColorStop(0, C.grid); rg.addColorStop(1, "rgba(0,0,0,0)"); ctx.fillStyle = rg; ctx.fillRect(0, 0, W, H); }
+    /* 足した模様: blueprint 細かい方眼と太い方眼 / chalk 粉のかすれ / fibers 紙の繊維 / scan 走査線と流れる帯 / halftone 右上が濃い網点 / horizon 下からの光 / waves 下の波線 */
+    else if (pat === "blueprint") { var q; ctx.strokeStyle = C.grid; ctx.lineWidth = 1; ctx.globalAlpha = .45; ctx.beginPath();
+      for (q = 0; q <= W; q += 40) { ctx.moveTo(q + .5, 0); ctx.lineTo(q + .5, H); } for (q = 20; q <= H; q += 40) { ctx.moveTo(0, q + .5); ctx.lineTo(W, q + .5); } ctx.stroke();
+      ctx.globalAlpha = 1; ctx.lineWidth = 2; ctx.beginPath(); for (q = 0; q <= W; q += 200) { ctx.moveTo(q, 0); ctx.lineTo(q, H); } for (q = 140; q <= H; q += 200) { ctx.moveTo(0, q); ctx.lineTo(W, q); } ctx.stroke(); }
+    else if (pat === "chalk") { var rc = rand(71); for (var ci = 0; ci < 16; ci++) { var cx = rc() * W, cy = rc() * H, cw = 260 + rc() * 520, cg = ctx.createRadialGradient(0, 0, 0, 0, 0, cw); cg.addColorStop(0, C.grid); cg.addColorStop(1, "rgba(255,255,255,0)");
+        ctx.save(); ctx.translate(cx, cy); ctx.rotate((rc() - .5) * .5); ctx.scale(1, .2 + rc() * .2); ctx.fillStyle = cg; ctx.fillRect(-cw, -cw, cw * 2, cw * 2); ctx.restore(); } }
+    else if (pat === "fibers") { var rf = rand(37); ctx.strokeStyle = C.grid; ctx.lineCap = "round"; for (var fi = 0; fi < 150; fi++) { var fx0 = rf() * W, fy0 = rf() * H, fl = 30 + rf() * 110, fa = rf() * Math.PI, fb = (rf() - .5) * 60; ctx.lineWidth = .8 + rf() * 1.4;
+        ctx.beginPath(); ctx.moveTo(fx0, fy0); ctx.quadraticCurveTo(fx0 + Math.cos(fa) * fl / 2 + fb, fy0 + Math.sin(fa) * fl / 2 - fb, fx0 + Math.cos(fa) * fl, fy0 + Math.sin(fa) * fl); ctx.stroke(); } }
+    else if (pat === "scan") { ctx.fillStyle = C.grid; for (var sy0 = 0; sy0 < H; sy0 += 6) ctx.fillRect(0, sy0, W, 2);
+      var sb = (t * .12) % (H + 300) - 150, sg0 = ctx.createLinearGradient(0, sb, 0, sb + 150); sg0.addColorStop(0, "rgba(0,0,0,0)"); sg0.addColorStop(.5, C.grid); sg0.addColorStop(1, "rgba(0,0,0,0)"); ctx.fillStyle = sg0; ctx.fillRect(0, sb, W, 150); }
+    else if (pat === "halftone") { ctx.fillStyle = C.grid; for (var hx = 0; hx <= W; hx += 30) for (var hy = 0; hy <= H; hy += 30) { var hr = 7 * (1 - Math.hypot(hx - W, hy) / 1500); if (hr < .6) continue;
+        ctx.beginPath(); ctx.arc(hx + ((hy / 30) % 2 ? 15 : 0), hy, hr, 0, Math.PI * 2); ctx.fill(); } }
+    else if (pat === "horizon") { var hg0 = ctx.createRadialGradient(W / 2, H + 260, 60, W / 2, H + 260, 1300); hg0.addColorStop(0, C.grid); hg0.addColorStop(1, "rgba(0,0,0,0)"); ctx.fillStyle = hg0; ctx.fillRect(0, 0, W, H); }
+    else if (pat === "waves") { ctx.strokeStyle = C.grid; ctx.lineWidth = 3; for (var wi = 0; wi < 4; wi++) { ctx.beginPath();
+        for (var wx0 = 0; wx0 <= W; wx0 += 24) { var wy0 = 860 + wi * 56 + Math.sin(wx0 / (150 + wi * 30) + t / (2400 + wi * 500) + wi * 1.7) * (14 + wi * 4); wx0 ? ctx.lineTo(wx0, wy0) : ctx.moveTo(wx0, wy0); } ctx.stroke(); } }
     ctx.restore();
   }
   function backdrop(t) { if (!SPEC.bg || !paintBg(SPEC.bg, t)) themeBackdrop(t); }
@@ -1454,8 +1700,22 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var a = P(lt, 200, 700) * (i < CHAPTERS.length - 1 ? 1 - P(lt, len - 500, len) : 1);
     if (SPEC.chrome === false) return;
     var n = CHAPTERS.length;
+    /* 章の札の形（台本の chrome）: true・"label" 番号と章名（既定）/ "tab" 左の端の色の札 / "dots" 章の数の点と今の章の進み / "number" 番号だけ / "bar" 既定の札＋下の端に章ごとの進み具合の線 */
+    var cst = typeof SPEC.chrome === "string" ? SPEC.chrome : "label", no = String(i + 1).padStart(2, "0"), nm = CHAPTERS[i].name;
+    if (cst === "tab") { var w1 = tw(no, { size: 24, font: F.mono, weight: 700 }), w2 = tw(nm, { size: 26, weight: 700 }), tx = -(1 - a) * 80;
+      ctx.save(); ctx.globalAlpha *= a; ctx.fillStyle = C.accent; rr(tx - 20, 40, 20 + 28 + w1 + 22 + w2 + 30, 54, 12); ctx.fill(); ctx.fillStyle = C.onAccent; ctx.globalAlpha *= .3; ctx.fillRect(tx + 28 + w1 + 10, 52, 2, 30); ctx.restore();
+      txt(no, tx + 28, 76, { size: 24, font: F.mono, weight: 700, color: C.onAccent, alpha: a }); txt(nm, tx + 28 + w1 + 22, 77, { size: 26, weight: 700, color: C.onAccent, alpha: a }); }
+    else if (cst === "dots") { var dx = 64; for (var j = 0; j < n; j++) { var dw = j === i ? 46 : 14; ctx.save(); rr(dx, 57, dw, 14, 7);
+        if (j < i) { ctx.fillStyle = C.accent; ctx.fill(); } else { ctx.save(); ctx.fillStyle = C.faint; ctx.globalAlpha *= .55; ctx.fill(); ctx.restore(); }
+        if (j === i) { rr(dx, 57, Math.max(14, dw * clamp(lt / len)), 14, 7); ctx.fillStyle = C.accent; ctx.fill(); } ctx.restore(); dx += dw + 10; }
+      txt(nm, dx + 12, 73, { size: 26, weight: 700, alpha: a }); }
+    else if (cst === "number") txt(no + " / " + String(n).padStart(2, "0"), 64, 72, { size: 22, font: F.mono, color: C.accent, alpha: a, spacing: 2 });
+    else {
     txt(String(i + 1).padStart(2, "0") + " / " + String(n).padStart(2, "0"), 64, 72, { size: 22, font: F.mono, color: C.accent, alpha: a, spacing: 2 });
     txt(CHAPTERS[i].name, 64 + tw("00 / 00", { size: 22, font: F.mono }) + 34, 72, { size: 26, weight: 700, alpha: a });
+    }
+    if (cst === "bar") { for (var b = 0; b < n; b++) { var bx0 = CHAPTERS[b].t / DUR * W + (b ? 3 : 0), bx1 = (b < n - 1 ? CHAPTERS[b + 1].t : DUR) / DUR * W - (b < n - 1 ? 3 : 0), bk = clamp((t - CHAPTERS[b].t) / chLen(b));
+        ctx.save(); ctx.fillStyle = C.faint; ctx.globalAlpha *= .45; ctx.fillRect(bx0, H - 8, bx1 - bx0, 8); ctx.restore(); if (bk > 0) { ctx.save(); ctx.fillStyle = C.accent; ctx.fillRect(bx0, H - 8, (bx1 - bx0) * bk, 8); ctx.restore(); } } }
     if (SPEC.brand && SPEC.brand.name) txt(SPEC.brand.name, W - 64, 72, { size: 22, weight: 700, color: C.muted, align: "right", alpha: .8 });
   }
   var FADE = 450;
@@ -1630,15 +1890,19 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
         next({ clip: function () { ctx.beginPath(); for (var di = 0; di < dc * dr; di++) if (u >= th0[di] || u >= .999) ctx.rect((di % dc) * dw, Math.floor(di / dc) * dh, dw + .5, dh + .5); ctx.clip(); } }); break; }
       case "columns": { prev(); var nc = 12, cw3 = W / nc;
         next({ clip: function () { ctx.beginPath(); for (var ci = 0; ci < nc; ci++) { var q = eio(clamp(lin(lt, ci * SW * .04, SW * .52 + ci * SW * .04))); ctx.rect(ci * cw3 + cw3 * (1 - q) / 2, 0, cw3 * q + .5, H); } ctx.clip(); } }); break; }
-      default: if (TRX[tr]) TRX[tr].draw(prev, next, u, lt, SW); else { prev(); next(); }
+      default: if (TRX[tr]) TRX[tr].draw(prev, next, u, lt, SW, t); else { prev(); next(); }
     }
   }
   function burnCaption(t) {
     var c = CUES.filter(function (c) { return t >= c.a && t < c.b; })[0]; if (!c || c.who) return;
     var lines = wrap(c.text.replace(/\*\*/g, ""), 1500, { size: 40, weight: 700 }), y0 = H - 70 - (lines.length - 1) * 58;
+    /* 字幕の形（台本の caption）: box 黒い箱（既定）/ outline 縁取りの字 / band 下の端の帯 / card 明るい札。プレイヤーの字幕（CSS）と同じ形に焼き込む */
+    var cst = SPEC.caption || "box";
+    if (cst === "band") { var bh = lines.length * 58 + 40; y0 = H - 34 - (lines.length - 1) * 58; ctx.save(); ctx.fillStyle = "rgba(4,8,12,.72)"; ctx.fillRect(0, H - bh, W, bh); ctx.restore(); }
     lines.forEach(function (ln, i) { var w = tw(ln, { size: 40, weight: 700 }) + 44;
-      ctx.save(); ctx.fillStyle = "rgba(4,8,12,.8)"; rr(960 - w / 2, y0 + i * 58 - 46, w, 58, 8); ctx.fill(); ctx.restore();
-      txt(ln, 960, y0 + i * 58 - 4, { size: 40, weight: 700, align: "center", color: "#f5f8f9" }); });
+      if (cst === "outline") { txt(ln, 960, y0 + i * 58 - 4, { size: 40, weight: 800, align: "center", color: "#ffffff", stroke: "#10141a", strokeWidth: 10 }); return; }
+      if (cst !== "band") { ctx.save(); if (cst === "card") { ctx.shadowColor = "rgba(0,0,0,.25)"; ctx.shadowBlur = 18; ctx.shadowOffsetY = 4; } ctx.fillStyle = cst === "card" ? "rgba(250,250,247,.94)" : "rgba(4,8,12,.8)"; rr(960 - w / 2, y0 + i * 58 - 46, w, 58, cst === "card" ? 14 : 8); ctx.fill(); ctx.restore(); }
+      txt(ln, 960, y0 + i * 58 - 4, { size: 40, weight: 700, align: "center", color: cst === "card" ? "#14181d" : "#f5f8f9" }); });
   }
   var thumbMode = false;
   function drawBody(t) {
@@ -1711,7 +1975,9 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var ch = (c.text || "").replace(/\*\*/g, ""), per = Math.max(60, (c.b - c.a) / Math.max(1, ch.length)), i = Math.floor(lt2 / per), cc = ch.charAt(i);
     if (/[、。，．！？!?\s…]/.test(cc)) return 0; return Math.floor(lt2 / 95) % 3 === 0 ? 0 : Math.floor(lt2 / 95) % 3 === 1 ? 1 : .5;
   }
-  function blinkOf(id, tt) { var ph = (rand(CASTIDS.indexOf(id) * 97 + 11)() * 3000) | 0, q = (tt + ph) % 3600; return q < 110 || (q > 260 && q < 340 && (CASTIDS.indexOf(id) % 2)); }
+  /* まばたき: 3.6 秒ごと。回によって、2 回続ける（4 回に 1 回ほど）・ゆっくり閉じる（8 回に 1 回ほど）。人ごとに、時刻だけで決まる */
+  function blinkOf(id, tt) { var ci = CASTIDS.indexOf(id), ph = (rand(ci * 97 + 11)() * 3000) | 0, q = (tt + ph) % 3600, n = Math.floor((tt + ph) / 3600), v = Math.sin((n + 1) * 12.9898 + ci * 78.233) * 43758.5453; v -= Math.floor(v);
+    return q < (v > .88 ? 260 : 110) || (q > 260 && q < 340 && (v < .26 || (TALK.blink === "fixed" && ci % 2))); }
   function pickImg(ch, face, open, blink) {
     var im = ch.images || {}, f = im[face] || im.normal || im[Object.keys(im)[0]]; if (!f) return null;
     if (typeof f === "string") return IMGS[f];
@@ -1869,18 +2135,45 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   /* OS の「動きを減らす」（Windows の「アニメーション効果」を切る など）で立ち絵の動きを止めるのは、台本に talk.reducedMotion: true と書いたときだけ。
      前はいつも止めていたので、その設定の機械では HTML で見る動きと、書き出した動画（WebM）の動きが違っていた */
   var CAST_STILL = !!(SPEC.talk && SPEC.talk.reducedMotion === true && window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
-  var FACE_MOTION = { surprised: "jump", smile: "hop", angry: "tremble", sad: "sink", troubled: "fidget", think: "tilt", shy: "sway", smug: "lean", doubt: "back", dizzy: "wobble", love: "bounce" };
-  function castMotion(id, i, ch, tt, st, speakingNow, side) {
-    var m = { x: 0, y: 0, rot: 0, sx: 1, sy: 1, flip: 1, head: 0 }, face = st.face, pose = st.pose, kind = st.motion || (st.idle ? "" : FACE_MOTION[String(face).split("#")[0]]);
+  /* 表情から決める動き。候補がいくつもある表情は、その演技が始まった時刻と人で 1 つを選ぶ（同じ表情でも、毎回同じ動きにならない。先頭が、前からの動き）。
+     talk.autoMotion: "fixed" で、いつも先頭（前と同じ） */
+  var FACE_MOTION = { surprised: ["jump", "jolt", "recoil", "snap"], smile: ["hop", "nodnod", "flutter", "laugh"], angry: ["tremble", "puff", "tap", "nope"], sad: ["sink", "droop", "melt", "heave"], troubled: ["fidget", "wiggle", "rock", "shiver"],
+                      think: ["tilt", "rock", "lookup", "bobble"], shy: ["sway", "wiggle", "shrink", "nope"], smug: ["lean", "puff", "slownod", "snap"], doubt: ["back", "tilt", "slownod", "nope"], dizzy: ["wobble", "melt", "stagger", "swoon"], love: ["bounce", "float", "pulse", "bobble"] };
+  function faceMotion(face, t0, i) { var c = FACE_MOTION[String(face).split("#")[0]]; if (!c) return "";
+    if (TALK.autoMotion === "fixed" || t0 === undefined) return c[0];
+    var v = Math.sin((Math.round(t0) + 1) * 12.9898 + i * 78.233) * 43758.5453; return c[Math.floor((v - Math.floor(v)) * c.length) % c.length]; }
+  /* いつものくせ（演技をしていない間の、小さなしぐさ）: 数秒ごとに、体重を移す・小さくかしげる・背すじを伸ばす・小さくうなずく・小さく弾む・深く息をする のどれかを、たまに 1 つ。
+     人ごとに間隔と順番が違う（時刻だけで決まる）。talk.habits: false か cast.<名前>.habits: false で止める。数（0〜2）で大きさ */
+  function habitOf(m, i, ch, tt, listening, dir) {
+    var hv = ch.habits !== undefined ? ch.habits : TALK.habits; if (hv === false || hv === 0) return;
+    var K = typeof hv === "number" ? hv : 1, W = 4700 + (i % 4) * 850, q = tt + i * 1900 + 800, n = Math.floor(q / W), u = q - n * W, sin = Math.sin, PI = Math.PI;
+    var hr = function (o) { var v = sin((n + 1) * 12.9898 + i * 78.233 + o) * 43758.5453; return v - Math.floor(v); };
+    var kind = Math.floor(hr(0) * 17), sg = hr(3) < .5 ? -1 : 1, e;
+    if (kind === 0) { e = sin(clamp(u / 2600) * PI); m.x += 5 * K * sg * e; m.rot += .006 * K * sg * e; }                         /* 体重を移す */
+    else if (kind === 1) { e = sin(clamp(u / 1800) * PI); m.head += .05 * K * sg * e; m.rot += .003 * K * sg * e; }               /* 小さくかしげる */
+    else if (kind === 2) { e = sin(clamp(u / 1500) * PI); m.sy += .018 * K * e; m.sx -= .008 * K * e; m.head -= .02 * K * dir * e; } /* 背すじを伸ばす */
+    else if (kind === 3) { if (listening && u < 760) { e = Math.abs(sin(u / 380 * PI)); m.head += .06 * K * dir * e; m.y += 3 * K * e; } }   /* 小さくうなずく（聞いている間だけ） */
+    else if (kind === 4) { if (u < 420) m.y -= 6 * K * sin(u / 420 * PI); }                                                       /* 小さく弾む */
+    else if (kind === 5) { e = sin(clamp(u / 2400) * PI); m.sy += .014 * K * e; m.sx += .006 * K * e; }                           /* 深く息をする */
+    else if (kind === 6) { e = sin(clamp(u / 1700) * PI); m.head += .045 * K * dir * e; m.x += 3 * K * dir * e; }                  /* ちらっと相手のほうへ */
+    else if (kind === 7) { if (u < 700) { e = Math.abs(sin(u / 350 * PI)); m.sy += .014 * K * e; m.y -= 2 * K * e; } }             /* 肩をすくめる（小さく 2 回） */
+    else if (kind === 8) { if (u < 2400) { e = sin(clamp(u / 2400) * PI); m.rot += .008 * K * sin(u / 300) * e; m.head += .02 * K * sin(u / 300 - .8) * e; } }   /* 鼻歌のように小さくゆれる */
+    else if (kind === 9) { e = eio(clamp(u / 300)) * (u < 1500 ? 1 : clamp(1 - (u - 1500) / 300)); m.y -= 5 * K * e; m.sy += .008 * K * e; }   /* つま先立ち */
+    else if (kind === 10) { if (u < 520) m.x += 2.2 * K * sin(u / 42) * (1 - u / 520); }                                           /* そわそわ */
+    else if (kind === 11) { e = sin(clamp(u / 2200) * PI); m.rot -= .008 * K * dir * e; m.x -= 4 * K * dir * e; m.head -= .025 * K * dir * e; }   /* ゆっくり引いて戻る */
+    /* 12〜16: 何もしない（間をあける） */
+  }
+  function castMotion(id, i, ch, tt, st, speakingNow, side, listening) {
+    var m = { x: 0, y: 0, rot: 0, sx: 1, sy: 1, flip: 1, head: 0 }, face = st.face, pose = st.pose, kind = st.motion || (st.idle ? "" : faceMotion(face, st.t0, i));
     if (CAST_STILL || SPEC.castMotion === false || ch.motion === false || ch.motion === "none" || kind === "still") return m;
     var ph = i * 1.7 + 0.6, br = Math.sin(tt / 1150 + ph), dir = side === "right" ? -1 : 1, sin = Math.sin, PI = Math.PI;
     m.sy += .006 * br; m.sx -= .003 * br; m.rot += .004 * sin(tt / 1900 + ph * 2);
     /* head: 首から上だけの傾き（ラジアン。首の位置が分かる立ち絵だけに効く。neckOf）。いつもは、ゆっくり小さく揺れる */
     m.head += .014 * sin(tt / 1700 + ph * 1.3) + .006 * sin(tt / 690 + ph);
-    if (st.t0 === undefined) return m;
+    if (st.t0 === undefined) { habitOf(m, i, ch, tt, listening, dir); return m; }
     var lt = tt - st.t0;
     if (st.changed && lt < 320) { var e = lt / 320, pop = sin(e * PI) * (1 - e) * (st.idle ? .5 : 1); m.sy += .06 * pop; m.sx -= .035 * pop; }
-    if (st.idle) return m;
+    if (st.idle) { habitOf(m, i, ch, tt, listening, dir); return m; }
     var lv = st.motion ? st.mlv || 2 : st.lv || 2, A = lv >= 3 ? 1.6 : lv <= 1 ? .55 : 1, s0 = clamp(lt / 450), ease = s0 * s0 * (3 - 2 * s0), own = !!st.motion, k, q;
     if (kind === "jump") { if (lt < 340) m.y -= 28 * A * sin(lt / 340 * PI); if (!own) m.rot -= .012 * dir * ease; }
     else if (kind === "hop") { if (lt < 760) m.y -= 13 * A * Math.abs(sin(lt / 190 * PI / 2)) * (1 - lt / 760); }
@@ -1910,6 +2203,34 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     else if (kind === "zoom") { k = (lt < 200 ? back(lt / 200) : 1) * (lt < 1500 ? 1 : clamp(1 - (lt - 1500) / 320)); m.sx += .15 * A * k; m.sy += .15 * A * k; }  /* どーんと大きく */
     else if (kind === "shrink") { m.sx -= .09 * A * ease; m.sy -= .09 * A * ease; }                                                                          /* しゅんと小さく */
     else if (kind === "dance") { m.rot += .03 * A * sin(lt / 190); m.y -= 9 * A * Math.abs(sin(lt / 190)); m.x += 6 * A * sin(lt / 380); m.head -= .05 * A * sin(lt / 190); }                    /* るんるん */
+    else if (kind === "jolt") { k = lt < 90 ? lt / 90 : Math.exp(-(lt - 90) / 140) * Math.cos((lt - 90) / 48); m.y -= 12 * A * k; m.sy += .05 * A * k; m.sx -= .03 * A * k; m.head -= .03 * A * dir * k; }   /* びくっ */
+    else if (kind === "nodnod") { if (lt < 900) { k = Math.abs(sin(lt / 225 * PI)) * (1 - lt / 1400); m.y += 5 * A * k; m.head += .075 * A * dir * k; } }                                    /* こくこく（細かく 4 回） */
+    else if (kind === "slownod") { if (lt < 1300) { k = sin(clamp(lt / 1300) * PI); k = k * k; m.y += 9 * A * k; m.rot += .008 * A * dir * k; m.head += .13 * A * dir * k; } }                /* ゆっくり深くうなずく */
+    else if (kind === "droop") { k = lt < 260 ? eo(lt / 260) : 1; m.head += .15 * A * dir * k; m.y += 6 * A * k; m.sy -= .01 * A * k; }                                                       /* がくっ（頭が落ちる） */
+    else if (kind === "lookup") { m.head -= .1 * A * dir * ease; m.rot -= .006 * dir * ease; m.sy += .012 * A * ease; }                                                                       /* 見上げる */
+    else if (kind === "wiggle") { m.rot += .016 * A * sin(lt / 150); m.x += 4 * A * sin(lt / 150 + 1.2); m.head -= .04 * A * sin(lt / 150 + .6); m.sy -= .008 * ease; }                       /* もじもじ */
+    else if (kind === "rock") { m.x += 8 * A * sin(lt / 620) * ease; m.rot += .012 * A * sin(lt / 620) * ease; m.head += .03 * A * sin(lt / 620 - 1) * ease; }                                /* ゆっくり左右に体重を移す */
+    else if (kind === "tap") { q = (lt % 420) / 420; k = q < .3 ? sin(q / .3 * PI) : 0; if (own || lt < 2100) { m.y -= 5 * A * k; m.head += .02 * A * dir * k; } m.rot += .006 * dir * ease; }  /* とんとん（足でリズム） */
+    else if (kind === "dash") { k = lt < 130 ? eo(lt / 130) : lt < 520 ? 1 : clamp(1 - (lt - 520) / 260); m.x += 58 * A * dir * k; m.rot += .03 * A * dir * k; m.sx += .03 * k; m.sy += .03 * k; }   /* ずいっと出て戻る（ツッコミ） */
+    else if (kind === "recoil") { k = lt < 110 ? eo(lt / 110) : Math.max(0, 1 - (lt - 110) / 700); m.x -= 26 * A * dir * k; m.rot -= .035 * A * dir * k; m.head -= .05 * A * dir * k; }       /* がたっ（のけぞって戻る） */
+    else if (kind === "puff") { k = lt < 220 ? back(lt / 220) : 1 - .25 * clamp((lt - 220) / 900); m.sx += .06 * A * k; m.sy += .035 * A * k; m.head -= .035 * A * dir * Math.min(1, k); }    /* ふんす（胸を張る） */
+    else if (kind === "melt") { k = eio(clamp(lt / 1100)); m.sy -= .11 * A * k; m.sx += .07 * A * k; m.head += .08 * A * dir * k; m.rot += .01 * A * sin(lt / 400) * k; }                    /* へなへな */
+    else if (kind === "flutter") { if (own || lt < 1400) { m.y -= 6 * A * Math.abs(sin(lt / 70)); m.rot += .008 * A * sin(lt / 95); } }                                                      /* ぱたぱた（細かく弾む） */
+    else if (kind === "doubletake") { if (lt < 260) m.flip = 1 - 2 * eio(clamp(lt / 130)); else if (lt < 520) m.flip = -1 + 2 * eio(clamp((lt - 260) / 110)); if (lt > 370 && lt < 900) { k = sin((lt - 370) / 530 * PI); m.x += 18 * A * dir * k; m.sx += .04 * k; m.sy += .04 * k; } }   /* 二度見 */
+    else if (kind === "shiver") { k = clamp(1 - lt / 900); m.x += 3 * A * sin(lt / 17) * k; m.sx -= .03 * A * k; m.sy -= .02 * A * k; m.head += .02 * A * sin(lt / 23) * k; }                 /* ぞくっ（身をすくめて震える） */
+    else if (kind === "sidestep") { k = eio(clamp(lt / 320)); m.x -= 34 * A * dir * k; if (lt < 320) m.y -= 7 * sin(lt / 320 * PI); m.rot -= .008 * dir * k; }                                /* すっと外へ 1 歩 */
+    else if (kind === "bobble") { m.head += .08 * A * sin(lt / 260) * (own ? 1 : clamp(1 - lt / 2600)); }                                                                                    /* 首だけゆらゆら */
+    else if (kind === "nope") { k = lt < 150 ? eo(lt / 150) : 1; m.head -= .13 * A * dir * k; m.rot -= .012 * A * dir * k; m.x -= 5 * A * dir * k; }                                         /* ぷいっ（顔をそむける） */
+    else if (kind === "pop") { k = lt < 180 ? -1 + eo(lt / 180) * 1.25 : .25 * Math.exp(-(lt - 180) / 150) * Math.cos((lt - 180) / 55); m.y -= 60 * A * k * (lt < 180 ? 1 : .6); if (lt < 180) { m.sy += .05 * (1 + k); } }   /* ぴょこっ（下から飛び出す） */
+    else if (kind === "swoon") { k = sin(clamp(lt / 1500) * PI); m.rot -= .06 * A * dir * k; m.x -= 14 * A * dir * k; m.head -= .07 * A * dir * k; m.y += 5 * k; }                           /* ふらっ（大きく傾いて戻る） */
+    else if (kind === "heave") { q = clamp(lt / 1400); k = q < .4 ? sin(q / .4 * PI / 2) : Math.cos((q - .4) / .6 * PI / 2); m.sy += .035 * A * k; m.y -= 5 * A * k; if (q >= .4) { var hv2 = 1 - k; m.y += 9 * A * hv2; m.head += .09 * A * dir * hv2; m.sy -= .015 * A * hv2; } }   /* はぁ（息を吸って、ため息で沈む） */
+    else if (kind === "skip") { if (own || lt < 1800) { m.y -= 14 * A * Math.abs(sin(lt / 210)); m.x += 12 * A * sin(lt / 420); m.rot += .02 * A * sin(lt / 420); } }                        /* スキップ（左右に移りながら弾む） */
+    else if (kind === "cheer") { if (lt < 900) { k = Math.abs(sin(lt / 450 * PI)); m.y -= 34 * A * k; m.sy += .05 * A * k; m.sx -= .025 * A * k; m.head -= .04 * A * dir * k; } }           /* ばんざい跳び（高く 2 回） */
+    else if (kind === "creep") { k = clamp(lt / 1600); m.x += 30 * A * dir * k + 2 * sin(lt / 110) * (1 - k); m.sy -= .03 * A * sin(k * PI); m.rot += .01 * dir * k; }                      /* そろり（かがみぎみに、ゆっくり寄る） */
+    else if (kind === "stagger") { k = Math.exp(-lt / 900); m.x += 16 * A * sin(lt / 230) * k; m.rot += .04 * A * sin(lt / 230 + .8) * k; m.head -= .05 * A * sin(lt / 230) * k; }          /* よろよろ */
+    else if (kind === "snap") { k = lt < 120 ? back(lt / 120) : 1; m.sy += .035 * A * k; m.sx -= .015 * A * k; m.head -= .02 * A * dir * k; }                                               /* ぴしっ（背すじが伸びる） */
+    else if (kind === "laugh") { if (own || lt < 1500) { q = Math.abs(sin(lt / 80)); m.y -= 4 * A * q; m.sy += .012 * A * q; } m.head -= .05 * A * dir * ease; m.rot -= .008 * dir * ease; }  /* 笑って肩がゆれる */
+    else if (kind === "duck") { k = lt < 120 ? eo(lt / 120) : lt < 620 ? 1 : clamp(1 - (lt - 620) / 260); m.sy -= .14 * A * k; m.sx += .05 * A * k; m.head += .06 * A * dir * k; }            /* さっとかがむ */
     var body = String(pose).split("#")[0].split("+");
     if (!own && body.indexOf("raise") >= 0 && lt < 520) m.y -= 10 * sin(lt / 520 * PI);
     if (!own && body.indexOf("point") >= 0 && lt < 300) m.x += 8 * dir * sin(lt / 300 * PI);
@@ -1931,7 +2252,10 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     ctx.restore();
   }
   /* 気持ちの印。絵文字の書体に頼らず、線と形で描く（どの環境でも同じに出る）。lt は出てからの ms、sd は顔の外側の向き（左の人 1・右の人 -1） */
-  var EMO_ALIAS = { "！": "!", "？": "?", "！？": "!?", "?!": "!?", "汗": "💦", "怒": "💢", "ひらめき": "💡", "キラ": "✨", "きら": "✨", "ハート": "♥", "❤": "♥", "ガーン": "gloom", "がーん": "gloom", "ZZZ": "zzz", "音符": "♪", "無言": "…", "集中": "shock", "ショック": "shock" };
+  var EMO_ALIAS = { "⚡": "bolt", "稲妻": "bolt", "🔥": "fire", "炎": "fire", "💧": "tear", "涙": "tear", "💭": "cloud", "もやもや": "cloud", "○": "maru", "〇": "maru", "◯": "maru", "まる": "maru", "×": "batsu", "✕": "batsu", "✗": "batsu", "ばつ": "batsu",
+                    "★": "star", "☆": "star", "キラーン": "star", "👀": "eyes", "じー": "eyes", "🎉": "confetti", "紙ふぶき": "confetti", "☔": "rain", "どんより": "rain", "☀": "sun", "ぱあ": "sun", "❄": "snow", "雪": "snow",
+                    "‼": "!!", "！！": "!!", "？？": "??", "⁇": "??", "♨": "steam", "湯気": "steam", "💔": "heartbreak", "✔": "check", "✓": "check", "了解": "check", "🔍": "lens", "虫めがね": "lens",
+                    "🌀": "swirl", "ぐるぐる": "swirl", "🌸": "flower", "花": "flower", "👻": "soul", "魂": "soul", "♫": "notes", "💨": "huff", "ふんす": "huff", "！": "!", "？": "?", "！？": "!?", "?!": "!?", "汗": "💦", "怒": "💢", "ひらめき": "💡", "キラ": "✨", "きら": "✨", "ハート": "♥", "❤": "♥", "ガーン": "gloom", "がーん": "gloom", "ZZZ": "zzz", "音符": "♪", "無言": "…", "集中": "shock", "ショック": "shock" };
   function drawEmote(em, ex, ey, lt, col, sd) {
     if (typeof window !== "undefined" && window.__LAY && window.__LAY.on && ctx.canvas === window.__LAY.cv) {   /* layout.py の確かめ用: 気持ちの印の場所を知らせる（印は字ではないので、名札に重なっても機械に出なかった） */
       try { var TL = ctx.getTransform(), LX = TL.a * ex + TL.c * ey + TL.e, LY = TL.b * ex + TL.d * ey + TL.f, LR = 34 * Math.abs(TL.a || 1);
@@ -1967,6 +2291,90 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     else if (em === "shock") {   /* ショック: 短い線が放射に走る */
       ctx.strokeStyle = col; ctx.lineWidth = 7; var sk = clamp(lt / 200), fd = clamp(1 - (lt - 500) / 400); ctx.globalAlpha *= fd;
       for (i = 0; i < 7; i++) { var an2 = -PI * .95 + i * PI * .9 / 6 + (sd < 0 ? 0 : PI * .05); ctx.beginPath(); ctx.moveTo(Math.cos(an2) * 30, Math.sin(an2) * 30 + 30); ctx.lineTo(Math.cos(an2) * (30 + 46 * sk), Math.sin(an2) * (30 + 46 * sk) + 30); edge(13); ctx.strokeStyle = col; ctx.lineWidth = 7; ctx.stroke(); } }
+    else if (em === "bolt") {   /* 稲妻: ぴかっと落ちて、2 回またたく */
+      var bf = lt < 520 ? (Math.floor(lt / 65) % 2 ? .45 : 1) : 1; ctx.scale(k, k); ctx.translate(sd * 10, -14); ctx.globalAlpha *= bf;
+      ctx.beginPath(); ctx.moveTo(8, -52); ctx.lineTo(-22, 2); ctx.lineTo(-2, 2); ctx.lineTo(-12, 44); ctx.lineTo(24, -12); ctx.lineTo(4, -12); ctx.lineTo(20, -52); ctx.closePath(); edge(9); ctx.fillStyle = "#ffd21f"; ctx.fill(); }
+    else if (em === "fire") {   /* 炎: ゆらめく（やる気・燃える） */
+      ctx.scale(k, k); ctx.translate(sd * 10, -4); var fw = sin(lt / 90) * 5, fh = 1 + .08 * sin(lt / 70);
+      ctx.beginPath(); ctx.moveTo(0, 34); ctx.bezierCurveTo(-36, 30, -34, -8, -14, -22 * fh); ctx.bezierCurveTo(-12, -6, -4, -10, -2 + fw, -54 * fh); ctx.bezierCurveTo(10, -30, 34, -12, 30, 10); ctx.bezierCurveTo(28, 26, 16, 34, 0, 34); ctx.closePath(); edge(9); ctx.fillStyle = "#f2542d"; ctx.fill();
+      ctx.beginPath(); ctx.moveTo(0, 30); ctx.bezierCurveTo(-16, 28, -16, 8, -4 - fw * .4, -8 * fh); ctx.bezierCurveTo(4, 4, 16, 8, 14, 18); ctx.bezierCurveTo(12, 26, 8, 30, 0, 30); ctx.closePath(); ctx.fillStyle = "#ffd21f"; ctx.fill(); }
+    else if (em === "tear") {   /* 涙: 大きな 1 粒が、ふくらんで、ぽとりと落ちる */
+      var tu = (lt % 1500) / 1500, tg = clamp(tu / .45), ty = tu > .55 ? Math.pow((tu - .55) / .45, 2) * 60 : 0, ta = clamp((1 - tu) * 5);
+      ctx.translate(sd * 14, -26 + ty); ctx.scale(.5 + .5 * tg, .5 + .5 * tg); ctx.globalAlpha *= ta * Math.min(1, k);
+      ctx.beginPath(); ctx.moveTo(0, -34); ctx.bezierCurveTo(24, 0, 21, 26, 0, 26); ctx.bezierCurveTo(-21, 26, -24, 0, 0, -34); edge(8); ctx.fillStyle = "#58b7f0"; ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,.85)"; ctx.beginPath(); ctx.ellipse(-6, 8, 4, 8, .3, 0, PI * 2); ctx.fill(); }
+    else if (em === "cloud") {   /* もやもや: 小さな丸 2 つから、雲がふくらんで揺れる（考え中・思い出す） */
+      for (i = 0; i < 2; i++) { var ck = clamp((lt - i * 130) / 200); ctx.beginPath(); ctx.arc(-sd * (34 - i * 16), 34 - i * 16, (5 + i * 4) * ck, 0, PI * 2); edge(6); ctx.fillStyle = "#ffffff"; ctx.fill(); ctx.strokeStyle = "#8a93a3"; ctx.lineWidth = 3; ctx.stroke(); }
+      var cg = clamp((lt - 260) / 260); ctx.translate(sd * 12, -24 + 3 * sin(lt / 520)); ctx.scale(cg, cg);
+      ctx.beginPath(); [[-24, 4, 20], [0, -10, 26], [26, 2, 20], [4, 12, 22]].forEach(function (q) { ctx.moveTo(q[0] + q[2], q[1]); ctx.arc(q[0], q[1], q[2], 0, PI * 2); });
+      ctx.strokeStyle = "#8a93a3"; ctx.lineWidth = 7; ctx.stroke(); ctx.fillStyle = "#ffffff"; ctx.fill();
+      for (i = 0; i < 3; i++) { ctx.fillStyle = "#8a93a3"; ctx.globalAlpha = .35 + .65 * Math.abs(sin(lt / 300 - i * .9)); ctx.beginPath(); ctx.arc((i - 1) * 16, 2, 4.5, 0, PI * 2); ctx.fill(); } }
+    else if (em === "maru") {   /* まる: 赤い丸を、筆でぐるっと描く（正解・そのとおり） */
+      var mk = eo(clamp(lt / 380)); ctx.translate(sd * 8, -10); ctx.beginPath(); ctx.arc(0, 0, 36, -PI / 2, -PI / 2 + PI * 2 * mk); edge(20); ctx.strokeStyle = "#e5323e"; ctx.lineWidth = 11; ctx.stroke(); }
+    else if (em === "batsu") {   /* ばつ: 青いばつを、1 画ずつ（ちがう・だめ） */
+      var b1 = eo(clamp(lt / 170)), b2 = eo(clamp((lt - 170) / 170)); ctx.translate(sd * 8 + (lt > 340 && lt < 560 ? 4 * sin(lt / 20) : 0), -10);
+      ctx.beginPath(); ctx.moveTo(-30, -30); ctx.lineTo(-30 + 60 * b1, -30 + 60 * b1); if (b2 > 0) { ctx.moveTo(30, -30); ctx.lineTo(30 - 60 * b2, -30 + 60 * b2); } edge(21); ctx.strokeStyle = "#3466d6"; ctx.lineWidth = 12; ctx.stroke(); }
+    else if (em === "swirl") {   /* ぐるぐる: 渦が回る（混乱・目が回る） */
+      ctx.scale(k, k); ctx.translate(sd * 8, -12); ctx.rotate(lt / 260); ctx.beginPath();
+      for (i = 0; i <= 60; i++) { var sa = i / 60 * PI * 5, sr = 4 + i / 60 * 34; i ? ctx.lineTo(Math.cos(sa) * sr, Math.sin(sa) * sr) : ctx.moveTo(Math.cos(sa) * sr, Math.sin(sa) * sr); }
+      edge(15); ctx.strokeStyle = "#7a5fd0"; ctx.lineWidth = 7; ctx.stroke(); }
+    else if (em === "flower") {   /* 花: 小さな花が 3 つ、ふわっと咲いて回る（ほんわか・なごむ） */
+      [[0, -8, 20, 0], [sd * 44, -40, 14, 220], [sd * -34, -46, 12, 440]].forEach(function (q) { var fk = back(clamp((lt - q[3]) / 320)); if (fk <= 0) return;
+        ctx.save(); ctx.translate(q[0], q[1] - 4 * sin((lt + q[3]) / 500)); ctx.rotate(lt / 1400 + q[3]); ctx.scale(fk, fk);
+        ctx.beginPath(); for (var j = 0; j < 5; j++) { var fa = j * PI * 2 / 5; ctx.moveTo(Math.cos(fa) * q[2] * .55 + q[2] * .5, Math.sin(fa) * q[2] * .55); ctx.arc(Math.cos(fa) * q[2] * .55, Math.sin(fa) * q[2] * .55, q[2] * .5, 0, PI * 2); }
+        edge(6); ctx.fillStyle = "#ff9ec4"; ctx.fill(); ctx.fillStyle = "#ffd84a"; ctx.beginPath(); ctx.arc(0, 0, q[2] * .3, 0, PI * 2); ctx.fill(); ctx.restore(); }); }
+    else if (em === "soul") {   /* 魂: 白い魂が、ゆらゆら上へ抜けていく（ぼうぜん・力つきた） */
+      var su = clamp(lt / 1600), sy2 = -su * 46, sw2 = 6 * sin(lt / 240); ctx.translate(sd * 10 + sw2, -4 + sy2); ctx.globalAlpha *= Math.min(1, k) * (lt > 2600 ? clamp(1 - (lt - 2600) / 500) : 1);
+      ctx.beginPath(); ctx.moveTo(-24, 0); ctx.bezierCurveTo(-24, -40, 24, -40, 24, 0); ctx.bezierCurveTo(24, 22, 10, 26, 4 - sw2, 46); ctx.bezierCurveTo(-2 - sw2 * .5, 30, -24, 24, -24, 0); ctx.closePath();
+      ctx.strokeStyle = "#8fa3c8"; ctx.lineWidth = 7; ctx.stroke(); ctx.fillStyle = "#f4f8ff"; ctx.fill();
+      ctx.fillStyle = "#4a5a7a"; [-9, 9].forEach(function (q) { ctx.beginPath(); ctx.ellipse(q, -8, 3.5, 5.5, 0, 0, PI * 2); ctx.fill(); }); ctx.beginPath(); ctx.ellipse(0, 6, 4, 5, 0, 0, PI * 2); ctx.fill(); }
+    else if (em === "notes") {   /* 音符が 2 つ、順に浮かぶ（ごきげん・鼻歌） */
+      for (i = 0; i < 2; i++) { var nu = ((lt + i * 700) % 1400) / 1400; ctx.save(); ctx.translate(sd * (i * 40 - 6) + 8 * sin(nu * PI * 2), 14 - nu * 54); ctx.rotate(.2 * sin(nu * PI * 2 + i)); txtEdge(i ? "♫" : "♪", 0, 0, 62 + i * 10, col, clamp(nu * 5) * clamp((1 - nu) * 3) * Math.min(1, k)); ctx.restore(); } }
+    else if (em === "huff") {   /* ふんす: 小さな煙が、左右に 2 つずつ吹き出す（鼻息・えっへん・不満） */
+      for (i = 0; i < 4; i++) { var hu = ((lt + (i >> 1) * 260) % 780) / 780, hs = i % 2 ? 1 : -1; ctx.save(); ctx.globalAlpha *= clamp(hu * 6) * clamp((1 - hu) * 2.2) * Math.min(1, k);
+        ctx.translate(hs * (26 + hu * 38), 6 - hu * 10); var hr2 = 9 + hu * 12; ctx.beginPath(); ctx.arc(0, 0, hr2, 0, PI * 2); ctx.arc(hs * hr2 * .9, -hr2 * .3, hr2 * .7, 0, PI * 2);
+        ctx.strokeStyle = "#8a93a3"; ctx.lineWidth = 6; ctx.stroke(); ctx.fillStyle = "#ffffff"; ctx.fill(); ctx.restore(); } }
+    else if (em === "star") {   /* キラーン: 大きな星が 1 つ、回りながら光って、十字の光が走る */
+      var st2 = back(clamp(lt / 260)), sf = lt < 700 ? 1 + .25 * sin(lt / 700 * PI) : 1; ctx.translate(sd * 10, -12); ctx.rotate(lt / 900); ctx.scale(st2 * sf, st2 * sf);
+      ctx.beginPath(); for (i = 0; i < 10; i++) { var sa2 = i * PI / 5 - PI / 2, sr3 = i % 2 ? 16 : 38; i ? ctx.lineTo(Math.cos(sa2) * sr3, Math.sin(sa2) * sr3) : ctx.moveTo(Math.cos(sa2) * sr3, Math.sin(sa2) * sr3); } ctx.closePath(); edge(8); ctx.fillStyle = "#ffd21f"; ctx.fill();
+      if (lt < 600) { ctx.rotate(-lt / 900); ctx.globalAlpha *= clamp(1 - lt / 600); ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 5; var sl = 40 + lt / 600 * 46; ctx.beginPath(); ctx.moveTo(-sl, 0); ctx.lineTo(sl, 0); ctx.moveTo(0, -sl); ctx.lineTo(0, sl); ctx.stroke(); } }
+    else if (em === "eyes") {   /* じーっ: 目が 2 つ。黒目が相手のほうへ寄って、まばたきする */
+      ctx.scale(k, k); ctx.translate(sd * 8, -10); var eb = (lt % 1700) > 1560 ? .12 : 1, eg = -sd * 6 * clamp(lt / 400);
+      [-22, 22].forEach(function (q) { ctx.beginPath(); ctx.ellipse(q, 0, 17, 22 * eb, 0, 0, PI * 2); ctx.strokeStyle = "#2a2f3a"; ctx.lineWidth = 6; ctx.stroke(); ctx.fillStyle = "#ffffff"; ctx.fill();
+        if (eb === 1) { ctx.fillStyle = "#2a2f3a"; ctx.beginPath(); ctx.arc(q + eg, 3, 8, 0, PI * 2); ctx.fill(); } }); }
+    else if (em === "confetti") {   /* 紙ふぶき: 色の紙が、はじけて舞い落ちる */
+      var cf = ["#f0508c", "#ffd21f", "#58b7f0", "#5fd08a", "#b58cf0"], cu = lt / 1000;
+      for (i = 0; i < 14; i++) { var ca = -PI * .5 + (i - 6.5) * .21, cv = 150 + (i * 37 % 60), cx2 = Math.cos(ca) * cv * Math.min(cu, .5) * 1.4, cy2 = Math.sin(ca) * cv * Math.min(cu, .45) * 1.2 + 90 * cu * cu;
+        ctx.save(); ctx.globalAlpha *= clamp(2.2 - cu * 1.4); ctx.translate(sd * 8 + cx2, 4 + cy2); ctx.rotate(lt / (130 + i * 9) + i); ctx.fillStyle = cf[i % 5]; ctx.fillRect(-7, -4, 14, 8); ctx.restore(); } }
+    else if (em === "rain") {   /* どんより: 灰色の雲と、落ちる雨 */
+      ctx.scale(k, k); ctx.translate(sd * 10, -26);
+      for (i = 0; i < 3; i++) { var ru = ((lt + i * 230) % 700) / 700; ctx.strokeStyle = "#58b7f0"; ctx.lineWidth = 5; ctx.globalAlpha = clamp(ru * 5) * clamp((1 - ru) * 3); ctx.beginPath(); ctx.moveTo((i - 1) * 22, 20 + ru * 34); ctx.lineTo((i - 1) * 22 - 4, 34 + ru * 34); ctx.stroke(); }
+      ctx.globalAlpha = 1; ctx.beginPath(); [[-22, 4, 18], [0, -8, 24], [24, 4, 18], [2, 10, 20]].forEach(function (q) { ctx.moveTo(q[0] + q[2], q[1]); ctx.arc(q[0], q[1], q[2], 0, PI * 2); }); edge(8); ctx.fillStyle = "#7b8594"; ctx.fill(); }
+    else if (em === "sun") {   /* ぱあっ: 太陽が出て、光の線が回る */
+      ctx.scale(k, k); ctx.translate(sd * 10, -12); ctx.save(); ctx.rotate(lt / 1500); ctx.strokeStyle = "#ffb21f"; ctx.lineWidth = 7;
+      for (i = 0; i < 8; i++) { var sn = i * PI / 4, sp2 = 6 * sin(lt / 200 + i); ctx.beginPath(); ctx.moveTo(Math.cos(sn) * 32, Math.sin(sn) * 32); ctx.lineTo(Math.cos(sn) * (46 + sp2), Math.sin(sn) * (46 + sp2)); ctx.stroke(); } ctx.restore();
+      ctx.beginPath(); ctx.arc(0, 0, 24, 0, PI * 2); edge(8); ctx.fillStyle = "#ffd21f"; ctx.fill(); }
+    else if (em === "snow") {   /* 雪の結晶: ゆっくり回りながら、ふるえる（寒い・すべった） */
+      ctx.scale(k, k); ctx.translate(sd * 10 + 2 * sin(lt / 40) * clamp(1 - lt / 700), -12); ctx.rotate(lt / 1800); ctx.beginPath();
+      for (i = 0; i < 6; i++) { var na = i * PI / 3, nc = Math.cos(na), ns = Math.sin(na); ctx.moveTo(0, 0); ctx.lineTo(nc * 38, ns * 38);
+        [-1, 1].forEach(function (q) { var nb = na + q * .7; ctx.moveTo(nc * 24, ns * 24); ctx.lineTo(nc * 24 + Math.cos(nb) * 12, ns * 24 + Math.sin(nb) * 12); }); }
+      edge(13); ctx.strokeStyle = "#7fc8f5"; ctx.lineWidth = 6; ctx.stroke(); }
+    else if (em === "steam") {   /* 湯気: 3 本の線が、ゆらゆら立ちのぼる */
+      for (i = 0; i < 3; i++) { var tu2 = ((lt + i * 300) % 1200) / 1200; ctx.save(); ctx.globalAlpha *= clamp(tu2 * 4) * clamp((1 - tu2) * 2.5) * Math.min(1, k); ctx.translate(sd * 8 + (i - 1) * 26, 20 - tu2 * 40);
+        ctx.beginPath(); ctx.moveTo(0, 16); ctx.bezierCurveTo(-12, 4, 12, -6, 0, -18); ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 12; ctx.stroke(); ctx.strokeStyle = "#f08a5a"; ctx.lineWidth = 6; ctx.stroke(); ctx.restore(); } }
+    else if (em === "heartbreak") {   /* 割れたハート: ひびが入って、左右に少し開く */
+      var hk = clamp((lt - 350) / 300), hx = 7 * eo(hk); ctx.scale(k, k); ctx.translate(sd * 12 + (lt > 350 && lt < 520 ? 3 * sin(lt / 18) : 0), -10);
+      [-1, 1].forEach(function (q) { ctx.save(); ctx.translate(q * hx, hk * 3); ctx.rotate(q * .14 * eo(hk)); ctx.beginPath();
+        if (q < 0) { ctx.moveTo(0, 26); ctx.bezierCurveTo(-46, -6, -24, -44, 0, -18); ctx.lineTo(-8, -4); ctx.lineTo(6, 6); ctx.lineTo(-4, 16); ctx.closePath(); }
+        else { ctx.moveTo(0, 26); ctx.bezierCurveTo(46, -6, 24, -44, 0, -18); ctx.lineTo(-8, -4); ctx.lineTo(6, 6); ctx.lineTo(-4, 16); ctx.closePath(); }
+        edge(8); ctx.fillStyle = "#8a7fb0"; ctx.fill(); ctx.restore(); }); }
+    else if (em === "check") {   /* チェック: 緑のチェックを、すっと描く（了解・できた） */
+      var c1 = eo(clamp(lt / 140)), c2 = eo(clamp((lt - 140) / 220)); ctx.translate(sd * 8, -8); ctx.beginPath(); ctx.moveTo(-30, 0); ctx.lineTo(-30 + 20 * c1, 22 * c1); if (c2 > 0) ctx.lineTo(-10 + 44 * c2, 22 - 54 * c2); edge(21); ctx.strokeStyle = "#2fae5f"; ctx.lineWidth = 12; ctx.stroke(); }
+    else if (em === "lens") {   /* 虫めがね: 左右に動いて、のぞきこむ（調べる・気になる） */
+      ctx.scale(k, k); ctx.translate(sd * 8 + 14 * sin(lt / 420), -12 + 4 * sin(lt / 300)); ctx.rotate(-.5);
+      ctx.beginPath(); ctx.moveTo(0, 26); ctx.lineTo(0, 56); ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 18; ctx.stroke(); ctx.strokeStyle = "#7a5a3a"; ctx.lineWidth = 10; ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, 0, 26, 0, PI * 2); ctx.fillStyle = "rgba(160,215,255,.55)"; ctx.fill(); edge(15); ctx.strokeStyle = "#4a5568"; ctx.lineWidth = 7; ctx.stroke(); }
+    else if (em === "!!" || em === "??") { var dk2 = lt < 420 ? 1 + .2 * sin(lt / 420 * PI) : 1; ctx.translate(em === "!!" && lt < 300 ? 5 * sin(lt / 20) : 0, 0); ctx.rotate(em === "??" ? .14 * sin(lt / 240) * clamp(1 - lt / 1500) : 0); ctx.scale(k * dk2, k * dk2); txtEdge(em === "!!" ? "！！" : "？？", 0, 0, 92, em === "!!" ? "#e5323e" : col, 1); }
     else if (em === "zzz") { for (i = 0; i < 3; i++) { var zu = ((lt + i * 500) % 1500) / 1500; txtEdge("z", sd * (i * 22 + zu * 14), 10 - i * 30 - zu * 26, 44 + i * 12, col, clamp(zu * 4) * clamp((1 - zu) * 3)); } }
     else if (em === "…") { for (i = 0; i < 3; i++) { var dk = clamp((lt - i * 220) / 200); ctx.beginPath(); ctx.arc(sd * 4 + (i - 1) * 30, -10, 9 * dk, 0, PI * 2); edge(7); ctx.fillStyle = "#6b7480"; ctx.fill(); } }
     else if (em === "♪") { ctx.translate(sd * 10, -6 * sin(lt / 300)); ctx.rotate(.14 * sin(lt / 260)); ctx.scale(k, k); txtEdge("♪", 0, 0, 96, col, 1); }
@@ -2238,7 +2646,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       var open = speakingNow ? mouthOf(cur, tt) : !st.own && !st.idle && slt < 320 && /^(surprised|smile|troubled|angry)$/.test(fbase) ? (slt < 200 ? 1 : .5) : 0;
       /* まばたき: いつもの周期に、表情が変わった瞬間の 1 回を足す。驚いた直後は目を見開いたまま */
       var blink = fbase === "surprised" && slt < 900 ? false : blinkOf(id, tt) || (st.changed && slt > 30 && slt < 130);
-      var mo = castMotion(id, i, ch, tt, st, speakingNow, side);
+      var mo = castMotion(id, i, ch, tt, st, speakingNow, side, !!(cur && cur.who && !speakingNow));
       if (ch.motion === "yukkuri") bob = 0;
       var spk = speakingNow ? 1 + .025 * clamp((tt - cur.a) / 180) : 1;   /* 話している人を、足元を軸に少し大きく */
       ctx.save(); ctx.translate(dx + shake + mo.x, bob + mo.y); if (TALK.dim && !speakingNow && cur && cur.who) ctx.globalAlpha *= .82;
@@ -2475,7 +2883,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     if (s.corner) { var o2 = capFont(32), k2 = P(lt, 200, 580), w2 = tw(s.corner, o2) + 48; ctx.save(); ctx.translate((1 - k2) * (w2 + 60), 0); rr(1886 - w2, 34, w2, 58, 10); ctx.fillStyle = TG.corner || "rgba(255,255,255,.94)"; ctx.fill(); ctx.strokeStyle = TG.cornerInk || (TG.corner ? "#ffffff" : "#20242c"); ctx.lineWidth = 4; ctx.stroke();
       txt(s.corner, 1886 - w2 / 2, 75, { size: 32, weight: 800, align: "center", color: TG.cornerInk || (TG.corner ? "#ffffff" : "#20242c"), font: o2.font }); ctx.restore(); }
   }
-  var TALK_SFX = { "!": "pop", "?": "question", "!?": "stab", "♪": "bling", "💦": "slip", "💢": "woodblock", "…": "downer", "💡": "correct", "✨": "sparkle", "♥": "heart-pop", gloom: "downer", shock: "stab", big: "hyoshigi", shake: "impact" };
+  var TALK_SFX = { "!": "pop", "?": "question", "!?": "stab", "♪": "bling", "💦": "slip", "💢": "woodblock", "…": "downer", "💡": "correct", "✨": "sparkle", "♥": "heart-pop", gloom: "downer", shock: "stab", bolt: "lightning", fire: "ignite", tear: "tear", cloud: "moyamoya", maru: "maru", batsu: "batsu", swirl: "guruguru", flower: "bloom", soul: "soul-out", notes: "bling", huff: "snort", star: "kira", eyes: "stare", confetti: "confetti", rain: "drizzle", sun: "shine", snow: "snowfall", steam: "steam", heartbreak: "heart-break", check: "check", lens: "search", "!!": "stab", "??": "question", big: "hyoshigi", shake: "impact" };
   R.talk = function (s, lt, d, T) {
     /* 効果音のきっかけ: せりふの印・大きい字幕・揺れ・聞き手の反応の印。続けて鳴らしすぎない（2.4 秒あける。se で名指しした音は必ず鳴らす） */
     if (EVC && TALK.sfx !== false) { var smap = Object.assign({}, TALK_SFX, TALK.sfx || {}), lastT = -9999;
@@ -2699,7 +3107,9 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     cv = cv0; ctx = ctx0; thumbMode = false;
   }
   var TR_EV = { iris: "tr.zoom", spin: "tr.zoom", "zoom-through": "tr.zoom", pixel: "tr.wipe", blinds: "tr.wipe", whip: "tr.push", "slide-up": "tr.push",
-                "slide-down": "tr.push", squeeze: "tr.push", split: "tr.slide", flash: "tr.cut", glitch: "tr.cut" };
+                "slide-down": "tr.push", squeeze: "tr.push", split: "tr.slide", flash: "tr.cut", glitch: "tr.cut",
+                "wipe-up": "tr.wipe", "wipe-left": "tr.wipe", "soft-wipe": "tr.wipe", slices: "tr.wipe", "iris-close": "tr.zoom", shutter: "tr.zoom", star: "tr.zoom",
+                uncover: "tr.push", drop: "tr.push", fold: "tr.slide", peel: "tr.slide", tear: "tr.slide", tumble: "tr.slide", "tv-off": "tr.cut" };
   function buildSfxQueue() {
     SFXQ.length = 0;
     if (!SFXCFG || !MA) return;
@@ -2906,7 +3316,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   function chapterStep(dir) { var i = chapterAt(t), n = i + dir; if (dir < 0 && t - CHAPTERS[i].t > 2000) n = i;
     n = clamp(n, 0, CHAPTERS.length - 1); seek(CHAPTERS[n].t); ensureAudio(); kitPlay("nav"); }
   function setSpeed(v) { speed = v; var sel = $("mv-speed"); if (sel) sel.value = String(v); store.set("speed", String(v)); if (playing) { hush(); musicReset(); } }
-  function setCaptions(on) { captions = on; store.set("cc", on ? "1" : "0"); var b = $("mv-cc"); if (b) b.setAttribute("aria-pressed", String(on)); syncCaption(true); }
+  function setCaptions(on) { captions = on; store.set("cc", on ? "1" : "0"); var b = $("mv-cc"); if (b) b.setAttribute("aria-pressed", String(on)); syncCaption(true); syncExtras(); }
   function setAudio(on) { audioOn = on; store.set("audio", on ? "1" : "0"); var b = $("mv-audio");
     if (b) { b.setAttribute("aria-pressed", String(on)); b.setAttribute("aria-label", on ? "音声をオフにする" : "音声をオンにする"); }
     if (ac && master) master.gain.setTargetAtTime(on ? VOL : 0, ac.currentTime, .05);
@@ -2923,6 +3333,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       var c = CHAPTERS[+b.dataset.i], el = b.querySelector(".t"); if (c && el) el.textContent = fmt(c.t); });
     var tl = $("mv-tlist"); if (tl) [].forEach.call(tl.querySelectorAll("button"), function (b) {
       var c = CUES[+b.dataset.i], el = b.querySelector(".t"); if (c && el) el.textContent = fmt(c.a); });
+    if (EXTRA) { osdSegs.forEach(function (sg, i) { sg.style.flex = String(chLen(i)); }); renderSlides(); }
     needsDraw = true; syncUI();
   }
   function posToMs(x) { var r = seekEl.getBoundingClientRect(); return clamp((x - r.left) / r.width) * DUR; }
@@ -3068,7 +3479,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     seekEl.setAttribute("aria-valuemax", String(Math.round(DUR / 1000)));
     seekEl.setAttribute("aria-valuenow", String(Math.round(t / 1000)));
     seekEl.setAttribute("aria-valuetext", Math.floor(t / 60000) + " 分 " + (Math.floor(t / 1000) % 60) + " 秒、" + CHAPTERS[ci].name);
-    syncCaption(false);
+    syncCaption(false); syncExtras();
   }
   function frame(now) {
     if (ENDFADE && ac && master) { var ek = playing && t > DUR - ENDFADE ? clamp((DUR - t) / ENDFADE) : 1;   /* 終わりの暗転に合わせて、音も消していく */
@@ -3108,6 +3519,39 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     if (tsearch) tsearch.addEventListener("input", function () { var q = tsearch.value.trim().toLowerCase();
       [].forEach.call(tlist.children, function (li) { li.hidden = !!q && li.textContent.toLowerCase().indexOf(q) < 0; }); });
   }
+  /* ---- 足したプレイヤー（reader・capsule・deck・mobile・broadcast・retro）の部品: 映像の上の札・字幕の欄・番組の帯・章の見本。
+     要素はどのプレイヤーにもあり、出すかどうかは CSS が決める。前からあるプレイヤーでは何もしない（EXTRA が偽）。操作部は同じものを使うので、機能は全部そのまま ---- */
+  var PLAYER = root.getAttribute("data-player"), EXTRA = { reader: 1, capsule: 1, deck: 1, mobile: 1, broadcast: 1, retro: 1 }[PLAYER] === 1;
+  if (SPEC.caption) root.setAttribute("data-capstyle", SPEC.caption);   /* 字幕の形（box・outline・band・card）。録画に焼き込む形（burnCaption）と同じ */
+  var osdProg = $("mv-osdprog"), osdChap = $("mv-osdchap"), osdPage = $("mv-osdpage"), pTitle = $("mv-ptitle"), pNext = $("mv-pnext"), rdPrev = $("mv-rprev"), rdCur = $("mv-rcur"), rdNext = $("mv-rnext");
+  var osdSegs = [], slideCv = [], lastOsdChap = -1, lastRd = "";
+  if (EXTRA && osdProg) CHAPTERS.forEach(function (c, i) { var sg = document.createElement("i"); sg.style.flex = String(chLen(i)); sg.appendChild(document.createElement("b")); osdProg.appendChild(sg); osdSegs.push(sg); });
+  if (EXTRA && pTitle) pTitle.textContent = (SPEC.brand && SPEC.brand.name) || SPEC.title || "";
+  function syncExtras() {
+    if (!EXTRA) return;
+    var ci = chapterAt(t), i;
+    osdSegs.forEach(function (sg, j) { sg.firstChild.style.width = (clamp((t - CHAPTERS[j].t) / chLen(j)) * 100) + "%"; });
+    if (ci !== lastOsdChap) { lastOsdChap = ci;
+      if (osdChap) osdChap.innerHTML = "<b>" + String(ci + 1).padStart(2, "0") + "</b><span>" + esc(CHAPTERS[ci].name) + "</span>";
+      if (osdPage) osdPage.textContent = (ci + 1) + " / " + CHAPTERS.length;
+      if (pNext) pNext.textContent = ci < CHAPTERS.length - 1 ? "つぎは　" + CHAPTERS[ci + 1].name : "さいごの章";
+      /* deck: 今の章の見本が見える所まで、目次だけを送る（ページは動かさない） */
+      var cur = PLAYER === "deck" && list && list.querySelector('[aria-current="true"]'), box = list && list.parentNode;
+      if (cur && box) { var r1 = cur.getBoundingClientRect(), r2 = box.getBoundingClientRect(); if (r1.top < r2.top || r1.bottom > r2.bottom) box.scrollTop += r1.top - r2.top - 12; if (r1.left < r2.left || r1.right > r2.right) box.scrollLeft += r1.left - r2.left - 12; } }
+    /* 章の札（broadcast）は、章の頭の 4.5 秒と、止まっている間に出す */
+    root.classList.toggle("mv-osd-on", !playing || t - CHAPTERS[ci].t < 4500);
+    /* 字幕の欄（reader・mobile）: 今の文を大きく、前と次の文を小さく。掛け合いのせりふは話し手の名前つき */
+    if (rdCur && (PLAYER === "reader" || PLAYER === "mobile")) { var k = -1, near = -1; for (i = 0; i < CUES.length; i++) { if (t >= CUES[i].a && t < CUES[i].b) k = i; if (CUES[i].b <= t) near = i; }
+      var pi = k >= 0 ? k - 1 : near, ni = k >= 0 ? k + 1 : near + 1, key = k + ":" + pi + ":" + (captions ? 1 : 0);
+      if (key !== lastRd) { lastRd = key; var say = function (j) { var c = CUES[j]; return !c ? "" : (c.who && CAST[c.who] ? (CAST[c.who].name || c.who) + "：" : "") + c.text.replace(/\*\*/g, ""); };
+        rdPrev.textContent = captions ? say(pi) : ""; rdNext.textContent = captions ? say(ni) : ""; rdCur.textContent = captions ? say(k) : "字幕はオフです（「字幕」のボタンか C キーで出せます）";
+        rdCur.classList.toggle("mv-roff", !captions); rdPrev.dataset.i = pi; rdNext.dataset.i = ni; } }
+  }
+  [rdPrev, rdNext].forEach(function (el) { if (el && EXTRA) el.addEventListener("click", function () { var c = CUES[+el.dataset.i]; if (c) seek(c.a); }); });
+  /* deck: 章ごとの見本（章の頭から少し進んだ 1 コマ）を、目次の中の小さな Canvas に描く。描画は時刻だけで決まるので、その場で描ける */
+  if (PLAYER === "deck" && list) [].forEach.call(list.querySelectorAll("button"), function (b) { var c = document.createElement("canvas"); c.className = "mv-slide"; c.width = 320; c.height = 180; c.setAttribute("aria-hidden", "true"); b.insertBefore(c, b.firstChild); slideCv.push(c); });
+  function renderSlides() { if (!slideCv.length || recording) return; var cv0 = cv, ctx0 = ctx; thumbMode = true;
+    try { slideCv.forEach(function (c, i) { cv = c; ctx = c.getContext("2d"); try { draw(CHAPTERS[i].t + Math.min(2600, chLen(i) * .6)); } catch (e) {} }); } finally { thumbMode = false; cv = cv0; ctx = ctx0; needsDraw = true; } }
   /* 続きから再生（このブラウザに位置を覚える） */
   var rb = $("mv-resume"), savedPos = parseFloat(store.get(POSKEY, "0")) || 0;
   if (rb && !KIOSK && savedPos > 5000 && savedPos < DUR - 5000) {
@@ -3410,7 +3854,9 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   try { collectEvents(); buildSfxQueue(); } catch (e) { console.warn("sfx:", e); }
   new ResizeObserver(resize).observe(cv); resize(); syncUI(); requestAnimationFrame(frame);
   uiReady = true; applyStoredVoiceRate();
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { needsDraw = true; });
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { needsDraw = true; renderSlides(); });
+  /* deck の章の見本は、絵が読み終わってから描き直す（読み終わるまで、0.3 秒おきに 15 秒まで） */
+  if (slideCv.length) { var slideTry = 0; (function slideWait() { renderSlides(); var n = 0; for (var k in IMGS) if (IMGS[k] && IMGS[k].complete === false) n++; if (n && slideTry++ < 50) setTimeout(slideWait, 300); })(); }
   /* 使う書体・太さを先に読み込む（初めて使う組み合わせを仮の書体で測って、最初の 1 コマだけ幅がずれるのを防ぐ） */
   if (document.fonts && document.fonts.load) { var fl = []; [F.sans, F.display, F.mono].forEach(function (fam) { [400, 600, 700, 800, 900].forEach(function (w) { fl.push(document.fonts.load(w + " 30px " + fam, "あA1")); }); });
     Promise.all(fl).then(function () { CHARPOS.clear(); needsDraw = true; }, function () {}); }

@@ -993,6 +993,743 @@ def _(d, r):
     d.add("".join(circ(200 + i * 304, 60, 14, "#ffffff", .9) for i in range(6)))
 
 
+# ================= 2026-10-07 に足した背景（和柄と地 11・地の景色 5・場所 24） =================
+
+
+def vig(d, c="#000000", o=.3, start=.55):
+    """周りを暗くする（まん中は そのまま）。"""
+    i = d.id()
+    d.defs.append(rgrad(i, [(0, c, 0), (start, c, 0), (1, c, o)], 960, 540, 1150))
+    d.fill("url(#%s)" % i)
+
+
+def band(d, y, h, stops):
+    """横いっぱいの帯（上から下への色の移り）。"""
+    d.add('<rect y="%s" width="%d" height="%s" fill="%s"/>' % (n(y), W, n(h), d.grad(stops)))
+
+
+def wash(d, c, o, rad=780, cy=560):
+    """まん中に、地の色の淡いにじみを重ねて、絵のコントラストを抑える（字を載せる所）。"""
+    d.glow(960, cy, rad, c, o)
+
+
+def tree(x, y, s, leaf="#6fb565", leaf2="#58a056", trunk="#8a6238"):
+    return (rect(x - 9 * s, y - 120 * s, 18 * s, 120 * s, trunk, rx=4 * s) + circ(x, y - 190 * s, 90 * s, leaf2) + circ(x - 60 * s, y - 150 * s, 62 * s, leaf2) + circ(x + 62 * s, y - 150 * s, 60 * s, leaf2)
+            + circ(x - 16 * s, y - 206 * s, 70 * s, leaf) + circ(x + 40 * s, y - 170 * s, 50 * s, leaf))
+
+
+def desk(x, y, s):
+    return (rect(x + 14 * s, y, 8 * s, 150 * s, "#98a3ae") + rect(x + 218 * s, y, 8 * s, 150 * s, "#98a3ae") + rect(x + 14 * s, y + 60 * s, 212 * s, 8 * s, "#98a3ae")
+            + rect(x, y - 6 * s, 240 * s, 22 * s, "#dcb780", rx=4 * s) + rect(x, y + 10 * s, 240 * s, 6 * s, "#b98f58"))
+
+
+def palm(x, y, h, lean):
+    tx, ty, L = x + lean, y - h, h * .52
+    out = path("M%s %sQ%s %s %s %s" % (n(x), n(y), n(x + lean * .1), n(y - h * .6), n(tx), n(ty)), stroke="#a8763f", w=h * .06, extra=' stroke-linecap="round"')
+    for i, a in enumerate((-172, -140, -100, -62, -28, 8, 176)):
+        ca, sa = math.cos(math.radians(a)), math.sin(math.radians(a))
+        ex, ey = tx + ca * L, ty + sa * L + L * .38
+        out += path("M%s %sQ%s %s %s %sQ%s %s %s %sZ" % (n(tx), n(ty), n(tx + ca * L * .55), n(ty + sa * L * .55 - L * .28), n(ex), n(ey), n(tx + ca * L * .5), n(ty + sa * L * .5 + L * .04), n(tx), n(ty)),
+                    "#3f9a5c" if i % 2 else "#58b06e")
+    return out + circ(tx - 10, ty + 12, h * .026, "#7a5533") + circ(tx + 12, ty + 14, h * .026, "#7a5533")
+
+
+def books(d, r, x0, x1, y0, h, cols, sc=1.0):
+    """棚の 1 段に、本を並べる。"""
+    x = x0
+    while x < x1 - 12 * sc:
+        w, bh = r.randint(14, 34) * sc, h * r.uniform(.6, .94)
+        if x + w > x1:
+            break
+        if r.random() < .08:
+            x += w
+            continue
+        d.add(rect(x, y0 + h - bh, w, bh, r.choice(cols), rx=1.5))
+        x += w + 1.5
+
+
+# ---------- 和柄・地（配色に合わせる） ----------
+
+
+@themed("yagasuri", "矢絣", "矢羽根を縦に並べた和の模様。和風・卒業・大正ふうの話に")
+def _(d, r):
+    def feather(x0, y0):
+        return poly([(x0 + 6, y0), (x0 + 80, y0 + 40), (x0 + 80, y0 + 100), (x0 + 6, y0 + 60)], "a2") + poly([(x0 + 80, y0 + 40), (x0 + 154, y0), (x0 + 154, y0 + 60), (x0 + 80, y0 + 100)], "a2", .6)
+    c = feather(0, 0) + feather(160, 60) + feather(160, -60) + line(80, 0, 80, 120, "bg0", 3) + line(240, 0, 240, 120, "bg0", 3)
+    p = d.pattern(320, 120, c)
+    d.fill(p, .05).fill(p, .17, d.mask("edges"))
+
+
+@themed("kagome", "籠目", "竹かごの編み目の和の模様。和風・魔よけ・手仕事の話に")
+def _(d, r):
+    a = 64
+    q = a * math.sqrt(3)
+    seg = "M0 0H%s M0 %sH%s M0 %sH%s M%s 0L%s %s M0 %sL%s %s M%s 0L0 %s M%s %sL%s %s" % (
+        n(2 * a), n(q), n(2 * a), n(2 * q), n(2 * a), n(a / 2), n(2 * a), n(1.5 * q), n(1.5 * q), n(a / 2), n(2 * q), n(1.5 * a), n(1.5 * q), n(2 * a), n(1.5 * q), n(1.5 * a), n(2 * q))
+    p = d.pattern(2 * a, 2 * q, path(seg, stroke="a1", w=3))
+    d.fill(p, .07).fill(p, .3, d.mask("corners"))
+
+
+@themed("tatewaku", "立涌", "向かい合う波の線が、ふくらみを作る和の模様。和風・上品・縁起のよい話に")
+def _(d, r):
+    g = ""
+    for k in range(-1, 18):
+        x0, s = k * 120, (1 if k % 2 else -1)
+        g += path(smooth([(x0 + s * 30 * math.sin(y / 110 * math.pi), y) for y in range(-55, H + 111, 55)]), stroke="a2", w=3)
+        for j in range(-1, 6):
+            g += circ(x0 + 60, (55 if k % 2 == 0 else 165) + j * 220, 9, "a1")
+    d.add('<g opacity=".07">%s</g>' % g, '<g opacity=".3"%s>%s</g>' % (d.mask("edges"), g))
+
+
+@themed("kanoko", "鹿の子", "絞り染めの小さな粒が並ぶ和の模様。和風・かわいらしい・祝いの話に")
+def _(d, r):
+    p = d.pattern(56, 56, path("M28 6L50 28L28 50L6 28Z", stroke="a1", w=4, extra=' stroke-linejoin="round"') + circ(28, 28, 5, "a1"))
+    d.fill(p, .06).fill(p, .3, d.mask("corners"))
+
+
+@themed("hishi", "菱", "菱形を重ねた和の模様。和風・格式・ひな祭りの話に")
+def _(d, r):
+    p = d.pattern(140, 80, path("M70 0L140 40L70 80L0 40Z M70 18L108 40L70 62L32 40Z", stroke="a2", w=2.5))
+    d.fill(p, .08).fill(p, .32, d.mask("edges"))
+
+
+@themed("linen", "布の織り目", "麻布のような、縦糸と横糸の細かい織り目。手づくり・暮らし・落ち着いた語りに")
+def _(d, r):
+    d.glow(1400, 200, 1000, "a1", .1)
+    d.fill(d.pattern(10, 10, rect(0, 0, 10, 4, "ink", .5) + rect(0, 0, 4, 10, "ink", .5)), .1)
+    for _k in range(150):
+        x, y, ln, hz = r.uniform(0, W), r.uniform(0, H), r.uniform(60, 420), r.random() < .5
+        d.add(line(x, y, x + (ln if hz else 0), y + (0 if hz else ln), "ink", r.choice((1.5, 2.5, 3.5)), round(r.uniform(.03, .08), 3)))
+
+
+@themed("woodgrain", "木目", "板の木目と節。配色の色になじむ木の地。手づくり・喫茶・あたたかい語りに")
+def _(d, r):
+    d.glow(960, 540, 1300, "a1", .12)
+    for i in range(5):
+        y = i * 216
+        d.add(rect(0, y, W, 216, "a1", .03 + .03 * (i % 2)), line(0, y, W, y, "ink", 3, .16))
+        knots = [(r.uniform(150, W - 150), y + r.uniform(60, 156)) for _ in range(r.randint(0, 2))]
+        for k in range(8):
+            yy = y + 14 + k * 26 + r.uniform(-5, 5)
+            pts = [(x, yy + r.uniform(-4, 4) + sum(34 * math.copysign(1, yy - ky) * math.exp(-((x - kx) / 150) ** 2) * math.exp(-abs(yy - ky) / 60) for kx, ky in knots)) for x in range(-100, W + 201, 100)]
+            d.add(path(smooth(pts), stroke="ink", w=r.uniform(1, 2.4), o=round(r.uniform(.07, .16), 3)))
+        for kx, ky in knots:
+            d.add(ell(kx, ky, 34, 14, "ink", .1), ell(kx, ky, 18, 7, "ink", .12))
+
+
+@themed("marble", "大理石", "やわらかな色むらと、細い筋。上品・高級・美術の話に")
+def _(d, r):
+    for x, y, rad, c, o in ((400, 250, 800, "a3", .12), (1500, 800, 900, "a2", .1), (1300, 150, 600, "ink", .05)):
+        d.glow(x, y, rad, c, o)
+    for k in range(11):
+        x, y, a = r.uniform(-100, W + 100), -40, r.uniform(.6, 2.5)
+        pts = [(x, y)]
+        while -80 < x < W + 80 and y < H + 80:
+            a = max(.3, min(2.84, a + r.uniform(-.4, .4)))
+            x, y = x + math.cos(a) * 70, y + math.sin(a) * 70
+            pts.append((x, y))
+        if len(pts) > 3:
+            d.add(path(smooth(pts), stroke="ink", w=r.uniform(1, 3.2), o=round(r.uniform(.06, .14), 3)))
+            b = pts[len(pts) // 2:len(pts) // 2 + 5]
+            d.add(path(smooth([(px + i * i * 9, py + i * 14) for i, (px, py) in enumerate(b)] + [(b[-1][0] + 300, b[-1][1] + 120)]), stroke="ink", w=1.2, o=.07))
+
+
+@themed("gingham", "ギンガム", "2 色が重なる格子じま。ポップ・料理・ピクニック・親しみやすい話に")
+def _(d, r):
+    p = d.pattern(120, 120, rect(0, 0, 60, 120, "a2", .5) + rect(0, 0, 120, 60, "a2", .5))
+    d.fill(p, .07).fill(p, .2, d.mask("edges"))
+
+
+@themed("mizutama", "水玉", "2 色の水玉が互い違いに並ぶ。ポップ・子ども向け・楽しい話に")
+def _(d, r):
+    p = d.pattern(140, 140, circ(35, 35, 22, "a2") + circ(105, 105, 22, "a1"))
+    d.fill(p, .07).fill(p, .24, d.mask("edges"))
+
+
+@themed("pinstripe", "細い縦じま", "細い縦の線が等間隔に並ぶ、背広の生地のような地。ビジネス・きちんとした話に")
+def _(d, r):
+    d.glow(960, 300, 1100, "a2", .1)
+    d.fill(d.pattern(44, 44, line(22, 0, 22, 44, "ink", 1.5)), .13)
+    vig(d, o=.2)
+
+
+# ---------- 地の景色（色は決まっている） ----------
+
+
+@scenery("blueprint-blue", "青焼きの図面", "青い紙に白い線の図面。歯車と寸法線。設計・ものづくり・計画の話に", "dark")
+def _(d, r):
+    d.__init__(("#17508f", "#123f75"))
+    d.fill(d.pattern(40, 40, path("M40 0H0V40", stroke="#ffffff", w=1)), .12)
+    d.fill(d.pattern(200, 200, path("M200 0H0V200", stroke="#ffffff", w=1.6)), .2)
+    wl = ' fill="none" stroke="#ffffff" stroke-opacity=".5" stroke-width="2.5"'
+    dash = ' fill="none" stroke="#ffffff" stroke-opacity=".4" stroke-width="1.5" stroke-dasharray="18 8 4 8"'
+    cx, cy, R, teeth = 300, 820, 190, 16
+    pts = [(cx + math.cos(k / (teeth * 4) * math.tau) * (R if k % 4 in (0, 1) else R - 34), cy + math.sin(k / (teeth * 4) * math.tau) * (R if k % 4 in (0, 1) else R - 34)) for k in range(teeth * 4)]
+    d.add('<polygon points="%s"%s/>' % (" ".join("%s,%s" % (n(x), n(y)) for x, y in pts), wl), '<circle cx="300" cy="820" r="56"%s/>' % wl, '<circle cx="300" cy="820" r="118"%s/>' % dash,
+          '<path d="M60 820H540M300 580V1060"%s/>' % dash)
+    d.add('<rect x="1360" y="130" width="420" height="250" rx="34"%s/>' % wl, "".join('<circle cx="%d" cy="%d" r="22"%s/>' % (x, y, wl) for x in (1420, 1720) for y in (190, 320)),
+          '<circle cx="1570" cy="255" r="70"%s/>' % wl, '<path d="M1300 255H1840M1570 90V420"%s/>' % dash)
+    for x0, y0, x1, y1 in ((1360, 440, 1780, 440), (1840, 130, 1840, 380), (110, 560, 490, 560)):   # 寸法線
+        hz = y0 == y1
+        d.add(line(x0, y0, x1, y1, "#ffffff", 1.5, .55), line(x0 - (0 if hz else 12), y0 - (12 if hz else 0), x0 + (0 if hz else 12), y0 + (12 if hz else 0), "#ffffff", 1.5, .55),
+              line(x1 - (0 if hz else 12), y1 - (12 if hz else 0), x1 + (0 if hz else 12), y1 + (12 if hz else 0), "#ffffff", 1.5, .55))
+    d.add('<rect x="1400" y="900" width="460" height="130"%s/>' % wl, '<path d="M1400 945H1860M1400 990H1860M1620 900V1030M1740 945V1030"%s/>' % wl)
+    d.add(rect(30, 30, W - 60, H - 60, "none", extra=' stroke="#ffffff" stroke-opacity=".35" stroke-width="3"'))
+    vig(d, "#061a36", .5, .5)
+
+
+@scenery("stone-wall", "石垣", "大きさの違う石を積んだ、灰色の石垣。城・歴史・どっしりした話に", "dark")
+def _(d, r):
+    d.__init__("#22262a")
+    y = -20
+    while y < H:
+        h, x = r.randint(96, 150), -r.randint(0, 140)
+        while x < W:
+            w, c = r.randint(130, 300), r.choice(("#4f565d", "#5a6067", "#484e55", "#62676c", "#525453"))
+            pts = [(x + 12 + r.uniform(0, 14), y + 12 + r.uniform(0, 12)), (x + w - 12 - r.uniform(0, 14), y + 12 + r.uniform(0, 12)), (x + w - 12 - r.uniform(0, 10), y + h - 12 - r.uniform(0, 12)), (x + 12 + r.uniform(0, 10), y + h - 12 - r.uniform(0, 12))]
+            d.add(poly(pts, c, extra=' stroke="%s" stroke-width="14" stroke-linejoin="round"' % c), line(pts[0][0] + 6, pts[0][1] - 2, pts[1][0] - 6, pts[1][1] - 2, "#ffffff", 3, .07),
+                  line(pts[3][0] + 6, pts[3][1] + 3, pts[2][0] - 6, pts[2][1] + 3, "#000000", 4, .18))
+            x += w
+        y += h
+    d.add("".join(circ(r.uniform(0, W), r.uniform(0, H), r.uniform(4, 12), "#5d7a4a", round(r.uniform(.15, .4), 2)) for _ in range(60)))
+    vig(d, "#000000", .6, .3)
+
+
+@scenery("tile-wall", "白いタイル", "目地のある白いタイルの壁。台所・浴室・清潔・料理や暮らしの話に", "light")
+def _(d, r):
+    d.__init__("#cdd7dc")
+    d.fill(d.pattern(120, 120, '<rect x="3" y="3" width="114" height="114" rx="6" fill="%s"/>' % d.grad([(0, "#ffffff"), (1, "#eef3f5")], 0, 0, 1, 1)))
+    d.add("".join(rect(r.randint(0, 15) * 120 + 3, r.randint(0, 8) * 120 + 3, 114, 114, r.choice(("#dcecf2", "#e6f1ee", "#f3efe4")), .8, 6) for _ in range(26)))
+    d.glow(500, 200, 900, "#ffffff", .5)
+    vig(d, "#4f7386", .22, .5)
+
+
+@scenery("tatami", "畳", "上から見た畳の間。い草の目と、畳のへり。和風・茶の間・落ち着いた語りに", "light")
+def _(d, r):
+    d.__init__("#dedab0")
+    wv = d.pattern(7, 7, line(0, 0, 0, 7, "#b9b57e", 2, .5))
+    wh = d.pattern(7, 7, line(0, 0, 7, 0, "#b9b57e", 2, .5))
+    for x, y, w, h in ((0, 0, 960, 480), (960, 0, 480, 960), (1440, 0, 480, 960), (0, 480, 480, 960), (480, 480, 480, 960), (960, 960, 960, 480)):
+        hz = w > h
+        d.add(rect(x, y, w, h, r.choice(("#e0dcb2", "#dad6a8", "#e5e1ba"))), '<rect x="%d" y="%d" width="%d" height="%d" fill="%s"/>' % (x, y, w, h, wv if hz else wh))
+        for k in (0, 1):   # へり（長い辺）
+            d.add(rect(x, y + k * (h - 22), w, 22, "#5f6b4c") if hz else rect(x + k * (w - 22), y, 22, h, "#5f6b4c"))
+        d.add(rect(x, y, w, h, "none", extra=' stroke="#8f8b55" stroke-width="2"'))
+    d.glow(700, 300, 900, "#fffbe0", .3)
+    vig(d, "#3a3515", .25, .5)
+    wash(d, "#f4f1d6", .35)
+
+
+@scenery("denim", "デニム", "藍色のあや織りの布と、橙の縫い目。カジュアル・若者・ファッションの話に", "dark")
+def _(d, r):
+    d.__init__(("#2f4f80", "#243e69"))
+    d.fill(d.pattern(8, 8, line(-2, 10, 10, -2, "#9db7dd", 1.6) + line(-2, 2, 2, -2, "#9db7dd", 1.6) + line(6, 10, 10, 6, "#9db7dd", 1.6)), .22)
+    d.add("".join(line(x, y, x, y + r.uniform(30, 160), "#ffffff", 1.5, round(r.uniform(.03, .1), 3)) for x, y in ((r.uniform(0, W), r.uniform(-50, H)) for _ in range(240))))
+    st = ' fill="none" stroke="#e39a3c" stroke-width="5" stroke-dasharray="22 12" stroke-linecap="round" stroke-opacity=".9"'
+    d.add(rect(0, 0, 170, H, "#1f3559", .35), '<path d="M118 0V1080M150 0V1080"%s/>' % st)
+    d.add('<path d="M1380 1080V760Q1380 720 1420 716L1920 660"%s/>' % st, '<path d="M1412 1080V772Q1412 750 1436 748L1920 692"%s/>' % st)
+    d.add(circ(1398, 738, 17, "#b8763a"), circ(1398, 738, 8, "#8a5220"))
+    vig(d, "#0a1428", .5, .45)
+
+
+# ---------- 場所（色は決まっている） ----------
+
+
+@scenery("classroom", "教室", "窓から光の入る教室と、机の列。学校・授業・思い出の話に", "light")
+def _(d, r):
+    d.__init__(("#f6efdf", "#efe5cf"))
+    for i in range(4):
+        x = 330 + i * 400
+        d.add(rect(x, 150, 360, 430, "#ffffff", rx=4), '<rect x="%d" y="166" width="328" height="398" fill="%s"/>' % (x + 16, d.grad([(0, "#a9d8f7"), (1, "#eaf6fd")])), rect(x + 172, 166, 16, 398, "#ffffff"), rect(x + 16, 330, 328, 12, "#ffffff"))
+    d.add(cloud(620, 250, .3), cloud(1380, 290, .35), cloud(1010, 230, .22), rect(300, 580, 1640, 22, "#d9c9a8"))
+    d.add(poly([(0, 110), (230, 170), (230, 600), (0, 680)], "#7a5230"), poly([(0, 132), (214, 186), (214, 584), (0, 654)], "#2f5a45"), poly([(0, 654), (214, 584), (230, 600), (0, 690)], "#a06b3c"))
+    band(d, 740, 340, [(0, "#d6ad7c"), (1, "#bd8f5c")])
+    d.add(rect(0, 728, W, 14, "#c9b48c"), "".join(line(x, 740, 960 + (x - 960) * 1.6, H, "#a37646", 2, .5) for x in range(0, W + 1, 160)))
+    d.add(poly([(620, 742), (1700, 742), (1920, 1080), (420, 1080)], "#ffffff", .14))
+    d.add("".join(desk(210 + k * 385, 810, .8) for k in range(4)), "".join(desk(90 + k * 520, 940, 1.15) for k in range(4)))
+    wash(d, "#fffaf0", .30)
+
+
+@scenery("lab", "研究室", "実験台とフラスコ、薬びんの棚。科学・実験・研究の話に", "light")
+def _(d, r):
+    d.__init__(("#eff5f8", "#e3edf1"))
+    by = 860   # 実験台の上の面
+    for x0 in (70, 1330):   # 壁の棚と薬びん
+        for y0 in (190, 400):
+            d.add(rect(x0, y0, 520, 14, "#b9c6ce", rx=4))
+            x = x0 + 20
+            while x < x0 + 480:
+                w, h, c = r.randint(34, 60), r.randint(70, 130), r.choice(("#8fc7e8", "#f2c46d", "#b8dfa8", "#e8a2a2", "#c7b8ea", "#a8693c"))
+                d.add(rect(x, y0 - h, w, h, c, .85, 6), rect(x + w * .25, y0 - h - 12, w * .5, 14, "#6b7a86", rx=3), rect(x + 5, y0 - h * .6, w - 10, h * .28, "#ffffff", .75, 2))
+                x += w + r.randint(10, 26)
+    d.add(rect(760, 120, 400, 300, "#ffffff", rx=6), '<rect x="778" y="138" width="364" height="264" fill="%s"/>' % d.grad([(0, "#b3dcf6"), (1, "#eef8fd")]), rect(952, 138, 16, 264, "#ffffff"))
+    band(d, by + 40, H - by - 40, [(0, "#f7f9fa"), (1, "#dfe7ec")])
+    d.add(rect(0, by, W, 44, "#5a6a79"), rect(0, by, W, 10, "#738494"), "".join(line(x, by + 56, x, H, "#c3ced6", 3) + rect(x + 30, by + 84, 90, 12, "#aab6c0", rx=6) for x in range(0, W, 320)))
+    gl = ' stroke="#8fb3c6" stroke-width="4" stroke-linejoin="round"'
+    for x, sc, c in ((300, 1.2, "#5fc0d8"), (520, .9, "#f0a95a"), (1560, 1.1, "#8fd08a")):   # 三角フラスコ
+        d.add('<g transform="translate(%d %d) scale(%s)">%s%s</g>' % (x, by, n(sc), '<path d="M-14 -150H14V-96L62 -8Q66 0 56 0H-56Q-66 0 -62 -8L-14 -96Z" fill="#eaf6fb" fill-opacity=".8"%s/>' % gl,
+                                                                    '<path d="M-36 -52H36L60 -8Q62 -3 56 -3H-56Q-62 -3 -60 -8Z" fill="%s" fill-opacity=".85"/>' % c))
+    d.add(rect(700, by - 40, 220, 22, "#a9bcc8", rx=4), "".join(rect(718 + k * 50, by - 130, 26, 104, "#eaf6fb", .85, 12, gl) + rect(721 + k * 50, by - 80 - (k % 3) * 10, 20, 50 + (k % 3) * 10, ("#e88f8f", "#8fb8e8", "#f2d06b", "#a9dba0")[k], .85, 10) for k in range(4)))
+    d.add(rect(1180, by - 20, 200, 22, "#5a6a79", rx=6), rect(1290, by - 220, 34, 204, "#5a6a79", rx=8), '<path d="M1300 %dL1218 %d" stroke="#5a6a79" stroke-width="40" stroke-linecap="round"/>' % (by - 200, by - 130),
+          rect(1194, by - 130, 44, 60, "#3f4d5a", rx=6), rect(1190, by - 50, 120, 12, "#7b8a98", rx=4))
+    wash(d, "#f6fafc", .4)
+
+
+@scenery("library", "図書館", "高い本棚にはさまれた通路と、奥の大きな窓。読書・調べもの・学びの話に", "light")
+def _(d, r):
+    d.__init__(("#f3ead8", "#eadfc8"))
+    d.add(path("M700 660V330A260 260 0 0 1 1220 330V660Z", "#ffffff"), '<path d="M724 660V332A236 236 0 0 1 1196 332V660Z" fill="%s"/>' % d.grad([(0, "#bfe2f8"), (1, "#f2fafe")]))
+    d.add(rect(952, 98, 16, 562, "#ffffff"), rect(724, 400, 472, 14, "#ffffff"), rect(724, 540, 472, 12, "#ffffff"))
+    d.glow(960, 420, 700, "#ffffff", .55)
+    band(d, 660, 420, [(0, "#cfab80"), (1, "#b08a5c")])
+    d.add(poly([(830, 660), (1090, 660), (1400, H), (520, H)], "#9a4444", .3), poly([(858, 660), (1062, 660), (1330, H), (590, H)], "#b45a55", .3))
+    cols = ("#a55252", "#57789f", "#6a9470", "#c2a05a", "#84679a", "#b8744e", "#4f8a8e", "#c9bfa9", "#c56b7a", "#526a8d")
+    for x0, x1, top, bot, rows in ((345, 530, 160, 890, 6), (-20, 310, -40, 1120, 7)):
+        for side in (0, 1):
+            xa, xb = (x0, x1) if side == 0 else (W - x1, W - x0)
+            sc, rh = (x1 - x0) / 330, (bot - top) / rows
+            d.add(rect(xa, top, xb - xa, bot - top, "#8f6840"), rect(xa, top, xb - xa, bot - top, "none", extra=' stroke="#6f4e2c" stroke-width="%s"' % n(8 * sc)))
+            for j in range(rows):
+                y = top + j * rh + rh * .12
+                d.add(rect(xa + 10 * sc, y, xb - xa - 20 * sc, rh * .8, "#5a3f22"))
+                books(d, r, xa + 12 * sc, xb - 12 * sc, y, rh * .8, cols, max(.45, sc))
+    d.add(rect(700, 960, 520, 26, "#7a5230", rx=6), rect(730, 986, 20, 100, "#5f3f22"), rect(1170, 986, 20, 100, "#5f3f22"))
+    for x in (800, 1120):
+        d.add(rect(x - 5, 900, 10, 60, "#3d4a40"), poly([(x - 46, 900), (x + 46, 900), (x + 28, 866), (x - 28, 866)], "#3f8a62"))
+        d.glow(x, 930, 120, "#fff2c0", .5)
+    wash(d, "#fbf3e2", .55)
+
+
+@scenery("meeting-room", "会議室", "長い机といす、奥に白いスクリーン。会議・打ち合わせ・仕事の説明に", "light")
+def _(d, r):
+    d.__init__(("#eef1f4", "#e3e8ed"))
+    d.add("".join(rect(260 + i * 380, 0, 260, 20, "#ffffff", rx=6) for i in range(4)))
+    d.add(rect(520, 110, 880, 500, "#c3cbd4", rx=8), rect(536, 126, 848, 468, "#fbfcfd", rx=4))
+    d.add(rect(60, 150, 330, 460, "#ffffff", rx=4), '<rect x="76" y="166" width="298" height="428" fill="%s"/>' % d.grad([(0, "#bfe0f6"), (1, "#eef8fd")]), "".join(rect(76, 166 + k * 36, 298, 10, "#ffffff", .85) for k in range(12)))
+    d.add("".join('<ellipse cx="1695" cy="470" rx="34" ry="120" fill="%s" transform="rotate(%d 1695 590)"/>' % (c, a) for a, c in ((-44, "#4f9a5c"), (-20, "#5fae6c"), (4, "#4f9a5c"), (26, "#5fae6c"), (48, "#4f9a5c"))), rect(1640, 570, 110, 140, "#b9c0ca", rx=10))
+    band(d, 700, 380, [(0, "#b3bfcc"), (1, "#97a4b4")])
+    d.add(rect(0, 690, W, 12, "#ffffff"))
+    d.add("".join(rect(400 + i * 250, 660, 130, 150, "#9aa7b8", rx=22) for i in range(5)))
+    d.add(poly([(300, 800), (1620, 800), (1840, 1010), (80, 1010)], "#cda06c"), poly([(80, 1010), (1840, 1010), (1840, 1050), (80, 1050)], "#a57a48"), poly([(300, 800), (1620, 800), (1634, 814), (286, 814)], "#e0ba88"))
+    d.add("".join(rect(250 + i * 400, 965, 220, 160, "#414f64", rx=30) for i in range(4)))
+    wash(d, "#f4f6f8", .30)
+
+
+@scenery("server-room", "サーバールーム", "両側に機械の棚が並ぶ、青い光の通路。IT・クラウド・データの話に", "dark")
+def _(d, r):
+    d.__init__(("#050b18", "#0a1730", "#071022"))
+    vx, vy = 960, 500
+
+    def P(sx, sy, z):
+        s = 1 / (1 + z)
+        return (vx + sx * s, vy + sy * s)
+    d.add(poly([P(-700, 620, -.3), P(700, 620, -.3), P(700, 620, 5), P(-700, 620, 5)], "#0c1c36"), poly([P(-700, -560, -.3), P(700, -560, -.3), P(700, -560, 5), P(-700, -560, 5)], "#081327"))
+    for z in (0, .35, .8, 1.4, 2.2, 3.3, 5):
+        a, b = P(-700, 620, z), P(700, 620, z)
+        d.add(line(a[0], a[1], b[0], b[1], "#2a5aa0", 2, .5))
+    for sx in range(-700, 701, 280):
+        a, b = P(sx, 620, -.3), P(sx, 620, 5)
+        d.add(line(a[0], a[1], b[0], b[1], "#2a5aa0", 2, .4))
+    d.add(poly([P(-80, -560, -.3), P(80, -560, -.3), P(80, -560, 5), P(-80, -560, 5)], "#bfe2ff", .3))
+    a, b = P(-700, -560, 5), P(700, 620, 5)
+    d.add(rect(a[0], a[1], b[0] - a[0], b[1] - a[1], "#10305c"), rect(a[0] + 70, a[1] + 40, b[0] - a[0] - 140, b[1] - a[1] - 40, "#3f8fe6", .7))
+    d.glow(vx, vy, 520, "#2f7bff", .4)
+    zs = (-.3, 0, .35, .8, 1.4, 2.2, 3.3, 5)
+    for k in range(len(zs) - 2, -1, -1):
+        z0, z1 = zs[k], zs[k + 1]
+        for side in (-1, 1):
+            sx = side * 700
+            d.add(poly([P(sx, -560, z0), P(sx, -560, z1), P(sx, 620, z1), P(sx, 620, z0)], "#0d1a30", extra=' stroke="#234a80" stroke-width="2"'))
+            for j in range(11):
+                sy = -480 + j * 104
+                a, b = P(sx, sy, z0 + (z1 - z0) * .16), P(sx, sy, z0 + (z1 - z0) * .84)
+                d.add(line(a[0], a[1], b[0], b[1], "#1b3358", 10 / (1 + z0), .9))
+                for t in (.2, .3, .42, .7):
+                    if r.random() < .7:
+                        q = P(sx, sy, z0 + (z1 - z0) * t)
+                        d.add(circ(q[0], q[1], 4.5 / (1 + z0), r.choice(("#4de3a8", "#4de3a8", "#5bc0ff", "#ffc24d")), .95))
+    vig(d, "#000000", .5, .5)
+
+
+@scenery("station", "駅のホーム", "屋根と柱のあるホームと、線路の向こうの街。旅・通勤・出会いと別れの話に", "light")
+def _(d, r):
+    d.__init__(("#8cc6f0", "#d3ebfa", "#f1f9fe"))
+    d.add(cloud(520, 330, .7, "#ffffff", .85), cloud(1350, 380, .55, "#ffffff", .8))
+    d.add(path(under(hills(r, 640, 70, 120, .8)), "#b7d3c8"))
+    for x, y, w, h in skyline(r, 700, 40, 130, 60, 130):
+        d.add(rect(x, y, w, h, "#c6d6e2"))
+    d.add(rect(0, 690, W, 26, "#aeb8c2"), rect(0, 716, W, 90, "#8a7765"), '<rect y="730" width="%d" height="52" fill="%s"/>' % (W, d.pattern(46, 52, rect(16, 0, 14, 52, "#5f4e40"))), rect(0, 740, W, 7, "#c9ced4"), rect(0, 766, W, 7, "#c9ced4"))
+    band(d, 800, 280, [(0, "#dcdfe2"), (1, "#bfc4ca")])
+    d.add(rect(0, 800, W, 14, "#f5f6f7"), rect(0, 836, W, 30, "#f2c230"), '<rect y="836" width="%d" height="30" fill="%s"/>' % (W, d.pattern(20, 30, circ(10, 9, 3, "#d9a514") + circ(10, 21, 3, "#d9a514"))))
+    d.add(rect(0, 0, W, 70, "#4c647e"), rect(0, 70, W, 16, "#384c63"), "".join(rect(x, 86, 34, 730, "#5f7994") + rect(x - 14, 86, 62, 30, "#4c647e") + rect(x - 10, 786, 54, 30, "#4c647e") for x in (210, 1676)))
+    d.add(rect(356, 86, 8, 54, "#384c63"), rect(656, 86, 8, 54, "#384c63"), rect(300, 138, 420, 96, "#1f5fa8", rx=6), rect(316, 154, 388, 30, "#ffffff", .92, 4), rect(316, 196, 250, 22, "#ffffff", .5, 4))
+    d.add(rect(1446, 86, 8, 60, "#384c63"), circ(1450, 196, 56, "#384c63"), circ(1450, 196, 46, "#fbfcfd"), line(1450, 196, 1450, 164, "#2a3442", 5), line(1450, 196, 1474, 208, "#2a3442", 5))
+    d.add(rect(1180, 930, 330, 22, "#3f7fb5", rx=6), rect(1180, 880, 330, 16, "#3f7fb5", rx=6), rect(1180, 905, 330, 12, "#3f7fb5", rx=6), rect(1200, 880, 14, 110, "#5b6672"), rect(1476, 880, 14, 110, "#5b6672"))
+    wash(d, "#eef7fd", .50)
+
+
+@scenery("shopping-street", "商店街", "日よけと店先が並ぶ通りと、三角の旗。買いもの・町・にぎわいの話に", "light")
+def _(d, r):
+    d.__init__(("#9fd3f5", "#e3f3fc", "#fbf3e0"))
+    d.add(cloud(960, 250, .5, "#ffffff", .8))
+    for x, y, w, h in skyline(r, 700, 60, 190, 70, 140):
+        if 600 < x < 1200:
+            d.add(rect(x, y, w, h, "#e6d9c4"))
+    d.add(poly([(700, 700), (1220, 700), (W, H), (0, H)], "#dbcfba"), poly([(930, 700), (990, 700), (1110, H), (810, H)], "#efe6d4", .8))
+    walls, awn = ("#f3e3c6", "#f1cfc6", "#cfe5d6"), ("#d8533f", "#3f8f6a", "#3f73b5")
+    for k, (x0, x1, top, bot) in enumerate(((620, 735, 400, 790), (420, 620, 250, 900), (0, 420, 40, H))):
+        for side in (0, 1):
+            xa, xb = (x0, x1) if side == 0 else (W - x1, W - x0)
+            w, h, ci = xb - xa, bot - top, (k + side) % 3
+            d.add(rect(xa, top, w, h, walls[ci]), rect(xa, top, w, h * .04, "#c9b08a"))
+            d.add(rect(xa + w * .18, top + h * .1, w * .64, h * .18, "#ffffff", rx=4), rect(xa + w * .21, top + h * .115, w * .58, h * .15, "#bfe0f2"), rect(xa + w * .49, top + h * .1, w * .02, h * .18, "#ffffff"))
+            d.add(rect(xa + w * .1, top + h * .33, w * .8, h * .08, "#fbf6ea", rx=4), rect(xa + w * .16, top + h * .355, w * .5, h * .03, awn[ci], .7, 3))
+            d.add(rect(xa + w * .06, top + h * .56, w * .88, h * .44, "#6f5140"), rect(xa + w * .1, top + h * .82, w * .8, h * .1, "#c79a66"))
+            d.add("".join(circ(xa + w * (.16 + .1 * j), top + h * .81, w * .04, ("#e8743b", "#e2c23f", "#d8473f", "#7fb857")[(j + k) % 4]) for j in range(8)))
+            nst = 8
+            d.add("".join(rect(xa + w * j / nst, top + h * .46, w / nst + .5, h * .1, awn[ci] if j % 2 else "#fbf6ea") for j in range(nst)),
+                  "".join(circ(xa + w * (j + .5) / nst, top + h * .56, w / nst / 2, awn[ci] if j % 2 else "#fbf6ea") for j in range(nst)))
+    for y0, sag in ((40, 150), (150, 110)):   # 三角の旗
+        d.add(path("M0 %dQ960 %d 1920 %d" % (y0, y0 + sag * 2, y0), stroke="#8a7a66", w=3))
+        for j in range(25):
+            t = (j + .5) / 25
+            x, y = t * W, y0 + sag * 2 * 2 * t * (1 - t)
+            d.add(poly([(x - 24, y), (x + 24, y), (x, y + 50)], ("#e8743b", "#3f8f6a", "#e2c23f", "#3f73b5", "#d8473f")[j % 5], .9))
+    wash(d, "#fdf6e8", .50)
+
+
+@scenery("kitchen", "台所", "タイルの壁と調理台、なべと棚。料理・暮らし・家の話に", "light")
+def _(d, r):
+    d.__init__("#f5efe2")
+    cy = 850   # 調理台の上の面
+    d.add(rect(0, 430, W, cy - 430, "#d6e0dd"), '<rect y="430" width="%d" height="%d" fill="%s"/>' % (W, cy - 430, d.pattern(96, 70, rect(2, 2, 92, 66, "#fbfdfc", rx=4))))
+    d.add(rect(690, 90, 540, 320, "#ffffff", rx=6), '<rect x="708" y="108" width="504" height="284" fill="%s"/>' % d.grad([(0, "#a9d8f7"), (1, "#eaf6fd")]), rect(952, 108, 16, 284, "#ffffff"), rect(670, 404, 580, 20, "#e2d3b6", rx=4),
+          cloud(840, 220, .3), rect(1100, 356, 50, 48, "#d8734d", rx=6), circ(1125, 336, 30, "#5fae6c"), circ(1104, 346, 20, "#4f9a5c"), circ(1148, 348, 18, "#4f9a5c"))
+    for x in (50, 1370):
+        d.add(rect(x, 50, 500, 320, "#ead9bb", rx=6), rect(x + 248, 50, 4, 320, "#c9b48c"), rect(x + 212, 300, 12, 46, "#a7b0b8", rx=6), rect(x + 276, 300, 12, 46, "#a7b0b8", rx=6), rect(x, 362, 500, 10, "#c9b48c"))
+    for x0 in (90, 1390):   # 壁の棒と、つるした道具
+        d.add(rect(x0, 476, 440, 8, "#a7b0b8", rx=4))
+        for k, kind in enumerate((0, 1, 2, 0)):
+            x = x0 + 70 + k * 100
+            d.add(rect(x - 3, 484, 6, 110, "#8a949d", rx=3), (ell(x, 612, 26, 22, "#8a949d") if kind == 0 else rect(x - 20, 590, 40, 56, "#8a949d", rx=8) if kind == 1 else ell(x, 616, 16, 30, "#8a949d", extra=' fill-opacity=".6"')))
+    band(d, cy + 36, H - cy - 36, [(0, "#f6efe0"), (1, "#e6dcc6")])
+    d.add(rect(0, cy, W, 38, "#cfa878"), rect(0, cy, W, 8, "#e0be92"), "".join(line(x, cy + 50, x, H, "#cdbf9f", 3) + rect(x + 130, cy + 76, 60, 12, "#a7b0b8", rx=6) for x in range(0, W, 320)))
+    d.add(rect(220, cy - 22, 400, 24, "#3d444c", rx=4), rect(300, cy - 110, 200, 90, "#d8734d", rx=14), rect(288, cy - 124, 224, 22, "#c2603c", rx=10), circ(400, cy - 132, 13, "#3d444c"), rect(268, cy - 86, 34, 14, "#3d444c", rx=6), rect(498, cy - 86, 34, 14, "#3d444c", rx=6))
+    d.add("".join(path("M%d %dq-16 -22 0 -44q16 -22 0 -44" % (x, cy - 150), stroke="#ffffff", w=7, o=.8, extra=' stroke-linecap="round"') for x in (360, 400, 440)))
+    d.add(path("M1090 %dV%da34 34 0 0 1 68 0v16" % (cy, cy - 60), stroke="#a7b0b8", w=14, extra=' stroke-linecap="round"'), rect(1000, cy - 6, 240, 10, "#b9c2c9", rx=4))
+    d.add(rect(1330, cy - 44, 230, 46, "#dcb780", rx=8), circ(1400, cy - 50, 22, "#d8473f"), circ(1452, cy - 46, 18, "#e2c23f"), rect(1500, cy - 60, 90, 10, "#c9ced4", rx=3))
+    for k, c in enumerate(("#e8c98a", "#b8d8a0", "#e8a98a")):
+        d.add(rect(1640 + k * 86, cy - 100, 66, 100, "#f3f7f8", .9, 8, ' stroke="#b9c6cc" stroke-width="3"'), rect(1646 + k * 86, cy - 60, 54, 54, c, rx=6), rect(1636 + k * 86, cy - 114, 74, 18, "#8a6238", rx=5))
+    wash(d, "#fbf7ee", .3)
+
+
+@scenery("hospital", "病院", "淡い緑の病室。窓とカーテン、白いベッド。医療・健康・体の話に", "light")
+def _(d, r):
+    d.__init__(("#eef7f4", "#e2f0ec"))
+    d.add(rect(560, 140, 620, 440, "#ffffff", rx=6), '<rect x="580" y="160" width="580" height="400" fill="%s"/>' % d.grad([(0, "#a9d8f7"), (1, "#eef8fd")]), rect(862, 160, 16, 400, "#ffffff"), cloud(740, 300, .35), cloud(1030, 420, .28))
+    d.add(rect(40, 80, 1300, 10, "#b9c4c2", rx=5), "".join(rect(70 + k * 46, 90, 44, 640, "#bfe0dc" if k % 2 else "#a9d3ce", rx=18) for k in range(6)))
+    d.add(rect(0, 660, W, 16, "#dcbd90", rx=0))
+    band(d, 780, 300, [(0, "#d3e5e0"), (1, "#bcd4ce")])
+    d.add(rect(0, 772, W, 12, "#ffffff"))
+    d.add(rect(1560, 180, 150, 150, "#ffffff", rx=22), rect(1617, 205, 36, 100, "#3aa67a", rx=6), rect(1585, 237, 100, 36, "#3aa67a", rx=6))
+    d.add(rect(1284, 300, 10, 620, "#aab4b8"), rect(1236, 300, 106, 10, "#aab4b8", rx=5), rect(1248, 316, 50, 90, "#dff1f7", rx=12, extra=' stroke="#9cc3d2" stroke-width="3"'), rect(1254, 360, 38, 40, "#9fd6ea", .8, 8),
+          path("M1273 406V470Q1273 520 1330 560L1420 800", stroke="#9cc3d2", w=3), rect(1234, 916, 110, 12, "#aab4b8", rx=6))
+    d.add(rect(1800, 610, 30, 330, "#b9c4c2", rx=8), rect(1226, 720, 26, 220, "#b9c4c2", rx=8), rect(1240, 868, 580, 24, "#b9c4c2", rx=6), rect(1250, 800, 566, 72, "#ffffff", rx=16), rect(1660, 762, 136, 52, "#ffffff", rx=24, extra=' stroke="#d5e2df" stroke-width="3"'),
+          rect(1250, 776, 400, 96, "#9fcbe6", rx=20), rect(1250, 776, 400, 26, "#c3e0f1", rx=13), circ(1262, 950, 16, "#6b7a80"), circ(1806, 950, 16, "#6b7a80"))
+    d.add(rect(330, 790, 200, 200, "#f7f3ea", rx=8, extra=' stroke="#d9cfb8" stroke-width="4"'), rect(346, 850, 168, 4, "#d9cfb8"), rect(406, 814, 48, 10, "#b9c4c2", rx=5), rect(406, 880, 48, 10, "#b9c4c2", rx=5),
+          rect(402, 720, 56, 72, "#9fd6ea", .8, 10), circ(416, 690, 22, "#f2a0b4"), circ(446, 680, 22, "#f6c453"), circ(432, 708, 18, "#f2a0b4"), rect(428, 700, 5, 40, "#5fae6c"))
+    wash(d, "#f2f9f7", .30)
+
+
+@scenery("factory", "工場", "夕暮れの空に、のこぎり屋根と煙突の影。ものづくり・産業・働く話に", "dark")
+def _(d, r):
+    d.__init__(("#161c38", "#3a3256", "#8f5566", "#dc9562"))
+    d.add(stars(r, 50, ymax=360))
+    d.glow(960, 1000, 900, "#ffc27a", .3)
+    for cx, cy in ((398, 250), (538, 170), (1560, 340)):
+        d.add("".join(circ(cx + k * 40 + r.uniform(-10, 10), cy - k * 44, 40 + k * 18, "#cbb6c6", round(.24 - k * .035, 3)) for k in range(6)))
+    far = "#3a3350"
+    d.add(rect(1050, 620, 160, 260, far, rx=24), rect(1230, 660, 130, 220, far, rx=24), rect(700, 700, 320, 180, far), poly([(40, 880), (40, 720), (200, 660), (200, 880)], far))
+    c = "#16162a"
+    d.add(rect(370, 300, 56, 600, c), rect(362, 290, 72, 20, c), rect(510, 220, 56, 680, c), rect(502, 210, 72, 20, c), rect(370, 380, 56, 26, "#7a4a55"), rect(510, 300, 56, 26, "#7a4a55"), rect(1536, 380, 48, 520, c), rect(1528, 370, 64, 18, c))
+    d.add("".join(poly([(620 + k * 190, 800), (620 + k * 190, 690), (810 + k * 190, 800)], c) for k in range(4)), rect(620, 800, 760, 120, c), rect(240, 760, 380, 160, c))
+    d.add(rect(1420, 620, 190, 300, c, rx=30), rect(1640, 680, 150, 240, c, rx=30), path("M1420 700H1300V920M1610 760H1640M1790 800H1900V920", stroke=c, w=18))
+    d.add("".join(rect(270 + k * 56, 800, 30, 36, "#ffd879", .9) for k in range(6)), "".join(rect(650 + k * 60, 830, 34, 24, "#ffd879", .85) for k in range(12)), "".join(rect(668 + k * 190, 730, 60, 40, "#ffe9a8", .5) for k in range(4)))
+    d.add(rect(0, 900, W, 180, "#0f1020"), "".join(rect(x, 870, 6, 40, c) for x in range(0, W, 60)), rect(0, 880, W, 5, c))
+
+
+@scenery("harbor", "港", "青い海と、クレーン、積まれたコンテナ、沖の船。貿易・物流・旅立ちの話に", "light")
+def _(d, r):
+    d.__init__(("#7cc0ee", "#cfe9f9", "#eef8fe"))
+    d.add(cloud(400, 220, .9), cloud(1150, 300, .6, "#ffffff", .85))
+    band(d, 640, 440, [(0, "#4a9bd6"), (1, "#2f76b5")])
+    d.add("".join(rect(r.uniform(0, W), r.uniform(660, 870), r.uniform(30, 110), 4, "#ffffff", round(r.uniform(.25, .6), 2), 2) for _ in range(70)))
+    cc = ("#d8533f", "#3f8f6a", "#e2a83f", "#3f73b5", "#8a6fb0")
+    d.add(poly([(640, 612), (1130, 612), (1104, 656), (670, 656)], "#34506e"), rect(640, 606, 490, 8, "#d8533f"), rect(1040, 548, 70, 60, "#f4f6f8"), rect(1050, 558, 50, 12, "#5b7fa3"), rect(1062, 520, 22, 30, "#d8533f"),
+          "".join(rect(670 + (k % 6) * 60, 584 - (k // 6) * 24, 56, 22, cc[(k * 3 + k // 6) % 5]) for k in range(11)))
+    d.add(rect(0, 880, W, 200, "#b9bfc6"), rect(0, 880, W, 16, "#dfe3e7"), "".join(rect(x, 852, 44, 34, "#3d4854", rx=8) for x in (760, 1040)))
+    for row in range(3):
+        for k in range(4 - row):
+            x, y = 50 + k * 196 + row * 70, 880 - (row + 1) * 86
+            d.add(rect(x, y, 186, 82, cc[(k + row * 2) % 5], rx=3), "".join(line(x + 14 + j * 16, y + 8, x + 14 + j * 16, y + 74, "#000000", 2, .14) for j in range(11)))
+    kr = "#e2683c"
+    for x in (1420, 1700):   # 門の形のクレーン
+        d.add(path("M%d 880V420M%d 880V420M%d 640H%d M%d 520L%d 640M%d 520L%d 640" % (x, x + 150, x, x + 150, x, x + 150, x + 150, x), stroke=kr, w=14), rect(x - 330, 404, 560, 26, kr), rect(x + 40, 350, 70, 56, kr),
+              path("M%d 350L%d 404M%d 350L%d 404" % (x + 75, x - 320, x + 75, x + 220), stroke=kr, w=6), rect(x - 250, 430, 60, 34, "#3d4854"), line(x - 220, 464, x - 220, 560, "#3d4854", 3), rect(x - 258, 560, 76, 30, cc[(x // 100) % 5]))
+    d.add("".join(path("M%d %dq12 -14 24 0q12 -14 24 0" % (x, y), stroke="#5b6f85", w=4) for x, y in ((620, 380), (700, 430), (1000, 200))))
+    wash(d, "#e6f3fb", .55)
+
+
+@scenery("space-station", "宇宙ステーション", "青い星のふちと、太陽電池の羽を広げた基地。宇宙開発・未来・国際協力の話に", "dark")
+def _(d, r):
+    d.__init__("#04060f")
+    d.add(stars(r, 240, big=2.2))
+    d.glow(300, 200, 600, "#3a4fd1", .22)
+    d.add(circ(960, 2900, 2050, "#7fd3ff", .16), circ(960, 2900, 2030, "#7fd3ff", .3), '<circle cx="960" cy="2900" r="2010" fill="%s"/>' % d.grad([(0, "#2f86dc"), (.12, "#0e3f86")]))
+    d.defs.append('<clipPath id="earth"><circle cx="960" cy="2900" r="2010"/></clipPath>')
+    d.add('<g clip-path="url(#earth)">%s%s</g>' % ("".join(path(blob(x, y, 150, r, 9, .35), "#3f9a6a", o=.75) for x, y in ((520, 1040), (1500, 1010))),
+                                                  "".join(ell(r.uniform(0, W), r.uniform(930, 1080), r.uniform(80, 240), r.uniform(10, 26), "#ffffff", round(r.uniform(.3, .65), 2)) for _ in range(16))))
+    pan = d.pattern(26, 36, rect(0, 0, 26, 36, "#1f4f9e") + path("M26 0H0V36", stroke="#7fb0ee", w=1.5))
+    body = (rect(-430, -7, 860, 14, "#aeb6c2") + "".join('<rect x="%d" y="%d" width="78" height="150" fill="%s" stroke="#9fb6d6" stroke-width="3"/>' % (sx, sy, pan) for sx in (-420, -320, 242, 342) for sy in (-172, 22))
+            + rect(-34, -170, 68, 330, "#c3cad4", rx=26) + rect(-120, -48, 240, 96, "#dde2ea", rx=42) + rect(-150, -30, 34, 60, "#9aa3b0", rx=8) + rect(116, -30, 34, 60, "#9aa3b0", rx=8)
+            + "".join(circ(-60 + k * 40, 0, 9, "#2a3a58") for k in range(4)) + rect(-200, 60, 90, 60, "#f4f6f8", rx=4) + rect(110, -120, 90, 60, "#f4f6f8", rx=4) + line(0, -170, 0, -230, "#c3cad4", 5) + circ(0, -236, 12, "#e8ecf2"))
+    d.add('<g transform="translate(1530 290) rotate(-14) scale(.66)">%s</g>' % body)
+
+
+@scenery("park", "公園", "木立と芝生、小道とベンチ、街灯。休日・散歩・身近な自然の話に", "light")
+def _(d, r):
+    d.__init__(("#8fd0f5", "#d8f0fb", "#f3fbfe"))
+    d.add(cloud(480, 240, .8), cloud(1300, 180, .6, "#ffffff", .85))
+    d.add("".join(circ(x, 650 + r.uniform(-24, 24), r.uniform(80, 124), "#a5d6a1") for x in range(-40, W + 100, 140)))
+    d.add(path(under(hills(r, 720, 40, 120, .5)), "#93d072"), path(under(hills(r, 830, 40, 120, .5)), "#80c260"))
+    d.add(path("M820 1080C880 940 1240 900 1130 800C1080 756 1000 740 960 726L1000 726C1060 740 1150 756 1210 800C1340 900 1140 940 1200 1080Z", "#efe0bc"))
+    d.add(tree(1470, 760, .7), tree(520, 760, .6), tree(220, 860, 1.5), tree(1720, 840, 1.35))
+    d.add(rect(1384, 590, 12, 370, "#3d4854"), rect(1372, 950, 36, 14, "#3d4854", rx=4), rect(1364, 560, 52, 12, "#3d4854", rx=4), circ(1390, 590, 24, "#fff6cf"))
+    d.add(rect(400, 930, 320, 18, "#b0743f", rx=4), rect(400, 880, 320, 14, "#b0743f", rx=4), rect(400, 902, 320, 14, "#b0743f", rx=4), rect(420, 880, 14, 110, "#3d4854"), rect(686, 880, 14, 110, "#3d4854"))
+    d.add("".join(circ(x, y, 9, c) + circ(x, y, 3.5, "#fff3b0") for x, y, c in ((r.choice((r.uniform(40, 360), r.uniform(1500, 1880))), r.uniform(960, 1060), r.choice(("#f28aa5", "#ffffff", "#f6c453", "#c79be8"))) for _ in range(36))))
+    wash(d, "#eef9f0", .35)
+
+
+@scenery("countryside", "田園", "山のふもとに広がる田んぼと、かやぶきの家。ふるさと・農業・昔の暮らしの話に", "light")
+def _(d, r):
+    d.__init__(("#9fd4f3", "#dcf0fa", "#f6fbf2"))
+    d.add(cloud(420, 200, .8), cloud(1420, 260, .6, "#ffffff", .85))
+    d.add(path(under(hills(r, 620, 200, 120, .6)), "#a9c9c8"), path(under(hills(r, 680, 130, 120, .9)), "#86b59a"))
+    d.add(rect(0, 690, W, 390, "#a8d07a"))
+    ys = [690 + 390 * (k / 6) ** 1.5 for k in range(7)]
+    for k in range(6):
+        d.add(rect(0, ys[k], W, ys[k + 1] - ys[k], "#9fcb72" if k % 2 else "#b6d98a"), '<rect y="%s" width="%d" height="%s" fill="%s" opacity=".5"/>' % (n(ys[k]), W, n(ys[k + 1] - ys[k]), d.pattern(14 + k * 8, 10 + k * 6, rect(0, 0, 4 + k * 2, 6 + k * 3, "#6fae52"))))
+        d.add(rect(0, ys[k] - 3, W, 6 + k, "#7fa85a"))
+    d.add("".join(poly([(960 + x * .12 - 5, 690), (960 + x * .12 + 5, 690), (960 + x + 14, H), (960 + x - 14, H)], "#7fa85a") for x in (-1500, -820, -260, 300, 880, 1560)))
+    d.add(tree(150, 720, .9, "#5fa35a", "#4b8a4a"), rect(230, 590, 300, 110, "#f3ead6"), poly([(190, 600), (570, 600), (500, 480), (260, 480)], "#8a6a44"), poly([(250, 480), (510, 480), (490, 462), (270, 462)], "#6f5334"),
+          rect(350, 630, 60, 70, "#6f5334"), rect(260, 626, 60, 44, "#8a6a44"), rect(440, 626, 60, 44, "#8a6a44"))
+    d.add(line(1560, 500, 1560, 700, "#6f5a44", 9), line(1520, 530, 1600, 530, "#6f5a44", 7), path("M1600 530Q1760 580 1920 540", stroke="#6f5a44", w=2), path("M1520 530Q1000 620 560 520", stroke="#6f5a44", w=2, o=.5))
+    wash(d, "#f1f9ee", .35)
+
+
+@scenery("office", "オフィス", "大きな窓の向こうにビル街、手前に机と画面。会社・働き方・ビジネスの話に", "light")
+def _(d, r):
+    d.__init__(("#f7f8fa", "#e6eaef"))
+    band(d, 120, 500, [(0, "#a9d6f5"), (1, "#e8f5fc")])
+    d.add(cloud(520, 230, .5, "#ffffff", .8), cloud(1380, 200, .4, "#ffffff", .8))
+    for x, y, w, h in skyline(r, 620, 150, 400, 70, 150):
+        d.add(rect(x, y, w, h, "#cfe0ee"))
+    for x, y, w, h in skyline(r, 620, 60, 240, 80, 160):
+        d.add(rect(x, y, w, h, "#b4cde2"))
+    d.add("".join(rect(x - 7, 120, 14, 500, "#ffffff") for x in range(0, W + 1, 384)), rect(0, 108, W, 16, "#ffffff"), rect(0, 612, W, 22, "#ffffff"), rect(0, 634, W, 130, "#dfe4ea"),
+          "".join(rect(200 + i * 400, 30, 240, 16, "#ffffff", rx=6) for i in range(4)))
+    band(d, 764, 316, [(0, "#c9d0d9"), (1, "#aeb7c3")])
+    d.add("".join('<ellipse cx="80" cy="640" rx="30" ry="110" fill="%s" transform="rotate(%d 80 760)"/>' % (c, a) for a, c in ((-36, "#4f9a5c"), (-12, "#5fae6c"), (14, "#4f9a5c"), (38, "#5fae6c"))), rect(34, 750, 92, 120, "#f4f6f8", rx=10))
+    for x in (190, 760, 1330):
+        y = 820   # 画面の上の端
+        d.add(rect(x + 150, y, 180, 116, "#3f4b5c", rx=8), rect(x + 160, y + 10, 160, 96, "#8fb0d8"), rect(x + 172, y + 24, 90, 8, "#ffffff", .7, 3), rect(x + 172, y + 42, 120, 8, "#ffffff", .45, 3), rect(x + 172, y + 60, 70, 8, "#ffffff", .45, 3),
+              rect(x + 228, y + 116, 24, 30, "#5b6672"), rect(x + 190, y + 142, 100, 8, "#5b6672", rx=4), rect(x, y + 150, 480, 22, "#ead5b2", rx=4), rect(x + 16, y + 172, 14, 100, "#aab3be"), rect(x + 450, y + 172, 14, 100, "#aab3be"),
+              rect(x + 320, y + 172, 130, 100, "#f4f6f8", rx=4, extra=' stroke="#c3cad4" stroke-width="3"'), rect(x + 60, y + 126, 50, 24, "#f4f6f8", rx=4), rect(x + 110, y + 220, 150, 60, "#4d5b72", rx=26))
+    wash(d, "#f3f6f9", .35)
+
+
+@scenery("cafe", "喫茶店", "あたたかい灯りのカウンターと、棚のカップ。休憩・雑談・コーヒーの話に", "dark")
+def _(d, r):
+    d.__init__(("#2a1b13", "#3a261a"))
+    d.add('<rect width="%d" height="780" fill="%s" opacity=".5"/>' % (W, d.pattern(120, 780, line(0, 0, 0, 780, "#1c110a", 3))))
+    for x0 in (90, 1330):
+        for y0 in (330, 520):
+            d.add(rect(x0, y0, 500, 16, "#7a4f2a", rx=3), rect(x0 + 30, y0 + 16, 10, 30, "#5a3a20"), rect(x0 + 460, y0 + 16, 10, 30, "#5a3a20"))
+            x = x0 + 24
+            while x < x0 + 440:
+                k = r.randint(0, 2)
+                if k == 0:
+                    d.add(rect(x, y0 - 44, 46, 44, "#efe6d2", rx=8), '<circle cx="%d" cy="%d" r="13" fill="none" stroke="#efe6d2" stroke-width="6"/>' % (x + 50, y0 - 24))
+                    x += 84
+                elif k == 1:
+                    d.add(rect(x, y0 - 86, 48, 86, r.choice(("#8a5a33", "#b08a3c", "#6f8a5a")), rx=8), rect(x + 6, y0 - 100, 36, 16, "#3a2414", rx=4))
+                    x += 70
+                else:
+                    d.add(rect(x, y0 - 34, 54, 34, "#b0633f", rx=6), circ(x + 27, y0 - 58, 30, "#4f8a55"), circ(x + 8, y0 - 46, 18, "#3f7a48"))
+                    x += 84
+    for x in (420, 960, 1500):
+        d.glow(x, 250, 430, "#ffcf87", .3)
+        d.add(line(x, 0, x, 150, "#120a06", 5), poly([(x - 66, 216), (x + 66, 216), (x + 30, 148), (x - 30, 148)], "#c98a3c"), ell(x, 216, 66, 10, "#ffe9b8"))
+    d.add(rect(0, 850, W, 34, "#9a6638"), rect(0, 850, W, 8, "#b87f49"))
+    band(d, 884, 196, [(0, "#4e3220"), (1, "#27170e")])
+    d.add("".join(line(x, 890, x, H, "#1c110a", 4, .6) for x in range(60, W, 240)))
+    for x in (330, 1530):
+        d.add(ell(x + 30, 852, 60, 9, "#e2d6bd"), rect(x, 806, 60, 44, "#f3ead6", rx=10), '<circle cx="%d" cy="826" r="12" fill="none" stroke="#f3ead6" stroke-width="6"/>' % (x + 66),
+              "".join(path("M%d 792q-10 -16 0 -30q10 -14 0 -30" % (x + 16 + k * 16), stroke="#ffffff", w=5, o=.3, extra=' stroke-linecap="round"') for k in range(3)))
+    d.add("".join(ell(x, 1010, 74, 18, "#8f3a2c") + rect(x - 8, 1024, 16, 70, "#1c110a") for x in (300, 780, 1140, 1620)))
+    vig(d, "#000000", .5, .5)
+
+
+@scenery("shrine", "神社", "朱色の鳥居と石畳の参道、両わきの木立。初詣・伝統・祈りの話に", "light")
+def _(d, r):
+    d.__init__(("#bfe3f6", "#eaf6fc", "#f7f5ea"))
+    d.add(cloud(960, 420, .6, "#ffffff", .8))
+    for x in range(-40, W + 60, 90):
+        d.add(pine(x, 720, r.uniform(260, 380), "#9cc9ac"))
+    for x in list(range(-30, 560, 110)) + list(range(1400, W + 60, 110)):
+        d.add(pine(x, 760, r.uniform(420, 560), "#5f9a78"))
+    band(d, 700, 380, [(0, "#ddd3b8"), (1, "#c9be9f")])
+    d.add(poly([(830, 700), (1090, 700), (1430, H), (490, H)], "#c6c8c4"), "".join(line(960 - (130 + 340 * t), 700 + 380 * t, 960 + (130 + 340 * t), 700 + 380 * t, "#a9aba7", 3) for t in (.08, .2, .36, .56, .8)),
+          line(960, 700, 960, H, "#a9aba7", 3))
+    red, blk = "#d8452b", "#2b2622"
+    d.add(poly([(296, H), (374, H), (362, 250), (316, 250)], red), poly([(1546, H), (1624, H), (1604, 250), (1558, 250)], red), rect(288, 1010, 94, 70, blk), rect(1538, 1010, 94, 70, blk))
+    d.add(rect(240, 340, 1440, 46, red), rect(932, 268, 56, 74, red), path("M196 218Q960 262 1724 218L1716 266Q960 300 204 266Z", red), path("M150 150Q960 205 1770 150L1794 208Q960 256 126 208Z", blk))
+    for x in (600, 1320):   # 石どうろう
+        d.add(rect(x - 16, 900, 32, 110, "#a9aba7"), rect(x - 40, 1000, 80, 22, "#9a9c98"), rect(x - 36, 850, 72, 56, "#b9bbb7"), rect(x - 14, 864, 28, 30, "#ffe9a8"), poly([(x - 56, 852), (x + 56, 852), (x, 800)], "#9a9c98"))
+    wash(d, "#f4f8f2", .45)
+
+
+@scenery("bamboo", "竹林", "まっすぐ伸びる竹と、上から差す光。和風・静けさ・ひと息つく話に", "dark")
+def _(d, r):
+    d.__init__(("#17382a", "#1f4a35", "#12281e"))
+    d.glow(960, 60, 950, "#d8f2b0", .32)
+    for _k in range(30):
+        x, w = r.uniform(0, W), r.uniform(8, 18)
+        d.add(rect(x, 0, w, H, "#2f6a48", .55))
+    xs = [x for x in (r.uniform(0, W) for _ in range(60)) if abs(x - 960) > 340][:24]
+    for x in sorted(xs, key=lambda v: -abs(v - 960))[::-1]:
+        w, c = r.uniform(30, 58), r.choice(("#3f8a55", "#4c9a5f", "#357a4c"))
+        d.add(rect(x, 0, w, H, c), rect(x + w * .12, 0, w * .16, H, "#a6dc9a", .28), rect(x + w * .8, 0, w * .2, H, "#0e2a1c", .3))
+        y = r.uniform(40, 200)
+        while y < H:
+            d.add(rect(x - 2, y, w + 4, 7, "#1c4a30"), rect(x - 2, y + 7, w + 4, 3, "#a6dc9a", .4))
+            y += r.uniform(170, 240)
+    for _k in range(46):
+        x, y, a = r.choice((r.uniform(0, 600), r.uniform(1320, W))), r.uniform(0, 330), r.uniform(20, 160)
+        d.add('<ellipse cx="%s" cy="%s" rx="54" ry="9" fill="%s" fill-opacity=".8" transform="rotate(%d %s %s)"/>' % (n(x), n(y), r.choice(("#5fae6c", "#3f8a55", "#7cc47c")), a, n(x), n(y)))
+    band(d, 780, 300, [(0, "#bfe3c8", 0), (1, "#bfe3c8", .16)])
+    vig(d, "#000000", .45, .5)
+
+
+@scenery("lake", "湖", "山と空を映す静かな湖と、岸の木立。静けさ・ふり返り・自然の話に", "light")
+def _(d, r):
+    d.__init__(("#9bd0f2", "#dff1fb", "#f4fafd"))
+    d.add(cloud(380, 200, .8), cloud(1380, 260, .6, "#ffffff", .85))
+    p1, p2 = peaks(r, 600, 300), hills(r, 600, 150, 120, .9)
+    d.add(path(jag(p1, 600), "#9dbbd6"), path(under(p2, 600), "#78a5b8"))
+    band(d, 600, 480, [(0, "#b4dcf0"), (1, "#74b3d8")])
+    d.add(path(jag([(x, 1200 - y) for x, y in p1], 600), "#9dbbd6", o=.4), path(under([(x, 1200 - y) for x, y in p2], 600), "#78a5b8", o=.4))
+    d.add("".join(rect(r.uniform(0, W), r.uniform(620, 900), r.uniform(60, 220), 3, "#ffffff", round(r.uniform(.25, .6), 2), 2) for _ in range(60)), rect(0, 598, W, 5, "#eaf6fb", .8))
+    d.add(path("M1180 770q60 34 150 0l-14 26h-120z", "#7a5533"), rect(1240, 730, 5, 44, "#7a5533"), path("M1196 800h120l-14 16h-92z", "#7a5533", o=.3))
+    d.add(path(under(hills(r, 990, 60, 120, .7)), "#6aa568"))
+    for x in list(range(20, 470, 90)) + list(range(1500, W + 40, 90)):
+        d.add(pine(x, 1010 + r.uniform(-20, 30), r.uniform(240, 380), "#2f6a4c"))
+    wash(d, "#eef7fb", .35)
+
+
+@scenery("aurora-sky", "オーロラの夜", "星空にゆれる緑と紫の光の幕と、雪の丘。北国・神秘・冬の夜の話に", "dark")
+def _(d, r):
+    d.__init__(("#050a1c", "#0b1b3a", "#12304a"))
+    d.add(stars(r, 200, ymax=820))
+    for i, (c, y0, amp) in enumerate((("#7a6bff", 170, 70), ("#3dffb0", 250, 90), ("#3dd6ff", 350, 60))):
+        top = wave(y0, amp, 380 + i * 90, i * 1.7, 60)
+        dd = "M" + "L".join("%s %s" % (n(x), n(y)) for x, y in top) + "L" + "L".join("%s %s" % (n(x), n(y + 430)) for x, y in reversed(top)) + "Z"
+        d.add('<path d="%s" fill="%s"/>' % (dd, d.grad([(0, c, 0), (.22, c, .26), (1, c, 0)])), "".join(line(x, y + 30, x, y + r.uniform(200, 380), c, 5, round(r.uniform(.04, .1), 3)) for x, y in top))
+    d.add(path(under(hills(r, 850, 90, 120, .6)), "#1f3a58"), path(under(hills(r, 960, 60, 120, .5)), "#335a7d"))
+    for x in list(range(30, 520, 80)) + list(range(1480, W + 40, 80)):
+        d.add(pine(x, 930 + r.uniform(-30, 40), r.uniform(150, 290), "#08182a"))
+    d.glow(1290, 880, 150, "#ffd879", .4)
+    d.add(rect(1230, 850, 120, 70, "#0d2036"), poly([(1214, 854), (1366, 854), (1290, 800)], "#e8f1f8"), rect(1272, 870, 34, 30, "#ffd879"), rect(1330, 812, 14, 34, "#0d2036"))
+
+
+@scenery("island", "南の島", "エメラルドの海と白い砂浜、やしの木。夏休み・旅行・のんびりした話に", "light")
+def _(d, r):
+    d.__init__(("#6ec6f2", "#c9ecfb", "#f3fbfd"))
+    d.glow(1420, 220, 420, "#fffbe0", .9)
+    d.add(circ(1420, 220, 70, "#fffdf0"), cloud(420, 260, .8), cloud(1000, 340, .5, "#ffffff", .85))
+    d.add(path("M360 602Q470 520 600 560Q680 540 760 602Z", "#7fbf95"))
+    band(d, 600, 480, [(0, "#2fb5c6"), (.5, "#6fdcd0"), (1, "#c9f3e2")])
+    d.add("".join(path(smooth(wave(y, 6, 90, k, 60)), stroke="#ffffff", w=3, o=.4) for k, y in enumerate((650, 710, 780))), rect(0, 598, W, 5, "#eafaf8", .8))
+    beach = [(x, 900 - 70 * math.sin(x / W * math.pi) + 16 * math.sin(x / 170)) for x in range(-80, W + 161, 80)]
+    d.add(path(under([(x, y - 16) for x, y in beach]), "#ffffff", o=.85), path(under(beach), "#f6e6b8"), path(under([(x, y + 90) for x, y in beach]), "#efd9a0", o=.6))
+    d.add(palm(230, 1000, 560, 130), palm(90, 1040, 420, 60), palm(1730, 990, 520, -120))
+    d.add(poly([(1330, 960), (1345, 992), (1380, 994), (1352, 1014), (1362, 1048), (1330, 1028), (1298, 1048), (1308, 1014), (1280, 994), (1315, 992)], "#f28a6a"), ell(700, 1010, 26, 16, "#f6c9b8"), ell(700, 1010, 12, 7, "#e8a48c"))
+    wash(d, "#eefafa", .30)
+
+
+@scenery("airport", "空港", "管制塔とターミナル、とまっている飛行機と、飛び立つ飛行機。旅・出張・世界へ出る話に", "light")
+def _(d, r):
+    d.__init__(("#7ebff0", "#d2eafa", "#f2f9fe"))
+    d.add(cloud(720, 300, .8), cloud(1500, 420, .55, "#ffffff", .85))
+    d.add(path(under(hills(r, 690, 60, 120, .6)), "#b7d3c8"))
+    d.add(path("M520 700V640Q1060 580 1600 640V700Z", "#e9eef3"), rect(540, 648, 1040, 34, "#9cc7e6"), "".join(rect(x, 648, 6, 34, "#e9eef3") for x in range(600, 1560, 80)))
+    d.add(rect(246, 340, 44, 360, "#d6dde5"), poly([(196, 340), (340, 340), (362, 270), (174, 270)], "#5b7fa3"), poly([(186, 270), (350, 270), (336, 250), (200, 250)], "#e9eef3"), rect(190, 338, 156, 12, "#e9eef3"), rect(264, 190, 6, 62, "#8a97a6"), circ(267, 186, 8, "#d8533f"))
+    band(d, 700, 380, [(0, "#b3bbc5"), (1, "#959eaa")])
+    d.add(path("M0 900Q700 800 1920 860", stroke="#f2c230", w=6), "".join(rect(x, 1000, 110, 10, "#ffffff", .85) for x in range(40, W, 220)))
+    plane = (path("M-340 0Q-340 -40 -260 -44L250 -44Q340 -40 372 -6Q340 30 250 30L-260 30Q-340 30 -340 0Z", "#fbfcfd") + poly([(-290, -40), (-350, -150), (-282, -150), (-196, -44)], "#3f73b5") + poly([(-320, -6), (-390, -40), (-340, -40), (-270, -6)], "#dfe5ec")
+             + path("M-336 6H366", stroke="#3f73b5", w=8) + poly([(-60, 6), (90, 6), (-10, 110), (-80, 110)], "#cfd7e0") + rect(-30, 44, 110, 44, "#9aa6b4", rx=20)
+             + "".join(circ(-200 + k * 38, -18, 7, "#5b7fa3") for k in range(12)) + path("M296 -30L340 -12H286Z", "#5b7fa3"))
+    d.add('<g transform="translate(1440 870)">%s%s</g>' % (plane, rect(-10, 30, 10, 60, "#5b6672") + circ(-5, 96, 16, "#2f3a45") + rect(250, 30, 8, 60, "#5b6672") + circ(254, 96, 13, "#2f3a45")))
+    d.add(path("M120 560L1010 250", stroke="#ffffff", w=10, o=.6, extra=' stroke-linecap="round"'), '<g transform="translate(1060 232) rotate(-19) scale(.32)">%s</g>' % plane)
+    wash(d, "#eef5fa", .35)
+
+
+@scenery("control-room", "管制室", "壁いっぱいの画面と、操作卓の列。監視・運用・宇宙や交通の指令の話に", "dark")
+def _(d, r):
+    d.__init__(("#060b16", "#0b1424", "#070c17"))
+    d.glow(960, 330, 950, "#2f7bff", .2)
+    for j in range(2):
+        for i in range(5):
+            x, y, k = 70 + i * 360, 90 + j * 240, (i + j * 2) % 4
+            d.add(rect(x, y, 330, 210, "#0d1f38", rx=6, extra=' stroke="#1f4573" stroke-width="3"'))
+            if k == 0:
+                pts = [(x + 20 + t * 29, y + 150 - r.uniform(10, 110)) for t in range(11)]
+                d.add(path("M" + "L".join("%s %s" % (n(px), n(py)) for px, py in pts), stroke="#4dd0ff", w=3, o=.6), "".join(line(x + 20, y + 40 + q * 40, x + 310, y + 40 + q * 40, "#2a5aa0", 1, .5) for q in range(4)))
+            elif k == 1:
+                d.add("".join(rect(x + 26 + t * 30, y + 180 - h, 18, h, "#4de3a8", .5) for t, h in ((t, r.uniform(30, 140)) for t in range(10))))
+            elif k == 2:
+                d.add("".join(ring(x + 165, y + 105, q, "#4dd0ff", 2, .4) for q in (30, 60, 88)), line(x + 77, y + 105, x + 253, y + 105, "#4dd0ff", 1.5, .4), line(x + 165, y + 17, x + 165, y + 193, "#4dd0ff", 1.5, .4),
+                      "".join(circ(x + 165 + r.uniform(-70, 70), y + 105 + r.uniform(-70, 70), 5, "#ffc24d", .8) for _ in range(4)))
+            else:
+                d.add("".join(rect(x + 24, y + 26 + q * 26, r.uniform(120, 280), 10, "#8fb8ff", .35, 4) + circ(x + 300, y + 31 + q * 26, 5, r.choice(("#4de3a8", "#4de3a8", "#ffc24d")), .8) for q in range(7)))
+    band(d, 700, 380, [(0, "#0a1322"), (1, "#04070e")])
+    for y, s, xs in ((790, .8, (150, 620, 1090, 1560)), (930, 1.15, (-60, 540, 1140, 1740))):
+        for x in xs:
+            w = 400 * s
+            d.add(rect(x + w * .36, y - 96 * s, w * .28, 110 * s, "#060b14", rx=24 * s), rect(x, y, w, 30 * s, "#1a2c4a", rx=6), rect(x, y, w, 5 * s, "#3a6aa8"), rect(x + 10 * s, y + 30 * s, w - 20 * s, 240 * s, "#0c1626"),
+                  rect(x + w * .08, y - 70 * s, w * .24, 62 * s, "#12315a", rx=4, extra=' stroke="#2a5aa0" stroke-width="2"'), rect(x + w * .68, y - 70 * s, w * .24, 62 * s, "#12315a", rx=4, extra=' stroke="#2a5aa0" stroke-width="2"'),
+                  rect(x + w * .1, y - 60 * s, w * .14, 5 * s, "#4dd0ff", .7), rect(x + w * .7, y - 60 * s, w * .1, 5 * s, "#4de3a8", .7))
+    vig(d, "#000000", .5, .5)
+
+
+@scenery("moon", "月面", "まっ暗な空に浮かぶ青い星と、クレーターのある灰色の大地。宇宙探査・挑戦・遠くから見る話に", "dark")
+def _(d, r):
+    d.__init__("#03040a")
+    d.add(stars(r, 260, ymax=780, big=2))
+    d.glow(1480, 260, 330, "#4f9be8", .3)
+    d.defs.append('<clipPath id="blue"><circle cx="1480" cy="260" r="130"/></clipPath>')
+    d.add('<circle cx="1480" cy="260" r="130" fill="%s"/>' % d.grad([(0, "#5fb0f0"), (1, "#16458f")], 0, 0, 1, 1),
+          '<g clip-path="url(#blue)">%s%s%s</g>' % (path(blob(1440, 230, 60, r, 9, .4), "#58a877") + path(blob(1540, 320, 44, r, 8, .4), "#58a877"),
+                                                   "".join(ell(1480 + r.uniform(-110, 110), 260 + r.uniform(-110, 110), r.uniform(30, 70), r.uniform(6, 12), "#ffffff", .7) for _ in range(7)), circ(1560, 320, 150, "#02030a", .55)))
+    d.add(path(under(hills(r, 800, 70, 120, .6)), "#3f434c"), path(under(hills(r, 880, 50, 120, .5)), "#565a63"), path(under(hills(r, 990, 36, 120, .5)), "#6c7079"))
+    for _k in range(16):
+        x, y = r.uniform(0, W), r.uniform(850, 1070)
+        s = (y - 780) / 300 * r.uniform(.6, 1.3)
+        d.add(ell(x, y, 80 * s, 20 * s, "#2f333b", .8), path("M%s %sA%s %s 0 0 0 %s %s" % (n(x - 80 * s), n(y), n(80 * s), n(20 * s), n(x + 80 * s), n(y)), stroke="#9a9ea6", w=3 * s, o=.6))
+    d.add("".join(path(blob(r.uniform(0, W), r.uniform(900, 1070), r.uniform(8, 22), r, 7, .3), "#2f333b") for _ in range(14)))
+    vig(d, "#000000", .4, .55)
+
+
 def make():
     os.makedirs(OUT, exist_ok=True)
     index, seen = {}, set()

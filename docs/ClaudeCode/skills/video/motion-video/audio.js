@@ -161,7 +161,13 @@ window.MotionAudio = window.MotionAudio || (function () {
     maqsum: { kick: "X.....x.x.......", bongo: "..x.x.....x.x...", tamb: "gxgxgxgxgxgxgxgx" },
     train: { snare: "gggXgggXgggXgggX", kick: "X...x...X...x..." },
     palmas: { clap: "X..x..x...x.x...", kick: "x.......x......." },
-    ska: { kick: "X...x...X...x...", snare: "....X.......X...", hat: "..x...x...x...x." }
+    ska: { kick: "X...x...X...x...", snare: "....X.......X...", hat: "..x...x...x...x." },
+    /* 3 拍子（beats: 3。12 刻み）と 5 拍子（beats: 5。20 刻み）の型 */
+    jig: { kick: "X.....x.....", tom: "..g.g...g.g.", tamb: "x.g.g.x.g.g." },
+    afro: { conga: "X..x.xx..x.x", cowbell: "x.x.xx.x.x.x", kick: "X.....x.....", shaker: "g.gg.gg.gg.g" },
+    jazzwaltz: { ride: "x...x.x.x...", hat: "....x...x...", kick: "g...........", brush: "....g...g.g." },
+    five: { kick: "X.....x.....x...x...", rim: "....x.....x.......x.", hat: "x.x.x.x.x.x.x.x.x.x." },
+    huayno: { tom: "X..x..x.X..x..x.", shaker: "x.xxx.xxx.xxx.xx", rim: "....g.......g..." }
   };
 
   /* ================= 音を鳴らす（楽器も効果音も同じ仕組み） ================= */

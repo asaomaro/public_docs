@@ -29,7 +29,7 @@
   合わないときは作るときに warn が出るので、配色を替えるか `dim` で抑える。
 - 掛け合い（`talk`）の場面の `bg` にも、同じ名前を書ける。
 
-## 動く背景（46 種）
+## 動く背景（78 種）
 
 どれも継ぎ目なく繰り返す（周期は 2〜60 秒）。時刻だけで決まるので、シーク・書き出しでも同じ画になる。
 
@@ -40,25 +40,46 @@
 | 空と粒 | `stars` `meteors` `warp` `galaxy` `rise` `snow` `rain` `bubbles` `fireflies` `petals` `confetti` `sparkles` `clouds` |
 | 格子と図形（技術・データ） | `grid-floor` `grid-scroll` `dots-wave` `halftone` `hex-pulse` `tiles` `pixels` `ripples` `radar` `tunnel` `prism` `orbits` `helix` `plexus` `circuit` `matrix` `equalizer` `scan` |
 | AI・判断・データの流れ | `neural` `tokens` `branch` |
+| 科学 | `molecules` `waveform` `microscope` |
+| 医療・体 | `cells` `ecg` |
+| 数学 | `plot` `geometry` `lissajous` |
+| 歴史・文化 | `sumi` `treerings` `emaki` |
+| 地理・旅 | `contours` `route` |
+| お金・経済 | `candles` `coins` |
+| 宇宙 | `constellation`（ほかに `stars` `meteors` `galaxy` `orbits` `warp`） |
+| 自然 | `komorebi` `leaves` `grass`（ほかに `rain` `snow` `fireflies` `petals` `clouds`） |
+| 技術 | `servers` `packets` `stack`（ほかに `circuit` `radar` `matrix`） |
+| セキュリティ | `vault` `fingerprint`（ほかに `scan`） |
+| ほぼ無地（落ち着いた語り） | `fibers` `sheen` `dust`（ほかに `flow` `bokeh`） |
+| 和風 | `seigaiha-flow` `asanoha-pulse` `ichimatsu` |
+| ポップ | `polka` `balloons`（ほかに `confetti` `stripes`） |
 
-## SVG の背景・配色に合わせる（43 枚）
+題材のある動く背景（科学〜セキュリティ）は、**話と関係のない静止画を敷くかわり**に使う。絵が出たり消えたりするもの（`plot` `geometry` `route` `constellation` `stack` `sumi`）は、
+1 周（14〜24 秒）より短い場面では途中までしか見えない。短い場面には `speed` を上げるか、いつも動いているもの（`molecules` `contours` `packets` など）を選ぶ。
+`microscope` `vault` `waveform` `lissajous` `plot` はまん中にも線が通るので、字の多い場面では `dim` で抑える。
+
+## SVG の背景・配色に合わせる（54 枚）
 
 | 向き | 名前 |
 |---|---|
 | 光とグラデーション（無難） | `soft` `mesh` `vignette` `horizon` `window` `spotlight` |
 | 波・線・形 | `wave-bottom` `wave-top` `curves` `soft-shapes` `papercut` `bands` `split` `arcs` `rings` `stairs` |
 | 格子・模様（技術・設計） | `grid-fade` `dots-fade` `iso` `hex` `pcb` `blueprint` `network` `topo` `lowpoly` `diagonal` `plus` `chevrons` `speckle` `bars` |
-| にぎやか・催し | `burst` `dots-corner` `memphis` `lights` `frame` |
+| にぎやか・催し | `burst` `dots-corner` `memphis` `lights` `frame` `gingham` `mizutama` |
 | 影絵・場面 | `orbit` `ridge` `city` |
-| 和の模様 | `checker` `seigaiha` `asanoha` `shippo` `uroko` |
+| 和の模様 | `checker` `seigaiha` `asanoha` `shippo` `uroko` `yagasuri` `kagome` `tatewaku` `kanoko` `hishi` |
+| 布・木・石の地 | `linen` `woodgrain` `marble` `pinstripe` |
 
-## SVG の背景・景色と場所（34 枚）
+## SVG の背景・景色と場所（63 枚）
 
 | 向き | 暗い絵（暗い配色で） | 明るい絵（明るい配色で） |
 |---|---|---|
-| 空・自然 | `sky-sunset` `sky-night` `mountains-night` `sea-sunset` `space` `forest` `underwater` `fireworks` | `sky-day` `sky-dawn` `mountains` `sea` `desert` `snowfield` `field` `sakura` `autumn` `rainbow` |
-| 街・室内・舞台 | `city-night` `curtain` `bookshelf` `studio` | `city-day` `room` `washitsu` |
-| 紙・板・壁 | `blackboard` `cork` `wood` `brick` | `whiteboard` `notebook` `graph-paper` `kraft` `washi` |
+| 空・自然 | `sky-sunset` `sky-night` `mountains-night` `sea-sunset` `space` `forest` `underwater` `fireworks` `bamboo` `aurora-sky` `moon` `space-station` | `sky-day` `sky-dawn` `mountains` `sea` `desert` `snowfield` `field` `sakura` `autumn` `rainbow` `lake` `island` `park` `countryside` |
+| 街・室内・舞台 | `city-night` `curtain` `bookshelf` `studio` `cafe` | `city-day` `room` `washitsu` `shopping-street` `station` `shrine` |
+| 学ぶ・働く・暮らす場所 | `server-room` `control-room` `factory` | `classroom` `lab` `library` `meeting-room` `office` `kitchen` `hospital` `harbor` `airport` |
+| 紙・板・壁・布 | `blackboard` `cork` `wood` `brick` `blueprint-blue` `stone-wall` `denim` | `whiteboard` `notebook` `graph-paper` `kraft` `washi` `tile-wall` `tatami` |
+
+場所の絵（教室・駅・港など）は、まん中を淡くしてあるが、物の多い絵なので、字の多い場面では `dim`（`0.3`〜`0.5`）で抑える。
 
 ## 足すとき
 
