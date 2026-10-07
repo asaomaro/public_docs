@@ -1568,6 +1568,350 @@ def fig_pyramid(spec, cv):
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# 報告・分析・設計の図（滝グラフ・パレート図・箱ひげ図・度数分布・ER 図・特性要因図）
+# ──────────────────────────────────────────────────────────────────────────
+_OK, _NG = "var(--ok,#16a34a)", "var(--ng,#dc2626)"
+
+
+def _yaxis(L, R, Y, lo, hi, unit="", n=4):
+    """横の目盛り線と左の数字（段 0 の土台に入れる）。"""
+    g = ""
+    for k in range(n + 1):
+        v = lo + (hi - lo) * k / n
+        g += '<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="var(--line)"/>%s' % (
+            L, Y(v), R, Y(v), text(L - 8, Y(v) + 4, _fmtnum(round(v, 2)) + unit, 11, fill="var(--muted)", anchor="end"))
+    return g
+
+
+def fig_waterfall(spec, cv):
+    items = spec["items"]
+    unit = spec.get("unit", "")
+    run, rows = 0.0, []            # (下端, 上端, 種類, 表示する値)
+    for it in items:
+        if it.get("total"):
+            v = float(it["value"]) if it.get("value") is not None else run
+            rows.append((min(0.0, v), max(0.0, v), "total", v))
+            run = v
+        else:
+            v = float(it["value"])
+            rows.append((min(run, run + v), max(run, run + v), "up" if v >= 0 else "down", v))
+            run += v
+    lo = min(0.0, min(r[0] for r in rows))
+    hi = _nice(max(r[1] for r in rows) - lo) + lo
+    colw = max(74, max(tw(it["label"], 13) for it in items) + 18)
+    BW = min(52, colw - 20)
+    L, T, PH = 62, 28, 250
+    PW = colw * len(items) + 10
+    Y = lambda v: T + PH - PH * (v - lo) / ((hi - lo) or 1)
+    cv.add('<g data-step="0" data-effect="fade">%s%s</g>' % (
+        _yaxis(L, L + PW, Y, lo, hi),
+        '<line x1="%d" y1="%.1f" x2="%d" y2="%.1f" stroke="var(--muted)" stroke-width="1.5"/>' % (L, Y(0), L + PW, Y(0))))
+    prev_top = None
+    for i, (it, (b, t, kind, v)) in enumerate(zip(items, rows)):
+        cx = L + 5 + colw * i + colw / 2
+        col = {"total": "var(--accent)", "up": _OK, "down": _NG}[kind]
+        lab = _fmtnum(v) + unit if kind == "total" else ("+" if v >= 0 else "−") + _fmtnum(abs(v)) + unit
+        end = b if kind == "down" else t           # 棒の「進んだ先」（次の棒へつなぐ高さ）
+        if kind == "total":
+            end = v
+        conn = ""
+        if prev_top is not None:
+            conn = ('<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3" data-effect="fade"/>'
+                    % (cx - colw + BW / 2, Y(prev_top), cx - BW / 2, Y(prev_top)))
+        det = "" if it.get("detail") else ' data-detail="%s"' % esc("%s: %s" % (it["label"], lab))
+        cv.add('<g data-step="%d"%s%s>%s<rect x="%.1f" y="%.1f" width="%d" height="%.1f" rx="3" fill="%s" fill-opacity="%s" '
+               'data-effect="grow" data-grow="%s"/>%s%s</g>'
+               % (1 + i, ann(it), det, conn, cx - BW / 2, Y(t), BW, max(2, Y(b) - Y(t)), col, ".9" if kind == "total" else ".75",
+                  "down" if kind == "down" else "up",
+                  text(cx, Y(t) - 7, lab, 12.5, "800", "var(--ink)" if kind == "total" else col, extra=' data-effect="fade"'),
+                  text(cx, T + PH + 20, it["label"], 13, fill="var(--muted)")))
+        prev_top = end
+    return L + PW + 10, T + PH + 34
+
+
+def fig_pareto(spec, cv):
+    items = sorted(spec["items"], key=lambda it: -float(it["value"])) if spec.get("sort", True) else list(spec["items"])
+    unit = spec.get("unit", "")
+    total = sum(float(it["value"]) for it in items) or 1
+    hi = _nice(max(float(it["value"]) for it in items))
+    colw = max(72, max(tw(it["label"], 13) for it in items) + 18)
+    BW = colw - 14
+    L, T, PH = 58, 30, 250
+    PW = colw * len(items)
+    R = L + PW
+    Y = lambda v: T + PH - PH * v / hi
+    YP = lambda pc: T + PH - PH * pc / 100.0
+    g = _yaxis(L, R, Y, 0, hi)
+    th = spec.get("threshold", 80)
+    g += "".join(text(R + 8, YP(pc) + 4, "%d%%" % pc, 11, fill="var(--muted)", anchor="start") for pc in (0, 25, 50, 75, 100)
+                 if th is None or abs(pc - float(th)) >= 9)
+    g += "".join(text(L + colw * i + colw / 2, T + PH + 20, it["label"], 13, fill="var(--muted)") for i, it in enumerate(items))
+    cv.add('<g data-step="0" data-effect="fade">%s</g>' % g)
+    cum, pts, vital = 0.0, [], None
+    bars = ""
+    for i, it in enumerate(items):
+        v = float(it["value"])
+        before = cum
+        cum += v
+        pc = 100 * cum / total
+        if th is not None and vital is None and pc >= th:
+            vital = i
+        x = L + colw * i + 7
+        major = th is None or 100 * before / total < th       # しきい値までに入る項目を濃く
+        det = "" if it.get("detail") else ' data-detail="%s"' % esc("%s: %s%s（累積 %.0f%%）" % (it["label"], _fmtnum(v), unit, pc))
+        bars += ('<g%s%s><rect x="%.1f" y="%.1f" width="%d" height="%.1f" rx="3" fill="var(--accent)" fill-opacity="%s"/>%s</g>'
+                 % (ann(it), det, x, Y(v), BW, max(2, Y(0) - Y(v)), ".85" if major else ".35",
+                    text(x + BW / 2, Y(v) - 6 if Y(v) > T + 26 else Y(v) + 16, _fmtnum(v) + unit, 12, "700",
+                         "var(--ink)" if Y(v) > T + 26 else "var(--on-accent)")))
+        pts.append((x + BW / 2, YP(pc), pc))
+    cv.add('<g data-step="1" data-effect="grow" data-grow="up">%s</g>' % bars)
+    if th is not None:
+        cv.add('<g data-step="2" data-effect="fade"><line x1="%d" y1="%.1f" x2="%d" y2="%.1f" stroke="%s" stroke-width="1.5" stroke-dasharray="6 5"/>%s</g>'
+               % (L, YP(th), R, YP(th), acc(1), text(R + 8, YP(th) + 4, "%s%%" % _fmtnum(th), 12, "800", acc(1), "start")))
+    d = "M" + " L".join("%.1f,%.1f" % (x, y) for x, y, _ in pts)
+    cv.add('<path data-step="2" d="%s" fill="none" stroke="%s" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>' % (d, acc(1)))
+    cv.add('<g data-step="3" data-stagger="60" data-effect="pop">%s</g>' % "".join(
+        '<circle cx="%.1f" cy="%.1f" r="4.5" fill="var(--card)" stroke="%s" stroke-width="2.5" data-detail="%s"/>'
+        % (x, y, acc(1), esc("累積 %.0f%%" % pc)) for x, y, pc in pts))
+    return R + 46, T + PH + 34
+
+
+def _quartiles(values):
+    v = sorted(float(x) for x in values)
+
+    def q(f):
+        if len(v) == 1:
+            return v[0]
+        pos = f * (len(v) - 1)
+        i = int(math.floor(pos))
+        j = min(i + 1, len(v) - 1)
+        return v[i] + (v[j] - v[i]) * (pos - i)
+    return v[0], q(.25), q(.5), q(.75), v[-1]
+
+
+def fig_box(spec, cv):
+    unit = spec.get("unit", "")
+    rows = []
+    for it in spec["items"]:
+        five = _quartiles(it["values"]) if it.get("values") else tuple(float(it[k]) for k in ("min", "q1", "median", "q3", "max"))
+        rows.append((it, five))
+    vmin, vmax = min(r[1][0] for r in rows), max(r[1][4] for r in rows)
+    tick = _nice(((vmax - vmin) or abs(vmax) or 1) / 4.0)
+    lo = spec.get("min", 0 if spec.get("zero", False) and vmin >= 0 else math.floor(vmin / tick) * tick)
+    hi = spec.get("max", math.ceil(vmax / tick) * tick)
+    if hi <= lo:
+        hi = lo + tick
+    nt = int(round((hi - lo) / tick)) if "min" not in spec and "max" not in spec and not spec.get("zero") else 4
+    nt = nt if 2 <= nt <= 8 else 4
+    lw = max(tw(r[0]["label"]) for r in rows) + 22
+    PW, RH, T = 460, 46, 14
+    X = lambda v: lw + PW * (v - lo) / (hi - lo)
+    H = T + len(rows) * RH
+    g = ""
+    for k in range(nt + 1):
+        v = lo + (hi - lo) * k / nt
+        g += '<line x1="%.1f" y1="%d" x2="%.1f" y2="%d" stroke="var(--line)"/>%s' % (
+            X(v), T, X(v), H, text(X(v), H + 18, _fmtnum(round(v, 2)) + unit, 11, fill="var(--muted)"))
+    cv.add('<g data-step="0" data-effect="fade">%s</g>' % g)
+    for i, (it, (mn, q1, md, q3, mx)) in enumerate(rows):
+        y = T + i * RH + RH / 2
+        col = acc(i)
+        det = "" if it.get("detail") else ' data-detail="%s"' % esc(
+            "%s: 最小 %s / 第1四分位 %s / 中央値 %s / 第3四分位 %s / 最大 %s%s"
+            % (it["label"], _vfmt(mn), _vfmt(q1), _vfmt(md), _vfmt(q3), _vfmt(mx), unit))
+        cv.add('<g data-step="%d"%s%s>%s'
+               '<path data-effect="draw" d="M%.1f,%.1f L%.1f,%.1f M%.1f,%.1f L%.1f,%.1f M%.1f,%.1f L%.1f,%.1f" stroke="%s" stroke-width="2" fill="none"/>'
+               '<rect x="%.1f" y="%.1f" width="%.1f" height="24" rx="3" fill="%s" fill-opacity=".28" stroke="%s" stroke-width="2" data-effect="grow" data-grow="right"/>'
+               '<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="%s" stroke-width="3.5" stroke-linecap="round" data-effect="fade"/>%s</g>'
+               % (1 + i, ann(it), det, text(lw - 12, y + 5, it["label"], anchor="end"),
+                  X(mn), y, X(mx), y, X(mn), y - 8, X(mn), y + 8, X(mx), y - 8, X(mx), y + 8, col,
+                  X(q1), y - 12, max(2, X(q3) - X(q1)), col, col,
+                  X(md), y - 12, X(md), y + 12, col,
+                  text(X(md), y - 16, _vfmt(md) + unit, 11.5, "800", extra=' data-effect="fade"')))
+    return lw + PW + 34, H + 28
+
+
+def fig_histogram(spec, cv):
+    unit = spec.get("unit", "")
+    vals = sorted(float(v) for v in spec["values"])
+    n = int(spec.get("bins") or max(4, min(12, round(math.sqrt(len(vals))))))
+    if "min" in spec or "max" in spec:
+        lo, hi = float(spec.get("min", vals[0])), float(spec.get("max", vals[-1]))
+        if hi <= lo:
+            hi = lo + 1
+        step = (hi - lo) / n
+    else:                        # 区間の幅を切りのよい値にし、区間の数を bins に近づける
+        step = _nice(((vals[-1] - vals[0]) or 1) / float(n))
+        lo = math.floor(vals[0] / step) * step
+        n = max(1, int(math.ceil((vals[-1] - lo) / step + 1e-9)))
+        if lo + n * step <= vals[-1]:
+            n += 1
+        hi = lo + n * step
+    counts = [0] * n
+    for v in vals:
+        if lo <= v <= hi:
+            counts[min(n - 1, int((v - lo) / step))] += 1
+    top = _nice(max(counts) or 1)
+    L, T, PH = 50, 36, 230
+    BW = max(34, min(60, 520 // n))
+    PW = BW * n
+    Y = lambda c: T + PH - PH * c / top
+    g = _yaxis(L, L + PW, Y, 0, top)
+    g += "".join(text(L + BW * k, T + PH + 18, _fmtnum(round(lo + step * k, 2)), 11, fill="var(--muted)") for k in range(n + 1))
+    if spec.get("xlabel") or unit:
+        g += text(L + PW / 2, T + PH + 40, spec.get("xlabel") or "（%s）" % unit, 12.5, "700", "var(--muted)")
+    cv.add('<g data-step="0" data-effect="fade">%s</g>' % g)
+    peak = counts.index(max(counts))
+    bars = ""
+    for k, c in enumerate(counts):
+        det = "%s〜%s%s: %d 件" % (_fmtnum(round(lo + step * k, 2)), _fmtnum(round(lo + step * (k + 1), 2)), unit, c)
+        bars += ('<g data-detail="%s"><rect x="%.1f" y="%.1f" width="%d" height="%.1f" fill="var(--accent)" fill-opacity="%s" stroke="var(--card)" stroke-width="1.5"/>%s</g>'
+                 % (esc(det), L + BW * k, Y(c), BW, max(0, Y(0) - Y(c)), ".9" if k == peak else ".55",
+                    text(L + BW * k + BW / 2, Y(c) - 6, str(c), 12, "700") if c else ""))
+    cv.add('<g data-step="1" data-stagger="50" data-effect="grow" data-grow="up">%s</g>' % bars)
+    if spec.get("mean", True) and vals:
+        m = sum(vals) / len(vals)
+        if lo <= m <= hi:
+            x = L + PW * (m - lo) / (hi - lo)
+            right = x < L + PW - 110
+            cv.add('<g data-step="2" data-effect="fade"><line x1="%.1f" y1="%d" x2="%.1f" y2="%d" stroke="%s" stroke-width="2" stroke-dasharray="6 4"/>%s</g>'
+                   % (x, T - 16, x, T + PH, acc(1),
+                      text(x + (6 if right else -6), T - 12, "平均 %s%s" % (_vfmt(m), unit), 12, "800", acc(1), "start" if right else "end")))
+    return L + PW + 24, T + PH + (52 if (spec.get("xlabel") or unit) else 30)
+
+
+def fig_er(spec, cv):
+    ents = spec["entities"]
+    rels = spec.get("relations", [])
+    n = len(ents)
+    cols = int(spec.get("cols") or (n if n <= 3 else (2 if n == 4 else 3)))
+    HH, FH, GX, GY = 34, 24, 96, 56
+
+    def fld(f):
+        return {"name": f} if isinstance(f, str) else f
+    sizes = []
+    for e in ents:
+        fs = [fld(f) for f in e.get("fields", [])]
+        w = max([tw(e["label"], 14) + 30] + [tw(f["name"], 13) + tw(f.get("type", ""), 11.5) + (34 if f.get("key") else 0) + 44 for f in fs] + [150])
+        sizes.append((min(w, 300), HH + max(1, len(fs)) * FH + 8, fs))
+    colw = [max([sizes[i][0] for i in range(n) if i % cols == c] or [0]) for c in range(cols)]
+    nrow = (n + cols - 1) // cols
+    rowh = [max(sizes[i][1] for i in range(n) if i // cols == r) for r in range(nrow)]
+    pos = {}
+    for i, e in enumerate(ents):
+        c, r = i % cols, i // cols
+        x = 12 + sum(colw[:c]) + GX * c + (colw[c] - sizes[i][0]) / 2
+        y = 12 + sum(rowh[:r]) + GY * r
+        pos[e["id"]] = (x, y, sizes[i][0], sizes[i][1], c, r)
+    W = 24 + sum(colw) + GX * (cols - 1)
+    H = 24 + sum(rowh) + GY * (nrow - 1)
+    for i, e in enumerate(ents):
+        x, y, w, h, c, r = pos[e["id"]]
+        col = acc(i)
+        g = ('<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="8" fill="var(--card)" stroke="%s" stroke-width="1.8"/>'
+             '<path d="M%.1f,%.1f h%.1f a8,8 0 0 1 8,8 v%d h-%.1f v-%d a8,8 0 0 1 8,-8 z" fill="%s" fill-opacity=".2"/>'
+             '<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="%s" stroke-width="1.4"/>%s'
+             % (x, y, w, h, col, x + 8, y, w - 16, HH - 8, w, HH - 8, col, x, y + HH, x + w, y + HH, col,
+                text(x + w / 2, y + 22, e["label"], 14, "800")))
+        for k, f in enumerate(sizes[i][2]):
+            fy = y + HH + 18 + k * FH
+            key = f.get("key")
+            if key:
+                g += ('<rect x="%.1f" y="%.1f" width="26" height="16" rx="4" fill="%s" fill-opacity="%s"/>%s'
+                      % (x + 8, fy - 12, col, ".9" if str(key).upper() == "PK" else ".35",
+                         text(x + 21, fy, str(key).upper()[:2], 9.5, "800", "var(--on-accent)" if str(key).upper() == "PK" else "var(--ink)")))
+            g += text(x + (42 if key else 12), fy, f["name"], 13, "700" if str(key or "").upper() == "PK" else None, anchor="start")
+            if f.get("type"):
+                g += text(x + w - 10, fy, f["type"], 11.5, fill="var(--muted)", anchor="end")
+        cv.add('<g data-step="%d" data-node="%s"%s>%s</g>' % (i, esc(e["id"]), ann(e), g))
+    for k, rl in enumerate(rels):
+        if rl["from"] not in pos or rl["to"] not in pos:
+            raise SystemExit("figkit: er の relations にある id が entities に無い: %r → %r" % (rl["from"], rl["to"]))
+        a, b = pos[rl["from"]], pos[rl["to"]]
+        if a[4] != b[4]:           # 列が違う: 横の辺どうしを鉤の線で結ぶ
+            if a[4] > b[4]:
+                a, b, swap = b, a, True
+            else:
+                swap = False
+            x1, y1, x2, y2 = a[0] + a[2], a[1] + a[3] / 2, b[0], b[1] + b[3] / 2
+            mx = (x1 + x2) / 2
+            d = "M%.1f,%.1f L%.1f,%.1f L%.1f,%.1f L%.1f,%.1f" % (x1, y1, mx, y1, mx, y2, x2, y2)
+            lx, ly = mx, (y1 + y2) / 2 - 6
+            c1 = (x1 + 9, y1 - 7, "start")
+            c2 = (x2 - 9, y2 - 7, "end")
+        else:                       # 同じ列: 下の辺と上の辺を結ぶ
+            if a[5] > b[5]:
+                a, b, swap = b, a, True
+            else:
+                swap = False
+            x1, y1, x2, y2 = a[0] + a[2] / 2, a[1] + a[3], b[0] + b[2] / 2, b[1]
+            my = (y1 + y2) / 2
+            d = "M%.1f,%.1f L%.1f,%.1f L%.1f,%.1f L%.1f,%.1f" % (x1, y1, x1, my, x2, my, x2, y2)
+            lx, ly = (x1 + x2) / 2, my - 6
+            c1 = (x1 + 8, y1 + 15, "start")
+            c2 = (x2 + 8, y2 - 7, "start")
+        fc, tc = (rl.get("to_card"), rl.get("from_card")) if swap else (rl.get("from_card"), rl.get("to_card"))
+        g = '<path data-effect="draw" d="%s" fill="none" stroke="var(--accent-2)" stroke-width="1.6"%s/>' % (
+            d, ' stroke-dasharray="5 4"' if rl.get("dashed") else "")
+        g += ('<circle cx="%.1f" cy="%.1f" r="3.5" fill="var(--accent-2)"/><circle cx="%.1f" cy="%.1f" r="3.5" fill="var(--accent-2)"/>' % (x1, y1, x2, y2))
+        if fc:
+            g += text(c1[0], c1[1], fc, 12, "800", "var(--accent-2)", c1[2])
+        if tc:
+            g += text(c2[0], c2[1], tc, 12, "800", "var(--accent-2)", c2[2])
+        if rl.get("label"):
+            g += edge_label(lx, ly, rl["label"])
+        cv.add('<g data-step="%d" data-link="%s %s"%s>%s</g>' % (n + k, esc(rl["from"]), esc(rl["to"]), ann(rl), g))
+    if spec.get("hover", n >= 4):
+        cv.fig["hover"] = True
+    return W, H
+
+
+def fig_fishbone(spec, cv):
+    causes = spec["causes"]
+    effect = spec["effect"]
+    n = len(causes)
+    pairs = (n + 1) // 2
+
+    def items_of(c):
+        return [x if isinstance(x, str) else x.get("label", "") for x in c.get("items", [])]
+    maxit = max([len(items_of(c)) for c in causes] + [1])
+    itw = max([tw(x, 14) for c in causes for x in items_of(c)] + [40])
+    BL = 56 + maxit * 30                       # 骨の縦の長さ
+    DX = BL * .3                               # 骨の横の傾き
+    SEG = max(150, itw + 44)                   # 骨と骨の間隔（骨どうしは平行なので、要因の文字の幅だけ空ける）
+    HW = max(110, tw(effect, 16) + 32)         # 頭（結果）の幅
+    cy = 34 + BL + 12
+    x0 = 20
+    spine_end = x0 + itw + 20 + (pairs - 1) * SEG + DX + 60
+    W = spine_end + HW + 14
+    H = cy * 2
+    cv.add('<g data-step="0"><path data-effect="draw" d="M%.1f,%.1f L%.1f,%.1f" stroke="var(--accent-2)" stroke-width="3.5" stroke-linecap="round" fill="none" marker-end="url(#%s)"/></g>'
+           % (x0, cy, spine_end - 4, cy, cv.marker()))
+    cv.add('<g data-step="0" data-effect="pop"%s><rect x="%.1f" y="%.1f" width="%.1f" height="56" rx="10" fill="var(--accent)"/>%s</g>'
+           % (" data-pulse" if spec.get("pulse") else "", spine_end, cy - 28, HW, text(spine_end + HW / 2, cy + 6, effect, 16, "800", "var(--on-accent)")))
+    for i, c in enumerate(causes):
+        k, up = i // 2, i % 2 == 0
+        sgn = -1 if up else 1
+        ax = spine_end - 36 - k * SEG           # 背骨に付く点
+        bx, by = ax - DX, cy + sgn * BL         # 骨の先（分類の箱）
+        col = acc(i)
+        lw = max(84, tw(c["label"], 15) + 28)
+        g = ('<path data-effect="draw" d="M%.1f,%.1f L%.1f,%.1f" stroke="%s" stroke-width="2.4" stroke-linecap="round" fill="none"/>'
+             % (bx, by, ax, cy, col))
+        g += ('<rect x="%.1f" y="%.1f" width="%.1f" height="30" rx="8" fill="%s" fill-opacity=".18" stroke="%s" stroke-width="1.6"/>%s'
+              % (bx - lw / 2, by - (30 if up else 0), lw, col, col, text(bx, by + (-10 if up else 20), c["label"], 15, "800")))
+        its = items_of(c)
+        sub = ""
+        for j, x in enumerate(its):
+            f = (j + 1) / (len(its) + 1.0)      # 骨の上の位置（先→背骨）
+            px, py = bx + (ax - bx) * (.16 + .72 * f), by + (cy - by) * (.16 + .72 * f)
+            sub += ('<g><line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="%s" stroke-width="1.4"/>%s</g>'
+                    % (px - 22, py, px, py, col, text(px - 27, py + 5, x, 14, anchor="end")))
+        cv.add('<g data-step="%d"%s>%s<g data-stagger="90" data-effect="fade">%s</g></g>' % (1 + i, ann(c), g, sub))
+    return W, H
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # 触れる図（タブ・つまみ・順に見る・画像の注目点）。JS 無し・印刷では全部の状態を並べて見せる
 #   動きの実行部の「登場」はかけない（data-motion="none"）。操作は md-to-doc の LAYOUT_JS が受け持つ
 # ──────────────────────────────────────────────────────────────────────────
@@ -1582,7 +1926,7 @@ def _merge(base, over):
 
 # 段 0 が軸・枠・中心（いつも見せる土台）の図。スクロール連動・1 段ずつ見るとき、土台は最初から見せ、段に数えない
 BASE_TYPES = {"line", "gantt", "matrix", "sequence", "timeline", "dumbbell", "sankey", "heatmap", "slope",
-              "radar", "scatter", "stacked", "hub", "mindmap"}
+              "radar", "scatter", "stacked", "hub", "mindmap", "waterfall", "pareto", "box", "histogram", "fishbone"}
 
 
 def render_interactive(spec, fid):
@@ -1725,6 +2069,24 @@ TYPES = {
                 '{"type":"stacked","unit":"億","labels":["Q1","Q2","Q3"],"series":[{"name":"国内","values":[30,40,55]},{"name":"海外","values":[10,18,30]}]}'),
     "pyramid": (fig_pyramid, "ピラミッド（上から書き、下の段から積み上がる。基盤→頂点）",
                 '{"type":"pyramid","items":[{"label":"ビジョン"},{"label":"戦略","sub":"3 年"},{"label":"施策"},{"label":"日々の運用"}]}'),
+    "waterfall": (fig_waterfall, "滝グラフ（増減の内訳。total の棒は合計、ほかは増減で前の棒の先から伸びる。増は緑・減は赤）",
+                  '{"type":"waterfall","unit":"万円","items":[{"label":"前期","value":1200,"total":true},{"label":"新規","value":320},'
+                  '{"label":"解約","value":-140},{"label":"今期","total":true}]}'),
+    "pareto": (fig_pareto, "パレート図（大きい順の棒と累積の割合の線。threshold の線までの項目を濃く。sort=false で並びを保つ）",
+               '{"type":"pareto","unit":"件","threshold":80,"items":[{"label":"入力ミス","value":42},{"label":"確認もれ","value":27},'
+               '{"label":"仕様の誤解","value":12},{"label":"その他","value":6}]}'),
+    "box": (fig_box, "箱ひげ図（ばらつきの比較。values から四分位を計算。min・q1・median・q3・max を直接書いてもよい）",
+            '{"type":"box","unit":"ms","items":[{"label":"旧","values":[120,180,210,240,260,310,420]},'
+            '{"label":"新","min":80,"q1":110,"median":130,"q3":160,"max":220}]}'),
+    "histogram": (fig_histogram, "度数分布（values を bins 個の区間に分けて数える。山の区間が濃く、平均の線が引かれる。mean=false で線なし）",
+                  '{"type":"histogram","unit":"分","bins":6,"xlabel":"対応にかかった時間（分）","values":[4,6,7,8,8,9,10,10,11,12,12,13,15,18,22,27]}'),
+    "er": (fig_er, "ER 図・クラスの関係（項目の表を並べ、関係を鉤の線で結ぶ。key は PK・FK、from_card・to_card に 1・多 など。cols で列の数）",
+           '{"type":"er","cols":2,"entities":[{"id":"u","label":"利用者","fields":[{"name":"id","type":"int","key":"PK"},{"name":"名前","type":"text"}]},'
+           '{"id":"o","label":"注文","fields":[{"name":"id","type":"int","key":"PK"},{"name":"利用者_id","type":"int","key":"FK"}]}],'
+           '"relations":[{"from":"u","to":"o","label":"出す","from_card":"1","to_card":"多"}]}'),
+    "fishbone": (fig_fishbone, "特性要因図（魚の骨。右の結果に向かう背骨に、要因の分類が上下交互に付き、細かい要因が骨に並ぶ）",
+                 '{"type":"fishbone","effect":"納期の遅れ","causes":[{"label":"人","items":["経験の不足","兼務"]},{"label":"方法","items":["手順が口頭"]},'
+                 '{"label":"道具","items":["検証環境が 1 つ"]},{"label":"環境","items":["仕様の変更"]}]}'),
 }
 
 
