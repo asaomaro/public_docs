@@ -611,7 +611,9 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
         NC = tr[0]; PW = tr[1]; CWd = PW / NC - 50;
         for (sz = tr[2]; sz >= tr[3]; sz -= 2) {
           out = []; rows2.forEach(function (r) { wrap(r, CWd, { size: sz, weight: 600, font: fam }).forEach(function (l, i) { out.push((i ? "　" : "") + l); }); });
-          per = Math.ceil(out.length / NC); if (per * sz * 1.5 <= PH - 50) { fit = true; break; } }
+          per = Math.ceil(out.length / NC);
+          var wide = out.some(function (l) { return tw(l, { size: sz, weight: 600, font: fam }) > CWd + 6; });   /* 折れない長い語（URL）が段の幅を超えるなら、字を小さくする（前は、板の右へはみ出した） */
+          if (per * sz * 1.5 <= PH - 50 && !wide) { fit = true; break; } }
         return fit; });
       if (!fit) sz = 14;
       var lh = sz * 1.5, ph = per * lh + 50, py = 230, ck = P(lt, 500, 1100);
