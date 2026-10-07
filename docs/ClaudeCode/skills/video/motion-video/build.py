@@ -33,6 +33,13 @@ def _dark(bg0, bg1, grid, ink, muted, faint, accent, accent2, warn, ok, panel, p
             "codeMuted": "#8ea9b2", "onAccent": on_accent, "accents": accents}
 
 
+def _light(bg0, bg1, grid, ink, muted, faint, accent, accent2, warn, ok, panel, panel2, edge, accents, on_accent="#ffffff", shadow="rgba(20,24,32,.14)"):
+    return {"bg0": bg0, "bg1": bg1, "grid": grid, "ink": ink, "muted": muted, "faint": faint, "accent": accent,
+            "accent2": accent2, "warn": warn, "ok": ok, "panel": panel, "panel2": panel2, "edge": edge,
+            "shadow": shadow, "code": "#151a22", "codeBar": "#232a35", "codeInk": "#e6ebf2", "codeMuted": "#97a3b3",
+            "onAccent": on_accent, "accents": accents}
+
+
 THEMES = {
     "navy-brass": {
         "label": "紺と真鍮", "desc": "紺の地に真鍮とターコイズ。落ち着いた製品紹介", "pattern": "grid",
@@ -86,6 +93,95 @@ THEMES = {
                         ["#ffcc33", "#ff5fa2", "#5ef0a8", "#6ecbff"], "#1a0b33"),
         "chrome": {"bg": "#140a2e", "bg2": "#231048", "line": "#4a2c8a", "ink": "#fbf7ff", "muted": "#c7b8e8", "accent": "#ffcc33"},
     },
+    # ---- ここから下は後で足した配色（明るい 5・暗い 6）。本文の字（ink）と地（bg0・bg1・panel）は 4.5:1 以上、グラフの色（accents）は地と 3:1 以上
+    "washi": {
+        "label": "和紙", "desc": "白い和紙に藍の字と朱の差し色、明朝の見出し。和の題材・伝統・歴史", "pattern": "fibers",
+        "fonts": {"display": MINCHO, "sans": SANS, "mono": MONO},
+        "canvas": _light("#ebe7dc", "#f6f4ec", "rgba(31,58,95,0.10)", "#1c2f4f", "#566178", "#a9adb5",
+                         "#b8361b", "#1f4e8c", "#a85a00", "#3d6b2c", "#fbfaf5", "#e3e0d2", "#cfcbbb",
+                         ["#b8361b", "#1f4e8c", "#56722a", "#9a6a00"], "#fbfaf5", "rgba(28,47,79,.14)"),
+        "chrome": {"bg": "#f6f4ec", "bg2": "#ebe7dc", "line": "#cfcbbb", "ink": "#1c2f4f", "muted": "#566178", "accent": "#b8361b"},
+    },
+    "sumi": {
+        "label": "墨", "desc": "墨色の地に金と朱、明朝の見出し。和の題材の暗い方・格式・物語", "pattern": "fibers",
+        "fonts": {"display": MINCHO, "sans": SANS, "mono": MONO},
+        "canvas": _dark("#14110e", "#221c16", "rgba(241,233,216,0.07)", "#f1e9d8", "#b3a892", "#6b6252",
+                        "#d4a84a", "#e2603a", "#ff8a5c", "#8fbf7a", "#1e1914", "#33291f", "#4a3d2e",
+                        ["#d4a84a", "#e2603a", "#8fbf7a", "#8fb4d9"], "#14110e"),
+        "chrome": {"bg": "#14110e", "bg2": "#221c16", "line": "#4a3d2e", "ink": "#f1e9d8", "muted": "#b3a892", "accent": "#d4a84a"},
+    },
+    "chalkboard": {
+        "label": "黒板", "desc": "深緑の黒板にチョークの白・黄・桃・水色と丸ゴシック。授業・勉強・解説", "pattern": "chalk",
+        "fonts": {"display": MARU, "sans": MARU, "mono": MONO},
+        "canvas": _dark("#1c372f", "#254a3f", "rgba(255,255,255,0.05)", "#f4f2e8", "#b9cdc2", "#7c9c8d",
+                        "#f6d867", "#f7a8b8", "#ffab76", "#a9e8a2", "#18302a", "#2f584b", "#4b7868",
+                        ["#f6d867", "#f7a8b8", "#9fd6f5", "#f4f2e8"], "#1c372f"),
+        "chrome": {"bg": "#18302a", "bg2": "#1c372f", "line": "#4b7868", "ink": "#f4f2e8", "muted": "#b9cdc2", "accent": "#f6d867"},
+    },
+    "blueprint": {
+        "label": "設計図", "desc": "青い地に白い線と方眼、黄と水色の書き込み。設計・構造・しくみの説明", "pattern": "blueprint",
+        "fonts": {"display": SANS, "sans": SANS, "mono": MONO},
+        "canvas": _dark("#0c3a78", "#104a96", "rgba(190,220,255,0.22)", "#f3f8ff", "#b9cff0", "#7fa3d9",
+                        "#ffd84d", "#86e6ff", "#ffa071", "#93f2b5", "#0a3168", "#1b5cb3", "#4e86d1",
+                        ["#86e6ff", "#ffd84d", "#ffa6cf", "#f3f8ff"], "#0a2a5a"),
+        "chrome": {"bg": "#0a3168", "bg2": "#0c3a78", "line": "#4e86d1", "ink": "#f3f8ff", "muted": "#b9cff0", "accent": "#ffd84d"},
+    },
+    "sunset": {
+        "label": "夕焼け", "desc": "藍から茜へ沈む空に、橙と珊瑚の差し色。振り返り・物語・旅・一日の終わり", "pattern": "horizon",
+        "fonts": {"display": SANS, "sans": SANS, "mono": MONO},
+        "canvas": _dark("#5a1f3d", "#241640", "rgba(255,170,90,0.30)", "#fff3e4", "#e0bfc4", "#a67b93",
+                        "#ffb347", "#ff8296", "#ff6f4d", "#8fe6b3", "#34183f", "#57295c", "#7b4270",
+                        ["#ffb347", "#ff8296", "#c9a4ff", "#7fd9ea"], "#2a1235"),
+        "chrome": {"bg": "#241640", "bg2": "#34183f", "line": "#7b4270", "ink": "#fff3e4", "muted": "#e0bfc4", "accent": "#ffb347"},
+    },
+    "forest": {
+        "label": "森", "desc": "若草色の明るい地に深緑の字と樹皮の茶。自然・環境・食・健康", "pattern": "dots",
+        "fonts": {"display": SANS, "sans": SANS, "mono": MONO},
+        "canvas": _light("#dfe9d2", "#f1f6e8", "rgba(47,107,60,0.10)", "#1d3222", "#51675a", "#a2b49e",
+                         "#2c6a3a", "#8f531a", "#b5491c", "#1d7d57", "#fafcf4", "#d8e5c8", "#c2d2b2",
+                         ["#2c6a3a", "#8f531a", "#0f767a", "#a23558"], "#fafcf4", "rgba(29,50,34,.14)"),
+        "chrome": {"bg": "#f1f6e8", "bg2": "#dfe9d2", "line": "#c2d2b2", "ink": "#1d3222", "muted": "#51675a", "accent": "#2c6a3a"},
+    },
+    "ocean": {
+        "label": "海", "desc": "浅瀬の水色の明るい地に、深い紺の字と珊瑚の差し色。夏・旅・水・さわやかな紹介", "pattern": "waves",
+        "fonts": {"display": SANS, "sans": SANS, "mono": MONO},
+        "canvas": _light("#cfeaf0", "#ecf8fa", "rgba(11,122,143,0.16)", "#0b2c47", "#46677c", "#98bac8",
+                         "#bc3922", "#0a7088", "#b85c12", "#0b8163", "#ffffff", "#c5e4ec", "#aed3df",
+                         ["#0a7088", "#bc3922", "#5b4bb0", "#a0660a"], "#ffffff", "rgba(11,44,71,.14)"),
+        "chrome": {"bg": "#ecf8fa", "bg2": "#cfeaf0", "line": "#aed3df", "ink": "#0b2c47", "muted": "#46677c", "accent": "#0a7088"},
+    },
+    "pastel": {
+        "label": "パステル", "desc": "薄紫から桃色の淡い地に、丸ゴシックと濃いめの差し色。やさしい案内・暮らし・子育て", "pattern": "glow",
+        "fonts": {"display": MARU, "sans": MARU, "mono": MONO},
+        "canvas": _light("#fbe6ef", "#ecefff", "rgba(170,140,255,0.30)", "#3a2a4d", "#6c5a7e", "#bdaecd",
+                         "#ad3579", "#3f73c4", "#b3621a", "#23826f", "#ffffff", "#e3f3ee", "#e6d2e6",
+                         ["#ad3579", "#23826f", "#3f73c4", "#a5701a"], "#ffffff", "rgba(90,60,120,.14)"),
+        "chrome": {"bg": "#ffffff", "bg2": "#f6eefb", "line": "#e6d2e6", "ink": "#3a2a4d", "muted": "#6c5a7e", "accent": "#ad3579"},
+    },
+    "contrast": {
+        "label": "高コントラスト", "desc": "真っ黒の地に真っ白の字と黄・水色、白い枠線。見えにくい人・明るい会場・遠くから見る画面", "pattern": "none",
+        "fonts": {"display": SANS, "sans": SANS, "mono": MONO},
+        "canvas": _dark("#000000", "#000000", "rgba(255,255,255,0)", "#ffffff", "#dcdcdc", "#8f8f8f",
+                        "#ffe600", "#00e5ff", "#ff8a3d", "#5dff8f", "#101010", "#2b2b2b", "#ffffff",
+                        ["#ffe600", "#00e5ff", "#ff7bd5", "#5dff8f"], "#000000"),
+        "chrome": {"bg": "#000000", "bg2": "#101010", "line": "#8f8f8f", "ink": "#ffffff", "muted": "#dcdcdc", "accent": "#ffe600"},
+    },
+    "newsprint": {
+        "label": "新聞", "desc": "灰色がかった紙に黒いインクと明朝の見出し、赤ひとつ、網点。記事・調査・社会の話題", "pattern": "halftone",
+        "fonts": {"display": MINCHO, "sans": SANS, "mono": MONO},
+        "canvas": _light("#e6e3db", "#f3f1ea", "rgba(20,20,20,0.13)", "#141414", "#545250", "#a7a39a",
+                         "#b3201c", "#1f4a78", "#a8540a", "#256a3a", "#faf9f5", "#dbd7cc", "#b9b4a6",
+                         ["#141414", "#b3201c", "#1f4a78", "#7a766c"], "#faf9f5", "rgba(0,0,0,.16)"),
+        "chrome": {"bg": "#f3f1ea", "bg2": "#e6e3db", "line": "#b9b4a6", "ink": "#141414", "muted": "#545250", "accent": "#b3201c"},
+    },
+    "terminal": {
+        "label": "端末", "desc": "黒い画面に緑の蛍光の字と琥珀の差し色、全部が等幅の字、走査線。昔の計算機・ハッカー風・ゲーム", "pattern": "scan",
+        "fonts": {"display": MONO, "sans": MONO, "mono": MONO},
+        "canvas": _dark("#020a04", "#051208", "rgba(60,255,110,0.07)", "#b6ffbc", "#63c672", "#3a8f4a",
+                        "#ffb000", "#39ff6e", "#ff6b3d", "#39ff6e", "#061a0b", "#0d2c15", "#1f5f2d",
+                        ["#39ff6e", "#ffb000", "#52d9ff", "#ff72d2"], "#020a04"),
+        "chrome": {"bg": "#020a04", "bg2": "#061a0b", "line": "#1f5f2d", "ink": "#b6ffbc", "muted": "#63c672", "accent": "#39ff6e"},
+    },
 }
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -99,6 +195,13 @@ PLAYERS = {
     "kiosk": ("キオスク", "自動再生・繰り返し・音なしで始まる。操作部は触れたときだけ。展示・受付"),
     "theater": ("シアター", "暗い地に大きな映像、横に文字起こし（クリックでその位置へ・検索）。講演・録画の公開"),
     "slides": ("スライド", "章の終わりで止まり、「次へ」で進む。発表の場で話しながら送る"),
+    # ---- 後で足したプレイヤー。操作部は同じもの（再生・停止・倍速・字幕・音・章の移動・設定・書き出し・全画面）で、並べ方と見せ方が違う
+    "reader": ("リーダー", "映像の下に大きな字幕の欄（前後の文も見え、押すとその文へ）。音を出せない場所・語学・読みながら見る"),
+    "capsule": ("カプセル", "枠なし。操作部は下に浮かぶ丸い帯で、再生中は消えて細い進み具合の線だけ残る。作品として見せる・ポートフォリオ"),
+    "deck": ("デッキ", "発表の資料ふう。左に章ごとの画面の見本（サムネイル）が並び、右下にページ番号。章を目で探す・資料の代わりに配る"),
+    "mobile": ("モバイル", "スマホの縦持ち向けの細い列。上に章ごとの進み具合、映像の下に大きな字幕、押しやすい大きなボタン"),
+    "broadcast": ("ブロードキャスト", "番組ふう。章の頭に章名の帯が滑り込み、字幕は下の端の帯（テロップ）、映像の下に「つぎは」の帯。社内放送・定例の報告"),
+    "retro": ("レトロ", "ブラウン管ふうの丸い画面と走査線、角ばったキー、緑の数字の時計。ゲーム・懐かしさ・遊び心"),
 }
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -220,6 +323,11 @@ OVERLAY_KINDS = {
     "stamp": (["text"], "判子が叩きつけられる（x, y, rot 度, color: warn|accent|ok）。画面が揺れる", '{"kind":"stamp","text":"承認","x":1450,"y":320,"at":0.6,"color":"ok"}'),
     "circle": (["rect"], "手書きの丸で囲む（label で添え書き）", '{"kind":"circle","rect":[700,380,420,120],"label":"ここ","at":0.4}'),
     "marker": (["rect"], "蛍光ペンで塗る（文字の上に重なる半透明）", '{"kind":"marker","rect":[620,470,560,60],"at":0.5}'),
+    "underline": (["rect"], "手書きの下線を 2 本引く（label で右に添え書き）", '{"kind":"underline","rect":[620,470,560,60],"at":0.5}'),
+    "strike": (["rect"], "取り消し線を引く（label に、書き直した言葉）", '{"kind":"strike","rect":[620,470,300,60],"label":"3 分","at":0.5}'),
+    "cross": (["rect"], "手書きの × を付ける（やめたもの・誤り）", '{"kind":"cross","rect":[700,380,200,200],"at":0.4}'),
+    "bracket": (["rect"], "四隅の括弧が外から寄って囲む（カメラの枠ふう。label で上に添え書き）", '{"kind":"bracket","rect":[700,380,420,220],"label":"ここ","at":0.4}'),
+    "counter": (["value"], "数え上がる数字の札（value の書式は元のまま。x, y, label, dur ms）", '{"kind":"counter","value":"1,240件","label":"今月","x":1500,"y":300,"at":0.3}'),
 }
 TRANSITIONS = {
     "fade": "重ねて入れ替える（既定）", "slide": "少し横にずれながら", "zoom": "少し寄りながら", "cut": "すぐ切り替える",
@@ -236,6 +344,13 @@ TRANSITIONS = {
     "focus": "ぼけて入れ替わる", "dissolve": "細かい四角がばらばらに入れ替わる", "columns": "縦の帯が開く",
 }
 TRANSITIONS.update({"depth": "前の場面が奥へ沈み、次が手前から定まる（立体）", "swing": "前の場面が左端を軸に扉のように奥へ開く（立体）"})
+TRANSITIONS.update({
+    "wipe-up": "境目が下から上へ", "wipe-left": "境目が右から左へ", "soft-wipe": "ぼかした境目が左から右へ流れる",
+    "iris-close": "円が閉じて前の場面を消し、開いて次を見せる", "shutter": "カメラの絞りの羽根が閉じて、開く", "star": "星形が回りながら広がる",
+    "tear": "前の場面が紙のように縦に破れて、左右へ離れる", "fold": "前の場面がじゃばらに折り畳まれる", "peel": "前の場面が右下の角からめくれて、裏が見える",
+    "uncover": "前の場面が横へ滑って抜け、下の次の場面が現れる", "tumble": "前の場面が角を軸に外れて、回りながら落ちる", "slices": "前の場面が横の帯に切れ、互い違いに左右へ抜ける",
+    "tv-off": "ブラウン管を消すように横の線に潰れ、線から次が開く", "drop": "次の場面が上から落ちてきて、弾んで止まる",
+})
 TEXT_ANIMS = {
     "rise": "下から浮かぶ（既定）", "reveal": "左から現れ、カーソルが走る（題名の既定）", "pop": "弾んで出る", "slam": "大きく叩きつけ、画面が揺れる",
     "stretch": "横に伸びた形から縮む（映画の題名）", "blur": "ぼけから合う", "glitch": "色ずれしながら定まる", "neon": "ネオンが点く",
@@ -247,8 +362,14 @@ TEXT_ANIMS = {
     "elastic": "ゴムのように伸び縮みして定まる", "tracking": "広い字間から詰まる（上品）", "skew": "斜めに傾いて滑り込む（ニュース）",
 }
 TEXT_ANIMS.update({"depth": "1 文字ずつ奥から迫って定まる（立体）", "unfold": "下を軸に、寝た状態から起き上がる（立体）", "swirl": "渦を巻いて集まる"})
+TEXT_ANIMS.update({
+    "fade": "その場で、動かずに浮かび上がる（控えめ）", "count": "行の中の数字が 0 から数え上がる", "underline": "下線が引かれ、線の上へ字がせり上がる",
+    "shine": "薄い字の上を光の帯が走り、通った所から濃くなる", "fill": "輪郭だけの字に、下から色が満ちる", "echo": "色の残像を引きながら滑り込む",
+    "shuffle": "順番の入れ替わった字が、滑って正しい位置に並ぶ", "grow": "1 文字ずつ、足元から伸びて立ち上がる", "zipper": "1 文字おきに上と下から来て、噛み合う",
+})
 EASES = {"smooth": "なめらか（既定）", "spring": "ばねのように行き過ぎて戻る", "snappy": "素早く決まる", "bouncy": "跳ねて止まる",
          "elastic": "ゴムのように震えて止まる", "calm": "ゆっくり出てゆっくり止まる"}
+EASES.update({"linear": "一定の速さ（機械的）", "hold": "速く出て、中ほどでためて、最後に速く決まる", "steps": "コマ送り（6 段でカクカク進む）"})
 ORDERS = {"normal": "前から（既定）", "reverse": "後ろから", "center": "中央から外へ", "edges": "両端から中央へ", "random": "ばらばら（毎回同じ順）",
           "alternate": "1 つおき（奇数の後に偶数）", "zigzag": "前と後ろを交互に"}
 FX = {
@@ -260,6 +381,8 @@ FX = {
     "leaks": "光漏れ（上）", "spotlight": "動くスポットライト（上）", "sparkles": "きらめき（上）",
 }
 FX.update({"cubes": "奥行きの中を回りながら漂う針金の箱"})
+FX.update({"fog": "横に流れる霧", "fireworks": "打ち上がって開く花火（上）", "hud": "四隅の括弧と目盛り（計器の画面。上）", "frame": "二重の線の額縁と四隅の飾り（上）",
+           "petals": "ひるがえりながら舞い落ちる花びら（上）"})
 # 動く背景（parts-backdrops.js）。台本・章・場面の bg に名前を書く。どれも継ぎ目なく繰り返し、色は配色に合わせる
 BACKDROPS = {
     "flow": "色のにじみがゆっくり混ざり合う", "aurora": "オーロラの帯が揺れる", "bokeh": "淡い光の玉が漂う", "rays": "上から差す光の筋が揺れる",
@@ -388,6 +511,8 @@ CAMERA_PRESETS = {
     "punch": "言い切りで素早く寄る", "tilt": "傾きを戻しながら", "drift": "ゆらゆら漂う", "dolly": "大きく寄った所から回りながら引く",
     "crash-zoom": "寄った所から一瞬で引く", "orbit": "回り込むように横へ", "pan-reveal": "左上に寄った所から全体へ", "rack-focus": "ぼけからピントが合う",
     "breathe": "呼吸するように寄り引き", "sink": "下へ沈む", "handheld": "手持ちの揺れ",
+    "whip-in": "横から素早く流れ込んで止まる", "dutch": "斜めに傾いたまま、ゆっくり寄る", "survey": "寄ったまま左上・右上・右下と見て回り、全体へ引く",
+    "step-in": "カッ、カッと 2 段で寄る", "sway": "振り子のように左右に傾き、収まっていく",
 }
 MOTION_STYLES = {
     "gentle": "穏やか（既定）。fade・浮かぶ文字・題名はカーソルで現れる",
@@ -398,6 +523,20 @@ MOTION_STYLES = {
     "retro": "レトロ。モザイク・ばらばら・縞の切り替え、文字は瞬いて点く・題名は落ちて跳ねる、古いフィルム・網点、手持ちのカメラ",
     "elegant": "上品。ぼけ・色の幕の切り替え、字間が詰まる文字、光漏れ・きらめき、呼吸するカメラ・ピントが合う題名",
     "news": "報道。色の帯・押し出し・重なる切り替え、箱が走る文字・斜めの題名、レーダーの輪、言い切りで一瞬で引く",
+    "craft": "手作り。めくる・畳む・破る切り替え、蛍光ペンの文字・題名は色が満ちる、額縁、題名はゆれるカメラ",
+    "fluid": "流れる。ぼかした境目・波・水面・墨の切り替え、動かずに浮かぶ文字・題名は光が走る、霧",
+    "crisp": "きびきび。上へ・左への拭き取りと帯の切り替え、下線から立ち上がる文字・題名は伸びる、演出なし、言い切りは 2 段で寄る",
+    "spatial": "立体。奥へ沈む・扉・箱・裏返す切り替え、奥から迫る文字・題名は起き上がる、針金の箱、傾いたカメラ",
+    "show": "ショー。円が閉じる・星・落ちてくる切り替え、章は絞りの羽根、噛み合う文字・題名は並び替わる、スポットライトと花火",
+}
+# 章の札と進み具合（台本の chrome）・字幕の形（台本の caption）
+CHROME_STYLES = {
+    "label": "左上に「01 / 05 章名」（既定。true と同じ）", "tab": "左の端から、差し色の札（番号と章名）が滑り込む", "dots": "章の数だけ点が並び、今の章の点が伸びて進み具合になる",
+    "number": "番号だけ（章名を出さない）", "bar": "既定の札に加えて、下の端に章ごとに区切った進み具合の線（録画にも入る）",
+}
+CAPTION_STYLES = {
+    "box": "黒い半透明の箱に白い字（既定）", "outline": "箱なし。白い字に太い縁取り（映像を隠さない）", "band": "下の端に、幅いっぱいの帯（テロップ）",
+    "card": "明るい札に濃い字（暗い映像の上で目立つ）",
 }
 CAMERA_DOC = ('camera: [{"at":0,"x":960,"y":540,"zoom":1,"rot":0},{"at":0.6,"x":1300,"y":480,"zoom":1.6}] — 場面の進み（0..1）で補間し、'
               '(x,y) を中央に zoom 倍・rot 度で映す。部品にも custom にも効く。重ねの層もいっしょに動く。'
@@ -964,6 +1103,10 @@ def validate(spec, base):
     for key, table, name in (("ease", EASES, "緩急"), ("order", ORDERS, "現れる順")):
         if spec.get(key) and not (isinstance(spec[key], str) and spec[key] in table):
             errs.append("%s %r は %s のいずれか" % (name, spec[key], "/".join(table)))
+    if spec.get("chrome") not in (None, True, False) and spec["chrome"] not in CHROME_STYLES:
+        errs.append("chrome %r は true / false / %s のいずれか" % (spec["chrome"], " / ".join(CHROME_STYLES)))
+    if spec.get("caption") is not None and spec["caption"] not in CAPTION_STYLES:
+        errs.append("caption %r は %s のいずれか" % (spec["caption"], " / ".join(CAPTION_STYLES)))
     if spec.get("motion") and spec["motion"] not in MOTION_STYLES:
         errs.append("motion %r は %s のいずれか" % (spec["motion"], "/".join(MOTION_STYLES)))
     for f in spec.get("fx") or []:
@@ -1134,7 +1277,7 @@ PLAYER_CSS = r"""
   /* 映像の高さ（幅の 9/16）に収め、中だけスクロールする。チャプターが多くても上が切れない */
   max-height:min(70vh,max(160px,calc(56.25cqw - 24px)));overflow-y:auto;overscroll-behavior:contain}
 .mv-menu>*{flex-shrink:0}
-[data-player="cinema"] .mv-menu,[data-player="minimal"] .mv-menu,[data-player="kiosk"] .mv-menu{max-height:min(70vh,max(160px,calc(56.25cqw - 110px)))}
+[data-player="cinema"] .mv-menu,[data-player="minimal"] .mv-menu,[data-player="kiosk"] .mv-menu,[data-player="capsule"] .mv-menu{max-height:min(70vh,max(160px,calc(56.25cqw - 110px)))}
 .mv-menu button{appearance:none;border:0;background:transparent;color:var(--c-ink);text-align:left;font:inherit;font-size:13.5px;padding:8px 10px;border-radius:6px;
   display:grid;grid-template-columns:3em 1fr auto;gap:8px;cursor:pointer}
 .mv-menu button:hover,.mv-menu button:focus-visible{background:color-mix(in srgb,var(--c-ink) 10%,transparent);outline:none}
@@ -1245,6 +1388,121 @@ PLAYER_CSS = r"""
 [data-player="slides"] .mv-big svg{width:20px;height:20px;margin:0}
 [data-player="slides"] .mv-big .mv-biglabel{display:inline}
 .mv-biglabel{display:none}
+
+/* ==== 足したプレイヤー（reader・capsule・deck・mobile・broadcast・retro）。操作部は同じもので、並べ方と見せ方が違う ==== */
+.mv-osd,.mv-pbar,.mv-reader,.mv-slide,.mv-osdprog,.mv-osdchap,.mv-osdpage{display:none}
+.mv-osd{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.mv-osdprog{position:absolute;left:0;right:0;gap:3px;height:3px}
+.mv-osdprog i{position:relative;display:block;height:100%;background:rgba(127,127,127,.5);overflow:hidden;border-radius:2px}
+.mv-osdprog b{position:absolute;inset:0;width:0;background:var(--c-accent)}
+/* 字幕の欄（reader・mobile）: 今の文を大きく、前と次の文を小さく */
+.mv-reader{flex-direction:column;justify-content:center;gap:2px;padding:12px 20px 14px;background:var(--c-bg);border-top:1px solid var(--c-line);text-align:center}
+.mv-reader p{margin:0;text-wrap:balance;line-break:strict}
+.mv-rprev,.mv-rnext{font-size:13.5px;line-height:1.6;min-height:1.6em;color:var(--c-muted);opacity:.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.mv-rprev:hover,.mv-rnext:hover{color:var(--c-accent);opacity:1}
+.mv-rcur{font-family:var(--mv-capfont,inherit);font-size:clamp(17px,3cqw,30px);font-weight:700;line-height:1.55;min-height:3.1em;display:grid;place-items:center;color:var(--c-ink)}
+.mv-rcur.mv-roff{font-size:13.5px;font-weight:400;color:var(--c-muted)}
+.mv-player[data-cap="s"] .mv-rcur{font-size:clamp(15px,2.4cqw,24px)}
+.mv-player[data-cap="l"] .mv-rcur{font-size:clamp(20px,3.8cqw,38px)}
+.mv-player[data-cap] .mv-rcur.mv-roff{font-size:13.5px}
+/* reader: 字幕を主役に。映像の上の字幕は出さず、下の欄に大きく出す */
+[data-player="reader"] .mv-cap,[data-player="mobile"] .mv-cap{display:none}
+[data-player="reader"] .mv-reader,[data-player="mobile"] .mv-reader{display:flex}
+[data-player="reader"] .mv-rcur{border-left:0;position:relative}
+[data-player="reader"] .mv-reader{border-top:3px solid var(--c-accent)}
+/* capsule: 枠なし。操作部は下に浮かぶ丸い帯で、再生中は消えて細い進み具合の線だけ残る */
+[data-player="capsule"]{border:0;border-radius:20px}
+[data-player="capsule"] .mv-controls{position:absolute;left:50%;bottom:14px;width:min(calc(100% - 28px),780px);transform:translateX(-50%);
+  border:1px solid color-mix(in srgb,var(--c-ink) 20%,transparent);border-radius:18px;background:color-mix(in srgb,var(--c-bg) 76%,transparent);
+  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);padding:4px 12px 8px;box-shadow:0 10px 30px rgba(0,0,0,.3);transition:opacity .25s,transform .25s}
+.mv-playing:not(.mv-awake)[data-player="capsule"] .mv-controls{opacity:0;pointer-events:none;transform:translate(-50%,14px)}
+.mv-playing:not(.mv-awake)[data-player="capsule"] .mv-stage{cursor:none}
+[data-player="capsule"] .mv-osd{display:block}
+[data-player="capsule"] .mv-osdprog{display:flex;bottom:0;opacity:0;transition:opacity .25s}
+.mv-playing:not(.mv-awake)[data-player="capsule"] .mv-osdprog{opacity:1}
+[data-player="capsule"].mv-awake .mv-cap,.mv-player:not(.mv-playing)[data-player="capsule"] .mv-cap{bottom:27%}
+/* deck: 発表の資料ふう。左に章ごとの画面の見本、右下にページ番号 */
+[data-player="deck"]{display:grid;grid-template-columns:212px minmax(0,1fr)}
+[data-player="deck"] .mv-chapters{display:block;order:-1;border-right:1px solid var(--c-line);padding:12px 12px 12px 8px;background:var(--c-bg2);overflow:auto;contain:size;min-height:0}
+[data-player="deck"] .mv-chapters h2{display:none}
+[data-player="deck"] .mv-chaplist{display:flex;flex-direction:column;gap:12px}
+[data-player="deck"] .mv-chaplist button{display:block;position:relative;border-top:0;padding:0 0 0 24px}
+[data-player="deck"] .mv-chaplist .n{position:absolute;left:2px;top:1px;font-size:11.5px}
+[data-player="deck"] .mv-chaplist .t,[data-player="deck"] .mv-chaplist .d{display:none}
+[data-player="deck"] .mv-chaplist .nm{display:block;font-size:12px;line-height:1.4;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+[data-player="deck"] .mv-slide{display:block;width:100%;aspect-ratio:16/9;border-radius:5px;border:1px solid var(--c-line);background:var(--c-bg)}
+[data-player="deck"] .mv-chaplist button[aria-current="true"] .mv-slide{outline:3px solid var(--c-accent);outline-offset:1px}
+[data-player="deck"] .mv-osd{display:block}
+[data-player="deck"] .mv-osdpage{display:block;position:absolute;right:1.6%;bottom:1.8%;font-family:ui-monospace,Menlo,monospace;font-size:clamp(10px,1.5cqw,16px);line-height:1.5;
+  padding:.1em .8em;border-radius:999px;background:rgba(4,8,12,.62);color:#f5f8f9}
+@media(max-width:860px){[data-player="deck"]{grid-template-columns:1fr}
+  [data-player="deck"] .mv-chapters{order:0;border-right:0;border-top:1px solid var(--c-line);contain:none;padding:10px}
+  [data-player="deck"] .mv-chaplist{flex-direction:row}[data-player="deck"] .mv-chaplist li{flex:0 0 150px}}
+/* mobile: スマホの縦持ち向けの細い列。上に章ごとの進み具合、映像の下に大きな字幕、大きなボタンを 2 段に */
+[data-player="mobile"]{width:100%;max-width:430px;margin-left:auto;margin-right:auto;border-radius:26px}
+[data-player="mobile"] .mv-osd{display:block}
+[data-player="mobile"] .mv-osdprog{display:flex;top:8px;left:10px;right:10px}
+[data-player="mobile"] .mv-reader{border-top:0;padding:10px 16px 6px}
+[data-player="mobile"] .mv-rcur{font-size:19px;min-height:4.7em}
+.mv-player[data-cap="s"][data-player="mobile"] .mv-rcur{font-size:16px}
+.mv-player[data-cap="l"][data-player="mobile"] .mv-rcur{font-size:23px}
+[data-player="mobile"] .mv-controls{padding:8px 10px 14px;gap:8px;border-top:0}
+[data-player="mobile"] .mv-seek{height:30px}
+[data-player="mobile"] .mv-track,[data-player="mobile"] .mv-seek:hover .mv-track,[data-player="mobile"] .mv-seek.drag .mv-track{height:8px}
+[data-player="mobile"] .mv-knob{width:20px;height:20px;margin:-10px 0 0 -10px}
+[data-player="mobile"] .mv-row{flex-wrap:wrap;row-gap:6px;gap:2px}
+[data-player="mobile"] .mv-btn{height:44px;min-width:44px;border-radius:12px}
+[data-player="mobile"] .mv-btn svg{width:23px;height:23px}
+[data-player="mobile"] #mv-play{background:var(--c-accent);color:var(--c-bg);border-radius:50%}
+[data-player="mobile"] #mv-stop,[data-player="mobile"] #mv-prev,[data-player="mobile"] #mv-next,[data-player="mobile"] #mv-pip{display:inline-flex}
+[data-player="mobile"] .mv-speed{display:block}
+[data-player="mobile"] .mv-speed select{height:40px}
+[data-player="mobile"] .mv-speed::after{top:17px}
+[data-player="mobile"] .mv-chapname,[data-player="mobile"] .mv-vol{display:none}
+[data-player="mobile"] .mv-morewrap{order:9;flex:1 0 100%;justify-content:space-between}
+[data-player="mobile"] .mv-sec{flex:1 1 auto;justify-content:space-between}
+[data-player="mobile"] .mv-menuwrap:has(#mv-chapbtn){display:block}
+/* broadcast: 番組ふう。章の頭に章名の帯が滑り込み、字幕は下の端の帯（テロップ）、映像の下に「つぎは」の帯 */
+[data-player="broadcast"] .mv-osd{display:block}
+[data-player="broadcast"] .mv-osdchap{display:flex;position:absolute;left:0;bottom:17%;max-width:72%;align-items:stretch;font-size:clamp(11px,1.9cqw,22px);font-weight:700;line-height:1.5;
+  transform:translateX(-102%);transition:transform .45s cubic-bezier(.2,.8,.2,1)}
+[data-player="broadcast"].mv-osd-on .mv-osdchap{transform:none}
+.mv-osdchap b{flex:none;background:var(--c-accent);color:var(--c-bg);padding:.25em .7em;font-family:ui-monospace,Menlo,monospace}
+.mv-osdchap span{background:rgba(4,8,12,.84);color:#f5f8f9;padding:.25em 1.1em .25em .8em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:2px solid var(--c-accent)}
+[data-player="broadcast"] .mv-cap{left:0;bottom:0;transform:none;width:100%;background:rgba(4,8,12,.8);padding:.4em 4% .5em;border-top:2px solid var(--c-accent)}
+[data-player="broadcast"] .mv-cap:has(>span[hidden]){display:none}
+[data-player="broadcast"] .mv-cap span{background:none;padding:0}
+[data-player="broadcast"] .mv-pbar{display:flex;align-items:center;gap:12px;min-width:0;padding:6px 14px;background:var(--c-bg);border-top:2px solid var(--c-accent);font-size:13px}
+.mv-lamp{flex:none;width:10px;height:10px;border-radius:50%;background:var(--c-muted)}
+.mv-playing .mv-lamp{background:#e5484d;box-shadow:0 0 0 3px rgba(229,72,77,.3)}
+.mv-ptitle{flex:none;max-width:42%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.06em}
+.mv-pnext{flex:1 1 0;min-width:0;text-align:right;color:var(--c-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* retro: ブラウン管ふうの丸い画面と走査線、角ばったキー、緑の数字の時計 */
+[data-player="retro"]{border:2px solid var(--c-line);border-radius:10px;background:var(--c-bg2);
+  font-family:var(--mv-uifont,ui-monospace,"SFMono-Regular",Menlo,Consolas,"Hiragino Kaku Gothic ProN",monospace)}
+[data-player="retro"] .mv-main{padding:16px 16px 0}
+[data-player="retro"] .mv-stage{border-radius:22px/18px;overflow:hidden;box-shadow:0 0 0 3px #0a0a0a,0 0 0 5px color-mix(in srgb,var(--c-ink) 28%,transparent)}
+[data-player="retro"] .mv-stage::after{content:"";position:absolute;inset:0;pointer-events:none;border-radius:inherit;
+  background:repeating-linear-gradient(to bottom,rgba(0,0,0,.16) 0 1px,transparent 1px 3px),radial-gradient(ellipse at center,transparent 60%,rgba(0,0,0,.4) 100%)}
+[data-player="retro"] .mv-controls{background:transparent;border-top:0;padding:12px 2px 14px;gap:10px}
+[data-player="retro"] .mv-row{gap:6px}
+[data-player="retro"] .mv-btn{border:2px solid color-mix(in srgb,var(--c-ink) 55%,transparent);border-bottom-width:4px;border-radius:5px;background:color-mix(in srgb,var(--c-ink) 7%,transparent)}
+[data-player="retro"] .mv-btn:active{border-bottom-width:2px;transform:translateY(2px)}
+[data-player="retro"] .mv-time{background:#0c100c;color:#59c267;border:2px solid #2a332a;border-radius:4px;padding:4px 10px;letter-spacing:.08em}
+[data-player="retro"] .mv-time b{color:#a5ffb0}
+[data-player="retro"] .mv-track,[data-player="retro"] .mv-seek:hover .mv-track,[data-player="retro"] .mv-seek.drag .mv-track{height:10px;gap:4px}
+[data-player="retro"] .mv-seg,[data-player="retro"] .mv-seg i{border-radius:0}
+[data-player="retro"] .mv-knob{border-radius:2px;width:10px;height:22px;margin:-11px 0 0 -5px;border-width:2px}
+[data-player="retro"] .mv-cap span{font-family:ui-monospace,Menlo,Consolas,"Hiragino Kaku Gothic ProN",monospace;border-radius:0;background:rgba(0,0,0,.86);color:#fff36b}
+[data-player="retro"] .mv-big{border-radius:10px;border-width:3px}
+[data-player="retro"] .mv-speed select{border-radius:5px;border-width:2px}
+@media(prefers-reduced-motion:reduce){.mv-osdchap,[data-player="capsule"] .mv-controls,.mv-osdprog{transition:none!important}}
+/* ==== 字幕の形（台本の caption）: box（既定）・outline 縁取りの字・band 下の端の帯・card 明るい札。録画に焼き込む形（engine.js の burnCaption）と同じ ==== */
+.mv-player[data-capstyle="outline"] .mv-cap span{background:none;padding:0;color:#fff;font-weight:800;-webkit-text-stroke:.24em #10141a;paint-order:stroke fill}
+.mv-player[data-capstyle="band"] .mv-cap{left:0;bottom:0;transform:none;width:100%;background:rgba(4,8,12,.72);padding:.4em 4% .5em}
+.mv-player[data-capstyle="band"] .mv-cap:has(>span[hidden]){display:none}
+.mv-player[data-capstyle="band"] .mv-cap span{background:none;padding:0}
+.mv-player[data-capstyle="card"] .mv-cap span{background:rgba(250,250,247,.94);color:#14181d;border-radius:.5em;padding:.2em .8em;box-shadow:0 .15em .6em rgba(0,0,0,.25)}
 """
 
 
@@ -1338,9 +1596,13 @@ def build_fragment(spec, theme_key, player, uid=None, export=True):
         '<div class="mv-main"><div class="mv-stage" id="mv-stage"><canvas id="mv-canvas" aria-hidden="true"></canvas>'
         '<div class="mv-dom" id="mv-dom"></div>'
         '<div class="mv-cap"><span id="mv-captext" hidden></span></div>'
+        '<div class="mv-osd" aria-hidden="true"><div class="mv-osdprog" id="mv-osdprog"></div><div class="mv-osdchap" id="mv-osdchap"></div><span class="mv-osdpage" id="mv-osdpage"></span></div>'
         '<button class="mv-big" id="mv-big" type="button" aria-label="再生">%s</button>'
         '<button class="mv-resume" id="mv-resume" type="button" hidden></button>'
-        '<span class="mv-recbadge" id="mv-recbadge" hidden>● 録画中</span></div>%s</div>'
+        '<span class="mv-recbadge" id="mv-recbadge" hidden>● 録画中</span></div>'
+        '<div class="mv-pbar" aria-hidden="true"><span class="mv-lamp"></span><b class="mv-ptitle" id="mv-ptitle"></b><span class="mv-pnext" id="mv-pnext"></span></div>'
+        '<div class="mv-reader" aria-label="字幕（前の文・今の文・次の文）"><p class="mv-rprev" id="mv-rprev"></p><p class="mv-rcur" id="mv-rcur"></p><p class="mv-rnext" id="mv-rnext"></p></div>'
+        '%s</div>'
         '<aside class="mv-side mv-chapters" aria-label="チャプター"><h2>チャプター</h2><ol class="mv-chaplist" id="mv-chaplist"></ol></aside>'
         '<aside class="mv-side mv-transcript" aria-label="文字起こし"><h2>文字起こし</h2>'
         '<input type="search" class="mv-tsearch" id="mv-tsearch" placeholder="文字起こしを検索" aria-label="文字起こしを検索">'
@@ -1543,12 +1805,16 @@ def print_list():
     print("  order: " + "　".join("%s（%s）" % kv for kv in ORDERS.items()) + "　※ 項目を順に出す部品（bullets・cards・steps など）に効く")
     print("\n# 演出の層（場面の fx・台本の fx。文字列か {kind, color, alpha, n, seed}）")
     print("  " + "　".join("%s（%s）" % kv for kv in FX.items()))
+    print("\n# 章の札と進み具合（台本の chrome。false で出さない）")
+    print("  " + "　".join("%s（%s）" % kv for kv in CHROME_STYLES.items()))
+    print("\n# 字幕の形（台本の caption。ナレーションの字幕。プレイヤーの字幕と、録画に焼き込む字幕の両方）")
+    print("  " + "　".join("%s（%s）" % kv for kv in CAPTION_STYLES.items()))
     print("\n# 表現のモード（台本の expression）")
     for k, d in EXPRESSIONS.items():
         print("  %-10s %s" % (k, d))
     print("\n# 台本の骨組み")
     print('  {"title":"…","description":"…","lang":"ja","player":"studio","theme":"navy-brass",'
-          '"brand":{"name":"…"},"motion":"dynamic","poster":4300,'
+          '"brand":{"name":"…"},"motion":"dynamic","chrome":"label","caption":"box","poster":4300,'
           '"audio":{"narration":true,"music":"corporate","sfx":{"kit":"standard","density":"normal"},"rate":1.1,"wait":true,"pronounce":{"Sodashitsu":"ソダシツ"}},'
           '"expression":"mixed","chapters":[{"title":"章の名前","desc":"一覧に出す説明","scenes":[{…場面…}]}]}')
     print("\n# アイコン（部品の icon・重ねの層の icon・H.icon）\n  %d 種。一覧は --list-icons。icon には絵文字も書ける" % len(icons.ICONS))
