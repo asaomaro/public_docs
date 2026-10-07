@@ -82,6 +82,17 @@
 | 出来事の順と、間の長さ（「◯日後」） | `dottimeline`（`items` に `date`・`label`。`gap` で 2 点の間の印） |
 | 「100 回のうち 79 回」のような割合を、点の数で | `dotgrid`（`total`・`count`。`label`・`unit`） |
 | 話しながら 1 行ずつ埋める比較表 | `revealtable`（`columns`・`rows`。`hot` の字のます目に色） |
+| 入力を増やすと、結果が変わる（つまみを右へ動かすと、となりの図の線がのびる） | `knobcurve`（`knobs` 2〜4 個。`dir` で右上がり・右下がり。`steps` で線の下の段） |
+| 穴うめ・伏せ字・クイズ（札の 1 枚にふたをして、当てさせてから開く） | `maskreveal`（`tokens` と、かくす札 `mask`。`who`・`guess`・`answer`） |
+| 大きさの差を、面積で（2 つの丸の面積が、数の比） | `areacompare`（`items` に `label`・`value`・見せる字 `text`。`pick` で片方に札） |
+| 得意と苦手・むらのある成績（でこぼこの線の山と谷に名前） | `jaggedline`（`points` と `marks`。目盛りは無い） |
+| 直列と並列・1 つずつと同時の比べ | `seqparallel`（`labels`・`count`。`time` で下に時間の帯） |
+| 同じ数がそろう形（多角形の角に順に印が出て、右で数える） | `polymarks`（`sides` と `rows`。`center` でまん中の形） |
+| 近いのに遠い・回り道（直線と、らせんの道） | `spiralpath`（`from`・`to`・`straight`・`path`。`captions` で段ごとの一言） |
+| 2〜3 個の数字を、太い棒と大きな字で（立ち絵のある狭い画面でも読める） | `bigbars`（`items` に `label`・`value`。棒ごとの `at` か、字幕の文ごとに 1 本） |
+| 力のつり合い・板ばさみ（まん中の物が左右から引かれて、のびちぢみ） | `tugofwar`（`center`・`left`・`right`。`mark` で一言） |
+| 噴き出した物のゆくえ・循環（一部は外へ、残りは降ってもどる） | `fountain`（`source`・`top`・`out`・`back`） |
+| 軸の傾き・角度の比べ（球の軸が傾き、弧と数字） | `axistilt`（`items` に `label`・`angle`） |
 | 土台から積み上がる構成・優先度 | `pyramid` |
 | 2〜3 の性質の重なり | `venn`（`center` で重なりの言葉） |
 | 繰り返す工程（PDCA など） | `cycle` |

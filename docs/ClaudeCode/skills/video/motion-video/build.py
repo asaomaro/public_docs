@@ -272,6 +272,17 @@ SCENE_TYPES = {
     "dottimeline": (["items"], "点の年表（横の線の上に、点と日付が順に 1 つずつ出る。2 点の間に「◯日後」の印。出来事の順と間の長さ）", '{"type":"dottimeline","heading":"7 月の出来事","items":[{"date":"7月8日","label":"書き込み"},{"date":"7月11日","label":"攻撃が始まる"},{"date":"7月16日","label":"A 社が発表"},{"date":"7月21日","label":"B 社が発表"}],"gap":{"from":2,"to":3,"label":"5日後"}}'),
     "dotgrid": (["count"], "点の数（点 total 個（既定 100）のうち count 個が色づき、数字が上がる。「100 回のうち 79 回」のような割合）", '{"type":"dotgrid","heading":"何回、起きたか","total":100,"count":79,"label":"100回のうち","unit":"回","color":"warn"}'),
     "revealtable": (["columns", "rows"], "1 行ずつの表（行の名前は先にうすく出し、字幕の文か at の秒ごとに 1 行ずつ中身が出て、いまの行だけ明るい。話しながら埋める比較表）", '{"type":"revealtable","heading":"3 つの例を比べる","columns":["例","どこで","実害"],"rows":[["A の件","本番","あり"],["B の試験","試験の中","なし"],["C の実験","実験の中","実験の\\n中の話"]],"hot":["あり"]}'),
+    "knobcurve": (["knobs"], "つまみと線（左のつまみ 2〜4 個が右へ動くと、右の図の線がのびる。後から、線の下に同じ形の段。入力を増やすと結果が変わる。dir: up|down）", '{"type":"knobcurve","heading":"増やすと、減っていく","knobs":["大きさ","データ","計算"],"yLabel":"はずれ","xLabel":"規模 →","dir":"down","label":"決まった調子で減る","steps":3}'),
+    "maskreveal": (["tokens"], "ふたをして当てる（言葉の札の 1 枚にふたがかぶさり、下の人が当てにいく。ふたが開いて、その札に色が付く。穴うめ・伏せ字・クイズ）", '{"type":"maskreveal","heading":"かくして、当てさせる","lead":"データの中の文","tokens":["きょうは","いい","天気","です"],"mask":2,"who":"モデル","icon":"robot","guess":"当ててみる","answer":"かくした言葉 ＝ 正解"}'),
+    "areacompare": (["items"], "面積で比べる（面積が value の比になった 2 つの丸。後から、片方に「こっち」の札。大きさの差を面積で見せる）", '{"type":"areacompare","heading":"大きさは、これだけ違う","items":[{"label":"小さい方","value":1,"text":"1"},{"label":"大きい方","value":100,"text":"100"}],"pick":0,"pickLabel":"こっち","by":"人が選ぶと"}'),
+    "jaggedline": ([], "でこぼこの線（折れ線がのびて、山と谷に、字幕の文か at の秒ごとに名前が付く。得意と苦手・むらのある成績。目盛りは無い）", '{"type":"jaggedline","heading":"得意と苦手が、でこぼこ","points":[0.42,0.55,0.9,0.55,0.66,0.12,0.55,0.72,0.58],"high":"↑ 得意","low":"↓ 苦手","marks":[{"at":2,"label":"計算","value":"とても速い","color":"ok"},{"at":5,"label":"時計を読む","value":"まだ苦手","color":"warn"}]}'),
+    "seqparallel": ([], "順番と同時（上の列は箱が 1 つずつ光り、下の列は同時に光る。後から、列の下に時間の帯。直列と並列の比べ）", '{"type":"seqparallel","heading":"並べて、いっぺんに","labels":["順番に\\n1つずつ","並べて\\nいっぺんに"],"count":6,"time":{"label":"かかる時間","mark":"ずっと短い"}}'),
+    "polymarks": ([], "多角形の角の印（多角形（sides 辺）の角に、順に印が出て、右で数える。後から、まん中の形と仕切り。同じ数がそろう形）", '{"type":"polymarks","heading":"8 がそろう形","sides":8,"rows":[{"label":"角の塔"},{"label":"1階の部屋"},{"label":"2階の部屋"}],"center":"中庭"}'),
+    "spiralpath": ([], "らせんの回り道（入口と目的地を点線の直線で結ぶ → らせんの塀が伸びる → 印が道をゆっくり進む。近いのに遠い・回り道）", '{"type":"spiralpath","heading":"見えているのに、着かない","from":"入口","to":"目的地","straight":{"label":"直線","value":"すぐそこ"},"path":"歩く道","captions":["入口から目的地まで","塀で、らせん状に囲む","見えているのに、着かない"]}'),
+    "bigbars": (["items"], "太い棒と大きな数字（太い横棒 2〜3 本が、字幕の文か at の秒ごとに 1 本ずつのびて、大きな数字が数え上がる。名前は棒の上。狭い画面でも読める）", '{"type":"bigbars","heading":"どちらが長い？","lead":"かかる日数","items":[{"label":"A の道","value":243},{"label":"B の道","value":225}],"unit":"日"}'),
+    "tugofwar": (["left", "right"], "左右から引く（まん中の物が、左から太く、右から細く引かれて、のびちぢみする。力のつり合い・板ばさみ・潮の満ち引き）", '{"type":"tugofwar","heading":"左右から、引かれる","center":"まん中","left":{"label":"大きな力","pull":"強く引く"},"right":[{"label":"小さな力 A"},{"label":"小さな力 B"}],"mark":"引っぱり合うと…？"}'),
+    "fountain": ([], "噴き出して降りもどる（下の物から粒が噴き出す → 一部は外へ → 残りは左右に降ってもどる。噴火・間欠泉・循環）", '{"type":"fountain","heading":"噴き出した物の、ゆくえ","source":"もとの場所","top":"上へ噴き出す","out":{"label":"外","text":"ごく一部"},"back":{"text":"ほとんどは","label":"降って\\nもどる"}}'),
+    "axistilt": (["items"], "軸の傾き（回る面の線の上に 1〜2 つの球。軸が傾いていき、傾きを弧と数字で比べる。angle は度）", '{"type":"axistilt","heading":"軸の傾きを比べる","items":[{"label":"A","angle":20},{"label":"B","angle":95}],"plane":"回る面"}'),
     "funnel": (["items"], "漏斗（段が上から落ちて重なり、段の間に歩留まりの %）", '{"type":"funnel","heading":"申し込みまで","items":[{"label":"訪問","value":12000},{"label":"試用","value":3200},{"label":"申し込み","value":860}],"unit":"人"}'),
     "pyramid": (["items"], "ピラミッド（下の段から積み上がる。items は上から順。text で右に説明）", '{"type":"pyramid","heading":"支える仕組み","items":[{"label":"体験","text":"画面"},{"label":"機能","text":"API"},{"label":"基盤","text":"サーバ"}]}'),
     "venn": (["sets"], "ベン図（2〜3 の円が外から寄って重なり、center の言葉が弾む）", '{"type":"venn","sets":[{"label":"速さ","text":"すぐ返る"},{"label":"安さ"},{"label":"安全"}],"center":"ここ"}'),
@@ -615,7 +626,8 @@ SCENE_TYPES.update({
               '{"type":"swipe","before":"old.png","after":"new.png","labels":["今まで","これから"],"caption":"画面が 1 枚にまとまった"}'),
 })
 
-MIN_SEC = {"flowfill": 7, "softenbars": 7, "stepbars": 4, "shrinkkeep": 8, "snapruler": 7, "prunenet": 6, "funnelflow": 7, "dottimeline": 3, "dotgrid": 6, "revealtable": 3,
+MIN_SEC = {"knobcurve": 8, "maskreveal": 8, "areacompare": 7, "jaggedline": 5, "seqparallel": 8, "polymarks": 7, "spiralpath": 9, "bigbars": 3, "tugofwar": 8, "fountain": 8, "axistilt": 4,
+           "flowfill": 7, "softenbars": 7, "stepbars": 4, "shrinkkeep": 8, "snapruler": 7, "prunenet": 6, "funnelflow": 7, "dottimeline": 3, "dotgrid": 6, "revealtable": 3,
            "probbars": 6, "tokensplit": 6, "attention": 6, "loopgrow": 7, "funnel": 4, "pyramid": 4, "venn": 5.5, "cycle": 5, "matrix": 5, "calendar": 5, "checklist": 3, "versus": 6, "ranking": 4, "keys": 3, "talk": 2, "layout": 7, "wordcloud": 5, "bigtype": 4.5, "area": 6, "stack": 6, "scatter": 6, "heatmap": 6, "gauge": 5, "rings": 5, "treemap": 6, "radar": 6, "phone": 6, "dashboard": 7,
            "form": 6, "notifs": 4, "scroll": 6, "drag": 5, "network": 6, "tree": 5, "states": 6, "map": 6, "layers": 6, "pipeline": 7, "icons": 3, "impact": 3.5, "countdown": 4, "orbit": 7, "logo": 6.5, "marquee": 5, "title": 8, "statement": 4.5, "bullets": 2.5, "flow": 3, "steps": 2, "terminal": 2.5, "stats": 4.5, "bars": 3.5,
            "compare": 3, "code": 2.5, "window": 7, "image": 5, "end": 4, "custom": 5,
@@ -757,6 +769,12 @@ def min_seconds(s):
         base += 1.5 * len(s.get("items", [])) + 1.5 * len(s.get("gaps", [s.get("gap")] if s.get("gap") else []))
     elif t == "revealtable":
         base += 1.8 * len(s.get("rows", []))
+    elif t == "bigbars":
+        base += 2.0 * len(s.get("items", []))
+    elif t == "jaggedline":
+        base += 1.6 * len(s.get("marks", []))
+    elif t == "axistilt":
+        base += 2.2 * len(s.get("items", []))
     elif t in ("funnel", "pyramid", "cycle", "matrix", "ranking", "checklist"):
         base += 0.8 * len(s.get("items", []))
     elif t == "calendar":
