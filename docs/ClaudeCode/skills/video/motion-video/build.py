@@ -155,6 +155,10 @@ SCENE_TYPES = {
     "bigtype": (["big"], "画面いっぱいの文字が背景で流れ、前に言葉が出る（text・sub）", '{"type":"bigtype","big":"PARALLEL","text":"並べて、任せる。","sub":"Sodashitsu"}'),
     "talk": ([], "掛け合い（ゆっくり解説など）。lines: [{who, text, face, emote, voice, shake, pause}] と、中央の黒板 board（部品の台本・{type:image,src}・文字列）、背景 bg。登場人物は台本の cast",
              '{"type":"talk","board":{"type":"bullets","heading":"3 つの特徴","items":["速い","安い","うまい"]},"lines":[{"who":"a","text":"今日は〇〇を解説するよ。"},{"who":"b","text":"よろしくなのだ！","face":"smile","emote":"!"}]}'),
+    "probbars": (["items"], "確率の横棒（候補の棒が伸び、数字は「？」。順に数字に替わり、当てたい物だけ大きく色が付く。次の言葉の候補・予想・投票の途中）", '{"type":"probbars","heading":"次に来る言葉は？","lead":"雨の日は、家で","items":[{"label":"本を読む","value":9.4},{"label":"映画を見る","value":5.2},{"label":"昼寝をする","value":2.5}],"unit":"%","highlight":[0,2]}'),
+    "tokensplit": (["tokens"], "札に分ける（1 枚の文に切れ目が入り、札に分かれ、1 枚に名前が付く。言葉・データを細かい単位に分ける）", '{"type":"tokensplit","heading":"文を、札に分ける","tokens":["ずんだ","餅","は","おいしい","です"],"mark":1,"label":"これが 1 つの札","note":"AI は、この札の並びを読む"}'),
+    "attention": (["tokens"], "関わりの線（札の 1 枚から、ほかの札へ弧。関わりの強い 1 本だけ太くなる。どの言葉を見て決めたか・つながりの強さ）", '{"type":"attention","heading":"どの言葉を見ている？","tokens":["猫","が","魚","を","食べた"],"from":4,"links":[{"to":0,"weight":0.6},{"to":2,"weight":0.9,"label":"強く関わる"}],"note":"関わりの強い言葉を、重く見る"}'),
+    "loopgrow": (["steps", "items"], "回って増える（段の輪を光が回り、1 周ごとに、上の列に札が 1 枚増える。くり返して少しずつ出来ていく物）", '{"type":"loopgrow","heading":"1 語ずつ、足していく","steps":["読む","当てる","選ぶ","足す"],"seed":"むかし","items":["むかし","ある","ところに"],"note":"これを、文が終わるまでくり返す"}'),
     "funnel": (["items"], "漏斗（段が上から落ちて重なり、段の間に歩留まりの %）", '{"type":"funnel","heading":"申し込みまで","items":[{"label":"訪問","value":12000},{"label":"試用","value":3200},{"label":"申し込み","value":860}],"unit":"人"}'),
     "pyramid": (["items"], "ピラミッド（下の段から積み上がる。items は上から順。text で右に説明）", '{"type":"pyramid","heading":"支える仕組み","items":[{"label":"体験","text":"画面"},{"label":"機能","text":"API"},{"label":"基盤","text":"サーバ"}]}'),
     "venn": (["sets"], "ベン図（2〜3 の円が外から寄って重なり、center の言葉が弾む）", '{"type":"venn","sets":[{"label":"速さ","text":"すぐ返る"},{"label":"安さ"},{"label":"安全"}],"center":"ここ"}'),
@@ -260,6 +264,8 @@ BACKDROPS = {
     "radar": "レーダーの走査が回る", "tunnel": "四角い枠の中を進み続ける", "prism": "重なる三角が互い違いに回る", "orbits": "軌道の上を星が回る",
     "helix": "二重らせんが回る", "plexus": "点と線の網が漂う", "circuit": "基板の配線を光が走る", "matrix": "文字が流れ落ちる",
     "equalizer": "音の棒が上下する", "scan": "走査線の光が上から下へ流れる",
+    "neural": "層になった点の網を、光の粒が左から右へ渡る（AI・判断の流れ）", "tokens": "小さな札の列が左右に流れ、ところどころ光る（言葉・データを札に分ける）",
+    "branch": "枝分かれする道を光が走り、1 本を選んで端を灯す（選ぶ・決める）",
 }
 BG_DIR = os.path.join(HERE, "bg")
 _BG_SVG = []
@@ -439,7 +445,7 @@ SCENE_TYPES.update({
               '{"type":"swipe","before":"old.png","after":"new.png","labels":["今まで","これから"],"caption":"画面が 1 枚にまとまった"}'),
 })
 
-MIN_SEC = {"funnel": 4, "pyramid": 4, "venn": 5.5, "cycle": 5, "matrix": 5, "calendar": 5, "checklist": 3, "versus": 6, "ranking": 4, "keys": 3, "talk": 2, "layout": 7, "wordcloud": 5, "bigtype": 4.5, "area": 6, "stack": 6, "scatter": 6, "heatmap": 6, "gauge": 5, "rings": 5, "treemap": 6, "radar": 6, "phone": 6, "dashboard": 7,
+MIN_SEC = {"probbars": 6, "tokensplit": 6, "attention": 6, "loopgrow": 7, "funnel": 4, "pyramid": 4, "venn": 5.5, "cycle": 5, "matrix": 5, "calendar": 5, "checklist": 3, "versus": 6, "ranking": 4, "keys": 3, "talk": 2, "layout": 7, "wordcloud": 5, "bigtype": 4.5, "area": 6, "stack": 6, "scatter": 6, "heatmap": 6, "gauge": 5, "rings": 5, "treemap": 6, "radar": 6, "phone": 6, "dashboard": 7,
            "form": 6, "notifs": 4, "scroll": 6, "drag": 5, "network": 6, "tree": 5, "states": 6, "map": 6, "layers": 6, "pipeline": 7, "icons": 3, "impact": 3.5, "countdown": 4, "orbit": 7, "logo": 6.5, "marquee": 5, "title": 8, "statement": 4.5, "bullets": 2.5, "flow": 3, "steps": 2, "terminal": 2.5, "stats": 4.5, "bars": 3.5,
            "compare": 3, "code": 2.5, "window": 7, "image": 5, "end": 4, "custom": 5,
            "cards": 3, "timeline": 3, "chat": 2, "line": 6, "donut": 6, "table": 3, "quote": 6, "kinetic": 3, "split": 6,
@@ -570,6 +576,10 @@ def min_seconds(s):
         base += 1.0 * s.get("from", 3) + (1.5 if s.get("label") else 0)
     elif t == "orbit":
         base += 0.9 * len(s.get("items", []))
+    elif t in ("probbars", "tokensplit", "attention"):
+        base += 0.7 * len(s.get("items", s.get("tokens", []))) + 0.8 * len(s.get("links", []))
+    elif t == "loopgrow":
+        base += 1.3 * len(s.get("items", []))
     elif t in ("funnel", "pyramid", "cycle", "matrix", "ranking", "checklist"):
         base += 0.8 * len(s.get("items", []))
     elif t == "calendar":
