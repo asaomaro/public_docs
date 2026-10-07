@@ -494,5 +494,274 @@
   "desc": "青い光の帯と、つやのある床のスタジオ。ニュース・報告・番組風に",
   "kind": "scenery",
   "tone": "dark"
+ },
+ "yagasuri": {
+  "file": "yagasuri.svg",
+  "label": "矢絣",
+  "desc": "矢羽根を縦に並べた和の模様。和風・卒業・大正ふうの話に",
+  "kind": "themed"
+ },
+ "kagome": {
+  "file": "kagome.svg",
+  "label": "籠目",
+  "desc": "竹かごの編み目の和の模様。和風・魔よけ・手仕事の話に",
+  "kind": "themed"
+ },
+ "tatewaku": {
+  "file": "tatewaku.svg",
+  "label": "立涌",
+  "desc": "向かい合う波の線が、ふくらみを作る和の模様。和風・上品・縁起のよい話に",
+  "kind": "themed"
+ },
+ "kanoko": {
+  "file": "kanoko.svg",
+  "label": "鹿の子",
+  "desc": "絞り染めの小さな粒が並ぶ和の模様。和風・かわいらしい・祝いの話に",
+  "kind": "themed"
+ },
+ "hishi": {
+  "file": "hishi.svg",
+  "label": "菱",
+  "desc": "菱形を重ねた和の模様。和風・格式・ひな祭りの話に",
+  "kind": "themed"
+ },
+ "linen": {
+  "file": "linen.svg",
+  "label": "布の織り目",
+  "desc": "麻布のような、縦糸と横糸の細かい織り目。手づくり・暮らし・落ち着いた語りに",
+  "kind": "themed"
+ },
+ "woodgrain": {
+  "file": "woodgrain.svg",
+  "label": "木目",
+  "desc": "板の木目と節。配色の色になじむ木の地。手づくり・喫茶・あたたかい語りに",
+  "kind": "themed"
+ },
+ "marble": {
+  "file": "marble.svg",
+  "label": "大理石",
+  "desc": "やわらかな色むらと、細い筋。上品・高級・美術の話に",
+  "kind": "themed"
+ },
+ "gingham": {
+  "file": "gingham.svg",
+  "label": "ギンガム",
+  "desc": "2 色が重なる格子じま。ポップ・料理・ピクニック・親しみやすい話に",
+  "kind": "themed"
+ },
+ "mizutama": {
+  "file": "mizutama.svg",
+  "label": "水玉",
+  "desc": "2 色の水玉が互い違いに並ぶ。ポップ・子ども向け・楽しい話に",
+  "kind": "themed"
+ },
+ "pinstripe": {
+  "file": "pinstripe.svg",
+  "label": "細い縦じま",
+  "desc": "細い縦の線が等間隔に並ぶ、背広の生地のような地。ビジネス・きちんとした話に",
+  "kind": "themed"
+ },
+ "blueprint-blue": {
+  "file": "blueprint-blue.svg",
+  "label": "青焼きの図面",
+  "desc": "青い紙に白い線の図面。歯車と寸法線。設計・ものづくり・計画の話に",
+  "kind": "scenery",
+  "tone": "dark"
+ },
+ "stone-wall": {
+  "file": "stone-wall.svg",
+  "label": "石垣",
+  "desc": "大きさの違う石を積んだ、灰色の石垣。城・歴史・どっしりした話に",
+  "kind": "scenery",
+  "tone": "dark"
+ },
+ "tile-wall": {
+  "file": "tile-wall.svg",
+  "label": "白いタイル",
+  "desc": "目地のある白いタイルの壁。台所・浴室・清潔・料理や暮らしの話に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "tatami": {
+  "file": "tatami.svg",
+  "label": "畳",
+  "desc": "上から見た畳の間。い草の目と、畳のへり。和風・茶の間・落ち着いた語りに",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "denim": {
+  "file": "denim.svg",
+  "label": "デニム",
+  "desc": "藍色のあや織りの布と、橙の縫い目。カジュアル・若者・ファッションの話に",
+  "kind": "scenery",
+  "tone": "dark"
+ },
+ "classroom": {
+  "file": "classroom.svg",
+  "label": "教室",
+  "desc": "窓から光の入る教室と、机の列。学校・授業・思い出の話に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "lab": {
+  "file": "lab.svg",
+  "label": "研究室",
+  "desc": "実験台とフラスコ、薬びんの棚。科学・実験・研究の話に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "library": {
+  "file": "library.svg",
+  "label": "図書館",
+  "desc": "高い本棚にはさまれた通路と、奥の大きな窓。読書・調べもの・学びの話に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "meeting-room": {
+  "file": "meeting-room.svg",
+  "label": "会議室",
+  "desc": "長い机といす、奥に白いスクリーン。会議・打ち合わせ・仕事の説明に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "server-room": {
+  "file": "server-room.svg",
+  "label": "サーバールーム",
+  "desc": "両側に機械の棚が並ぶ、青い光の通路。IT・クラウド・データの話に",
+  "kind": "scenery",
+  "tone": "dark"
+ },
+ "station": {
+  "file": "station.svg",
+  "label": "駅のホーム",
+  "desc": "屋根と柱のあるホームと、線路の向こうの街。旅・通勤・出会いと別れの話に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "shopping-street": {
+  "file": "shopping-street.svg",
+  "label": "商店街",
+  "desc": "日よけと店先が並ぶ通りと、三角の旗。買いもの・町・にぎわいの話に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "kitchen": {
+  "file": "kitchen.svg",
+  "label": "台所",
+  "desc": "タイルの壁と調理台、なべと棚。料理・暮らし・家の話に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "hospital": {
+  "file": "hospital.svg",
+  "label": "病院",
+  "desc": "淡い緑の病室。窓とカーテン、白いベッド。医療・健康・体の話に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "factory": {
+  "file": "factory.svg",
+  "label": "工場",
+  "desc": "夕暮れの空に、のこぎり屋根と煙突の影。ものづくり・産業・働く話に",
+  "kind": "scenery",
+  "tone": "dark"
+ },
+ "harbor": {
+  "file": "harbor.svg",
+  "label": "港",
+  "desc": "青い海と、クレーン、積まれたコンテナ、沖の船。貿易・物流・旅立ちの話に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "space-station": {
+  "file": "space-station.svg",
+  "label": "宇宙ステーション",
+  "desc": "青い星のふちと、太陽電池の羽を広げた基地。宇宙開発・未来・国際協力の話に",
+  "kind": "scenery",
+  "tone": "dark"
+ },
+ "park": {
+  "file": "park.svg",
+  "label": "公園",
+  "desc": "木立と芝生、小道とベンチ、街灯。休日・散歩・身近な自然の話に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "countryside": {
+  "file": "countryside.svg",
+  "label": "田園",
+  "desc": "山のふもとに広がる田んぼと、かやぶきの家。ふるさと・農業・昔の暮らしの話に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "office": {
+  "file": "office.svg",
+  "label": "オフィス",
+  "desc": "大きな窓の向こうにビル街、手前に机と画面。会社・働き方・ビジネスの話に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "cafe": {
+  "file": "cafe.svg",
+  "label": "喫茶店",
+  "desc": "あたたかい灯りのカウンターと、棚のカップ。休憩・雑談・コーヒーの話に",
+  "kind": "scenery",
+  "tone": "dark"
+ },
+ "shrine": {
+  "file": "shrine.svg",
+  "label": "神社",
+  "desc": "朱色の鳥居と石畳の参道、両わきの木立。初詣・伝統・祈りの話に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "bamboo": {
+  "file": "bamboo.svg",
+  "label": "竹林",
+  "desc": "まっすぐ伸びる竹と、上から差す光。和風・静けさ・ひと息つく話に",
+  "kind": "scenery",
+  "tone": "dark"
+ },
+ "lake": {
+  "file": "lake.svg",
+  "label": "湖",
+  "desc": "山と空を映す静かな湖と、岸の木立。静けさ・ふり返り・自然の話に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "aurora-sky": {
+  "file": "aurora-sky.svg",
+  "label": "オーロラの夜",
+  "desc": "星空にゆれる緑と紫の光の幕と、雪の丘。北国・神秘・冬の夜の話に",
+  "kind": "scenery",
+  "tone": "dark"
+ },
+ "island": {
+  "file": "island.svg",
+  "label": "南の島",
+  "desc": "エメラルドの海と白い砂浜、やしの木。夏休み・旅行・のんびりした話に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "airport": {
+  "file": "airport.svg",
+  "label": "空港",
+  "desc": "管制塔とターミナル、とまっている飛行機と、飛び立つ飛行機。旅・出張・世界へ出る話に",
+  "kind": "scenery",
+  "tone": "light"
+ },
+ "control-room": {
+  "file": "control-room.svg",
+  "label": "管制室",
+  "desc": "壁いっぱいの画面と、操作卓の列。監視・運用・宇宙や交通の指令の話に",
+  "kind": "scenery",
+  "tone": "dark"
+ },
+ "moon": {
+  "file": "moon.svg",
+  "label": "月面",
+  "desc": "まっ暗な空に浮かぶ青い星と、クレーターのある灰色の大地。宇宙探査・挑戦・遠くから見る話に",
+  "kind": "scenery",
+  "tone": "dark"
  }
 }
