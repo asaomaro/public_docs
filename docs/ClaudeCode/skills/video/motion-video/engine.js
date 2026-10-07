@@ -2486,7 +2486,8 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
           if (rn && rn !== "none" && (r.se || rt - lastT > 2400)) { sfxEv(rt + 40, rn, { v: .36 }); lastT = rt; } }); });
       if (s.board && (typeof s.board === "string" || s.board.type === "image")) sfxEv(140, "appear"); }
     paintBg(s.bg, T === undefined ? lt : T);
-    if ((TALK.stage || {}).plate === "paper") { var pg = ctx.createRadialGradient(960, 440, 200, 960, 440, 1300); pg.addColorStop(0, "#d8cba6"); pg.addColorStop(1, "#9c8f6c"); ctx.fillStyle = pg; ctx.fillRect(0, 0, 1920, 1080); }
+    /* 紙の色の画面（図解の型）: 場面に背景（@bg）があるときは、紙を敷かずに背景を見せる（前は、いつも紙で覆って、@bg に書いた動く背景が見えなかった。どの章も同じ色の画面になった） */
+    if ((TALK.stage || {}).plate === "paper" && (s.bg === undefined || s.bg === null || s.bg === false || (TALK.stage || {}).paperOver)) { var pg = ctx.createRadialGradient(960, 440, 200, 960, 440, 1300); pg.addColorStop(0, "#d8cba6"); pg.addColorStop(1, "#9c8f6c"); ctx.fillStyle = pg; ctx.fillRect(0, 0, 1920, 1080); }
     var b = s.board; if (!b) { stageTags(s, lt); return; }
     if (b.type === "stage") { drawStage(s, b, lt, d); stageTags(s, lt); return; }
     var bx = 330, byy = 70, bw = 1260, bh = bw * 9 / 16 * .92, k = P(lt, 0, 500);
