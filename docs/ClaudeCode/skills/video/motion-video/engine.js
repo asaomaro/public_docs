@@ -610,7 +610,9 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       [[2, 1280, 28, 18], [3, 1720, 22, 14]].some(function (tr) {   /* 2 段で、立ち絵の頭の上（y 640 まで）に収まる字の大きさを選ぶ。18 でも収まらなければ 3 段（前は、はみ出した下の行が立ち絵に隠れた） */
         NC = tr[0]; PW = tr[1]; CWd = PW / NC - 50;
         for (sz = tr[2]; sz >= tr[3]; sz -= 2) {
-          out = []; rows2.forEach(function (r) { wrap(r, CWd, { size: sz, weight: 600, font: fam }).forEach(function (l, i) { out.push((i ? "　" : "") + l); }); });
+          /* 折れない長い語（切れ目の無い日本語の 1 文・URL）は、段の幅で字ごとに切る（前は、はみ出すか、はみ出さないように字を最小まで縮めていた） */
+          var o2 = { size: sz, weight: 600, font: fam }, hard = function (l, lim) { var res = [], cur = ""; Array.from(l).forEach(function (chx) { if (cur && tw(cur + chx, o2) > lim && "）)」』】、。・".indexOf(chx) < 0) { var tail = ""; while (cur.length > 1 && "（(「『【".indexOf(cur.slice(-1)) >= 0) { tail = cur.slice(-1) + tail; cur = cur.slice(0, -1); } res.push(cur); cur = tail + chx; } else cur += chx; }); if (cur) res.push(cur); return res; };   /* 行の頭に閉じかっこ・句読点を置かない。行の終わりに開きかっこを残さない */
+          out = []; rows2.forEach(function (r) { var n0 = 0; wrap(r, CWd - sz, o2).forEach(function (l) { (tw(l, o2) > CWd - sz ? hard(l, CWd - sz) : [l]).forEach(function (l2) { out.push((n0++ ? "　" : "") + l2); }); }); });
           per = Math.ceil(out.length / NC);
           var wide = out.some(function (l) { return tw(l, { size: sz, weight: 600, font: fam }) > CWd + 6; });   /* 折れない長い語（URL）が段の幅を超えるなら、字を小さくする（前は、板の右へはみ出した） */
           if (per * sz * 1.5 <= PH - 50 && !wide) { fit = true; break; } }
