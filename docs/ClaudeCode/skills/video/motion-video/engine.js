@@ -2423,17 +2423,17 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     ctx.save(); path(); ctx.clip(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.filter = "blur(" + (blur * tm.a).toFixed(1) + "px)"; ctx.drawImage(cvs, sx, sy, sw, sh, sx, sy, sw, sh); ctx.restore();
     return true;
   }
-  function capBack() {   /* 置きっぱなしの帯・箱（せりふの無い間も出ている） */
-    var y = capTop(), m = TALK.caption;
+  function capBack(S) {   /* 置きっぱなしの帯・箱（せりふの無い間も出ている） */
+    var y = capTop(), m = TALK.caption, slot = S && S.castCaption, bx = slot ? slot.x - slot.width / 2 - 20 : 36, bw = slot ? slot.width + 40 : 1848;
     if (m === "bar") {   /* 後ろをぼかして透かし、暗い色を薄く重ねる（背景を箱の上で切らない。字は太い黒縁なので読める） */
-      var box = function () { rr(36, y, 1848, 1080 - y - 14, 18); }, frost = capFrost(box, 36, 1848, y);
+      var box = function () { rr(bx, y, bw, 1080 - y - 14, 18); }, frost = capFrost(box, bx, bw, y);
       box(); ctx.fillStyle = TALK.capFill || (frost ? "rgba(16,16,22,.56)" : "rgba(20,20,26,.88)"); ctx.fill(); ctx.strokeStyle = TALK.capEdge || "#ffffff"; ctx.lineWidth = 4; ctx.stroke(); }   /* capFill・capEdge: 箱の色と縁の色（チャンネルの色に合わせる） */
     else if (m === "band") {   /* 白い帯も同じく透かす（濃い色の字に白い縁） */
-      var fr1 = capFrost(function () { ctx.beginPath(); ctx.rect(0, y, 1920, 1080 - y); }, 0, 1920, y);
-      ctx.fillStyle = TALK.capFill || (fr1 ? "rgba(255,255,255,.58)" : "rgba(255,255,255,.74)"); ctx.fillRect(0, y, 1920, 1080 - y); }
+      var fr1 = capFrost(function () { ctx.beginPath(); ctx.rect(slot ? bx : 0, y, slot ? bw : 1920, 1080 - y); }, slot ? bx : 0, slot ? bw : 1920, y);
+      ctx.fillStyle = TALK.capFill || (fr1 ? "rgba(255,255,255,.58)" : "rgba(255,255,255,.74)"); ctx.fillRect(slot ? bx : 0, y, slot ? bw : 1920, 1080 - y); }
     else if (m === "strip") {   /* 黒い帯も同じく透かす（箱より少し濃く。黄色い字に黒い縁） */
-      var fr2 = capFrost(function () { ctx.beginPath(); ctx.rect(0, y, 1920, 1080 - y); }, 0, 1920, y);
-      ctx.fillStyle = TALK.capFill || (fr2 ? "rgba(0,0,0,.6)" : "rgba(0,0,0,.9)"); ctx.fillRect(0, y, 1920, 1080 - y); }
+      var fr2 = capFrost(function () { ctx.beginPath(); ctx.rect(slot ? bx : 0, y, slot ? bw : 1920, 1080 - y); }, slot ? bx : 0, slot ? bw : 1920, y);
+      ctx.fillStyle = TALK.capFill || (fr2 ? "rgba(0,0,0,.6)" : "rgba(0,0,0,.9)"); ctx.fillRect(slot ? bx : 0, y, slot ? bw : 1920, 1080 - y); }
   }
   /* 字幕の折り返し: 2 行になるときは、読点・句点・空白の後ろで折る（語の途中で折らない）。切れ目が無ければ、助詞の後ろ、それも無ければ幅で折る */
   function capWrap(text, maxW, o, lim) {   /* lim: 語を 2 行目へ送るときの幅の上限（2 行をそろえるために狭く折るときは、本来の幅） */
@@ -2508,29 +2508,34 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     if (line) out.push(line);
     return out.reduce(function (acc, l) { return acc.concat(W(l) > maxW * 1.25 ? wrap(l, maxW, o) : [l]); }, []);   /* 1 語が幅を大きく超えるときだけ、字で折る */
   }
+  function castCaption(tt) {
+    var sc = SCENES[sceneAt(tt)].s;
+    return !vertOn() && sc.castCaption ? sc.castCaption : null;
+  }
   function drawCaption(cur, tt) {
     var vert = vertOn();
-    if (!vert && (CAPBAR[TALK.caption] || TALK.caption === "bubble")) return drawCaption2(cur, tt);
+    if (!vert && (CAPBAR[TALK.caption] || (TALK.caption === "bubble" && !castCaption(tt)))) return drawCaption2(cur, tt);
     var sp = CAST[cur.who] || {}, col = sp.color || C.accent, ln = cur.line || {}, big = !!ln.big, outline = vert || TALK.caption === "outline", lt = tt - cur.a;
     var size = (vert ? Math.max(TALK.size || 0, 62) : TALK.size || (outline ? 56 : 46)) * (big && !vert ? 1.32 : 1), fam = TALK.font ? '"' + TALK.font + '",' + F.sans : F.sans, o = { size: size, weight: 800, font: fam };
-    var maxW = vert ? 960 : outline ? 1180 : 1080, lines = capWrap(cur.text, maxW, o), lh = size * 1.3, ck = P(lt, 0, 200);
+    var slot = castCaption(tt), cx = slot ? slot.x : 960, maxW = slot ? Math.min(slot.width, outline ? 1180 : 1080) : vert ? 960 : outline ? 1180 : 1080, lines = capWrap(cur.text, maxW, o), lh = size * 1.3, ck = P(lt, 0, 200);
+    if (slot) { var fit0 = capFit(cur.text, maxW, size, fam); lines = fit0.lines; o = fit0.o; size = o.size; lh = size * 1.3; }
     /* 2 行目が数文字だけ残るときは、2 行の長さをそろえる */
     if (lines.length === 2 && lines[1].replace(/\*\*/g, "").length <= 5) { var even = capWrap(cur.text, Math.max(maxW * .5, tw(cur.text.replace(/\*\*/g, ""), o) * .58), o, maxW); if (even.length === 2) lines = even; }
     lines = lines.slice(0, vert ? 3 : 2);
     var named = !!sp.showName || (TALK.name === undefined ? !outline : TALK.name !== false),   /* showName: 立ち絵の無い話し手（全員・部品の中の声だけの出演）は、名前を出さないと誰の声か分からない */ pk = big ? 1 + (vert ? .08 : .22) * (1 - P(lt, 0, 240, back)) : 1, jx = big && lt < 300 ? 5 * Math.sin(lt / 20) * (1 - lt / 300) : 0;
     ctx.save(); ctx.globalAlpha *= ck;
     if (outline) {
-      var base = (vert ? 760 + size + (named ? 60 : 0) : 1040 - (lines.length - 1) * lh); ctx.translate(960 + jx, base); ctx.scale(pk, pk); ctx.translate(-960, -base);
-      if (named) { var nm = sp.name || cur.who, nw0 = tw(nm, { size: 26, weight: 800, font: fam }) + 36; rr(960 - nw0 / 2, base - size - 44, nw0, 40, 20); ctx.fillStyle = col; ctx.fill(); ctx.lineWidth = 4; ctx.strokeStyle = "#ffffff"; ctx.stroke();
-        txt(nm, 960, base - size - 16, { size: 26, weight: 800, align: "center", color: "#ffffff", font: fam }); }
-      lines.forEach(function (l2, i) { capLine(l2, 960, base + i * lh, o, [[size * .34, "#16161d"], [size * .22, col]], "#ffffff", "#ffe45c"); });
+      var base = (vert ? 760 + size + (named ? 60 : 0) : 1040 - (lines.length - 1) * lh); ctx.translate(cx + jx, base); ctx.scale(pk, pk); ctx.translate(-cx, -base);
+      if (named) { var nm = sp.name || cur.who, nw0 = tw(nm, { size: 26, weight: 800, font: fam }) + 36; rr(cx - nw0 / 2, base - size - 44, nw0, 40, 20); ctx.fillStyle = col; ctx.fill(); ctx.lineWidth = 4; ctx.strokeStyle = "#ffffff"; ctx.stroke();
+        txt(nm, cx, base - size - 16, { size: 26, weight: 800, align: "center", color: "#ffffff", font: fam }); }
+      lines.forEach(function (l2, i) { capLine(l2, cx, base + i * lh, o, [[size * .34, "#16161d"], [size * .22, col]], "#ffffff", "#ffe45c"); });
     } else {
-      var bh = 60 + lines.length * lh * (46 / size) * (size / 46), by0 = 1060 - bh, bx = 400, bw = 1120;
-      ctx.translate(960 + jx, by0 + bh / 2); ctx.scale(pk, pk); ctx.translate(-960, -(by0 + bh / 2));
+      var bh = 60 + lines.length * lh * (46 / size) * (size / 46), by0 = 1060 - bh, bw = slot ? maxW + 40 : 1120, bx = cx - bw / 2;
+      ctx.translate(cx + jx, by0 + bh / 2); ctx.scale(pk, pk); ctx.translate(-cx, -(by0 + bh / 2));
       rr(bx, by0, bw, bh, 18); ctx.fillStyle = TALK.capFill || "rgba(255,255,255,.92)"; ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = 6; ctx.stroke();
       if (named) { var nw = tw(sp.name || cur.who, { size: 26, weight: 800, font: fam }) + 40; rr(bx + 24, by0 - 22, nw, 44, 22); ctx.fillStyle = col; ctx.fill();
         txt(sp.name || cur.who, bx + 24 + nw / 2, by0 + 9, { size: 26, weight: 800, align: "center", color: "#ffffff", font: fam }); }
-      lines.forEach(function (l2, i) { capLine(l2, 960, by0 + 24 + size + i * lh, o, [[size * .2, col]], "#ffffff", "#fff3a0"); });
+      lines.forEach(function (l2, i) { capLine(l2, cx, by0 + 24 + size + i * lh, o, [[size * .2, col]], "#ffffff", "#fff3a0"); });
     }
     ctx.restore();
   }
@@ -2559,7 +2564,8 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
     var sp = CAST[cur.who] || {}, col = sp.color || C.accent, ln = cur.line || {}, big = !!ln.big, lt = tt - cur.a, m = TALK.caption, fam = TALK.font ? '"' + TALK.font + '",' + F.sans : F.sans;
     var pk = big ? 1 + .18 * (1 - P(lt, 0, 240, back)) : 1, ck = P(lt, 0, 160);
     ctx.save(); ctx.globalAlpha *= ck;
-    if (m === "bubble") {
+    var slot = castCaption(tt);
+    if (m === "bubble" && !slot) {
       var pos = CPOS[cur.who], size = (TALK.size || 40) * (big ? 1.25 : 1), o = { size: size, weight: 800, font: fam }, lh = size * 1.34;
       if (!pos || sp.hidden) {   /* 語り手: 下の中央に、暗く透ける箱と黄色い字 */
         var nl = wrap(cur.text, 1240, o).slice(0, 2), nw = Math.max.apply(null, nl.map(function (l) { return tw(l.replace(/\*\*/g, ""), o); })) + 72, nh = nl.length * lh + 34, ny = 1040 - nh;
@@ -2587,13 +2593,13 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       ctx.restore(); return; }
     var size2 = (TALK.size || (m === "band" ? 44 : 50)) * (big ? 1.25 : 1), o2 = { size: size2, weight: 800, font: fam }, lh2 = size2 * 1.3, y0 = capTop(), hh = 1080 - y0 - (m === "bar" ? 14 : 0);
     /* 2 行に収める: 収まらなければ字を少しずつ小さくする（前は 3 行目が箱の外に切れていた）。折る所は、できれば句読点の後（capSplit） */
-    var capW = Math.min(TALK.capWidth || 1e9, m === "bar" ? 1500 : 1560), lines = [];
+    var capW = Math.min(slot ? slot.width : TALK.capWidth || 1e9, m === "bar" ? 1500 : 1560), lines = [];
     var fit = capFit(cur.text, capW, size2, fam); lines = fit.lines; o2 = fit.o;
     size2 = o2.size; lh2 = size2 * 1.3;
-    if (lines.length === 2 && !lines.punct && lines[1].replace(/\*\*/g, "").length <= 5) { var even = capWrap(cur.text, Math.max(700, tw(cur.text.replace(/\*\*/g, ""), o2) * .58), o2, capW); if (even.length === 2) lines = even; }
+    if (lines.length === 2 && !lines.punct && lines[1].replace(/\*\*/g, "").length <= 5) { var even = capWrap(cur.text, Math.max(Math.min(700, capW), tw(cur.text.replace(/\*\*/g, ""), o2) * .58), o2, capW); if (even.length === 2) lines = even; }
     lines = lines.slice(0, 2);
     var cy2 = y0 + hh / 2, base = cy2 - (lines.length - 1) * lh2 / 2 + size2 * .36;
-    var CXc = TALK.capX || 960;   /* 字幕のまん中（左右の立ち絵の数が違うとき、空いている側へ寄せる。yukkuri-kaisetsu が決める） */
+    var CXc = slot ? slot.x : TALK.capX || 960;   /* 字幕のまん中（左右の立ち絵の数が違うとき、空いている側へ寄せる。yukkuri-kaisetsu が決める） */
     ctx.translate(CXc, cy2); ctx.scale(pk, pk); ctx.translate(-CXc, -cy2);
     var cc = TALK.capColor, fill = cc && cc !== "speaker" ? cc : m === "strip" ? (cc === "speaker" ? tintCol(col, .45) : "#ffe45c") : m === "bar" ? tintCol(col, .38) : tintCol(col, -.3), edge = m === "band" ? [[size2 * .2, "#ffffff"]] : [[size2 * .2, "#000000"]];
     lines.forEach(function (l2, i) { capLine(l2, CXc, base + i * lh2, o2, edge, fill, m === "band" ? "#d9343f" : "#ffffff"); });
@@ -2606,14 +2612,14 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   /* 立ち絵が立つ範囲（左に立つ人たちの右端・右に立つ人たちの左端・頭の高さ）。名札・吹き出し・描き下ろしの図を、立ち絵に隠れない所へ置くために使う。
      横は、立ち絵の画像のまわりの透明な余白を見こんで、幅の 18% を内側に取る。頭の高さは、話すときの弾みと気持ちの印の分、40 高く取る。立つ位置の式は drawCast と同じ */
   /* 立ち絵 1 人の立つ位置と大きさ。いつもは、左右の端から台本の順に並ぶ（nth = 同じ側で何人目か）。
-     場面の castLayout（{id: {x, scale, dy, hide, front}}）があれば、その人はそれに従う: x = 足もとの中心（0〜1920）・scale = 大きさの倍率・dy = 下へずらす量・
+     場面の castLayout（{id: {x, scale, dy, hide, front, side, flip}}）があれば、その人はそれに従う: x = 足もとの中心（0〜1920）・scale = 大きさの倍率・dy = 下へずらす量・
      hide = その場面では出さない・front = いちばん手前に描く。書かなかった人・項目は、いつもの並び（yukkuri-kaisetsu の @cast: が、並びの名前からこれを作る） */
   function castLay(S, id) { return (S && S.castLayout && S.castLayout[id]) || null; }
   function castPlace(S, id, i, nth) {
     var ch = CAST[id], L = castLay(S, id) || {}, side = (ch.side || (i % 2 ? "right" : "left")) === "right" ? "right" : "left", h = (ch.height || 520) * (L.scale || 1), img0 = pickImg(ch, "normal", 0, false);
     var w = ch.sprite ? h * ch.sprite.w / ch.sprite.h : img0 && img0.naturalWidth ? h * img0.naturalWidth / img0.naturalHeight : h * .62;
     var x = (side === "right" ? 1920 - 40 - w / 2 - nth * w * .75 : 40 + w / 2 + nth * w * .75) + (ch.offsetX || 0), by = (ch.baseY || 1080) + (ch.offsetY || 0) * (L.scale || 1) - (ch.cut ? 0 : nth * 30);   /* cut: 下で切れている絵（腰までの立ち絵）は、持ち上げると切れ目が見える */
-    if (typeof L.x === "number") { x = L.x; by = (ch.baseY || 1080) + (ch.offsetY || 0) * (L.scale || 1); side = x > 960 ? "right" : "left"; }
+    if (typeof L.x === "number") { x = L.x; by = (ch.baseY || 1080) + (ch.offsetY || 0) * (L.scale || 1); side = L.side || (x > 960 ? "right" : "left"); }
     return { side: side, h: h, w: w, x: x, by: by + (L.dy || 0), fixed: typeof L.x === "number" };
   }
   function castSpan(S) {
@@ -2631,7 +2637,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
   function drawCast(tt) {
     var k = sceneAt(tt), S = SCENES[k].s, show = isTalk(S) || S.variant === "credits" || (SPEC.castAlways && S.type !== "end" && FIRST_TALK >= 0 && tt >= FIRST_TALK); if (!show || !CASTIDS.length) return;
     var cur = cueAt(tt), onIds = S.cast || CASTIDS, lt0 = FIRST_TALK >= 0 ? tt - FIRST_TALK : 0, sideN = { left: 0, right: 0 }, capOn = recording ? !recording.clean : captions;
-    if (CAPBAR[TALK.caption] && capOn && !vertOn() && S.type !== "end" && !S.plain) capBack();   /* plain: 絵だけの場面（ロゴ・アイキャッチ）。置きっぱなしの箱を出さない */
+    if (CAPBAR[TALK.caption] && capOn && !vertOn() && S.type !== "end" && !S.plain) capBack(S);   /* plain: 絵だけの場面（ロゴ・アイキャッチ）。置きっぱなしの箱を出さない */
     CPOS = {};
     /* 立つ位置は台本の順で決め、描くのは話している人を最後に（同じ側に 2 人立つとき、話し手が手前の人に隠れない） */
     var NTH = {}, spkId = cur && cur.who && speaking !== undefined ? cur.who : null, EMOS = [], NAMES = [], TAGON = S.nameTag !== undefined ? S.nameTag : TALK.nameTag;   /* 場面の nameTag: false で、その場面は名札を出さない（最初の章だけ名札で紹介する、など） */
@@ -2654,7 +2660,7 @@ window.MotionVideo = window.MotionVideo || function (root, SPEC, TH) {
       if (ch.motion === "yukkuri") bob = 0;
       var spk = speakingNow ? 1 + .025 * clamp((tt - cur.a) / 180) : 1;   /* 話している人を、足元を軸に少し大きく */
       ctx.save(); ctx.translate(dx + shake + mo.x, bob + mo.y); if (TALK.dim && !speakingNow && cur && cur.who) ctx.globalAlpha *= .82;
-      var nk = neckOf(ch, pose), fx = mo.flip * (ch.flip ? -1 : 1);
+      var nk = neckOf(ch, pose), fx = mo.flip * ((typeof (castLay(S, id) || {}).flip === "boolean" ? castLay(S, id).flip : ch.flip) ? -1 : 1);
       var hang = !nk ? 0 : (mo.head + (speakingNow ? .03 * Math.sin((tt - cur.a) / 230 + i) * voiceLevel(cur, tt) : 0)) * (fx < 0 ? -1 : 1);   /* 話している間は、声の大きさに合わせて頭が小さく揺れる */
       if (nk && speakingNow) bob *= .55;   /* 頭が動くぶん、体ごとの弾みは控えめに */
       /* 動くパーツ（rig）: 腕は、息づかいで小さく揺れ、話す声の大きさと跳ねる動きで外へ開く。後ろ髪は、頭の傾きと逆へ遅れて揺れる。黒目は、聞いている間は画面の内側（相手と絵）を見て、ときどき小さく動く */
