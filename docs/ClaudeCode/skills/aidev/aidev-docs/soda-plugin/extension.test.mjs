@@ -53,7 +53,7 @@ test('ext.hello → app.register（公開操作）・ext.panes → アプリ画�
   try {
     await sampleProject(dir);
     const reg = await h.waitFor(() => h.find('app.register'), 'app.register');
-    assert.equal(reg.params.operations.length, 15);
+    assert.equal(reg.params.operations.length, 19);
     assert.ok(reg.params.operations.some((o) => o.name === 'worker-start'));
     h.send({ type: 'ext.panes', panes: [anchor(dir), terminal(dir)] });
     const main = await h.waitFor(() => h.find('display.set', 'aidev'), 'display.set aidev');

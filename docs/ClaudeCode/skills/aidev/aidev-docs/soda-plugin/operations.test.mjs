@@ -6,10 +6,11 @@ import { chunkItems, chunkText, terminalMarkdown, uiModel, bandHtml, staticHtml,
 const bad = (name, params, pattern) => assert.throws(() => validateParams(name, params), pattern ?? Error, `${name} ${JSON.stringify(params).slice(0, 80)}`);
 
 test('すべての公開操作に検証がある（入力スキーマが閉じている）', () => {
-  assert.equal(OPERATIONS.length, 15);
+  assert.equal(OPERATIONS.length, 19);
   assert.deepEqual(OPERATIONS.map((o) => o.name).sort(), [
     'agents-list', 'backlog-list', 'log-list', 'refresh', 'report', 'supervisor-prompt', 'supervisor-resume', 'supervisor-start',
-    'work-doc', 'work-get', 'worker-prompt', 'worker-report', 'worker-resume', 'worker-start', 'works-list',
+    'work-agent-prompt', 'work-agent-read', 'work-agent-register', 'work-agents', 'work-doc', 'work-get',
+    'worker-prompt', 'worker-report', 'worker-resume', 'worker-start', 'works-list',
   ]);
   for (const op of OPERATIONS) {
     assert.equal(op.inputSchema.type, 'object', op.name);
@@ -21,7 +22,7 @@ test('すべての公開操作に検証がある（入力スキーマが閉じ�
 });
 
 test('slug: 小文字・数字・ハイフンの 1〜64 文字（日付つきも可）', () => {
-  assert.deepEqual(validateParams('worker-start', { slug: '20261015-aidev-plugin' }), { slug: '20261015-aidev-plugin', instruction: '', model: '' });
+  assert.deepEqual(validateParams('worker-start', { slug: '20261015-aidev-plugin' }), { slug: '20261015-aidev-plugin', instruction: '', kind: '', model: '' });
   assert.deepEqual(validateParams('worker-resume', { slug: 'a' }), { slug: 'a' });
   assert.equal(validateParams('worker-resume', { slug: 'a'.repeat(64) }).slug.length, 64);
   for (const slug of ['', 'A', '-a', 'a_b', 'a b', 'a/b', '../x', 'a.b', 'a'.repeat(65), 5, null, undefined, 'あ']) bad('worker-resume', { slug });
@@ -113,7 +114,7 @@ test('works-list: all を省くと進行中だけ・担当の状態を付ける'
 test('検証済みの値だけが下の層へ渡る・不正な入力は下の層に届かない', async () => {
   const { ops, log } = fakes();
   await ops.call('worker-start', { slug: 'x1', instruction: ' 始めて ' }, ctx);
-  assert.deepEqual(log.find((l) => l[0] === 'startWorker')[1], { slug: 'x1', instruction: '始めて', model: '' });
+  assert.deepEqual(log.find((l) => l[0] === 'startWorker')[1], { slug: 'x1', instruction: '始めて', kind: '', model: '' });
   await assert.rejects(ops.call('worker-start', { slug: '../x' }, ctx));
   await assert.rejects(ops.call('worker-prompt', { slug: 'x1', text: '' }, ctx));
   await assert.rejects(ops.call('report', { message: 'm', level: 'x' }, ctx));
@@ -175,10 +176,27 @@ test('小分け: JSON の大きさを守る・文字列は元に戻る', () => {
 test('アプリ画面: データを埋め込まず、textContent で描く（innerHTML を使わない）', () => {
   const html = appHtml();
   assert.ok(!/innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(/.test(html));
-  assert.match(html, /typeof soda\.mount === 'function'/);
+  assert.match(html, /typeof soda\.mount !== 'function'/);
   assert.match(html, /soda\.onMessage/);
   assert.match(html, /監督を起動/);
   assert.match(html, /監督に任せる/);
   const script = html.slice(html.indexOf('<script>') + 8, html.lastIndexOf('</script>'));
   assert.doesNotThrow(() => new Function(script));
+});
+
+test('種類（claude|codex）とモデルは起動ごとに指定できる・不正な値は断る', () => {
+  assert.deepEqual(validateParams('worker-start', { slug: 'a', kind: 'codex', model: 'gpt-5' }), { slug: 'a', instruction: '', kind: 'codex', model: 'gpt-5' });
+  assert.deepEqual(validateParams('supervisor-start', { kind: 'claude', model: 'sonnet' }), { kind: 'claude', model: 'sonnet' });
+  for (const kind of ['gemini', 'CLAUDE', 5, null]) { bad('worker-start', { slug: 'a', kind }, /種類/); bad('supervisor-start', { kind }, /種類/); }
+});
+
+test('関連するエージェントの操作: slug・pane の ID・lines を検証する', () => {
+  const id = 'aaaa1111-0000-4000-8000-000000000001';
+  assert.deepEqual(validateParams('work-agent-prompt', { slug: 'a', paneId: id, text: ' 調べて ' }), { slug: 'a', paneId: id, text: '調べて' });
+  assert.equal(validateParams('work-agent-read', { slug: 'a', paneId: id }).lines, 60);
+  assert.equal(validateParams('work-agent-register', { slug: 'a', paneId: 'abcd' }).paneId, 'abcd');
+  for (const paneId of ['', 'x y', '../x', 'abc', 'ZZZZ', 5, 'a'.repeat(65)]) bad('work-agent-prompt', { slug: 'a', paneId, text: 't' }, /pane/);
+  bad('work-agent-read', { slug: 'a', paneId: id, lines: 201 }, /lines/);
+  bad('work-agent-read', { slug: 'A', paneId: id }, /slug/);
+  bad('work-agents', { slug: 'a', extra: 1 }, /知らない/);
 });

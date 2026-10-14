@@ -15,10 +15,12 @@ export function supervisorPrompt({ root, tabId }) {
 - 作業を進めるときは、**担当エージェントを起動**する。新しい作業は slug を決めて起動し、担当に \`aidev-00-start\` から始めさせる。
 
   \`\`\`sh
-  sodactl plugin call aidev worker-start --tab ${tabId} --params '{"slug":"<slug>","instruction":"<担当への指示>"}'
+  sodactl plugin call aidev worker-start --tab ${tabId} --params '{"slug":"<slug>","instruction":"<担当への指示>","kind":"claude","model":""}'
   \`\`\`
 
+- \`kind\`（\`claude\`・\`codex\`）と \`model\` は省けば設定の既定。利用者が指定したときだけ付ける。
 - 担当への追加の指示は \`worker-prompt\`、状況は \`agents-list\` と \`sodactl agent read <担当の名前>\`。担当が止まっていれば \`worker-resume\`。
+- 担当が起こした補助のエージェントは \`work-agents\`（一覧）・\`work-agent-prompt\`（指示）・\`work-agent-read\`（画面の末尾）で扱える。
 - 担当からの報告・完了は、知らせ（グラフの線）として届く。届いたら内容を確かめ、次の工程・次の作業・利用者への確認を判断する。
 
 ## 利用者への連絡
@@ -61,6 +63,15 @@ sodactl plugin call aidev worker-report --tab ${tabId} --params '{"slug":"${slug
 ## 範囲
 
 - 担当の範囲は \`${slug}\` の作業だけ。他の作業のファイルは触らない。
+
+## 補助のエージェント
+
+- 作業のために別のエージェントを起こしてよい。**自分の pane の中から** \`sodactl pane split --direction right\` で pane を作り、
+  \`sodactl agent start <名前> --kind claude|codex --pane <pane>\` で起動する（名前は \`aidev-${slug.slice(0, 12)}-<用途>\` のように、英小文字・数字・\`-\`・\`_\` の 32 文字以内）。
+  自分の pane から起こせば、自分に連なる関連するエージェントとして、アプリの作業画面に並び、利用者が直接操作できる。
+- 線が引かれなかったときは、起こした pane を登録する:
+  \`sodactl plugin call aidev work-agent-register --tab ${tabId} --params '{"slug":"${slug}","paneId":"<pane>"}'\`
+- 補助のエージェントの結果は自分で確かめ（\`sodactl agent read <名前>\`）、不要になったものは閉じる。利用者に見えない所で長く放置しない。
 - 外部への公開（push・PR・merge 等）は、指示された範囲でだけ行う。
 `;
 }

@@ -25,6 +25,7 @@ export function uiModel(model) {
       works: model.works.map(({ worker, ...w }) => ({ ...w, ws: worker?.status ?? '' })),
       workers: model.workers.map(agent),
       backlog: model.backlog,
+      related: model.related ?? [],
     },
   };
 }
@@ -122,7 +123,7 @@ textarea{width:100%;min-height:64px;resize:vertical}
 .log{margin:0;padding:0;list-style:none}.log li{padding:3px 0;border-bottom:1px solid rgba(128,128,128,.2);overflow-wrap:anywhere}.log li.question{background:rgba(230,150,0,.18);border-left:4px solid rgba(230,150,0,.9);padding-left:8px}.log li.warn,.log li.error{border-left:4px solid rgba(220,50,50,.8);padding-left:8px}
 .doc{border:1px solid rgba(128,128,128,.35);border-radius:4px;padding:8px 12px;max-height:60vh;overflow:auto}
 .doc h4{margin:8px 0 2px}.doc p{margin:2px 0;overflow-wrap:anywhere}.doc pre{margin:2px 0;font:12px/1.5 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere}.doc .li{padding-left:1.2em;text-indent:-1em;overflow-wrap:anywhere}
-.term{height:360px;width:100%;margin:6px 0}
+.term{height:320px;width:100%;margin:6px 0}.term.tall{height:400px}.rel{border:1px solid rgba(128,128,128,.35);border-radius:4px;padding:6px 8px;margin:4px 0}.rel .row{margin:2px 0}.rel input.relp{flex:1;min-width:8em}
 dl{margin:0;display:grid;grid-template-columns:max-content 1fr;gap:0 12px}dd{margin:0;overflow-wrap:anywhere}
 input.sid{width:100%;font:12px ui-monospace,monospace}
 progress{width:90px;vertical-align:middle}
@@ -138,9 +139,11 @@ const APP_BODY = String.raw`
   <button id="b-sup-start" type="button">監督を起動</button>
   <button id="b-sup-resume" type="button">監督を再開</button>
   <button id="b-refresh" type="button">読み直す</button>
-  <button id="b-term" type="button" hidden>監督の端末を表示</button>
+  <label>種類 <select id="sup-kind"><option value="">既定</option><option value="claude">Claude Code</option><option value="codex">Codex</option></select></label>
+  <label>モデル <input id="sup-model" maxlength="64" placeholder="既定"></label>
  </div>
- <div id="term-sup" class="term" hidden></div>
+ <details id="sup-term-box" open><summary>監督の端末（ここで直接操作できます）</summary>
+  <p id="term-sup-note" class="muted"></p><div id="term-sup" class="term"></div></details>
  <details id="settings"><summary>設定（モデル・権限のモード・自動起動）</summary>
   <div class="row"><label>監督のモデル <input id="s-supmodel" maxlength="64" placeholder="空なら指定しない"></label>
   <label>担当のモデル <input id="s-wmodel" maxlength="64" placeholder="空なら指定しない"></label></div>
@@ -177,9 +180,15 @@ const APP_BODY = String.raw`
   <textarea id="w-text" maxlength="16000" placeholder="担当への指示"></textarea>
   <div class="row">
    <button id="w-start" type="button">担当を起動</button><button id="w-resume" type="button">再開</button>
-   <button id="w-send" type="button">指示を送る</button><button id="w-term-b" type="button" hidden>端末を表示</button>
-   <button id="w-delegate" type="button">監督に任せる</button></div>
-  <div id="term-w" class="term" hidden></div>
+   <button id="w-send" type="button">指示を送る</button>
+   <button id="w-delegate" type="button">監督に任せる</button>
+   <label>種類 <select id="w-kind"><option value="">既定</option><option value="claude">Claude Code</option><option value="codex">Codex</option></select></label>
+   <label>モデル <input id="w-model" maxlength="64" placeholder="既定"></label></div>
+  <details id="w-term-box" open><summary>担当の端末（ここで直接操作できます）</summary>
+   <p id="term-w-note" class="muted"></p><div id="term-w" class="term tall"></div></details>
+  <h3>関連するエージェント <small id="d-related-count"></small></h3>
+  <p class="muted">担当が <code>sodactl</code> で起こしたエージェントです（担当の pane から起こすと自動で並びます）。</p>
+  <div id="d-related"></div><div id="term-rel"></div>
   <h3>state</h3><dl id="d-values"></dl>
   <h3>tasks <small id="d-taskcount"></small></h3><ul id="d-tasks" class="log"></ul>
   <h3>文書</h3><div id="d-docs" class="row"></div><div id="d-doc" class="doc" hidden></div>
@@ -194,7 +203,7 @@ const APP_SCRIPT = String.raw`
   'use strict';
   var STATUS = { none: '未起動', starting: '起動中', working: '作業中', idle: '待機', blocked: '承認待ち', stopped: '停止（再開できる）', failed: '失敗' };
   var FROM = { user: '利用者', supervisor: '監督', worker: '担当', app: 'アプリ' };
-  var S = { st: null, works: [], workers: [], backlog: [], filter: 'active', limit: 100, sel: null, detail: null, tasks: [], events: [], docName: null, docText: '', docTrunc: false, gens: {}, bufs: {}, mounted: {}, dirty: false };
+  var S = { st: null, works: [], workers: [], backlog: [], related: [], relTerm: {}, mountFail: {}, filter: 'active', limit: 100, sel: null, detail: null, tasks: [], events: [], docName: null, docText: '', docTrunc: false, gens: {}, bufs: {}, mounted: {}, dirty: false };
   var $ = function (id) { return document.getElementById(id); };
   function clear(e) { while (e.firstChild) e.removeChild(e.firstChild); return e; }
   function h(tag, props, kids) {
@@ -258,8 +267,7 @@ const APP_SCRIPT = String.raw`
     $('b-sup-start').disabled = alive;
     $('b-sup-resume').disabled = alive || !(sup && sup.resumable);
     $('b-send').disabled = !alive;
-    var canMount = typeof soda.mount === 'function';
-    $('b-term').hidden = !(canMount && sup && sup.paneId);
+    syncTerm('sup', $('term-sup'), alive ? sup.paneId : null, $('term-sup-note'), '監督が動いていません。起動すると、ここに端末が出ます。');
     if (!S.dirty) {
       $('s-supmodel').value = st.settings.supervisorModel || ''; $('s-wmodel').value = st.settings.workerModel || '';
       $('s-perm').value = st.settings.permissionMode || ''; $('s-auto').checked = st.settings.autoStartSupervisor !== false;
@@ -294,7 +302,8 @@ const APP_SCRIPT = String.raw`
   function select(slug) { S.sel = slug; S.detail = null; S.tasks = []; S.events = []; S.docName = null; S.docText = ''; renderWorks(); renderDetail(); act('select', { slug: slug }); }
 
   function renderDetail() {
-    var box = $('detail-box'); box.hidden = !S.sel; if (!S.sel) return;
+    var box = $('detail-box'); box.hidden = !S.sel;
+    if (!S.sel) { syncTerm('w', $('term-w'), null); renderRelated(); return; }
     $('d-title').textContent = S.sel;
     var d = S.detail && S.detail.slug === S.sel ? S.detail : null;
     var head = clear($('d-head')), ph = clear($('d-phases'));
@@ -342,7 +351,42 @@ const APP_SCRIPT = String.raw`
     $('w-resume').disabled = alive || !sup || !(w && w.resumable);
     $('w-send').disabled = !alive;
     $('w-delegate').disabled = !sup;
-    $('w-term-b').hidden = !(typeof soda.mount === 'function' && w && w.alive && w.paneId);
+    syncTerm('w', $('term-w'), alive ? w.paneId : null, $('term-w-note'), alive ? '' : '担当が動いていません。起動（または再開）すると、ここに端末が出ます。');
+    renderRelated();
+  }
+  function renderRelated() {
+    var list = S.related.filter(function (a) { return a.slug === S.sel; });
+    $('d-related-count').textContent = S.sel ? list.length + ' 件' : '';
+    var box = clear($('d-related'));
+    if (!list.length) box.appendChild(h('p', { class: 'muted', text: '関連するエージェントはありません' }));
+    list.forEach(function (a) {
+      var input = h('input', { class: 'relp', maxlength: '2000', placeholder: 'このエージェントへの指示' });
+      var send = h('button', { type: 'button', text: '送る', onclick: function () {
+        var t = input.value.trim(); if (!t) return;
+        if (tooLong(t)) { notice('warn', '指示が長すぎます（6000 バイトまで）'); return; }
+        if (act('work-agent-prompt', { slug: a.slug, paneId: a.paneId, text: t })) input.value = '';
+      } });
+      input.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); send.click(); } });
+      box.appendChild(h('div', { class: 'rel' }, [
+        h('div', { class: 'row' }, [badge(a.status), h('strong', { text: a.kind === 'codex' ? 'Codex' : 'Claude Code' }), h('small', { text: (a.label ? a.label + ' · ' : '') + 'pane ' + a.paneId.slice(0, 8) + (a.depth > 1 ? ' · 孫' : '') + (a.registered ? ' · 登録' : '') }),
+          h('button', { type: 'button', text: S.relTerm[a.paneId] ? '端末を閉じる' : '端末を表示', onclick: function () { S.relTerm[a.paneId] = !S.relTerm[a.paneId]; syncRelTerms(); renderRelated(); } })]),
+        h('div', { class: 'row' }, [input, send]),
+      ]));
+    });
+    syncRelTerms();
+  }
+  // 関連するエージェントの端末は、描き直しで消えないよう、固定の入れ物（#term-rel）の中に置く
+  function syncRelTerms() {
+    var host = $('term-rel'), want = {};
+    S.related.forEach(function (a) { if (a.slug === S.sel && S.relTerm[a.paneId]) want[a.paneId] = true; });
+    Object.keys(S.mounted).forEach(function (k) { if (k.indexOf('r:') === 0 && !want[k.slice(2)]) { syncTerm(k, null, null); } });
+    Array.prototype.slice.call(host.children).forEach(function (c) { if (!want[c.getAttribute('data-pane')]) host.removeChild(c); });
+    Object.keys(want).forEach(function (id) {
+      var slot = null;
+      Array.prototype.forEach.call(host.children, function (c) { if (c.getAttribute('data-pane') === id) slot = c; });
+      if (!slot) { slot = h('div', { class: 'term', 'data-pane': id }); host.appendChild(slot); }
+      syncTerm('r:' + id, slot, id, null, '');
+    });
   }
   function renderBacklog() {
     var box = clear($('backlog'));
@@ -357,14 +401,26 @@ const APP_SCRIPT = String.raw`
   }
   function renderAll() { renderTop(); renderLog(); renderWorks(); renderBacklog(); renderDetail(); }
 
-  function toggleTerm(boxId, paneId) {
-    var box = $(boxId);
-    if (S.mounted[boxId]) { try { S.mounted[boxId].dispose(); } catch (e) { /* 無視 */ } S.mounted[boxId] = null; clear(box); box.hidden = true; return; }
-    if (typeof soda.mount !== 'function' || !paneId) return;
-    box.hidden = false; clear(box);
+  // 端末は同時に 4 つまで（監督・担当・関連 2）。pane が変わったときだけ付け直す。box が null なら外すだけ
+  function mountedCount() { return Object.keys(S.mounted).length; }
+  function syncTerm(key, box, paneId, note, idleText) {
+    var cur = S.mounted[key];
+    if (cur && cur.paneId === paneId) return;
+    if (cur) {
+      try { cur.handle.dispose(); } catch (e) { /* 無視 */ }
+      delete S.mounted[key];
+      if (cur.box) clear(cur.box);
+    }
+    if (note) note.textContent = '';
+    if (!paneId || !box) { if (note && idleText) note.textContent = idleText; return; }
+    if (typeof soda.mount !== 'function') { if (note) note.textContent = 'この環境では端末を埋め込めません。作業画面で操作してください。'; return; }
+    var failKey = key + ':' + paneId;
+    if (S.mountFail[failKey]) { if (note) note.textContent = '端末を表示できませんでした。作業画面で操作してください。'; return; }
+    if (mountedCount() >= 4) { notice('warn', '端末は同時に 4 つまでです。関連するエージェントの端末を閉じてください'); return; }
+    clear(box);
     var handle = soda.mount('terminal', box, { paneId: paneId, interactive: true });
-    if (!handle) { box.hidden = true; notice('warn', '端末を表示できませんでした'); return; }
-    S.mounted[boxId] = handle;
+    if (!handle) { S.mountFail[failKey] = true; if (note) note.textContent = '端末を表示できませんでした。作業画面で操作してください。'; return; }
+    S.mounted[key] = { paneId: paneId, handle: handle, box: box };
   }
 
   function collect(m) {
@@ -376,6 +432,7 @@ const APP_SCRIPT = String.raw`
     if (m.name === 'works') { S.works = all; renderWorks(); }
     else if (m.name === 'workers') { S.workers = all; renderWorks(); renderWorker(); }
     else if (m.name === 'backlog') { S.backlog = all; renderBacklog(); }
+    else if (m.name === 'related') { S.related = all; renderRelated(); }
     else if (m.name === 'tasks' && m.key === S.sel) { S.tasks = all; renderDetail(); }
     else if (m.name === 'events' && m.key === S.sel) { S.events = all; renderDetail(); }
   }
@@ -401,10 +458,9 @@ const APP_SCRIPT = String.raw`
     if (tooLong(t)) { notice('warn', '指示が長すぎます（画面からは 6000 バイトまで。長い指示は sodactl plugin call aidev supervisor-prompt を使ってください）'); return false; }
     return act('supervisor-prompt', { text: t });
   }
-  $('b-sup-start').onclick = function () { act('supervisor-start', {}); };
+  $('b-sup-start').onclick = function () { act('supervisor-start', { kind: $('sup-kind').value, model: $('sup-model').value.trim() }); };
   $('b-sup-resume').onclick = function () { act('supervisor-resume', {}); };
   $('b-refresh').onclick = function () { act('refresh', {}); };
-  $('b-term').onclick = function () { toggleTerm('term-sup', S.st && S.st.supervisor && S.st.supervisor.paneId); };
   $('b-send').onclick = function () { if (sendSupervisor($('sup-text').value)) $('sup-text').value = ''; };
   $('sup-text').addEventListener('keydown', function (e) { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.isComposing) { e.preventDefault(); $('b-send').click(); } });
   Array.prototype.forEach.call(document.querySelectorAll('.quick'), function (b) { b.onclick = function () { sendSupervisor(b.getAttribute('data-text')); }; });
@@ -415,11 +471,10 @@ const APP_SCRIPT = String.raw`
   };
   $('f-active').onclick = function () { S.filter = 'active'; renderWorks(); };
   $('f-all').onclick = function () { S.filter = 'all'; renderWorks(); };
-  $('w-start').onclick = function () { var t = $('w-text').value.trim(); if (tooLong(t)) { notice('warn', '指示が長すぎます（6000 バイトまで）'); return; } act('worker-start', { slug: S.sel, instruction: t }); };
+  $('w-start').onclick = function () { var t = $('w-text').value.trim(); if (tooLong(t)) { notice('warn', '指示が長すぎます（6000 バイトまで）'); return; } act('worker-start', { slug: S.sel, instruction: t, kind: $('w-kind').value, model: $('w-model').value.trim() }); };
   $('w-resume').onclick = function () { act('worker-resume', { slug: S.sel }); };
   $('w-send').onclick = function () { var t = $('w-text').value.trim(); if (!t) return; if (tooLong(t)) { notice('warn', '指示が長すぎます（6000 バイトまで）'); return; } if (act('worker-prompt', { slug: S.sel, text: t })) $('w-text').value = ''; };
   $('w-delegate').onclick = function () { act('delegate', { slug: S.sel }); };
-  $('w-term-b').onclick = function () { var w = workerOf(S.sel); toggleTerm('term-w', w && w.paneId); };
   $('w-text').addEventListener('keydown', function (e) { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.isComposing) { e.preventDefault(); $('w-send').click(); } });
   act('ready', {});
 })();

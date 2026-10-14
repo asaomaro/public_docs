@@ -636,3 +636,94 @@ test('設定: エージェントの種類と Codex の権限は固定の選択�
   for (const bad of [{ workerKind: 'gemini' }, { supervisorKind: '' }, { codexPermission: 'danger-full-access' }, { codexPermission: 5 }]) assert.throws(() => ag.normalizeSettings(bad), Error, JSON.stringify(bad));
   assert.equal(ag.normalizeSettings({ codexPermission: 'read-only' }).codexPermission, 'read-only');
 });
+
+// ---- 関連するエージェント・種類とモデルの指定 --------------------------------------------------------
+
+const PA = 'aaaa1111-0000-4000-8000-000000000001';
+const PB = 'aaaa2222-0000-4000-8000-000000000002';
+const PC = 'aaaa3333-0000-4000-8000-000000000003';
+
+async function withWorkerAndGraph(links, opts = {}) {
+  const s = await setup({
+    onCall: (args) => {
+      if (args[0] === 'graph' && args[1] === 'show') return { graph: { links } };
+      if (args[0] === 'agent' && args[1] === 'read') return { raw: '末尾の出力\n' };
+      return opts.onCall?.(args);
+    },
+  });
+  await s.agents.startSupervisor(s.root, s.ctx, {});
+  aliveAgent(s.panes, 'term-1');
+  await s.agents.startWorker(s.root, s.ctx, { slug: 'w1' });
+  aliveAgent(s.panes, 'pane-w1');
+  return s;
+}
+const link = (from, to, kind = 'supervise') => ({ id: `l-${from}-${to}`, kind, from: `local:${from}`, to: `local:${to}` });
+
+test('関連するエージェント: 担当の pane に線で連なるものを再帰で辿る（孫まで・生きているものだけ・監督や他の担当は除く）', async () => {
+  const s = await withWorkerAndGraph([link(PA, 'pane-w1'), link(PB, PA), link(PC, PB), link('term-1', 'pane-w1'), link('x-dead', 'pane-w1'), link(PA, 'term-1')]);
+  try {
+    s.panes.push({ id: PA, agent: 'codex', agentState: 'working', label: 'helper' }, { id: PB, agent: 'claude', agentState: 'blocked' }, { id: PC, agent: 'claude', agentState: 'idle' });
+    const rel = (await s.agents.related(s.root, s.panes, { force: true })).w1;
+    assert.deepEqual(rel.map((a) => [a.paneId, a.kind, a.status, a.depth]), [[PA, 'codex', 'working', 1], [PB, 'claude', 'blocked', 2], [PC, 'claude', 'idle', 3]]);
+    assert.equal(rel[0].label, 'helper');
+    assert.ok(!rel.some((a) => a.paneId === 'term-1' || a.paneId === 'pane-w1' || a.paneId === 'x-dead'));
+  } finally { await s.cleanup(); }
+});
+
+test('関連するエージェント: グラフが読めなくても登録分は出る・登録は検証される', async () => {
+  const s = await withWorkerAndGraph([], { onCall: (args) => { if (args[0] === 'graph') throw sodaErr('unauthenticated', 'login'); } });
+  try {
+    s.panes.push({ id: PA, agent: 'claude', agentState: 'idle', workspaceId: 'ws1' });
+    assert.deepEqual((await s.agents.related(s.root, s.panes, { force: true })).w1, []);
+    await assert.rejects(s.agents.registerRelated(s.root, s.ctx, { slug: 'w1', paneId: PB }), /エージェントが居ません/);
+    await assert.rejects(s.agents.registerRelated(s.root, s.ctx, { slug: 'nope', paneId: PA }), /記録がありません/);
+    await assert.rejects(s.agents.registerRelated(s.root, s.ctx, { slug: 'w1', paneId: 'pane-w1' }), /自身/);
+    await s.agents.registerRelated(s.root, s.ctx, { slug: 'w1', paneId: PA });
+    const rel = (await s.agents.related(s.root, s.panes, { force: true })).w1;
+    assert.deepEqual(rel.map((a) => [a.paneId, a.registered]), [[PA, true]]);
+    assert.deepEqual((await ag.readLedger(s.root)).workers.w1.related, [PA]);
+  } finally { await s.cleanup(); }
+});
+
+test('関連するエージェントへの指示・読み取り: 作業に連なる pane だけ', async () => {
+  const s = await withWorkerAndGraph([link(PA, 'pane-w1')], {
+    onCall: (args) => { if (args[0] === 'agent' && args[1] === 'get' && args[2] === PA) return { agent: { paneId: PA, name: 'aidev-helper', kind: 'codex', instanceId: 'i-9', tabId: 'tab-x' } }; },
+  });
+  try {
+    s.panes.push({ id: PA, agent: 'codex', agentState: 'idle' }, { id: PC, agent: 'claude', agentState: 'idle' });
+    await assert.rejects(s.agents.promptRelated(s.root, s.ctx, { slug: 'w1', paneId: PC, text: 'x' }), /関連するエージェントではありません/);
+    const r = await s.agents.promptRelated(s.root, s.ctx, { slug: 'w1', paneId: PA, text: '--help を調べて' });
+    assert.equal(r.status, 'sent');
+    const sent = s.fake.of('agent', 'prompt').at(-1).args;
+    assert.deepEqual(sent.slice(0, 3), ['agent', 'prompt', PA]);
+    assert.match(sent[3], /^指示: --help/);
+    assert.deepEqual(JSON.parse(sent[sent.indexOf('--expect') + 1]), { paneId: PA, instanceId: 'i-9', tabId: 'tab-x', projectDir: s.root, name: 'aidev-helper' });
+    assert.match((await ag.readLedger(s.root)).log.at(-1).message, /\[関連 aaaa1111\]/);
+    await s.agents.promptRelated(s.root, s.ctx, { slug: 'w1', paneId: 'pane-w1', text: 'go' }); // 担当自身も指せる
+    const read = await s.agents.readRelated(s.root, s.ctx, { slug: 'w1', paneId: PA, lines: 30 });
+    assert.equal(read.text, '末尾の出力\n');
+    assert.deepEqual(s.fake.of('agent', 'read').at(-1).args, ['agent', 'read', PA, '--lines', '30']);
+    await assert.rejects(s.agents.readRelated(s.root, s.ctx, { slug: 'w1', paneId: PC }), /関連するエージェントではありません/);
+  } finally { await s.cleanup(); }
+});
+
+test('起動ごとの種類とモデル: 設定の既定を上書きし、記録した種類が再開に使われる', async () => {
+  const s = await setup();
+  try {
+    await ag.saveSettings(s.root, { supervisorKind: 'claude', workerKind: 'claude', supervisorModel: 'sonnet', workerModel: 'opus' });
+    await s.agents.startSupervisor(s.root, s.ctx, { kind: 'codex', model: 'gpt-5' });
+    const sup = s.fake.of('agent', 'start')[0].args;
+    assert.equal(sup[sup.indexOf('--kind') + 1], 'codex');
+    assert.deepEqual(sup.slice(sup.indexOf('--') + 1), ['-C', s.root, '-m', 'gpt-5']);
+    aliveAgent(s.panes, 'term-1');
+    s.panes.find((p) => p.id === 'term-1').agent = 'codex';
+    await s.agents.startWorker(s.root, s.ctx, { slug: 'w1', kind: 'claude', model: 'haiku' });
+    await s.agents.startWorker(s.root, s.ctx, { slug: 'w2' });
+    const [w1, w2] = [s.fake.of('agent', 'start')[1].args, s.fake.of('agent', 'start')[2].args];
+    assert.equal(w1[w1.indexOf('--kind') + 1], 'claude');
+    assert.deepEqual(w1.slice(w1.indexOf('--') + 1).slice(-2), ['--model', 'haiku']);
+    assert.deepEqual(w2.slice(w2.indexOf('--') + 1).slice(-2), ['--model', 'opus'], '指定が無ければ設定の既定');
+    const led = await ag.readLedger(s.root);
+    assert.deepEqual([led.supervisor.kind, led.supervisor.model, led.workers.w1.kind, led.workers.w1.model], ['codex', 'gpt-5', 'claude', 'haiku']);
+  } finally { await s.cleanup(); }
+});

@@ -27,6 +27,9 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const AGENT_STATUSES = ['running', 'blocked', 'stopped', 'failed'];
 const STARTING_GRACE_MS = 20_000;
 const RELAYED = ['question', 'failed', 'blocked'];
+export const PANE_ID_RE = /^[0-9a-f][0-9a-f-]{3,63}$/i;
+const RELATED_DEPTH = 3;
+const RELATED_TTL_MS = 5000;
 
 const fail = (message) => Object.assign(new Error(message), { expected: true });
 const clip = (s, n) => { const t = String(s ?? ''); return t.length > n ? t.slice(0, n) : t; };
@@ -81,6 +84,7 @@ function cleanAgent(a, slug) {
     const r = a.lastReport;
     out.lastReport = r && typeof r === 'object' ? { status: WORKER_STATUSES.includes(r.status) ? r.status : 'progress', message: str(r.message, LEDGER_LIMITS.message), at: str(r.at, 40) } : null;
     out.linkErrors = Array.isArray(a.linkErrors) ? a.linkErrors.slice(0, 5).map((x) => str(x, 300)) : [];
+    out.related = Array.isArray(a.related) ? [...new Set(a.related.filter((x) => typeof x === 'string' && PANE_ID_RE.test(x)))].slice(0, 16) : [];
   }
   return out;
 }
@@ -199,7 +203,7 @@ export function sodaClient(root, { run = execute, url = process.env.SODA_SERVER_
   if (!url) throw new SodaError('no_server', 'sodactl の接続先サーバ（SODA_SERVER_URL）がありません');
   const childEnv = { ...env, SODACTL_URL: url };
   for (const key of Object.keys(childEnv)) if (['SODA_PANE_ID', 'SODA_PANE_SOCKET'].includes(key.toUpperCase())) delete childEnv[key];
-  return async (args, { timeout = 45000 } = {}) => {
+  return async (args, { timeout = 45000, rawMax = 2000 } = {}) => {
     const divider = args.indexOf('--');
     const argv = divider < 0 ? [...args, '--url', url] : [...args.slice(0, divider), '--url', url, ...args.slice(divider)];
     let stdout;
@@ -215,7 +219,7 @@ export function sodaClient(root, { run = execute, url = process.env.SODA_SERVER_
       if (/login|auth|unauthor|forbidden|session/i.test(`${code} ${message}`)) message += LOGIN_HINT;
       throw new SodaError(code, message);
     }
-    try { return JSON.parse(stdout); } catch { return { raw: clip(String(stdout), 2000) }; }
+    try { return JSON.parse(stdout); } catch { return { raw: clip(String(stdout), rawMax) }; }
   };
 }
 
@@ -335,12 +339,12 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
   }
 
   /** 監督の起動・再開の共通の流れ。 */
-  async function launchSupervisor(root, ctx, { resume, model }) {
+  async function launchSupervisor(root, ctx, { resume, model, kind: wantKind }) {
     const soda = makeSoda(root);
     const settings = await loadSettings(root);
     const ledger = await readLedger(root);
     const prev = ledger.supervisor;
-    const kind = resume ? prev.kind : settings.supervisorKind;
+    const kind = resume ? prev.kind : wantKind || settings.supervisorKind;
     const sessionId = resume ? prev.sessionId : kind === 'claude' ? uuid() : '';
     const name = supervisorName(root);
     const tabId = resume && prev.tabId && ctx.panes.some((p) => p.tabId === prev.tabId && !p.virtual) ? prev.tabId : ctx.tabId;
@@ -377,11 +381,11 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
     return { status: resume ? 'resumed' : 'started', supervisor: agentView(fresh, [...ctx.panes, { id: paneId, agent: kind, agentState: 'idle' }], now()), ...(warning ? { warning } : {}) };
   }
 
-  async function startSupervisor(root, ctx, { model } = {}) {
+  async function startSupervisor(root, ctx, { model, kind } = {}) {
     return withLaunchLock(root, async () => {
       const prev = (await readLedger(root)).supervisor;
       if (prev && agentView(prev, ctx.panes, now()).alive) return { status: 'already', message: '監督はすでに動いています', supervisor: agentView(prev, ctx.panes, now()) };
-      return launchSupervisor(root, ctx, { resume: false, model });
+      return launchSupervisor(root, ctx, { resume: false, model, kind });
     });
   }
   async function resumeSupervisor(root, ctx) {
@@ -423,13 +427,13 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
     return errors;
   }
 
-  async function launchWorker(root, ctx, { slug, resume, instruction, model }) {
+  async function launchWorker(root, ctx, { slug, resume, instruction, model, kind: wantKind }) {
     const { entry: sup } = await aliveSupervisor(root, ctx);
     const soda = makeSoda(root);
     const settings = await loadSettings(root);
     const ledger = await readLedger(root);
     const prev = ledger.workers[slug];
-    const kind = resume ? prev.kind : settings.workerKind;
+    const kind = resume ? prev.kind : wantKind || settings.workerKind;
     const sessionId = resume ? prev.sessionId : kind === 'claude' ? uuid() : '';
     const name = workerName(root, slug);
     const useModel = model || settings.workerModel;
@@ -470,7 +474,7 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
     return { status: resume ? 'resumed' : 'started', slug, worker: agentView((await readLedger(root)).workers[slug] ?? entry, [...ctx.panes, { id: tab.paneId, agent: kind, agentState: 'idle' }], now()), ...(warnings.length ? { warnings } : {}) };
   }
 
-  async function startWorker(root, ctx, { slug, instruction, model }) {
+  async function startWorker(root, ctx, { slug, instruction, model, kind }) {
     return withLaunchLock(root, async () => {
       const prev = (await readLedger(root)).workers[slug];
       if (prev) {
@@ -478,7 +482,7 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
         if (view.alive) throw fail(`作業 ${slug} の担当はすでに動いています`);
         if (prev.status !== 'failed' && prev.sessionId) throw fail(`作業 ${slug} の担当は止まっています。再開（worker-resume）を使ってください`);
       }
-      return launchWorker(root, ctx, { slug, resume: false, instruction, model });
+      return launchWorker(root, ctx, { slug, resume: false, instruction, model, kind });
     });
   }
   async function resumeWorker(root, ctx, { slug }) {
@@ -540,6 +544,106 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
   }
   const logList = async (root, limit = 50) => ({ log: (await readLedger(root)).log.slice(-limit).reverse() });
 
+  // ---- 関連するエージェント（担当が起こした別のエージェント） ----------------------------------------------
+  const relatedCache = new Map();
+  const statusOf = (pane) => (pane.agentState === 'working' ? 'working' : pane.agentState === 'blocked' ? 'blocked' : 'idle');
+  /**
+   * 担当の pane に「監督・承認の代理」の線で連なるエージェントを、グラフから再帰で辿る（担当が `sodactl` で起こすと
+   * 自動で線が引かれる）。線が無い場合に備え、担当が明示登録した pane（台帳の related）も足す。生きているものだけ。
+   * 結果は slug ごとの配列。グラフが読めなければ登録分だけ。
+   */
+  async function related(root, panes, { force = false } = {}) {
+    const hit = relatedCache.get(root);
+    if (!force && hit && now() - hit.at < RELATED_TTL_MS) return hit.map;
+    const ledger = await readLedger(root);
+    const workers = Object.values(ledger.workers);
+    const map = {};
+    if (workers.length) {
+      let links = [];
+      try { links = (await makeSoda(root)(['graph', 'show', '--json'], { timeout: 20000 })).graph?.links ?? []; } catch { /* 登録分だけ */ }
+      const children = new Map();
+      for (const l of links) {
+        if (l.kind !== 'supervise' && l.kind !== 'approval') continue;
+        const parent = String(l.to).replace(/^local:/, '');
+        const child = String(l.from).replace(/^local:/, '');
+        if (!children.has(parent)) children.set(parent, new Set());
+        children.get(parent).add(child);
+      }
+      const reserved = new Set([ledger.supervisor?.paneId, ...workers.map((w) => w.paneId)].filter(Boolean));
+      const byId = new Map(panes.map((p) => [p.id, p]));
+      for (const w of workers) {
+        const seen = new Set([w.paneId]);
+        const out = [];
+        let frontier = [w.paneId];
+        for (let depth = 1; depth <= RELATED_DEPTH && frontier.length; depth++) {
+          const next = [];
+          for (const parent of frontier) {
+            for (const child of children.get(parent) ?? []) {
+              if (seen.has(child) || reserved.has(child)) continue;
+              seen.add(child); next.push(child);
+              const pane = byId.get(child);
+              if (pane?.agent) out.push({ slug: w.slug, paneId: child, kind: pane.agent, status: statusOf(pane), label: str(pane.label, 60), depth, registered: false });
+            }
+          }
+          frontier = next;
+        }
+        for (const id of w.related ?? []) {
+          const pane = byId.get(id);
+          if (pane?.agent && !seen.has(id) && !reserved.has(id)) { seen.add(id); out.push({ slug: w.slug, paneId: id, kind: pane.agent, status: statusOf(pane), label: str(pane.label, 60), depth: 1, registered: true }); }
+        }
+        map[w.slug] = out;
+      }
+    }
+    relatedCache.set(root, { at: now(), map });
+    return map;
+  }
+  /** 担当が、自分が起こした別のエージェントを明示登録する（線が自動で引かれなかったときの保険）。 */
+  async function registerRelated(root, ctx, { slug, paneId }) {
+    const known = await readLedger(root);
+    if (!known.workers[slug]) throw fail(`作業 ${slug} の担当の記録がありません`);
+    if (paneId === known.workers[slug].paneId || paneId === known.supervisor?.paneId) throw fail('担当・監督自身は登録できません');
+    const pane = ctx.panes.find((p) => p.id === paneId);
+    if (!pane?.agent) throw fail('その pane にエージェントが居ません');
+    if (pane.projectDir !== root && !ctx.panes.some((p) => p.id === paneId && p.workspaceId === ctx.workspaceId)) throw fail('この PJ の pane ではありません');
+    const found = await updateLedger(root, (l) => {
+      const w = l.workers[slug];
+      if (!w) return false;
+      if (paneId === w.paneId || paneId === l.supervisor?.paneId) return 'self';
+      w.related = [...new Set([...(w.related ?? []), paneId])].slice(-16);
+      pushLog(l, now(), { from: 'worker', slug, kind: 'event', message: `関連するエージェントを登録しました（${paneId.slice(0, 8)}・${pane.agent}）` });
+      return true;
+    });
+    if (found === false) throw fail(`作業 ${slug} の担当の記録がありません`);
+    if (found === 'self') throw fail('担当・監督自身は登録できません');
+    relatedCache.delete(root);
+    return { status: 'recorded', slug, paneId };
+  }
+  async function relatedTarget(root, ctx, slug, paneId) {
+    const w = (await readLedger(root)).workers[slug];
+    if (!w) throw fail(`作業 ${slug} の担当の記録がありません`);
+    if (paneId === w.paneId) return w;
+    const list = (await related(root, ctx.panes, { force: true }))[slug] ?? [];
+    const hit = list.find((a) => a.paneId === paneId);
+    if (!hit) throw fail(`その pane は作業 ${slug} の関連するエージェントではありません`);
+    return hit;
+  }
+  async function promptRelated(root, ctx, { slug, paneId, text, source = 'ui' }) {
+    await relatedTarget(root, ctx, slug, paneId);
+    const soda = makeSoda(root);
+    const agent = (await soda(['agent', 'get', paneId])).agent;
+    if (!agent || agent.paneId !== paneId) throw fail('エージェントが見つかりません（入れ替わった可能性があります）');
+    const args = ['agent', 'prompt', paneId, guardDash(text)];
+    if (agent.name && agent.instanceId && agent.tabId) args.push('--expect', JSON.stringify({ paneId, instanceId: agent.instanceId, tabId: agent.tabId, projectDir: root, name: agent.name }));
+    await soda(args, { timeout: 60000 });
+    await logEvent(root, { from: source === 'ui' ? 'user' : 'supervisor', slug, kind: 'instruction', message: `[関連 ${paneId.slice(0, 8)}] ${text}` });
+    return { status: 'sent', slug, paneId };
+  }
+  async function readRelated(root, ctx, { slug, paneId, lines = 60 }) {
+    await relatedTarget(root, ctx, slug, paneId);
+    const res = await makeSoda(root)(['agent', 'read', paneId, '--lines', String(lines)], { timeout: 20000, rawMax: 40000 });
+    return { slug, paneId, text: String(res.raw ?? res.text ?? '') };
+  }
+
   const needsCapture = (e) => !!e && !e.sessionId && e.kind !== 'claude' && e.status !== 'failed';
   /**
    * 払い出された会話 ID の取り込み（Codex）。Sodashitsu が pane に記録した `agentSession` を、種類・名前が一致するものだけ採る。
@@ -581,6 +685,6 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
 
   return {
     startSupervisor, resumeSupervisor, promptSupervisor, startWorker, resumeWorker, promptWorker, reportWorker,
-    report, overview, logList, autoStart, captureSessions, needsCapture, note: logEvent, delegate: (root, ctx, slug) => promptSupervisor(root, ctx, { text: delegateInstruction(slug) }),
+    report, overview, logList, autoStart, captureSessions, needsCapture, note: logEvent, related, registerRelated, promptRelated, readRelated, delegate: (root, ctx, slug) => promptSupervisor(root, ctx, { text: delegateInstruction(slug) }),
   };
 }

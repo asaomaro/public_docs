@@ -279,10 +279,8 @@ async function onAction(msg) {
       }
       case 'delegate': { const r = await operations.delegate(ctx, String(data.slug ?? '')); await notify(pane.id, 'info', resultText(r)); schedule(true); return; }
       case 'supervisor-start': case 'supervisor-resume': case 'supervisor-prompt':
-      case 'worker-start': case 'worker-resume': case 'worker-prompt': {
-        const params = { ...data };
-        if (msg.action === 'supervisor-start' || msg.action === 'supervisor-resume') delete params.model;
-        const r = await run(msg.action, msg.action === 'supervisor-resume' ? {} : params);
+      case 'worker-start': case 'worker-resume': case 'worker-prompt': case 'work-agent-prompt': {
+        const r = await run(msg.action, msg.action === 'supervisor-resume' ? {} : { ...data });
         await notify(pane.id, r?.status === 'blocked' ? 'warn' : 'info', resultText(r));
         schedule(true);
         return;

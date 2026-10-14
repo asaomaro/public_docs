@@ -1,13 +1,15 @@
 // UI と `sodactl plugin call` が共通に呼ぶ操作。入力の意味の検証（型・長さ・書式・enum）はここで行う。
 import { basename } from 'node:path';
 import * as aidevData from './aidev-data.mjs';
-import { LOG_LEVELS, WORKER_SLUG, WORKER_STATUSES, MODEL_RE } from './agents.mjs';
+import { AGENT_KINDS, LOG_LEVELS, PANE_ID_RE, WORKER_SLUG, WORKER_STATUSES, MODEL_RE } from './agents.mjs';
 
 export const TEXT_MAX_BYTES = 16 * 1024;
 const fail = (message) => Object.assign(new Error(message), { expected: true });
 
 const SLUG_SCHEMA = { type: 'string', pattern: '^[a-z0-9][a-z0-9-]{0,63}$', description: '作業の名前（aidev の work の slug。日付の付いたフォルダ名も可）' };
 const TEXT_SCHEMA = { type: 'string', minLength: 1, maxLength: 16384 };
+const KIND_SCHEMA = { enum: ['', ...AGENT_KINDS], description: '種類（空なら設定の既定）' };
+const PANE_SCHEMA = { type: 'string', pattern: '^[0-9a-f][0-9a-f-]{3,63}$', description: 'pane の ID（UUID または先頭 4 文字以上）' };
 const object = (properties = {}, required = []) => ({ type: 'object', properties, ...(required.length ? { required } : {}), additionalProperties: false });
 
 export const OPERATIONS = [
@@ -16,14 +18,18 @@ export const OPERATIONS = [
   { name: 'work-doc', description: '作業の文書の本文（作業フォルダ直下の *.md。512 KiB で切る）', inputSchema: object({ slug: { type: 'string', minLength: 1, maxLength: 128 }, name: { type: 'string', minLength: 1, maxLength: 120 } }, ['slug', 'name']) },
   { name: 'backlog-list', description: 'backlog のファイルごとの未着手の数と項目（先頭 50 件）', inputSchema: object() },
   { name: 'agents-list', description: '監督・担当のエージェント（セッション ID・状態・pane・設定）', inputSchema: object() },
-  { name: 'supervisor-start', description: '監督エージェントを起動する（動いていれば何もしない）', inputSchema: object({ model: { type: 'string', maxLength: 64 } }) },
+  { name: 'supervisor-start', description: '監督エージェントを起動する（動いていれば何もしない）。種類（claude|codex）とモデルは省けば設定の既定', inputSchema: object({ kind: KIND_SCHEMA, model: { type: 'string', maxLength: 64 } }) },
   { name: 'supervisor-resume', description: '監督エージェントを、記録したセッション ID で同じ会話のまま再開する', inputSchema: object() },
   { name: 'supervisor-prompt', description: '監督エージェントへ指示を送る', inputSchema: object({ text: TEXT_SCHEMA }, ['text']) },
-  { name: 'worker-start', description: '作業の担当エージェントを新しい端末タブで起動し、監督へ線（監督・承認の代理・完了のトリガ）を結ぶ', inputSchema: object({ slug: SLUG_SCHEMA, instruction: { type: 'string', maxLength: 16384 }, model: { type: 'string', maxLength: 64 } }, ['slug']) },
+  { name: 'worker-start', description: '作業の担当エージェントを新しい端末タブで起動し、監督へ線（監督・承認の代理・完了のトリガ）を結ぶ', inputSchema: object({ slug: SLUG_SCHEMA, instruction: { type: 'string', maxLength: 16384 }, kind: KIND_SCHEMA, model: { type: 'string', maxLength: 64 } }, ['slug']) },
   { name: 'worker-resume', description: '止まっている担当エージェントを、記録したセッション ID で再開する', inputSchema: object({ slug: SLUG_SCHEMA }, ['slug']) },
   { name: 'worker-prompt', description: '担当エージェントへ指示を送る', inputSchema: object({ slug: SLUG_SCHEMA, text: TEXT_SCHEMA }, ['slug', 'text']) },
   { name: 'worker-report', description: '担当から監督・利用者への報告（progress|done|question|blocked|failed）。担当が呼ぶ', inputSchema: object({ slug: SLUG_SCHEMA, status: { enum: WORKER_STATUSES }, message: TEXT_SCHEMA }, ['slug', 'status', 'message']) },
   { name: 'report', description: '監督から利用者への知らせ。アプリのログに出す（level: info|warn|question）', inputSchema: object({ message: TEXT_SCHEMA, level: { enum: LOG_LEVELS } }, ['message']) },
+  { name: 'work-agents', description: '作業の担当と、担当が起こした関連するエージェント（グラフの線で連なるもの＋登録分）', inputSchema: object({ slug: SLUG_SCHEMA }, ['slug']) },
+  { name: 'work-agent-register', description: '担当が、自分で起こした別のエージェントの pane を、作業の関連として登録する（線が自動で引かれないときの保険）', inputSchema: object({ slug: SLUG_SCHEMA, paneId: PANE_SCHEMA }, ['slug', 'paneId']) },
+  { name: 'work-agent-prompt', description: '作業の担当または関連するエージェントへ指示を送る', inputSchema: object({ slug: SLUG_SCHEMA, paneId: PANE_SCHEMA, text: TEXT_SCHEMA }, ['slug', 'paneId', 'text']) },
+  { name: 'work-agent-read', description: '作業の担当または関連するエージェントの画面の末尾を読む', inputSchema: object({ slug: SLUG_SCHEMA, paneId: PANE_SCHEMA, lines: { type: 'integer', minimum: 1, maximum: 200 } }, ['slug', 'paneId']) },
   { name: 'log-list', description: 'アプリのログ（新しい順）', inputSchema: object({ limit: { type: 'integer', minimum: 1, maximum: 300 } }) },
   { name: 'refresh', description: '.aidev と台帳を読み直して画面を更新する', inputSchema: object() },
 ];
@@ -53,6 +59,15 @@ function readSlug(value) {
   if (typeof value !== 'string' || !aidevData.READ_SLUG.test(value)) throw fail('作業名の書式が不正です');
   return value;
 }
+function kind(value) {
+  if (value === undefined || value === '') return '';
+  if (!AGENT_KINDS.includes(value)) throw fail(`種類は ${AGENT_KINDS.join(' か ')} です`);
+  return value;
+}
+function paneId(value) {
+  if (typeof value !== 'string' || !PANE_ID_RE.test(value)) throw fail('pane の ID の書式が不正です');
+  return value;
+}
 function model(value) {
   if (value === undefined || value === '') return '';
   if (typeof value !== 'string' || !MODEL_RE.test(value)) throw fail('モデル名は英数字と . _ - [ ] の 1〜64 文字です');
@@ -65,10 +80,18 @@ const VALIDATORS = {
   'work-doc': (p) => { const o = only(p, ['slug', 'name']); return { slug: readSlug(o.slug), name: docName(o.name) }; },
   'backlog-list': (p) => { only(p, []); return {}; },
   'agents-list': (p) => { only(p, []); return {}; },
-  'supervisor-start': (p) => ({ model: model(only(p, ['model']).model) }),
+  'supervisor-start': (p) => { const o = only(p, ['kind', 'model']); return { kind: kind(o.kind), model: model(o.model) }; },
   'supervisor-resume': (p) => { only(p, []); return {}; },
   'supervisor-prompt': (p) => ({ text: text(only(p, ['text']).text, '指示') }),
-  'worker-start': (p) => { const o = only(p, ['slug', 'instruction', 'model']); return { slug: workerSlug(o.slug), instruction: text(o.instruction, '指示', { required: false }), model: model(o.model) }; },
+  'worker-start': (p) => { const o = only(p, ['slug', 'instruction', 'kind', 'model']); return { slug: workerSlug(o.slug), instruction: text(o.instruction, '指示', { required: false }), kind: kind(o.kind), model: model(o.model) }; },
+  'work-agents': (p) => ({ slug: workerSlug(only(p, ['slug']).slug) }),
+  'work-agent-register': (p) => { const o = only(p, ['slug', 'paneId']); return { slug: workerSlug(o.slug), paneId: paneId(o.paneId) }; },
+  'work-agent-prompt': (p) => { const o = only(p, ['slug', 'paneId', 'text']); return { slug: workerSlug(o.slug), paneId: paneId(o.paneId), text: text(o.text, '指示') }; },
+  'work-agent-read': (p) => {
+    const o = only(p, ['slug', 'paneId', 'lines']);
+    if (o.lines !== undefined && (!Number.isInteger(o.lines) || o.lines < 1 || o.lines > 200)) throw fail('lines は 1〜200 の整数です');
+    return { slug: workerSlug(o.slug), paneId: paneId(o.paneId), lines: o.lines ?? 60 };
+  },
   'worker-resume': (p) => ({ slug: workerSlug(only(p, ['slug']).slug) }),
   'worker-prompt': (p) => { const o = only(p, ['slug', 'text']); return { slug: workerSlug(o.slug), text: text(o.text, '指示') }; },
   'worker-report': (p) => {
@@ -102,7 +125,9 @@ export function validateParams(name, params) {
 
 /** 画面・端末版・帯が共通に読む 1 つのまとまり（`.aidev` の読み取り＋台帳）。 */
 export async function buildModel(root, panes, { data = aidevData, agents, overview: loaded, overviewDeps }) {
-  const [overview, agentState] = await Promise.all([loaded ?? data.loadOverview(root, overviewDeps), agents.overview(root, panes)]);
+  const [overview, agentState, relatedBySlug] = await Promise.all([
+    loaded ?? data.loadOverview(root, overviewDeps), agents.overview(root, panes), agents.related ? agents.related(root, panes) : {},
+  ]);
   const workerBySlug = new Map(agentState.workers.map((w) => [w.slug, w]));
   const works = overview.works.map((w) => ({ ...w, worker: workerBySlug.get(w.slug) ?? null }));
   return {
@@ -110,6 +135,7 @@ export async function buildModel(root, panes, { data = aidevData, agents, overvi
     available: overview.available, cli: overview.cli, truncated: overview.truncated, total: overview.total, current: overview.current,
     works, backlog: overview.backlog,
     supervisor: agentState.supervisor, workers: agentState.workers, settings: agentState.settings, log: agentState.log,
+    related: Object.values(relatedBySlug).flat(),
   };
 }
 /** 帯・端末版の 1〜数行の要約に使う数。 */
@@ -159,6 +185,13 @@ export function createOperations({ data = aidevData, agents }) {
     'supervisor-resume': (ctx) => agents.resumeSupervisor(ctx.root, ctx),
     'supervisor-prompt': (ctx, p) => agents.promptSupervisor(ctx.root, ctx, p),
     'worker-start': (ctx, p) => agents.startWorker(ctx.root, ctx, p),
+    async 'work-agents'(ctx, { slug }) {
+      const [state, rel] = await Promise.all([agents.overview(ctx.root, ctx.panes), agents.related(ctx.root, ctx.panes, { force: true })]);
+      return { slug, worker: state.workers.find((w) => w.slug === slug) ?? null, agents: rel[slug] ?? [] };
+    },
+    'work-agent-register': (ctx, p) => agents.registerRelated(ctx.root, ctx, p),
+    'work-agent-prompt': (ctx, p, source) => agents.promptRelated(ctx.root, ctx, { ...p, source }),
+    'work-agent-read': (ctx, p) => agents.readRelated(ctx.root, ctx, p),
     'worker-resume': (ctx, p) => agents.resumeWorker(ctx.root, ctx, p),
     'worker-prompt': (ctx, p, source) => agents.promptWorker(ctx.root, ctx, { ...p, source }),
     'worker-report': (ctx, p) => agents.reportWorker(ctx.root, ctx, p),
