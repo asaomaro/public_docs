@@ -26,15 +26,16 @@ function fakeSoda({ onCall } = {}) {
       case 'agent start': {
         const paneId = args[args.indexOf('--pane') + 1];
         const tabId = paneId.startsWith('pane-w') ? 'tab-w' + paneId.slice(6) : 'tab-app';
-        agentsByPane.set(paneId, { name: args[2], tabId, instanceId: `inst-${++instances}` });
-        return { agent: { name: args[2], paneId, kind: 'claude', tabId, instanceId: agentsByPane.get(paneId).instanceId } };
+        const kind = args[args.indexOf('--kind') + 1];
+        agentsByPane.set(paneId, { name: args[2], kind, tabId, instanceId: `inst-${++instances}` });
+        return { agent: { name: args[2], paneId, ...agentsByPane.get(paneId) } };
       }
       case 'agent get': {
         const a = agentsByPane.get(args[2]);
         if (!a) throw new ag.SodaError('agent_not_found', '居ません');
-        return { agent: { paneId: args[2], kind: 'claude', ...a } };
+        return { agent: { paneId: args[2], ...a } };
       }
-      case 'agent rename': { const a = agentsByPane.get(args[2]); a.name = args[3]; return { agent: { paneId: args[2], kind: 'claude', ...a } }; }
+      case 'agent rename': { const a = agentsByPane.get(args[2]); a.name = args[3]; return { agent: { paneId: args[2], ...a } }; }
       case 'agent prompt': return { agent: {} };
       case 'graph link': return { link: { id: 'link' } };
       default: throw new Error(`想定外: ${args.join(' ')}`);
@@ -116,7 +117,7 @@ test('台帳: .soda がシンボリックリンクなら使わない', async () 
 test('設定: モデル名の書式・権限のモードの選択肢・未知のキー', async () => {
   const { root, cleanup } = await setup();
   try {
-    assert.deepEqual(await ag.loadSettings(root), { supervisorModel: '', workerModel: '', permissionMode: '', autoStartSupervisor: true });
+    assert.deepEqual(await ag.loadSettings(root), { supervisorModel: '', workerModel: '', permissionMode: '', autoStartSupervisor: true, supervisorKind: 'claude', workerKind: 'claude', codexPermission: '' });
     const saved = await ag.saveSettings(root, { supervisorModel: 'claude-opus-4-1', workerModel: 'sonnet[1m]', permissionMode: 'acceptEdits', autoStartSupervisor: false });
     assert.equal(saved.supervisorModel, 'claude-opus-4-1');
     assert.deepEqual(await ag.loadSettings(root), saved);
@@ -515,4 +516,123 @@ test('プロンプトの送信: 名前が違えば agent rename で台帳の名�
     const last = fake.of('agent', 'prompt').at(-1).args;
     assert.equal(JSON.parse(last[last.indexOf('--expect') + 1]).name, ag.supervisorName(root));
   } finally { await cleanup(); }
+});
+
+// ---- Codex ---------------------------------------------------------------------------------------
+
+const CODEX_ID = '019a0000-1111-7222-8333-444444444444';
+
+test('Codex の監督: 初回は ID を指定せず起動し、払い出された ID を台帳に記録する', async () => {
+  let started = null;
+  const s = await setup({
+    onCall: (args) => {
+      if (args[0] === 'agent' && args[1] === 'start') started = args;
+      if (args[0] === 'snapshot' && started) {
+        return { panes: [{ id: 'term-1', tabId: 'tab-app', virtual: false, agent: { kind: 'codex', name: started[2], instanceId: 'inst-1' }, agentSession: { kind: 'codex', sessionId: CODEX_ID } }] };
+      }
+    },
+  });
+  try {
+    await ag.saveSettings(s.root, { supervisorKind: 'codex', supervisorModel: 'gpt-5', codexPermission: 'workspace-write' });
+    const r = await s.agents.startSupervisor(s.root, s.ctx, {});
+    assert.equal(r.status, 'started');
+    assert.deepEqual(started.slice(started.indexOf('--kind'), started.indexOf('--kind') + 2), ['--kind', 'codex']);
+    assert.deepEqual(started.slice(started.indexOf('--') + 1), ['-C', s.root, '-m', 'gpt-5', '-s', 'workspace-write', '-a', 'on-request'], 'Codex には --session-id を渡さない');
+    const led = await ag.readLedger(s.root);
+    assert.equal(led.supervisor.kind, 'codex');
+    assert.equal(led.supervisor.sessionId, CODEX_ID);
+    assert.ok(led.log.some((e) => /会話 ID を記録しました/.test(e.message)));
+    assert.equal(r.supervisor.sessionPending, false);
+  } finally { await s.cleanup(); }
+});
+
+test('Codex: ID がまだ払い出されていなければ未取得として残し、周期の取り込みで記録する・再開はできない', async () => {
+  let started = null, report = false;
+  const s = await setup({
+    onCall: (args) => {
+      if (args[0] === 'agent' && args[1] === 'start') started = args;
+      if (args[0] === 'snapshot' && started) {
+        return { panes: [{ id: 'term-1', tabId: 'tab-app', virtual: false, agent: { kind: 'codex', name: started[2], instanceId: 'inst-1' }, ...(report ? { agentSession: { kind: 'codex', sessionId: CODEX_ID } } : {}) }] };
+      }
+    },
+  });
+  try {
+    await ag.saveSettings(s.root, { supervisorKind: 'codex' });
+    const r = await s.agents.startSupervisor(s.root, s.ctx, {});
+    assert.equal(r.supervisor.sessionPending, true);
+    assert.equal((await ag.readLedger(s.root)).supervisor.sessionId, '');
+    await assert.rejects(s.agents.resumeSupervisor(s.root, s.ctx), /会話 ID をまだ取得できていない/);
+    assert.equal(await s.agents.captureSessions(s.root), 0);
+    report = true;
+    assert.equal(await s.agents.captureSessions(s.root), 1);
+    assert.equal((await ag.readLedger(s.root)).supervisor.sessionId, CODEX_ID);
+    assert.equal(await s.agents.captureSessions(s.root), 0, '取り込み済みは触らない');
+  } finally { await s.cleanup(); }
+});
+
+test('Codex: 別の種類・別の名前の pane の ID は取り込まない', async () => {
+  let started = null;
+  const s = await setup({
+    onCall: (args) => {
+      if (args[0] === 'agent' && args[1] === 'start') started = args;
+      if (args[0] === 'snapshot' && started) {
+        return { panes: [{ id: 'term-1', tabId: 'tab-app', virtual: false, agent: { kind: 'codex', name: 'someone-else', instanceId: 'i' }, agentSession: { kind: 'codex', sessionId: CODEX_ID } }] };
+      }
+    },
+  });
+  try {
+    await ag.saveSettings(s.root, { supervisorKind: 'codex' });
+    await s.agents.startSupervisor(s.root, s.ctx, {});
+    assert.equal((await ag.readLedger(s.root)).supervisor.sessionId, '');
+  } finally { await s.cleanup(); }
+});
+
+test('Codex の再開: codex resume <ID> -C <PJ>（記録した種類で起動する。設定が変わっていても）', async () => {
+  let started = null;
+  const s = await setup({
+    onCall: (args) => {
+      if (args[0] === 'agent' && args[1] === 'start') started = args;
+      if (args[0] === 'snapshot' && started) return { panes: [{ id: 'term-1', tabId: 'tab-app', virtual: false, agent: { kind: 'codex', name: started[2], instanceId: 'inst-1' }, agentSession: { kind: 'codex', sessionId: CODEX_ID } }] };
+    },
+  });
+  try {
+    await ag.saveSettings(s.root, { supervisorKind: 'codex' });
+    await s.agents.startSupervisor(s.root, s.ctx, {});
+    await ag.saveSettings(s.root, { supervisorKind: 'claude' }); // 設定を変えても、記録した種類で再開する
+    started = null;
+    const r = await s.agents.resumeSupervisor(s.root, s.ctx);
+    assert.equal(r.status, 'resumed');
+    assert.deepEqual(started.slice(started.indexOf('--kind'), started.indexOf('--kind') + 2), ['--kind', 'codex']);
+    assert.deepEqual(started.slice(started.indexOf('--') + 1), ['resume', CODEX_ID, '-C', s.root]);
+  } finally { await s.cleanup(); }
+});
+
+test('監督は Claude・担当は Codex の混在: 担当だけ Codex で起動し、線は同じように結ぶ', async () => {
+  const s = await setup();
+  try {
+    await ag.saveSettings(s.root, { workerKind: 'codex', codexPermission: 'workspace-write-never' });
+    await s.agents.startSupervisor(s.root, s.ctx, {});
+    aliveAgent(s.panes, 'term-1');
+    const before = s.fake.calls.length;
+    const r = await s.agents.startWorker(s.root, s.ctx, { slug: 'w1' });
+    assert.equal(r.status, 'started');
+    const calls = s.fake.calls.slice(before).map((c) => c.args);
+    const start = calls.find((c) => c[0] === 'agent' && c[1] === 'start');
+    assert.equal(start[start.indexOf('--kind') + 1], 'codex');
+    assert.deepEqual(start.slice(start.indexOf('--') + 1), ['-C', s.root, '-s', 'workspace-write', '-a', 'never']);
+    assert.equal(calls.filter((c) => c[0] === 'graph').length, 3);
+    const led = await ag.readLedger(s.root);
+    assert.equal(led.supervisor.kind, 'claude');
+    assert.equal(led.workers.w1.kind, 'codex');
+    // ID 未取得のまま止まっていれば、再開ではなく新しく起動し直せる
+    s.panes.find((p) => p.id === 'pane-w1');
+    const again = await s.agents.startWorker(s.root, s.ctx, { slug: 'w1' });
+    assert.equal(again.status, 'started');
+  } finally { await s.cleanup(); }
+});
+
+test('設定: エージェントの種類と Codex の権限は固定の選択肢だけ', () => {
+  assert.equal(ag.normalizeSettings({ workerKind: 'codex' }).workerKind, 'codex');
+  for (const bad of [{ workerKind: 'gemini' }, { supervisorKind: '' }, { codexPermission: 'danger-full-access' }, { codexPermission: 5 }]) assert.throws(() => ag.normalizeSettings(bad), Error, JSON.stringify(bad));
+  assert.equal(ag.normalizeSettings({ codexPermission: 'read-only' }).codexPermission, 'read-only');
 });

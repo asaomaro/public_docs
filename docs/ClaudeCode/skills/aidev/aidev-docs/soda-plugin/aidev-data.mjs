@@ -120,12 +120,15 @@ export function parseStatusTsv(text) {
 
 // ---- aidev CLI ----------------------------------------------------------------------------------
 
-/** `<PJ>/.claude/skills/aidev-docs/bin/aidev`、無ければ `$HOME/.claude/skills/aidev-docs/bin/aidev`。 */
+/** `<PJ>/.claude/skills/aidev-docs/bin/aidev`（無ければ `.agents/skills`）、無ければ `$HOME` の同じ場所。 */
 export async function findCli(root, home = homedir()) {
+  // Claude Code は `.claude/skills`、Codex 用の写しは `.agents/skills`
   for (const base of [root, home]) {
     if (!base) continue;
-    const file = join(base, '.claude', 'skills', 'aidev-docs', 'bin', 'aidev');
-    try { if ((await lstat(file)).isFile()) return file; } catch { /* 次の候補 */ }
+    for (const dir of ['.claude', '.agents']) {
+      const file = join(base, dir, 'skills', 'aidev-docs', 'bin', 'aidev');
+      try { if ((await lstat(file)).isFile()) return file; } catch { /* 次の候補 */ }
+    }
   }
   return null;
 }

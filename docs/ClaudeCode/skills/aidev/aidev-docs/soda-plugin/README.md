@@ -3,7 +3,7 @@
 PJ の `.aidev/` を読み、aidev（SDD ハーネス）による開発を、Sodashitsu の**アプリ画面**で見て・動かす plugin アプリ。
 
 - **見る**: 作業（`.aidev/works/*`）の一覧・進捗・詳細（工程・tasks・文書・events）と、backlog。
-- **動かす**: アプリにつき 1 つの**監督エージェント**（Claude Code）を起動し、アプリから指示を出す。各作業は別の**担当エージェント**（Claude Code）が受け持ち、監督と連携する。
+- **動かす**: アプリにつき 1 つの**監督エージェント**（Claude Code または Codex）を起動し、アプリから指示を出す。各作業は別の**担当エージェント**が受け持ち、監督と連携する。種類は監督と担当で別々に選べる。
 - **続ける**: 監督・担当の**セッション ID を記憶**し、止まっても同じ会話で**再開**できる。
 - **呼べる**: アプリの操作は `sodactl plugin call aidev <操作>` でも呼べる（監督・担当のエージェントもこれを使う）。
 
@@ -13,6 +13,7 @@ PJ の `.aidev/` を読み、aidev（SDD ハーネス）による開発を、Sod
 
 前提: Sodashitsu（`soda serve`）が動いていること、設定「スクリプトが動く表示」が有効なこと（無効のときは読むだけの画面になる）、
 `sodactl` が**サーバと同じ OS 利用者で `sodactl login` 済み**であること（プラグインは `sodactl` を呼んでエージェントを起こす）。
+aidev の skill は、Claude Code は `.claude/skills/`、Codex は `.agents/skills/` に置く（aidev CLI も両方を探す）。
 
 ```sh
 # このフォルダを配布物にする
@@ -78,10 +79,13 @@ sodactl plugin call aidev report --tab <タブ> --params '{"message":"design の
 | ファイル | 内容 |
 |---|---|
 | `agents.json` | 監督と担当のセッション ID・名前・pane・状態・最後の報告、ログ（300 件・1 件 8 KiB まで）。原子的に書く |
-| `settings.json` | 監督・担当のモデル（空なら指定しない）、権限のモード（`default`・`acceptEdits`・`auto`・`plan`）、自動起動 |
+| `settings.json` | 監督・担当の種類（`claude`・`codex`）、モデル（空なら指定しない）、Claude の権限のモード（`default`・`acceptEdits`・`auto`・`plan`）、Codex の権限（`read-only`・`workspace-write`・`workspace-write-never`）、自動起動 |
 | `prompts/` | 監督・担当に渡した役割の文面（長い文面は端末へ貼らず、ここを読ませる） |
 
-セッション ID は**プラグインが先に決める**（UUID）。`--session-id <UUID>` で起動し、再開は `--resume <UUID>`。
+セッション ID は、Claude Code では**プラグインが先に決める**（UUID）。`--session-id <UUID>` で起動し、再開は `--resume <UUID>`。
+Codex は ID を先に決められないので、**初回はそのまま起動し、起動後に Sodashitsu が pane に記録した会話 ID（`agentSession`）を台帳へ取り込む**
+（種類・名前が一致するものだけ。約 8 秒ごと）。取り込めるまでは「会話 ID 未取得」と表示し、再開はできない。再開は `codex resume <ID> -C <PJ>`。
+再開は、設定が後で変わっても、台帳に記録した種類で行う。
 エージェントの名前は `aidev-sup-<PJ の短いハッシュ>`（監督）・`aidev-w-<ハッシュ>-<slug>-<ハッシュ>`（担当）。
 
 ## 安全
@@ -94,7 +98,7 @@ sodactl plugin call aidev report --tab <タブ> --params '{"message":"design の
 
 ## 限界
 
-- エージェントは **Claude Code だけ**（セッション ID を先に決められる種類）。Codex 等は対象外。
+- エージェントは **Claude Code と Codex**。Codex は会話 ID の取り込み前（起動直後〜最初の入力まで）に止まると再開できず、起動し直しになる。権限は固定の組だけ（任意の引数は渡せない）。
 - **`sodactl` のログインが要る**。サーバと同じ OS 利用者で `sodactl login` していないと、起動・指示は失敗し、画面のログに理由が出る。
 - `.aidev/` は書き換えない。aidev の状態は工程スキルと CLI だけが更新する。
 - **自動の再試行はしない**（作成・起動の操作の重複を避ける）。同じ起動が走っている間の 2 回目は「実行中」で断る。

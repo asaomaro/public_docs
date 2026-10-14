@@ -144,7 +144,10 @@ const APP_BODY = String.raw`
  <details id="settings"><summary>設定（モデル・権限のモード・自動起動）</summary>
   <div class="row"><label>監督のモデル <input id="s-supmodel" maxlength="64" placeholder="空なら指定しない"></label>
   <label>担当のモデル <input id="s-wmodel" maxlength="64" placeholder="空なら指定しない"></label></div>
-  <div class="row"><label>権限のモード <select id="s-perm"><option value="">指定しない</option><option value="default">default</option><option value="acceptEdits">acceptEdits</option><option value="auto">auto</option><option value="plan">plan</option></select></label>
+  <div class="row"><label>監督の種類 <select id="s-supkind"><option value="claude">Claude Code</option><option value="codex">Codex</option></select></label>
+  <label>担当の種類 <select id="s-wkind"><option value="claude">Claude Code</option><option value="codex">Codex</option></select></label>
+  <label>Codex の権限 <select id="s-codexperm"><option value="">指定しない</option><option value="read-only">read-only（承認は必要時）</option><option value="workspace-write">workspace-write（承認は必要時）</option><option value="workspace-write-never">workspace-write（承認しない）</option></select></label></div>
+  <div class="row"><label>権限のモード（Claude Code） <select id="s-perm"><option value="">指定しない</option><option value="default">default</option><option value="acceptEdits">acceptEdits</option><option value="auto">auto</option><option value="plan">plan</option></select></label>
   <label><input id="s-auto" type="checkbox"> アプリを開いたとき監督を自動で起動・再開する</label>
   <button id="b-settings" type="button">設定を保存</button></div>
  </details>
@@ -235,8 +238,9 @@ const APP_SCRIPT = String.raw`
   function agentBlock(a, label) {
     var box = h('div', null, []);
     if (!a) { box.appendChild(h('p', { class: 'muted', text: label + ': 記録なし' })); return box; }
-    var head = h('div', { class: 'row' }, [h('strong', { text: label }), badge(a.status), h('small', { text: a.name })]);
+    var head = h('div', { class: 'row' }, [h('strong', { text: label }), badge(a.status), h('small', { text: a.name + ' · ' + (a.kind === 'codex' ? 'Codex' : 'Claude Code') })]);
     box.appendChild(head);
+    if (a.sessionPending) box.appendChild(h('p', { class: 'muted', text: '会話 ID はまだ取得できていません（起動後に払い出されたものを自動で記録します。取得できるまで再開はできません）' }));
     if (a.sessionId) box.appendChild(h('div', { class: 'row' }, [h('small', { text: 'セッション ' + a.sessionId.slice(0, 8) }), h('input', { class: 'sid', readonly: 'readonly', value: a.sessionId, 'aria-label': 'セッション ID の全体', onclick: function (ev) { ev.target.select(); } }), copyButton(a.sessionId)]));
     if (a.error) box.appendChild(h('p', { class: 'err', text: a.error }));
     if (a.startedAt) box.appendChild(h('small', { text: '起動 ' + when(a.startedAt) + (a.resumedAt ? ' / 再開 ' + when(a.resumedAt) : '') + (a.model ? ' / モデル ' + a.model : '') }));
@@ -259,6 +263,7 @@ const APP_SCRIPT = String.raw`
     if (!S.dirty) {
       $('s-supmodel').value = st.settings.supervisorModel || ''; $('s-wmodel').value = st.settings.workerModel || '';
       $('s-perm').value = st.settings.permissionMode || ''; $('s-auto').checked = st.settings.autoStartSupervisor !== false;
+      $('s-supkind').value = st.settings.supervisorKind || 'claude'; $('s-wkind').value = st.settings.workerKind || 'claude'; $('s-codexperm').value = st.settings.codexPermission || '';
     }
   }
   function renderLog() {
@@ -403,9 +408,9 @@ const APP_SCRIPT = String.raw`
   $('b-send').onclick = function () { if (sendSupervisor($('sup-text').value)) $('sup-text').value = ''; };
   $('sup-text').addEventListener('keydown', function (e) { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.isComposing) { e.preventDefault(); $('b-send').click(); } });
   Array.prototype.forEach.call(document.querySelectorAll('.quick'), function (b) { b.onclick = function () { sendSupervisor(b.getAttribute('data-text')); }; });
-  ['s-supmodel', 's-wmodel', 's-perm', 's-auto'].forEach(function (id) { $(id).addEventListener('input', function () { S.dirty = true; }); });
+  ['s-supmodel', 's-wmodel', 's-perm', 's-auto', 's-supkind', 's-wkind', 's-codexperm'].forEach(function (id) { $(id).addEventListener('input', function () { S.dirty = true; }); });
   $('b-settings').onclick = function () {
-    act('settings-save', { supervisorModel: $('s-supmodel').value.trim(), workerModel: $('s-wmodel').value.trim(), permissionMode: $('s-perm').value, autoStartSupervisor: $('s-auto').checked });
+    act('settings-save', { supervisorModel: $('s-supmodel').value.trim(), workerModel: $('s-wmodel').value.trim(), permissionMode: $('s-perm').value, autoStartSupervisor: $('s-auto').checked, supervisorKind: $('s-supkind').value, workerKind: $('s-wkind').value, codexPermission: $('s-codexperm').value });
     S.dirty = false;
   };
   $('f-active').onclick = function () { S.filter = 'active'; renderWorks(); };

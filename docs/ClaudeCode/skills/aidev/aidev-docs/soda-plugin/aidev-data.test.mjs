@@ -70,6 +70,12 @@ test('CLI の探し場所は PJ → HOME の順', async () => {
     await put(proj, '.claude/skills/aidev-docs/bin/aidev', '');
     assert.equal(await data.findCli(proj, home), join(proj, '.claude/skills/aidev-docs/bin/aidev'));
     assert.equal(await data.findCli(join(dir, 'x'), join(dir, 'y')), null);
+    // Codex 用の写し（.agents/skills）も探す。PJ の .claude が先
+    await put(proj, '.agents/skills/aidev-docs/bin/aidev', '');
+    assert.equal(await data.findCli(proj, home), join(proj, '.claude/skills/aidev-docs/bin/aidev'));
+    const only = join(dir, 'only');
+    await put(only, '.agents/skills/aidev-docs/bin/aidev', '');
+    assert.equal(await data.findCli(only, join(dir, 'y')), join(only, '.agents/skills/aidev-docs/bin/aidev'));
   } finally { await cleanup(); }
 });
 

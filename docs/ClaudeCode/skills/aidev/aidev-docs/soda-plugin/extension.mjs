@@ -12,6 +12,7 @@ const NAME = 'aidev';
 const VIEW_ID = 'progress';
 const POLL_MS = 3000;
 const SEND_GAP_MS = 60;
+const CAPTURE_MS = 8000;
 const CALL_DEADLINE_MS = 25000; // `sodactl plugin call` の応答待ちは 30 秒。起動系はそれより前に「続けています」と返す
 const AUTO_START_AFTER_MS = 8000;
 const RESTORE_WAIT_MS = 40000;
@@ -181,6 +182,11 @@ async function reconcile(force) {
       continue;
     }
     const model = rec.model;
+    // 会話 ID を先に決められない種類（Codex）は、起動後に払い出された ID を取り込む
+    if (Date.now() - (rec.lastCapture ?? 0) > CAPTURE_MS && [model.supervisor, ...model.workers].some((a) => a?.sessionPending && a.recordedStatus !== 'failed')) {
+      rec.lastCapture = Date.now();
+      try { if (await agents.captureSessions(root)) schedule(true); } catch (e) { logOnce(e); }
+    }
     for (const pane of group) {
       try {
         if (isAnchor(pane)) {
@@ -266,6 +272,8 @@ async function onAction(msg) {
         await saveSettings(pane.projectDir, {
           supervisorModel: String(data.supervisorModel ?? ''), workerModel: String(data.workerModel ?? ''),
           permissionMode: String(data.permissionMode ?? ''), autoStartSupervisor: data.autoStartSupervisor === 'true',
+          supervisorKind: String(data.supervisorKind ?? 'claude'), workerKind: String(data.workerKind ?? 'claude'),
+          codexPermission: String(data.codexPermission ?? ''),
         });
         schedule(true); await notify(pane.id, 'info', '設定を保存しました'); return;
       }

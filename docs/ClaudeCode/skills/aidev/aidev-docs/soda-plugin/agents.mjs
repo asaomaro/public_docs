@@ -12,6 +12,14 @@ const execute = promisify(execFile);
 export const WORKER_SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 export const MODEL_RE = /^[A-Za-z0-9._\-[\]]{1,64}$/;
 export const PERMISSION_MODES = ['', 'default', 'acceptEdits', 'auto', 'plan'];
+export const AGENT_KINDS = ['claude', 'codex'];
+/** Codex の権限の組（`--sandbox` と `--ask-for-approval`）。固定の選択肢だけ。 */
+export const CODEX_PERMISSIONS = {
+  '': [],
+  'read-only': ['-s', 'read-only', '-a', 'on-request'],
+  'workspace-write': ['-s', 'workspace-write', '-a', 'on-request'],
+  'workspace-write-never': ['-s', 'workspace-write', '-a', 'never'],
+};
 export const WORKER_STATUSES = ['progress', 'done', 'question', 'blocked', 'failed'];
 export const LOG_LEVELS = ['info', 'warn', 'question'];
 export const LEDGER_LIMITS = { log: 300, message: 8 * 1024 };
@@ -61,7 +69,7 @@ function cleanAgent(a, slug) {
   if (!a || typeof a !== 'object') return null;
   const out = {
     ...(slug ? { slug } : {}),
-    name: str(a.name, 32), kind: 'claude',
+    name: str(a.name, 32), kind: AGENT_KINDS.includes(a.kind) ? a.kind : 'claude',
     sessionId: UUID_RE.test(a.sessionId ?? '') ? a.sessionId : '',
     paneId: str(a.paneId, 64), tabId: str(a.tabId, 64), workspaceId: str(a.workspaceId, 64),
     model: MODEL_RE.test(a.model ?? '') ? a.model : '',
@@ -130,7 +138,7 @@ export function pushLog(ledger, now, entry) {
 
 // ---- 設定 ---------------------------------------------------------------------------------------
 
-export const DEFAULT_SETTINGS = Object.freeze({ supervisorModel: '', workerModel: '', permissionMode: '', autoStartSupervisor: true });
+export const DEFAULT_SETTINGS = Object.freeze({ supervisorModel: '', workerModel: '', permissionMode: '', autoStartSupervisor: true, supervisorKind: 'claude', workerKind: 'claude', codexPermission: '' });
 export function normalizeSettings(input, base = DEFAULT_SETTINGS) {
   const s = { ...base };
   const src = input && typeof input === 'object' ? input : {};
@@ -146,6 +154,16 @@ export function normalizeSettings(input, base = DEFAULT_SETTINGS) {
   if ('permissionMode' in src) {
     if (!PERMISSION_MODES.includes(src.permissionMode)) throw fail('権限のモードは default・acceptEdits・auto・plan のどれかです');
     s.permissionMode = src.permissionMode;
+  }
+  for (const key of ['supervisorKind', 'workerKind']) {
+    if (key in src) {
+      if (!AGENT_KINDS.includes(src[key])) throw fail('エージェントの種類は claude か codex です');
+      s[key] = src[key];
+    }
+  }
+  if ('codexPermission' in src) {
+    if (typeof src.codexPermission !== 'string' || !Object.hasOwn(CODEX_PERMISSIONS, src.codexPermission)) throw fail('Codex の権限は read-only・workspace-write・workspace-write-never のどれかです');
+    s.codexPermission = src.codexPermission;
   }
   if ('autoStartSupervisor' in src) {
     if (typeof src.autoStartSupervisor !== 'boolean') throw fail('自動起動は true か false です');
@@ -217,7 +235,7 @@ export function agentView(entry, panes, now = new Date()) {
   return {
     ...(entry.slug ? { slug: entry.slug } : {}),
     name: entry.name, kind: entry.kind, sessionId: entry.sessionId, paneId: entry.paneId, tabId: entry.tabId, workspaceId: entry.workspaceId,
-    model: entry.model, status, recordedStatus: entry.status, agentState, alive, resumable: !alive && !!entry.sessionId,
+    model: entry.model, status, recordedStatus: entry.status, agentState, alive, resumable: !alive && !!entry.sessionId, sessionPending: !entry.sessionId && entry.kind !== 'claude',
     startedAt: entry.startedAt, resumedAt: entry.resumedAt, error: entry.error,
     ...(entry.slug ? { lastReport: entry.lastReport ?? null, linkErrors: entry.linkErrors ?? [] } : {}),
   };
@@ -258,17 +276,22 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
     if (!made.tab?.id || !made.pane?.id || made.pane.tabId !== made.tab.id || made.pane.virtual) throw fail('新しい端末タブを確認できません');
     return { tabId: made.tab.id, paneId: made.pane.id };
   }
-  const launchArgs = (settings, sessionId, resume, model) => {
+  /** Claude は先に決めた ID で `--session-id` / `--resume`。Codex は ID を先に決められないので、初回は指定せず起動し、後で取り込む。 */
+  const launchArgs = (settings, kind, sessionId, resume, model, root) => {
+    if (kind === 'codex') {
+      const common = ['-C', root, ...(model ? ['-m', model] : []), ...(CODEX_PERMISSIONS[settings.codexPermission] ?? [])];
+      return resume ? ['resume', sessionId, ...common] : common;
+    }
     const args = [resume ? '--resume' : '--session-id', sessionId];
     if (model) args.push('--model', model);
     if (settings.permissionMode) args.push('--permission-mode', settings.permissionMode);
     return args;
   };
   /** 起動して、そのエージェント（instanceId を含む）を確かめて返す。 */
-  async function startAgent(soda, { name, paneId, args }) {
-    const res = await soda(['agent', 'start', name, '--kind', 'claude', '--pane', paneId, '--timeout', '60000', '--', ...args], { timeout: 90000 });
+  async function startAgent(soda, { name, kind, paneId, args }) {
+    const res = await soda(['agent', 'start', name, '--kind', kind, '--pane', paneId, '--timeout', '60000', '--', ...args], { timeout: 90000 });
     const agent = res.agent?.instanceId ? res.agent : (await soda(['agent', 'get', paneId])).agent;
-    if (agent?.paneId !== paneId || !agent.instanceId || !agent.tabId || (agent.kind && agent.kind !== 'claude')) throw fail('起動後のエージェントを確認できません');
+    if (agent?.paneId !== paneId || !agent.instanceId || !agent.tabId || (agent.kind && agent.kind !== kind)) throw fail('起動後のエージェントを確認できません');
     return agent;
   }
   /**
@@ -317,15 +340,16 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
     const settings = await loadSettings(root);
     const ledger = await readLedger(root);
     const prev = ledger.supervisor;
-    const sessionId = resume ? prev.sessionId : uuid();
+    const kind = resume ? prev.kind : settings.supervisorKind;
+    const sessionId = resume ? prev.sessionId : kind === 'claude' ? uuid() : '';
     const name = supervisorName(root);
     const tabId = resume && prev.tabId && ctx.panes.some((p) => p.tabId === prev.tabId && !p.virtual) ? prev.tabId : ctx.tabId;
     const useModel = model || settings.supervisorModel;
-    const base = { name, kind: 'claude', sessionId, tabId, workspaceId: ctx.workspaceId, model: useModel, startedAt: resume && prev.startedAt ? prev.startedAt : iso(now()), resumedAt: resume ? iso(now()) : null };
+    const base = { name, kind, sessionId, tabId, workspaceId: ctx.workspaceId, model: useModel, startedAt: resume && prev.startedAt ? prev.startedAt : iso(now()), resumedAt: resume ? iso(now()) : null };
     let paneId, agent;
     try {
       paneId = await choosePane(soda, tabId);
-      agent = await startAgent(soda, { name, paneId, args: launchArgs(settings, sessionId, resume, useModel) });
+      agent = await startAgent(soda, { name, kind, paneId, args: launchArgs(settings, kind, sessionId, resume, useModel, root) });
     } catch (e) {
       const entry = supervisorEntry({ ...base, paneId: paneId ?? '' });
       await recordAfterFailure(root, '監督', null, entry, e, resume).catch(() => {});
@@ -348,7 +372,9 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
       warning = `起動はしましたが、役割の送信に失敗しました: ${e.message}`;
       await logEvent(root, { from: 'app', kind: 'error', message: warning });
     }
-    return { status: resume ? 'resumed' : 'started', supervisor: agentView(entry, [...ctx.panes, { id: paneId, agent: 'claude', agentState: 'idle' }], now()), ...(warning ? { warning } : {}) };
+    if (!sessionId) await captureSessions(root).catch(() => {});
+    const fresh = (await readLedger(root)).supervisor ?? entry;
+    return { status: resume ? 'resumed' : 'started', supervisor: agentView(fresh, [...ctx.panes, { id: paneId, agent: kind, agentState: 'idle' }], now()), ...(warning ? { warning } : {}) };
   }
 
   async function startSupervisor(root, ctx, { model } = {}) {
@@ -361,7 +387,7 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
   async function resumeSupervisor(root, ctx) {
     return withLaunchLock(root, async () => {
       const prev = (await readLedger(root)).supervisor;
-      if (!prev?.sessionId) throw fail('再開できる監督の記録がありません。「監督を起動」を使ってください');
+      if (!prev?.sessionId) throw fail(prev ? '会話 ID をまだ取得できていないため再開できません。「監督を起動」を使ってください' : '再開できる監督の記録がありません。「監督を起動」を使ってください');
       if (agentView(prev, ctx.panes, now()).alive) return { status: 'already', message: '監督はすでに動いています', supervisor: agentView(prev, ctx.panes, now()) };
       return launchSupervisor(root, ctx, { resume: true });
     });
@@ -403,14 +429,15 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
     const settings = await loadSettings(root);
     const ledger = await readLedger(root);
     const prev = ledger.workers[slug];
-    const sessionId = resume ? prev.sessionId : uuid();
+    const kind = resume ? prev.kind : settings.workerKind;
+    const sessionId = resume ? prev.sessionId : kind === 'claude' ? uuid() : '';
     const name = workerName(root, slug);
     const useModel = model || settings.workerModel;
-    const base = { slug, name, kind: 'claude', sessionId, workspaceId: ctx.workspaceId, model: useModel, startedAt: resume && prev.startedAt ? prev.startedAt : iso(now()), resumedAt: resume ? iso(now()) : null, lastReport: resume ? prev.lastReport : null, linkErrors: [] };
+    const base = { slug, name, kind, sessionId, workspaceId: ctx.workspaceId, model: useModel, startedAt: resume && prev.startedAt ? prev.startedAt : iso(now()), resumedAt: resume ? iso(now()) : null, lastReport: resume ? prev.lastReport : null, linkErrors: [] };
     let tab, agent;
     try {
       tab = await newTerminalTab(soda, ctx.workspaceId, slug);
-      agent = await startAgent(soda, { name, paneId: tab.paneId, args: launchArgs(settings, sessionId, resume, useModel) });
+      agent = await startAgent(soda, { name, kind, paneId: tab.paneId, args: launchArgs(settings, kind, sessionId, resume, useModel, root) });
     } catch (e) {
       const entry = cleanAgent({ ...base, tabId: tab?.tabId ?? '', paneId: tab?.paneId ?? '' }, slug);
       await recordAfterFailure(root, `担当 ${slug}`, slug, entry, e, resume).catch(() => {});
@@ -430,6 +457,7 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
         await sendPrompt(soda, root, entry, readFileInstruction(file, `作業 ${slug} の担当`), agent);
       }
     } catch (e) { warnings.push(`役割の送信に失敗しました: ${e.message}`); }
+    if (!sessionId) await captureSessions(root).catch(() => {});
     const linkErrors = await linkWorker(soda, tab.paneId, sup.paneId, slug);
     warnings.push(...linkErrors);
     if (warnings.length) {
@@ -439,7 +467,7 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
         for (const w of warnings) pushLog(l, now(), { from: 'app', slug, kind: 'error', message: w });
       });
     }
-    return { status: resume ? 'resumed' : 'started', slug, worker: agentView(entry, [...ctx.panes, { id: tab.paneId, agent: 'claude', agentState: 'idle' }], now()), ...(warnings.length ? { warnings } : {}) };
+    return { status: resume ? 'resumed' : 'started', slug, worker: agentView((await readLedger(root)).workers[slug] ?? entry, [...ctx.panes, { id: tab.paneId, agent: kind, agentState: 'idle' }], now()), ...(warnings.length ? { warnings } : {}) };
   }
 
   async function startWorker(root, ctx, { slug, instruction, model }) {
@@ -448,7 +476,7 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
       if (prev) {
         const view = agentView(prev, ctx.panes, now());
         if (view.alive) throw fail(`作業 ${slug} の担当はすでに動いています`);
-        if (prev.status !== 'failed') throw fail(`作業 ${slug} の担当は止まっています。再開（worker-resume）を使ってください`);
+        if (prev.status !== 'failed' && prev.sessionId) throw fail(`作業 ${slug} の担当は止まっています。再開（worker-resume）を使ってください`);
       }
       return launchWorker(root, ctx, { slug, resume: false, instruction, model });
     });
@@ -456,7 +484,7 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
   async function resumeWorker(root, ctx, { slug }) {
     return withLaunchLock(root, async () => {
       const prev = (await readLedger(root)).workers[slug];
-      if (!prev?.sessionId) throw fail(`作業 ${slug} の担当の記録がありません。起動（worker-start）を使ってください`);
+      if (!prev?.sessionId) throw fail(prev ? `作業 ${slug} の会話 ID をまだ取得できていないため再開できません。起動（worker-start）を使ってください` : `作業 ${slug} の担当の記録がありません。起動（worker-start）を使ってください`);
       if (agentView(prev, ctx.panes, now()).alive) return { status: 'already', slug, message: '担当はすでに動いています', worker: agentView(prev, ctx.panes, now()) };
       return launchWorker(root, ctx, { slug, resume: true });
     });
@@ -512,6 +540,36 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
   }
   const logList = async (root, limit = 50) => ({ log: (await readLedger(root)).log.slice(-limit).reverse() });
 
+  const needsCapture = (e) => !!e && !e.sessionId && e.kind !== 'claude' && e.status !== 'failed';
+  /**
+   * 払い出された会話 ID の取り込み（Codex）。Sodashitsu が pane に記録した `agentSession` を、種類・名前が一致するものだけ採る。
+   * 起動直後は未報告なので、呼び出し側が周期的に呼ぶ。取り込めた数を返す。
+   */
+  async function captureSessions(root) {
+    const ledger = await readLedger(root);
+    const pending = [[null, ledger.supervisor], ...Object.entries(ledger.workers)].filter(([, e]) => needsCapture(e));
+    if (!pending.length) return 0;
+    const snap = await makeSoda(root)(['snapshot']);
+    const found = [];
+    for (const [slug, e] of pending) {
+      const pane = (snap.panes ?? []).find((p) => p.id === e.paneId && !p.virtual);
+      const ref = pane?.agentSession;
+      if (pane?.agent?.kind === e.kind && pane.agent.name === e.name && ref?.kind === e.kind && UUID_RE.test(ref.sessionId ?? '')) found.push({ slug, paneId: e.paneId, name: e.name, id: ref.sessionId });
+    }
+    if (!found.length) return 0;
+    return updateLedger(root, (l) => {
+      let n = 0;
+      for (const f of found) {
+        const t = f.slug ? l.workers[f.slug] : l.supervisor;
+        if (t && t.paneId === f.paneId && t.name === f.name && !t.sessionId) {
+          t.sessionId = f.id; n++;
+          pushLog(l, now(), { from: 'app', slug: f.slug, kind: 'event', message: `${f.slug ? `担当 ${f.slug}` : '監督'}の会話 ID を記録しました（${f.id.slice(0, 8)}）` });
+        }
+      }
+      return n;
+    });
+  }
+
   /** 監督が生きていなければ、1 回だけ起動（記録があれば再開）を試みる。呼び出し側が回数を数える。 */
   async function autoStart(root, ctx) {
     const settings = await loadSettings(root);
@@ -523,6 +581,6 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
 
   return {
     startSupervisor, resumeSupervisor, promptSupervisor, startWorker, resumeWorker, promptWorker, reportWorker,
-    report, overview, logList, autoStart, note: logEvent, delegate: (root, ctx, slug) => promptSupervisor(root, ctx, { text: delegateInstruction(slug) }),
+    report, overview, logList, autoStart, captureSessions, needsCapture, note: logEvent, delegate: (root, ctx, slug) => promptSupervisor(root, ctx, { text: delegateInstruction(slug) }),
   };
 }
