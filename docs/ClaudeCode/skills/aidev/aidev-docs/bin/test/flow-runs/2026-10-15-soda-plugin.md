@@ -24,8 +24,8 @@ change: Sodashitsu の plugin アプリ「aidev」（aidev-docs/soda-plugin/）�
 
 - **サブエージェントでの aidev フローの実走は行っていない。** 変えたのは aidev の工程・CLI・規約ではなく、別の層
   （Sodashitsu のアプリ）で、`.aidev/` は読むだけのため、「書いてある規約が実際に発火するか」を歩く対象が無い。
-- 代わりの検証（規約の実走ではない）: `node --test` 59 件（偽の sodactl・偽のホスト・一時 PJ）／`sodactl plugin pack` の通過／
+- 代わりの検証（規約の実走ではない）: `node --test` 65 件（偽の sodactl・偽のホスト・一時 PJ）／`sodactl plugin pack` の通過／
   生成する `sodactl` の全コマンドを実物の引数パーサに通して受理を確認／ヘッドレス Chrome で画面スクリプトを実 DOM で動かして確認／
-  実際の PJ の `.aidev/`（152 作業）を `aidev status` で読んだ時間の実測。
-- **未実施**: 実際の Sodashitsu サーバでの導入・承認・Claude Code の起動（監督・担当・再開・グラフの線）。
+  実際の PJ の `.aidev/`（152 作業）を `aidev status` で読んだ時間の実測／`codex --help` で `-C`・`-m`・`-s`・`-a`・`resume` の引数を確認。
+- **未実施**: 実際の Sodashitsu サーバでの導入・承認・Claude Code／Codex の起動（監督・担当・再開・グラフの線・Codex の会話 ID の取り込み）。
   ライブのサーバに導入してエージェントを起こす操作になるため、この作業では行っていない。
