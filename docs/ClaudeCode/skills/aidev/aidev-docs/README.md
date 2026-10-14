@@ -285,6 +285,7 @@ work 専用の git worktree と `feature/<slug>` ブランチを作り、main tr
     bin/               ランタイムガード CLI（aidev=POSIX sh / aidev.ps1=PowerShell・README.md / test/ 同梱）
       test/flow-runs/  ハーネス改修の実走記録（3 ゲートの証跡。書き方は同ディレクトリの README.md。L8 が検査）
     retro/             改修の材料として受け取った振り返り（work の公開写し／外部レビュー。README.md に置き方）
+    soda-plugin/       Sodashitsu の plugin アプリ「aidev」（作業の進捗と、監督・担当エージェントの操作。README.md に導入）
 .aidev/                PJ固有の実行時状態（skill ではない）
   config.yml           PJ単位の設定（tracker / lightMaxFiles / smokeCommand（または smokeCommands）/ smokeCommandWindows / smokeTimeoutSec /
                        smokeStaleAfter / maxDebugRounds / maxTaskCheckRounds / maxDocCheckRounds / conventionsDir / conventionsIndex / docsRoots /
@@ -304,6 +305,12 @@ work 専用の git worktree と `feature/<slug>` ブランチを作り、main tr
   conventions/         PJ 規約の条項（検証中の待避所。場所は conventionsDir で変更可）/ archive/
 AGENTS.md              PJ 所有。<!-- aidev:conventions --> ブロックに条項の索引だけを置く
 ```
+
+## Sodashitsu のアプリ（任意）
+
+`aidev-docs/soda-plugin/` は、`.aidev/` の作業・進捗を Sodashitsu のアプリ画面で見て、監督・担当の Claude Code エージェントを
+アプリから動かす plugin アプリ（`sodactl plugin pack` で配布物にする）。`.aidev/` は読むだけで、state は CLI と工程スキルが書くまま。
+導入・操作一覧・限界は `soda-plugin/README.md`。
 
 ## 別PJへの導入
 
