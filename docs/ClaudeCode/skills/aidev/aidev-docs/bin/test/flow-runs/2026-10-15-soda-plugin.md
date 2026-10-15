@@ -29,10 +29,10 @@ change: Sodashitsu の plugin アプリ「aidev」（aidev-docs/soda-plugin/）�
   （Sodashitsu のアプリ）で、`.aidev/` は読むだけのため、「書いてある規約が実際に発火するか」を歩く対象が無い。
   `harness_rev` の変更だけは CLI の挙動なので、テストで検証した（下）。
 - 検証（規約の実走ではない）:
-  - `node --test` 99 件（偽の sodactl・偽のホスト・一時 PJ）／`sodactl plugin pack` の通過。
-  - `bin/test/run.sh`: **pwsh 7.4.6 を入れて全体を実行**し `pass=1135 fail=0 skip=0`（変更前は pwsh 無しで `pass=830 skip=285`）。
-    `harness_rev` の除外は、sh・ps1 のパリティを含む 6 件（足しても・中を変えても版が動かない／外の変更では動く／ps1 も同じ版／
-    `git mktree` が失敗したら両実装とも unknown）を足した。
+  - `node --test` 100 件（偽の sodactl・偽のホスト・一時 PJ）／`sodactl plugin pack` の通過。
+  - `bin/test/run.sh`: **pwsh 7.4.6 を入れて全体を実行**し `pass=1137 fail=0 skip=0`（変更前は pwsh 無しで `pass=830 skip=285`）。
+    `harness_rev` の除外は、sh・ps1 のパリティを含む 8 件（足しても・中を変えても版が動かない／外の変更では動く／ps1 も同じ版／
+    `git mktree`・tree の読み取りが失敗したら両実装とも unknown）を足した。
   - 生成する `sodactl` の全コマンドを実物の引数パーサに通して受理を確認／ヘッドレス Chrome で画面スクリプトを実 DOM で動かして確認／
     実際の PJ の `.aidev/`（152 作業）を `aidev status` で読んだ時間の実測／`codex --help` で `-C`・`-m`・`-s`・`-a`・`resume` を確認。
 - **未実施**: 実際の Sodashitsu サーバでの導入・承認・Claude Code／Codex の起動（監督・担当・再開・グラフの線・関連エージェント・
