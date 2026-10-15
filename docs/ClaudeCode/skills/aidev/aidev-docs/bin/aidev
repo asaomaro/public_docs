@@ -335,7 +335,27 @@ hr_docs_tree() {
   _ls=$(git -C "$HARNESS" ls-tree --full-tree "$1" 2>/dev/null) || { printf 'unknown'; return 0; }
   [ -n "$_ls" ] || { printf 'unknown'; return 0; }
   case "$_ls" in *"	soda-plugin"*) : ;; *) printf '%s' "$1"; return 0 ;; esac
-  _n=$(printf '%s\n' "$_ls" | awk -F'\t' '$2 != "soda-plugin"' | git -C "$HARNESS" mktree 2>/dev/null) || _n=""
+  # `git mktree` への pipe は Windows で組み直しに失敗した（CI）ので、ps1 と同じく一時 index に積んで write-tree する
+  _kept=$(printf '%s\n' "$_ls" | awk -F'\t' '$2 != "soda-plugin"')
+  _idx=$(mktemp -u 2>/dev/null) || _idx="${TMPDIR:-/tmp}/aidev-idx-$$"
+  _n=$(
+    GIT_INDEX_FILE="$_idx"; export GIT_INDEX_FILE
+    set --
+    while IFS= read -r _e; do
+      _m=${_e%% *}; _r=${_e#* }; _t=${_r%% *}; _r=${_r#* }; _o=${_r%%	*}; _nm=${_r#*	}
+      case "$_nm" in \"*) exit 1 ;; esac
+      if [ "$_t" = tree ]; then
+        git -C "$HARNESS" read-tree "--prefix=$_nm/" "$_o" >/dev/null 2>&1 || exit 1
+      else
+        set -- "$@" --cacheinfo "$_m,$_o,$_nm"
+      fi
+    done <<EOF_KEPT
+$_kept
+EOF_KEPT
+    if [ "$#" -gt 0 ]; then git -C "$HARNESS" update-index --add "$@" >/dev/null 2>&1 || exit 1; fi
+    git -C "$HARNESS" write-tree 2>/dev/null
+  ) || _n=""
+  rm -f "$_idx"
   # 組み直せなかったら **unknown**（除外前の tree を返すと、その環境だけ版が別の値になり、同じ版の仲間から黙って割れる）
   if [ -n "$_n" ]; then printf '%s' "$_n"; else printf 'unknown'; fi
 }

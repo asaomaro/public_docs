@@ -364,7 +364,7 @@ function HrDocsTree($sha) {
       $infos = @()
       foreach ($e in $kept) {
         $m = [regex]::Match([string]$e, '^(\d+) (\w+) ([0-9a-f]{40,64})\t(.+)$')
-        if (-not $m.Success) { return 'unknown' }
+        if (-not $m.Success -or $m.Groups[4].Value.StartsWith('"')) { return 'unknown' }
         $mode = $m.Groups[1].Value; $type = $m.Groups[2].Value; $o = $m.Groups[3].Value; $name = $m.Groups[4].Value
         if ($type -eq 'tree') {
           GitQ -C $script:HARNESS read-tree "--prefix=$name/" $o | Out-Null
