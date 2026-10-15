@@ -358,6 +358,31 @@ function HrGit {
   return @($o | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] })
 }
 
+# harness_rev の一時ファイル（一時 index・hash-object の入力）の置き場。
+# TMP/TEMP が利用者の環境で壊れていても動くよう、存在が保証される .git の下を先に使い、
+# だめなら GetTempPath()・$env:TEMP・$env:LOCALAPPDATA\Temp の順で、実在して書ける最初のフォルダに落とす。
+function HrScratchDir() {
+  $cands = @()
+  try {
+    $g = @(GitQ -C $script:HARNESS rev-parse --absolute-git-dir | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ })
+    if ($g.Count -ge 1) { $cands += $g[0] }
+  } catch { }
+  try { $cands += [System.IO.Path]::GetTempPath() } catch { }
+  $cands += @($env:TEMP, $env:TMP, $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'Temp' }))
+  foreach ($c in $cands) {
+    if (-not $c) { continue }
+    try {
+      if (-not (Test-Path -LiteralPath $c -PathType Container)) { HrDbg ('置き場の候補が無い: [' + $c + ']'); continue }
+      $probe = Join-Path $c ('aidev-probe-' + [guid]::NewGuid().ToString('N'))
+      [System.IO.File]::WriteAllText($probe, 'x')
+      Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
+      HrDbg ('置き場=' + $c + ' (TMP=' + $env:TMP + ' TEMP=' + $env:TEMP + ' GetTempPath=' + [System.IO.Path]::GetTempPath() + ')')
+      return $c
+    } catch { HrDbg ('置き場の候補に書けない: [' + $c + '] ' + $_) }
+  }
+  return $null
+}
+
 # aidev-docs の tree から soda-plugin を除いた tree の sha（sh 版 hr_docs_tree と同じ）。無い・組み直せないときは元のまま。
 function HrDocsTree($sha) {
   try {
@@ -370,7 +395,9 @@ function HrDocsTree($sha) {
     # stdin を使わず、一時 index に「残す項目」を積んで write-tree する（結果の tree は mktree と同じ）。
     # tree の項目は read-tree --prefix、blob・submodule は update-index --cacheinfo（どちらも index の根からの相対）。
     HrDbg ('kept=' + ($kept -join ' ; '))
-    $idx = Join-Path ([System.IO.Path]::GetTempPath()) ('aidev-idx-' + [guid]::NewGuid().ToString('N'))
+    $scratch = HrScratchDir
+    if (-not $scratch) { HrDbg '一時の置き場が無い'; return 'unknown' }
+    $idx = Join-Path $scratch ('aidev-idx-' + [guid]::NewGuid().ToString('N'))
     $oldIdx = $env:GIT_INDEX_FILE
     try {
       $env:GIT_INDEX_FILE = $idx
@@ -391,8 +418,10 @@ function HrDocsTree($sha) {
         HrGit -C $script:HARNESS update-index --add @infos | Out-Null
         if ($LASTEXITCODE -ne 0) { return 'unknown' }
       }
-      $out = (HrGit -C $script:HARNESS write-tree | Select-Object -First 1)
-      if ($LASTEXITCODE -eq 0 -and $out -and ([string]$out).Trim() -match '^[0-9a-f]{40,64}$') { return ([string]$out).Trim() }
+      # 終了コードと Select-Object -First には頼らない（5.1 でパイプを途中で切ると $LASTEXITCODE が当てにならない）。出力の形で判定する
+      $wt = @(HrGit -C $script:HARNESS write-tree | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ -match '^[0-9a-f]{40,64}$' })
+      HrDbg ('write-tree => ' + ($wt -join ','))
+      if ($wt.Count -ge 1) { return $wt[0] }
     } finally {
       $env:GIT_INDEX_FILE = $oldIdx
       Remove-Item -LiteralPath $idx -Force -ErrorAction SilentlyContinue
@@ -424,10 +453,13 @@ function HarnessRev() {
     if ($trees.Count -eq 0 -or ($trees -contains 'unknown')) { return 'unknown' }
     # stdin パイプは使わない: PowerShell は native コマンドへ渡すとき自分で改行を足し、しかも
     # Windows では CRLF になるので sh 版（LF）と別のハッシュになる。LF 固定の一時ファイルで渡す
-    $tmp = [System.IO.Path]::GetTempFileName()
+    $scratch = HrScratchDir
+    if (-not $scratch) { HrDbg '一時の置き場が無い'; return 'unknown' }
+    $tmp = Join-Path $scratch ('aidev-hr-' + [guid]::NewGuid().ToString('N'))
     try {
       [System.IO.File]::WriteAllText($tmp, (($trees -join "`n") + "`n"), $script:Utf8)
-      $r = (GitQ hash-object -- $tmp 2>$null | Select-Object -First 1)
+      $r = (HrGit hash-object -- $tmp | Select-Object -First 1)
+      HrDbg ('hash-object => [' + $r + '] tmp=' + $tmp)
     } finally { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
     if ([string]::IsNullOrWhiteSpace($r)) { return 'unknown' }
     return $r.Trim().Substring(0, 12)
