@@ -369,8 +369,9 @@ function HrDocsTree($sha) {
     $out = $proc.StandardOutput.ReadToEnd().Trim()
     $proc.WaitForExit()
     if ($proc.ExitCode -eq 0 -and $out -match '^[0-9a-f]{40,64}$') { return $out }
-    return $sha
-  } catch { return $sha }
+    # 組み直せなかったら unknown（除外前の tree を返すと、その環境だけ版が別の値になり、同じ版の仲間から黙って割れる。sh 版と同じ）
+    return 'unknown'
+  } catch { return 'unknown' }
 }
 
 function HarnessRev() {
@@ -390,7 +391,7 @@ function HarnessRev() {
       $sha = ($_ -split '\s+')[2]
       if ($_ -match 'aidev-docs$') { HrDocsTree $sha } else { $sha }
     })
-    if ($trees.Count -eq 0) { return 'unknown' }
+    if ($trees.Count -eq 0 -or ($trees -contains 'unknown')) { return 'unknown' }
     # stdin パイプは使わない: PowerShell は native コマンドへ渡すとき自分で改行を足し、しかも
     # Windows では CRLF になるので sh 版（LF）と別のハッシュになる。LF 固定の一時ファイルで渡す
     $tmp = [System.IO.Path]::GetTempFileName()
