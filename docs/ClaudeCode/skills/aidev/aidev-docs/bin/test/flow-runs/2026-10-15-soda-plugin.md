@@ -32,6 +32,7 @@ change: Sodashitsu の plugin アプリ「aidev」（aidev-docs/soda-plugin/）�
   - `node --test` 100 件（偽の sodactl・偽のホスト・一時 PJ）／`sodactl plugin pack` の通過。
   - `bin/test/run.sh`: **pwsh 7.4.6 を入れて全体を実行**し `pass=1137 fail=0 skip=0`（変更前は pwsh 無しで `pass=830 skip=285`）。
   - fix-03: harness_rev の soda-plugin 除外を sh・ps1 とも git mktree でなく一時 index（write-tree）で組む。再度 `run.sh` を実行して `pass=1137 fail=0 skip=0`。
+  - fix-04: winps の harness_rev 診断（AIDEV_DEBUG_HARNESS_REV）を追加。挙動は変えていない（診断の経路のみ）。
     `harness_rev` の除外は、sh・ps1 のパリティを含む 8 件（足しても・中を変えても版が動かない／外の変更では動く／ps1 も同じ版／
     `git mktree`・tree の読み取りが失敗したら両実装とも unknown）を足した。
   - 生成する `sodactl` の全コマンドを実物の引数パーサに通して受理を確認／ヘッドレス Chrome で画面スクリプトを実 DOM で動かして確認／
