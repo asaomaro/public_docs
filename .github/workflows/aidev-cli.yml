@@ -73,6 +73,19 @@ jobs:
           sh test/setup-pwsh.sh
           echo "$HOME/.cache/aidev-pwsh" >> "$GITHUB_PATH"
 
+      # 診断（原因が分かって直ったら外す）: 本物の checkout で ps1 の harness_rev が unknown になる理由を stderr に出す。
+      # テストより先に走らせ、失敗してもテストは走らせる
+      - name: 診断（harness_rev・winps）
+        if: matrix.ps_host == 'winps'
+        continue-on-error: true
+        run: |
+          H="$(pwd)"
+          echo "--- git: $(git --version)"; git -C "$H" rev-parse --show-toplevel --git-dir --is-shallow-repository || true
+          git -C "$H" config --list --show-origin | grep -Ei "autocrlf|safe|fsmonitor|sparse|index|worktree" || true
+          D="$RUNNER_TEMP/hrdiag"; mkdir -p "$D"; cd "$D"; git init -q . || true; mkdir -p .aidev/works
+          echo "--- powershell aidev.ps1 doctor（AIDEV_DEBUG_HARNESS_REV=1）"
+          AIDEV_DEBUG_HARNESS_REV=1 powershell -NoProfile -ExecutionPolicy Bypass -File "$H/aidev.ps1" doctor 2>&1 | grep -E "harness_rev|harnessRev|git 管理" | head -80 || true
+
       - name: テスト（skip が残っていたら落とす）
         # run.sh 自体は skip があっても exit 0 で終わる（開発者の手元では処理系が無いこともあり、
         # そこで落とすと手元のテストが回らなくなる）。CI は処理系を揃えられる場所なので、
