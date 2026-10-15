@@ -71,6 +71,9 @@ async function setDisplay(paneId, name, params, signature) {
   const id = `${paneId}|${name}`;
   active.set(id, { paneId, name });
   if (dismissed.has(id) || shown.get(id) === signature) return false;
+  // 面を張り替えると、画面は起動し直して ready を送り直す。印は**送る前**に消す
+  // （送った後に消すと、display.set の応答より先に届いた ready を捨てて、画面が state を受け取れず止まる）
+  if (name === NAME) { ready.delete(paneId); sent.delete(paneId); }
   try {
     await call('display.set', { paneId, name, ...params });
     shown.set(id, signature);
@@ -205,8 +208,7 @@ async function reconcile(force) {
           keep(pane.id, NAME);
           const content = useScript ? appHtml() : staticHtml(model, '設定「スクリプトが動く表示」が無効なため、読むだけの画面です。操作は sodactl plugin call で行えます。');
           const sig = useScript ? 'script' : `html|${sha(content)}`;
-          const changed = await setDisplay(pane.id, NAME, { title: 'aidev', kind: 'panel', format: useScript ? 'script-html' : 'html', content, dock: 'right', size: 360 }, sig);
-          if (changed) { ready.delete(pane.id); sent.delete(pane.id); }
+          await setDisplay(pane.id, NAME, { title: 'aidev', kind: 'panel', format: useScript ? 'script-html' : 'html', content, dock: 'right', size: 360 }, sig);
           if (useScript && ready.has(pane.id)) await pushData(pane, model, rec, force);
           if (pane.plugin.terminalDisplay) {
             keep(pane.id, pane.plugin.terminalDisplay);

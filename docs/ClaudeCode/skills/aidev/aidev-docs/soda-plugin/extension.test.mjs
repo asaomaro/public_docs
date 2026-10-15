@@ -13,7 +13,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const EXTENSION = join(HERE, 'extension.mjs');
 
 /** 偽のホスト: 拡張を子プロセスで動かし、NDJSON の要求を記録して、ext.result を返す。 */
-async function startHost({ scriptEnabled = true, reply = {} } = {}) {
+async function startHost({ scriptEnabled = true, reply = {}, holdDisplaySet = false } = {}) {
   const home = await tempDir('aidev-home-');
   const child = spawn(process.execPath, [EXTENSION], {
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -27,8 +27,13 @@ async function startHost({ scriptEnabled = true, reply = {} } = {}) {
   lines.on('line', (line) => {
     const r = JSON.parse(line);
     requests.push(r);
-    if (r.id !== undefined) send({ type: 'ext.result', id: r.id, ok: true, result: reply[r.method] ?? {} });
+    if (r.id === undefined) return;
+    const res = { type: 'ext.result', id: r.id, ok: true, result: reply[r.method] ?? {} };
+    // display.set（aidev）の応答を止めておき、ready が応答より先に届く並びを作る
+    if (holdDisplaySet && r.method === 'display.set' && r.params?.name === 'aidev') held.push(res); else send(res);
   });
+  const held = [];
+  const release = () => { for (const m of held.splice(0)) send(m); };
   send({ type: 'ext.hello', v: 1, extension: { scope: 'user', id: 'aidev' }, display: { scriptEnabled } });
   const waitFor = async (pred, what, ms = 15000) => {
     const until = Date.now() + ms;
@@ -41,7 +46,7 @@ async function startHost({ scriptEnabled = true, reply = {} } = {}) {
     await new Promise((r) => child.once('exit', r));
     await home.cleanup();
   };
-  return { send, requests, waitFor, find, stop, child, errors: () => errors };
+  return { send, requests, waitFor, find, stop, child, release, errors: () => errors };
 }
 const anchor = (dir, extra = {}) => ({ id: 'anchor-1', tabId: 'tab-1', workspaceId: 'ws-1', workspaceLabel: 'ws', projectDir: dir, virtual: true, agent: null, plugin: { extensionKey: 'user:aidev', display: 'aidev', terminalDisplay: 'aidev-terminal' }, ...extra });
 const terminal = (dir, extra = {}) => ({ id: 'term-1', tabId: 'tab-1', workspaceId: 'ws-1', projectDir: dir, agent: null, ...extra });
@@ -151,6 +156,20 @@ test('app.call: works-list・report が動き、対象や入力が不正なら o
     assert.equal(log[0].level, 'question');
     assert.equal(log[0].from, 'supervisor');
     assert.equal(h.errors(), '');
+  } finally { await h.stop(); await cleanup(); }
+});
+
+test('ready が display.set の応答より先に届いても、画面は state を受け取る（ready を取りこぼさない）', async () => {
+  const { dir, cleanup } = await tempDir();
+  const h = await startHost({ holdDisplaySet: true });
+  try {
+    await sampleProject(dir);
+    h.send({ type: 'ext.panes', panes: [anchor(dir)] });
+    await h.waitFor(() => h.find('display.set', 'aidev'), 'display.set');
+    h.send({ type: 'display.action', paneId: 'anchor-1', name: 'aidev', action: 'ready', data: {}, source: 'script' });
+    await new Promise((r) => setTimeout(r, 150));   // ready が先に処理される
+    h.release();                                    // そのあとで display.set の応答が届く
+    await h.waitFor(() => sends(h).find((d) => d.type === 'state'), 'state');
   } finally { await h.stop(); await cleanup(); }
 });
 
