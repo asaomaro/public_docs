@@ -1656,7 +1656,20 @@ if command -v git >/dev/null 2>&1; then
   else
     skip 1 "ps1 の mktree 失敗時の unknown（PowerShell 不在）"
   fi
-  rm -rf "$SHIM"
+  # tree を読めない（ls-tree --full-tree が失敗する）環境でも、除外前の tree を黙って使わず unknown にする
+  SHIM2=$(mktemp -d)
+  printf '#!/bin/sh\ncase "$*" in *full-tree*) exit 1 ;; esac\nexec "%s" "$@"\n' "$(command -v git)" > "$SHIM2/git"
+  chmod +x "$SHIM2/git"
+  GR13=$( ( cd "$GRR/w" && PATH="$SHIM2:$PATH" "$GRR/skills/aidev-docs/bin/aidev" new g13 >/dev/null 2>&1; \
+            sed -n 's/^harnessRev: //p' "$GRR/w/.aidev/works/"*g13/state.yml ) )
+  assert_eq "$GR13" "unknown" "harnessRev: tree を読めなければ unknown（除外前の tree を黙って使わない）"
+  if [ -n "$PS_HOST" ] && [ -f "$GRR/skills/aidev-docs/bin/aidev.ps1" ]; then
+    ( cd "$GRR/w" && PATH="$SHIM2:$PATH" run_ps1 "$GRR/skills/aidev-docs/bin/aidev.ps1" new g14 ) >/dev/null 2>&1
+    assert_eq "$(sed -n 's/^harnessRev: //p' "$GRR/w/.aidev/works/"*g14/state.yml | tr -d '\r')" "unknown" "パリティ: ps1 も tree を読めなければ unknown"
+  else
+    skip 1 "ps1 の tree 読み取り失敗時の unknown（PowerShell 不在）"
+  fi
+  rm -rf "$SHIM" "$SHIM2"
   # **ハーネスが git 管理外なら unknown**。ここは長く sh だけ落ちていた——`ls-tree` が空でも
   # `git hash-object --stdin` が**空入力に空 blob のハッシュ**を返すので `$r` が空にならず、
   # unknown フォールバックが一度も効かなかった。全環境・全 work で同じ値が刻まれ、
@@ -1690,9 +1703,9 @@ if command -v git >/dev/null 2>&1; then
     "harnessRev: 既に刻まれた空 blob 値は読むときに unknown へ正規化する"
   rm -rf "$UNR"
   rm -rf "$GRR"
-  block_end hrgrain "17" "hrgrain"
+  block_end hrgrain "19" "hrgrain"
 else
-  skip 17 "harnessRev の粒度（git 不在）"
+  skip 19 "harnessRev の粒度（git 不在）"
 fi
 
 echo "== coverage（AC 被覆 / tasks.md の整合）=="

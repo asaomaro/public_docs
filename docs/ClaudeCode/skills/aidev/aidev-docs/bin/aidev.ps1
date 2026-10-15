@@ -351,6 +351,7 @@ $script:HARNESS = try { Split-Path -Parent (Split-Path -Parent $PSScriptRoot) } 
 function HrDocsTree($sha) {
   try {
     $entries = @(GitQ -C $script:HARNESS ls-tree --full-tree $sha 2>$null)
+    if ($entries.Count -eq 0) { return 'unknown' }   # tree には必ず項目がある。読めなければ unknown（sh 版と同じ）
     if (-not ($entries | Where-Object { ($_ -split "`t", 2)[1] -eq 'soda-plugin' })) { return $sha }
     $kept = @($entries | Where-Object { ($_ -split "`t", 2)[1] -ne 'soda-plugin' })
     # stdin は LF 固定で渡す（PowerShell のパイプは CRLF になりうる。sh 版と同じ値にするため）
