@@ -34,6 +34,8 @@ const MAX_TAB_PANES = 6;
 const PENDING_KINDS = ['role', 'note', 'links'];
 // --resume が会話を見つけられず落ちたときの code。`timeout` は「まだ確かめられない」で、会話が無いとは限らない（名前が付いていれば動いている）
 const RESUME_LOST = ['agent_start_failed'];
+const ORPHAN_CODES = ['timeout', 'agent_kind_mismatch', 'agent_start_failed', 'agent_not_ready'];
+const TRIGGER_CHECK_GAP_MS = 20_000; // 完了後の終了で、トリガの線の履歴を問い合わせる間隔
 const FINISH_GAP_MS = 20_000;
 const FINISH_MAX_TRIES = 3;
 const EXIT_GRACE_MS = 20_000;
@@ -389,7 +391,9 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
   function recordAfterFailure(root, role, slug, entry, error, resume) {
     const blocked = error.code === 'agent_not_ready';
     const lost = resume && RESUME_LOST.includes(error.code);
-    const orphan = !resume && !!entry.paneId; // 新しい pane・UUID が既にある。台帳に残す（名前を握った孤児を作らない）
+    // エージェントが居る可能性がある失敗だけ、新しい pane・UUID を台帳に残す（名前を握った孤児を作らない）。
+    // pane が埋まっている・名前が使われている等の、起動に至らなかった失敗では、前の記録を残す
+    const orphan = !resume && !!entry.paneId && ORPHAN_CODES.includes(error.code);
     return updateLedger(root, (l) => {
       const prev = slug ? l.workers[slug] : l.supervisor;
       const message = clip(error.message, 1000);
@@ -781,6 +785,7 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
     return { slug, paneId, text: String(res.raw ?? res.text ?? '') };
   }
 
+  const triggerMemo = new Map();
   /** 担当 → 監督のトリガの線が、`since`（完了の報告）より後に `sent` になったか。true / false / null（線が無い・読めない）。 */
   async function triggerSent(soda, workerPane, supervisorPane, since) {
     try {
@@ -826,7 +831,15 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
       }
       const soda = makeSoda(root);
       const sup = ledger.supervisor;
-      const sent = sup ? await triggerSent(soda, w.paneId, sup.paneId, Date.parse(w.doneAt)) : null;
+      // グラフの読み取りは毎周期（3 秒）は行わない。20 秒以上あける
+      const memoKey = `${root}|${w.slug}|${w.doneAt}`;
+      const memo = triggerMemo.get(memoKey);
+      let sent;
+      if (memo && now() - memo.at < TRIGGER_CHECK_GAP_MS) sent = memo.value;
+      else {
+        sent = sup ? await triggerSent(soda, w.paneId, sup.paneId, Date.parse(w.doneAt)) : null;
+        triggerMemo.set(memoKey, { at: +now(), value: sent });
+      }
       if (sent !== true) { if (age > EXIT_GIVE_UP_MS) await giveUp('完了の知らせが監督へ届いていないので'); continue; }
       const rel = (await related(root, ctx.panes, { force: true }))[w.slug] ?? [];
       const auto = rel.filter((a) => !a.registered);
@@ -844,6 +857,7 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
         pushLog(l, now(), { from: 'app', slug: w.slug, kind: errors.length ? 'error' : 'event', message: errors.length ? `完了後の終了に失敗した pane があります: ${errors.join(' / ')}` : `作業 ${w.slug} が完了したため、担当${auto.length ? `と関連するエージェント ${auto.length} 件` : ''}を終了しました（会話 ID は記録済み。再開できます）${tail}` });
       });
       relatedCache.delete(root);
+      triggerMemo.delete(memoKey);
       n++;
     }
     return n;

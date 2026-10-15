@@ -51,7 +51,8 @@ PJ に導入したときは、設定の「拡張」で**プロジェクトの拡
    担当の端末は、作業の詳細に常設される（直接操作できる）。
    - **種類（claude / codex）とモデル**は、監督・担当の起動ごとに画面から指定できる（空なら設定の既定）。
    - **関連するエージェント**: 担当が自分の pane から `sodactl` で起こした別のエージェントは、グラフの線（監督・承認の代理）で担当に連なるので、
-     作業の詳細に並び、端末の表示・指示ができる（孫まで）。深い所など自動で出ないものは、担当が `work-agent-register` で登録する
+     作業の詳細に並び、端末の表示・指示ができる（孫まで）。線が無い pane は、担当が先に
+     `sodactl graph link add <pane> <担当の pane> --kind supervise` で結んでから、`work-agent-register` で登録する
      （登録できるのは、担当の pane から線で連なる pane だけ。利用者自身の pane は登録できない）。
    - **完了したら終了**: 担当が `done` を報告し、次の条件がそろったら、担当と**自動の線で連なる**関連するエージェントの pane を閉じる。
      (1) 担当が待機（20 秒の猶予のあと） (2) 完了の知らせ（担当 → 監督のトリガの線）が、`done` の後に監督へ**送られた**
@@ -87,7 +88,7 @@ PJ に導入したときは、設定の「拡張」で**プロジェクトの拡
 | `worker-report` | `{slug,status,message}` | 担当からの報告（`progress`・`done`・`question`・`blocked`・`failed`）。`question`・`failed`・`blocked` は監督へも中継 |
 | `report` | `{message,level?}` | 監督から利用者への知らせ（`info`・`warn`・`question`）。アプリのログに出る |
 | `work-agents` | `{slug}` | 作業の担当と、関連するエージェント（担当が起こしたもの） |
-| `work-agent-register` | `{slug,paneId}` | 担当が、自分で起こしたエージェントの pane を関連として登録する |
+| `work-agent-register` | `{slug,paneId}` | 担当が、線で結んだ pane を関連として登録する（担当の pane から線で連なる pane だけ。登録分は完了後の終了で閉じない） |
 | `work-agent-prompt` | `{slug,paneId,text}` | 担当または関連するエージェントへ指示 |
 | `work-agent-read` | `{slug,paneId,lines?}` | 担当または関連するエージェントの画面の末尾を読む |
 | `log-list` | `{limit?}` | ログ（新しい順。既定 50・最大 300） |

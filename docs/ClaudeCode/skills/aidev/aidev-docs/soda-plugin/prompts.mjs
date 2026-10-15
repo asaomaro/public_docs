@@ -72,7 +72,8 @@ sodactl plugin call aidev worker-report --tab ${tabId} --params '{"slug":"${slug
 - 作業のために別のエージェントを起こしてよい。**自分の pane の中から** \`sodactl pane split --direction right\` で pane を作り、
   \`sodactl agent start <名前> --kind claude|codex --pane <pane>\` で起動する（名前は \`aidev-${nameHint}-<用途>\` のように、英小文字・数字・\`-\`・\`_\` の 32 文字以内）。
   自分の pane から起こせば、自分に連なる関連するエージェントとして、アプリの作業画面に並び、利用者が直接操作できる。
-- 線が引かれなかったときは、起こした pane を登録する:
+- 線が無い pane（自分の pane から起こしていないもの）は、先に線で結んでから登録する。登録できるのは、自分の pane から線で連なる pane だけ:
+  \`sodactl graph link add <その pane> <担当の pane> --kind supervise\`（<担当の pane> は自分の pane。環境変数 \`SODA_PANE_ID\`）
   \`sodactl plugin call aidev work-agent-register --tab ${tabId} --params '{"slug":"${slug}","paneId":"<pane>"}'\`
 - 補助のエージェントの結果は自分で確かめ（\`sodactl agent read <名前>\`）、不要になったものは閉じる。利用者に見えない所で長く放置しない。
 - 外部への公開（push・PR・merge 等）は、指示された範囲でだけ行う。

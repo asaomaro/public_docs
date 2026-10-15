@@ -222,23 +222,41 @@ test('監督の起動: 承認待ち（agent_not_ready）は blocked として台
   } finally { await cleanup(); }
 });
 
-test('監督の起動: 失敗しても、新しい pane・UUID を台帳に残し（孤児を作らない）、前の会話の ID は previousSessions に残す', async () => {
+test('監督の起動: エージェントが居る可能性がある失敗（kind 不一致など）は、新しい pane・UUID を台帳に残し、前の ID は previousSessions に残す', async () => {
+  let fail = false;
+  const { root, cleanup, agents, ctx } = await setup({
+    onCall: (args) => { if (fail && args[0] === 'agent' && args[1] === 'start') throw sodaErr('agent_kind_mismatch', '別の種類が検出された'); },
+  });
+  try {
+    await agents.startSupervisor(root, ctx, {});
+    const first = (await ag.readLedger(root)).supervisor.sessionId;
+    fail = true;
+    await assert.rejects(agents.startSupervisor(root, ctx, {}), /再開できる会話があります/, '再開できる会話は、黙って上書きしない');
+    await assert.rejects(agents.startSupervisor(root, ctx, { fresh: true }), /別の種類が検出された/);
+    const sup = (await ag.readLedger(root)).supervisor;
+    assert.notEqual(sup.sessionId, first, '新しい UUID を記録する（名前を握った孤児を作らない）');
+    assert.equal(sup.status, 'failed');
+    assert.deepEqual(sup.previousSessions.map((x) => x.sessionId), [first], '前の会話の ID は残る');
+    assert.equal(ag.agentView(sup, [], NOW).resumable, false);
+  } finally { await cleanup(); }
+});
+
+test('監督の起動: 起動に至らなかった失敗（pane が埋まっている等）では、前の記録を残して error だけ付ける', async () => {
   let fail = false;
   const { root, cleanup, agents, ctx } = await setup({
     onCall: (args) => { if (fail && args[0] === 'agent' && args[1] === 'start') throw sodaErr('agent_pane_busy', '前面が別のコマンド'); },
   });
   try {
     await agents.startSupervisor(root, ctx, {});
-    const first = (await ag.readLedger(root)).supervisor.sessionId;
-    fail = true; // サーバが落ちて会話は止まっている（pane にエージェントは居ない）
-    await assert.rejects(agents.startSupervisor(root, ctx, {}), /再開できる会話があります/, '再開できる会話は、黙って上書きしない');
+    const before = (await ag.readLedger(root)).supervisor;
+    fail = true;
     await assert.rejects(agents.startSupervisor(root, ctx, { fresh: true }), /前面が別のコマンド/);
     const sup = (await ag.readLedger(root)).supervisor;
-    assert.notEqual(sup.sessionId, first, '新しい UUID を記録する');
-    assert.equal(sup.status, 'failed');
+    assert.equal(sup.sessionId, before.sessionId, '前の会話の記録のまま');
+    assert.deepEqual([sup.status, sup.paneId, sup.previousSessions.length], [before.status, before.paneId, 0]);
     assert.match(sup.error, /前面/);
-    assert.deepEqual(sup.previousSessions.map((x) => x.sessionId), [first], '前の会話の ID は残る');
-    assert.equal(ag.agentView(sup, [], NOW).resumable, false);
+    assert.equal(ag.agentView(sup, [], NOW).resumable, true, '再開できるまま');
+    assert.equal((await ag.readLedger(root)).log.at(-1).kind, 'error');
   } finally { await cleanup(); }
 });
 test('監督の再開: 台帳のセッション ID で --resume・再開の知らせを送る', async () => {
@@ -984,10 +1002,18 @@ test('完了の終了: 完了の知らせ（トリガ）が監督へ送られた
     e.panes.find((p) => p.id === e.wp).agentState = 'working';
     assert.equal(await e.agents.finishDone(e.root, e.ctx), 0, '作業中なら待つ');
     e.panes.find((p) => p.id === e.wp).agentState = 'idle';
+    const queries = () => e.fake.of('graph', 'history').length;
     assert.equal(await e.agents.finishDone(e.root, e.ctx), 0, 'トリガがまだ送られていない（監督が作業中で待っている）間は閉じない');
     assert.equal(e.fake.of('pane', 'close').length, 0);
+    assert.equal(queries(), 1);
+    e.state.t += 3000;
+    assert.equal(await e.agents.finishDone(e.root, e.ctx), 0);
+    assert.equal(queries(), 1, 'トリガの履歴の問い合わせは 20 秒以上あける（3 秒ごとに読まない）');
+    e.state.t += 21000;
     e.state.runs = [{ linkId: 'trig-1', at: +NOW - 5000, result: 'sent' }];
     assert.equal(await e.agents.finishDone(e.root, e.ctx), 0, '完了の報告より前の送信は数えない');
+    assert.equal(queries(), 2);
+    e.state.t += 21000;
     e.state.runs = [{ linkId: 'trig-1', at: e.state.t, result: 'sent' }];
     assert.equal(await e.agents.finishDone(e.root, e.ctx), 1);
     assert.deepEqual(e.fake.of('pane', 'close').map((c) => c.args[2]), [PA, e.wp], '関連するエージェント → 担当の順');
