@@ -347,6 +347,32 @@ function AppendEvent($work,$phase,$event,$kvs) {
 # sh の dirname は '/' を返し続けるので落ちない。取れなければ空にして HarnessRev を unknown に倒す
 $script:HARNESS = try { Split-Path -Parent (Split-Path -Parent $PSScriptRoot) } catch { '' }   # <skills>/aidev-docs/bin -> <skills>
 
+# aidev-docs の tree から soda-plugin を除いた tree の sha（sh 版 hr_docs_tree と同じ）。無い・組み直せないときは元のまま。
+function HrDocsTree($sha) {
+  try {
+    $entries = @(GitQ -C $script:HARNESS ls-tree --full-tree $sha 2>$null)
+    if (-not ($entries | Where-Object { ($_ -split "`t", 2)[1] -eq 'soda-plugin' })) { return $sha }
+    $kept = @($entries | Where-Object { ($_ -split "`t", 2)[1] -ne 'soda-plugin' })
+    # stdin は LF 固定で渡す（PowerShell のパイプは CRLF になりうる。sh 版と同じ値にするため）
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = 'git'
+    $psi.Arguments = 'mktree'
+    $psi.WorkingDirectory = $script:HARNESS
+    $psi.RedirectStandardInput = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.UseShellExecute = $false
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    $bytes = $script:Utf8.GetBytes((($kept -join "`n") + "`n"))
+    $proc.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length)
+    $proc.StandardInput.Close()
+    $out = $proc.StandardOutput.ReadToEnd().Trim()
+    $proc.WaitForExit()
+    if ($proc.ExitCode -eq 0 -and $out -match '^[0-9a-f]{40,64}$') { return $out }
+    return $sha
+  } catch { return $sha }
+}
+
 function HarnessRev() {
   if (-not $script:HARNESS) { return 'unknown' }
   if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return 'unknown' }
@@ -358,7 +384,12 @@ function HarnessRev() {
                ForEach-Object { $_.FullName })
     if ($paths.Count -eq 0) { return 'unknown' }
     # 版の実体は内容の tree hash（コミット SHA だと squash / rebase で同一内容が別版に割れる。sh 版と同じ）
-    $trees = @(GitQ -C $script:HARNESS ls-tree -d HEAD -- @paths 2>$null | ForEach-Object { ($_ -split '\s+')[2] })
+    # aidev-docs の中の soda-plugin は版に入れない（sh 版と同じ。Sodashitsu のアプリで、ハーネスの挙動ではない）。
+    # soda-plugin を除いた tree を組み直す（無い PJ では従来と同じ値のまま）
+    $trees = @(GitQ -C $script:HARNESS ls-tree -d HEAD -- @paths 2>$null | ForEach-Object {
+      $sha = ($_ -split '\s+')[2]
+      if ($_ -match 'aidev-docs$') { HrDocsTree $sha } else { $sha }
+    })
     if ($trees.Count -eq 0) { return 'unknown' }
     # stdin パイプは使わない: PowerShell は native コマンドへ渡すとき自分で改行を足し、しかも
     # Windows では CRLF になるので sh 版（LF）と別のハッシュになる。LF 固定の一時ファイルで渡す

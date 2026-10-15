@@ -1613,6 +1613,35 @@ if command -v git >/dev/null 2>&1; then
            sed -n 's/^harnessRev: //p' "$GRR/w/.aidev/works/"*g5/state.yml ) )
   assert_eq "$GR5" "$GR4" "harnessRev: squash しても内容が同じなら同じ版（SHA ではなく内容ハッシュ）"
   assert_eq "${#GR5}" "12" "harnessRev: 固定長 12 桁（%h の自動伸長で偽またがりを作らない）"
+  # **aidev-docs/soda-plugin（Sodashitsu のアプリ）は版に入れない**。ハーネスの挙動ではないので、足しても
+  # 中を変えても版は動かない（動くと、プラグインの変更でも work が「またがり」に見え、母集団が痩せる）
+  mkdir -p "$GRR/skills/aidev-docs/soda-plugin"
+  printf 'p1\n' > "$GRR/skills/aidev-docs/soda-plugin/extension.mjs"
+  ( cd "$GRR" && git add skills && git -c user.email=t@t -c user.name=t commit -qm plugin ) >/dev/null 2>&1
+  GR6=$( ( cd "$GRR/w" && "$GRR/skills/aidev-docs/bin/aidev" new g6 >/dev/null 2>&1; \
+           sed -n 's/^harnessRev: //p' "$GRR/w/.aidev/works/"*g6/state.yml ) )
+  assert_eq "$GR6" "$GR5" "harnessRev: soda-plugin を足しても版は動かない（ハーネスの版に入れない）"
+  printf 'p2\n' > "$GRR/skills/aidev-docs/soda-plugin/extension.mjs"
+  ( cd "$GRR" && git add skills && git -c user.email=t@t -c user.name=t commit -qm plugin2 ) >/dev/null 2>&1
+  GR7=$( ( cd "$GRR/w" && "$GRR/skills/aidev-docs/bin/aidev" new g7 >/dev/null 2>&1; \
+           sed -n 's/^harnessRev: //p' "$GRR/w/.aidev/works/"*g7/state.yml ) )
+  assert_eq "$GR7" "$GR5" "harnessRev: soda-plugin の中を変えても版は動かない"
+  printf 'q\n' > "$GRR/skills/aidev-docs/note.md"
+  ( cd "$GRR" && git add skills && git -c user.email=t@t -c user.name=t commit -qm docs ) >/dev/null 2>&1
+  GR8=$( ( cd "$GRR/w" && "$GRR/skills/aidev-docs/bin/aidev" new g8 >/dev/null 2>&1; \
+           sed -n 's/^harnessRev: //p' "$GRR/w/.aidev/works/"*g8/state.yml ) )
+  assert_ne "$GR8" "$GR5" "harnessRev: soda-plugin の外（aidev-docs の中）の変更では版が動く（除外が広すぎない）"
+  if [ -n "$PS_HOST" ]; then
+    cp "$AIDEV_PS1" "$GRR/skills/aidev-docs/bin/aidev.ps1"
+    ( cd "$GRR" && git add skills && git -c user.email=t@t -c user.name=t commit -qm ps1 ) >/dev/null 2>&1
+    GR9=$( ( cd "$GRR/w" && "$GRR/skills/aidev-docs/bin/aidev" new g9 >/dev/null 2>&1; \
+             sed -n 's/^harnessRev: //p' "$GRR/w/.aidev/works/"*g9/state.yml ) )
+    ( cd "$GRR/w" && run_ps1 "$GRR/skills/aidev-docs/bin/aidev.ps1" new g10 ) >/dev/null 2>&1
+    GR10=$(sed -n 's/^harnessRev: //p' "$GRR/w/.aidev/works/"*g10/state.yml | tr -d '\r')
+    assert_eq "$GR10" "$GR9" "パリティ: ps1 も soda-plugin を除いた同じ版を刻む"
+  else
+    skip 1 "ps1 の soda-plugin 除外（PowerShell 不在）"
+  fi
   # **ハーネスが git 管理外なら unknown**。ここは長く sh だけ落ちていた——`ls-tree` が空でも
   # `git hash-object --stdin` が**空入力に空 blob のハッシュ**を返すので `$r` が空にならず、
   # unknown フォールバックが一度も効かなかった。全環境・全 work で同じ値が刻まれ、
@@ -1646,9 +1675,9 @@ if command -v git >/dev/null 2>&1; then
     "harnessRev: 既に刻まれた空 blob 値は読むときに unknown へ正規化する"
   rm -rf "$UNR"
   rm -rf "$GRR"
-  block_end hrgrain "11" "hrgrain"
+  block_end hrgrain "15" "hrgrain"
 else
-  skip 11 "harnessRev の粒度（git 不在）"
+  skip 15 "harnessRev の粒度（git 不在）"
 fi
 
 echo "== coverage（AC 被覆 / tasks.md の整合）=="
