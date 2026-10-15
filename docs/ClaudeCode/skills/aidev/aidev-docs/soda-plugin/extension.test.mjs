@@ -30,7 +30,7 @@ async function startHost({ scriptEnabled = true, reply = {} } = {}) {
     if (r.id !== undefined) send({ type: 'ext.result', id: r.id, ok: true, result: reply[r.method] ?? {} });
   });
   send({ type: 'ext.hello', v: 1, extension: { scope: 'user', id: 'aidev' }, display: { scriptEnabled } });
-  const waitFor = async (pred, what, ms = 8000) => {
+  const waitFor = async (pred, what, ms = 15000) => {
     const until = Date.now() + ms;
     while (Date.now() < until) { const hit = pred(); if (hit) return hit; await new Promise((r) => setTimeout(r, 15)); }
     throw new Error(`時間切れ: ${what}\nrequests=${JSON.stringify(requests.map((r) => r.method + ':' + (r.params?.name ?? '')))}\nstderr=${errors}`);
@@ -165,6 +165,28 @@ test('CLI から変更した結果が画面にすぐ反映される（ready 済�
     await h.waitFor(() => sends(h).find((d) => d.type === 'state'), 'state');
     h.send({ type: 'app.call', callId: 'r1', operation: 'report', params: { message: '画面に出るはず' }, target: { paneId: 'anchor-1', tabId: 'tab-1', workspaceId: 'ws-1' } });
     await h.waitFor(() => sends(h).filter((d) => d.type === 'state').some((d) => d.state.log.some((e) => e.message === '画面に出るはず')), '反映された state');
+  } finally { await h.stop(); await cleanup(); }
+});
+
+test('画面の「新しい会話で始める」（fresh は文字列 \'true\' で届く）が検証を通り、起動の処理まで進む', async () => {
+  const { dir, cleanup } = await tempDir();
+  const h = await startHost();
+  try {
+    await sampleProject(dir);
+    h.send({ type: 'ext.panes', panes: [anchor(dir), terminal(dir)] });
+    await h.waitFor(() => h.find('display.set', 'aidev'), 'display.set');
+    h.send({ type: 'display.action', paneId: 'anchor-1', name: 'aidev', action: 'ready', data: {}, source: 'script' });
+    await h.waitFor(() => sends(h).find((d) => d.type === 'state'), 'state');
+    const notices = () => sends(h).filter((d) => d.type === 'notice').map((d) => d.text);
+    // fresh:'true' → boolean に直って検証を通り、sodactl の接続先が無い（試験の環境）ところまで進む
+    h.send({ type: 'display.action', paneId: 'anchor-1', name: 'aidev', action: 'supervisor-start', data: { kind: '', model: '', fresh: 'true' }, source: 'script' });
+    await h.waitFor(() => notices().some((t) => /SODA_SERVER_URL/.test(t)), '起動の処理まで進む');
+    assert.ok(!notices().some((t) => /fresh/.test(t)), 'fresh の検証で断られない');
+    h.send({ type: 'display.action', paneId: 'anchor-1', name: 'aidev', action: 'worker-start', data: { slug: '20261001-active-a', instruction: '', kind: '', model: '', fresh: 'true' }, source: 'script' });
+    await h.waitFor(() => notices().filter((t) => /SODA_SERVER_URL|監督が動いていません/.test(t)).length >= 2, 'worker-start も検証を通る');
+    // 真偽でない値は、検証が断る
+    h.send({ type: 'display.action', paneId: 'anchor-1', name: 'aidev', action: 'supervisor-start', data: { fresh: 'maybe' }, source: 'script' });
+    await h.waitFor(() => notices().some((t) => /fresh は true か false/.test(t)), '不正な値は断る');
   } finally { await h.stop(); await cleanup(); }
 });
 

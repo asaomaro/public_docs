@@ -121,6 +121,18 @@ function docName(value) {
   if (typeof value !== 'string' || !/^[^/\\\0]{1,120}\.md$/.test(value) || value.includes('..')) throw fail('文書名が不正です（作業フォルダ直下の *.md だけ）');
   return value;
 }
+/**
+ * 画面（`soda.action`）の値は文字列だけなので、真偽の項目（`fresh`）を `'true'`/`'false'` から boolean に直す。
+ * 直せない値はそのまま渡す（検証が断る）。CLI（JSON）の経路では使わない。
+ */
+export function fromUi(data) {
+  const out = { ...data };
+  for (const key of ['fresh']) {
+    if (out[key] === 'true') out[key] = true;
+    else if (out[key] === 'false' || out[key] === '') out[key] = false;
+  }
+  return out;
+}
 export function validateParams(name, params) {
   const validate = VALIDATORS[name];
   if (!validate) throw fail('未対応の操作です');

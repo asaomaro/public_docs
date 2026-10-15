@@ -5,7 +5,7 @@ import { createInterface } from 'node:readline';
 import { createHash } from 'node:crypto';
 import * as aidevData from './aidev-data.mjs';
 import { createAgents, saveSettings } from './agents.mjs';
-import { OPERATIONS, buildModel, createOperations } from './operations.mjs';
+import { OPERATIONS, buildModel, createOperations, fromUi } from './operations.mjs';
 import { appHtml, bandHtml, chunkItems, chunkText, staticHtml, stripControl, terminalMarkdown, uiModel } from './ui.mjs';
 
 const NAME = 'aidev';
@@ -291,7 +291,7 @@ async function onAction(msg) {
       case 'delegate': { const r = await operations.delegate(ctx, String(data.slug ?? '')); await notify(pane.id, 'info', resultText(r)); schedule(true); return; }
       case 'supervisor-start': case 'supervisor-resume': case 'supervisor-prompt':
       case 'worker-start': case 'worker-resume': case 'worker-prompt': case 'work-agent-prompt': {
-        const r = await run(msg.action, msg.action === 'supervisor-resume' ? {} : { ...data });
+        const r = await run(msg.action, msg.action === 'supervisor-resume' ? {} : fromUi(data));
         await notify(pane.id, r?.status === 'blocked' ? 'warn' : 'info', resultText(r));
         schedule(true);
         return;

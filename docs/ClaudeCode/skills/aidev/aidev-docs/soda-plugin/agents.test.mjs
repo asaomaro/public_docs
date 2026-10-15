@@ -222,9 +222,9 @@ test('監督の起動: 承認待ち（agent_not_ready）は blocked として台
   } finally { await cleanup(); }
 });
 
-test('監督の起動: 失敗は台帳に残し、以前のセッション ID は消さない', async () => {
+test('監督の起動: 失敗しても、新しい pane・UUID を台帳に残し（孤児を作らない）、前の会話の ID は previousSessions に残す', async () => {
   let fail = false;
-  const { root, cleanup, agents, ctx, panes } = await setup({
+  const { root, cleanup, agents, ctx } = await setup({
     onCall: (args) => { if (fail && args[0] === 'agent' && args[1] === 'start') throw sodaErr('agent_pane_busy', '前面が別のコマンド'); },
   });
   try {
@@ -233,14 +233,14 @@ test('監督の起動: 失敗は台帳に残し、以前のセッション ID �
     fail = true; // サーバが落ちて会話は止まっている（pane にエージェントは居ない）
     await assert.rejects(agents.startSupervisor(root, ctx, {}), /再開できる会話があります/, '再開できる会話は、黙って上書きしない');
     await assert.rejects(agents.startSupervisor(root, ctx, { fresh: true }), /前面が別のコマンド/);
-    const led = await ag.readLedger(root);
-    assert.equal(led.supervisor.sessionId, first);
-    assert.match(led.supervisor.error, /前面/);
-    assert.equal(led.log.at(-1).kind, 'error');
-    assert.ok(panes);
+    const sup = (await ag.readLedger(root)).supervisor;
+    assert.notEqual(sup.sessionId, first, '新しい UUID を記録する');
+    assert.equal(sup.status, 'failed');
+    assert.match(sup.error, /前面/);
+    assert.deepEqual(sup.previousSessions.map((x) => x.sessionId), [first], '前の会話の ID は残る');
+    assert.equal(ag.agentView(sup, [], NOW).resumable, false);
   } finally { await cleanup(); }
 });
-
 test('監督の再開: 台帳のセッション ID で --resume・再開の知らせを送る', async () => {
   const { root, cleanup, fake, agents, ctx } = await setup();
   try {
@@ -690,21 +690,35 @@ test('関連するエージェント: 担当の pane に線で連なるものを
   } finally { await s.cleanup(); }
 });
 
-test('関連するエージェント: グラフが読めなくても登録分は出る・登録は検証される', async () => {
-  const s = await withWorkerAndGraph([], { onCall: (args) => { if (args[0] === 'graph') throw sodaErr('unauthenticated', 'login'); } });
+test('関連するエージェント: 登録は担当の pane から線で連なる pane だけ（深さ 4 以降は登録分として出る）', async () => {
+  const PD = 'aaaa4444-0000-4000-8000-000000000004';
+  const s = await withWorkerAndGraph([link(PA, WP), link(PB, PA), link(PC, PB), link(PD, PC)]);
   try {
-    s.panes.push({ id: PA, agent: 'claude', agentState: 'idle', workspaceId: 'ws1' });
-    assert.deepEqual((await s.agents.related(s.root, s.panes, { force: true })).w1, []);
-    await assert.rejects(s.agents.registerRelated(s.root, s.ctx, { slug: 'w1', paneId: PB }), /エージェントが居ません/);
-    await assert.rejects(s.agents.registerRelated(s.root, s.ctx, { slug: 'nope', paneId: PA }), /記録がありません/);
+    s.panes.push(...[PA, PB, PC, PD].map((id) => ({ id, agent: 'claude', agentState: 'idle', workspaceId: 'ws1' })));
+    s.panes.push({ id: 'user-pane', agent: 'claude', agentState: 'idle', workspaceId: 'ws1' });
+    let rel = (await s.agents.related(s.root, s.panes, { force: true })).w1;
+    assert.deepEqual(rel.map((a) => [a.paneId, a.registered]), [[PA, false], [PB, false], [PC, false]], '深さ 3 まで');
+    await assert.rejects(s.agents.registerRelated(s.root, s.ctx, { slug: 'w1', paneId: 'user-pane' }), /線で連なっていません/, '利用者自身の pane は登録できない');
+    await assert.rejects(s.agents.registerRelated(s.root, s.ctx, { slug: 'nope', paneId: PD }), /記録がありません/);
     await assert.rejects(s.agents.registerRelated(s.root, s.ctx, { slug: 'w1', paneId: WP }), /自身/);
-    await s.agents.registerRelated(s.root, s.ctx, { slug: 'w1', paneId: PA });
-    const rel = (await s.agents.related(s.root, s.panes, { force: true })).w1;
-    assert.deepEqual(rel.map((a) => [a.paneId, a.registered]), [[PA, true]]);
-    assert.deepEqual((await ag.readLedger(s.root)).workers.w1.related, [PA]);
+    await s.agents.registerRelated(s.root, s.ctx, { slug: 'w1', paneId: PD });
+    rel = (await s.agents.related(s.root, s.panes, { force: true })).w1;
+    assert.deepEqual(rel.map((a) => [a.paneId, a.registered]), [[PA, false], [PB, false], [PC, false], [PD, true]]);
+    assert.deepEqual((await ag.readLedger(s.root)).workers.w1.related, [PD]);
   } finally { await s.cleanup(); }
 });
 
+test('関連するエージェント: グラフを読めないときは登録を断る', async () => {
+  const s = await setup({ onCall: (args) => { if (args[0] === 'graph' && args[1] === 'show') throw sodaErr('unauthenticated', 'login'); } });
+  try {
+    await s.agents.startSupervisor(s.root, s.ctx, {});
+    aliveAgent(s.panes, 'term-1');
+    await s.agents.startWorker(s.root, s.ctx, { slug: 'w1' });
+    s.panes.push({ id: PA, agent: 'claude', agentState: 'idle', workspaceId: 'ws1' });
+    await assert.rejects(s.agents.registerRelated(s.root, s.ctx, { slug: 'w1', paneId: PA }), /グラフを読めない/);
+    assert.deepEqual((await s.agents.related(s.root, s.panes, { force: true })).w1, []);
+  } finally { await s.cleanup(); }
+});
 test('関連するエージェントへの指示・読み取り: 作業に連なる pane だけ', async () => {
   const s = await withWorkerAndGraph([link(PA, WP)], {
     onCall: (args) => { if (args[0] === 'agent' && args[1] === 'get' && args[2] === PA) return { agent: { paneId: PA, name: 'aidev-helper', kind: 'codex', instanceId: 'i-9', tabId: 'tab-x' } }; },
@@ -932,40 +946,208 @@ test('N5: 大文字・. _ を含む slug でも担当を起動でき、エージ
   } finally { await s.cleanup(); }
 });
 
-test('完了の終了: done を報告した担当と関連するエージェントは、待機になったら pane を閉じる（会話 ID は残る）', async () => {
-  let t = +NOW;
+/** 完了の終了の試験用: 担当・補助 1 件・トリガの線（履歴は runs を差し替える）を持つ環境。 */
+async function doneEnv({ helperState = 'idle', registered = false } = {}) {
+  const state = { t: +NOW, runs: [] };
   const links = [];
-  const fake = fakeSoda({ onCall: (args) => { if (args[0] === 'graph' && args[1] === 'show') return { graph: { links } }; } });
+  const fake = fakeSoda({
+    onCall: (args) => {
+      if (args[0] === 'graph' && args[1] === 'show') return { graph: { links } };
+      if (args[0] === 'graph' && args[1] === 'history') return { runs: state.runs };
+    },
+  });
   const t0 = await tempDir();
   const root = t0.dir;
+  const agents = ag.createAgents({ makeSoda: () => fake.soda, now: () => new Date(state.t), uuid: uuids() });
+  const panes = basePanes();
+  const ctx = { tabId: 'tab-app', workspaceId: 'ws1', paneId: 'anchor', panes };
+  await agents.startSupervisor(root, ctx, {});
+  aliveAgent(panes, 'term-1');
+  await agents.startWorker(root, ctx, { slug: 'w1' });
+  const wp = (await ag.readLedger(root)).workers.w1.paneId;
+  aliveAgent(panes, wp);
+  panes.push({ id: PA, agent: 'codex', agentState: helperState, tabId: 'tab-app', workspaceId: 'ws1' });
+  links.push({ id: 'trig-1', kind: 'trigger', from: `local:${wp}`, to: 'local:term-1' });
+  links.push({ kind: 'supervise', from: `local:${PA}`, to: `local:${wp}` });
+  if (registered) { links.length = 0; links.push({ id: 'trig-1', kind: 'trigger', from: `local:${wp}`, to: 'local:term-1' }); }
+  return { state, links, fake, root, ctx, panes, wp, agents, cleanup: t0.cleanup };
+}
+
+test('完了の終了: 完了の知らせ（トリガ）が監督へ送られた後に、担当と自動の線で連なる関連するエージェントの pane を閉じる（会話 ID は残る）', async () => {
+  const e = await doneEnv();
   try {
-    const agents = ag.createAgents({ makeSoda: () => fake.soda, now: () => new Date(t), uuid: uuids() });
+    const id = (await ag.readLedger(e.root)).workers.w1.sessionId;
+    await e.agents.reportWorker(e.root, e.ctx, { slug: 'w1', status: 'done', message: '完了' });
+    assert.ok((await ag.readLedger(e.root)).workers.w1.doneAt);
+    assert.equal(await e.agents.finishDone(e.root, e.ctx), 0, '猶予の間は閉じない');
+    e.state.t += 30000;
+    e.panes.find((p) => p.id === e.wp).agentState = 'working';
+    assert.equal(await e.agents.finishDone(e.root, e.ctx), 0, '作業中なら待つ');
+    e.panes.find((p) => p.id === e.wp).agentState = 'idle';
+    assert.equal(await e.agents.finishDone(e.root, e.ctx), 0, 'トリガがまだ送られていない（監督が作業中で待っている）間は閉じない');
+    assert.equal(e.fake.of('pane', 'close').length, 0);
+    e.state.runs = [{ linkId: 'trig-1', at: +NOW - 5000, result: 'sent' }];
+    assert.equal(await e.agents.finishDone(e.root, e.ctx), 0, '完了の報告より前の送信は数えない');
+    e.state.runs = [{ linkId: 'trig-1', at: e.state.t, result: 'sent' }];
+    assert.equal(await e.agents.finishDone(e.root, e.ctx), 1);
+    assert.deepEqual(e.fake.of('pane', 'close').map((c) => c.args[2]), [PA, e.wp], '関連するエージェント → 担当の順');
+    const w = (await ag.readLedger(e.root)).workers.w1;
+    assert.deepEqual([w.status, w.doneAt, w.sessionId], ['stopped', '', id]);
+    assert.equal(ag.agentView(w, [], new Date(e.state.t)).resumable, true, '再開できる');
+  } finally { await e.cleanup(); }
+});
+
+test('完了の終了: トリガの線が無い・30 分たっても送られないときは閉じず、ログに残して以後は自動で閉じない', async () => {
+  const e = await doneEnv();
+  try {
+    e.links.splice(0, e.links.length, { kind: 'supervise', from: `local:${PA}`, to: `local:${e.wp}` }); // トリガの線が無い
+    await e.agents.reportWorker(e.root, e.ctx, { slug: 'w1', status: 'done', message: '完了' });
+    e.state.t += 60000;
+    assert.equal(await e.agents.finishDone(e.root, e.ctx), 0, '線が無ければ閉じない');
+    e.state.t += 31 * 60000;
+    assert.equal(await e.agents.finishDone(e.root, e.ctx), 0);
+    const led = await ag.readLedger(e.root);
+    assert.equal(led.workers.w1.noAutoClose, true);
+    assert.equal(led.workers.w1.doneAt, '');
+    assert.ok(led.log.some((x) => /完了の知らせが監督へ届いていないので、担当を閉じませんでした/.test(x.message)));
+    assert.equal(e.fake.of('pane', 'close').length, 0);
+    await e.agents.reportWorker(e.root, e.ctx, { slug: 'w1', status: 'done', message: 'もう一度' });
+    assert.equal((await ag.readLedger(e.root)).workers.w1.doneAt, '', '以後その担当は自動では閉じない');
+  } finally { await e.cleanup(); }
+});
+
+test('完了の終了: 自動の線で連なる関連するエージェントが作業中・承認待ちなら見送る。登録分は閉じない', async () => {
+  const e = await doneEnv({ helperState: 'blocked' });
+  try {
+    e.state.runs = [{ linkId: 'trig-1', at: e.state.t + 1000, result: 'sent' }];
+    await e.agents.reportWorker(e.root, e.ctx, { slug: 'w1', status: 'done', message: '完了' });
+    e.state.t += 30000;
+    e.state.runs = [{ linkId: 'trig-1', at: e.state.t, result: 'sent' }];
+    assert.equal(await e.agents.finishDone(e.root, e.ctx), 0, '承認待ちの関連するエージェントがあれば見送る');
+    assert.equal(e.fake.of('pane', 'close').length, 0);
+    e.panes.find((p) => p.id === PA).agentState = 'idle';
+    assert.equal(await e.agents.finishDone(e.root, e.ctx), 1, '次の周期で閉じる');
+  } finally { await e.cleanup(); }
+});
+
+test('完了の終了: 登録された関連するエージェントは閉じず、ログに残す', async () => {
+  const e = await doneEnv();
+  try {
+    const PD = 'aaaa4444-0000-4000-8000-000000000004';
+    e.panes.push({ id: PD, agent: 'claude', agentState: 'idle', tabId: 'tab-app', workspaceId: 'ws1' });
+    // 深さ 4（自動では出ない）を、線で連なるものとして登録する
+    const PB = 'aaaa2222-0000-4000-8000-000000000002', PC = 'aaaa3333-0000-4000-8000-000000000003';
+    e.panes.push({ id: PB, agent: 'claude', agentState: 'idle' }, { id: PC, agent: 'claude', agentState: 'idle' });
+    e.links.push({ kind: 'supervise', from: `local:${PB}`, to: `local:${PA}` }, { kind: 'supervise', from: `local:${PC}`, to: `local:${PB}` }, { kind: 'supervise', from: `local:${PD}`, to: `local:${PC}` });
+    await e.agents.registerRelated(e.root, e.ctx, { slug: 'w1', paneId: PD });
+    await e.agents.reportWorker(e.root, e.ctx, { slug: 'w1', status: 'done', message: '完了' });
+    e.state.t += 30000;
+    e.state.runs = [{ linkId: 'trig-1', at: e.state.t, result: 'sent' }];
+    assert.equal(await e.agents.finishDone(e.root, e.ctx), 1);
+    assert.ok(!e.fake.of('pane', 'close').some((c) => c.args[2] === PD), '登録分は閉じない');
+    assert.ok((await ag.readLedger(e.root)).log.some((x) => /登録された関連するエージェント 1 件は閉じていません/.test(x.message)));
+  } finally { await e.cleanup(); }
+});
+
+test('S3: 完了の後に追加の指示を送ったら、完了後の終了は取り消す（担当宛の work-agent-prompt でも）', async () => {
+  const e = await doneEnv();
+  try {
+    await e.agents.reportWorker(e.root, e.ctx, { slug: 'w1', status: 'done', message: '完了' });
+    assert.ok((await ag.readLedger(e.root)).workers.w1.doneAt);
+    await e.agents.promptWorker(e.root, e.ctx, { slug: 'w1', text: '直して' });
+    assert.equal((await ag.readLedger(e.root)).workers.w1.doneAt, '');
+    await e.agents.reportWorker(e.root, e.ctx, { slug: 'w1', status: 'done', message: '直した' });
+    assert.ok((await ag.readLedger(e.root)).workers.w1.doneAt);
+    await e.agents.promptRelated(e.root, e.ctx, { slug: 'w1', paneId: e.wp, text: 'もう一つ' });
+    assert.equal((await ag.readLedger(e.root)).workers.w1.doneAt, '');
+    e.state.t += 60000;
+    e.state.runs = [{ linkId: 'trig-1', at: e.state.t, result: 'sent' }];
+    assert.equal(await e.agents.finishDone(e.root, e.ctx), 0);
+    assert.equal(e.fake.of('pane', 'close').length, 0);
+  } finally { await e.cleanup(); }
+});
+
+test('S1: 起動が timeout で返っても、名前・種類が付いて動いていれば失敗にしない（pending を残して、待機で仕上げる）', async () => {
+  const t0 = await tempDir();
+  const root = t0.dir;
+  const base = fakeSoda();
+  let first = true;
+  const soda = async (args, opts) => {
+    if (first && args[0] === 'agent' && args[1] === 'start') {
+      first = false;
+      await base.soda(args, opts); // 起動は進んでいる（名前が付く）
+      throw sodaErr('timeout', '時間切れ');
+    }
+    return base.soda(args, opts);
+  };
+  try {
+    const agents = ag.createAgents({ makeSoda: () => soda, now: () => NOW, uuid: uuids() });
     const panes = basePanes();
     const ctx = { tabId: 'tab-app', workspaceId: 'ws1', paneId: 'anchor', panes };
-    await agents.startSupervisor(root, ctx, {});
-    aliveAgent(panes, 'term-1');
-    await agents.startWorker(root, ctx, { slug: 'w1' });
-    const wp = (await ag.readLedger(root)).workers.w1.paneId;
-    aliveAgent(panes, wp);
-    panes.push({ id: PA, agent: 'codex', agentState: 'idle', tabId: 'tab-app' });
-    links.push({ kind: 'supervise', from: `local:${PA}`, to: `local:${wp}` });
-    const id = (await ag.readLedger(root)).workers.w1.sessionId;
-
-    await agents.reportWorker(root, ctx, { slug: 'w1', status: 'done', message: '完了' });
-    assert.ok((await ag.readLedger(root)).workers.w1.doneAt);
-    assert.equal(await agents.finishDone(root, ctx), 0, 'トリガの線が結果を渡す時間を置く');
-    t += 30000;
-    panes.find((p) => p.id === wp).agentState = 'working';
-    assert.equal(await agents.finishDone(root, ctx), 0, '作業中なら待つ');
-    panes.find((p) => p.id === wp).agentState = 'idle';
-    assert.equal(await agents.finishDone(root, ctx), 1);
-    assert.deepEqual(fake.of('pane', 'close').map((c) => c.args[2]), [PA, wp], '関連するエージェント → 担当の順');
-    const w = (await ag.readLedger(root)).workers.w1;
-    assert.deepEqual([w.status, w.doneAt, w.sessionId], ['stopped', '', id]);
-    assert.equal(ag.agentView(w, [], new Date(t)).resumable, true, '再開できる');
+    const r = await agents.startSupervisor(root, ctx, {});
+    assert.equal(r.status, 'started');
+    assert.match(r.warnings.join(' '), /時間がかかっています/);
+    const sup = (await ag.readLedger(root)).supervisor;
+    assert.deepEqual([sup.status, sup.pending], ['running', ['role']]);
+    assert.equal(base.of('agent', 'prompt').length, 0, 'まだ役割は送らない');
+    idleAt(panes, 'term-1');
+    assert.equal(await agents.finishAll(root, ctx), 1);
+    assert.equal(base.of('agent', 'prompt').length, 1);
+    assert.deepEqual((await ag.readLedger(root)).supervisor.pending, []);
   } finally { await t0.cleanup(); }
 });
 
+test('S1: 再開が timeout で返っても、動いていれば failed にしない。agent_start_failed だけが「会話が無い」', async () => {
+  const t0 = await tempDir();
+  const root = t0.dir;
+  const base = fakeSoda();
+  let mode = 'ok';
+  const soda = async (args, opts) => {
+    if (mode !== 'ok' && args[0] === 'agent' && args[1] === 'start') {
+      if (mode === 'timeout') { await base.soda(args, opts); throw sodaErr('timeout', '時間切れ'); }
+      throw sodaErr('agent_start_failed', 'No conversation found');
+    }
+    return base.soda(args, opts);
+  };
+  try {
+    const agents = ag.createAgents({ makeSoda: () => soda, now: () => NOW, uuid: uuids() });
+    const panes = basePanes();
+    const ctx = { tabId: 'tab-app', workspaceId: 'ws1', paneId: 'anchor', panes };
+    await agents.startSupervisor(root, ctx, {});
+    mode = 'timeout';
+    const r = await agents.resumeSupervisor(root, ctx);
+    assert.equal(r.status, 'resumed');
+    const sup = (await ag.readLedger(root)).supervisor;
+    assert.equal(sup.status, 'running');
+    assert.deepEqual(sup.pending, ['note'], '再開の知らせは待機になってから届ける');
+    mode = 'lost';
+    await assert.rejects(agents.resumeSupervisor(root, { ...ctx, panes: basePanes() }), /No conversation found/);
+    assert.equal((await ag.readLedger(root)).supervisor.status, 'failed');
+  } finally { await t0.cleanup(); }
+});
+
+test('N4: 6 個を超えた後は、前に作った担当用のタブの空き pane を使い、無ければそのタブを分ける（タブ作成は最初の 1 回だけ）', async () => {
+  const s = await withSupervisor();
+  try {
+    const mkPanes = () => { for (const k of s.fake.known) if (!s.panes.some((p) => p.id === k.id)) s.panes.push({ id: k.id, tabId: k.tabId, workspaceId: 'ws1', agent: null, virtual: !!k.virtual }); };
+    const slugs = ['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7', 'a8'];
+    for (const slug of slugs) {
+      await s.agents.startWorker(s.root, s.ctx, { slug });
+      mkPanes();
+      idleAt(s.panes, (await ag.readLedger(s.root)).workers[slug].paneId);
+    }
+    assert.equal(s.fake.of('tab', 'create').length, 1, 'タブ作成は最初の 1 回だけ');
+    const led = await ag.readLedger(s.root);
+    assert.equal(led.workers.a6.tabId, 'tab-w1');
+    assert.equal(led.workers.a7.tabId, 'tab-w1', '2 個目以降は同じタブを分ける');
+    assert.equal(led.workers.a8.tabId, 'tab-w1');
+    // 終了して空いた pane は再利用する
+    const p7 = led.workers.a7.paneId;
+    s.panes.find((p) => p.id === p7).agent = null;
+    await s.agents.startWorker(s.root, s.ctx, { slug: 'a9' });
+    assert.equal(s.fake.of('tab', 'create').length, 1);
+  } finally { await s.cleanup(); }
+});
 test('完了の終了: 設定で止められる・done 以外の報告で取り消される・Codex で会話 ID が未取得なら見送る', async () => {
   let t = +NOW;
   const fake = fakeSoda();

@@ -32,11 +32,12 @@ export const PANE_ID_RE = /^[0-9a-f][0-9a-f-]{3,63}$/i;
 const RELATED_DEPTH = 3;
 const MAX_TAB_PANES = 6;
 const PENDING_KINDS = ['role', 'note', 'links'];
-const RESUME_LOST = ['agent_start_failed', 'timeout']; // --resume が会話を見つけられず落ちたときの code
+// --resume が会話を見つけられず落ちたときの code。`timeout` は「まだ確かめられない」で、会話が無いとは限らない（名前が付いていれば動いている）
+const RESUME_LOST = ['agent_start_failed'];
 const FINISH_GAP_MS = 20_000;
 const FINISH_MAX_TRIES = 3;
 const EXIT_GRACE_MS = 20_000;
-const EXIT_GIVE_UP_MS = 10 * 60_000;
+const EXIT_GIVE_UP_MS = 30 * 60_000; // トリガの線が先（監督）を待つ上限（busy_timeout 30 分）に合わせる
 export const PREVIOUS_SESSIONS_MAX = 5;
 const RELATED_TTL_MS = 5000;
 
@@ -100,6 +101,7 @@ function cleanAgent(a, slug) {
     out.linkErrors = Array.isArray(a.linkErrors) ? a.linkErrors.slice(0, 5).map((x) => str(x, 300)) : [];
     out.instruction = str(a.instruction, 16 * 1024);
     out.doneAt = str(a.doneAt, 40);
+    out.noAutoClose = a.noAutoClose === true; // 完了の知らせが届かなかった担当は、自動では閉じない
     out.related = Array.isArray(a.related) ? [...new Set(a.related.filter((x) => typeof x === 'string' && PANE_ID_RE.test(x)))].slice(0, 16) : [];
   }
   return out;
@@ -304,7 +306,7 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
    * (3) アプリのタブの最新の作業 pane を、右・下を交互に分ける (4) 作業 pane が 6 個に達していれば、そのときだけ新しいタブ
    * （新しいタブはアクティブになり、利用者の画面がそちらへ移る）。
    */
-  async function placePane(soda, ctx, { preferPaneId, label }) {
+  async function placePane(soda, ctx, { preferPaneId, label, extraTabIds = [] }) {
     if (preferPaneId) {
       const p = ctx.panes.find((x) => x.id === preferPaneId);
       if (p && !p.virtual && !p.agent) return { paneId: p.id, tabId: p.tabId ?? ctx.tabId };
@@ -315,6 +317,17 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
     if (free) return { paneId: free.id, tabId: ctx.tabId };
     if (!panes.length) throw fail('アプリのタブに作業ターミナルがありません');
     if (panes.length >= MAX_TAB_PANES) {
+      // 前にあふれて作った担当用のタブがあれば、その空き pane を使い、無ければそのタブを分ける（タブ作成は最初の 1 回だけ）
+      const isFree = (p) => !p.agent && !p.busy && (p.status === undefined || p.status === 'running');
+      for (const tabId of extraTabIds) {
+        const tabPanes = (snap.panes ?? []).filter((p) => p.tabId === tabId && !p.virtual);
+        if (!tabPanes.length) continue;
+        const spare = tabPanes.find(isFree);
+        if (spare) return { paneId: spare.id, tabId };
+        const direction = tabPanes.length % 2 === 1 ? 'right' : 'down';
+        const split = await soda(['pane', 'split', tabPanes.at(-1).id, '--direction', direction]);
+        if (split.pane?.id && split.pane.tabId === tabId && !split.pane.virtual) return { paneId: split.pane.id, tabId };
+      }
       const made = await soda(['tab', 'create', '--workspace', ctx.workspaceId, '--label', `aidev:${label}`.slice(0, 30)]);
       if (!made.tab?.id || !made.pane?.id || made.pane.tabId !== made.tab.id || made.pane.virtual) throw fail('新しい端末タブを確認できません');
       return { paneId: made.pane.id, tabId: made.tab.id };
@@ -376,12 +389,14 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
   function recordAfterFailure(root, role, slug, entry, error, resume) {
     const blocked = error.code === 'agent_not_ready';
     const lost = resume && RESUME_LOST.includes(error.code);
+    const orphan = !resume && !!entry.paneId; // 新しい pane・UUID が既にある。台帳に残す（名前を握った孤児を作らない）
     return updateLedger(root, (l) => {
       const prev = slug ? l.workers[slug] : l.supervisor;
       const message = clip(error.message, 1000);
       let next;
       if (blocked) next = { ...entry, status: 'blocked', error: message }; // エージェントは居る（承認待ち）。役割・線は仕上げの印で残す
       else if (lost && prev) next = { ...prev, status: 'failed', error: `会話を再開できませんでした（${message}）。「新しい会話で始める」を使ってください` };
+      else if (orphan) next = { ...entry, status: 'failed', error: message }; // 前の会話の ID は entry.previousSessions に入っている
       else if (prev?.sessionId) next = { ...prev, error: message };
       else next = { ...entry, status: 'failed', error: message };
       if (slug) l.workers[slug] = next; else l.supervisor = next;
@@ -499,24 +514,37 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
       previousSessions: previousSessions.slice(0, PREVIOUS_SESSIONS_MAX),
       ...(isWorker ? { instruction: resume ? prev.instruction ?? '' : instruction, lastReport: resume ? prev.lastReport : null, related: resume ? prev.related ?? [] : [], linkErrors: [], doneAt: '' } : {}),
     };
-    let place, agent;
+    let place, agent, startedLate = false;
     try {
-      place = await placePane(soda, ctx, { preferPaneId: prev?.paneId, label: slug ?? 'sup' });
+      const extraTabIds = [...new Set(Object.values(ledger.workers).map((w) => w.tabId).filter((t) => t && t !== ctx.tabId))].reverse();
+      place = await placePane(soda, ctx, { preferPaneId: prev?.paneId, label: slug ?? 'sup', extraTabIds });
       agent = await startAgent(soda, { name, kind, paneId: place.paneId, args: launchArgs(settings, kind, sessionId, resume, useModel, root) });
     } catch (e) {
+      // `timeout` は「会話が無い」ではなく「まだ確かめられない」。名前・種類が付いて動いていれば、起動したものとして扱う
+      if (e.code === 'timeout' && place?.paneId) {
+        try {
+          const got = (await soda(['agent', 'get', place.paneId])).agent;
+          if (got?.paneId === place.paneId && got.name === name && got.instanceId && got.tabId && (!got.kind || got.kind === kind)) { agent = got; startedLate = true; }
+        } catch { /* 確かめられなければ、失敗として扱う */ }
+      }
+      if (!startedLate) {
       const entry = cleanAgent({ ...base, tabId: place?.tabId ?? '', paneId: place?.paneId ?? '' }, slug);
       await recordAfterFailure(root, roleLabel, slug, entry, e, resume).catch(() => {});
       if (e.code === 'agent_not_ready') {
         return { status: 'blocked', ...(isWorker ? { slug } : {}), message: 'エージェントが確認（信頼・承認など）を待っています。端末で答えてください（答えた後に［起動］を押し直すと、役割と線が届きます）。', [isWorker ? 'worker' : 'supervisor']: agentView({ ...entry, status: 'blocked' }, ctx.panes, now()) };
       }
       throw e;
+      }
     }
     const entry = cleanAgent({ ...base, tabId: place.tabId, paneId: place.paneId, status: 'running', error: null }, slug);
     await updateLedger(root, (l) => {
       if (isWorker) l.workers[slug] = entry; else l.supervisor = entry;
       pushLog(l, now(), { from: 'app', slug, kind: 'event', message: `${roleLabel}を${resume ? '再開' : '起動'}しました（${name}）` });
     });
-    const finished = await finishPending(root, ctx, slug, { known: agent });
+    // 起動に時間がかかった（timeout 後に確かめた）ものは、まだ読み込み中かもしれない。待機になってから仕上げる（finishAll）
+    const finished = startedLate
+      ? { warnings: ['起動に時間がかかっています。待機になったら、役割（と線）を届けます'] }
+      : await finishPending(root, ctx, slug, { known: agent });
     if (!sessionId) await captureSessions(root).catch(() => {});
     const fresh = (await readLedger(root));
     const livePanes = [...ctx.panes.filter((p) => p.id !== place.paneId), { id: place.paneId, agent: kind, agentState: 'idle' }];
@@ -596,6 +624,7 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
     if (!w) throw fail(`作業 ${slug} の担当の記録がありません`);
     if (!agentView(w, ctx.panes, now()).alive) throw fail(`作業 ${slug} の担当は動いていません。再開（worker-resume）を使ってください`);
     await sendPrompt(makeSoda(root), root, w, text);
+    await updateLedger(root, (l) => { if (l.workers[slug]) l.workers[slug].doneAt = ''; }); // 追加の作業が始まる。完了後の終了は取り消す
     await logEvent(root, { from: source === 'ui' ? 'user' : 'supervisor', slug, kind: 'instruction', message: text });
     return { status: 'sent', slug };
   }
@@ -607,7 +636,7 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
       const w = l.workers[slug];
       if (!w) return false;
       w.lastReport = { status, message: clip(message, LEDGER_LIMITS.message), at: iso(now()) };
-      if (status === 'done' && settings.exitOnDone) w.doneAt = iso(now()); // 待機になったら終了する（会話 ID は記録済みで、再開できる）
+      if (status === 'done' && settings.exitOnDone && !w.noAutoClose) w.doneAt = iso(now()); // 待機になったら終了する（会話 ID は記録済みで、再開できる）
       else if (status !== 'done') w.doneAt = '';
       pushLog(l, now(), { from: 'worker', slug, kind: 'report', message: `[${status}] ${message}` });
       return true;
@@ -704,6 +733,14 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
     const pane = ctx.panes.find((p) => p.id === paneId);
     if (!pane?.agent) throw fail('その pane にエージェントが居ません');
     if (pane.projectDir !== root && !ctx.panes.some((p) => p.id === paneId && p.workspaceId === ctx.workspaceId)) throw fail('この PJ の pane ではありません');
+    // 登録できるのは、担当の pane から線（監督・承認の代理）で連なる pane だけ（利用者自身の pane を登録・終了させない）
+    let links;
+    try { links = (await makeSoda(root)(['graph', 'show', '--json'], { timeout: 20000 })).graph?.links ?? []; } catch (e) { throw fail(`グラフを読めないため、登録を確かめられません（${e.message}）`); }
+    const down = new Set([known.workers[slug].paneId]);
+    for (let i = 0; i < 6; i++) {
+      for (const l of links) if ((l.kind === 'supervise' || l.kind === 'approval') && down.has(String(l.to).replace(/^local:/, ''))) down.add(String(l.from).replace(/^local:/, ''));
+    }
+    if (!down.has(paneId)) throw fail('その pane は、担当の pane から線で連なっていません（担当が自分の pane から起こしたものだけ登録できます）');
     const found = await updateLedger(root, (l) => {
       const w = l.workers[slug];
       if (!w) return false;
@@ -727,13 +764,14 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
     return hit;
   }
   async function promptRelated(root, ctx, { slug, paneId, text, source = 'ui' }) {
-    await relatedTarget(root, ctx, slug, paneId);
+    const target = await relatedTarget(root, ctx, slug, paneId);
     const soda = makeSoda(root);
     const agent = (await soda(['agent', 'get', paneId])).agent;
     if (!agent || agent.paneId !== paneId) throw fail('エージェントが見つかりません（入れ替わった可能性があります）');
     const args = ['agent', 'prompt', paneId, guardDash(text)];
     if (agent.name && agent.instanceId && agent.tabId) args.push('--expect', JSON.stringify({ paneId, instanceId: agent.instanceId, tabId: agent.tabId, projectDir: root, name: agent.name }));
     await soda(args, { timeout: 60000 });
+    if (target.paneId === paneId && target.slug === slug) await updateLedger(root, (l) => { if (l.workers[slug]?.paneId === paneId) l.workers[slug].doneAt = ''; });
     await logEvent(root, { from: source === 'ui' ? 'user' : 'supervisor', slug, kind: 'instruction', message: `[関連 ${paneId.slice(0, 8)}] ${text}` });
     return { status: 'sent', slug, paneId };
   }
@@ -743,25 +781,42 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
     return { slug, paneId, text: String(res.raw ?? res.text ?? '') };
   }
 
+  /** 担当 → 監督のトリガの線が、`since`（完了の報告）より後に `sent` になったか。true / false / null（線が無い・読めない）。 */
+  async function triggerSent(soda, workerPane, supervisorPane, since) {
+    try {
+      const links = (await soda(['graph', 'show', '--json'], { timeout: 20000 })).graph?.links ?? [];
+      const link = links.find((l) => l.kind === 'trigger' && l.from === `local:${workerPane}` && l.to === `local:${supervisorPane}`);
+      if (!link) return null;
+      const runs = (await soda(['graph', 'history', link.id, '--json'], { timeout: 20000 })).runs ?? [];
+      return runs.some((r) => r.result === 'sent' && Number(r.at) >= since);
+    } catch { return null; }
+  }
   /**
-   * 完了（`done`）を報告した担当と、その関連するエージェントを、待機になったら終了する（pane を閉じる）。
-   * 会話 ID は台帳にあるので再開できる。Codex で会話 ID が未取得なら、再開できなくなるので終了を見送る。
+   * 完了（`done`）を報告した担当と、自動の線で連なる関連するエージェントを、待機になったら終了する（pane を閉じる）。
+   * 閉じる条件: (1) 担当が待機 (2) 完了の知らせ（トリガの線）が監督へ `sent` になった（閉じるとノードと線が消え、
+   * 監督が作業中で待っていた知らせが黙って取り消されるため） (3) 自動の線で連なる関連するエージェントが全部待機。
+   * 登録分は閉じない。30 分待っても満たされなければ、理由をログに残して以後は自動で閉じない。
+   * 会話 ID は台帳にあるので再開できる。Codex で会話 ID が未取得なら、再開できなくなるので見送る。
    */
   async function finishDone(root, ctx) {
     if (launching.has(root)) return 0;
     const ledger = await readLedger(root);
     const settings = await loadSettings(root);
+    const clear = (slug) => updateLedger(root, (l) => { if (l.workers[slug]) l.workers[slug].doneAt = ''; });
     let n = 0;
     for (const w of Object.values(ledger.workers)) {
       if (!w.doneAt) continue;
       const age = now() - Date.parse(w.doneAt);
-      if (!settings.exitOnDone || !(age >= 0) || age > EXIT_GIVE_UP_MS) {
-        await updateLedger(root, (l) => { if (l.workers[w.slug]) l.workers[w.slug].doneAt = ''; });
-        continue;
-      }
       const view = agentView(w, ctx.panes, now());
-      if (!view.alive) { await updateLedger(root, (l) => { if (l.workers[w.slug]) l.workers[w.slug].doneAt = ''; }); continue; }
-      if (age < EXIT_GRACE_MS || view.status !== 'idle') continue; // トリガの線が結果を渡す時間を置く。作業中・承認待ちなら待つ
+      if (!settings.exitOnDone || w.noAutoClose || !(age >= 0) || !view.alive) { await clear(w.slug); continue; }
+      const giveUp = async (why) => updateLedger(root, (l) => {
+        const t = l.workers[w.slug];
+        if (!t) return;
+        t.doneAt = ''; t.noAutoClose = true;
+        pushLog(l, now(), { from: 'app', slug: w.slug, kind: 'error', message: `${why}、担当を閉じませんでした（以後この担当は自動では閉じません）` });
+      });
+      if (age < EXIT_GRACE_MS) continue;
+      if (view.status !== 'idle') { if (age > EXIT_GIVE_UP_MS) await giveUp('担当が待機にならないため'); continue; }
       if (needsCapture(w)) {
         await captureSessions(root).catch(() => {});
         if (needsCapture((await readLedger(root)).workers[w.slug])) {
@@ -770,16 +825,23 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
         }
       }
       const soda = makeSoda(root);
-      const helpers = ((await related(root, ctx.panes, { force: true }))[w.slug] ?? []).map((a) => a.paneId);
+      const sup = ledger.supervisor;
+      const sent = sup ? await triggerSent(soda, w.paneId, sup.paneId, Date.parse(w.doneAt)) : null;
+      if (sent !== true) { if (age > EXIT_GIVE_UP_MS) await giveUp('完了の知らせが監督へ届いていないので'); continue; }
+      const rel = (await related(root, ctx.panes, { force: true }))[w.slug] ?? [];
+      const auto = rel.filter((a) => !a.registered);
+      const kept = rel.filter((a) => a.registered);
+      if (auto.some((a) => a.status !== 'idle')) { if (age > EXIT_GIVE_UP_MS) await giveUp('関連するエージェントが作業中・承認待ちのため'); continue; }
       const errors = [];
-      for (const paneId of [...helpers.reverse(), w.paneId]) {
+      for (const paneId of [...auto.map((a) => a.paneId).reverse(), w.paneId]) {
         try { await soda(['pane', 'close', paneId]); } catch (e) { errors.push(`${paneId.slice(0, 8)}: ${e.message}`); }
       }
       await updateLedger(root, (l) => {
         const t = l.workers[w.slug];
         if (!t || t.paneId !== w.paneId) return;
         t.doneAt = ''; t.status = 'stopped'; t.pending = [];
-        pushLog(l, now(), { from: 'app', slug: w.slug, kind: errors.length ? 'error' : 'event', message: errors.length ? `完了後の終了に失敗した pane があります: ${errors.join(' / ')}` : `作業 ${w.slug} が完了したため、担当${helpers.length ? `と関連するエージェント ${helpers.length} 件` : ''}を終了しました（会話 ID は記録済み。再開できます）` });
+        const tail = kept.length ? `。登録された関連するエージェント ${kept.length} 件は閉じていません` : '';
+        pushLog(l, now(), { from: 'app', slug: w.slug, kind: errors.length ? 'error' : 'event', message: errors.length ? `完了後の終了に失敗した pane があります: ${errors.join(' / ')}` : `作業 ${w.slug} が完了したため、担当${auto.length ? `と関連するエージェント ${auto.length} 件` : ''}を終了しました（会話 ID は記録済み。再開できます）${tail}` });
       });
       relatedCache.delete(root);
       n++;

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { OPERATIONS, TEXT_MAX_BYTES, buildModel, createOperations, summarize, validateParams } from './operations.mjs';
+import { OPERATIONS, TEXT_MAX_BYTES, buildModel, createOperations, fromUi, summarize, validateParams } from './operations.mjs';
 import { chunkItems, chunkText, terminalMarkdown, uiModel, bandHtml, staticHtml, appHtml, esc } from './ui.mjs';
 
 const bad = (name, params, pattern) => assert.throws(() => validateParams(name, params), pattern ?? Error, `${name} ${JSON.stringify(params).slice(0, 80)}`);
@@ -246,4 +246,14 @@ test('N3: 端末版の Markdown では、リンク・画像の記法を生きた
   const md = terminalMarkdown(model);
   assert.ok(!/\]\(https?:/.test(md), md);
   assert.ok(!/(^|[^\\])!\[/.test(md));
+});
+
+test('画面の値（すべて文字列）の真偽を boolean に直してから検証に渡す（新しい会話で始める）', () => {
+  assert.deepEqual(validateParams('supervisor-start', fromUi({ kind: '', model: '', fresh: 'true' })), { kind: '', model: '', fresh: true });
+  assert.deepEqual(validateParams('worker-start', fromUi({ slug: 'a', instruction: '', kind: 'codex', model: '', fresh: 'true' })), { slug: 'a', instruction: '', kind: 'codex', model: '', fresh: true });
+  assert.equal(validateParams('supervisor-start', fromUi({ fresh: 'false' })).fresh, false);
+  assert.equal(validateParams('supervisor-start', fromUi({ fresh: '' })).fresh, false);
+  bad('supervisor-start', fromUi({ fresh: 'yes' }), /fresh/);
+  assert.deepEqual(fromUi({ text: 'true' }), { text: 'true' }, '他の項目には触れない');
+  bad('supervisor-start', { fresh: 'true' }, /fresh/); // CLI（JSON）の経路は、文字列を受けない
 });
