@@ -83,7 +83,8 @@ export function staticHtml(model, note = '') {
 
 // ---- 端末版（Markdown） -------------------------------------------------------------------------------
 
-const md = (s, n) => plain(s, n).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+// 端末版 Markdown に入る信頼できない文字: HTML と、リンク・画像の記法（クリックできる形にしない）を無効にする
+const md = (s, n) => plain(s, n).replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/[[\]()!]/g, '\\$&');
 const cell = (s) => md(s, 60).replace(/\|/g, '\\|').replace(/`/g, "'");
 export function terminalMarkdown(model) {
   if (!model.available) return `# aidev — ${plain(model.project, 60)}\n\n.aidev が見つかりません。\n`;
@@ -138,6 +139,7 @@ const APP_BODY = String.raw`
  <div class="row">
   <button id="b-sup-start" type="button">監督を起動</button>
   <button id="b-sup-resume" type="button">監督を再開</button>
+  <button id="b-sup-fresh" type="button" title="再開できる会話があっても、新しい会話で始める（前の会話の ID は台帳に残す）">新しい会話で始める</button>
   <button id="b-refresh" type="button">読み直す</button>
   <label>種類 <select id="sup-kind"><option value="">既定</option><option value="claude">Claude Code</option><option value="codex">Codex</option></select></label>
   <label>モデル <input id="sup-model" maxlength="64" placeholder="既定"></label>
@@ -152,6 +154,7 @@ const APP_BODY = String.raw`
   <label>Codex の権限 <select id="s-codexperm"><option value="">指定しない</option><option value="read-only">read-only（承認は必要時）</option><option value="workspace-write">workspace-write（承認は必要時）</option><option value="workspace-write-never">workspace-write（承認しない）</option></select></label></div>
   <div class="row"><label>権限のモード（Claude Code） <select id="s-perm"><option value="">指定しない</option><option value="default">default</option><option value="acceptEdits">acceptEdits</option><option value="auto">auto</option><option value="plan">plan</option></select></label>
   <label><input id="s-auto" type="checkbox"> アプリを開いたとき監督を自動で起動・再開する</label>
+  <label><input id="s-exit" type="checkbox"> 作業が完了したら、担当と関連するエージェントを終了する（会話 ID は記録。再開できる）</label>
   <button id="b-settings" type="button">設定を保存</button></div>
  </details>
 </header>
@@ -180,6 +183,7 @@ const APP_BODY = String.raw`
   <textarea id="w-text" maxlength="16000" placeholder="担当への指示"></textarea>
   <div class="row">
    <button id="w-start" type="button">担当を起動</button><button id="w-resume" type="button">再開</button>
+   <button id="w-fresh" type="button" title="再開できる会話があっても、新しい会話で始める">新しい会話で始める</button>
    <button id="w-send" type="button">指示を送る</button>
    <button id="w-delegate" type="button">監督に任せる</button>
    <label>種類 <select id="w-kind"><option value="">既定</option><option value="claude">Claude Code</option><option value="codex">Codex</option></select></label>
@@ -252,6 +256,8 @@ const APP_SCRIPT = String.raw`
     if (a.sessionPending) box.appendChild(h('p', { class: 'muted', text: '会話 ID はまだ取得できていません（起動後に払い出されたものを自動で記録します。取得できるまで再開はできません）' }));
     if (a.sessionId) box.appendChild(h('div', { class: 'row' }, [h('small', { text: 'セッション ' + a.sessionId.slice(0, 8) }), h('input', { class: 'sid', readonly: 'readonly', value: a.sessionId, 'aria-label': 'セッション ID の全体', onclick: function (ev) { ev.target.select(); } }), copyButton(a.sessionId)]));
     if (a.error) box.appendChild(h('p', { class: 'err', text: a.error }));
+    if (a.pending && a.pending.length) box.appendChild(h('p', { class: 'muted', text: '役割・線がまだ届いていません（承認などの確認に答えると、待機になった時点で自動で届けます。［起動］を押し直しても届きます）' }));
+    if (a.previousSessions) box.appendChild(h('small', { text: '以前の会話 ' + a.previousSessions + ' 件を台帳に記録' }));
     if (a.startedAt) box.appendChild(h('small', { text: '起動 ' + when(a.startedAt) + (a.resumedAt ? ' / 再開 ' + when(a.resumedAt) : '') + (a.model ? ' / モデル ' + a.model : '') }));
     return box;
   }
@@ -264,13 +270,17 @@ const APP_SCRIPT = String.raw`
     else top.appendChild(h('p', { class: 'muted', text: '進行中 ' + st.summary.active + ' 件 · 全 ' + st.total + ' 件' + (st.truncated ? '（新しい 1000 件まで）' : '') + (st.current ? ' · 現在: ' + st.current : '') + (st.cli ? '' : ' · aidev CLI なし（next は空）') }));
     top.appendChild(agentBlock(st.supervisor, '監督'));
     var sup = st.supervisor, alive = !!(sup && sup.alive);
-    $('b-sup-start').disabled = alive;
+    var supPending = alive && sup.pending && sup.pending.length > 0;
+    $('b-sup-start').textContent = supPending ? '役割を届ける' : '監督を起動';
+    $('b-sup-start').disabled = (alive && !supPending) || !!(sup && sup.resumable);
     $('b-sup-resume').disabled = alive || !(sup && sup.resumable);
+    $('b-sup-fresh').disabled = alive || !sup;
     $('b-send').disabled = !alive;
     syncTerm('sup', $('term-sup'), alive ? sup.paneId : null, $('term-sup-note'), '監督が動いていません。起動すると、ここに端末が出ます。');
     if (!S.dirty) {
       $('s-supmodel').value = st.settings.supervisorModel || ''; $('s-wmodel').value = st.settings.workerModel || '';
       $('s-perm').value = st.settings.permissionMode || ''; $('s-auto').checked = st.settings.autoStartSupervisor !== false;
+      $('s-exit').checked = st.settings.exitOnDone !== false;
       $('s-supkind').value = st.settings.supervisorKind || 'claude'; $('s-wkind').value = st.settings.workerKind || 'claude'; $('s-codexperm').value = st.settings.codexPermission || '';
     }
   }
@@ -347,7 +357,10 @@ const APP_SCRIPT = String.raw`
     if (w && w.lastReport) box.appendChild(h('p', { text: '最後の報告 [' + w.lastReport.status + '] ' + when(w.lastReport.at) + ' ' + w.lastReport.message }));
     (w && w.linkErrors || []).forEach(function (e) { box.appendChild(h('p', { class: 'err', text: e })); });
     var alive = !!(w && w.alive), sup = supAlive();
-    $('w-start').disabled = alive || !sup || !!(w && w.recordedStatus !== 'failed' && w.resumable);
+    var wPending = alive && w.pending && w.pending.length > 0;
+    $('w-start').textContent = wPending ? '役割と線を届ける' : '担当を起動';
+    $('w-start').disabled = (alive && !wPending) || !sup || !!(w && w.resumable);
+    $('w-fresh').disabled = alive || !sup || !w;
     $('w-resume').disabled = alive || !sup || !(w && w.resumable);
     $('w-send').disabled = !alive;
     $('w-delegate').disabled = !sup;
@@ -464,11 +477,13 @@ const APP_SCRIPT = String.raw`
   $('b-send').onclick = function () { if (sendSupervisor($('sup-text').value)) $('sup-text').value = ''; };
   $('sup-text').addEventListener('keydown', function (e) { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.isComposing) { e.preventDefault(); $('b-send').click(); } });
   Array.prototype.forEach.call(document.querySelectorAll('.quick'), function (b) { b.onclick = function () { sendSupervisor(b.getAttribute('data-text')); }; });
-  ['s-supmodel', 's-wmodel', 's-perm', 's-auto', 's-supkind', 's-wkind', 's-codexperm'].forEach(function (id) { $(id).addEventListener('input', function () { S.dirty = true; }); });
+  ['s-supmodel', 's-wmodel', 's-perm', 's-auto', 's-exit', 's-supkind', 's-wkind', 's-codexperm'].forEach(function (id) { $(id).addEventListener('input', function () { S.dirty = true; }); });
   $('b-settings').onclick = function () {
-    act('settings-save', { supervisorModel: $('s-supmodel').value.trim(), workerModel: $('s-wmodel').value.trim(), permissionMode: $('s-perm').value, autoStartSupervisor: $('s-auto').checked, supervisorKind: $('s-supkind').value, workerKind: $('s-wkind').value, codexPermission: $('s-codexperm').value });
+    act('settings-save', { supervisorModel: $('s-supmodel').value.trim(), workerModel: $('s-wmodel').value.trim(), permissionMode: $('s-perm').value, autoStartSupervisor: $('s-auto').checked, exitOnDone: $('s-exit').checked, supervisorKind: $('s-supkind').value, workerKind: $('s-wkind').value, codexPermission: $('s-codexperm').value });
     S.dirty = false;
   };
+  $('b-sup-fresh').onclick = function () { act('supervisor-start', { kind: $('sup-kind').value, model: $('sup-model').value.trim(), fresh: true }); };
+  $('w-fresh').onclick = function () { var t = $('w-text').value.trim(); if (tooLong(t)) { notice('warn', '指示が長すぎます（6000 バイトまで）'); return; } act('worker-start', { slug: S.sel, instruction: t, kind: $('w-kind').value, model: $('w-model').value.trim(), fresh: true }); };
   $('f-active').onclick = function () { S.filter = 'active'; renderWorks(); };
   $('f-all').onclick = function () { S.filter = 'all'; renderWorks(); };
   $('w-start').onclick = function () { var t = $('w-text').value.trim(); if (tooLong(t)) { notice('warn', '指示が長すぎます（6000 バイトまで）'); return; } act('worker-start', { slug: S.sel, instruction: t, kind: $('w-kind').value, model: $('w-model').value.trim() }); };

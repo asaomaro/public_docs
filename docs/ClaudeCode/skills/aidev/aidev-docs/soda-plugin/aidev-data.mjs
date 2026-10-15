@@ -59,6 +59,7 @@ function parseValue(raw) {
   if (list) return list[1].split(',').map((x) => unquote(x.trim())).filter(Boolean).map((x) => clip(x, 120)).slice(0, 64);
   return clip(unquote(v), 300);
 }
+const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 /** 行単位の `key: value` と `[a, b]` だけを読む（入れ子・複数行は読まない）。壊れた行は飛ばす。 */
 export function parseState(text) {
   const out = {};
@@ -66,7 +67,7 @@ export function parseState(text) {
   for (const line of String(text ?? '').split(/\r?\n/)) {
     if (!line || /^\s/.test(line) || line.startsWith('#')) continue;
     const m = /^([A-Za-z_][A-Za-z0-9_-]{0,63}):\s*(.*)$/.exec(line);
-    if (!m || Object.hasOwn(out, m[1]) || count >= 64) continue;
+    if (!m || UNSAFE_KEYS.has(m[1]) || Object.hasOwn(out, m[1]) || count >= 64) continue;
     out[m[1]] = parseValue(m[2]);
     count++;
   }
@@ -178,6 +179,13 @@ function deriveState(state, hasState) {
 }
 const asList = (v) => (Array.isArray(v) ? v : v ? [v] : []);
 
+async function resolveBacklogDir(aidev) {
+  try {
+    const real = await realpath(join(aidev, 'backlog'));
+    return within(aidev, real) ? real : null;
+  } catch { return null; }
+}
+
 async function listWorkSlugs(aidev) {
   const dir = await resolveWorksDir(aidev);
   if (!dir) return { dir: null, slugs: [], truncated: false };
@@ -193,10 +201,9 @@ async function readWorkSummary(dir, slug, cliRow, current) {
   const state = stateFile ? parseState(stateFile.text) : {};
   const tasks = parseTasks(tasksFile?.text);
   const derived = deriveState(state, !!stateFile);
-  const cliState = cliRow?.state === '着地済' ? 'done' : '';
   return {
     slug,
-    state: derived === 'broken' && cliState ? cliState : derived,
+    state: derived,
     current: clip(state.current ?? cliRow?.current ?? '', 40),
     next: cliRow?.next ?? '',
     mode: clip(state.mode ?? cliRow?.mode ?? '', 40),
@@ -218,7 +225,8 @@ export async function readCurrent(aidev) {
 }
 
 export async function readBacklog(aidev) {
-  const dir = join(aidev, 'backlog');
+  const dir = await resolveBacklogDir(aidev);
+  if (!dir) return [];
   let entries;
   try { entries = await readdir(dir, { withFileTypes: true }); } catch { return []; }
   const files = entries.filter((e) => e.isFile() && /^[^/\\]+\.md$/.test(e.name)).map((e) => e.name).sort().slice(0, LIMITS.backlogFiles);
@@ -306,9 +314,12 @@ export async function dataSignature(root) {
   };
   const { dir, slugs } = await listWorkSlugs(aidev);
   const files = [join(aidev, 'current'), join(aidev, 'backlog')];
-  try {
-    for (const e of await readdir(join(aidev, 'backlog'), { withFileTypes: true })) if (e.isFile()) files.push(join(aidev, 'backlog', e.name));
-  } catch { /* backlog 無し */ }
+  const backlogDir = await resolveBacklogDir(aidev);
+  if (backlogDir) {
+    try {
+      for (const e of await readdir(backlogDir, { withFileTypes: true })) if (e.isFile()) files.push(join(backlogDir, e.name));
+    } catch { /* 読めない */ }
+  }
   if (dir) {
     files.push(dir);
     for (const s of slugs) files.push(join(dir, s), join(dir, s, 'state.yml'), join(dir, s, 'tasks.md'), join(dir, s, 'metrics.yml'));

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { lstat, mkdir, readFile, readdir, symlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import * as ag from './agents.mjs';
 import { tempDir } from './testkit.mjs';
@@ -12,20 +12,27 @@ const sodaErr = (code, message) => new ag.SodaError(code, message);
 /** sodactl の代役。呼び出しを記録し、コマンドごとに返す値を決める。 */
 function fakeSoda({ onCall } = {}) {
   const calls = [];
-  const agentsByPane = new Map(); // paneId -> { name, tabId }
-  let tabs = 0;
-  let instances = 0;
+  const agentsByPane = new Map(); // paneId -> { name, kind, tabId, instanceId }
+  const known = [{ id: 'term-1', tabId: 'tab-app' }, { id: 'anchor', tabId: 'tab-app', virtual: true }];
+  let tabs = 0, splits = 0, instances = 0;
   const soda = async (args, opts) => {
     calls.push({ args, opts });
     if (onCall) { const r = await onCall(args, opts); if (r !== undefined) return r; }
     const key = args.slice(0, 2).join(' ');
     switch (key) {
-      case 'snapshot': return { panes: [{ id: 'term-1', tabId: 'tab-app', virtual: false, status: 'running', agent: null }, { id: 'anchor', tabId: 'tab-app', virtual: true }] };
-      case 'pane split': return { pane: { id: 'term-split', tabId: 'tab-app', virtual: false } };
-      case 'tab create': { tabs++; return { tab: { id: `tab-w${tabs}`, workspaceId: 'ws1' }, pane: { id: `pane-w${tabs}`, tabId: `tab-w${tabs}`, virtual: false } }; }
+      case 'snapshot': return { panes: known.map((p) => ({ ...p, virtual: !!p.virtual, status: 'running', agent: agentsByPane.has(p.id) ? { kind: agentsByPane.get(p.id).kind, name: agentsByPane.get(p.id).name } : null })) };
+      case 'pane split': {
+        splits++;
+        const base = known.find((p) => p.id === args[2]);
+        const id = splits === 1 ? 'term-split' : `term-split-${splits}`;
+        known.push({ id, tabId: base?.tabId ?? 'tab-app' });
+        return { pane: { id, tabId: base?.tabId ?? 'tab-app', virtual: false } };
+      }
+      case 'tab create': { tabs++; known.push({ id: `pane-w${tabs}`, tabId: `tab-w${tabs}` }); return { tab: { id: `tab-w${tabs}`, workspaceId: 'ws1' }, pane: { id: `pane-w${tabs}`, tabId: `tab-w${tabs}`, virtual: false } }; }
+      case 'pane close': { const i = known.findIndex((p) => p.id === args[2]); if (i >= 0) known.splice(i, 1); agentsByPane.delete(args[2]); return {}; }
       case 'agent start': {
         const paneId = args[args.indexOf('--pane') + 1];
-        const tabId = paneId.startsWith('pane-w') ? 'tab-w' + paneId.slice(6) : 'tab-app';
+        const tabId = known.find((p) => p.id === paneId)?.tabId ?? 'tab-app';
         const kind = args[args.indexOf('--kind') + 1];
         agentsByPane.set(paneId, { name: args[2], kind, tabId, instanceId: `inst-${++instances}` });
         return { agent: { name: args[2], paneId, ...agentsByPane.get(paneId) } };
@@ -41,7 +48,7 @@ function fakeSoda({ onCall } = {}) {
       default: throw new Error(`想定外: ${args.join(' ')}`);
     }
   };
-  return { soda, calls, of: (a, b) => calls.filter((c) => c.args[0] === a && (b === undefined || c.args[1] === b)) };
+  return { soda, calls, known, of: (a, b) => calls.filter((c) => c.args[0] === a && (b === undefined || c.args[1] === b)) };
 }
 const basePanes = () => [
   { id: 'anchor', tabId: 'tab-app', workspaceId: 'ws1', virtual: true, projectDir: '/x', plugin: { extensionKey: 'user:aidev', display: 'aidev' }, agent: null },
@@ -98,7 +105,7 @@ test('台帳: 読み込み時に形を直す（不正な slug・セッション 
   assert.equal(l.supervisor.sessionId, '');
   assert.equal(l.supervisor.model, '');
   assert.equal(l.supervisor.status, 'stopped');
-  assert.deepEqual(Object.keys(l.workers), ['ok-1']);
+  assert.deepEqual(Object.keys(l.workers).sort(), ['Upper', 'ok-1'], '英大文字も slug として受ける。パスの成分は捨てる');
   assert.equal(l.log.length, 1);
   assert.equal(l.log[0].from, 'app');
 });
@@ -117,7 +124,7 @@ test('台帳: .soda がシンボリックリンクなら使わない', async () 
 test('設定: モデル名の書式・権限のモードの選択肢・未知のキー', async () => {
   const { root, cleanup } = await setup();
   try {
-    assert.deepEqual(await ag.loadSettings(root), { supervisorModel: '', workerModel: '', permissionMode: '', autoStartSupervisor: true, supervisorKind: 'claude', workerKind: 'claude', codexPermission: '' });
+    assert.deepEqual(await ag.loadSettings(root), { supervisorModel: '', workerModel: '', permissionMode: '', autoStartSupervisor: true, supervisorKind: 'claude', workerKind: 'claude', codexPermission: '', exitOnDone: true });
     const saved = await ag.saveSettings(root, { supervisorModel: 'claude-opus-4-1', workerModel: 'sonnet[1m]', permissionMode: 'acceptEdits', autoStartSupervisor: false });
     assert.equal(saved.supervisorModel, 'claude-opus-4-1');
     assert.deepEqual(await ag.loadSettings(root), saved);
@@ -206,11 +213,12 @@ test('監督の起動: 承認待ち（agent_not_ready）は blocked として台
   try {
     const r = await agents.startSupervisor(root, ctx, {});
     assert.equal(r.status, 'blocked');
-    assert.match(r.message, /作業画面で答えてください/);
+    assert.match(r.message, /端末で答えてください/);
     const led = await ag.readLedger(root);
     assert.equal(led.supervisor.status, 'blocked');
     assert.equal(led.supervisor.sessionId, '00000000-0000-4000-8000-000000000001', '台帳は残す');
     assert.match(led.supervisor.error, /信頼/);
+    assert.deepEqual(led.supervisor.pending, ['role'], '役割は未送信として残す');
   } finally { await cleanup(); }
 });
 
@@ -223,7 +231,8 @@ test('監督の起動: 失敗は台帳に残し、以前のセッション ID �
     await agents.startSupervisor(root, ctx, {});
     const first = (await ag.readLedger(root)).supervisor.sessionId;
     fail = true; // サーバが落ちて会話は止まっている（pane にエージェントは居ない）
-    await assert.rejects(agents.startSupervisor(root, ctx, {}), /前面が別のコマンド/);
+    await assert.rejects(agents.startSupervisor(root, ctx, {}), /再開できる会話があります/, '再開できる会話は、黙って上書きしない');
+    await assert.rejects(agents.startSupervisor(root, ctx, { fresh: true }), /前面が別のコマンド/);
     const led = await ag.readLedger(root);
     assert.equal(led.supervisor.sessionId, first);
     assert.match(led.supervisor.error, /前面/);
@@ -243,7 +252,9 @@ test('監督の再開: 台帳のセッション ID で --resume・再開の知�
     const start = fake.of('agent', 'start').at(-1).args;
     assert.deepEqual(start.slice(start.indexOf('--')), ['--', '--resume', id]);
     const note = fake.of('agent', 'prompt').at(-1).args[3];
-    assert.match(note, /再開しました。.aidev と担当の状況を確かめてから、指示を待ってください/);
+    assert.match(note, /いまのアプリのタブは tab-app です/);
+    assert.match(note, /指示を待ってください。新しい作業は始めないでください/);
+    assert.match(note, /PJ フォルダの外は変更せず/);
     const led = await ag.readLedger(root);
     assert.equal(led.supervisor.sessionId, id);
     assert.equal(led.supervisor.resumedAt, NOW.toISOString());
@@ -290,7 +301,7 @@ async function withSupervisor(options) {
   return s;
 }
 
-test('担当の起動: 監督が必要 → tab create → agent start --session-id → 役割 → 線 3 本 → 台帳', async () => {
+test('担当の起動: 監督が必要 → アプリのタブの pane を分ける → agent start --session-id → 役割 → 線 3 本 → 台帳', async () => {
   const s = await setup();
   try {
     await assert.rejects(s.agents.startWorker(s.root, s.ctx, { slug: '20261015-feature', instruction: '' }), /監督が動いていません/);
@@ -300,74 +311,81 @@ test('担当の起動: 監督が必要 → tab create → agent start --session-
     const r = await s.agents.startWorker(s.root, s.ctx, { slug: '20261015-feature', instruction: '要件から始めて' });
     assert.equal(r.status, 'started');
     const calls = s.fake.calls.slice(before).map((c) => c.args);
-    assert.deepEqual(calls[0], ['tab', 'create', '--workspace', 'ws1', '--label', 'aidev:20261015-feature']);
+    assert.deepEqual(calls[0], ['snapshot']);
+    assert.deepEqual(calls[1], ['pane', 'split', 'term-1', '--direction', 'right'], 'タブは作らず、アプリのタブの作業 pane を分ける');
+    assert.equal(s.fake.of('tab', 'create').length, 0);
     const name = ag.workerName(s.root, '20261015-feature');
     assert.match(name, /^aidev-w-[0-9a-f]{4}-[a-z0-9-]+-[0-9a-f]{4}$/);
     assert.ok(name.length <= 32);
-    assert.deepEqual(calls[1].slice(0, 8), ['agent', 'start', name, '--kind', 'claude', '--pane', 'pane-w1', '--timeout']);
-    assert.deepEqual(calls[1].slice(calls[1].indexOf('--')), ['--', '--session-id', '00000000-0000-4000-8000-000000000002']);
-    assert.equal(calls[2][0] + calls[2][1], 'agentprompt');
-    const file = /"(.+worker-20261015-feature-[^"]+\.md)"/.exec(calls[2][3])[1];
+    assert.deepEqual(calls[2].slice(0, 8), ['agent', 'start', name, '--kind', 'claude', '--pane', 'term-split', '--timeout']);
+    assert.deepEqual(calls[2].slice(calls[2].indexOf('--')), ['--', '--session-id', '00000000-0000-4000-8000-000000000002']);
+    assert.equal(calls[3][0] + calls[3][1], 'agentprompt');
+    const file = /"(.+worker-20261015-feature-[^"]+\.md)"/.exec(calls[3][3])[1];
     const body = await readFile(file, 'utf8');
     assert.match(body, /aidev-00-start/);
     assert.match(body, /要件から始めて/);
     assert.match(body, /worker-report --tab tab-app/);
+    assert.match(body, /PJ フォルダの外のファイルは変更しない/);
     assert.match(body, new RegExp(ag.supervisorName(s.root)));
     const links = calls.filter((c) => c[0] === 'graph');
     assert.equal(links.length, 3);
-    for (const l of links) assert.deepEqual(l.slice(0, 5), ['graph', 'link', 'add', 'pane-w1', 'term-1']);
+    for (const l of links) assert.deepEqual(l.slice(0, 5), ['graph', 'link', 'add', 'term-split', 'term-1']);
     assert.ok(links[0].includes('supervise'));
     assert.ok(links[1].includes('approval') && links[1].includes('notify'));
     const trigger = links[2];
     assert.ok(trigger.includes('trigger') && trigger.includes('done'));
     assert.equal(trigger[trigger.indexOf('--output') + 1], '60');
     assert.equal(trigger[trigger.indexOf('--when-busy') + 1], 'wait');
-    const promptArg = trigger.find((a) => a.startsWith('--prompt='));
-    assert.match(promptArg, /aidev の担当 20261015-feature が一区切りつきました。結果を確かめ、次を判断してください。\n\{output\}/);
+    assert.match(trigger.find((a) => a.startsWith('--prompt=')), /aidev の担当 20261015-feature が一区切りつきました。結果を確かめ、次を判断してください。\n\{output\}/);
     assert.ok(trigger.includes('--json'), 'graph は --json で JSON を受ける');
-    const led = await ag.readLedger(s.root);
-    const w = led.workers['20261015-feature'];
-    assert.equal(w.sessionId, '00000000-0000-4000-8000-000000000002');
-    assert.equal(w.tabId, 'tab-w1');
-    assert.equal(w.paneId, 'pane-w1');
-    assert.equal(w.status, 'running');
+    const w = (await ag.readLedger(s.root)).workers['20261015-feature'];
+    assert.deepEqual([w.sessionId, w.tabId, w.paneId, w.status, w.pending], ['00000000-0000-4000-8000-000000000002', 'tab-app', 'term-split', 'running', []]);
   } finally { await s.cleanup(); }
 });
-
-test('担当の起動: 同じ slug が生きていれば断る・止まっていれば再開を案内・不正な slug は断る', async () => {
+test('担当の起動: 生きていれば「すでに動いています」・止まっていれば再開を案内・fresh なら新しい会話', async () => {
   const s = await withSupervisor();
   try {
     await s.agents.startWorker(s.root, s.ctx, { slug: 'w1' });
-    aliveAgent(s.panes, 'pane-w1');
-    await assert.rejects(s.agents.startWorker(s.root, s.ctx, { slug: 'w1' }), /すでに動いています/);
-    s.panes.find((p) => p.id === 'pane-w1').agent = null;
-    await assert.rejects(s.agents.startWorker(s.root, s.ctx, { slug: 'w1' }), /再開（worker-resume）を使ってください/);
+    const wp = (await ag.readLedger(s.root)).workers.w1.paneId;
+    aliveAgent(s.panes, wp);
+    const again = await s.agents.startWorker(s.root, s.ctx, { slug: 'w1' });
+    assert.equal(again.status, 'already');
+    assert.match(again.message, /すでに動いています/);
+    s.panes.find((p) => p.id === wp).agent = null;
+    await assert.rejects(s.agents.startWorker(s.root, s.ctx, { slug: 'w1' }), /worker-resume/);
     await assert.rejects(s.agents.resumeWorker(s.root, s.ctx, { slug: 'nope' }), /記録がありません/);
+    const first = (await ag.readLedger(s.root)).workers.w1.sessionId;
+    const fresh = await s.agents.startWorker(s.root, s.ctx, { slug: 'w1', fresh: true });
+    assert.equal(fresh.status, 'started');
+    const w = (await ag.readLedger(s.root)).workers.w1;
+    assert.notEqual(w.sessionId, first);
+    assert.deepEqual(w.previousSessions.map((x) => x.sessionId), [first], '前の会話の ID を previousSessions に残す');
   } finally { await s.cleanup(); }
 });
-
-test('担当の再開: 新しい端末タブで --resume・線を結び直し・再開の知らせ', async () => {
+test('担当の再開: 前の pane が残っていれば再利用して --resume・線を結び直し・再開の知らせ（いまのタブ ID・指示待ち）', async () => {
   const s = await withSupervisor();
   try {
     await s.agents.startWorker(s.root, s.ctx, { slug: 'w1' });
-    const id = (await ag.readLedger(s.root)).workers.w1.sessionId;
+    const led0 = (await ag.readLedger(s.root)).workers.w1;
+    s.panes.push({ id: led0.paneId, tabId: 'tab-app', workspaceId: 'ws1', agent: null }); // 担当だけ終了して、pane は残っている
     const before = s.fake.calls.length;
+    const splits = s.fake.of('pane', 'split').length;
     const r = await s.agents.resumeWorker(s.root, s.ctx, { slug: 'w1' });
     assert.equal(r.status, 'resumed');
     const calls = s.fake.calls.slice(before).map((c) => c.args);
-    assert.deepEqual(calls[0].slice(0, 2), ['tab', 'create']);
+    assert.equal(s.fake.of('pane', 'split').length, splits, 'pane が残っていれば分けない');
     const start = calls.find((c) => c[0] === 'agent' && c[1] === 'start');
-    assert.deepEqual(start.slice(start.indexOf('--')), ['--', '--resume', id]);
+    assert.equal(start[start.indexOf('--pane') + 1], led0.paneId);
+    assert.deepEqual(start.slice(start.indexOf('--')), ['--', '--resume', led0.sessionId]);
     assert.equal(calls.filter((c) => c[0] === 'graph').length, 3);
     const note = calls.find((c) => c[0] === 'agent' && c[1] === 'prompt')[3];
-    assert.match(note, /再開しました/);
+    assert.match(note, /いまのアプリのタブは tab-app です/);
+    assert.match(note, /指示を待ってください。新しい作業は始めないでください/);
     const w = (await ag.readLedger(s.root)).workers.w1;
-    assert.equal(w.sessionId, id);
-    assert.equal(w.paneId, 'pane-w2');
+    assert.equal(w.sessionId, led0.sessionId);
     assert.equal(w.resumedAt, NOW.toISOString());
   } finally { await s.cleanup(); }
 });
-
 test('担当の起動: 線を結べなくても起動は成功とし、ログに残す', async () => {
   const s = await withSupervisor({ onCall: (args) => { if (args[0] === 'graph') throw sodaErr('invalid_params', 'supervisor_taken'); } });
   try {
@@ -400,7 +418,7 @@ test('担当への指示・報告: question・failed・blocked だけ監督へ�
   const s = await withSupervisor();
   try {
     await s.agents.startWorker(s.root, s.ctx, { slug: 'w1' });
-    aliveAgent(s.panes, 'pane-w1');
+    aliveAgent(s.panes, (await ag.readLedger(s.root)).workers.w1.paneId);
     await s.agents.promptWorker(s.root, s.ctx, { slug: 'w1', text: '次へ' });
     let last = s.fake.of('agent', 'prompt').at(-1).args;
     assert.equal(last[2], ag.workerName(s.root, 'w1'));
@@ -625,7 +643,7 @@ test('監督は Claude・担当は Codex の混在: 担当だけ Codex で起動
     assert.equal(led.supervisor.kind, 'claude');
     assert.equal(led.workers.w1.kind, 'codex');
     // ID 未取得のまま止まっていれば、再開ではなく新しく起動し直せる
-    s.panes.find((p) => p.id === 'pane-w1');
+    s.panes.find((p) => p.id === WP);
     const again = await s.agents.startWorker(s.root, s.ctx, { slug: 'w1' });
     assert.equal(again.status, 'started');
   } finally { await s.cleanup(); }
@@ -654,19 +672,21 @@ async function withWorkerAndGraph(links, opts = {}) {
   await s.agents.startSupervisor(s.root, s.ctx, {});
   aliveAgent(s.panes, 'term-1');
   await s.agents.startWorker(s.root, s.ctx, { slug: 'w1' });
-  aliveAgent(s.panes, 'pane-w1');
+  s.wp = (await ag.readLedger(s.root)).workers.w1.paneId;
+  aliveAgent(s.panes, s.wp);
   return s;
 }
+const WP = 'term-split'; // 担当は、アプリのタブの pane を分けて置かれる
 const link = (from, to, kind = 'supervise') => ({ id: `l-${from}-${to}`, kind, from: `local:${from}`, to: `local:${to}` });
 
 test('関連するエージェント: 担当の pane に線で連なるものを再帰で辿る（孫まで・生きているものだけ・監督や他の担当は除く）', async () => {
-  const s = await withWorkerAndGraph([link(PA, 'pane-w1'), link(PB, PA), link(PC, PB), link('term-1', 'pane-w1'), link('x-dead', 'pane-w1'), link(PA, 'term-1')]);
+  const s = await withWorkerAndGraph([link(PA, WP), link(PB, PA), link(PC, PB), link('term-1', WP), link('x-dead', WP), link(PA, 'term-1')]);
   try {
     s.panes.push({ id: PA, agent: 'codex', agentState: 'working', label: 'helper' }, { id: PB, agent: 'claude', agentState: 'blocked' }, { id: PC, agent: 'claude', agentState: 'idle' });
     const rel = (await s.agents.related(s.root, s.panes, { force: true })).w1;
     assert.deepEqual(rel.map((a) => [a.paneId, a.kind, a.status, a.depth]), [[PA, 'codex', 'working', 1], [PB, 'claude', 'blocked', 2], [PC, 'claude', 'idle', 3]]);
     assert.equal(rel[0].label, 'helper');
-    assert.ok(!rel.some((a) => a.paneId === 'term-1' || a.paneId === 'pane-w1' || a.paneId === 'x-dead'));
+    assert.ok(!rel.some((a) => a.paneId === 'term-1' || a.paneId === WP || a.paneId === 'x-dead'));
   } finally { await s.cleanup(); }
 });
 
@@ -677,7 +697,7 @@ test('関連するエージェント: グラフが読めなくても登録分は
     assert.deepEqual((await s.agents.related(s.root, s.panes, { force: true })).w1, []);
     await assert.rejects(s.agents.registerRelated(s.root, s.ctx, { slug: 'w1', paneId: PB }), /エージェントが居ません/);
     await assert.rejects(s.agents.registerRelated(s.root, s.ctx, { slug: 'nope', paneId: PA }), /記録がありません/);
-    await assert.rejects(s.agents.registerRelated(s.root, s.ctx, { slug: 'w1', paneId: 'pane-w1' }), /自身/);
+    await assert.rejects(s.agents.registerRelated(s.root, s.ctx, { slug: 'w1', paneId: WP }), /自身/);
     await s.agents.registerRelated(s.root, s.ctx, { slug: 'w1', paneId: PA });
     const rel = (await s.agents.related(s.root, s.panes, { force: true })).w1;
     assert.deepEqual(rel.map((a) => [a.paneId, a.registered]), [[PA, true]]);
@@ -686,7 +706,7 @@ test('関連するエージェント: グラフが読めなくても登録分は
 });
 
 test('関連するエージェントへの指示・読み取り: 作業に連なる pane だけ', async () => {
-  const s = await withWorkerAndGraph([link(PA, 'pane-w1')], {
+  const s = await withWorkerAndGraph([link(PA, WP)], {
     onCall: (args) => { if (args[0] === 'agent' && args[1] === 'get' && args[2] === PA) return { agent: { paneId: PA, name: 'aidev-helper', kind: 'codex', instanceId: 'i-9', tabId: 'tab-x' } }; },
   });
   try {
@@ -699,7 +719,7 @@ test('関連するエージェントへの指示・読み取り: 作業に連な
     assert.match(sent[3], /^指示: --help/);
     assert.deepEqual(JSON.parse(sent[sent.indexOf('--expect') + 1]), { paneId: PA, instanceId: 'i-9', tabId: 'tab-x', projectDir: s.root, name: 'aidev-helper' });
     assert.match((await ag.readLedger(s.root)).log.at(-1).message, /\[関連 aaaa1111\]/);
-    await s.agents.promptRelated(s.root, s.ctx, { slug: 'w1', paneId: 'pane-w1', text: 'go' }); // 担当自身も指せる
+    await s.agents.promptRelated(s.root, s.ctx, { slug: 'w1', paneId: WP, text: 'go' }); // 担当自身も指せる
     const read = await s.agents.readRelated(s.root, s.ctx, { slug: 'w1', paneId: PA, lines: 30 });
     assert.equal(read.text, '末尾の出力\n');
     assert.deepEqual(s.fake.of('agent', 'read').at(-1).args, ['agent', 'read', PA, '--lines', '30']);
@@ -726,4 +746,251 @@ test('起動ごとの種類とモデル: 設定の既定を上書きし、記録
     const led = await ag.readLedger(s.root);
     assert.deepEqual([led.supervisor.kind, led.supervisor.model, led.workers.w1.kind, led.workers.w1.model], ['codex', 'gpt-5', 'claude', 'haiku']);
   } finally { await s.cleanup(); }
+});
+
+// ---- fix-01: 承認待ちの仕上げ・置き場所・上書きの防止・終了 ------------------------------------------------
+
+const idleAt = (panes, id, kind = 'claude') => { const p = panes.find((x) => x.id === id); if (p) { p.agent = kind; p.agentState = 'idle'; } else panes.push({ id, tabId: 'tab-app', agent: kind, agentState: 'idle' }); };
+
+test('M2: 承認待ちで止まった監督は、答えた後（待機）に、役割が 1 回だけ届く／起動を押し直しても届く', async () => {
+  let blocked = true;
+  const s = await setup({ onCall: (args) => { if (blocked && args[0] === 'agent' && args[1] === 'start') { blocked = false; throw sodaErr('agent_not_ready', '信頼の確認'); } } });
+  try {
+    const r = await s.agents.startSupervisor(s.root, s.ctx, {});
+    assert.equal(r.status, 'blocked');
+    assert.equal(s.fake.of('agent', 'prompt').length, 0, '承認待ちの間は役割を送らない');
+    // 利用者が端末で答えた: エージェントが生きて、待機になる（pane は term-1）
+    s.fake.calls.length;
+    idleAt(s.panes, 'term-1');
+    await s.fake.soda(['agent', 'start', ag.supervisorName(s.root), '--kind', 'claude', '--pane', 'term-1', '--', '--session-id', 'x']); // 偽のサーバ側にエージェントを置く
+    s.fake.calls.pop();
+    assert.equal(await s.agents.finishAll(s.root, s.ctx), 1);
+    const prompts = s.fake.of('agent', 'prompt');
+    assert.equal(prompts.length, 1);
+    assert.match((await readFile(/"(.+supervisor-[^"]+\.md)"/.exec(prompts[0].args[3])[1], 'utf8')), /あなたは aidev の監督です/);
+    assert.deepEqual((await ag.readLedger(s.root)).supervisor.pending, []);
+    assert.equal(await s.agents.finishAll(s.root, s.ctx), 0, '2 回目はもう無い');
+  } finally { await s.cleanup(); }
+});
+
+test('M2: 承認待ちの担当は、待機になったら役割と線 3 本が届く（［担当を起動］の押し直しでも）', async () => {
+  let blockedOnce = true;
+  const s = await withSupervisor({ onCall: (args) => { if (blockedOnce && args[0] === 'agent' && args[1] === 'start' && args[2].startsWith('aidev-w-')) { blockedOnce = false; throw sodaErr('agent_not_ready', '信頼の確認'); } } });
+  try {
+    const r = await s.agents.startWorker(s.root, s.ctx, { slug: 'w1', instruction: '始めて' });
+    assert.equal(r.status, 'blocked');
+    assert.equal(s.fake.of('graph').length, 0);
+    const w0 = (await ag.readLedger(s.root)).workers.w1;
+    assert.deepEqual(w0.pending, ['role', 'links']);
+    assert.equal(w0.instruction, '始めて', '指示は仕上げまで台帳に残す');
+    // 答えた後: 偽のサーバにエージェントが居る・待機
+    await s.fake.soda(['agent', 'start', w0.name, '--kind', 'claude', '--pane', w0.paneId, '--', '--session-id', 'x']);
+    s.fake.calls.pop();
+    idleAt(s.panes, w0.paneId);
+    // 起動の押し直し = 仕上げだけ（新しい会話は始めない）
+    const startsBefore = s.fake.of('agent', 'start').length;
+    const again = await s.agents.startWorker(s.root, s.ctx, { slug: 'w1' });
+    assert.equal(again.status, 'finished');
+    assert.equal(s.fake.of('agent', 'start').length, startsBefore);
+    assert.equal(s.fake.of('graph').length, 3);
+    const body = await readFile(/"(.+worker-w1-[^"]+\.md)"/.exec(s.fake.of('agent', 'prompt').at(-1).args[3])[1], 'utf8');
+    assert.match(body, /始めて/);
+    assert.deepEqual((await ag.readLedger(s.root)).workers.w1.pending, []);
+  } finally { await s.cleanup(); }
+});
+
+test('M2: 仕上げは待機になるまで待つ・失敗しても 20 秒以上あけて 3 回まで', async () => {
+  let t = +NOW;
+  const fake = fakeSoda({ onCall: (args) => { if (args[0] === 'agent' && args[1] === 'start') throw sodaErr('agent_not_ready', '確認'); if (args[0] === 'agent' && args[1] === 'get') return { agent: { paneId: args[2], kind: 'claude', name: ag.supervisorName(root), instanceId: 'i', tabId: 'tab-app' } }; if (args[0] === 'agent' && args[1] === 'prompt') throw sodaErr('agent_blocked', 'x'); } });
+  const t0 = await tempDir();
+  const root = t0.dir;
+  try {
+    const agents = ag.createAgents({ makeSoda: () => fake.soda, now: () => new Date(t), uuid: uuids() });
+    const panes = basePanes();
+    const ctx = { tabId: 'tab-app', workspaceId: 'ws1', paneId: 'anchor', panes };
+    await agents.startSupervisor(root, ctx, {});
+    panes.find((p) => p.id === 'term-1').agent = 'claude';
+    panes.find((p) => p.id === 'term-1').agentState = 'working';
+    assert.equal(await agents.finishAll(root, ctx), 0, '作業中は待つ');
+    assert.equal(fake.of('agent', 'prompt').length, 0);
+    panes.find((p) => p.id === 'term-1').agentState = 'idle';
+    for (let i = 0; i < 6; i++) { await agents.finishAll(root, ctx); t += 25000; }
+    assert.equal(fake.of('agent', 'prompt').length, 3, '3 回まで');
+  } finally { await t0.cleanup(); }
+});
+
+test('S1: 担当はアプリのタブの最新の作業 pane を、右・下を交互に分ける。6 個に達したときだけ tab create', async () => {
+  const s = await withSupervisor();
+  try {
+    const split = () => s.fake.of('pane', 'split').map((c) => [c.args[2], c.args[4]]);
+    const mkPanes = () => { for (const k of s.fake.known) if (!s.panes.some((p) => p.id === k.id)) s.panes.push({ id: k.id, tabId: k.tabId, workspaceId: 'ws1', agent: null, virtual: !!k.virtual }); };
+    for (const slug of ['w1', 'w2', 'w3', 'w4']) {
+      await s.agents.startWorker(s.root, s.ctx, { slug });
+      mkPanes();
+      const wp = (await ag.readLedger(s.root)).workers[slug].paneId;
+      idleAt(s.panes, wp);
+    }
+    assert.deepEqual(split(), [['term-1', 'right'], ['term-split', 'down'], ['term-split-2', 'right'], ['term-split-3', 'down']]);
+    assert.equal(s.fake.of('tab', 'create').length, 0);
+    await s.agents.startWorker(s.root, s.ctx, { slug: 'w5' });
+    assert.equal(s.fake.of('tab', 'create').length, 0, '5 個目の pane（合計 6 個）まではタブを作らない');
+    mkPanes();
+    idleAt(s.panes, (await ag.readLedger(s.root)).workers.w5.paneId);
+    await s.agents.startWorker(s.root, s.ctx, { slug: 'w6' });
+    assert.equal(s.fake.of('tab', 'create').length, 1, '6 個に達したとき、そのときだけ新しいタブ');
+    assert.equal((await ag.readLedger(s.root)).workers.w6.tabId, 'tab-w1');
+  } finally { await s.cleanup(); }
+});
+
+test('S2: prompts/・agents.json・settings.json がシンボリックリンクなら使わない（外へ書かない）', async () => {
+  const s = await setup();
+  const out = await tempDir();
+  try {
+    const dir = await ag.ensureStateDir(s.root);
+    await symlink(out.dir, join(dir, 'prompts'));
+    const r = await s.agents.startSupervisor(s.root, s.ctx, {});
+    assert.match(r.warnings.join(' '), /シンボリックリンク/, '役割は送れず、理由が出る');
+    assert.deepEqual(await readdir(out.dir), [], '外には何も書かない');
+    assert.deepEqual((await ag.readLedger(s.root)).supervisor.pending, ['role'], '仕上げは残る');
+    await rm(join(dir, 'prompts'));
+    await rm(join(dir, 'agents.json'));
+    await writeFile(join(out.dir, 'real.json'), JSON.stringify({ supervisor: { name: 'x', sessionId: '00000000-0000-4000-8000-000000000009' } }));
+    await symlink(join(out.dir, 'real.json'), join(dir, 'agents.json'));
+    await assert.rejects(ag.readLedger(s.root), /シンボリックリンク/);
+    await rm(join(dir, 'agents.json'));
+    await writeFile(join(out.dir, 's.json'), JSON.stringify({ workerModel: 'evil' }));
+    await symlink(join(out.dir, 's.json'), join(dir, 'settings.json'));
+    assert.equal((await ag.loadSettings(s.root)).workerModel, '', 'リンクの設定は読まない');
+    await assert.rejects(ag.saveSettings(s.root, { workerModel: 'ok' }), /シンボリックリンク/);
+    assert.equal(await readFile(join(out.dir, 's.json'), 'utf8'), JSON.stringify({ workerModel: 'evil' }), '外のファイルは書き換えない');
+  } finally { await s.cleanup(); await out.cleanup(); }
+});
+
+test('S5: 再開できる会話があれば start は断る・fresh は ID を previousSessions（最新 5 件）に残す・resumable は failed を除く', async () => {
+  const s = await setup();
+  try {
+    await s.agents.startSupervisor(s.root, s.ctx, {});
+    const ids = [(await ag.readLedger(s.root)).supervisor.sessionId];
+    await assert.rejects(s.agents.startSupervisor(s.root, s.ctx, {}), /再開できる会話があります/);
+    for (let i = 0; i < 6; i++) {
+      await s.agents.startSupervisor(s.root, s.ctx, { fresh: true });
+      ids.push((await ag.readLedger(s.root)).supervisor.sessionId);
+    }
+    const sup = (await ag.readLedger(s.root)).supervisor;
+    assert.equal(sup.sessionId, ids.at(-1));
+    assert.deepEqual(sup.previousSessions.map((x) => x.sessionId), ids.slice(0, -1).reverse().slice(0, 5), '新しい順に最新 5 件');
+    // failed の記録は resumable にならない
+    const view = ag.agentView({ ...sup, status: 'failed' }, [], NOW);
+    assert.equal(view.resumable, false);
+  } finally { await s.cleanup(); }
+});
+
+test('S5・L4: --resume が会話を見つけられず落ちたら failed にして、新しい会話を案内する', async () => {
+  let failResume = false;
+  const s = await setup({ onCall: (args) => { if (failResume && args[0] === 'agent' && args[1] === 'start') throw sodaErr('agent_start_failed', 'No conversation found'); } });
+  try {
+    await s.agents.startSupervisor(s.root, s.ctx, {});
+    failResume = true;
+    await assert.rejects(s.agents.resumeSupervisor(s.root, s.ctx), /No conversation found/);
+    const sup = (await ag.readLedger(s.root)).supervisor;
+    assert.equal(sup.status, 'failed');
+    assert.match(sup.error, /新しい会話で始める/);
+    await assert.rejects(s.agents.resumeSupervisor(s.root, s.ctx), /失敗しています。「新しい会話で始める」/);
+    failResume = false;
+    const started = await s.agents.startSupervisor(s.root, s.ctx, {}); // failed は fresh なしで、新しい会話を始められる
+    assert.equal(started.status, 'started');
+  } finally { await s.cleanup(); }
+});
+
+test('L4: 役割を送る前に止まったもの（pending に role）は再開せず、新しい会話で起動する', async () => {
+  const s = await setup({ onCall: (args) => { if (args[0] === 'agent' && args[1] === 'start') throw sodaErr('agent_not_ready', '確認'); } });
+  try {
+    await s.agents.startSupervisor(s.root, s.ctx, {}); // blocked・pending: role
+    const view = ag.agentView((await ag.readLedger(s.root)).supervisor, [], NOW); // 答えずに止まった（pane にエージェントは居ない）
+    assert.equal(view.resumable, false);
+    await assert.rejects(s.agents.resumeSupervisor(s.root, s.ctx), /役割を送る前に止まった/);
+    await assert.doesNotReject(s.agents.startSupervisor(s.root, s.ctx, {}).catch((e) => { if (/再開できる会話/.test(e.message)) throw e; }), 'fresh なしで新しい会話を始められる');
+  } finally { await s.cleanup(); }
+});
+
+test('N4: CLI から送った監督への指示は、利用者の指示として記録しない', async () => {
+  const s = await withSupervisor();
+  try {
+    await s.agents.promptSupervisor(s.root, s.ctx, { text: '調べて', source: 'cli' });
+    const e = (await ag.readLedger(s.root)).log.at(-1);
+    assert.deepEqual([e.from, e.kind], ['app', 'instruction']);
+    assert.match(e.message, /^\[CLI から\] 調べて/);
+  } finally { await s.cleanup(); }
+});
+
+test('N5: 大文字・. _ を含む slug でも担当を起動でき、エージェント名は安全な形になる', async () => {
+  const s = await withSupervisor();
+  try {
+    const r = await s.agents.startWorker(s.root, s.ctx, { slug: 'Feature_X.v2' });
+    assert.equal(r.status, 'started');
+    assert.match((await ag.readLedger(s.root)).workers['Feature_X.v2'].name, /^[a-z][a-z0-9_-]{0,31}$/);
+  } finally { await s.cleanup(); }
+});
+
+test('完了の終了: done を報告した担当と関連するエージェントは、待機になったら pane を閉じる（会話 ID は残る）', async () => {
+  let t = +NOW;
+  const links = [];
+  const fake = fakeSoda({ onCall: (args) => { if (args[0] === 'graph' && args[1] === 'show') return { graph: { links } }; } });
+  const t0 = await tempDir();
+  const root = t0.dir;
+  try {
+    const agents = ag.createAgents({ makeSoda: () => fake.soda, now: () => new Date(t), uuid: uuids() });
+    const panes = basePanes();
+    const ctx = { tabId: 'tab-app', workspaceId: 'ws1', paneId: 'anchor', panes };
+    await agents.startSupervisor(root, ctx, {});
+    aliveAgent(panes, 'term-1');
+    await agents.startWorker(root, ctx, { slug: 'w1' });
+    const wp = (await ag.readLedger(root)).workers.w1.paneId;
+    aliveAgent(panes, wp);
+    panes.push({ id: PA, agent: 'codex', agentState: 'idle', tabId: 'tab-app' });
+    links.push({ kind: 'supervise', from: `local:${PA}`, to: `local:${wp}` });
+    const id = (await ag.readLedger(root)).workers.w1.sessionId;
+
+    await agents.reportWorker(root, ctx, { slug: 'w1', status: 'done', message: '完了' });
+    assert.ok((await ag.readLedger(root)).workers.w1.doneAt);
+    assert.equal(await agents.finishDone(root, ctx), 0, 'トリガの線が結果を渡す時間を置く');
+    t += 30000;
+    panes.find((p) => p.id === wp).agentState = 'working';
+    assert.equal(await agents.finishDone(root, ctx), 0, '作業中なら待つ');
+    panes.find((p) => p.id === wp).agentState = 'idle';
+    assert.equal(await agents.finishDone(root, ctx), 1);
+    assert.deepEqual(fake.of('pane', 'close').map((c) => c.args[2]), [PA, wp], '関連するエージェント → 担当の順');
+    const w = (await ag.readLedger(root)).workers.w1;
+    assert.deepEqual([w.status, w.doneAt, w.sessionId], ['stopped', '', id]);
+    assert.equal(ag.agentView(w, [], new Date(t)).resumable, true, '再開できる');
+  } finally { await t0.cleanup(); }
+});
+
+test('完了の終了: 設定で止められる・done 以外の報告で取り消される・Codex で会話 ID が未取得なら見送る', async () => {
+  let t = +NOW;
+  const fake = fakeSoda();
+  const t0 = await tempDir();
+  const root = t0.dir;
+  try {
+    const agents = ag.createAgents({ makeSoda: () => fake.soda, now: () => new Date(t), uuid: uuids() });
+    const panes = basePanes();
+    const ctx = { tabId: 'tab-app', workspaceId: 'ws1', paneId: 'anchor', panes };
+    await ag.saveSettings(root, { exitOnDone: false });
+    await agents.startSupervisor(root, ctx, {});
+    aliveAgent(panes, 'term-1');
+    await agents.startWorker(root, ctx, { slug: 'w1' });
+    await agents.reportWorker(root, ctx, { slug: 'w1', status: 'done', message: 'ok' });
+    assert.equal((await ag.readLedger(root)).workers.w1.doneAt, '', '設定が切れていれば印を付けない');
+    await ag.saveSettings(root, { exitOnDone: true, workerKind: 'codex' });
+    await agents.startWorker(root, ctx, { slug: 'w2' });
+    const wp2 = (await ag.readLedger(root)).workers.w2.paneId;
+    aliveAgent(panes, wp2); panes.find((p) => p.id === wp2).agent = 'codex';
+    await agents.reportWorker(root, ctx, { slug: 'w2', status: 'done', message: 'ok' });
+    t += 30000;
+    assert.equal(await agents.finishDone(root, ctx), 0);
+    assert.equal(fake.of('pane', 'close').length, 0, '会話 ID が無いまま閉じると再開できなくなる');
+    assert.ok((await ag.readLedger(root)).log.some((e) => /終了を見送りました/.test(e.message)));
+    await agents.reportWorker(root, ctx, { slug: 'w2', status: 'question', message: '?' });
+    assert.equal((await ag.readLedger(root)).workers.w2.doneAt, '');
+  } finally { await t0.cleanup(); }
 });

@@ -36,12 +36,14 @@ export function supervisorPrompt({ root, tabId }) {
 ## 守ること
 
 - 外部への公開（push・PR・merge 等）は、利用者が求めた範囲でだけ担当に指示する。
+- **PJ フォルダの外のファイルは変更しない。** 外のコマンド（テスト等）も、利用者の指示がなければ流さない。担当にも同じことを守らせる。
 - \`.aidev/\` の state は aidev の CLI と工程スキルだけが書く。手で書き換えない。
 `;
 }
 
 /** 担当の役割（`worker-<slug>-<時刻>.md` に書く）。 */
 export function workerPrompt({ root, tabId, slug, supervisorName, instruction }) {
+  const nameHint = slug.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 12) || 'work';
   const task = instruction && instruction.trim() ? instruction.trim() : 'aidev の続きから進める';
   return `# あなたは aidev の作業 ${slug} の担当です
 
@@ -63,11 +65,12 @@ sodactl plugin call aidev worker-report --tab ${tabId} --params '{"slug":"${slug
 ## 範囲
 
 - 担当の範囲は \`${slug}\` の作業だけ。他の作業のファイルは触らない。
+- **PJ フォルダの外のファイルは変更しない。** 外のコマンド（テスト等）も、監督・利用者の指示がなければ流さない。
 
 ## 補助のエージェント
 
 - 作業のために別のエージェントを起こしてよい。**自分の pane の中から** \`sodactl pane split --direction right\` で pane を作り、
-  \`sodactl agent start <名前> --kind claude|codex --pane <pane>\` で起動する（名前は \`aidev-${slug.slice(0, 12)}-<用途>\` のように、英小文字・数字・\`-\`・\`_\` の 32 文字以内）。
+  \`sodactl agent start <名前> --kind claude|codex --pane <pane>\` で起動する（名前は \`aidev-${nameHint}-<用途>\` のように、英小文字・数字・\`-\`・\`_\` の 32 文字以内）。
   自分の pane から起こせば、自分に連なる関連するエージェントとして、アプリの作業画面に並び、利用者が直接操作できる。
 - 線が引かれなかったときは、起こした pane を登録する:
   \`sodactl plugin call aidev work-agent-register --tab ${tabId} --params '{"slug":"${slug}","paneId":"<pane>"}'\`
@@ -81,8 +84,14 @@ export function readFileInstruction(file, role) {
   return `${role}の役割と指示を ${json(file)} に書きました。このファイルを読んで、その役割で動いてください。`;
 }
 
-export const SUPERVISOR_RESUME_NOTE = '再開しました。.aidev と担当の状況を確かめてから、指示を待ってください。';
-export const workerResumeNote = (slug) => `再開しました。aidev の作業 ${slug} の状況（.aidev/works/${slug}）を確かめて、続きから進めてください。`;
+/**
+ * 再開の知らせ。再開した会話は古い `--tab` を覚えているので、いまのアプリのタブ ID を渡す。
+ * 再開しただけで動き出さないよう、「状況を確かめて報告し、指示を待つ。新しい作業は始めない」と書く。
+ */
+export const supervisorResumeNote = ({ tabId }) => `再開しました。いまのアプリのタブは ${tabId} です。以後の sodactl plugin call aidev … --tab にはこの ID を使ってください（呼び方は最初の役割のとおり）。`
+  + '.aidev と担当の状況を確かめ、利用者へ報告して、指示を待ってください。新しい作業は始めないでください。PJ フォルダの外は変更せず、外のコマンドも指示なしには流さないでください。';
+export const workerResumeNote = ({ slug, tabId }) => `再開しました。いまのアプリのタブは ${tabId} です。以後の sodactl plugin call aidev … --tab にはこの ID を使ってください。`
+  + `作業 ${slug} の状況（.aidev/works/${slug}）を確かめ、worker-report で監督へ報告して、指示を待ってください。新しい作業は始めないでください。PJ フォルダの外は変更せず、外のコマンドも指示なしには流さないでください。`;
 
 /** 担当 → 監督のトリガの線の文面。`{output}` は線が画面の末尾に置き換える。 */
 export const triggerPrompt = (slug) => `aidev の担当 ${slug} が一区切りつきました。結果を確かめ、次を判断してください。\n{output}`;

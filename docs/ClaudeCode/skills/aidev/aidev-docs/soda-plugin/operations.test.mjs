@@ -21,11 +21,10 @@ test('すべての公開操作に検証がある（入力スキーマが閉じ�
   assert.equal(OPERATIONS.length <= 32, true);
 });
 
-test('slug: 小文字・数字・ハイフンの 1〜64 文字（日付つきも可）', () => {
-  assert.deepEqual(validateParams('worker-start', { slug: '20261015-aidev-plugin' }), { slug: '20261015-aidev-plugin', instruction: '', kind: '', model: '' });
-  assert.deepEqual(validateParams('worker-resume', { slug: 'a' }), { slug: 'a' });
-  assert.equal(validateParams('worker-resume', { slug: 'a'.repeat(64) }).slug.length, 64);
-  for (const slug of ['', 'A', '-a', 'a_b', 'a b', 'a/b', '../x', 'a.b', 'a'.repeat(65), 5, null, undefined, 'あ']) bad('worker-resume', { slug });
+test('slug: 英数字と . _ - の 1〜128 文字（読み取り側と同じ書式。日付つきも可）', () => {
+  assert.equal(validateParams('worker-start', { slug: '20261015-aidev-plugin' }).slug, '20261015-aidev-plugin');
+  for (const slug of ['a', 'A', 'a_b', 'a.b', 'Feature-1', 'a'.repeat(128)]) assert.equal(validateParams('worker-resume', { slug }).slug, slug);
+  for (const slug of ['', '-a', '.a', '_a', 'a b', 'a/b', '../x', 'a\\b', 'a'.repeat(129), 5, null, undefined, 'あ', 'a;rm']) bad('worker-resume', { slug });
   bad('worker-prompt', { slug: 'x;rm', text: 'a' });
 });
 
@@ -114,7 +113,7 @@ test('works-list: all を省くと進行中だけ・担当の状態を付ける'
 test('検証済みの値だけが下の層へ渡る・不正な入力は下の層に届かない', async () => {
   const { ops, log } = fakes();
   await ops.call('worker-start', { slug: 'x1', instruction: ' 始めて ' }, ctx);
-  assert.deepEqual(log.find((l) => l[0] === 'startWorker')[1], { slug: 'x1', instruction: '始めて', kind: '', model: '' });
+  assert.deepEqual(log.find((l) => l[0] === 'startWorker')[1], { slug: 'x1', instruction: '始めて', kind: '', model: '', fresh: false });
   await assert.rejects(ops.call('worker-start', { slug: '../x' }, ctx));
   await assert.rejects(ops.call('worker-prompt', { slug: 'x1', text: '' }, ctx));
   await assert.rejects(ops.call('report', { message: 'm', level: 'x' }, ctx));
@@ -185,8 +184,11 @@ test('アプリ画面: データを埋め込まず、textContent で描く（inn
 });
 
 test('種類（claude|codex）とモデルは起動ごとに指定できる・不正な値は断る', () => {
-  assert.deepEqual(validateParams('worker-start', { slug: 'a', kind: 'codex', model: 'gpt-5' }), { slug: 'a', instruction: '', kind: 'codex', model: 'gpt-5' });
-  assert.deepEqual(validateParams('supervisor-start', { kind: 'claude', model: 'sonnet' }), { kind: 'claude', model: 'sonnet' });
+  assert.deepEqual(validateParams('worker-start', { slug: 'a', kind: 'codex', model: 'gpt-5' }), { slug: 'a', instruction: '', kind: 'codex', model: 'gpt-5', fresh: false });
+  assert.deepEqual(validateParams('supervisor-start', { kind: 'claude', model: 'sonnet' }), { kind: 'claude', model: 'sonnet', fresh: false });
+  assert.equal(validateParams('supervisor-start', { fresh: true }).fresh, true);
+  assert.equal(validateParams('worker-start', { slug: 'a', fresh: true }).fresh, true);
+  bad('supervisor-start', { fresh: 'yes' }, /fresh/);
   for (const kind of ['gemini', 'CLAUDE', 5, null]) { bad('worker-start', { slug: 'a', kind }, /種類/); bad('supervisor-start', { kind }, /種類/); }
 });
 
@@ -197,6 +199,51 @@ test('関連するエージェントの操作: slug・pane の ID・lines を検
   assert.equal(validateParams('work-agent-register', { slug: 'a', paneId: 'abcd' }).paneId, 'abcd');
   for (const paneId of ['', 'x y', '../x', 'abc', 'ZZZZ', 5, 'a'.repeat(65)]) bad('work-agent-prompt', { slug: 'a', paneId, text: 't' }, /pane/);
   bad('work-agent-read', { slug: 'a', paneId: id, lines: 201 }, /lines/);
-  bad('work-agent-read', { slug: 'A', paneId: id }, /slug/);
+  bad('work-agent-read', { slug: '-A', paneId: id }, /slug/);
   bad('work-agents', { slug: 'a', extra: 1 }, /知らない/);
+});
+
+// ---- 結果の大きさ（app.result は 256 KiB まで） -------------------------------------------------------
+
+import { fitResult, RESULT_MAX_BYTES } from './operations.mjs';
+const size = (v) => Buffer.byteLength(JSON.stringify(v));
+
+test('結果の大きさ: work-doc は本文を切って truncated を返す', () => {
+  const text = 'あ'.repeat(200000); // 600 KB
+  const out = fitResult('work-doc', { slug: 'a', name: 'design.md', text, truncated: false, size: 600000 });
+  assert.ok(size(out) <= RESULT_MAX_BYTES);
+  assert.equal(out.truncated, true);
+  assert.ok(out.text.length > 1000 && !out.text.includes('\uFFFD'));
+  assert.equal(out.size, 600000);
+  const small = { slug: 'a', name: 'x.md', text: 'hi', truncated: false };
+  assert.equal(fitResult('work-doc', small), small, '小さければそのまま');
+});
+
+test('結果の大きさ: log-list・works-list は件数を減らして truncated を返す・切れないものは明示的に断る', () => {
+  const log = Array.from({ length: 300 }, (_, i) => ({ at: 't', from: 'app', kind: 'event', message: 'x'.repeat(8000) + i }));
+  const l = fitResult('log-list', { log });
+  assert.ok(size(l) <= RESULT_MAX_BYTES);
+  assert.equal(l.truncated, true);
+  assert.ok(l.log.length >= 1 && l.log[0].message.endsWith('0'), '新しい順の先頭から残す');
+  const works = Array.from({ length: 1000 }, (_, i) => ({ slug: `w-${i}`, pad: 'y'.repeat(600) }));
+  const w = fitResult('works-list', { total: 1000, shown: 1000, works });
+  assert.ok(size(w) <= RESULT_MAX_BYTES);
+  assert.deepEqual([w.truncated, w.shown === w.works.length], [true, true]);
+  assert.throws(() => fitResult('agents-list', { blob: 'z'.repeat(300000) }), /結果が大きすぎます/);
+});
+
+test('結果の大きさ: call の出口に共通のガードがある', async () => {
+  const data = { loadDoc: async () => ({ slug: 'a', name: 'd.md', text: 'あ'.repeat(200000), truncated: false, size: 600000 }) };
+  const ops = createOperations({ data, agents: {} });
+  const r = await ops.call('work-doc', { slug: 'a', name: 'd.md' }, { root: '/p', panes: [] });
+  assert.ok(size(r) <= RESULT_MAX_BYTES);
+  assert.equal(r.truncated, true);
+});
+
+test('N3: 端末版の Markdown では、リンク・画像の記法を生きたまま出さない', () => {
+  const model = { project: 'p', root: '/p', available: true, works: [], backlog: [], workers: [], supervisor: null, settings: {}, related: [],
+    log: [{ at: 't', from: 'worker', slug: null, kind: 'report', message: '![x](https://evil.example/a.png) [click](https://evil.example)' }] };
+  const md = terminalMarkdown(model);
+  assert.ok(!/\]\(https?:/.test(md), md);
+  assert.ok(!/(^|[^\\])!\[/.test(md));
 });

@@ -1,6 +1,6 @@
 import { beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { symlink, utimes, writeFile } from 'node:fs/promises';
+import { rm, symlink, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import * as data from './aidev-data.mjs';
 import { put, sampleProject, tempDir, TSV } from './testkit.mjs';
@@ -193,4 +193,26 @@ test('簡易パーサ: 配列・引用符・コメント・重複キー', () => 
   assert.equal(s.c, 'v');
   assert.equal(s.nested, undefined);
   assert.deepEqual(data.parseTasks('- [X] a\n- [ ] b\n  - [ ] c\n'), { done: 1, total: 2, items: [{ done: true, text: 'a' }, { done: false, text: 'b' }] });
+});
+
+test('S3: .aidev/backlog がシンボリックリンクで PJ の外を指していても、読まない', async () => {
+  const { dir, cleanup } = await tempDir();
+  const outside = await tempDir('aidev-outside-');
+  try {
+    await sampleProject(dir);
+    await rm(join(dir, '.aidev/backlog'), { recursive: true });
+    await put(outside.dir, 'secret.md', '- [ ] secret item from outside\n');
+    await symlink(outside.dir, join(dir, '.aidev/backlog'));
+    const o = await data.loadOverview(dir, NOHOME);
+    assert.deepEqual(o.backlog, []);
+    const a = await data.dataSignature(dir);
+    await put(outside.dir, 'more.md', '- [ ] x\n');
+    assert.equal(await data.dataSignature(dir), a, '外の変化は署名にも入れない');
+  } finally { await cleanup(); await outside.cleanup(); }
+});
+
+test('N1: state.yml の __proto__ 等のキーでオブジェクトの型を壊さない', () => {
+  const s = data.parseState('current: coding\n__proto__: [a, b]\nconstructor: x\nprototype: y\n');
+  assert.equal(Object.getPrototypeOf(s), Object.prototype);
+  assert.deepEqual(Object.keys(s), ['current']);
 });

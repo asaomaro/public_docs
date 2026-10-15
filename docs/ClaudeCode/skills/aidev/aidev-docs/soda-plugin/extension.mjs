@@ -15,7 +15,7 @@ const SEND_GAP_MS = 60;
 const CAPTURE_MS = 8000;
 const CALL_DEADLINE_MS = 25000; // `sodactl plugin call` の応答待ちは 30 秒。起動系はそれより前に「続けています」と返す
 const AUTO_START_AFTER_MS = 8000;
-const RESTORE_WAIT_MS = 40000;
+const RESTORE_WAIT_MS = 35000; // サーバが会話を復元する時間（agent start は復元の 30 秒以内を busy で断る）
 const LAUNCH_OPS = new Set(['supervisor-start', 'supervisor-resume', 'worker-start', 'worker-resume']);
 
 const agents = createAgents();
@@ -187,6 +187,17 @@ async function reconcile(force) {
       rec.lastCapture = Date.now();
       try { if (await agents.captureSessions(root)) schedule(true); } catch (e) { logOnce(e); }
     }
+    // 承認待ちで止まっていた起動の仕上げと、完了した作業のエージェントの終了（待機になってから）
+    const anchorPane = group.find(isAnchor);
+    if (anchorPane && process.env.SODA_SERVER_URL && !rec.housekeeping && !closing) {
+      rec.housekeeping = true;
+      const ctx = contextFor({ paneId: anchorPane.id });
+      void (async () => {
+        const finished = await agents.finishAll(root, ctx);
+        const exited = await agents.finishDone(root, ctx);
+        if (finished || exited) schedule(true);
+      })().catch(logOnce).finally(() => { rec.housekeeping = false; });
+    }
     for (const pane of group) {
       try {
         if (isAnchor(pane)) {
@@ -273,7 +284,7 @@ async function onAction(msg) {
           supervisorModel: String(data.supervisorModel ?? ''), workerModel: String(data.workerModel ?? ''),
           permissionMode: String(data.permissionMode ?? ''), autoStartSupervisor: data.autoStartSupervisor === 'true',
           supervisorKind: String(data.supervisorKind ?? 'claude'), workerKind: String(data.workerKind ?? 'claude'),
-          codexPermission: String(data.codexPermission ?? ''),
+          codexPermission: String(data.codexPermission ?? ''), exitOnDone: data.exitOnDone !== 'false',
         });
         schedule(true); await notify(pane.id, 'info', '設定を保存しました'); return;
       }

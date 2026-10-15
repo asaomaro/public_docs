@@ -6,7 +6,8 @@ import { AGENT_KINDS, LOG_LEVELS, PANE_ID_RE, WORKER_SLUG, WORKER_STATUSES, MODE
 export const TEXT_MAX_BYTES = 16 * 1024;
 const fail = (message) => Object.assign(new Error(message), { expected: true });
 
-const SLUG_SCHEMA = { type: 'string', pattern: '^[a-z0-9][a-z0-9-]{0,63}$', description: '作業の名前（aidev の work の slug。日付の付いたフォルダ名も可）' };
+const SLUG_SCHEMA = { type: 'string', pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$', description: '作業の名前（aidev の work の slug。日付の付いたフォルダ名も可）' };
+const FRESH_SCHEMA = { type: 'boolean', description: '再開できる会話があっても、新しい会話で始める（前の会話の ID は previousSessions に残す）' };
 const TEXT_SCHEMA = { type: 'string', minLength: 1, maxLength: 16384 };
 const KIND_SCHEMA = { enum: ['', ...AGENT_KINDS], description: '種類（空なら設定の既定）' };
 const PANE_SCHEMA = { type: 'string', pattern: '^[0-9a-f][0-9a-f-]{3,63}$', description: 'pane の ID（UUID または先頭 4 文字以上）' };
@@ -18,10 +19,10 @@ export const OPERATIONS = [
   { name: 'work-doc', description: '作業の文書の本文（作業フォルダ直下の *.md。512 KiB で切る）', inputSchema: object({ slug: { type: 'string', minLength: 1, maxLength: 128 }, name: { type: 'string', minLength: 1, maxLength: 120 } }, ['slug', 'name']) },
   { name: 'backlog-list', description: 'backlog のファイルごとの未着手の数と項目（先頭 50 件）', inputSchema: object() },
   { name: 'agents-list', description: '監督・担当のエージェント（セッション ID・状態・pane・設定）', inputSchema: object() },
-  { name: 'supervisor-start', description: '監督エージェントを起動する（動いていれば何もしない）。種類（claude|codex）とモデルは省けば設定の既定', inputSchema: object({ kind: KIND_SCHEMA, model: { type: 'string', maxLength: 64 } }) },
+  { name: 'supervisor-start', description: '監督エージェントを起動する（動いていれば何もしない）。種類（claude|codex）とモデルは省けば設定の既定', inputSchema: object({ kind: KIND_SCHEMA, model: { type: 'string', maxLength: 64 }, fresh: FRESH_SCHEMA }) },
   { name: 'supervisor-resume', description: '監督エージェントを、記録したセッション ID で同じ会話のまま再開する', inputSchema: object() },
   { name: 'supervisor-prompt', description: '監督エージェントへ指示を送る', inputSchema: object({ text: TEXT_SCHEMA }, ['text']) },
-  { name: 'worker-start', description: '作業の担当エージェントを新しい端末タブで起動し、監督へ線（監督・承認の代理・完了のトリガ）を結ぶ', inputSchema: object({ slug: SLUG_SCHEMA, instruction: { type: 'string', maxLength: 16384 }, kind: KIND_SCHEMA, model: { type: 'string', maxLength: 64 } }, ['slug']) },
+  { name: 'worker-start', description: '作業の担当エージェントを新しい端末タブで起動し、監督へ線（監督・承認の代理・完了のトリガ）を結ぶ', inputSchema: object({ slug: SLUG_SCHEMA, instruction: { type: 'string', maxLength: 16384 }, kind: KIND_SCHEMA, model: { type: 'string', maxLength: 64 }, fresh: FRESH_SCHEMA }, ['slug']) },
   { name: 'worker-resume', description: '止まっている担当エージェントを、記録したセッション ID で再開する', inputSchema: object({ slug: SLUG_SCHEMA }, ['slug']) },
   { name: 'worker-prompt', description: '担当エージェントへ指示を送る', inputSchema: object({ slug: SLUG_SCHEMA, text: TEXT_SCHEMA }, ['slug', 'text']) },
   { name: 'worker-report', description: '担当から監督・利用者への報告（progress|done|question|blocked|failed）。担当が呼ぶ', inputSchema: object({ slug: SLUG_SCHEMA, status: { enum: WORKER_STATUSES }, message: TEXT_SCHEMA }, ['slug', 'status', 'message']) },
@@ -52,11 +53,16 @@ function text(value, label, { required = true } = {}) {
   return trimmed;
 }
 function workerSlug(value) {
-  if (typeof value !== 'string' || !WORKER_SLUG.test(value)) throw fail('slug は小文字・数字・ハイフンの 1〜64 文字です（先頭は小文字か数字）');
+  if (typeof value !== 'string' || !WORKER_SLUG.test(value)) throw fail('slug は英数字と . _ - の 1〜128 文字です（先頭は英数字）');
   return value;
 }
 function readSlug(value) {
   if (typeof value !== 'string' || !aidevData.READ_SLUG.test(value)) throw fail('作業名の書式が不正です');
+  return value;
+}
+function bool(value, label) {
+  if (value === undefined) return false;
+  if (typeof value !== 'boolean') throw fail(`${label} は true か false です`);
   return value;
 }
 function kind(value) {
@@ -80,10 +86,10 @@ const VALIDATORS = {
   'work-doc': (p) => { const o = only(p, ['slug', 'name']); return { slug: readSlug(o.slug), name: docName(o.name) }; },
   'backlog-list': (p) => { only(p, []); return {}; },
   'agents-list': (p) => { only(p, []); return {}; },
-  'supervisor-start': (p) => { const o = only(p, ['kind', 'model']); return { kind: kind(o.kind), model: model(o.model) }; },
+  'supervisor-start': (p) => { const o = only(p, ['kind', 'model', 'fresh']); return { kind: kind(o.kind), model: model(o.model), fresh: bool(o.fresh, 'fresh') }; },
   'supervisor-resume': (p) => { only(p, []); return {}; },
   'supervisor-prompt': (p) => ({ text: text(only(p, ['text']).text, '指示') }),
-  'worker-start': (p) => { const o = only(p, ['slug', 'instruction', 'kind', 'model']); return { slug: workerSlug(o.slug), instruction: text(o.instruction, '指示', { required: false }), kind: kind(o.kind), model: model(o.model) }; },
+  'worker-start': (p) => { const o = only(p, ['slug', 'instruction', 'kind', 'model', 'fresh']); return { slug: workerSlug(o.slug), instruction: text(o.instruction, '指示', { required: false }), kind: kind(o.kind), model: model(o.model), fresh: bool(o.fresh, 'fresh') }; },
   'work-agents': (p) => ({ slug: workerSlug(only(p, ['slug']).slug) }),
   'work-agent-register': (p) => { const o = only(p, ['slug', 'paneId']); return { slug: workerSlug(o.slug), paneId: paneId(o.paneId) }; },
   'work-agent-prompt': (p) => { const o = only(p, ['slug', 'paneId', 'text']); return { slug: workerSlug(o.slug), paneId: paneId(o.paneId), text: text(o.text, '指示') }; },
@@ -159,6 +165,33 @@ export function summarize(model) {
  * `ctx` は呼び出し側（拡張）が `ext.panes` と照合して作る: `{ root, tabId, workspaceId, paneId, panes }`。
  * `source` は 'ui'（画面の操作）か 'cli'（`sodactl plugin call`）。
  */
+// ---- 結果の大きさ -----------------------------------------------------------------------------------
+// `app.result` は 256 KiB を超えると、サーバが受理せず、呼び出しが 30 秒の時間切れになる。余裕を見て 200 KiB で切る。
+export const RESULT_MAX_BYTES = 200 * 1024;
+const jsonBytes = (v) => Buffer.byteLength(JSON.stringify(v));
+function cutBytes(text, max) {
+  const buf = Buffer.from(String(text));
+  return buf.length <= max ? String(text) : buf.subarray(0, max).toString('utf8').replace(/\uFFFD+$/, '');
+}
+/** 配列を、収まるまで減らす（先頭から残す）。減らしたら `truncated: true`。 */
+function fitArray(result, key) {
+  let arr = result[key];
+  while (jsonBytes({ ...result, [key]: arr }) > RESULT_MAX_BYTES && arr.length > 1) arr = arr.slice(0, Math.max(1, Math.floor(arr.length * 0.7)));
+  return { ...result, [key]: arr, truncated: true, ...(key === 'works' ? { shown: arr.length } : {}) };
+}
+export function fitResult(name, result, max = RESULT_MAX_BYTES) {
+  if (jsonBytes(result) <= max) return result;
+  let out = result;
+  if (name === 'work-doc' && typeof out.text === 'string') {
+    const room = Math.max(1024, max - jsonBytes({ ...out, text: '' }) - 1024);
+    out = { ...out, text: cutBytes(out.text, room), truncated: true };
+  } else if (name === 'log-list') out = fitArray(out, 'log');
+  else if (name === 'works-list') out = fitArray(out, 'works');
+  else if (name === 'backlog-list') out = fitArray(out, 'backlog');
+  if (jsonBytes(out) > max) throw fail(`結果が大きすぎます（${Math.round(jsonBytes(result) / 1024)} KiB）。範囲を絞ってください`);
+  return out;
+}
+
 // CLI から呼ばれたときは、`next` を空にしないために、まだ一度も読めていなければ aidev CLI の結果を待つ（以後は前回の値）
 const CLI_DEPS = { wait: 'if-empty' };
 export function createOperations({ data = aidevData, agents }) {
@@ -183,7 +216,7 @@ export function createOperations({ data = aidevData, agents }) {
     },
     'supervisor-start': (ctx, p) => agents.startSupervisor(ctx.root, ctx, p),
     'supervisor-resume': (ctx) => agents.resumeSupervisor(ctx.root, ctx),
-    'supervisor-prompt': (ctx, p) => agents.promptSupervisor(ctx.root, ctx, p),
+    'supervisor-prompt': (ctx, p, source) => agents.promptSupervisor(ctx.root, ctx, { ...p, source }),
     'worker-start': (ctx, p) => agents.startWorker(ctx.root, ctx, p),
     async 'work-agents'(ctx, { slug }) {
       const [state, rel] = await Promise.all([agents.overview(ctx.root, ctx.panes), agents.related(ctx.root, ctx.panes, { force: true })]);
@@ -202,7 +235,7 @@ export function createOperations({ data = aidevData, agents }) {
   /** 検証してから実行する。未知の操作・不正な入力は期待された誤り（expected）で返る。 */
   async function call(name, params, ctx, source = 'cli') {
     const clean = validateParams(name, params);
-    return handlers[name](ctx, clean, source);
+    return fitResult(name, await handlers[name](ctx, clean, source));
   }
   return { call, delegate: (ctx, slug) => agents.delegate(ctx.root, ctx, workerSlug(slug)) };
 }
