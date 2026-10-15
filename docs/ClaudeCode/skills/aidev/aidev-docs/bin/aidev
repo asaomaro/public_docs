@@ -329,6 +329,37 @@ append_event() { # phase event [key=value ...]
 BIN_DIR=$(cd "$(dirname "$0")" && pwd)
 HARNESS=$(dirname "$(dirname "$BIN_DIR")")   # <skills>/aidev-docs/bin -> <skills>
 
+# aidev-docs の tree から soda-plugin を除いた tree の sha を返す。soda-plugin が無い・組み直せないときは元のまま。
+hr_docs_tree() {
+  # tree を読めなければ **unknown**（ps1 と同じ。元の tree を返すと、その環境だけ版が別の値になる）
+  _ls=$(git -C "$HARNESS" ls-tree --full-tree "$1" 2>/dev/null) || { printf 'unknown'; return 0; }
+  [ -n "$_ls" ] || { printf 'unknown'; return 0; }
+  case "$_ls" in *"	soda-plugin"*) : ;; *) printf '%s' "$1"; return 0 ;; esac
+  # `git mktree` への pipe は Windows で組み直しに失敗した（CI）ので、ps1 と同じく一時 index に積んで write-tree する
+  _kept=$(printf '%s\n' "$_ls" | awk -F'\t' '$2 != "soda-plugin"')
+  _idx=$(mktemp -u 2>/dev/null) || _idx="${TMPDIR:-/tmp}/aidev-idx-$$"
+  _n=$(
+    GIT_INDEX_FILE="$_idx"; export GIT_INDEX_FILE
+    set --
+    while IFS= read -r _e; do
+      _m=${_e%% *}; _r=${_e#* }; _t=${_r%% *}; _r=${_r#* }; _o=${_r%%	*}; _nm=${_r#*	}
+      case "$_nm" in \"*) exit 1 ;; esac
+      if [ "$_t" = tree ]; then
+        git -C "$HARNESS" read-tree "--prefix=$_nm/" "$_o" >/dev/null 2>&1 || exit 1
+      else
+        set -- "$@" --cacheinfo "$_m,$_o,$_nm"
+      fi
+    done <<EOF_KEPT
+$_kept
+EOF_KEPT
+    if [ "$#" -gt 0 ]; then git -C "$HARNESS" update-index --add "$@" >/dev/null 2>&1 || exit 1; fi
+    git -C "$HARNESS" write-tree 2>/dev/null
+  ) || _n=""
+  rm -f "$_idx"
+  # 組み直せなかったら **unknown**（除外前の tree を返すと、その環境だけ版が別の値になり、同じ版の仲間から黙って割れる）
+  if [ -n "$_n" ]; then printf '%s' "$_n"; else printf 'unknown'; fi
+}
+
 harness_rev() {
   command -v git >/dev/null 2>&1 || { printf 'unknown'; return 0; }
   # 見る範囲は **aidev-* の skill だけ**。<skills> 全体を見ると、同居する無関係な skill
@@ -347,8 +378,18 @@ harness_rev() {
   # 結果として**全環境・全 work で同じ値**が刻まれ、母集団から外れるべき work が
   # 「同一版で回した仲間」に化ける（他 PJ の retro が実測で見つけた。ps1 には元から
   # このガードがあり、sh だけが落ちていた＝両実装を突き合わせる検査の穴でもあった）
-  _hrt=$(git -C "$HARNESS" ls-tree -d HEAD -- "$@" 2>/dev/null | awk '{print $3}') || _hrt=""
+  # **aidev-docs の中の soda-plugin は版に入れない**（Sodashitsu のアプリで、ハーネスの挙動ではない。
+  # 入れると、プラグインの変更でも版が上がり、またがり判定が母集団を痩せさせる）。
+  # soda-plugin を除いた tree を組み直す（無い PJ では従来と同じ値のまま）
+  _hrl=$(git -C "$HARNESS" ls-tree -d HEAD -- "$@" 2>/dev/null) || _hrl=""
+  _hrt=$(printf '%s\n' "$_hrl" | while IFS= read -r _l; do
+      [ -n "$_l" ] || continue
+      _s=$(printf '%s' "$_l" | awk '{print $3}')
+      case "$_l" in *aidev-docs) _s=$(hr_docs_tree "$_s") ;; esac
+      printf '%s\n' "$_s"
+    done)
   [ -n "$_hrt" ] || { printf 'unknown'; return 0; }
+  case "$_hrt" in *unknown*) printf 'unknown'; return 0 ;; esac
   r=$(printf '%s\n' "$_hrt" | git hash-object --stdin 2>/dev/null | cut -c1-12 || true)
   [ -n "$r" ] || r=unknown
   printf '%s' "$r"

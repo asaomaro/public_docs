@@ -96,3 +96,17 @@ jobs:
             echo "::error::skip=$skip（未検証の穴が残っています。処理系が揃っているか確認してください）"
             exit 1
           fi
+
+      # Sodashitsu のプラグインアプリ（aidev-docs/soda-plugin）の単体テスト。
+      # Node 標準ライブラリだけで書いてあり、OS 差の検証は要らないので ubuntu でだけ流す
+      # （sodactl が PATH に無いので、pack の確認は skip になる。それ以外は偽の sodactl・偽のホストで走る）
+      - name: Node を用意する（プラグイン用）
+        if: matrix.os == 'ubuntu-latest' && matrix.ps_host == 'pwsh'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: プラグインの単体テスト（node --test）
+        if: matrix.os == 'ubuntu-latest' && matrix.ps_host == 'pwsh'
+        working-directory: docs/ClaudeCode/skills/aidev/aidev-docs/soda-plugin
+        run: node --test

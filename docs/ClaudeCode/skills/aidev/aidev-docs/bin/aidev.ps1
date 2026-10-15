@@ -347,6 +347,90 @@ function AppendEvent($work,$phase,$event,$kvs) {
 # sh の dirname は '/' を返し続けるので落ちない。取れなければ空にして HarnessRev を unknown に倒す
 $script:HARNESS = try { Split-Path -Parent (Split-Path -Parent $PSScriptRoot) } catch { '' }   # <skills>/aidev-docs/bin -> <skills>
 
+# 診断（AIDEV_DEBUG_HARNESS_REV=1 のときだけ stderr に出す。CI の winps で harness_rev が unknown になる原因の特定用）
+function HrDbg($m) { if ($env:AIDEV_DEBUG_HARNESS_REV) { [Console]::Error.WriteLine("[harness_rev] $m") } }
+function HrGit {
+  if (-not $env:AIDEV_DEBUG_HARNESS_REV) { return (GitQ @args) }
+  $old = $ErrorActionPreference
+  $ErrorActionPreference = 'SilentlyContinue'
+  try { $o = @(& git @args 2>&1) } finally { $ErrorActionPreference = $old }
+  HrDbg ("git " + ($args -join ' ') + " => exit=" + $LASTEXITCODE + " out=[" + (($o | ForEach-Object { [string]$_ }) -join ' | ') + "]")
+  return @($o | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] })
+}
+
+# harness_rev の一時ファイル（一時 index・hash-object の入力）の置き場。
+# TMP/TEMP が利用者の環境で壊れていても動くよう、存在が保証される .git の下を先に使い、
+# だめなら GetTempPath()・$env:TEMP・$env:LOCALAPPDATA\Temp の順で、実在して書ける最初のフォルダに落とす。
+function HrScratchDir() {
+  $cands = @()
+  try {
+    $g = @(GitQ -C $script:HARNESS rev-parse --absolute-git-dir | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ })
+    if ($g.Count -ge 1) { $cands += $g[0] }
+  } catch { }
+  try { $cands += [System.IO.Path]::GetTempPath() } catch { }
+  $cands += @($env:TEMP, $env:TMP, $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'Temp' }))
+  foreach ($c in $cands) {
+    if (-not $c) { continue }
+    try {
+      if (-not (Test-Path -LiteralPath $c -PathType Container)) { HrDbg ('置き場の候補が無い: [' + $c + ']'); continue }
+      $probe = Join-Path $c ('aidev-probe-' + [guid]::NewGuid().ToString('N'))
+      [System.IO.File]::WriteAllText($probe, 'x')
+      Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
+      HrDbg ('置き場=' + $c + ' (TMP=' + $env:TMP + ' TEMP=' + $env:TEMP + ' GetTempPath=' + [System.IO.Path]::GetTempPath() + ')')
+      return $c
+    } catch { HrDbg ('置き場の候補に書けない: [' + $c + '] ' + $_) }
+  }
+  return $null
+}
+
+# aidev-docs の tree から soda-plugin を除いた tree の sha（sh 版 hr_docs_tree と同じ）。無い・組み直せないときは元のまま。
+function HrDocsTree($sha) {
+  try {
+    $entries = @(HrGit -C $script:HARNESS ls-tree --full-tree $sha)
+    HrDbg ('HrDocsTree sha=' + $sha + ' entries=' + $entries.Count + ' idx env=' + $env:GIT_INDEX_FILE)
+    if ($entries.Count -eq 0) { return 'unknown' }   # tree には必ず項目がある。読めなければ unknown（sh 版と同じ）
+    if (-not ($entries | Where-Object { ($_ -split "`t", 2)[1] -eq 'soda-plugin' })) { return $sha }
+    $kept = @($entries | Where-Object { ($_ -split "`t", 2)[1] -ne 'soda-plugin' })
+    # `git mktree` へ stdin で渡す方式は、Windows PowerShell 5.1 で組み直しに失敗した（CI の winps）。
+    # stdin を使わず、一時 index に「残す項目」を積んで write-tree する（結果の tree は mktree と同じ）。
+    # tree の項目は read-tree --prefix、blob・submodule は update-index --cacheinfo（どちらも index の根からの相対）。
+    HrDbg ('kept=' + ($kept -join ' ; '))
+    $scratch = HrScratchDir
+    if (-not $scratch) { HrDbg '一時の置き場が無い'; return 'unknown' }
+    $idx = Join-Path $scratch ('aidev-idx-' + [guid]::NewGuid().ToString('N'))
+    $oldIdx = $env:GIT_INDEX_FILE
+    try {
+      $env:GIT_INDEX_FILE = $idx
+      $infos = @()
+      foreach ($e in $kept) {
+        $m = [regex]::Match([string]$e, '^(\d+) (\w+) ([0-9a-f]{40,64})\t(.+)$')
+        if (-not $m.Success) { HrDbg ('行を解釈できません: [' + $e + ']') }
+        if (-not $m.Success -or $m.Groups[4].Value.StartsWith('"')) { return 'unknown' }
+        $mode = $m.Groups[1].Value; $type = $m.Groups[2].Value; $o = $m.Groups[3].Value; $name = $m.Groups[4].Value
+        if ($type -eq 'tree') {
+          HrGit -C $script:HARNESS read-tree "--prefix=$name/" $o | Out-Null
+          if ($LASTEXITCODE -ne 0) { return 'unknown' }
+        } else {
+          $infos += @('--cacheinfo', ('{0},{1},{2}' -f $mode, $o, $name))
+        }
+      }
+      if ($infos.Count -gt 0) {
+        HrGit -C $script:HARNESS update-index --add @infos | Out-Null
+        if ($LASTEXITCODE -ne 0) { return 'unknown' }
+      }
+      # 終了コードと Select-Object -First には頼らない（5.1 でパイプを途中で切ると $LASTEXITCODE が当てにならない）。出力の形で判定する
+      $wt = @(HrGit -C $script:HARNESS write-tree | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ -match '^[0-9a-f]{40,64}$' })
+      HrDbg ('write-tree => ' + ($wt -join ','))
+      if ($wt.Count -ge 1) { return $wt[0] }
+    } finally {
+      $env:GIT_INDEX_FILE = $oldIdx
+      Remove-Item -LiteralPath $idx -Force -ErrorAction SilentlyContinue
+    }
+    # 組み直せなかったら unknown（除外前の tree を返すと、その環境だけ版が別の値になり、同じ版の仲間から黙って割れる。sh 版と同じ）
+    return 'unknown'
+  } catch { HrDbg ('HrDocsTree 例外: ' + $_); return 'unknown' }
+}
+
 function HarnessRev() {
   if (-not $script:HARNESS) { return 'unknown' }
   if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return 'unknown' }
@@ -356,20 +440,30 @@ function HarnessRev() {
   try {
     $paths = @(Get-ChildItem -LiteralPath $script:HARNESS -Directory -Filter 'aidev-*' -ErrorAction SilentlyContinue |
                ForEach-Object { $_.FullName })
+    HrDbg ('HARNESS=' + $script:HARNESS + ' paths=' + ($paths -join ' ; '))
     if ($paths.Count -eq 0) { return 'unknown' }
     # 版の実体は内容の tree hash（コミット SHA だと squash / rebase で同一内容が別版に割れる。sh 版と同じ）
-    $trees = @(GitQ -C $script:HARNESS ls-tree -d HEAD -- @paths 2>$null | ForEach-Object { ($_ -split '\s+')[2] })
-    if ($trees.Count -eq 0) { return 'unknown' }
+    # aidev-docs の中の soda-plugin は版に入れない（sh 版と同じ。Sodashitsu のアプリで、ハーネスの挙動ではない）。
+    # soda-plugin を除いた tree を組み直す（無い PJ では従来と同じ値のまま）
+    $trees = @(GitQ -C $script:HARNESS ls-tree -d HEAD -- @paths 2>$null | ForEach-Object {
+      $sha = ($_ -split '\s+')[2]
+      if ($_ -match 'aidev-docs$') { HrDocsTree $sha } else { $sha }
+    })
+    HrDbg ('trees=' + ($trees -join ' ; '))
+    if ($trees.Count -eq 0 -or ($trees -contains 'unknown')) { return 'unknown' }
     # stdin パイプは使わない: PowerShell は native コマンドへ渡すとき自分で改行を足し、しかも
     # Windows では CRLF になるので sh 版（LF）と別のハッシュになる。LF 固定の一時ファイルで渡す
-    $tmp = [System.IO.Path]::GetTempFileName()
+    $scratch = HrScratchDir
+    if (-not $scratch) { HrDbg '一時の置き場が無い'; return 'unknown' }
+    $tmp = Join-Path $scratch ('aidev-hr-' + [guid]::NewGuid().ToString('N'))
     try {
       [System.IO.File]::WriteAllText($tmp, (($trees -join "`n") + "`n"), $script:Utf8)
-      $r = (GitQ hash-object -- $tmp 2>$null | Select-Object -First 1)
+      $r = (HrGit hash-object -- $tmp | Select-Object -First 1)
+      HrDbg ('hash-object => [' + $r + '] tmp=' + $tmp)
     } finally { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
     if ([string]::IsNullOrWhiteSpace($r)) { return 'unknown' }
     return $r.Trim().Substring(0, 12)
-  } catch { return 'unknown' }
+  } catch { HrDbg ('HarnessRev 例外: ' + $_); return 'unknown' }
 }
 
 # 空 blob のハッシュ（git の定数）。sh 版に「ls-tree が空でも hash-object が空 blob を返す」

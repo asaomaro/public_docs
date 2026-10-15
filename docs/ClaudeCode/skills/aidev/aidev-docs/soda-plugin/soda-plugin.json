@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "aidev",
+  "version": "0.1.0",
+  "name": "aidev",
+  "description": "aidev（SDD ハーネス）の作業の進捗を見て、監督・担当の Claude Code エージェントを動かす",
+  "entry": "extension.mjs",
+  "files": [
+    "extension.mjs",
+    "aidev-data.mjs",
+    "agents.mjs",
+    "prompts.mjs",
+    "operations.mjs",
+    "ui.mjs",
+    "README.md"
+  ],
+  "allow": ["script-html"],
+  "tabView": { "title": "aidev", "display": "aidev", "terminalDisplay": "aidev-terminal" },
+  "views": [
+    {
+      "id": "progress",
+      "title": "aidev の進捗",
+      "targets": ["tab"],
+      "placements": ["band-bottom", "band-top", "right", "left", "float"],
+      "terminal": { "format": "markdown" }
+    }
+  ]
+}
