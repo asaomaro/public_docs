@@ -1645,7 +1645,7 @@ if command -v git >/dev/null 2>&1; then
   # git mktree が失敗する環境（読み取り専用・古い git）では、除外前の tree を黙って使わず unknown にする
   # （使うと、その環境だけ版が別の値になり、同じ版の仲間から割れる）
   SHIM=$(mktemp -d)
-  printf '#!/bin/sh\ncase "$*" in *mktree*) exit 1 ;; esac\nexec "%s" "$@"\n' "$(command -v git)" > "$SHIM/git"
+  printf '#!/bin/sh\ncase "$*" in *mktree*|*write-tree*) exit 1 ;; esac\nexec "%s" "$@"\n' "$(command -v git)" > "$SHIM/git"
   chmod +x "$SHIM/git"
   GR11=$( ( cd "$GRR/w" && PATH="$SHIM:$PATH" "$GRR/skills/aidev-docs/bin/aidev" new g11 >/dev/null 2>&1; \
             sed -n 's/^harnessRev: //p' "$GRR/w/.aidev/works/"*g11/state.yml ) )

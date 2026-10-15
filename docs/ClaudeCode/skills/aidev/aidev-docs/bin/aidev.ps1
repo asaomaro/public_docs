@@ -354,22 +354,35 @@ function HrDocsTree($sha) {
     if ($entries.Count -eq 0) { return 'unknown' }   # tree には必ず項目がある。読めなければ unknown（sh 版と同じ）
     if (-not ($entries | Where-Object { ($_ -split "`t", 2)[1] -eq 'soda-plugin' })) { return $sha }
     $kept = @($entries | Where-Object { ($_ -split "`t", 2)[1] -ne 'soda-plugin' })
-    # stdin は LF 固定で渡す（PowerShell のパイプは CRLF になりうる。sh 版と同じ値にするため）
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = 'git'
-    $psi.Arguments = 'mktree'
-    $psi.WorkingDirectory = $script:HARNESS
-    $psi.RedirectStandardInput = $true
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError = $true
-    $psi.UseShellExecute = $false
-    $proc = [System.Diagnostics.Process]::Start($psi)
-    $bytes = $script:Utf8.GetBytes((($kept -join "`n") + "`n"))
-    $proc.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length)
-    $proc.StandardInput.Close()
-    $out = $proc.StandardOutput.ReadToEnd().Trim()
-    $proc.WaitForExit()
-    if ($proc.ExitCode -eq 0 -and $out -match '^[0-9a-f]{40,64}$') { return $out }
+    # `git mktree` へ stdin で渡す方式は、Windows PowerShell 5.1 で組み直しに失敗した（CI の winps）。
+    # stdin を使わず、一時 index に「残す項目」を積んで write-tree する（結果の tree は mktree と同じ）。
+    # tree の項目は read-tree --prefix、blob・submodule は update-index --cacheinfo（どちらも index の根からの相対）。
+    $idx = Join-Path ([System.IO.Path]::GetTempPath()) ('aidev-idx-' + [guid]::NewGuid().ToString('N'))
+    $oldIdx = $env:GIT_INDEX_FILE
+    try {
+      $env:GIT_INDEX_FILE = $idx
+      $infos = @()
+      foreach ($e in $kept) {
+        $m = [regex]::Match([string]$e, '^(\d+) (\w+) ([0-9a-f]{40,64})\t(.+)$')
+        if (-not $m.Success) { return 'unknown' }
+        $mode = $m.Groups[1].Value; $type = $m.Groups[2].Value; $o = $m.Groups[3].Value; $name = $m.Groups[4].Value
+        if ($type -eq 'tree') {
+          GitQ -C $script:HARNESS read-tree "--prefix=$name/" $o | Out-Null
+          if ($LASTEXITCODE -ne 0) { return 'unknown' }
+        } else {
+          $infos += @('--cacheinfo', ('{0},{1},{2}' -f $mode, $o, $name))
+        }
+      }
+      if ($infos.Count -gt 0) {
+        GitQ -C $script:HARNESS update-index --add @infos | Out-Null
+        if ($LASTEXITCODE -ne 0) { return 'unknown' }
+      }
+      $out = (GitQ -C $script:HARNESS write-tree | Select-Object -First 1)
+      if ($LASTEXITCODE -eq 0 -and $out -and ([string]$out).Trim() -match '^[0-9a-f]{40,64}$') { return ([string]$out).Trim() }
+    } finally {
+      $env:GIT_INDEX_FILE = $oldIdx
+      Remove-Item -LiteralPath $idx -Force -ErrorAction SilentlyContinue
+    }
     # 組み直せなかったら unknown（除外前の tree を返すと、その環境だけ版が別の値になり、同じ版の仲間から黙って割れる。sh 版と同じ）
     return 'unknown'
   } catch { return 'unknown' }
