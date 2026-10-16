@@ -3,7 +3,7 @@
 PJ の `.aidev/` を読み、aidev（SDD ハーネス）による開発を、Sodashitsu の**アプリ画面**で見て・動かす plugin アプリ。
 
 - **見る**: 作業（`.aidev/works/*`）の一覧・進捗・詳細（工程・tasks・文書・events）と、backlog。
-- **動かす**: アプリにつき 1 つの**監督エージェント**（Claude Code または Codex）を起動し、アプリから指示を出す。各作業は別の**担当エージェント**が受け持ち、監督と連携する。種類は監督と担当で別々に選べる。
+- **動かす**: アプリにつき 1 つの**監督エージェント**（Claude Code・Codex・Copilot CLI・Bob Shell のどれか）を起動し、アプリから指示を出す。各作業は別の**担当エージェント**が受け持ち、監督と連携する。種類は監督と担当で別々に選べる。
 - **続ける**: 監督・担当の**セッション ID を記憶**し、止まっても同じ会話で**再開**できる。
 - **呼べる**: アプリの操作は `sodactl plugin call aidev <操作>` でも呼べる（監督・担当のエージェントもこれを使う）。
 
@@ -49,7 +49,13 @@ PJ に導入したときは、設定の「拡張」で**プロジェクトの拡
    以後は、その担当用のタブの空き pane を使い、無ければそのタブを分けるので、タブは増えない（移るのは最初の 1 回だけ）。
    担当が一区切りつくと、トリガの線が監督へ知らせる。担当は `worker-report` で進捗・質問・失敗を報告する。
    担当の端末は、作業の詳細に常設される（直接操作できる）。
-   - **種類（claude / codex）とモデル**は、監督・担当の起動ごとに画面から指定できる（空なら設定の既定）。
+   - **種類（claude / codex / copilot / bob）とモデル**は、監督・担当の起動ごとに画面から指定できる（空なら設定の既定）。
+   - **選べる種類は、Sodashitsu の設定「エージェント連携」で導入済みのものだけ**（`sodactl agent integrations --json` の `installed: true`。
+     `needsUpdate` は選べるが、画面に「更新が必要」と出す）。画面の選択肢（起動・設定）は導入済みだけで、設定が指す種類が後で未導入になったときは「（未導入）」の無効な項目で残す。
+     設定（`supervisorKind`・`workerKind`）に未導入の種類を**保存しようとすると断る**（保存済みと同じ値の送り直しは通す）。
+     保存済みの設定が未導入の種類を指していて**新しく起動する**ときは、「設定の『エージェント連携』で X を導入してください」と断る（自動起動もログに同じ理由が出る）。
+     **既にある会話の再開は断らず、そのまま試す**。この操作を知らない古いサーバ（終了コード非 0）では、従来どおり claude・codex だけ選べる（copilot・bob は出ない）。
+     選べる種類は CLI の `agents-list` の `kinds`（`available`・`legacy`・`details`）でも読める（5 秒だけ覚える）。
    - **関連するエージェント**: 担当が自分の pane から `sodactl` で起こした別のエージェントは、グラフの線（監督・承認の代理）で担当に連なるので、
      作業の詳細に並び、端末の表示・指示ができる（孫まで）。線が無い pane は、担当が先に
      `sodactl graph link add <pane> <担当の pane> --kind supervise` で結んでから、`work-agent-register` で登録する
@@ -79,10 +85,10 @@ PJ に導入したときは、設定の「拡張」で**プロジェクトの拡
 | `work-get` | `{slug}` | 詳細（state・工程・tasks・文書の一覧・events・担当） |
 | `work-doc` | `{slug,name}` | 文書の本文（作業フォルダ直下の `*.md`。512 KiB で切る） |
 | `backlog-list` | `{}` | backlog の要約（ファイルごとの未着手の数と先頭 50 件） |
-| `agents-list` | `{}` | 監督・担当（セッション ID・状態・pane）と設定 |
+| `agents-list` | `{}` | 監督・担当（セッション ID・状態・pane）と設定、選べる種類 `kinds`（`available`＝導入済み・`legacy`＝古いサーバで claude・codex だけ・`details`＝種類ごとの `installed`・`needsUpdate`・`cliDetected`） |
 | `supervisor-start` / `supervisor-resume` | `{kind?,model?,fresh?}` / `{}` | 監督の起動（動いていれば仕上げが残っていれば仕上げだけ）／同じ会話での再開。`fresh:true` は再開できる会話があっても新しい会話で始める |
 | `supervisor-prompt` | `{text}` | 監督へ指示 |
-| `worker-start` | `{slug,instruction?,kind?,model?,fresh?}` | 担当の起動（アプリのタブの pane。監督が動いていること）。`kind` は `claude`・`codex` |
+| `worker-start` | `{slug,instruction?,kind?,model?,fresh?}` | 担当の起動（アプリのタブの pane。監督が動いていること）。`kind` は `claude`・`codex`・`copilot`・`bob`（導入済みのものだけ） |
 | `worker-resume` | `{slug}` | 担当の再開 |
 | `worker-prompt` | `{slug,text}` | 担当へ指示 |
 | `worker-report` | `{slug,status,message}` | 担当からの報告（`progress`・`done`・`question`・`blocked`・`failed`）。`question`・`failed`・`blocked` は監督へも中継 |
@@ -113,13 +119,24 @@ sodactl plugin call aidev report --tab <タブ> --params '{"message":"design の
 | ファイル | 内容 |
 |---|---|
 | `agents.json` | 監督と担当のセッション ID・名前・pane・状態・最後の報告・仕上げの印（`pending`: 役割／再開の知らせ／線のうち未送信のもの）・以前の会話（`previousSessions`）、ログ（300 件・1 件 8 KiB まで）。原子的に書く |
-| `settings.json` | 監督・担当の種類（`claude`・`codex`）、モデル（空なら指定しない）、Claude の権限のモード（`default`・`acceptEdits`・`auto`・`plan`）、Codex の権限（`read-only`・`workspace-write`・`workspace-write-never`）、自動起動 |
+| `settings.json` | 監督・担当の種類（`claude`・`codex`・`copilot`・`bob`）、モデル（空なら指定しない）、Claude の権限のモード（`default`・`acceptEdits`・`auto`・`plan`）、Codex の権限（`read-only`・`workspace-write`・`workspace-write-never`）、自動起動 |
 | `prompts/` | 監督・担当に渡した役割の文面（長い文面は端末へ貼らず、ここを読ませる） |
 
 セッション ID は、Claude Code では**プラグインが先に決める**（UUID）。`--session-id <UUID>` で起動し、再開は `--resume <UUID>`。
 Codex は ID を先に決められないので、**初回はそのまま起動し、起動後に Sodashitsu が pane に記録した会話 ID（`agentSession`）を台帳へ取り込む**
 （種類・名前が一致するものだけ。約 8 秒ごと）。取り込めるまでは「会話 ID 未取得」と表示し、再開はできない。再開は `codex resume <ID> -C <PJ>`。
 再開は、設定が後で変わっても、台帳に記録した種類で行う。
+
+| 種類 | 実行ファイル | 初回 | 再開 | 会話 ID の書式 |
+|---|---|---|---|---|
+| `claude` | `claude` | `--session-id <UUID>`（`--model`・`--permission-mode`） | `--resume <UUID>` | UUID |
+| `codex` | `codex` | 指定なし（`-C <PJ>`・`-m`・権限の組）。起動後に取り込む | `codex resume <ID> -C <PJ>` | UUID |
+| `copilot` | `copilot` | ID なし（`--model <m>`）。起動後に `agentSession` から取り込む | `--resume=<ID>`（モデルがあれば `--model`） | UUID |
+| `bob` | `bob` | 引数なし。起動後に取り込む | `--resume <ID>` | **32 桁の 16 進**（UUID ではない） |
+
+会話 ID の検査は種類ごとに替える（安全な文字だけ・長さ固定。Bob に UUID 形式は取り込まない）。Copilot・Bob の引数は Sodashitsu の `resumeCommand.ts` と合わせている。
+**権限の指定（Claude の権限のモード・Codex の権限）は Copilot・Bob には付けない**（付け方が確かでないため。設定に値があっても渡さない）。
+Copilot の `--model` は `copilot --help` で確かめたもの。**Bob はモデルの指定の付け方を確かめられていないため付けない**（設定のモデルは Bob では使われない）。
 エージェントの名前は `aidev-sup-<PJ の短いハッシュ>`（監督）・`aidev-w-<ハッシュ>-<slug>-<ハッシュ>`（担当）。
 
 ## 安全
@@ -135,7 +152,8 @@ Codex は ID を先に決められないので、**初回はそのまま起動�
 
 ## 限界
 
-- エージェントは **Claude Code と Codex**。Codex は会話 ID の取り込み前（起動直後〜最初の入力まで）に止まると再開できず、起動し直しになる。権限は固定の組だけ（任意の引数は渡せない）。
+- エージェントは **Claude Code・Codex・Copilot CLI・Bob Shell**（導入済みのものだけ）。Codex・Copilot・Bob は会話 ID の取り込み前（起動直後〜最初の入力まで）に止まると再開できず、起動し直しになる。権限は固定の組だけ（任意の引数は渡せない）で、Copilot・Bob には権限の指定を付けない。Bob にはモデルの指定も付けない。
+- 導入済みの判定は `sodactl agent integrations` の結果に頼る。呼べない・読めないときは古いサーバとみなして claude・codex だけにする（ログインが切れているときも同じ。この場合 copilot・bob は一時的に選べない）。
 - **`sodactl` のログインが要る**。サーバと同じ OS 利用者で `sodactl login` していないと、起動・指示は失敗し、画面のログに理由が出る。
 - `.aidev/` は書き換えない。aidev の状態は工程スキルと CLI だけが更新する。
 - **自動の再試行はしない**（作成・起動の操作の重複を避ける）。同じ起動が走っている間の 2 回目は「実行中」で断る。

@@ -10,7 +10,8 @@ const uuids = () => { let n = 0; return () => `00000000-0000-4000-8000-${String(
 const sodaErr = (code, message) => new ag.SodaError(code, message);
 
 /** sodactl の代役。呼び出しを記録し、コマンドごとに返す値を決める。 */
-function fakeSoda({ onCall } = {}) {
+const ALL_INSTALLED = { autoResumeEnabled: true, agents: Object.fromEntries(['claude', 'codex', 'copilot', 'bob'].map((k) => [k, { cliDetected: true, installed: true }])) };
+function fakeSoda({ onCall, integrations = ALL_INSTALLED } = {}) {
   const calls = [];
   const agentsByPane = new Map(); // paneId -> { name, kind, tabId, instanceId }
   const known = [{ id: 'term-1', tabId: 'tab-app' }, { id: 'anchor', tabId: 'tab-app', virtual: true }];
@@ -44,6 +45,10 @@ function fakeSoda({ onCall } = {}) {
       }
       case 'agent rename': { const a = agentsByPane.get(args[2]); a.name = args[3]; return { agent: { paneId: args[2], ...a } }; }
       case 'agent prompt': return { agent: {} };
+      case 'agent integrations': {
+        if (integrations === 'unsupported') throw new ag.SodaError('not_found', 'このサーバは agent integrations に対応していません');
+        return integrations;
+      }
       case 'graph link': return { link: { id: 'link' } };
       default: throw new Error(`想定外: ${args.join(' ')}`);
     }
@@ -1201,4 +1206,136 @@ test('完了の終了: 設定で止められる・done 以外の報告で取り�
     await agents.reportWorker(root, ctx, { slug: 'w2', status: 'question', message: '?' });
     assert.equal((await ag.readLedger(root)).workers.w2.doneAt, '');
   } finally { await t0.cleanup(); }
+});
+
+// ---- 種類の制限（導入済みだけ）・Copilot CLI・Bob Shell ------------------------------------------------
+
+const BOB_ID = '0123456789abcdef0123456789abcdef';
+const integ = (map) => ({ autoResumeEnabled: true, agents: Object.fromEntries(Object.entries(map).map(([k, v]) => [k, { cliDetected: true, ...v }])) });
+const sessionPane = (kind, started, id) => ({ panes: [{ id: started[started.indexOf('--pane') + 1], tabId: 'tab-app', virtual: false, agent: { kind, name: started[0], instanceId: 'inst-1' }, agentSession: { kind, sessionId: id } }] });
+
+test('選べる種類: integrations の installed だけ。needsUpdate は選べて印が付く', async () => {
+  const s = await setup({ integrations: integ({ claude: { installed: true }, codex: { installed: false }, copilot: { installed: true, needsUpdate: true }, bob: { installed: false } }) });
+  try {
+    const k = await s.agents.availableKinds(s.root);
+    assert.deepEqual(k.available, ['claude', 'copilot']);
+    assert.equal(k.legacy, false);
+    assert.equal(k.details.copilot.needsUpdate, true);
+    assert.deepEqual((await s.agents.overview(s.root, s.panes)).kinds.available, ['claude', 'copilot']);
+  } finally { await s.cleanup(); }
+});
+
+test('選べる種類: 古いサーバ（integrations を知らない）は claude・codex だけ', async () => {
+  const s = await setup({ integrations: 'unsupported' });
+  try {
+    const k = await s.agents.availableKinds(s.root);
+    assert.deepEqual(k.available, ['claude', 'codex']);
+    assert.equal(k.legacy, true);
+    await assert.rejects(s.agents.startSupervisor(s.root, s.ctx, { kind: 'copilot' }), /導入/);
+    assert.equal((await s.agents.startSupervisor(s.root, s.ctx, { kind: 'codex' })).status, 'started');
+  } finally { await s.cleanup(); }
+});
+
+test('設定の保存: 未導入の種類は断る。保存済みと同じ値なら通す', async () => {
+  const s = await setup({ integrations: integ({ claude: { installed: true }, codex: { installed: false }, copilot: { installed: true }, bob: { installed: false } }) });
+  try {
+    const kinds = s.agents.availableKinds;
+    await assert.rejects(ag.saveSettings(s.root, { workerKind: 'bob' }, { kinds }), /「エージェント連携」で Bob Shell を導入/);
+    await assert.rejects(ag.saveSettings(s.root, { supervisorKind: 'codex' }, { kinds }), /Codex/);
+    assert.equal((await ag.saveSettings(s.root, { workerKind: 'copilot' }, { kinds })).workerKind, 'copilot');
+    await assert.rejects(ag.saveSettings(s.root, { workerKind: 'gemini' }, { kinds }), /のどれか/);
+    // 保存済みの設定が、後で未導入になっても、同じ値の送り直しは断らない
+    await ag.saveSettings(s.root, { supervisorKind: 'codex' });
+    assert.equal((await ag.saveSettings(s.root, { supervisorKind: 'codex', supervisorModel: 'm' }, { kinds })).supervisorModel, 'm');
+  } finally { await s.cleanup(); }
+});
+
+test('新規起動: 設定が未導入の種類を指していれば分かる誤りで断り、起動しない', async () => {
+  const s = await setup({ integrations: integ({ claude: { installed: true }, codex: { installed: false }, copilot: { installed: false }, bob: { installed: false } }) });
+  try {
+    await ag.saveSettings(s.root, { supervisorKind: 'copilot' });
+    await assert.rejects(s.agents.startSupervisor(s.root, s.ctx, {}), /「エージェント連携」で Copilot CLI を導入してください/);
+    assert.equal(s.fake.of('agent', 'start').length, 0);
+    await assert.rejects(s.agents.autoStart(s.root, s.ctx), /Copilot CLI/);
+    await s.agents.startSupervisor(s.root, s.ctx, { kind: 'claude' });
+    aliveAgent(s.panes, 'term-1');
+    await assert.rejects(s.agents.startWorker(s.root, s.ctx, { slug: 'w1', kind: 'bob' }), /Bob Shell/);
+    assert.equal(s.fake.of('agent', 'start').length, 1, '監督（claude）だけ');
+  } finally { await s.cleanup(); }
+});
+
+test('Copilot CLI: 初回は ID なし（モデルは --model）・取り込み後の再開は --resume=<ID>。未導入になっても再開は試す', async () => {
+  let started, installed = true, report = false;
+  const s = await setup({
+    onCall: (args) => {
+      if (args[0] === 'agent' && args[1] === 'integrations') return integ({ claude: { installed: true }, copilot: { installed } });
+      if (args[0] === 'agent' && args[1] === 'start') started = args.slice(2);
+      if (args[0] === 'snapshot' && started && report) return sessionPane('copilot', started, CODEX_ID);
+    },
+  });
+  try {
+    await ag.saveSettings(s.root, { supervisorKind: 'copilot', supervisorModel: 'gpt-5', codexPermission: 'workspace-write', permissionMode: 'plan' });
+    assert.equal((await s.agents.startSupervisor(s.root, s.ctx, {})).status, 'started');
+    assert.deepEqual(started.slice(started.indexOf('--kind'), started.indexOf('--kind') + 2), ['--kind', 'copilot']);
+    assert.deepEqual(started.slice(started.indexOf('--') + 1), ['--model', 'gpt-5'], '権限の指定は付けない');
+    assert.equal((await ag.readLedger(s.root)).supervisor.sessionId, '', '先には決められない');
+    assert.equal((await s.agents.overview(s.root, s.panes)).supervisor.sessionPending, true);
+    report = true;
+    assert.equal(await s.agents.captureSessions(s.root), 1);
+    assert.equal((await ag.readLedger(s.root)).supervisor.sessionId, CODEX_ID);
+    // 止めて、未導入になってから再開する
+    s.fake.known.splice(0, s.fake.known.length, { id: 'term-1', tabId: 'tab-app' }, { id: 'anchor', tabId: 'tab-app', virtual: true });
+    installed = false; started = undefined;
+    const again = await s.agents.resumeSupervisor(s.root, { ...s.ctx, panes: basePanes() });
+    assert.equal(again.status, 'resumed');
+    assert.deepEqual(started.slice(started.indexOf('--') + 1), [`--resume=${CODEX_ID}`, '--model', 'gpt-5']);
+  } finally { await s.cleanup(); }
+});
+
+test('Bob Shell: 初回は引数なし・32 桁の 16 進の ID を取り込み、再開は --resume <ID>。UUID は取り込まない', async () => {
+  let started, id = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+  const s = await setup({
+    onCall: (args) => {
+      if (args[0] === 'agent' && args[1] === 'start') started = args.slice(2);
+      if (args[0] === 'snapshot' && started) return sessionPane('bob', started, id);
+    },
+  });
+  try {
+    await ag.saveSettings(s.root, { workerKind: 'bob', workerModel: 'm1', codexPermission: 'read-only', permissionMode: 'plan' });
+    await s.agents.startSupervisor(s.root, s.ctx, {});
+    aliveAgent(s.panes, 'term-1');
+    started = undefined;
+    await s.agents.startWorker(s.root, s.ctx, { slug: 'w1' });
+    assert.deepEqual(started.slice(started.indexOf('--kind'), started.indexOf('--kind') + 2), ['--kind', 'bob']);
+    assert.deepEqual(started.slice(started.indexOf('--') + 1), [], 'モデル・権限は付けない');
+    assert.equal(await s.agents.captureSessions(s.root), 0, 'UUID 形式は Bob の ID ではない');
+    id = BOB_ID;
+    assert.equal(await s.agents.captureSessions(s.root), 1);
+    assert.equal((await ag.readLedger(s.root)).workers.w1.sessionId, BOB_ID);
+    s.fake.known.splice(0, s.fake.known.length, { id: 'term-1', tabId: 'tab-app' }, { id: 'anchor', tabId: 'tab-app', virtual: true });
+    started = undefined;
+    const panes = basePanes();
+    aliveAgent(panes, 'term-1');
+    const r = await s.agents.resumeWorker(s.root, { ...s.ctx, panes }, { slug: 'w1' });
+    assert.equal(r.status, 'resumed');
+    assert.deepEqual(started.slice(started.indexOf('--') + 1), ['--resume', BOB_ID]);
+  } finally { await s.cleanup(); }
+});
+
+test('会話 ID の検査: 種類ごと（Bob は 32 桁の 16 進。ほかは UUID）', () => {
+  assert.equal(ag.sessionIdOk('bob', BOB_ID), true);
+  assert.equal(ag.sessionIdOk('bob', BOB_ID.toUpperCase()), true);
+  for (const bad of ['', BOB_ID.slice(1), `${BOB_ID}0`, 'g'.repeat(32), '../'.padEnd(32, 'a'), 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', `${BOB_ID}\n`]) assert.equal(ag.sessionIdOk('bob', bad), false, bad);
+  for (const kind of ['claude', 'codex', 'copilot']) {
+    assert.equal(ag.sessionIdOk(kind, CODEX_ID), true);
+    assert.equal(ag.sessionIdOk(kind, BOB_ID), false);
+  }
+  assert.equal(ag.sessionIdOk('gemini', CODEX_ID), false);
+});
+
+test('台帳の読み込み: Bob の 32 桁 ID は残り、不正な ID は捨てる', () => {
+  assert.equal(ag.cleanAgent({ name: 'n', kind: 'bob', sessionId: BOB_ID }, null).sessionId, BOB_ID);
+  assert.equal(ag.cleanAgent({ name: 'n', kind: 'bob', sessionId: CODEX_ID }, null).sessionId, '');
+  assert.equal(ag.cleanAgent({ name: 'n', kind: 'copilot', sessionId: BOB_ID }, null).sessionId, '');
+  assert.equal(ag.cleanAgent({ name: 'n', kind: 'copilot', sessionId: CODEX_ID }, null).sessionId, CODEX_ID);
 });

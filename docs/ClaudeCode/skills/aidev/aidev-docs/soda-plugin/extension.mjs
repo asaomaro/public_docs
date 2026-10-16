@@ -287,7 +287,7 @@ async function onAction(msg) {
           permissionMode: String(data.permissionMode ?? ''), autoStartSupervisor: data.autoStartSupervisor === 'true',
           supervisorKind: String(data.supervisorKind ?? 'claude'), workerKind: String(data.workerKind ?? 'claude'),
           codexPermission: String(data.codexPermission ?? ''), exitOnDone: data.exitOnDone !== 'false',
-        });
+        }, { kinds: agents.availableKinds });
         schedule(true); await notify(pane.id, 'info', '設定を保存しました'); return;
       }
       case 'delegate': { const r = await operations.delegate(ctx, String(data.slug ?? '')); await notify(pane.id, 'info', resultText(r)); schedule(true); return; }

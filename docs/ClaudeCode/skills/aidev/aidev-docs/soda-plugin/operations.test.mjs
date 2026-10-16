@@ -257,3 +257,11 @@ test('画面の値（すべて文字列）の真偽を boolean に直してか�
   assert.deepEqual(fromUi({ text: 'true' }), { text: 'true' }, '他の項目には触れない');
   bad('supervisor-start', { fresh: 'true' }, /fresh/); // CLI（JSON）の経路は、文字列を受けない
 });
+
+test('種類: 4 種を受け付け、agents-list が選べる種類（kinds）を返す', async () => {
+  for (const kind of ['', 'claude', 'codex', 'copilot', 'bob']) assert.equal(validateParams('worker-start', { slug: 'a', kind }).kind, kind);
+  bad('worker-start', { slug: 'a', kind: 'gemini' }, /claude/);
+  const kinds = { legacy: false, available: ['claude', 'bob'], details: {} };
+  const ops = createOperations({ agents: { overview: async () => ({ supervisor: null, workers: [], settings: {}, kinds }) } });
+  assert.deepEqual((await ops.call('agents-list', {}, { root: '/x', panes: [] })).kinds, kinds);
+});
