@@ -40,6 +40,10 @@ change: Sodashitsu の plugin アプリ「aidev」（aidev-docs/soda-plugin/）�
   - more-agents: 監督・担当の種類に Copilot CLI・Bob Shell を足し、Sodashitsu の設定「エージェント連携」で導入済みのものだけに制限した
     （`soda-plugin/` の `agents.mjs`・`operations.mjs`・`ui.mjs`・README。`.aidev/` の読み書きと aidev の規約は変えていない）。
     `node --test` は 110 件通過。`copilot --help` で `--model`・`--resume` を確認。Bob の実機・実サーバでの起動は未実施。
+  - more-agents レビュー修正（PR #155）: claude・codex も導入済みに絞る仕様は利用者の判断でそのまま。`not_found` だけ legacy、それ以外の失敗は
+    `unreadable`＋`reason`／`needsUpdate`・説明文の画面の試験を足した。`node --test` 113 件通過。
+    `copilot --help` を実際に流して確認: `--model <model>  Set the AI model to use (choices: ...)`、`--resume [sessionId]  Resume from a previous session`、
+    例に `copilot --model gpt-5`。
   - 生成する `sodactl` の全コマンドを実物の引数パーサに通して受理を確認／ヘッドレス Chrome で画面スクリプトを実 DOM で動かして確認／
     実際の PJ の `.aidev/`（152 作業）を `aidev status` で読んだ時間の実測／`codex --help` で `-C`・`-m`・`-s`・`-a`・`resume` を確認。
 - **未実施**: 実際の Sodashitsu サーバでの導入・承認・Claude Code／Codex の起動（監督・担当・再開・グラフの線・関連エージェント・

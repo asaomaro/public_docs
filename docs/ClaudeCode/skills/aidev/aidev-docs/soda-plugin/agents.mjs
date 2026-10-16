@@ -361,8 +361,8 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
     return { paneId: made.pane.id, tabId: ctx.tabId };
   }
   /**
-   * 選べる種類。`sodactl agent integrations --json` の `installed: true` だけ（`needsUpdate` は選べるが、画面に出す）。
-   * この操作を知らない古いサーバ・読めないときは、claude・codex だけ（`legacy: true`）。短く覚える。
+   * 選べる種類。`sodactl agent integrations --json` の `installed: true` だけ（claude・codex も含む。`needsUpdate` は選べるが、画面に出す）。
+   * この操作を知らない古いサーバ（`not_found`）は `legacy: true`、それ以外の失敗は `unreadable: true` と `reason`。どちらも（読めないので）claude・codex だけ。短く覚える。
    */
   const kindsMemo = new Map();
   async function availableKinds(root) {
@@ -378,9 +378,12 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
         details[kind] = { installed: a?.installed === true, needsUpdate: a?.needsUpdate === true, cliDetected: a?.cliDetected === true };
       }
       value = { legacy: false, available: AGENT_KINDS.filter((k) => details[k].installed), details };
-    } catch {
+    } catch (e) {
+      // 古いサーバ（操作を知らない = not_found）だけが legacy。ログイン切れ・時間切れなどは「読めなかった」で、理由を添える（どちらも copilot・bob は選べない）
       const details = Object.fromEntries(AGENT_KINDS.map((k) => [k, { installed: LEGACY_KINDS.includes(k), needsUpdate: false, cliDetected: false }]));
-      value = { legacy: true, available: [...LEGACY_KINDS], details };
+      value = e?.code === 'not_found'
+        ? { legacy: true, available: [...LEGACY_KINDS], details }
+        : { legacy: false, unreadable: true, reason: clip(String(e?.message ?? e), 200), available: [...LEGACY_KINDS], details };
     }
     kindsMemo.set(root, { at: now(), value });
     return value;

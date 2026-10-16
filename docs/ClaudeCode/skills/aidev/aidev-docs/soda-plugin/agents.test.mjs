@@ -1214,7 +1214,7 @@ const BOB_ID = '0123456789abcdef0123456789abcdef';
 const integ = (map) => ({ autoResumeEnabled: true, agents: Object.fromEntries(Object.entries(map).map(([k, v]) => [k, { cliDetected: true, ...v }])) });
 const sessionPane = (kind, started, id) => ({ panes: [{ id: started[started.indexOf('--pane') + 1], tabId: 'tab-app', virtual: false, agent: { kind, name: started[0], instanceId: 'inst-1' }, agentSession: { kind, sessionId: id } }] });
 
-test('選べる種類: integrations の installed だけ。needsUpdate は選べて印が付く', async () => {
+test('選べる種類: integrations の installed だけ（claude・codex も含む）。needsUpdate は選べて印が付く', async () => {
   const s = await setup({ integrations: integ({ claude: { installed: true }, codex: { installed: false }, copilot: { installed: true, needsUpdate: true }, bob: { installed: false } }) });
   try {
     const k = await s.agents.availableKinds(s.root);
@@ -1225,14 +1225,28 @@ test('選べる種類: integrations の installed だけ。needsUpdate は選べ
   } finally { await s.cleanup(); }
 });
 
-test('選べる種類: 古いサーバ（integrations を知らない）は claude・codex だけ', async () => {
+test('選べる種類: 古いサーバ（integrations を知らない = not_found）は legacy で claude・codex だけ', async () => {
   const s = await setup({ integrations: 'unsupported' });
   try {
     const k = await s.agents.availableKinds(s.root);
     assert.deepEqual(k.available, ['claude', 'codex']);
     assert.equal(k.legacy, true);
+    assert.equal(k.unreadable, undefined);
     await assert.rejects(s.agents.startSupervisor(s.root, s.ctx, { kind: 'copilot' }), /導入/);
     assert.equal((await s.agents.startSupervisor(s.root, s.ctx, { kind: 'codex' })).status, 'started');
+  } finally { await s.cleanup(); }
+});
+
+test('選べる種類: not_found 以外の失敗は legacy ではなく「読めなかった」（reason 付き）。copilot・bob は選べない', async () => {
+  const s = await setup({ onCall: (args) => { if (args[0] === 'agent' && args[1] === 'integrations') throw new ag.SodaError('unauthorized', 'ログインが要ります'); } });
+  try {
+    const k = await s.agents.availableKinds(s.root);
+    assert.equal(k.legacy, false);
+    assert.equal(k.unreadable, true);
+    assert.match(k.reason, /ログイン/);
+    assert.deepEqual(k.available, ['claude', 'codex']);
+    await assert.rejects(s.agents.startSupervisor(s.root, s.ctx, { kind: 'bob' }), /Bob Shell/);
+    assert.equal((await s.agents.startSupervisor(s.root, s.ctx, { kind: 'claude' })).status, 'started');
   } finally { await s.cleanup(); }
 });
 

@@ -265,11 +265,18 @@ const APP_SCRIPT = String.raw`
     sel.setAttribute('data-kinds', key);
     if (keep) sel.value = keep;
   }
+  function kindsNote(k) {
+    if (!k) return '';
+    if (k.legacy) return '古いサーバのため、選べる種類は Claude Code と Codex だけです。';
+    if (k.unreadable) return '導入状況を読めませんでした（' + (k.reason || '理由不明') + '）。Claude Code と Codex だけ選べます。';
+    var extra = (k.available || []).filter(function (x) { return x !== 'claude' && x !== 'codex'; });
+    return extra.length ? 'Claude Code・Codex に加えて、Sodashitsu の設定「エージェント連携」で導入済みの種類が選べます。'
+      : '導入済みの追加の種類がありません（Copilot CLI・Bob Shell は、設定「エージェント連携」で導入すると選べます）。';
+  }
   function renderKinds(st) {
     fillKinds($('sup-kind'), st, true, ''); fillKinds($('w-kind'), st, true, '');
     fillKinds($('s-supkind'), st, false, st.settings.supervisorKind || 'claude'); fillKinds($('s-wkind'), st, false, st.settings.workerKind || 'claude');
-    var legacy = st.kinds && st.kinds.legacy;
-    $('kinds-note').textContent = legacy ? '古いサーバのため、選べる種類は Claude Code と Codex だけです。' : '選べる種類は、Sodashitsu の設定「エージェント連携」で導入済みのものだけです。';
+    $('kinds-note').textContent = kindsNote(st.kinds);
   }
   function agentBlock(a, label) {
     var box = h('div', null, []);
