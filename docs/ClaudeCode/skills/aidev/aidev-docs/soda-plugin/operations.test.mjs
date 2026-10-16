@@ -257,3 +257,45 @@ test('画面の値（すべて文字列）の真偽を boolean に直してか�
   assert.deepEqual(fromUi({ text: 'true' }), { text: 'true' }, '他の項目には触れない');
   bad('supervisor-start', { fresh: 'true' }, /fresh/); // CLI（JSON）の経路は、文字列を受けない
 });
+
+test('種類: 4 種を受け付け、agents-list が選べる種類（kinds）を返す', async () => {
+  for (const kind of ['', 'claude', 'codex', 'copilot', 'bob']) assert.equal(validateParams('worker-start', { slug: 'a', kind }).kind, kind);
+  bad('worker-start', { slug: 'a', kind: 'gemini' }, /claude/);
+  const kinds = { legacy: false, available: ['claude', 'bob'], details: {} };
+  const ops = createOperations({ agents: { overview: async () => ({ supervisor: null, workers: [], settings: {}, kinds }) } });
+  assert.deepEqual((await ops.call('agents-list', {}, { root: '/x', panes: [] })).kinds, kinds);
+});
+
+// 画面の種類の選択肢と説明（ui.mjs の画面スクリプトから該当部分を取り出し、最小の DOM で動かす）
+function kindsUi() {
+  const html = appHtml();
+  const a = html.indexOf('var KIND_LABELS'), b = html.indexOf('function agentBlock');
+  assert.ok(a > 0 && b > a);
+  const mk = (tag) => ({ tag, children: [], attrs: {}, textContent: '', value: '', get firstChild() { return this.children[0] ?? null; }, removeChild(c) { this.children.splice(this.children.indexOf(c), 1); }, appendChild(c) { this.children.push(c); }, setAttribute(k, v) { this.attrs[k] = v; }, getAttribute(k) { return this.attrs[k] ?? null; } });
+  const els = {};
+  const $ = (id) => (els[id] ??= mk('select'));
+  const h = (tag, props = {}) => { const e = mk(tag); e.textContent = props.text ?? ''; e.attrs = { value: props.value, disabled: props.disabled }; return e; };
+  const clear = (e) => { e.children.length = 0; return e; };
+  const fn = new Function('$', 'h', 'clear', `${html.slice(a, b)}; return { renderKinds, kindsNote };`)($, h, clear);
+  return { ...fn, els, labels: (id) => $(id).children.map((c) => c.textContent) };
+}
+
+test('画面: 種類の選択肢は選べるものだけ・needsUpdate は「更新が必要」・未導入の保存値は無効で残す', () => {
+  const ui = kindsUi();
+  const kinds = { legacy: false, available: ['claude', 'codex', 'copilot'], details: { copilot: { installed: true, needsUpdate: true } } };
+  ui.renderKinds({ kinds, settings: { supervisorKind: 'bob', workerKind: 'claude' } });
+  assert.deepEqual(ui.labels('w-kind'), ['既定', 'Claude Code', 'Codex', 'Copilot CLI（更新が必要）']);
+  assert.deepEqual(ui.labels('s-supkind'), ['Claude Code', 'Codex', 'Copilot CLI（更新が必要）', 'Bob Shell（未導入）']);
+  assert.equal(ui.els['s-supkind'].children.at(-1).attrs.disabled, 'disabled');
+  assert.match(ui.els['kinds-note'].textContent, /導入済みの種類だけ選べます/);
+});
+
+test('画面: 説明の文言（古いサーバ・読めなかった・追加の種類なし）', () => {
+  const { kindsNote } = kindsUi();
+  const base = ['claude', 'codex'];
+  assert.match(kindsNote({ legacy: true, available: base }), /古いサーバ/);
+  const unread = kindsNote({ legacy: false, unreadable: true, reason: 'ログインが要ります', available: base });
+  assert.match(unread, /導入状況を読めませんでした（ログインが要ります）/);
+  assert.doesNotMatch(unread, /古いサーバ/);
+  assert.match(kindsNote({ legacy: false, available: base }), /導入済みの追加の種類がありません/);
+});

@@ -9,7 +9,7 @@ const fail = (message) => Object.assign(new Error(message), { expected: true });
 const SLUG_SCHEMA = { type: 'string', pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$', description: '作業の名前（aidev の work の slug。日付の付いたフォルダ名も可）' };
 const FRESH_SCHEMA = { type: 'boolean', description: '再開できる会話があっても、新しい会話で始める（前の会話の ID は previousSessions に残す）' };
 const TEXT_SCHEMA = { type: 'string', minLength: 1, maxLength: 16384 };
-const KIND_SCHEMA = { enum: ['', ...AGENT_KINDS], description: '種類（空なら設定の既定）' };
+const KIND_SCHEMA = { enum: ['', ...AGENT_KINDS], description: '種類（空なら設定の既定）。選べるのは Sodashitsu の設定「エージェント連携」で導入済みのものだけ（agents-list の kinds.available）' };
 const PANE_SCHEMA = { type: 'string', pattern: '^[0-9a-f][0-9a-f-]{3,63}$', description: 'pane の ID（UUID または先頭 4 文字以上）' };
 const object = (properties = {}, required = []) => ({ type: 'object', properties, ...(required.length ? { required } : {}), additionalProperties: false });
 
@@ -18,8 +18,8 @@ export const OPERATIONS = [
   { name: 'work-get', description: '作業の詳細（state・工程・tasks・文書の一覧・events・担当）', inputSchema: object({ slug: { type: 'string', minLength: 1, maxLength: 128 } }, ['slug']) },
   { name: 'work-doc', description: '作業の文書の本文（作業フォルダ直下の *.md。512 KiB で切る）', inputSchema: object({ slug: { type: 'string', minLength: 1, maxLength: 128 }, name: { type: 'string', minLength: 1, maxLength: 120 } }, ['slug', 'name']) },
   { name: 'backlog-list', description: 'backlog のファイルごとの未着手の数と項目（先頭 50 件）', inputSchema: object() },
-  { name: 'agents-list', description: '監督・担当のエージェント（セッション ID・状態・pane・設定）', inputSchema: object() },
-  { name: 'supervisor-start', description: '監督エージェントを起動する（動いていれば何もしない）。種類（claude|codex）とモデルは省けば設定の既定', inputSchema: object({ kind: KIND_SCHEMA, model: { type: 'string', maxLength: 64 }, fresh: FRESH_SCHEMA }) },
+  { name: 'agents-list', description: '監督・担当のエージェント（セッション ID・状態・pane・設定）と、選べる種類 kinds（available＝導入済み。legacy＝古いサーバで claude・codex だけ）', inputSchema: object() },
+  { name: 'supervisor-start', description: '監督エージェントを起動する（動いていれば何もしない）。種類（claude|codex|copilot|bob。導入済みのものだけ）とモデルは省けば設定の既定', inputSchema: object({ kind: KIND_SCHEMA, model: { type: 'string', maxLength: 64 }, fresh: FRESH_SCHEMA }) },
   { name: 'supervisor-resume', description: '監督エージェントを、記録したセッション ID で同じ会話のまま再開する', inputSchema: object() },
   { name: 'supervisor-prompt', description: '監督エージェントへ指示を送る', inputSchema: object({ text: TEXT_SCHEMA }, ['text']) },
   { name: 'worker-start', description: '作業の担当エージェントを新しい端末タブで起動し、監督へ線（監督・承認の代理・完了のトリガ）を結ぶ', inputSchema: object({ slug: SLUG_SCHEMA, instruction: { type: 'string', maxLength: 16384 }, kind: KIND_SCHEMA, model: { type: 'string', maxLength: 64 }, fresh: FRESH_SCHEMA }, ['slug']) },
@@ -152,7 +152,7 @@ export async function buildModel(root, panes, { data = aidevData, agents, overvi
     project: basename(root) || root, root,
     available: overview.available, cli: overview.cli, truncated: overview.truncated, total: overview.total, current: overview.current,
     works, backlog: overview.backlog,
-    supervisor: agentState.supervisor, workers: agentState.workers, settings: agentState.settings, log: agentState.log,
+    supervisor: agentState.supervisor, workers: agentState.workers, settings: agentState.settings, kinds: agentState.kinds, log: agentState.log,
     related: Object.values(relatedBySlug).flat(),
   };
 }
@@ -223,8 +223,8 @@ export function createOperations({ data = aidevData, agents }) {
       return { backlog: model.backlog, todo: model.backlog.reduce((n, b) => n + b.todo, 0) };
     },
     async 'agents-list'(ctx) {
-      const { supervisor, workers, settings } = await agents.overview(ctx.root, ctx.panes);
-      return { supervisor, workers, settings };
+      const { supervisor, workers, settings, kinds } = await agents.overview(ctx.root, ctx.panes);
+      return { supervisor, workers, settings, kinds };
     },
     'supervisor-start': (ctx, p) => agents.startSupervisor(ctx.root, ctx, p),
     'supervisor-resume': (ctx) => agents.resumeSupervisor(ctx.root, ctx),

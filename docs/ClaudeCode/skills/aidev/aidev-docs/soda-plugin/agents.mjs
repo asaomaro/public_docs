@@ -13,7 +13,10 @@ const execute = promisify(execFile);
 export const WORKER_SLUG = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 export const MODEL_RE = /^[A-Za-z0-9._\-[\]]{1,64}$/;
 export const PERMISSION_MODES = ['', 'default', 'acceptEdits', 'auto', 'plan'];
-export const AGENT_KINDS = ['claude', 'codex'];
+export const AGENT_KINDS = ['claude', 'codex', 'copilot', 'bob'];
+/** `agent integrations` に答えられない古いサーバでも選べる種類（後方互換）。 */
+export const LEGACY_KINDS = ['claude', 'codex'];
+export const KIND_LABELS = { claude: 'Claude Code', codex: 'Codex', copilot: 'Copilot CLI', bob: 'Bob Shell' };
 /** Codex の権限の組（`--sandbox` と `--ask-for-approval`）。固定の選択肢だけ。 */
 export const CODEX_PERMISSIONS = {
   '': [],
@@ -25,6 +28,11 @@ export const WORKER_STATUSES = ['progress', 'done', 'question', 'blocked', 'fail
 export const LOG_LEVELS = ['info', 'warn', 'question'];
 export const LEDGER_LIMITS = { log: 300, message: 8 * 1024 };
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Bob Shell の会話 ID は UUID ではなく 32 桁の 16 進数。 */
+const BOB_ID_RE = /^[0-9a-f]{32}$/i;
+/** 会話 ID の書式は種類ごと（安全な文字だけ・長さ固定）。知らない種類は通さない。 */
+export const sessionIdOk = (kind, id) => typeof id === 'string' && (kind === 'bob' ? BOB_ID_RE : AGENT_KINDS.includes(kind) ? UUID_RE : /^$/).test(id);
+const INTEGRATIONS_TTL_MS = 5_000;
 const AGENT_STATUSES = ['running', 'blocked', 'stopped', 'failed'];
 const STARTING_GRACE_MS = 20_000;
 const RELAYED = ['question', 'failed', 'blocked'];
@@ -80,12 +88,12 @@ async function atomicWrite(file, text) {
 
 export const emptyLedger = () => ({ version: 1, supervisor: null, workers: {}, log: [] });
 
-function cleanAgent(a, slug) {
+export function cleanAgent(a, slug) {
   if (!a || typeof a !== 'object') return null;
   const out = {
     ...(slug ? { slug } : {}),
     name: str(a.name, 32), kind: AGENT_KINDS.includes(a.kind) ? a.kind : 'claude',
-    sessionId: UUID_RE.test(a.sessionId ?? '') ? a.sessionId : '',
+    sessionId: sessionIdOk(AGENT_KINDS.includes(a.kind) ? a.kind : 'claude', a.sessionId ?? '') ? a.sessionId : '',
     paneId: str(a.paneId, 64), tabId: str(a.tabId, 64), workspaceId: str(a.workspaceId, 64),
     model: MODEL_RE.test(a.model ?? '') ? a.model : '',
     startedAt: str(a.startedAt, 40), resumedAt: a.resumedAt ? str(a.resumedAt, 40) : null,
@@ -94,7 +102,7 @@ function cleanAgent(a, slug) {
     // 役割・再開の知らせ・線のうち、まだ届いていないもの（承認待ちなどで起動の途中に止まったとき）
     pending: Array.isArray(a.pending) ? PENDING_KINDS.filter((k) => a.pending.includes(k)) : [],
     previousSessions: Array.isArray(a.previousSessions)
-      ? a.previousSessions.filter((x) => x && UUID_RE.test(x.sessionId ?? '')).slice(0, PREVIOUS_SESSIONS_MAX).map((x) => ({ sessionId: x.sessionId, kind: AGENT_KINDS.includes(x.kind) ? x.kind : 'claude', endedAt: str(x.endedAt, 40) }))
+      ? a.previousSessions.filter((x) => x && sessionIdOk(AGENT_KINDS.includes(x.kind) ? x.kind : 'claude', x.sessionId ?? '')).slice(0, PREVIOUS_SESSIONS_MAX).map((x) => ({ sessionId: x.sessionId, kind: AGENT_KINDS.includes(x.kind) ? x.kind : 'claude', endedAt: str(x.endedAt, 40) }))
       : [],
   };
   if (slug) {
@@ -172,6 +180,8 @@ export function pushLog(ledger, now, entry) {
 
 // ---- 設定 ---------------------------------------------------------------------------------------
 
+export const notInstalledMessage = (kind) => `${KIND_LABELS[kind] ?? kind} は導入されていません。Sodashitsu の設定「エージェント連携」で ${KIND_LABELS[kind] ?? kind} を導入してください`;
+
 export const DEFAULT_SETTINGS = Object.freeze({ supervisorModel: '', workerModel: '', permissionMode: '', autoStartSupervisor: true, supervisorKind: 'claude', workerKind: 'claude', codexPermission: '', exitOnDone: true });
 export function normalizeSettings(input, base = DEFAULT_SETTINGS) {
   const s = { ...base };
@@ -191,7 +201,7 @@ export function normalizeSettings(input, base = DEFAULT_SETTINGS) {
   }
   for (const key of ['supervisorKind', 'workerKind']) {
     if (key in src) {
-      if (!AGENT_KINDS.includes(src[key])) throw fail('エージェントの種類は claude か codex です');
+      if (!AGENT_KINDS.includes(src[key])) throw fail(`エージェントの種類は ${AGENT_KINDS.join('・')} のどれかです`);
       s[key] = src[key];
     }
   }
@@ -217,8 +227,19 @@ export async function loadSettings(root) {
     return text === null ? { ...DEFAULT_SETTINGS } : normalizeSettings(JSON.parse(text));
   } catch { return { ...DEFAULT_SETTINGS }; }
 }
-export async function saveSettings(root, input) {
-  const next = normalizeSettings(input, await loadSettings(root));
+/**
+ * 設定に保存できる種類は、導入済みのものだけ（`availableKinds`）。保存済みの値と同じなら通す
+ * （後で未導入になった種類を、画面の保存でほかの項目と一緒に送り直しても断らない。断るのは新しく起動するとき）。
+ */
+export async function saveSettings(root, input, { kinds } = {}) {
+  const current = await loadSettings(root);
+  const next = normalizeSettings(input, current);
+  if (kinds) {
+    const { available } = await kinds(root);
+    for (const key of ['supervisorKind', 'workerKind']) {
+      if (key in (input ?? {}) && next[key] !== current[key] && !available.includes(next[key])) throw fail(notInstalledMessage(next[key]));
+    }
+  }
   const target = join(await ensureStateDir(root), 'settings.json');
   await readStateFile(target); // シンボリックリンクなら断る
   await atomicWrite(target, JSON.stringify(next, null, 2) + '\n');
@@ -339,8 +360,39 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
     if (!made.pane?.id || made.pane.tabId !== ctx.tabId || made.pane.virtual) throw fail('新しい作業ターミナルを確認できません');
     return { paneId: made.pane.id, tabId: ctx.tabId };
   }
+  /**
+   * 選べる種類。`sodactl agent integrations --json` の `installed: true` だけ（claude・codex も含む。`needsUpdate` は選べるが、画面に出す）。
+   * この操作を知らない古いサーバ（`not_found`）は `legacy: true`、それ以外の失敗は `unreadable: true` と `reason`。どちらも（読めないので）claude・codex だけ。短く覚える。
+   */
+  const kindsMemo = new Map();
+  async function availableKinds(root) {
+    const hit = kindsMemo.get(root);
+    if (hit && now() - hit.at < INTEGRATIONS_TTL_MS) return hit.value;
+    let value;
+    try {
+      const agentsMap = (await makeSoda(root)(['agent', 'integrations', '--json'], { timeout: 20000 })).agents;
+      if (!agentsMap || typeof agentsMap !== 'object') throw new Error('agents がありません');
+      const details = {};
+      for (const kind of AGENT_KINDS) {
+        const a = agentsMap[kind];
+        details[kind] = { installed: a?.installed === true, needsUpdate: a?.needsUpdate === true, cliDetected: a?.cliDetected === true };
+      }
+      value = { legacy: false, available: AGENT_KINDS.filter((k) => details[k].installed), details };
+    } catch (e) {
+      // 古いサーバ（操作を知らない = not_found）だけが legacy。ログイン切れ・時間切れなどは「読めなかった」で、理由を添える（どちらも copilot・bob は選べない）
+      const details = Object.fromEntries(AGENT_KINDS.map((k) => [k, { installed: LEGACY_KINDS.includes(k), needsUpdate: false, cliDetected: false }]));
+      value = e?.code === 'not_found'
+        ? { legacy: true, available: [...LEGACY_KINDS], details }
+        : { legacy: false, unreadable: true, reason: clip(String(e?.message ?? e), 200), available: [...LEGACY_KINDS], details };
+    }
+    kindsMemo.set(root, { at: now(), value });
+    return value;
+  }
   /** Claude は先に決めた ID で `--session-id` / `--resume`。Codex は ID を先に決められないので、初回は指定せず起動し、後で取り込む。 */
   const launchArgs = (settings, kind, sessionId, resume, model, root) => {
+    // Copilot・Bob も ID を先に決められない（初回は取り込み）。権限の指定は付けない。Bob はモデルの指定の付け方が確かでないので付けない
+    if (kind === 'copilot') return [...(resume ? [`--resume=${sessionId}`] : []), ...(model ? ['--model', model] : [])];
+    if (kind === 'bob') return resume ? ['--resume', sessionId] : [];
     if (kind === 'codex') {
       const common = ['-C', root, ...(model ? ['-m', model] : []), ...(CODEX_PERMISSIONS[settings.codexPermission] ?? [])];
       return resume ? ['resume', sessionId, ...common] : common;
@@ -506,6 +558,8 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
     const ledger = await readLedger(root);
     const prev = isWorker ? ledger.workers[slug] : ledger.supervisor;
     const kind = resume ? prev.kind : wantKind || (isWorker ? settings.workerKind : settings.supervisorKind);
+    // 新しく起動するときだけ、導入済みの種類かを確かめる（既存の会話の再開は、未導入でも試す）
+    if (!resume && !(await availableKinds(root)).available.includes(kind)) throw fail(notInstalledMessage(kind));
     const sessionId = resume ? prev.sessionId : kind === 'claude' ? uuid() : '';
     const name = isWorker ? workerName(root, slug) : supervisorName(root);
     const useModel = model || (isWorker ? settings.workerModel : settings.supervisorModel);
@@ -666,8 +720,9 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
   }
 
   async function overview(root, panes, { logLimit = 60 } = {}) {
-    const [ledger, settings] = await Promise.all([readLedger(root), loadSettings(root)]);
+    const [ledger, settings, kinds] = await Promise.all([readLedger(root), loadSettings(root), availableKinds(root)]);
     return {
+      kinds,
       supervisor: agentView(ledger.supervisor, panes, now()),
       workers: Object.values(ledger.workers).map((w) => agentView(w, panes, now())),
       settings,
@@ -877,7 +932,7 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
     for (const [slug, e] of pending) {
       const pane = (snap.panes ?? []).find((p) => p.id === e.paneId && !p.virtual);
       const ref = pane?.agentSession;
-      if (pane?.agent?.kind === e.kind && pane.agent.name === e.name && ref?.kind === e.kind && UUID_RE.test(ref.sessionId ?? '')) found.push({ slug, paneId: e.paneId, name: e.name, id: ref.sessionId });
+      if (pane?.agent?.kind === e.kind && pane.agent.name === e.name && ref?.kind === e.kind && sessionIdOk(e.kind, ref.sessionId)) found.push({ slug, paneId: e.paneId, name: e.name, id: ref.sessionId });
     }
     if (!found.length) return 0;
     return updateLedger(root, (l) => {
@@ -903,7 +958,7 @@ export function createAgents({ makeSoda = (root) => sodaClient(root), now = () =
   }
 
   return {
-    startSupervisor, resumeSupervisor, promptSupervisor, startWorker, resumeWorker, promptWorker, reportWorker,
+    availableKinds, startSupervisor, resumeSupervisor, promptSupervisor, startWorker, resumeWorker, promptWorker, reportWorker,
     report, overview, logList, autoStart, captureSessions, needsCapture, note: logEvent, finishAll, finishDone, related, registerRelated, promptRelated, readRelated, delegate: (root, ctx, slug) => promptSupervisor(root, ctx, { text: delegateInstruction(slug) }),
   };
 }

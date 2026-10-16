@@ -18,7 +18,7 @@ export function uiModel(model) {
   return {
     state: {
       project: model.project, root: model.root, available: model.available, cli: model.cli, truncated: model.truncated, total: model.total, current: model.current,
-      supervisor: agent(model.supervisor), settings: model.settings, summary: summarize(model),
+      supervisor: agent(model.supervisor), settings: model.settings, kinds: model.kinds, summary: summarize(model),
       log: model.log.slice(0, 40).map((e) => ({ ...e, message: plain(e.message, 400) })),
     },
     lists: {
@@ -141,7 +141,7 @@ const APP_BODY = String.raw`
   <button id="b-sup-resume" type="button">監督を再開</button>
   <button id="b-sup-fresh" type="button" title="再開できる会話があっても、新しい会話で始める（前の会話の ID は台帳に残す）">新しい会話で始める</button>
   <button id="b-refresh" type="button">読み直す</button>
-  <label>種類 <select id="sup-kind"><option value="">既定</option><option value="claude">Claude Code</option><option value="codex">Codex</option></select></label>
+  <label>種類 <select id="sup-kind"><option value="">既定</option></select></label>
   <label>モデル <input id="sup-model" maxlength="64" placeholder="既定"></label>
  </div>
  <details id="sup-term-box" open><summary>監督の端末（ここで直接操作できます）</summary>
@@ -149,8 +149,9 @@ const APP_BODY = String.raw`
  <details id="settings"><summary>設定（モデル・権限のモード・自動起動）</summary>
   <div class="row"><label>監督のモデル <input id="s-supmodel" maxlength="64" placeholder="空なら指定しない"></label>
   <label>担当のモデル <input id="s-wmodel" maxlength="64" placeholder="空なら指定しない"></label></div>
-  <div class="row"><label>監督の種類 <select id="s-supkind"><option value="claude">Claude Code</option><option value="codex">Codex</option></select></label>
-  <label>担当の種類 <select id="s-wkind"><option value="claude">Claude Code</option><option value="codex">Codex</option></select></label>
+  <p id="kinds-note" class="muted"></p>
+  <div class="row"><label>監督の種類 <select id="s-supkind"></select></label>
+  <label>担当の種類 <select id="s-wkind"></select></label>
   <label>Codex の権限 <select id="s-codexperm"><option value="">指定しない</option><option value="read-only">read-only（承認は必要時）</option><option value="workspace-write">workspace-write（承認は必要時）</option><option value="workspace-write-never">workspace-write（承認しない）</option></select></label></div>
   <div class="row"><label>権限のモード（Claude Code） <select id="s-perm"><option value="">指定しない</option><option value="default">default</option><option value="acceptEdits">acceptEdits</option><option value="auto">auto</option><option value="plan">plan</option></select></label>
   <label><input id="s-auto" type="checkbox"> アプリを開いたとき監督を自動で起動・再開する</label>
@@ -186,7 +187,7 @@ const APP_BODY = String.raw`
    <button id="w-fresh" type="button" title="再開できる会話があっても、新しい会話で始める">新しい会話で始める</button>
    <button id="w-send" type="button">指示を送る</button>
    <button id="w-delegate" type="button">監督に任せる</button>
-   <label>種類 <select id="w-kind"><option value="">既定</option><option value="claude">Claude Code</option><option value="codex">Codex</option></select></label>
+   <label>種類 <select id="w-kind"><option value="">既定</option></select></label>
    <label>モデル <input id="w-model" maxlength="64" placeholder="既定"></label></div>
   <details id="w-term-box" open><summary>担当の端末（ここで直接操作できます）</summary>
    <p id="term-w-note" class="muted"></p><div id="term-w" class="term tall"></div></details>
@@ -248,10 +249,39 @@ const APP_SCRIPT = String.raw`
       catch (e) { notice('warn', 'コピーできませんでした。欄を選んで Ctrl+C を使ってください'); }
     } });
   }
+  var KIND_LABELS = { claude: 'Claude Code', codex: 'Codex', copilot: 'Copilot CLI', bob: 'Bob Shell' };
+  function kindLabel(k) { return KIND_LABELS[k] || String(k || ''); }
+  // 種類の選択肢は、設定「エージェント連携」で導入済みのものだけ。保存済みの種類が未導入なら、理由を添えて無効で残す
+  function fillKinds(sel, st, blank, current) {
+    var kinds = st.kinds || { available: ['claude', 'codex'], details: {} }, key = kinds.available.join(',') + '|' + blank + '|' + current + '|' + JSON.stringify(kinds.details);
+    if (sel.getAttribute('data-kinds') === key) return;
+    var keep = sel.value; clear(sel);
+    if (blank) sel.appendChild(h('option', { value: '', text: '既定' }));
+    kinds.available.forEach(function (k) {
+      var d = (kinds.details || {})[k] || {};
+      sel.appendChild(h('option', { value: k, text: kindLabel(k) + (d.needsUpdate ? '（更新が必要）' : '') }));
+    });
+    if (current && kinds.available.indexOf(current) < 0) sel.appendChild(h('option', { value: current, disabled: 'disabled', text: kindLabel(current) + '（未導入）' }));
+    sel.setAttribute('data-kinds', key);
+    if (keep) sel.value = keep;
+  }
+  function kindsNote(k) {
+    if (!k) return '';
+    if (k.legacy) return '古いサーバのため、選べる種類は Claude Code と Codex だけです。';
+    if (k.unreadable) return '導入状況を読めませんでした（' + (k.reason || '理由不明') + '）。Claude Code と Codex だけ選べます。';
+    var extra = (k.available || []).filter(function (x) { return x !== 'claude' && x !== 'codex'; });
+    return extra.length ? 'Sodashitsu の設定「エージェント連携」で導入済みの種類だけ選べます。'
+      : '導入済みの追加の種類がありません（Copilot CLI・Bob Shell は、設定「エージェント連携」で導入すると選べます）。';
+  }
+  function renderKinds(st) {
+    fillKinds($('sup-kind'), st, true, ''); fillKinds($('w-kind'), st, true, '');
+    fillKinds($('s-supkind'), st, false, st.settings.supervisorKind || 'claude'); fillKinds($('s-wkind'), st, false, st.settings.workerKind || 'claude');
+    $('kinds-note').textContent = kindsNote(st.kinds);
+  }
   function agentBlock(a, label) {
     var box = h('div', null, []);
     if (!a) { box.appendChild(h('p', { class: 'muted', text: label + ': 記録なし' })); return box; }
-    var head = h('div', { class: 'row' }, [h('strong', { text: label }), badge(a.status), h('small', { text: a.name + ' · ' + (a.kind === 'codex' ? 'Codex' : 'Claude Code') })]);
+    var head = h('div', { class: 'row' }, [h('strong', { text: label }), badge(a.status), h('small', { text: a.name + ' · ' + kindLabel(a.kind) })]);
     box.appendChild(head);
     if (a.sessionPending) box.appendChild(h('p', { class: 'muted', text: '会話 ID はまだ取得できていません（起動後に払い出されたものを自動で記録します。取得できるまで再開はできません）' }));
     if (a.sessionId) box.appendChild(h('div', { class: 'row' }, [h('small', { text: 'セッション ' + a.sessionId.slice(0, 8) }), h('input', { class: 'sid', readonly: 'readonly', value: a.sessionId, 'aria-label': 'セッション ID の全体', onclick: function (ev) { ev.target.select(); } }), copyButton(a.sessionId)]));
@@ -264,6 +294,7 @@ const APP_SCRIPT = String.raw`
 
   function renderTop() {
     var st = S.st; if (!st) return;
+    renderKinds(st);
     $('project').textContent = 'aidev · ' + st.project;
     var top = clear($('top'));
     if (!st.available) top.appendChild(h('p', { class: 'err', text: '.aidev が見つかりません。aidev を始めた PJ で開いてください。' }));
@@ -381,7 +412,7 @@ const APP_SCRIPT = String.raw`
       } });
       input.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); send.click(); } });
       box.appendChild(h('div', { class: 'rel' }, [
-        h('div', { class: 'row' }, [badge(a.status), h('strong', { text: a.kind === 'codex' ? 'Codex' : 'Claude Code' }), h('small', { text: (a.label ? a.label + ' · ' : '') + 'pane ' + a.paneId.slice(0, 8) + (a.depth > 1 ? ' · 孫' : '') + (a.registered ? ' · 登録' : '') }),
+        h('div', { class: 'row' }, [badge(a.status), h('strong', { text: kindLabel(a.kind) }), h('small', { text: (a.label ? a.label + ' · ' : '') + 'pane ' + a.paneId.slice(0, 8) + (a.depth > 1 ? ' · 孫' : '') + (a.registered ? ' · 登録' : '') }),
           h('button', { type: 'button', text: S.relTerm[a.paneId] ? '端末を閉じる' : '端末を表示', onclick: function () { S.relTerm[a.paneId] = !S.relTerm[a.paneId]; syncRelTerms(); renderRelated(); } })]),
         h('div', { class: 'row' }, [input, send]),
       ]));
