@@ -270,7 +270,7 @@ const APP_SCRIPT = String.raw`
     if (k.legacy) return '古いサーバのため、選べる種類は Claude Code と Codex だけです。';
     if (k.unreadable) return '導入状況を読めませんでした（' + (k.reason || '理由不明') + '）。Claude Code と Codex だけ選べます。';
     var extra = (k.available || []).filter(function (x) { return x !== 'claude' && x !== 'codex'; });
-    return extra.length ? 'Claude Code・Codex に加えて、Sodashitsu の設定「エージェント連携」で導入済みの種類が選べます。'
+    return extra.length ? 'Sodashitsu の設定「エージェント連携」で導入済みの種類だけ選べます。'
       : '導入済みの追加の種類がありません（Copilot CLI・Bob Shell は、設定「エージェント連携」で導入すると選べます）。';
   }
   function renderKinds(st) {

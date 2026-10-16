@@ -287,7 +287,7 @@ test('画面: 種類の選択肢は選べるものだけ・needsUpdate は「更
   assert.deepEqual(ui.labels('w-kind'), ['既定', 'Claude Code', 'Codex', 'Copilot CLI（更新が必要）']);
   assert.deepEqual(ui.labels('s-supkind'), ['Claude Code', 'Codex', 'Copilot CLI（更新が必要）', 'Bob Shell（未導入）']);
   assert.equal(ui.els['s-supkind'].children.at(-1).attrs.disabled, 'disabled');
-  assert.match(ui.els['kinds-note'].textContent, /導入済みの種類が選べます/);
+  assert.match(ui.els['kinds-note'].textContent, /導入済みの種類だけ選べます/);
 });
 
 test('画面: 説明の文言（古いサーバ・読めなかった・追加の種類なし）', () => {
