@@ -44,6 +44,7 @@ change: Sodashitsu の plugin アプリ「aidev」（aidev-docs/soda-plugin/）�
     `unreadable`＋`reason`／`needsUpdate`・説明文の画面の試験を足した。`node --test` 113 件通過。
     `copilot --help` を実際に流して確認: `--model <model>  Set the AI model to use (choices: ...)`、`--resume [sessionId]  Resume from a previous session`、
     例に `copilot --model gpt-5`。
+  - more-agents 監督の追い修正（6789cb3）: 種類の説明文を「導入済みの種類だけ選べます」に（claude・codex も導入済みに絞る仕様に合わせる）。`node --test` 113 件通過。
   - 生成する `sodactl` の全コマンドを実物の引数パーサに通して受理を確認／ヘッドレス Chrome で画面スクリプトを実 DOM で動かして確認／
     実際の PJ の `.aidev/`（152 作業）を `aidev status` で読んだ時間の実測／`codex --help` で `-C`・`-m`・`-s`・`-a`・`resume` を確認。
 - **未実施**: 実際の Sodashitsu サーバでの導入・承認・Claude Code／Codex の起動（監督・担当・再開・グラフの線・関連エージェント・
