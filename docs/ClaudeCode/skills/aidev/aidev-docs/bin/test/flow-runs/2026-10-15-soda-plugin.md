@@ -37,6 +37,9 @@ change: Sodashitsu の plugin アプリ「aidev」（aidev-docs/soda-plugin/）�
   - fix-06: 拡張の ready の取りこぼし（display.set の応答より先に届いた ready を、応答後の消去で捨てていた）を直し、応答を止める試験を追加。`node --test` は 101 件通過（30 回の繰り返しも通過）。
     `harness_rev` の除外は、sh・ps1 のパリティを含む 8 件（足しても・中を変えても版が動かない／外の変更では動く／ps1 も同じ版／
     `git mktree`・tree の読み取りが失敗したら両実装とも unknown）を足した。
+  - more-agents: 監督・担当の種類に Copilot CLI・Bob Shell を足し、Sodashitsu の設定「エージェント連携」で導入済みのものだけに制限した
+    （`soda-plugin/` の `agents.mjs`・`operations.mjs`・`ui.mjs`・README。`.aidev/` の読み書きと aidev の規約は変えていない）。
+    `node --test` は 110 件通過。`copilot --help` で `--model`・`--resume` を確認。Bob の実機・実サーバでの起動は未実施。
   - 生成する `sodactl` の全コマンドを実物の引数パーサに通して受理を確認／ヘッドレス Chrome で画面スクリプトを実 DOM で動かして確認／
     実際の PJ の `.aidev/`（152 作業）を `aidev status` で読んだ時間の実測／`codex --help` で `-C`・`-m`・`-s`・`-a`・`resume` を確認。
 - **未実施**: 実際の Sodashitsu サーバでの導入・承認・Claude Code／Codex の起動（監督・担当・再開・グラフの線・関連エージェント・
