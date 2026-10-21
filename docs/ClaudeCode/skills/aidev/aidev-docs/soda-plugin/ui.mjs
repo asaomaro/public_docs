@@ -147,6 +147,7 @@ const APP_BODY = String.raw`
  <details id="sup-term-box" open><summary>監督の端末（ここで直接操作できます）</summary>
   <p id="term-sup-note" class="muted"></p><div id="term-sup" class="term"></div></details>
  <details id="settings"><summary>設定（モデル・権限のモード・自動起動）</summary>
+  <div class="row"><label>エージェントの起動先 <select id="s-execution"><option value="server">接続先PC（従来）</option><option value="operator">操作元PC（Claude Code / Codex）</option></select></label></div><p class="muted">操作元では起動確認が表示されます。ファイル・スキル・テストは接続先、質問は操作元です。モデルは空にし、権限は専用MCPに固定されます。端末埋め込み・自動終了・会話再開・グラフ連携は接続先モードの機能です。</p>
   <div class="row"><label>監督のモデル <input id="s-supmodel" maxlength="64" placeholder="空なら指定しない"></label>
   <label>担当のモデル <input id="s-wmodel" maxlength="64" placeholder="空なら指定しない"></label></div>
   <p id="kinds-note" class="muted"></p>
@@ -267,6 +268,7 @@ const APP_SCRIPT = String.raw`
   }
   function kindsNote(k) {
     if (!k) return '';
+    if(k.operator)return '操作元のClaude Code / Codexを使います。導入・ログインは操作元で確認します。';
     if (k.legacy) return '古いサーバのため、選べる種類は Claude Code と Codex だけです。';
     if (k.unreadable) return '導入状況を読めませんでした（' + (k.reason || '理由不明') + '）。Claude Code と Codex だけ選べます。';
     var extra = (k.available || []).filter(function (x) { return x !== 'claude' && x !== 'codex'; });
@@ -281,8 +283,9 @@ const APP_SCRIPT = String.raw`
   function agentBlock(a, label) {
     var box = h('div', null, []);
     if (!a) { box.appendChild(h('p', { class: 'muted', text: label + ': 記録なし' })); return box; }
-    var head = h('div', { class: 'row' }, [h('strong', { text: label }), badge(a.status), h('small', { text: a.name + ' · ' + kindLabel(a.kind) })]);
+    var head = h('div', { class: 'row' }, [h('strong', { text: label }), a.execution==='operator'&&a.status==='stopped'?h('span',{class:'badge',text:'停止・接続要確認'}):badge(a.status), h('small', { text: a.name + ' · ' + kindLabel(a.kind) })]);
     box.appendChild(head);
+    if(a.execution==='operator')box.appendChild(h('p',{class:'muted',text:'操作元PC · '+(a.operatorWaiting?'起動の承認待ち':'担当の状態は操作元から取得')+(a.taskStatus?.instruction?' · 追加指示: '+a.taskStatus.instruction.state:'')}));
     if (a.sessionPending) box.appendChild(h('p', { class: 'muted', text: '会話 ID はまだ取得できていません（起動後に払い出されたものを自動で記録します。取得できるまで再開はできません）' }));
     if (a.sessionId) box.appendChild(h('div', { class: 'row' }, [h('small', { text: 'セッション ' + a.sessionId.slice(0, 8) }), h('input', { class: 'sid', readonly: 'readonly', value: a.sessionId, 'aria-label': 'セッション ID の全体', onclick: function (ev) { ev.target.select(); } }), copyButton(a.sessionId)]));
     if (a.error) box.appendChild(h('p', { class: 'err', text: a.error }));
@@ -305,10 +308,11 @@ const APP_SCRIPT = String.raw`
     $('b-sup-start').textContent = supPending ? '役割を届ける' : '監督を起動';
     $('b-sup-start').disabled = (alive && !supPending) || !!(sup && sup.resumable);
     $('b-sup-resume').disabled = alive || !(sup && sup.resumable);
-    $('b-sup-fresh').disabled = alive || !sup;
+    $('b-sup-fresh').disabled = alive || !!sup?.operatorWaiting || !sup;
     $('b-send').disabled = !alive;
-    syncTerm('sup', $('term-sup'), alive ? sup.paneId : null, $('term-sup-note'), '監督が動いていません。起動すると、ここに端末が出ます。');
+    syncTerm('sup', $('term-sup'), alive && sup.execution!=='operator' ? sup.paneId : null, $('term-sup-note'), sup && sup.execution==='operator' ? '操作元の作業ペインで直接操作してください。起動待ちは操作元で承認してください。' : '監督が動いていません。起動すると、ここに端末が出ます。');
     if (!S.dirty) {
+      $('s-execution').value=st.settings.execution||'server';
       $('s-supmodel').value = st.settings.supervisorModel || ''; $('s-wmodel').value = st.settings.workerModel || '';
       $('s-perm').value = st.settings.permissionMode || ''; $('s-auto').checked = st.settings.autoStartSupervisor !== false;
       $('s-exit').checked = st.settings.exitOnDone !== false;
@@ -391,11 +395,11 @@ const APP_SCRIPT = String.raw`
     var wPending = alive && w.pending && w.pending.length > 0;
     $('w-start').textContent = wPending ? '役割と線を届ける' : '担当を起動';
     $('w-start').disabled = (alive && !wPending) || !sup || !!(w && w.resumable);
-    $('w-fresh').disabled = alive || !sup || !w;
+    $('w-fresh').disabled = alive || !!w?.operatorWaiting || !sup || !w;
     $('w-resume').disabled = alive || !sup || !(w && w.resumable);
     $('w-send').disabled = !alive;
     $('w-delegate').disabled = !sup;
-    syncTerm('w', $('term-w'), alive ? w.paneId : null, $('term-w-note'), alive ? '' : '担当が動いていません。起動（または再開）すると、ここに端末が出ます。');
+    syncTerm('w', $('term-w'), alive && w.execution!=='operator' ? w.paneId : null, $('term-w-note'), w && w.execution==='operator' ? '操作元の作業ペインで直接操作してください。' : alive ? '' : '担当が動いていません。起動（または再開）すると、ここに端末が出ます。');
     renderRelated();
   }
   function renderRelated() {
@@ -508,9 +512,9 @@ const APP_SCRIPT = String.raw`
   $('b-send').onclick = function () { if (sendSupervisor($('sup-text').value)) $('sup-text').value = ''; };
   $('sup-text').addEventListener('keydown', function (e) { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.isComposing) { e.preventDefault(); $('b-send').click(); } });
   Array.prototype.forEach.call(document.querySelectorAll('.quick'), function (b) { b.onclick = function () { sendSupervisor(b.getAttribute('data-text')); }; });
-  ['s-supmodel', 's-wmodel', 's-perm', 's-auto', 's-exit', 's-supkind', 's-wkind', 's-codexperm'].forEach(function (id) { $(id).addEventListener('input', function () { S.dirty = true; }); });
+  ['s-execution','s-supmodel', 's-wmodel', 's-perm', 's-auto', 's-exit', 's-supkind', 's-wkind', 's-codexperm'].forEach(function (id) { $(id).addEventListener('input', function () { S.dirty = true; }); });
   $('b-settings').onclick = function () {
-    act('settings-save', { supervisorModel: $('s-supmodel').value.trim(), workerModel: $('s-wmodel').value.trim(), permissionMode: $('s-perm').value, autoStartSupervisor: $('s-auto').checked, exitOnDone: $('s-exit').checked, supervisorKind: $('s-supkind').value, workerKind: $('s-wkind').value, codexPermission: $('s-codexperm').value });
+    act('settings-save', { execution:$('s-execution').value, supervisorModel: $('s-supmodel').value.trim(), workerModel: $('s-wmodel').value.trim(), permissionMode: $('s-perm').value, autoStartSupervisor: $('s-auto').checked, exitOnDone: $('s-exit').checked, supervisorKind: $('s-supkind').value, workerKind: $('s-wkind').value, codexPermission: $('s-codexperm').value });
     S.dirty = false;
   };
   $('b-sup-fresh').onclick = function () { act('supervisor-start', { kind: $('sup-kind').value, model: $('sup-model').value.trim(), fresh: true }); };

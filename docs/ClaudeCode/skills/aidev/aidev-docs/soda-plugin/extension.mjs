@@ -18,7 +18,8 @@ const AUTO_START_AFTER_MS = 8000;
 const RESTORE_WAIT_MS = 35000; // サーバが会話を復元する時間（agent start は復元の 30 秒以内を busy で断る）
 const LAUNCH_OPS = new Set(['supervisor-start', 'supervisor-resume', 'worker-start', 'worker-resume']);
 
-const agents = createAgents();
+let operatorSupported=false;
+const agents = createAgents({taskCall:(method,params)=>{if(!operatorSupported)throw Object.assign(new Error('操作元の担当に対応したSodashitsuとagent-start許可が必要です'),{expected:true});return call(method,params);}});
 const operations = createOperations({ agents });
 
 let key = 'user:aidev';
@@ -282,7 +283,9 @@ async function onAction(msg) {
       case 'select': { await aidevData.loadWorkDetail(pane.projectDir, String(data.slug ?? '')); selected.set(pane.id, String(data.slug)); sent.set(pane.id, { ...(sent.get(pane.id) ?? {}), detail: undefined }); schedule(); return; }
       case 'doc': await sendDoc(pane, String(data.slug ?? ''), String(data.name ?? '')); return;
       case 'settings-save': {
+        if(data.execution==='operator'&&!operatorSupported)throw Object.assign(new Error('操作元の担当に対応したSodashitsuとagent-start許可が必要です'),{expected:true});
         await saveSettings(pane.projectDir, {
+          execution: String(data.execution ?? 'server'),
           supervisorModel: String(data.supervisorModel ?? ''), workerModel: String(data.workerModel ?? ''),
           permissionMode: String(data.permissionMode ?? ''), autoStartSupervisor: data.autoStartSupervisor === 'true',
           supervisorKind: String(data.supervisorKind ?? 'claude'), workerKind: String(data.workerKind ?? 'claude'),
@@ -349,6 +352,7 @@ input.on('line', (line) => {
       return;
     }
     case 'ext.hello':
+      operatorSupported=msg.methods?.includes('task.status')===true && msg.methods?.includes('task.prompt')===true;
       scriptEnabled = msg.display?.scriptEnabled === true;
       key = msg.extension?.scope === 'project' ? `project:${createHash('sha256').update(String(msg.extension.root ?? '')).digest('hex')}:${msg.extension.id}` : `user:${msg.extension?.id ?? 'aidev'}`;
       void call('app.register', { operations: OPERATIONS }).catch(logOnce);
