@@ -129,7 +129,7 @@ test('台帳: .soda がシンボリックリンクなら使わない', async () 
 test('設定: モデル名の書式・権限のモードの選択肢・未知のキー', async () => {
   const { root, cleanup } = await setup();
   try {
-    assert.deepEqual(await ag.loadSettings(root), { supervisorModel: '', workerModel: '', permissionMode: '', autoStartSupervisor: true, supervisorKind: 'claude', workerKind: 'claude', codexPermission: '', exitOnDone: true });
+    assert.deepEqual(await ag.loadSettings(root), { execution: 'server', supervisorModel: '', workerModel: '', permissionMode: '', autoStartSupervisor: true, supervisorKind: 'claude', workerKind: 'claude', codexPermission: '', exitOnDone: true });
     const saved = await ag.saveSettings(root, { supervisorModel: 'claude-opus-4-1', workerModel: 'sonnet[1m]', permissionMode: 'acceptEdits', autoStartSupervisor: false });
     assert.equal(saved.supervisorModel, 'claude-opus-4-1');
     assert.deepEqual(await ag.loadSettings(root), saved);

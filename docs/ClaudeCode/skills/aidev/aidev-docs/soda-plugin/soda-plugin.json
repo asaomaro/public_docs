@@ -14,7 +14,7 @@
     "ui.mjs",
     "README.md"
   ],
-  "allow": ["script-html"],
+  "allow": ["script-html", "agent-start"],
   "tabView": { "title": "aidev", "display": "aidev", "terminalDisplay": "aidev-terminal" },
   "views": [
     {

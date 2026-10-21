@@ -284,7 +284,7 @@ test('soda-plugin.json: 設計どおりの宣言で、files が実在する', as
   assert.equal(m.name, 'aidev');
   assert.equal(m.version, '0.1.0');
   assert.equal(m.entry, 'extension.mjs');
-  assert.deepEqual(m.allow, ['script-html']);
+  assert.deepEqual(m.allow, ['script-html','agent-start']);
   assert.deepEqual(m.tabView, { title: 'aidev', display: 'aidev', terminalDisplay: 'aidev-terminal' });
   assert.deepEqual(m.views, [{ id: 'progress', title: 'aidev の進捗', targets: ['tab'], placements: ['band-bottom', 'band-top', 'right', 'left', 'float'], terminal: { format: 'markdown' } }]);
   assert.ok(m.files.includes(m.entry));
